@@ -1492,3 +1492,436 @@ class TestSyncToProposals:
         result = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, timeout=30)
         assert "SYNC_RC=0" in result.stdout
         assert "unresolvable" in result.stderr
+
+
+class TestSyncOutcomesAndBanner:
+    """R1 non-silent sync banner (#3077 slice-1 TASK-1-3).
+
+    The fail-soft skip points in ``sync_to_proposals()`` — unresolvable
+    SHA, conflicting merge — used to log and continue, leaving a
+    reviewer whose worktree silently failed to sync to trust a stale
+    local diff. Slice-1 closes that silence: ``sync_to_proposals()``
+    records a per-SHA outcome (one of ``merged``, ``already-ancestor``,
+    ``unresolvable``, ``merge-failed``) and the wrapper prepends a
+    "worktree NOT synced to <sha> (<reason>); treat your local diff as
+    unreliable — use the ``git show`` commands below." banner to the
+    fetched event prompt BEFORE the agent is invoked, on any failure
+    outcome. Successful sync paths leave the agent-visible prompt
+    byte-identical.
+
+    Sync semantics (fail-soft, exit 0, merge --abort on conflict) are
+    unchanged — only reporting is new. These tests pin the new R1
+    contract:
+
+    * outcome values are observable at the wrapper level for all four
+      branches (``merged``, ``already-ancestor``, ``unresolvable``,
+      ``merge-failed``);
+    * the agent-visible prompt contains the banner on a failure outcome
+      and contains the SHA + reason verbatim;
+    * the agent-visible prompt is byte-identical to the composed prompt
+      on a successful outcome (no banner).
+    """
+
+    # The four outcome tokens the wrapper records at the per-SHA level.
+    # Plan slice-1 acceptance (line 342): "All four outcome values
+    # covered at the wrapper level."
+    _OUTCOMES = ("merged", "already-ancestor", "unresolvable", "merge-failed")
+
+    def _script(self, monkeypatch) -> str:
+        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+        return build_consensus_wrapped_command("Prompt")[2]
+
+    def test_template_records_all_four_outcomes(self, monkeypatch):
+        """Each of the four per-SHA outcome tokens (``merged``,
+        ``already-ancestor``, ``unresolvable``, ``merge-failed``) is
+        present in the wrapper template. A future refactor that drops
+        an outcome — e.g. collapses ``already-ancestor`` back into the
+        ``merged`` log line — would re-orphan a path the banner needs
+        to distinguish.
+        """
+        script = self._script(monkeypatch)
+        missing = [o for o in self._OUTCOMES if o not in script]
+        assert not missing, (
+            "Slice-1 outcome contract requires all four per-SHA outcome "
+            "tokens in the wrapper template; missing: "
+            f"{missing}. Plan TASK-1-1 acceptance: "
+            "merged, already-ancestor, unresolvable, merge-failed."
+        )
+
+    def test_template_emits_not_synced_banner_text(self, monkeypatch):
+        """The banner string the agent sees on a failure outcome is
+        pinned to the architect's wording ("worktree NOT synced ...").
+        A future regression that downgrades the banner to a log-only
+        line would re-introduce the silence R1 is closing.
+        """
+        script = self._script(monkeypatch)
+        assert "NOT synced" in script, (
+            "Wrapper template must emit the 'worktree NOT synced' "
+            "banner so a reviewer whose sync silently failed cannot "
+            "trust a stale local diff. Plan slice-1 banner wording: "
+            "'worktree NOT synced to `<sha>` (`<reason>`); treat your "
+            "local diff as unreliable — use the `git show` commands "
+            "below.'"
+        )
+
+    def test_template_references_git_show_fallback_in_banner(self, monkeypatch):
+        """The banner steers reviewers at the rendered ``git show``
+        delta commands (#3078 served reads) — that is the live
+        replacement channel R1 is non-silently surfacing. The
+        substring ``git show`` must appear inside the banner-bearing
+        region so the agent has a next step beyond "sync failed".
+        """
+        script = self._script(monkeypatch)
+        # The banner-bearing region runs from the start of
+        # ``invoke_agent_for_event`` (where ``$prompt`` is composed) to
+        # the start of ``sync_to_proposals`` (whose closing fence ends
+        # before the main loop). The exact placement of the prepend
+        # logic — sync function vs invoke function vs a small helper —
+        # is the coder's call; we only require both regions, taken
+        # together, to carry the banner-and-fallback text.
+        invoke_start = script.index("invoke_agent_for_event() {")
+        sync_start = script.index("sync_to_proposals() {")
+        body_lo = min(invoke_start, sync_start)
+        body_hi = script.index("# --- main event-pump loop ---")
+        body = script[body_lo:body_hi]
+        assert "NOT synced" in body, (
+            "Banner text must live inside the sync/invoke region — "
+            "where ``$prompt`` is built or where outcomes are recorded "
+            "— so a future refactor cannot hide the banner in a "
+            "comment-only block far from the producing/consuming code."
+        )
+        assert "git show" in body, (
+            "Slice-1 banner must point reviewers at the rendered "
+            "``git show`` fallback (#3078 served reads) — that is "
+            "their next step when the local worktree diff is "
+            "unreliable. Plan slice-1 banner wording references "
+            "'the `git show` commands below.'"
+        )
+
+    # ------------------------------------------------------------------
+    # End-to-end harness: real bash + real git + a stubbed event_prompt
+    # composer + a captured agent invocation. The four scenarios below
+    # exercise each per-SHA outcome and assert presence/absence of the
+    # banner in the agent-visible prompt — the slice-1 acceptance.
+    # ------------------------------------------------------------------
+
+    _STUB_PROMPT_BODY = "STUB_PROMPT_BODY_FOR_SLICE_1_TESTS"
+
+    def _build_harness(
+        self, script: str, repo: str, payload: str, capture: str, stub: str
+    ) -> str:
+        """Compose a runnable bash harness that links the wrapper's
+        ``cw_log`` / ``sync_to_proposals`` / ``invoke_agent_for_event``
+        functions, stubs the event_prompt composer (``stub``), and
+        captures the prompt handed to the agent into ``capture``.
+
+        The wrapper's substituted agent prefix
+        (``python3 -m egg_agent --model ... "$prompt"``) is rewritten to
+        a single-line capture sink that writes ``$prompt`` to ``capture``
+        verbatim so the test can byte-inspect what reached the agent.
+        """
+        import re as _re
+
+        cw_match = _re.search(r"cw_log\(\) \{.*?\n\}", script, flags=_re.DOTALL)
+        sync_match = _re.search(r"sync_to_proposals\(\) \{.*?\n\}", script, flags=_re.DOTALL)
+        invoke_match = _re.search(
+            r"invoke_agent_for_event\(\) \{.*?\n\}", script, flags=_re.DOTALL
+        )
+        assert cw_match is not None
+        assert sync_match is not None
+        assert invoke_match is not None
+
+        # Swap the substituted ``python3 -m egg_agent ... "$prompt"``
+        # call for a capture sink. The trailing ``"$prompt"`` is what
+        # carries the agent-visible text; printing it byte-for-byte
+        # gives the test a faithful surface for the banner-presence
+        # assertions.
+        invoke_body = invoke_match.group(0)
+        agent_call = _re.compile(r'python3 -m egg_agent[^\n]*"\$prompt"')
+        new_invoke, n_subs = agent_call.subn(
+            f'printf "%s" "$prompt" > {shlex.quote(capture)}',
+            invoke_body,
+        )
+        assert n_subs == 1, (
+            "Expected exactly one ``python3 -m egg_agent ... \"$prompt\"`` "
+            "call inside ``invoke_agent_for_event``; the test harness "
+            "rewrites that call to a capture sink so the agent-visible "
+            "prompt can be byte-inspected."
+        )
+
+        return (
+            "#!/bin/bash\nset -uo pipefail\n"
+            f"export EGG_REPO_PATH={shlex.quote(repo)}\n"
+            f"export EGG_EVENT_PROMPT_SCRIPT={shlex.quote(stub)}\n"
+            "export EGG_AGENT_ROLE=tester\n"
+            "export EGG_BASE_BRANCH=main\n"
+            "export EGG_BRC_MEMORY=off\n"
+            "export EGG_PIPELINE_ID=test-pipeline\n"
+            "export EGG_SLICE_ID=slice-1\n"
+            + cw_match.group(0)
+            + "\n"
+            + sync_match.group(0)
+            + "\n"
+            + new_invoke
+            + "\n"
+            + 'sync_to_proposals "$1"\n'
+            + 'invoke_agent_for_event "ack" "$1"\n'
+            + 'echo "HARNESS_RC=$?"\n'
+        )
+
+    def _stub_composer(self, tmp_path) -> str:
+        """A minimal stand-in for ``orchestrator/routes/event_prompt.py``
+        that emits a known-good body so the test can pin banner-vs-no-
+        banner byte equality without the full composer's churn.
+        """
+        stub = tmp_path / "event_prompt_stub.py"
+        stub.write_text(
+            "#!/usr/bin/env python3\n"
+            "import sys\n"
+            "_ = sys.stdin.read()\n"
+            f"sys.stdout.write({self._STUB_PROMPT_BODY!r})\n",
+            encoding="utf-8",
+        )
+        os.chmod(str(stub), 0o755)  # nosec B103 — test fixture
+        return str(stub)
+
+    def _init_repo(self, tmp_path):
+        """Initialise a tiny git repo with a base commit so producer /
+        reviewer branches can diverge. Returns the repo path."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+
+        def git(*args):
+            subprocess.run(
+                ["git", "-C", str(repo), *args],
+                check=True,
+                capture_output=True,
+                env={
+                    **os.environ,
+                    "GIT_AUTHOR_NAME": "t",
+                    "GIT_AUTHOR_EMAIL": "t@t",
+                    "GIT_COMMITTER_NAME": "t",
+                    "GIT_COMMITTER_EMAIL": "t@t",
+                },
+            )
+
+        git("init", "-q", "-b", "main")
+        (repo / "f.txt").write_text("base\n")
+        git("add", ".")
+        git("commit", "-qm", "base")
+        return repo, git
+
+    def _run_harness(self, tmp_path, monkeypatch, payload, capture, stub):
+        script = self._script(monkeypatch)
+        repo, _ = (
+            (None, None)
+            if not (tmp_path / "repo").exists()
+            else (tmp_path / "repo", None)
+        )
+        harness = self._build_harness(
+            script, str(tmp_path / "repo"), payload, str(capture), stub
+        )
+        result = subprocess.run(
+            ["bash", "-c", harness, "harness", payload],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={
+                **os.environ,
+                "GIT_AUTHOR_NAME": "t",
+                "GIT_AUTHOR_EMAIL": "t@t",
+                "GIT_COMMITTER_NAME": "t",
+                "GIT_COMMITTER_EMAIL": "t@t",
+            },
+        )
+        # Sync function and invoke function must each exit zero; the
+        # idle-budget safety net keeps the event-pump moving even on a
+        # composer error, and the slice-1 banner mechanism rides on that
+        # invariant (banner is a prompt prefix, not a hard failure).
+        assert "HARNESS_RC=0" in result.stdout, (
+            "Harness must exit 0; the slice-1 banner is a prompt "
+            "prefix, not a hard failure. "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        return result
+
+    def test_behavioral_merged_outcome_no_banner(self, tmp_path, monkeypatch):
+        """Successful merge → ``merged`` outcome recorded, agent-visible
+        prompt is byte-identical to the composed prompt (no banner).
+
+        Plan TASK-1-1 acceptance: "``merged`` and ``already-ancestor``
+        outcomes produce no banner and a byte-identical prompt."
+        """
+        import json as _json
+
+        repo, git = self._init_repo(tmp_path)
+        # Producer branch with a real commit that merges cleanly into the
+        # reviewer's worktree on main (no conflict).
+        git("checkout", "-qb", "producer")
+        (repo / "plan.md").write_text("the plan\n")
+        git("add", ".")
+        git("commit", "-qm", "plan draft")
+        sha = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        git("checkout", "-q", "main")
+
+        payload = _json.dumps(
+            {"pending_reviews": [{"producer": "coder", "proposal_commit_sha": sha}]}
+        )
+        capture = tmp_path / "agent_prompt.txt"
+        stub = self._stub_composer(tmp_path)
+        result = self._run_harness(tmp_path, monkeypatch, payload, capture, stub)
+
+        assert "merged" in result.stderr, (
+            "``merged`` outcome must be observable at the wrapper "
+            f"level. stderr={result.stderr!r}"
+        )
+        prompt = capture.read_text(encoding="utf-8")
+        assert prompt == self._STUB_PROMPT_BODY, (
+            "Successful merge MUST leave the agent-visible prompt "
+            "byte-identical to the composer's output — no banner, no "
+            f"prefix. Got: {prompt!r}"
+        )
+
+    def test_behavioral_already_ancestor_outcome_no_banner(self, tmp_path, monkeypatch):
+        """SHA already in HEAD ancestry → ``already-ancestor`` outcome,
+        agent-visible prompt unchanged."""
+        import json as _json
+
+        repo, git = self._init_repo(tmp_path)
+        sha = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        payload = _json.dumps(
+            {"pending_reviews": [{"producer": "coder", "proposal_commit_sha": sha}]}
+        )
+        capture = tmp_path / "agent_prompt.txt"
+        stub = self._stub_composer(tmp_path)
+        result = self._run_harness(tmp_path, monkeypatch, payload, capture, stub)
+
+        assert "already-ancestor" in result.stderr, (
+            "``already-ancestor`` outcome must be observable at the "
+            f"wrapper level. stderr={result.stderr!r}"
+        )
+        prompt = capture.read_text(encoding="utf-8")
+        assert prompt == self._STUB_PROMPT_BODY, (
+            "Already-ancestor sync MUST leave the agent-visible prompt "
+            f"byte-identical. Got: {prompt!r}"
+        )
+
+    def test_behavioral_unresolvable_outcome_emits_banner(self, tmp_path, monkeypatch):
+        """Well-formed but unknown SHA → ``unresolvable`` outcome AND
+        the "NOT synced" banner reaches the agent prompt.
+
+        Plan TASK-1-1 acceptance: "An unresolvable SHA yields
+        ``unresolvable`` + banner." Plan TASK-1-3 acceptance: "All four
+        outcome values covered at the wrapper level."
+        """
+        import json as _json
+
+        repo, _git = self._init_repo(tmp_path)
+        unresolvable_sha = "a" * 40
+        payload = _json.dumps(
+            {"pending_reviews": [{"producer": "coder", "proposal_commit_sha": unresolvable_sha}]}
+        )
+        capture = tmp_path / "agent_prompt.txt"
+        stub = self._stub_composer(tmp_path)
+        result = self._run_harness(tmp_path, monkeypatch, payload, capture, stub)
+
+        assert "unresolvable" in result.stderr, (
+            "``unresolvable`` outcome must be observable at the "
+            f"wrapper level. stderr={result.stderr!r}"
+        )
+        prompt = capture.read_text(encoding="utf-8")
+        # Banner contract: SHA + reason word + key phrase.
+        assert "NOT synced" in prompt, (
+            "Banner must be prepended to the agent-visible prompt on "
+            "an ``unresolvable`` outcome — that is the slice-1 R1 "
+            f"closing-the-silence behaviour. Prompt: {prompt!r}"
+        )
+        assert unresolvable_sha in prompt, (
+            "Banner must carry the failed SHA so the agent can "
+            f"correlate. Prompt: {prompt!r}"
+        )
+        assert "unresolvable" in prompt, (
+            "Banner must name the reason (``unresolvable``) so the "
+            "agent knows why their worktree is untrustworthy. "
+            f"Prompt: {prompt!r}"
+        )
+        # Composed body still reaches the agent — the banner is a
+        # prefix, not a replacement.
+        assert self._STUB_PROMPT_BODY in prompt, (
+            "Composed prompt body must still reach the agent after the "
+            "banner is prepended; the banner is a prefix, not a "
+            f"substitution. Prompt: {prompt!r}"
+        )
+
+    def test_behavioral_merge_failed_outcome_emits_banner(self, tmp_path, monkeypatch):
+        """Conflicting merge → ``merge-failed`` outcome AND the
+        "NOT synced" banner reaches the agent prompt.
+
+        Plan TASK-1-1 acceptance: "A conflicting merge yields a
+        ``merge-failed`` outcome and the banner (with SHA and reason)
+        in the prompt handed to the agent." Plan TASK-1-3 acceptance
+        (the R1 acceptance from refine): "Simulated conflicting merge
+        ⇒ banner present in the agent-visible prompt."
+        """
+        import json as _json
+
+        repo, git = self._init_repo(tmp_path)
+        # Reviewer side mutates f.txt on main first; producer mutates
+        # the same line on their branch. The merge into the (mutated)
+        # main HEAD then conflicts.
+        (repo / "f.txt").write_text("reviewer-side\n")
+        git("add", ".")
+        git("commit", "-qm", "reviewer mutation")
+        git("checkout", "-qb", "producer", "HEAD~1")
+        (repo / "f.txt").write_text("producer-side\n")
+        git("add", ".")
+        git("commit", "-qm", "producer mutation")
+        sha = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        git("checkout", "-q", "main")
+
+        payload = _json.dumps(
+            {"pending_reviews": [{"producer": "coder", "proposal_commit_sha": sha}]}
+        )
+        capture = tmp_path / "agent_prompt.txt"
+        stub = self._stub_composer(tmp_path)
+        result = self._run_harness(tmp_path, monkeypatch, payload, capture, stub)
+
+        assert "merge-failed" in result.stderr, (
+            "``merge-failed`` outcome must be observable at the "
+            f"wrapper level on a conflicting merge. stderr={result.stderr!r}"
+        )
+        prompt = capture.read_text(encoding="utf-8")
+        assert "NOT synced" in prompt, (
+            "Banner must be prepended on a ``merge-failed`` outcome — "
+            "the slice-1 R1 acceptance from refine. "
+            f"Prompt: {prompt!r}"
+        )
+        assert sha in prompt, (
+            "Banner must carry the failed SHA. "
+            f"Prompt: {prompt!r}"
+        )
+        assert "merge-failed" in prompt, (
+            "Banner must name the reason (``merge-failed``) so the "
+            "agent can distinguish conflict from unresolvable-SHA. "
+            f"Prompt: {prompt!r}"
+        )
+        assert self._STUB_PROMPT_BODY in prompt, (
+            "Composed prompt body must still reach the agent. "
+            f"Prompt: {prompt!r}"
+        )

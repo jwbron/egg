@@ -1099,6 +1099,103 @@ def test_render_delta_section_shows_proposal_sha_and_cautions_on_head() -> None:
     assert "NOT evidence" in section
 
 
+def test_empty_delta_caution_cross_references_not_synced_banner() -> None:
+    """The HEAD-scoped empty-delta caution names the wrapper's
+    "NOT-synced" banner and steers the reviewer at the rendered
+    ``git show`` fallback (#3077 slice-1 TASK-1-2).
+
+    Plan TASK-1-2 acceptance: "Empty-delta caution names the
+    NOT-synced banner and the ``git show`` fallback." The R1 contract
+    is end-to-end: the wrapper prepends a "worktree NOT synced ..."
+    banner on a sync failure, and the empty-delta caution — which the
+    reviewer hits when the delta block is empty and the worktree may
+    not contain the producer's commits — must point back at that same
+    banner so the reviewer follows a single, coherent decision tree
+    (check the banner → fall back to ``git show``) rather than two
+    disconnected hints.
+
+    Non-empty-delta and proposal-scoped paths are intentionally NOT
+    asserted on here — TASK-1-2 acceptance line 2 ("Non-empty-delta
+    rendering is byte-identical to today") is covered by the
+    surrounding tests in this module
+    (``test_render_delta_section_shows_proposal_sha_and_cautions_on_head``,
+    ``test_producer_delta_empty_string_renders_no_commits_sentinel``).
+    """
+    from orchestrator.routes.event_prompt import _render_producer_delta_section
+
+    # HEAD-scoped (no proposal_commit_sha) + empty delta is the only
+    # case that emits the caution; that is the case TASK-1-2 amends.
+    section, _ = _render_producer_delta_section(
+        [
+            {
+                "producer": "coder",
+                "last_reviewed_commit_sha": "0123abc",
+                "proposal_commit_sha": "",
+                "delta": "",
+            }
+        ],
+        "main",
+    )
+    # Banner cross-reference: the caution mentions the NOT-synced
+    # banner so a reviewer who sees both an empty delta AND the
+    # wrapper-prepended banner has one coherent path forward.
+    assert "NOT-synced" in section or "NOT synced" in section, (
+        "Empty-delta caution must name the wrapper's NOT-synced "
+        "banner (#3077 slice-1 TASK-1-2). Without the cross-reference "
+        "the reviewer sees two disconnected hints — an empty delta "
+        "block and a separate banner — instead of a single decision "
+        "tree."
+    )
+    assert "banner" in section.lower(), (
+        "Empty-delta caution must use the word 'banner' so the "
+        "reviewer correlates it with the wrapper's prepended banner "
+        "rather than guessing what 'NOT synced' refers to."
+    )
+    # ``git show`` fallback: the caution still names the served-read
+    # channel (the rendered ``git show`` commands the prompt carries)
+    # as the next step. The pre-slice-1 caution already said this in
+    # different words ("Read the producer's branch directly, e.g.
+    # ``git log ...``"); the new wording moves to ``git show`` to
+    # match the R1 served-read substrate (#3078).
+    assert "git show" in section, (
+        "Empty-delta caution must point at the rendered ``git show`` "
+        "fallback — that is the served-read channel the wrapper "
+        "banner steers reviewers at. Plan TASK-1-2 acceptance: "
+        "'Empty-delta caution names the NOT-synced banner and the "
+        "``git show`` fallback.'"
+    )
+
+
+def test_empty_delta_caution_unchanged_for_proposal_scoped_empty_range() -> None:
+    """Proposal-scoped empty delta keeps the trustworthy ``re-review is
+    a no-op`` verdict — the slice-1 TASK-1-2 amendment touches ONLY the
+    HEAD-scoped legacy caution, not the proposal-scoped path.
+
+    Plan TASK-1-2 acceptance: "Non-empty-delta rendering is
+    byte-identical to today." The proposal-scoped empty case is the
+    closest analogue and must also stay unchanged: it never had a
+    caution to amend.
+    """
+    from orchestrator.routes.event_prompt import _render_producer_delta_section
+
+    section, _ = _render_producer_delta_section(
+        [
+            {
+                "producer": "coder",
+                "last_reviewed_commit_sha": "0123abc",
+                "proposal_commit_sha": "def5678",
+                "delta": "",
+            }
+        ],
+        "main",
+    )
+    assert "re-review is a no-op" in section
+    # The proposal-scoped empty case is the trustworthy no-op verdict,
+    # so the NOT-synced banner cross-reference does NOT belong here.
+    assert "NOT-synced" not in section
+    assert "NOT synced" not in section
+
+
 # ---------------------------------------------------------------------------
 # CLI tests: the wrapper-bash entry-point (NACK #2 from reviewer_contract —
 # plan TASK-3-2 acceptance "snapshot test verifies both branches" for
