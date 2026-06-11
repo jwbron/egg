@@ -341,6 +341,18 @@ class Slice(EggContractBaseModel):
         ),
     )
     name: str = Field(..., min_length=1, description="Human-readable slice name")
+    goal: str = Field(
+        default="",
+        description=(
+            "Planner-written, reviewer-facing summary of what this slice "
+            "achieves (#3115). Parsed from the plan's per-slice ``goal:`` "
+            "key and rendered as the lead paragraph of the slice PR body, "
+            "so it should read as plain language for a reviewer of the "
+            "target repo — no plan-internal cross-references. Empty for "
+            "contracts written before the field existed (the slice PR "
+            "body then falls back to the program-description blurb)."
+        ),
+    )
     status: SliceStatus = Field(default=SliceStatus.PENDING, description="Slice status")
     review_cycles: int = Field(default=0, ge=0, description="Number of review cycles")
     max_cycles: int = Field(default=3, ge=1, description="Max cycles before escalation")

@@ -181,6 +181,20 @@ the agent reads to recover the task:
 > Slice-1's `parent_branch` resolves to `egg/<id>/work`; the stacked-PR
 > reconciler uses the work branch as the canonical fallback when
 > retargeting orphaned children.
+>
+> **Context-PR body composition (#3115).** The opener composes the PR
+> body via `_compose_context_pr_body` rather than sending
+> `contract.pr.description` verbatim: the planner's `description`, then
+> rendered `## Test Plan` / `## Manual Steps` sections from
+> `pr.test_plan` / `pr.manual_steps` (these fields were silently dropped
+> between #2777 and #3115 despite being preflight-required), then a
+> generated `## Pipeline context` footer — pipeline id, originating
+> issue, the slice table, and links to the refine analysis draft, the
+> plan draft (`.egg-state/drafts/`), and the per-phase BRC transcripts
+> (`.egg-state/brc-history/`) committed on the work branch. Artifact
+> links are branch-qualified absolute URLs
+> (`https://github.com/<repo>/blob/<work-branch>/...`) because GitHub
+> resolves relative links in PR bodies against the default branch.
 
 ### Schema v1.1 → v1.2 migration note (#2777)
 
