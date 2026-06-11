@@ -96,6 +96,14 @@
       "repo": null,
       "role": "tester"
     },
+    "48bb2329867b00eabab26f42446c2596e46bcbd1": {
+      "branch": "egg/pipeline-13643fa6/slice-4",
+      "patch_id": "5c95dfb146d0843de969ad48742fd5312f1e87d0",
+      "pipeline_id": "pipeline-13643fa6",
+      "registered_at": "2026-06-11T11:16:06.299170+00:00",
+      "repo": null,
+      "role": "documenter"
+    },
     "5323f429fb189a0aaa65f5052f9630bcab0409e8": {
       "branch": "egg/pipeline-13643fa6/slice-1",
       "patch_id": "96666e240304ad012c87c188cefd02273b3dcd1d",
@@ -133,6 +141,14 @@
       "patch_id": "b6d4d83712111983abaa1d3ad0fb986c2801c03c",
       "pipeline_id": "pipeline-13643fa6",
       "registered_at": "2026-06-11T10:26:16.864182+00:00",
+      "repo": null,
+      "role": "documenter"
+    },
+    "82e810d81f7cd4e6914810b8ae14ad9c1c3f50e0": {
+      "branch": "egg/pipeline-13643fa6/slice-4",
+      "patch_id": "23d8de21fcd293842d617c5fd44eec83a4ba00d7",
+      "pipeline_id": "pipeline-13643fa6",
+      "registered_at": "2026-06-11T11:16:06.295287+00:00",
       "repo": null,
       "role": "documenter"
     },
