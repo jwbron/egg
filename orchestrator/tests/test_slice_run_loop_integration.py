@@ -747,6 +747,15 @@ class TestRunImplementPhaseSlices:
         # Gate was called for each slice post-consensus.
         gate_slice_ids = {c.args[3] for c in mock_gate.call_args_list}
         assert gate_slice_ids == {"slice-1", "slice-2"}
+        # Each call routes the pre-loaded contract through ``contract=``
+        # so the gate skips its own (lock-held) load (#3125 review
+        # nit-4): locks the wiring that the unit-level
+        # ``test_pre_loaded_contract_skips_internal_load`` cannot see.
+        for call in mock_gate.call_args_list:
+            assert call.kwargs.get("contract") is contract, (
+                "Close path must thread the pre-loaded contract through "
+                "to the gate so the lock-held internal load is skipped"
+            )
         # Failing slice surfaces a non-zero overall exit code.
         assert exit_code != 0, (
             "Evidence-reachability failure must propagate to a non-zero exit "

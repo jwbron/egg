@@ -16864,19 +16864,19 @@ def _run_implement_phase_slices(
                                     program_pr.manual_steps if program_pr else None
                                 ),
                             }
-                except Exception as load_err:  # noqa: BLE001
-                    # Contract load + nested attribute traversal on
-                    # slice/program PR objects. Surface includes
-                    # loader validation errors, OSError, plus
-                    # AttributeError / KeyError on partially-populated
-                    # PR rollup fields. Continue without slice_pr_data
-                    # (the gateway PR creation just below is gated
-                    # on it being non-None).
+                except Exception as attr_err:  # noqa: BLE001
+                    # Nested attribute traversal on slice/program PR
+                    # objects (the contract load was lifted out to the
+                    # block above). Surface is AttributeError /
+                    # KeyError on partially-populated PR rollup
+                    # fields. Continue without slice_pr_data (the
+                    # gateway PR creation just below is gated on it
+                    # being non-None).
                     logger.warning(
                         "Slice PR pre-load failed (continuing)",
                         pipeline_id=pipeline_id,
                         slice_id=slice_id,
-                        error=str(load_err),
+                        error=str(attr_err),
                     )
 
                 # Persist this slice's per-slice BRC consensus history
