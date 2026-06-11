@@ -506,12 +506,49 @@ The pipeline is set to `FAILED` (not `AWAITING_HUMAN`) and the HITL surfaces for
 
 See also: [Plan pre-flight on implement-start resumes](guides/sdlc-pipeline.md#plan-pre-flight-on-implement-start-resumes) in the SDLC pipeline guide.
 
+### Executable Task-Completion Resolution (#3124)
+
+When an operator resolves any HITL decision with a resolution string beginning with
+"Mark task `<task-id>` complete" (case-insensitive; backticks around the task id are
+optional), the orchestrator auto-executes `complete_task_as_operator` — immediately
+marking the task complete as an audited operator action under `Role.HUMAN`. This
+replaces the previous workaround of `kubectl exec` into an agent pod and impersonating
+the agent's role.
+
+Optional commit evidence: append "commit `<sha>`" immediately after the completion
+clause (e.g. `Mark task TASK-1-2 complete, commit abc1234`) to link the commit to the
+task row. Commits embedded later in the reply (with intervening prose) are not
+captured, to prevent unintended evidence attachment.
+
+**Primary use case:** A task is (re)assigned to a producer that has already CONFIRMED.
+The `#3114` completeness gate holds the slice open over the undelivered row, while the
+producer's CONFIRMED state blocks it from re-proposing. An HITL decision with a
+"Mark task `<task-id>` complete" option (created by `mcp__sdlc__register_open_question`
+or the impasse-routing escalation) lets the operator unblock the slice without
+impersonating an agent role.
+
+After execution, the producer's consensus participation is automatically reopened on its
+next `next-action` poll (CONFIRMED → WORKING), so the existing re-propose machinery
+applies. If the producer wrapper already exited after CONFIRMED before the reopen fires,
+the direct REST path remains available:
+
+```bash
+curl -X POST http://egg-orchestrator:9849/api/v1/contracts/<pipeline-id>/tasks/<task-id>/complete \
+  -H "Authorization: Bearer $EGG_LIFECYCLE_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"commit": "<sha>", "reason": "task reassigned post-confirm"}'
+```
+
+Auth: lifecycle-secret guarded (operator/host surface only — not proxied by the gateway
+to sandbox agents).
+
 ## Related Files
 
 - `orchestrator/mcp_tools.py` — MCP `get_status` tool; enriches all pending decisions with `draft_content`; enriches `phase_gate` decisions additionally with `completed_agents_summary` and `reviewer_feedback`
 - `orchestrator/models.py` — `HITLDecision` model with `decision_type`, `questions`, `phase`, and `content_changed` fields; `content_changed` is set by the orchestrator on re-run phase gates to indicate whether the draft changed since the previous resolved decision (literal string comparison; `None` on first decision, `True`/`False` on subsequent ones). Also contains `OperatorDirective` (a single timestamped operator directive stored on kickback) and `IterationSummary` (BRC verdict snapshot for a kicked-back iteration), both accumulated on `PhaseExecution.operator_directives` / `PhaseExecution.iteration_history`.
 - `orchestrator/decision_queue.py` — Decision queue handling typed decisions
-- `orchestrator/routes/decisions.py` — Decision API endpoints (create, list, resolve), the `POST .../feedback/answer` route for contract-scoped feedback (`answer_feedback` MCP tool; #3007), and the contract-decision fallback in `resolve_decision` that writes pre-gate `cq-N` resolutions directly to the contract when the id is not in the queue (#3071)
+- `orchestrator/routes/decisions.py` — Decision API endpoints (create, list, resolve), the `POST .../feedback/answer` route for contract-scoped feedback (`answer_feedback` MCP tool; #3007), the contract-decision fallback in `resolve_decision` that writes pre-gate `cq-N` resolutions directly to the contract when the id is not in the queue (#3071), and the executable task-completion dispatch (`_maybe_complete_task_from_resolution`) that auto-executes `complete_task_as_operator` when the resolution matches "Mark task `<id>` complete" (#3124)
+- `orchestrator/operator_actions.py` — Operator-grade contract task mutations; `complete_task_as_operator` applies task-status mutations as `Role.HUMAN`, bypassing the implementer/reviewer field-ownership restriction (#3124)
 - `orchestrator/mcp_tools.py` — `answer_feedback` MCP tool (`_handle_answer_feedback`) for host-side answering of pre-proposal contract feedback
 - `orchestrator/routes/pipelines.py` — Phase gate resolution with JSON payload parsing
 - `sandbox/egg_lib/sdlc_hitl.py` — Type-aware terminal HITL handler
