@@ -55,6 +55,14 @@
       "registered_at": "2026-06-11T21:11:56.103410+00:00",
       "repo": null,
       "role": "architect"
+    },
+    "f975c4dd98ecb698a7edaa0492e7ab731d631862": {
+      "branch": "egg/issue-3077/work",
+      "patch_id": null,
+      "pipeline_id": "issue-3077",
+      "registered_at": "2026-06-11T21:12:24.284511+00:00",
+      "repo": null,
+      "role": "architect"
     }
   },
   "version": 2
