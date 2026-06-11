@@ -360,7 +360,7 @@ Each agent tracks two state machines (producer and reviewer) independently:
 ### BRC Protocol Flow
 
 1. **Propose**: Producer completes work, commits and pushes to the remote branch, then sends `CONSENSUS_PROPOSE` with a summary, artifact list, and the pushed commit SHA (`--commit-sha`). The orchestrator rejects proposals whose commit SHA is confirmed absent from the branch (verification failures due to network errors are non-blocking).
-2. **Review**: Assigned reviewers discover proposals via polling. Before a reviewer has submitted their own evaluation, the Delphi filter delivers a **redacted** version of the `CONSENSUS_PROPOSE` message (`body` cleared, `metadata.payload` stripped except `version` and `commit_sha`, `metadata.delphi_redacted=True`). This notifies the reviewer that a proposal exists without exposing the producer's self-assessment. Reviewers must **sync their worktree** before reviewing (`git fetch origin && git merge origin/{branch} --no-edit`) to pull in the producer's pushed commits. After reviewing the git artifacts and submitting `CONSENSUS_ACK` or `CONSENSUS_NACK`, subsequent polls return the full unredacted message.
+2. **Review**: Assigned reviewers discover proposals via polling. Before a reviewer has submitted their own evaluation, the Delphi filter delivers a **redacted** version of the `CONSENSUS_PROPOSE` message (`body` cleared, `metadata.payload` stripped except `version` and `commit_sha`, `metadata.delphi_redacted=True`). This notifies the reviewer that a proposal exists without exposing the producer's self-assessment. The consensus wrapper automatically merges the producer's proposed commit into the reviewer's worktree (`sync_to_proposals`, #3076) before the `ack`/`nack` invocation, so reviewers see the latest code without a manual fetch+merge step. After reviewing the git artifacts and submitting `CONSENSUS_ACK` or `CONSENSUS_NACK`, subsequent polls return the full unredacted message.
 3. **Converge**: When all critical reviewers ACK, the producer sends `CONSENSUS_CONFIRMED`. When all agents are confirmed, the phase advances. Reviewers also call `CONSENSUS_CONFIRMED` after completing all reviews; the protocol enforces multiple guards in both the producer and reviewer confirmation paths (see [Action Guards](#action-guards) and [Deadlock Prevention Guards](#deadlock-prevention-guards) below).
 4. **Re-propose**: If a NACK is received, the producer addresses the feedback and re-proposes (with `changed_artifacts` to scope re-evaluation). Flip-flop cycles are capped at `max_flip_flops` (default: 3). If any reviewer had already confirmed on a prior proposal version, they automatically receive a `CONSENSUS_RE_REVIEW` message and are un-confirmed so they re-enter the review loop — preventing a deadlock where a stale-confirmed reviewer can never see the new proposal.
 
@@ -633,8 +633,10 @@ egg-orch consensus propose --push \
 # --files-changed, --tests-run, --tasks are optional but recommended for traceability.
 # Argv `--summary "…"` still works but writes a deprecation warning to stderr — see #2741.
 
-# Reviewer: sync worktree before reviewing (fetch producer's commits)
-git fetch origin && git merge origin/egg/feature-x --no-edit
+# Reviewer worktree sync is handled automatically by the consensus wrapper's
+# sync_to_proposals step (#3076) before ack/nack invocations. Manual fetch+merge
+# is only needed in non-event-pump contexts or for debugging.
+# git fetch origin && git merge origin/egg/feature-x --no-edit
 
 # Reviewer: ACK after reviewing
 # --reason is required and must be ≥50 chars. Your --reason IS your review — include full analysis.
@@ -1139,15 +1141,11 @@ The documenter's docs/markdown scope is mutually exclusive from the others, so i
 
 ### Reviewer Worktree Sync
 
-Per-agent worktrees are created at phase start from the team's branch — the pipeline branch for refine/plan, the slice integration branch for each implement slice. When a producer pushes commits and proposes, the reviewer's worktree does not automatically have those commits. To address this, the BRC preamble instructs reviewers to sync their worktree before reviewing:
+Per-agent worktrees are created at phase start from the team's branch — the pipeline branch for refine/plan, the slice integration branch for each implement slice. When a producer pushes commits and proposes, the reviewer's worktree does not automatically have those commits.
 
-```bash
-git fetch origin && git merge origin/{branch} --no-edit
-```
+The consensus wrapper's `sync_to_proposals` step (#3076) handles this automatically: before every `ack` or `nack` invocation the wrapper extracts each pending producer's `proposal_commit_sha` from the event payload, validates the SHA as hex, and attempts a `git merge --no-edit` of each SHA into the reviewer's worktree. This is deterministic bash in the wrapper rather than prose in the spawn prompt (which the event-pump discards per #3033), so the sync is reliable under the event-pump model. If the merge fails (conflict or unresolvable SHA), the wrapper aborts it and logs the fallback — the reviewer can still read the producer's artifacts via `git show <proposal_commit_sha>:<path>` from the shared object store.
 
-This explicit fetch+merge step ensures reviewers see the latest code (including the producer's pushed commits) when they start reviewing. Without it, reviewers would evaluate stale code and miss issues that appear in the actual changeset.
-
-The same sync instruction is included for dual-role agents (e.g., `tester`) in their producer ORIENT step, so they also have up-to-date code before beginning work.
+The producer `propose` arm intentionally skips the sync: a producer's own commits are already on HEAD, and merging peer proposal commits onto a producer turn would cause dual-role bleed-through.
 
 **Reviewer diff command:** Reviewers use `git diff origin/{base_branch}...HEAD` (three-dot merge-base syntax) to see the full changeset against the base branch, rather than an arbitrary truncated window. The `base_branch` is resolved from `pipeline.base_branch` or the repository's default branch. This matches the context available to PR review bots, which see the complete PR diff.
 
