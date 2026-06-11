@@ -14,8 +14,8 @@
 # Four scopes (issue #2999):
 #   - containerd (always): remove stale egg refs via crictl rmi. An image's
 #     authoritative ref form depends on its publish path: registry-subset
-#     images (args 3+) are authoritative as <registry>/<image>:<tag>, while
-#     save+import images (the sandbox, by default) are authoritative as
+#     images (args 3+, all of them by default) are authoritative as
+#     <registry>/<image>:<tag>, while save+import images are authoritative as
 #     docker.io/library/<image>:<tag>. Refs in the non-authoritative form for
 #     their image -- e.g. bare leftovers from before the registry flow -- are
 #     stale by definition (the digest guard below still protects
@@ -57,9 +57,9 @@ shift
 # check-egg-images-present.sh.
 IMAGES=(egg-gateway egg-orchestrator egg-sandbox egg-litellm)
 
-# Args 3+ name the registry-subset images (EGG_REGISTRY_IMAGES — by default
-# everything but the private-content egg-sandbox). An image's AUTHORITATIVE
-# containerd ref is <registry>/<image>:<tag> when it is in the subset and
+# Args 3+ name the registry-subset images (EGG_REGISTRY_IMAGES — all egg
+# images by default). An image's AUTHORITATIVE containerd ref is
+# <registry>/<image>:<tag> when it is in the subset and
 # docker.io/library/<image>:<tag> when it is not (save+import path). With no
 # registry the subset is forced empty — every image is bare, the
 # pre-registry behavior, unchanged.

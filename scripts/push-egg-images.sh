@@ -29,9 +29,9 @@ usage="usage: $0 <egg-image-tag> <registry-host:port> <image>..."
 TAG="$1"
 REGISTRY="$2"
 shift 2
-# The image list comes from the caller (EGG_REGISTRY_IMAGES in the Makefile);
-# by default that EXCLUDES egg-sandbox — it bakes in private repo content and
-# must not be pushed to any registry unless the operator opts in there.
+# The image list comes from the caller (EGG_REGISTRY_IMAGES in the Makefile,
+# all egg images by default; operators can exclude images there to keep them
+# off the registry entirely).
 IMAGES=("$@")
 
 # Privacy guard: refuse to push anywhere but the loopback registry. The
