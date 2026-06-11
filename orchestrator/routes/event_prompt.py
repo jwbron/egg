@@ -268,12 +268,25 @@ def _render_producer_delta_section(
             # mean the reviewer's HEAD never contains the producer's
             # commits (#3076 — the "re-review delta is empty" phantom
             # NACK). Only trust an empty range when it was scoped to
-            # the producer's proposal SHA.
+            # the producer's proposal SHA. When the wrapper's
+            # ``sync_to_proposals`` could not merge the producer's
+            # commit into your worktree (``unresolvable`` or
+            # ``merge-failed``), #3077 slice-1 task-1-1 prepends a
+            # ``worktree NOT synced to <sha>`` banner at the very top
+            # of this prompt — check for it and fall back to the
+            # ``git show <sha>:<path>`` commands rendered below rather
+            # than trusting your local diff.
             delta_rendered = (
                 "(no commits in range — CAUTION: this range ended at YOUR "
                 "worktree's HEAD, which does not contain the producer's "
                 "commits. An empty delta here is NOT evidence the producer "
-                "didn't revise. Read the producer's branch directly, e.g. "
+                "didn't revise. Check the TOP of this prompt for a "
+                "``worktree NOT synced to <sha>`` banner (#3077 slice-1): "
+                "when present, the wrapper could not sync your worktree to "
+                "the producer's commit — fall back to the rendered "
+                "``git show <sha>:<path>`` commands below instead of your "
+                "local diff. If no banner is present, read the producer's "
+                "branch directly, e.g. "
                 "`git log <producer-branch-or-sha> --not "
                 f"origin/{base_branch} -p`, before issuing a verdict.)"
             )
