@@ -7,6 +7,14 @@
       "registered_at": "2026-06-11T08:58:39.351486+00:00",
       "repo": null,
       "role": "documenter"
+    },
+    "bff1dbde8806efffaf8d2fd8cd37ffa0b8563a13": {
+      "branch": "egg/pipeline-13643fa6/slice-1",
+      "patch_id": "6006455d98d3dcf33a1eddee4a6a4c0317042501",
+      "pipeline_id": "pipeline-13643fa6",
+      "registered_at": "2026-06-11T09:18:25.250243+00:00",
+      "repo": null,
+      "role": "coder"
     }
   },
   "version": 2
