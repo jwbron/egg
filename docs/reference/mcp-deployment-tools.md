@@ -268,6 +268,8 @@ configured repo — there is no per-repo scope parameter.
     "owner/repo": ["/home/egg/.egg-worktrees/stale-1", "/home/egg/.egg-worktrees/stale-2"]
   },
   "orphan_dirs": ["/home/egg/.egg-worktrees/orphan-dir-3"],
+  "active_containers_count": 3,
+  "active_pipelines_count": 1,
   "dry_run": true
 }
 ```
@@ -275,6 +277,26 @@ configured repo — there is no per-repo scope parameter.
 When `dry_run=true` (the default), the tool reports what **would be**
 removed but does not mutate the filesystem. When `dry_run=false`, the
 reported paths are removed.
+
+A worktree is considered an orphan only when its container is gone **and** it
+is not anchored to an active (non-terminal) pipeline. Pipelines parked at a
+HITL gate have no running containers but their worktrees hold the contract and
+any un-pushed work — the sweep preserves them regardless of container liveness.
+
+**Error response — orchestrator unreachable (503)**:
+
+If the gateway cannot verify pipeline liveness (orchestrator unreachable), it
+returns HTTP 503 rather than sweep blind:
+
+```json
+{
+  "success": false,
+  "error": "Cannot verify pipeline liveness (orchestrator unreachable); refusing to prune worktrees"
+}
+```
+
+Retry once the orchestrator is healthy (`GET /api/v1/health` on the
+orchestrator returns `"status": "healthy"`).
 
 **HTTP routes**:
 
