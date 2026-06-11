@@ -335,3 +335,14 @@ if docker exec egg-registry registry garbage-collect --delete-untagged \
 else
   echo "==> registry reap: deleted ${reg_removed} stale tag manifest(s); garbage-collect FAILED (non-fatal)." >&2
 fi
+
+# Restart the registry to drop its in-memory blob-descriptor cache. GC runs
+# as a SEPARATE process (docker exec) and deletes blob files behind the
+# serving process's back; the stock registry:2 config caches blob existence
+# in memory, so without a restart the next `docker push` is told "Layer
+# already exists" for a blob whose file GC just removed, the layer never
+# re-uploads, and the subsequent containerd pull dies with
+# "short read: ... unexpected EOF". Observed live on the first #3101
+# deploy. The restart takes ~1s; a pod pull racing it just retries.
+docker restart egg-registry >/dev/null 2>&1 ||
+  echo "==> registry reap: restart of egg-registry failed -- run 'docker restart egg-registry' before the next push." >&2

@@ -729,7 +729,7 @@ redeploy: sudo-keepalive build k3s-publish deploy  ## Rebuild, publish images, a
 # an empty registry subset (EGG_REGISTRY_IMAGES="") — save+import everything.
 k3s-publish: sudo-keepalive
 	@if [ -n "$(EGG_IMAGE_REGISTRY)" ] && [ -n "$(strip $(EGG_REGISTRY_IMAGES))" ]; then \
-		$(MAKE) --no-print-directory k3s-push; \
+		$(MAKE) --no-print-directory k3s-push || exit 1; \
 		if [ -n "$(strip $(EGG_IMPORT_IMAGES))" ]; then \
 			$(MAKE) --no-print-directory k3s-import K3S_IMPORT_IMAGES="$(EGG_IMPORT_IMAGES)"; \
 		fi; \
