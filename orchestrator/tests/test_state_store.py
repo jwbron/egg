@@ -1489,10 +1489,15 @@ class TestRemoteSync:
     def test_persistent_sync_failure_respams_on_period(self, state_store, caplog):
         """Re-fire branch: alert again every ``_SYNC_ALERT_RESPAM_PERIOD``.
 
-        Guards the ``n > _SYNC_ALERT_THRESHOLD and n % _RESPAM_PERIOD == 0``
-        branch the PR specifically added a constant for.  A regression that
-        swaps the operator (``or`` for ``and``) or strips the ``n > THRESHOLD``
-        guard would slip through the threshold-only test.
+        Guards the ``n % _RESPAM_PERIOD == 0`` re-fire branch the PR
+        specifically added a constant for — the threshold-only test
+        doesn't exercise it.  A regression that swaps the operator
+        (``or`` for ``and``) would either over- or under-fire and break
+        the count.  (Stripping the ``n > _SYNC_ALERT_THRESHOLD`` guard
+        would slip through with the current constants since
+        ``THRESHOLD < PERIOD``; that guard's purpose is robustness if
+        ``THRESHOLD`` is ever bumped past ``PERIOD``, which this test
+        does not parametrise.)
         """
         threshold = StateStore._SYNC_ALERT_THRESHOLD
         period = StateStore._SYNC_ALERT_RESPAM_PERIOD
