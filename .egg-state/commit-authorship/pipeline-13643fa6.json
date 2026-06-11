@@ -1,0 +1,13 @@
+{
+  "entries": {
+    "b02def7d8b5a0283ad7058d9b2aedf6429b6f749": {
+      "branch": "egg/pipeline-13643fa6/slice-1",
+      "patch_id": "4f62c7f309945045684a8ba31c8c31a4182d37fc",
+      "pipeline_id": "pipeline-13643fa6",
+      "registered_at": "2026-06-11T08:58:39.351486+00:00",
+      "repo": null,
+      "role": "documenter"
+    }
+  },
+  "version": 2
+}
