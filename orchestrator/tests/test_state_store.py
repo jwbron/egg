@@ -1412,6 +1412,40 @@ class TestRemoteSync:
         assert result is False
         assert mock_client.push_worktree_branch.call_count == 1
 
+    def test_reconcile_aborts_when_rev_parse_fails(self, state_store, caplog):
+        """Reconcile cannot classify divergence without both tips — no force.
+
+        Guards against a regression that mangles either rev-parse call (e.g.
+        wrong refname): the merge-base branch must not run against a junk
+        sha, and the force-with-lease push must not fire.
+        """
+        mock_client = MagicMock()
+        mock_client.push_worktree_branch.return_value = PushResult(
+            ok=False, category="non_fast_forward", detail="! [rejected]"
+        )
+        mock_client.fetch_branch.return_value = True
+
+        def fake_run_git(*args, cwd=None, check=True):
+            if args[0] == "rev-parse" and args[1].startswith("refs/heads/"):
+                return MagicMock(returncode=0, stdout="aaa111\n")
+            if args[0] == "rev-parse" and args[1].startswith("refs/remotes/"):
+                # Simulate the tracking ref disappearing between fetch and
+                # rev-parse (e.g. concurrent prune, malformed refname).
+                return MagicMock(returncode=128, stdout="", stderr="fatal: bad revision\n")
+            raise AssertionError(f"unexpected git call: {args}")
+
+        with (
+            patch("gateway_client.get_gateway_client", return_value=mock_client),
+            patch.object(state_store, "_run_git", side_effect=fake_run_git),
+            caplog.at_level(logging.WARNING, logger="orchestrator.state_store"),
+        ):
+            result = state_store.sync_to_remote()
+
+        assert result is False
+        # No second push attempt: classification refused.
+        assert mock_client.push_worktree_branch.call_count == 1
+        assert "could not resolve tips" in caplog.text
+
     # -- persistent-failure escalation (#3088) -------------------------------
 
     def test_persistent_sync_failure_fires_overseer_alert(self, state_store, caplog):

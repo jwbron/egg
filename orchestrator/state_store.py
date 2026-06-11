@@ -26,11 +26,14 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from egg_git.cross_process_lock import bare_repo_lock
 from models import Pipeline, PipelineMode, PipelinePhase, PipelineStatus
 from pydantic import ValidationError
+
+if TYPE_CHECKING:
+    from gateway_client import GatewayClient
 
 logger = logging.getLogger("orchestrator.state_store")
 
@@ -56,6 +59,16 @@ from egg_config.constants import PIPELINE_STATE_BRANCH as STATE_BRANCH
 _DEFAULT_WORKTREE_DIR = (
     Path(os.environ.get("EGG_STATE_DIR", "/home/egg/.egg-state")) / "pipeline-worktree"
 )
+
+
+# Per-repo consecutive-failure state for remote-sync escalation (#3088).
+# Module-level so the alert threshold tracks the *repo*, not a single
+# ``StateStore`` instance — route handlers re-create their store on each
+# call (via ``get_state_store_for_pipeline``), and a per-instance counter
+# would fragment such that no individual store ever crossed the threshold
+# even when the underlying remote was repeatedly failing.
+_sync_failure_state: dict[Path, tuple[int, str | None]] = {}
+_sync_failure_state_lock = threading.Lock()
 
 
 class StateStoreError(Exception):
@@ -126,6 +139,13 @@ class StateStore:
     # Consecutive sync_to_remote failures before an OVERSEER_ALERT fires
     # (#3088 — a dead remote backstop must not stay invisible).
     _SYNC_ALERT_THRESHOLD: ClassVar[int] = 5
+    # After the threshold fires, re-fire every Nth failure so a long outage
+    # stays visible without per-attempt spam.  Pinned independently of the
+    # threshold so bumping ``_SYNC_ALERT_THRESHOLD`` past this value cannot
+    # cause the re-fire branch to trigger before the initial alert (the
+    # ``n > _SYNC_ALERT_THRESHOLD`` guard in ``_record_sync_outcome``
+    # enforces this).
+    _SYNC_ALERT_RESPAM_PERIOD: ClassVar[int] = 50
 
     def __init__(
         self,
@@ -149,11 +169,19 @@ class StateStore:
         # flight collapsed into A's pending flag — and the retry closure
         # re-pushed A, silently dropping B's sync.  Pushes to different
         # remotes have no reason to serialise.
+        #
+        # Per-instance debounce coalesces within the lifetime of one store
+        # (e.g. the long-lived ``CommitAuthorshipStore`` singleton — the
+        # highest-volume caller).  Route handlers go through
+        # ``get_state_store_for_pipeline`` which constructs a fresh store
+        # per call, so debounce does not coalesce *across* such calls; that
+        # is acceptable because their per-repo push rate is far below the
+        # singleton path's.  Failure-counter state, in contrast, is kept
+        # module-level (see ``_sync_failure_state`` below) so the alert
+        # threshold cannot fragment across those short-lived instances.
         self._push_in_flight = False
         self._push_pending = False
         self._push_lock = threading.Lock()
-        self._sync_consecutive_failures = 0
-        self._sync_last_error: str | None = None
 
     # -- cross-process locking ---------------------------------------------
 
@@ -918,7 +946,9 @@ class StateStore:
             self._record_sync_outcome(ok=False, detail=str(e))
             return False
 
-    def _reconcile_diverged_remote(self, client: Any, mode: Literal["public", "private"]) -> bool:
+    def _reconcile_diverged_remote(
+        self, client: GatewayClient, mode: Literal["public", "private"]
+    ) -> bool:
         """Heal a non-fast-forward state-branch push (#3088).
 
         The state branch is single-writer by design — this orchestrator is
@@ -941,6 +971,22 @@ class StateStore:
         explicit-refspec fetch below just updated; a bare-name fetch
         would leave that ref stale on narrow-refspec mirrors (#3072) and
         the lease would reject spuriously.
+
+        The single-writer assumption is what justifies forcing local over
+        the remote.  If two orchestrators were ever pointed at the same
+        remote state branch, they would ping-pong force-with-leases at
+        each other and neither would alert from the shapes above; that
+        misconfiguration is out of scope here (it'd show up earlier as
+        cross-orchestrator state divergence).
+
+        TOCTOU note: the ``rev-parse`` reads below run inside the same
+        process but outside ``_git_op``, so the local tip could in
+        principle advance between the rev-parse and the
+        ``--force-with-lease`` push.  This is benign: the lease only
+        constrains the *remote* tip (against the tracking ref we just
+        fetched), and a local tip that has moved forward is still a
+        descendant of the rev-parsed sha — the merge-base classification
+        and the resulting force are still correct.
 
         Returns:
             True if the remote was reconciled (force-with-lease push
@@ -1015,29 +1061,68 @@ class StateStore:
             )
         )
 
+    @property
+    def _sync_consecutive_failures(self) -> int:
+        """Read the per-repo consecutive-failure counter (see #3088)."""
+        with _sync_failure_state_lock:
+            failures, _ = _sync_failure_state.get(self.repo_path, (0, None))
+            return failures
+
+    @property
+    def _sync_last_error(self) -> str | None:
+        """Read the per-repo last-error string (see #3088)."""
+        with _sync_failure_state_lock:
+            _, last_error = _sync_failure_state.get(self.repo_path, (0, None))
+            return last_error
+
     def _record_sync_outcome(self, ok: bool, detail: str | None = None) -> None:
         """Track consecutive sync failures and escalate persistent ones (#3088).
 
         Fires an ``OVERSEER_ALERT`` at ``_SYNC_ALERT_THRESHOLD`` consecutive
-        failures, then re-fires every 50th so a long outage stays visible
-        without per-attempt spam.  The #3088 incident ran 8 days / hundreds
-        of failed pushes with only per-attempt WARNINGs.
+        failures, then re-fires every ``_SYNC_ALERT_RESPAM_PERIOD`` failures
+        thereafter so a long outage stays visible without per-attempt spam.
+        The #3088 incident ran 8 days / hundreds of failed pushes with only
+        per-attempt WARNINGs.
+
+        Counter state is keyed per-repo at module scope rather than per
+        instance: route handlers re-create their ``StateStore`` on each
+        call, and a per-instance counter would fragment such that no
+        individual store ever crossed the threshold even when the repo's
+        underlying remote was repeatedly failing.
         """
+        with _sync_failure_state_lock:
+            failures, _ = _sync_failure_state.get(self.repo_path, (0, None))
+            if ok:
+                if failures >= self._SYNC_ALERT_THRESHOLD:
+                    recovered_from = failures
+                    log_recovery = True
+                else:
+                    log_recovery = False
+                _sync_failure_state.pop(self.repo_path, None)
+                n = 0
+            else:
+                n = failures + 1
+                _sync_failure_state[self.repo_path] = (n, detail)
+                log_recovery = False
+                recovered_from = 0
+
         if ok:
-            if self._sync_consecutive_failures >= self._SYNC_ALERT_THRESHOLD:
+            if log_recovery:
                 logger.info(
                     "State-branch remote sync recovered after %d consecutive failures (repo=%s)",
-                    self._sync_consecutive_failures,
+                    recovered_from,
                     self.repo_path,
                 )
-            self._sync_consecutive_failures = 0
-            self._sync_last_error = None
             return
 
-        self._sync_consecutive_failures += 1
-        self._sync_last_error = detail
-        n = self._sync_consecutive_failures
-        if n == self._SYNC_ALERT_THRESHOLD or n % 50 == 0:
+        # Fire at the threshold; thereafter re-fire every Nth additional
+        # failure.  The ``n > _SYNC_ALERT_THRESHOLD`` guard keeps the
+        # re-fire branch from triggering before the initial alert in the
+        # event the respam period is set smaller than the threshold (or
+        # the threshold is bumped above the respam period).
+        if n == self._SYNC_ALERT_THRESHOLD or (
+            n > self._SYNC_ALERT_THRESHOLD and n % self._SYNC_ALERT_RESPAM_PERIOD == 0
+        ):
             logger.error(
                 "OVERSEER_ALERT state_sync_push_failing: %d consecutive state-branch "
                 "push failures (repo=%s last_error=%s) — the remote durability "
