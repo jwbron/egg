@@ -176,7 +176,15 @@ class TestEnforceImplementStartPlanPreflight:
     def test_base_branch_only_pipeline_is_remote(self, tmp_path):
         """A pipeline with base_branch set but repo unset is NOT local
         mode (the opener treats it as a misconfiguration, not a skip),
-        so the gate still enforces."""
+        so the gate still enforces.
+
+        Defense-in-depth: ``_open_context_pr_at_implement_start`` would
+        itself raise ``missing_repo`` on this misconfigured shape, so
+        the gate is functionally redundant on this specific case — the
+        load-bearing assertion is that the gate does not accidentally
+        skip when ``repo`` is unset but ``base_branch`` is set, leaving
+        the all-remote shapes (#3100's actual repro) uncovered.
+        """
         from routes.pipelines import _enforce_implement_start_plan_preflight
 
         _write_draft(tmp_path, PLAN_WITHOUT_PR_BLOCK)

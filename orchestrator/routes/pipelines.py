@@ -19185,10 +19185,17 @@ def _enforce_implement_start_plan_preflight(
       :func:`_open_context_pr_at_implement_start`), so requiring ``pr:``
       metadata there would fail test pipelines over a PR that would
       never exist.
-    * Infra failures (parser import, draft read) log a WARNING and
-      return False — the gate must not add a new hard-fail mode for
-      transient errors, and the populate path's own outcomes already
-      cover an unreadable draft.
+    * Infra failures log a WARNING and return False — the gate must
+      not add a new hard-fail mode for transient errors, and the
+      populate path's own outcomes already cover an unreadable draft.
+      Only the two named infra-class exceptions are caught: an
+      :class:`ImportError` from the ``plan_parser`` import (validator
+      unavailable on this host) and an :class:`OSError` from the draft
+      ``read_text`` (file vanished, permission flake).  Any other
+      exception out of :func:`validate_plan_preflight` propagates to
+      the outer ``_run_pipeline`` Exception handler, mirroring the
+      ``advance_phase`` site's behaviour — the goal is to never
+      swallow a real parser bug under a generic "infra" umbrella.
 
     Returns True when the pipeline was marked FAILED (the caller must
     return without spawning implement-phase agents), False when the
@@ -23277,8 +23284,9 @@ def _run_pipeline(
                 except ContextPrCreationError as ctx_err:
                     logger.warning(
                         "Context PR opener: _run_pipeline auto-advance "
-                        "failed (continuing — advance_phase enforces "
-                        "hard-required) (#2777)",
+                        "failed (continuing — hard-require enforced at "
+                        "advance_phase and the implement-start plan "
+                        "pre-flight gate) (#2777, #3100)",
                         pipeline_id=pipeline_id,
                         reason=ctx_err.reason,
                         error=str(ctx_err),
@@ -24294,8 +24302,9 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 except ContextPrCreationError as ctx_err:
                     logger.warning(
                         "Context PR opener: HITL-resume failed "
-                        "(continuing — advance_phase enforces "
-                        "hard-required) (#2777)",
+                        "(continuing — hard-require enforced at "
+                        "advance_phase and the implement-start plan "
+                        "pre-flight gate) (#2777, #3100)",
                         pipeline_id=pipeline_id,
                         reason=ctx_err.reason,
                         error=str(ctx_err),
