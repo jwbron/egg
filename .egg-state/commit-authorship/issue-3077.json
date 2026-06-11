@@ -1,5 +1,13 @@
 {
   "entries": {
+    "275fe4f1e8541244a5963b2bbfb89cba05153d3a": {
+      "branch": "egg/issue-3077/work",
+      "patch_id": "273a0f5c14e491ff728fa266691490458d4e41b0",
+      "pipeline_id": "issue-3077",
+      "registered_at": "2026-06-11T20:54:12.703941+00:00",
+      "repo": null,
+      "role": "refiner"
+    },
     "6ad4f50095049e3e1d4b6e937c3e6d228336a889": {
       "branch": "egg/issue-3077/work",
       "patch_id": "c94748e6c18869443cf0beadd29f12f2ff46649b",
