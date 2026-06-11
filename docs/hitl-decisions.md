@@ -498,13 +498,13 @@ The pipeline is set to `FAILED` (not `AWAITING_HUMAN`) and the HITL surfaces for
 
 1. Open `/sdlc` and find the pending decision — the question text names the draft path and the missing fields.
 2. Choose an option:
-   - To fix the draft in place: edit `.egg-state/drafts/plan.md` on the work branch to add a `pr:` block with all four required keys, commit the change, then select **Fix the plan draft's pr: block and restart implement**.
+   - To fix the draft in place: edit the plan draft named in the HITL question (a path of the form `.egg-state/drafts/<prefix>-plan.md`, where `<prefix>` is the issue number or pipeline id — do not edit the unprefixed `.egg-state/drafts/plan.md`, which is a stale legacy path that gets reaped) on the work branch to add a `pr:` block with all four required keys, commit the change, then select **Fix the plan draft's pr: block and restart implement**.
    - To regenerate: select **Restart plan phase** — the plan agent will rerun and produce a new draft.
    - To abandon: select **Abort pipeline**.
 
 **Infra failures** (parser import unavailable, draft file unreadable) warn and continue rather than triggering this gate, so the pre-existing populate-path outcomes handle those cases.
 
-See also: [Plan pre-flight on implement-start resumes](guides/sdlc-pipeline.md#plan-contract-population-and-pre-flight-validation) in the SDLC pipeline guide.
+See also: [Plan pre-flight on implement-start resumes](guides/sdlc-pipeline.md#plan-pre-flight-on-implement-start-resumes) in the SDLC pipeline guide.
 
 ## Related Files
 
