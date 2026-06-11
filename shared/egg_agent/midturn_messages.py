@@ -124,7 +124,9 @@ class MidturnMessagePoller:
         # Hash the identifiers into the filename so arbitrary pipeline
         # ids / roles can't produce path separators (same defensive
         # stance as the wait CLI's cursor path, #2323).
-        digest = hashlib.md5(f"{pipeline_id}\x00{role}".encode(), usedforsecurity=False).hexdigest()[:12]
+        digest = hashlib.md5(
+            f"{pipeline_id}\x00{role}".encode(), usedforsecurity=False
+        ).hexdigest()[:12]
         self._cursor_path = Path(base_dir) / f"egg-midturn-msg-cursor-{digest}"
 
     # -- cursor -----------------------------------------------------------
