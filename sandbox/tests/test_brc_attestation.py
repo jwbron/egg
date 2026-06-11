@@ -78,21 +78,24 @@ class TestAttestationThreading:
         with pytest.raises(HandlerError, match="attestation"):
             handlers.brc_ack(req)
 
-    def test_nack_payload_excludes_attestation(self):
-        """NACK does not thread attestation (#3114 review).
+    def test_nack_drops_supplied_attestation(self):
+        """NACK silently drops a supplied attestation (#3114 review).
 
         The gate only consults ``attestation`` on enforcer ACKs; the
         NACK channel never read it, so it is no longer accepted at the
         MCP boundary — keeps the schema honest about what reaches the
-        orchestrator.
+        orchestrator. To pin the *drop* (not just the absence), the
+        request explicitly carries ``attestation`` and the test asserts
+        the handler does not forward it.
         """
         from egg_agent_tools.handlers import brc as handlers
 
+        req = dict(_NACK_REQ, attestation=_ATTESTATION)
         with patch(
             "egg_agent_tools.handlers.brc.orchestrator_request",
             return_value={"success": True, "data": {}},
         ) as mock_request:
-            handlers.brc_nack(dict(_NACK_REQ))
+            handlers.brc_nack(req)
         assert "attestation" not in _captured_payload(mock_request)
 
 

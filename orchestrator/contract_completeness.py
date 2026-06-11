@@ -48,15 +48,7 @@ from egg_contracts.loader import (
     load_contract,
 )
 from egg_contracts.models import Contract, TaskStatus
-
-try:
-    from egg_logging import get_logger
-except ImportError:  # pragma: no cover — stdlib fallback for stripped-down envs
-    import logging
-
-    def get_logger(name: str, **kwargs: Any) -> logging.Logger:  # type: ignore[misc]
-        return logging.getLogger(name)
-
+from egg_logging import get_logger
 
 logger = get_logger("orchestrator.contract_completeness")
 
