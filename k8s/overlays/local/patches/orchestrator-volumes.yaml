@@ -56,6 +56,28 @@ spec:
               mountPath: /home/egg/repos
             - name: worktrees
               mountPath: /home/egg/.egg-worktrees
+            # Pipeline-state store (orchestrator/state_store.py keeps the
+            # ``egg/pipeline-state`` worktrees under
+            # /home/egg/.egg-state/pipeline-worktree*). MUST be host-backed
+            # because repos above are: the state branch's *commits* live in
+            # each repo's .git (host-persistent), but the worktree holds any
+            # state saved between commits. With an emptyDir here, a pod
+            # recreation rebuilds the worktree from the last committed branch
+            # tip and silently drops everything newer — in #3070 that erased
+            # every in-flight prompt-driven pipeline (get_status 404) because
+            # their records had never been committed. Same host dir the
+            # gateway mounts for its session store; the two use disjoint
+            # subpaths (sessions/ vs pipeline-worktree*/), so they don't
+            # collide. Cross-pod ownership note: the gateway's entrypoint
+            # chowns ``/home/egg/.egg-state`` to ``HOST_UID:HOST_GID`` on
+            # startup, which is what lets the orchestrator (``runAsUser:
+            # 1000``) write to the shared dir — local-dev convention is
+            # ``HOST_UID=1000``, so this aligns; a host deploying with
+            # ``HOST_UID != 1000`` would hit EACCES here. Cloud overlays
+            # moving to PVCs (the future intent rule 7 / rule 6 already
+            # accommodate) sidestep the chown coupling entirely.
+            - name: egg-state
+              mountPath: /home/egg/.egg-state
             - name: secrets
               mountPath: /secrets
               readOnly: true
@@ -67,6 +89,10 @@ spec:
         - name: worktrees
           hostPath:
             path: ${EGG_HOST_HOME}/.egg-worktrees
+            type: DirectoryOrCreate
+        - name: egg-state
+          hostPath:
+            path: ${EGG_HOST_HOME}/.egg-state
             type: DirectoryOrCreate
         - name: secrets
           secret:

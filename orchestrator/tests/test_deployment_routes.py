@@ -848,6 +848,193 @@ class TestValidateDeploymentDocsRules:
         assert len(fired) == 1
         assert fired[0]["resource"] == "Deployment/gateway-canary"
 
+    def _orchestrator_doc(self, *, name="orchestrator", repos_vol, egg_state_vol):
+        """Orchestrator Deployment fixture with optional repos/egg-state volumes.
+
+        Shapes the #3070 trap: the pipeline-state store (egg-state) must share
+        a persistence class with the repos whose .git holds its committed
+        history. Pass ``None`` for either volume to omit it.
+        """
+        volumes = [v for v in (repos_vol, egg_state_vol) if v is not None]
+        return {
+            "kind": "Deployment",
+            "metadata": {"name": name},
+            "spec": {
+                "template": {
+                    "metadata": {"labels": {"app": "orchestrator"}},
+                    "spec": {
+                        "containers": [{"name": "orch", "image": "egg-orchestrator:dev"}],
+                        "volumes": volumes,
+                    },
+                }
+            },
+        }
+
+    def test_pipeline_state_store_not_persistent_triggers_error(self):
+        """hostPath repos + emptyDir egg-state is the #3070 trap."""
+        from routes.deployment import _validate_deployment_docs
+
+        docs = [
+            self._orchestrator_doc(
+                repos_vol={"name": "repos", "hostPath": {"path": "/host/repos"}},
+                egg_state_vol={"name": "egg-state", "emptyDir": {}},
+            )
+        ]
+        warnings = _validate_deployment_docs(docs, is_k3s=True)
+        fired = [w for w in warnings if w.get("rule") == "pipeline-state-store-not-persistent"]
+        assert len(fired) == 1
+        assert fired[0]["severity"] == "error"
+        assert fired[0]["resource"] == "Deployment/orchestrator"
+        assert "#3070" in fired[0]["message"]
+        assert "emptyDir" in fired[0]["message"]
+
+    def test_pipeline_state_store_rule_fires_when_egg_state_absent(self):
+        """hostPath repos + NO egg-state volume is the realistic overlay slip.
+
+        Pre-#3070 the local overlay added the hostPath ``repos`` volume but
+        left the base's ``egg-state`` emptyDir alone; an overlay author who
+        omits the volume entirely lands /home/egg/.egg-state inside the
+        ``home`` emptyDir — same loss mode, so the rule must fire on absence
+        the same way it fires on emptyDir.
+        """
+        from routes.deployment import _validate_deployment_docs
+
+        docs = [
+            self._orchestrator_doc(
+                repos_vol={"name": "repos", "hostPath": {"path": "/host/repos"}},
+                egg_state_vol=None,
+            )
+        ]
+        warnings = _validate_deployment_docs(docs, is_k3s=True)
+        fired = [w for w in warnings if w.get("rule") == "pipeline-state-store-not-persistent"]
+        assert len(fired) == 1
+        assert fired[0]["severity"] == "error"
+        assert "not declared" in fired[0]["message"] or "no ``egg-state``" in fired[0]["message"]
+
+    def test_pipeline_state_store_persistent_is_clean(self):
+        """hostPath repos + hostPath egg-state — the fixed shape — is clean."""
+        from routes.deployment import _validate_deployment_docs
+
+        docs = [
+            self._orchestrator_doc(
+                repos_vol={"name": "repos", "hostPath": {"path": "/host/repos"}},
+                egg_state_vol={"name": "egg-state", "hostPath": {"path": "/host/state"}},
+            )
+        ]
+        warnings = _validate_deployment_docs(docs, is_k3s=True)
+        fired = [w for w in warnings if w.get("rule") == "pipeline-state-store-not-persistent"]
+        assert fired == []
+
+    def test_pipeline_state_store_rule_silent_when_repos_not_persistent(self):
+        """All-emptyDir base/cloud shape has no asymmetry, so silent.
+
+        With ephemeral repos nothing survives a pod recreation anyway — there
+        is no stale committed tip to silently rewind to — so the rule must not
+        fire (avoids false positives on stateless base deploys).
+        """
+        from routes.deployment import _validate_deployment_docs
+
+        docs = [
+            self._orchestrator_doc(
+                repos_vol={"name": "repos", "emptyDir": {}},
+                egg_state_vol={"name": "egg-state", "emptyDir": {}},
+            )
+        ]
+        warnings = _validate_deployment_docs(docs, is_k3s=True)
+        fired = [w for w in warnings if w.get("rule") == "pipeline-state-store-not-persistent"]
+        assert fired == []
+
+    def test_pipeline_state_store_rule_scoped_to_orchestrator(self):
+        """The rule must not fire on non-orchestrator deployments."""
+        from routes.deployment import _validate_deployment_docs
+
+        docs = [
+            self._orchestrator_doc(
+                name="litellm-orchestrator",
+                repos_vol={"name": "repos", "hostPath": {"path": "/host/repos"}},
+                egg_state_vol={"name": "egg-state", "emptyDir": {}},
+            )
+        ]
+        warnings = _validate_deployment_docs(docs, is_k3s=True)
+        fired = [w for w in warnings if w.get("rule") == "pipeline-state-store-not-persistent"]
+        assert fired == []
+
+    def test_pipeline_state_store_rule_clean_when_both_pvc_backed(self):
+        """PVC repos + PVC egg-state is clean (rule generalizes beyond hostPath).
+
+        Counterpart to ``test_session_store_rule_clean_when_both_pvc_backed``:
+        locks in that the rule expresses "pipeline-state store has at least the
+        same persistence class as repos" via emptyDir-checking, not via
+        hostPath-checking — so PVC / NFS / CSI futures work without a code
+        change. Both volumes survive pod recreation; no asymmetry; silent.
+        """
+        from routes.deployment import _validate_deployment_docs
+
+        docs = [
+            self._orchestrator_doc(
+                repos_vol={
+                    "name": "repos",
+                    "persistentVolumeClaim": {"claimName": "repos-pvc"},
+                },
+                egg_state_vol={
+                    "name": "egg-state",
+                    "persistentVolumeClaim": {"claimName": "state-pvc"},
+                },
+            )
+        ]
+        warnings = _validate_deployment_docs(docs, is_k3s=True)
+        fired = [w for w in warnings if w.get("rule") == "pipeline-state-store-not-persistent"]
+        assert fired == []
+
+    def test_pipeline_state_store_rule_fires_when_pvc_repos_emptydir_state(self):
+        """PVC repos + emptyDir egg-state is the hypothetical cloud-overlay trap.
+
+        Counterpart to ``test_session_store_rule_fires_when_pvc_worktrees_emptydir_state``:
+        same #3070 failure mode as hostPath/emptyDir — repos survive a pod
+        recreation (PVC) but the pipeline-state worktree doesn't (emptyDir).
+        The rule must fire here too — that's the whole point of expressing the
+        check against emptyDir rather than against the specific hostPath
+        backing the local overlay uses today.
+        """
+        from routes.deployment import _validate_deployment_docs
+
+        docs = [
+            self._orchestrator_doc(
+                repos_vol={
+                    "name": "repos",
+                    "persistentVolumeClaim": {"claimName": "repos-pvc"},
+                },
+                egg_state_vol={"name": "egg-state", "emptyDir": {}},
+            )
+        ]
+        warnings = _validate_deployment_docs(docs, is_k3s=True)
+        fired = [w for w in warnings if w.get("rule") == "pipeline-state-store-not-persistent"]
+        assert len(fired) == 1
+        assert fired[0]["severity"] == "error"
+
+    def test_pipeline_state_store_rule_fires_on_orchestrator_dash_variant(self):
+        """An ``orchestrator-canary`` deployment IS an orchestrator variant and must match.
+
+        Counterpart to ``test_session_store_rule_fires_on_gateway_dash_variant``:
+        the exact-or-prefix scope is ``orchestrator`` exactly or
+        ``orchestrator-*``, so a canary / rollout variant still inherits the
+        invariant. Pairs with ``test_pipeline_state_store_rule_scoped_to_orchestrator``,
+        which pins that an unrelated ``litellm-orchestrator`` does NOT match.
+        """
+        from routes.deployment import _validate_deployment_docs
+
+        docs = [
+            self._orchestrator_doc(
+                name="orchestrator-canary",
+                repos_vol={"name": "repos", "hostPath": {"path": "/host/repos"}},
+                egg_state_vol={"name": "egg-state", "emptyDir": {}},
+            )
+        ]
+        warnings = _validate_deployment_docs(docs, is_k3s=True)
+        fired = [w for w in warnings if w.get("rule") == "pipeline-state-store-not-persistent"]
+        assert len(fired) == 1
+        assert fired[0]["resource"] == "Deployment/orchestrator-canary"
+
 
 # ---------------------------------------------------------------------------
 # prune_stale_worktrees

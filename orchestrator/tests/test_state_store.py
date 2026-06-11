@@ -297,6 +297,51 @@ class TestPipelinePersistence:
         commit_calls = [c for c in mock_git.call_args_list if "commit" in c[0]]
         assert len(commit_calls) == 0
 
+    def test_save_prompt_driven_pipeline_commits_by_default(self, state_store, mock_git):
+        """Prompt-driven pipelines (no issue_number) commit on every save.
+
+        Regression test for #3070: the old gate committed prompt-driven
+        pipelines only at phase advance/completion, so one parked at a HITL
+        gate had no commit at all and vanished on pod recreation.
+        """
+        pipeline = Pipeline(
+            id="pipeline-deadbeef",
+            issue_number=None,
+            repo="owner/repo",
+            branch="egg/pipeline-deadbeef",
+            prompt="free-text pipeline",
+        )
+        pipeline.status = PipelineStatus.AWAITING_HUMAN
+        # _commit_state only commits when the staged diff is non-empty.
+        mock_git.side_effect = lambda *args, **kwargs: MagicMock(
+            stdout="abc1234\n", returncode=1 if args[0] == "diff" else 0
+        )
+        state_store.save_pipeline(pipeline)
+
+        commit_calls = [c for c in mock_git.call_args_list if "commit" in c[0]]
+        assert len(commit_calls) == 1
+
+    def test_delete_prompt_driven_pipeline_commits_by_default(self, state_store, mock_git):
+        """Deletions commit regardless of pipeline origin (#3070 invariant)."""
+        pipeline = Pipeline(
+            id="pipeline-cafef00d",
+            issue_number=None,
+            repo="owner/repo",
+            branch="egg/pipeline-cafef00d",
+            prompt="free-text pipeline",
+        )
+        state_store.save_pipeline(pipeline, commit=False)
+        mock_git.reset_mock()
+        # Deletion stages then commits when the diff reports staged changes.
+        mock_git.side_effect = lambda *args, **kwargs: MagicMock(
+            stdout="abc1234\n", returncode=1 if args[0] == "diff" else 0
+        )
+
+        state_store.delete_pipeline("pipeline-cafef00d")
+
+        commit_calls = [c for c in mock_git.call_args_list if "commit" in c[0]]
+        assert len(commit_calls) == 1
+
 
 class TestPipelineUpdate:
     """Tests for updating pipelines."""
@@ -1579,7 +1624,7 @@ class TestCommitFailureResilience:
         mock_git.side_effect = failing_git
 
         pipeline.status = PipelineStatus.RUNNING
-        path = state_store.save_pipeline(pipeline, force_commit=True)
+        path = state_store.save_pipeline(pipeline)
 
         # File must be valid JSON and loadable
         loaded = state_store.load_pipeline("issue-702")
@@ -1597,7 +1642,7 @@ class TestCommitFailureResilience:
         )
 
         with patch.object(state_store, "_commit_state", side_effect=GitOperationError("boom")):
-            path = state_store.save_pipeline(pipeline, force_commit=True)
+            path = state_store.save_pipeline(pipeline)
 
         assert path.exists()
         loaded = state_store.load_pipeline("issue-703")
