@@ -116,8 +116,8 @@ if [ -f "$REGISTRIES_YAML" ]; then
 fi
 
 echo "==> Writing ${REGISTRIES_YAML} and restarting k3s to pick it up..."
-echo "    (k3s only reads registries.yaml at startup; the restart bounces the"
-echo "    k3s service itself, not the running pods)"
+echo "    (k3s only reads registries.yaml at startup; the restart is brief and"
+echo "    running pod containers reattach when containerd comes back)"
 if ! printf '%s\n' "$wanted_yaml" | sudo tee "$REGISTRIES_YAML" >/dev/null; then
   echo "ERROR: could not write ${REGISTRIES_YAML} (no sudo?). Run by hand:" >&2
   echo "" >&2

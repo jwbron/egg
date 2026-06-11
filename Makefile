@@ -717,10 +717,10 @@ redeploy: sudo-keepalive build k3s-publish deploy  ## Rebuild, publish images, a
 
 # Publish dispatch (issue #2999): in registry mode, push the registry subset
 # (layer-incremental — the fast path) and save+import the rest (the sandbox,
-# unless opted in via EGG_REGISTRY_IMAGES); without a registry, save+import
-# everything.
+# unless opted in via EGG_REGISTRY_IMAGES); without a registry — or with an
+# empty registry subset (EGG_REGISTRY_IMAGES="") — save+import everything.
 k3s-publish: sudo-keepalive
-	@if [ -n "$(EGG_IMAGE_REGISTRY)" ]; then \
+	@if [ -n "$(EGG_IMAGE_REGISTRY)" ] && [ -n "$(strip $(EGG_REGISTRY_IMAGES))" ]; then \
 		$(MAKE) --no-print-directory k3s-push; \
 		if [ -n "$(strip $(EGG_IMPORT_IMAGES))" ]; then \
 			$(MAKE) --no-print-directory k3s-import K3S_IMPORT_IMAGES="$(EGG_IMPORT_IMAGES)"; \

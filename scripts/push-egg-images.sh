@@ -68,12 +68,17 @@ if [ -d /etc/rancher/k3s ] && ! grep -qs "\"${REGISTRY}\":" /etc/rancher/k3s/reg
   exit 1
 fi
 
+# Push :TAG, then :latest if it differs (the `git describe` fallback outside a
+# git checkout sets TAG=latest, in which case the second push would be a
+# manifest-only no-op against the same ref — harmless but misleading in logs).
+tags=("$TAG")
+[ "$TAG" != "latest" ] && tags+=("latest")
 for image in "${IMAGES[@]}"; do
-  echo ">>> pushing ${REGISTRY}/${image}:${TAG}"
-  docker push "${REGISTRY}/${image}:${TAG}"
-  # Same digest as :TAG — manifest-only upload, no layer data moves.
-  echo ">>> pushing ${REGISTRY}/${image}:latest"
-  docker push "${REGISTRY}/${image}:latest"
+  for tag in "${tags[@]}"; do
+    echo ">>> pushing ${REGISTRY}/${image}:${tag}"
+    # Same digest across the two tags — manifest-only upload, no layer data moves.
+    docker push "${REGISTRY}/${image}:${tag}"
+  done
 done
 
 for image in "${IMAGES[@]}"; do
