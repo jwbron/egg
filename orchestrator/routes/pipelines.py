@@ -12026,15 +12026,13 @@ def _build_brc_preamble(
         if phase == "implement":
             propose_line += (
                 "\n\n"
-                "   **Mark your contract tasks complete (#3114).** When a task "
-                "you own is delivered, record it: `mcp__task__complete` (with "
-                "the commit) — the contract reviewer's ACK is structurally "
-                "gated on your task rows being status=complete, so consensus "
-                "CANNOT close while your finished work is still recorded as "
-                "pending. If a task depends on a peer's work that has not "
-                "landed yet, say so in your proposal and deliver it on the "
-                "re-propose after the dependency lands — the gate holds the "
-                "slice open for you; deferred work is never silently dropped."
+                "   **Mark your contract tasks complete (#3114).** Record each "
+                "delivered task with `mcp__task__complete` (link the commit) — "
+                "the contract reviewer's ACK is gated on your rows being "
+                "`complete`, so finished-but-unrecorded work blocks the slice. "
+                "A task waiting on a peer's work: note it in your proposal and "
+                "deliver after the dependency lands; the gate holds the slice "
+                "open until then."
             )
             propose_line += (
                 "\n\n"
@@ -12049,10 +12047,8 @@ def _build_brc_preamble(
                 "you; reviewers accept it as a non-blocking no-op (they will not "
                 "NACK it). Then CONFIRM (step 5) as normal once peers have proposed. "
                 "Reach for a real propose instead the moment you do find work "
-                "(e.g. the coder's diff turns out to need docs). The orchestrator "
-                "rejects a no-op while you still own incomplete contract tasks in "
-                "this slice (#3114) — deliver them or escalate; a no-op is not an "
-                "exit from assigned work."
+                "(e.g. the coder's diff turns out to need docs). Rejected while "
+                "you still own incomplete contract tasks here (#3114)."
             )
         producer_lifecycle.extend(
             [
