@@ -46,7 +46,9 @@ Each hardcoding is an independent opportunity for write-path drift — exactly t
 
 ### Message-store durability (clause-1 prerequisite)
 
-`orchestrator/message_store.py:589-633`: backend selection via `EGG_MESSAGE_STORE_BACKEND` (`redis` / `memory` / `auto`); Redis Streams when available (≈621), in-memory `MessageStore` fallback (≈613, 633). The issue's named concern — disk brc-history is *structurally* empty mid-phase, so a mid-phase orchestrator restart on the memory backend reproduces the #3076 condition exactly when the fallback is needed. The `_clear_concurrent_state()` symbol named in the issue body no longer exists; the nearest analogue is `reset_message_store()` (≈636-639, singleton reset). The Redis path covers most of the risk; the gap is the memory backend running where durability matters, **silently**.
+`orchestrator/message_store.py:589-633`: backend selection via `EGG_MESSAGE_STORE_BACKEND` (`redis` / `memory` / `auto`); Redis Streams when available (≈621), in-memory `MessageStore` fallback (≈613, 633). The issue's named concern — disk brc-history is *structurally* empty mid-phase, so a mid-phase orchestrator restart on the memory backend reproduces the #3076 condition exactly when the fallback is needed.
+
+Two distinct wipe semantics must not be conflated here. `_clear_concurrent_state()` (`orchestrator/routes/phases.py:113`, called at phases.py:719/1194/1615 and from `routes/pipelines.py` at ≈23978, 24230, 25061, 25095) performs the **intentional, designed** wipe of the message store and BRC consensus tracker at phase transitions — that loss is by construction, after brc-history persistence has captured the transcript. The durability gap this pipeline bounds is the *other* loss mode: **accidental mid-phase restart loss on the memory backend**, which no code intends. (`reset_message_store()`, ≈636-639, is a test-only singleton reset and unrelated to either.) The Redis path covers most of the accidental-loss risk; the gap is the memory backend running where durability matters, **silently**.
 
 ### Phase-3 deletion/demotion list (prompt sync mechanics found)
 
@@ -75,7 +77,7 @@ Nothing declarative exists yet: phases are a code enum (`shared/egg_contracts/mo
 3. **Spec-derived propose validation**: generalize `signals.py:1076-1139` to all producer roles via the spec; keep the plan-specific parseability/role-alignment checks as plan-artifact extensions.
 4. **Gateway artifact-read endpoint**: `POST /api/v1/artifact/get` (name + ref → content via `git show` on the authoritative repo), modeled on `contract_api.py`; output caps consistent with existing handlers; sandbox-side read helper. Cross-link as unblocking #3002.
 5. **Phase-3 cleanup + ratchet**: delete REVIEWER-SYNC fetch prose + event-prompt fallback sync instructions; `docs/architecture` invariant entry; test scanning agent-facing prompt templates for sync mechanics.
-6. **Bounded durability**: fail-loud signal when BRC runs on the memory backend; restart-semantics test for the Redis Streams path.
+6. **Bounded durability**: fail-loud signal when BRC runs on the memory backend; restart-semantics test for the Redis Streams path. The test must distinguish the **designed** phase-boundary wipe performed by `_clear_concurrent_state()` (`routes/phases.py:113`) from **accidental** mid-phase restart loss — only the latter is a durability defect; the former must keep happening.
 
 ## Open Questions (HITL)
 
