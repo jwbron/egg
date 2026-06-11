@@ -8,6 +8,14 @@
       "repo": null,
       "role": "coder"
     },
+    "9c8a7c8e3bc976000bb561d103258c1783167649": {
+      "branch": "egg/pipeline-13643fa6/slice-1",
+      "patch_id": "e34362058713d231c3de2ef6a61f034374da96cc",
+      "pipeline_id": "pipeline-13643fa6",
+      "registered_at": "2026-06-11T09:37:57.819924+00:00",
+      "repo": null,
+      "role": "tester"
+    },
     "b02def7d8b5a0283ad7058d9b2aedf6429b6f749": {
       "branch": "egg/pipeline-13643fa6/slice-1",
       "patch_id": "4f62c7f309945045684a8ba31c8c31a4182d37fc",
