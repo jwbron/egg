@@ -283,8 +283,8 @@ class TestComposeContextPrBody:
         )
 
         assert body.startswith("The narrative.")
-        assert "## Test plan\n\n- Automated: make test-all." in body
-        assert "## Manual steps\n\nPost-merge: redeploy." in body
+        assert "## Test Plan\n\n- Automated: make test-all." in body
+        assert "## Manual Steps\n\nPost-merge: redeploy." in body
         assert "## Pipeline context" in body
         assert "- Pipeline: `issue-2777`" in body
         assert "- Issue: #2777" in body
@@ -306,14 +306,76 @@ class TestComposeContextPrBody:
             identifier=2777,
         )
         assert body.startswith("The narrative.")
-        assert "## Test plan" not in body
-        assert "## Manual steps" not in body
+        assert "## Test Plan" not in body
+        assert "## Manual Steps" not in body
         # No drafts / transcripts on disk → no dangling links.
         assert "- Docs:" not in body
         assert "BRC transcripts" not in body
         assert "- Slices" not in body
-        # The footer itself always renders.
+        # The footer renders because the pipeline carries an issue number,
+        # which is meaningful content beyond the bare pipeline-id line.
         assert "## Pipeline context" in body
+        assert "- Issue: #2777" in body
+
+    def test_no_repo_or_branch_skips_artifact_links(self, tmp_path):
+        """#3115 follow-up: when ``pipeline.repo`` or ``pipeline.branch``
+        is unset the ``link_base`` guard fires — no Docs / BRC lines
+        render, but the rest of the footer still does."""
+        from egg_contracts.models import Slice
+
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "2777-plan.md").write_text("plan")
+
+        body = _compose_context_pr_body(
+            contract=self._contract(slices=[Slice(id="slice-1", name="Foundation", tasks=[])]),
+            pipeline=_make_pipeline(repo="", branch=""),
+            worktree_repo_path=tmp_path,
+            identifier=2777,
+        )
+        assert "## Pipeline context" in body
+        assert "- Issue: #2777" in body
+        assert "- Slices (1):" in body
+        assert "- Docs:" not in body
+        assert "BRC transcripts" not in body
+
+    def test_no_issue_number_omits_issue_line(self, tmp_path):
+        """#3115 follow-up: prompt-driven pipelines have no originating
+        issue number — the ``- Issue:`` line is suppressed cleanly."""
+        body = _compose_context_pr_body(
+            contract=self._contract(),
+            pipeline=Pipeline(
+                id="pipeline-2d9cc50d",
+                issue_number=None,
+                repo="owner/repo",
+                branch="egg/pipeline-2d9cc50d/work",
+                base_branch="main",
+                mode="issue",
+                status=PipelineStatus.RUNNING,
+                current_phase=PipelinePhase.PLAN,
+            ),
+            worktree_repo_path=tmp_path,
+            identifier="pipeline-2d9cc50d",
+        )
+        # No issue, no slices, no docs, no BRC → no "## Pipeline context"
+        # at all (the bare pipeline-id line is noise on its own).
+        assert "- Issue:" not in body
+        assert "## Pipeline context" not in body
+
+    def test_phase_n_slice_id_renders_clean_number(self, tmp_path):
+        """#3115 follow-up: ``Slice.id`` still permits the legacy
+        ``phase-N`` shape — ``s.id.removeprefix('slice-')`` left it
+        as ``phase-1``. Strip both prefixes."""
+        from egg_contracts.models import Slice
+
+        body = _compose_context_pr_body(
+            contract=self._contract(slices=[Slice(id="phase-1", name="Foundation", tasks=[])]),
+            pipeline=_make_pipeline(),
+            worktree_repo_path=tmp_path,
+            identifier=2777,
+        )
+        assert "1. Foundation (`phase-1`)" in body
+        assert "phase-1. Foundation" not in body
 
 
 class TestOpenContextPRAtImplementStartTypedErrors:

@@ -274,6 +274,9 @@ def _format_slice_title(program_slug: str, position_marker: str, subject: str) -
     return f"[{program_slug}][{position_marker}] {subject}".strip()
 
 
+_TITLE_TRAILING_PUNCT = " \t\r\n.,;:!?-+/\\|&*=~^<>"
+
+
 def _truncate_title(title: str, max_len: int = 70) -> str:
     """Truncate ``title`` to ``max_len`` chars at a word boundary.
 
@@ -281,15 +284,22 @@ def _truncate_title(title: str, max_len: int = 70) -> str:
     titles like ``claim-che...`` (#3115). When a space exists in the
     back half of the truncated prefix the cut moves to it, so the
     ellipsis follows a whole word; otherwise (one giant token) the
-    hard cut is kept.
+    hard cut is kept. Any trailing punctuation / symbols are stripped
+    before ``...`` is appended so we don't produce results like
+    ``library +...`` (the ``...`` itself is the only trailing
+    punctuation we want).
     """
     if len(title) <= max_len:
         return title
+    # Guard against degenerate ``max_len`` — without this,
+    # ``_truncate_title("a a", 2)`` returns ``"a..."`` (length 4 > 2).
+    if max_len <= 3:
+        return title[:max_len]
     prefix = title[: max_len - 3]
     space = prefix.rfind(" ")
     if space > (max_len - 3) // 2:
         prefix = prefix[:space]
-    return prefix.rstrip() + "..."
+    return prefix.rstrip(_TITLE_TRAILING_PUNCT) + "..."
 
 
 def _first_sentence(text: str, max_len: int = 120) -> str:

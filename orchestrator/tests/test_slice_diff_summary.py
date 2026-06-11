@@ -90,12 +90,33 @@ def test_returns_subjects_and_diffstat(repo):
 
 def test_fetch_failure_is_nonfatal(repo):
     """A failing gateway fetch degrades to the existing refs (which the
-    fixture already planted) instead of dropping the whole summary."""
+    fixture already planted) instead of dropping the whole summary.
+    ``fetch_branch`` catches everything internally and returns ``False``
+    (gateway_client.py:3150-3157), so the helper just continues."""
     spawner = MagicMock()
-    spawner.gateway.fetch_branch.side_effect = RuntimeError("gateway down")
+    spawner.gateway.fetch_branch.return_value = False
     subjects, diffstat = _build_slice_diff_summary(_pipeline(), spawner, repo, "slice-1", "work")
     assert subjects == ["iterate on feature", "add feature module"]
     assert diffstat is not None
+
+
+def test_threads_gateway_mode_to_fetch_branch(repo):
+    """#3115 follow-up: the helper must thread the pipeline-computed
+    ``gateway_mode`` through to ``fetch_branch``. Defaulting to
+    ``public`` against a private/internal repo causes the gateway to
+    refuse the session and the diff summary silently no-ops."""
+    spawner = MagicMock()
+    _build_slice_diff_summary(
+        _pipeline(),
+        spawner,
+        repo,
+        "slice-1",
+        "work",
+        gateway_mode="private",
+    )
+    assert spawner.gateway.fetch_branch.call_count == 2
+    for call in spawner.gateway.fetch_branch.call_args_list:
+        assert call.kwargs["mode"] == "private"
 
 
 def test_missing_refs_return_none(tmp_path):

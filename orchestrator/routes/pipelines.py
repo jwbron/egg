@@ -9453,7 +9453,9 @@ def _compose_context_pr_body(
     deterministically knows about. This helper restores the full shape:
 
     1. The planner's ``description`` (narrative, verbatim).
-    2. ``## Test plan`` / ``## Manual steps`` from the contract fields.
+    2. ``## Test Plan`` / ``## Manual Steps`` from the contract fields
+       (Title Case matches the global PR template and the slice PR's
+       inline-narrative branch in ``gateway_client.py``).
     3. A generated ``## Pipeline context`` footer: pipeline id,
        originating issue, the slice table, and links to the refine
        analysis draft, the plan draft, and the per-phase BRC
@@ -9478,25 +9480,36 @@ def _compose_context_pr_body(
 
     test_plan = (pr.test_plan or "").strip() if pr else ""
     if test_plan:
-        sections.append(f"## Test plan\n\n{test_plan}")
+        sections.append(f"## Test Plan\n\n{test_plan}")
 
     manual_steps = (pr.manual_steps or "").strip() if pr else ""
     if manual_steps:
-        sections.append(f"## Manual steps\n\n{manual_steps}")
+        sections.append(f"## Manual Steps\n\n{manual_steps}")
 
-    context_lines: list[str] = ["## Pipeline context", ""]
-    context_lines.append(f"- Pipeline: `{pipeline.id}`")
+    # Build the footer body first; only emit the ``## Pipeline context``
+    # header when *more than* the bare pipeline-id line gets added (a
+    # single ``- Pipeline: <id>`` line under its own ``##`` header is
+    # noise — every reviewer can read that off the URL).
+    body_lines: list[str] = [f"- Pipeline: `{pipeline.id}`"]
+    has_meaningful_content = False
     if pipeline.issue_number:
         # Bare ``#N`` autolinks within the same repo, which is where
         # the pipeline's originating issue lives.
-        context_lines.append(f"- Issue: #{pipeline.issue_number}")
+        body_lines.append(f"- Issue: #{pipeline.issue_number}")
+        has_meaningful_content = True
 
     slices = list(contract.slices or [])
     if slices:
-        context_lines.append(f"- Slices ({len(slices)}):")
+        body_lines.append(f"- Slices ({len(slices)}):")
         for s in slices:
             name = " ".join((s.name or s.id).split())
-            context_lines.append(f"  {s.id.removeprefix('slice-')}. {name} (`{s.id}`)")
+            # Strip both ``slice-`` and the legacy ``phase-`` prefix —
+            # ``Slice.id`` still permits the latter (models.py) and
+            # ``_migrate_phases_to_slices`` only rewrites it on JSON
+            # load, so a directly-constructed Slice can still carry it.
+            number = s.id.removeprefix("slice-").removeprefix("phase-")
+            body_lines.append(f"  {number}. {name} (`{s.id}`)")
+        has_meaningful_content = True
 
     link_base: str | None = None
     if pipeline.repo and pipeline.branch:
@@ -9511,13 +9524,16 @@ def _compose_context_pr_body(
             if rel_path and (worktree_repo_path / rel_path).is_file():
                 doc_links.append(f"[{label}]({link_base}/{rel_path})")
         if doc_links:
-            context_lines.append(f"- Docs: {', '.join(doc_links)}")
+            body_lines.append(f"- Docs: {', '.join(doc_links)}")
+            has_meaningful_content = True
         brc_line = _build_brc_history_link_line(worktree_repo_path, identifier, link_base=link_base)
         if brc_line:
-            context_lines.append("")
-            context_lines.append(brc_line)
+            body_lines.append("")
+            body_lines.append(brc_line)
+            has_meaningful_content = True
 
-    sections.append("\n".join(context_lines))
+    if has_meaningful_content:
+        sections.append("\n".join(["## Pipeline context", "", *body_lines]))
     return "\n\n".join(sections)
 
 
@@ -10994,6 +11010,7 @@ def _build_slice_diff_summary(
     worktree_repo_path: Path,
     integration_branch: str,
     parent_branch: str,
+    gateway_mode: Literal["public", "private"] = "public",
 ) -> tuple[list[str] | None, str | None]:
     """Compute commit subjects + diffstat for a slice PR body (#3115).
 
@@ -11009,7 +11026,11 @@ def _build_slice_diff_summary(
     ``GatewayClient.fetch_branch`` — the slice's agents push directly to
     origin, so the orchestrator worktree's tracking refs may lag (same
     pattern as :func:`_commit_slice_brc_history_to_integration_branch`,
-    which runs immediately before this in the slice loop).
+    which runs immediately before this in the slice loop). ``gateway_mode``
+    must be threaded from the pipeline-computed mode at the call site;
+    defaulting to ``public`` against a private/internal repo causes the
+    gateway to refuse the session and the whole diff section silently
+    no-ops.
 
     Strictly best-effort: returns ``(None, None)`` on any failure
     (fetch, git error, timeout) and never raises — a missing diff
@@ -11018,22 +11039,15 @@ def _build_slice_diff_summary(
     pipeline_id = pipeline.id
     try:
         for branch in (parent_branch, integration_branch):
-            try:
-                spawner.gateway.fetch_branch(
-                    pipeline_id,
-                    str(worktree_repo_path),
-                    args=[f"+refs/heads/{branch}:refs/remotes/origin/{branch}"],
-                )
-            except Exception as fetch_err:  # noqa: BLE001
-                # The ref may already be current (the BRC-history hook
-                # fetched the integration branch moments ago); a stale
-                # parent ref degrades the diffstat, it doesn't break it.
-                logger.debug(
-                    "Slice diff summary: fetch_branch failed (continuing) (#3115)",
-                    pipeline_id=pipeline_id,
-                    branch=branch,
-                    error=str(fetch_err),
-                )
+            # ``fetch_branch`` swallows exceptions and returns False;
+            # a stale parent ref degrades the diffstat, it doesn't
+            # break it, so we just continue.
+            spawner.gateway.fetch_branch(
+                pipeline_id,
+                str(worktree_repo_path),
+                args=[f"+refs/heads/{branch}:refs/remotes/origin/{branch}"],
+                mode=gateway_mode,
+            )
 
         git_base = [
             "git",
@@ -16690,6 +16704,7 @@ def _run_implement_phase_slices(
                         worktree_repo_path,
                         integration_branch,
                         parent_branch,
+                        gateway_mode=gateway_mode,  # type: ignore[arg-type]
                     )
                     try:
                         spawner.gateway.create_slice_pr(

@@ -1656,6 +1656,31 @@ class TestCreateSlicePR:
         # The pre-#3115 hard cut produced "claim-che..."; the word-boundary
         # cut must end on a whole token.
         assert not title.endswith("claim-che...")
+        # Trailing punctuation / symbols must be stripped before ``...``
+        # so we don't end up with ``library +...`` / ``library -...``.
+        head = title[:-3].rstrip()
+        assert head[-1].isalnum(), f"title {title!r} ends with non-alphanumeric before ellipsis"
+
+    def test_truncate_title_helper_strips_trailing_punctuation_and_guards_max_len(self):
+        """#3115 follow-up: trailing punctuation gets stripped before the
+        ``...`` is appended (so ``library + ...`` doesn't happen), and a
+        degenerate ``max_len <= 3`` returns a string no longer than
+        ``max_len`` instead of ``"a..."``."""
+        from gateway_client import _truncate_title
+
+        # Force a real truncation by aiming the cut at the trailing ``+``.
+        # ``Foundation: source-of-truth library +`` is 39 chars, so
+        # ``max_len=40`` puts the cut point right after the ``+``; the
+        # pre-fix code returned ``…library +...``.
+        cut = _truncate_title("Foundation: source-of-truth library + verifier", max_len=40)
+        assert cut.endswith("...")
+        assert not cut.endswith("+...")
+        assert not cut.endswith(" ...")
+
+        # Degenerate guard: pre-fix returned ``"a..."`` (length 4) for
+        # ``max_len=2``; the guard now caps the length at ``max_len``.
+        assert len(_truncate_title("longer than two", max_len=2)) <= 2
+        assert len(_truncate_title("aaaaaaa", max_len=3)) <= 3
 
     def test_non_terminal_slice_with_base_pr_renders_lean_body(self, gateway_client):
         """#2745: when the base/context PR (#2548) exists, non-terminal slice

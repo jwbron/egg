@@ -185,7 +185,7 @@ the agent reads to recover the task:
 > **Context-PR body composition (#3115).** The opener composes the PR
 > body via `_compose_context_pr_body` rather than sending
 > `contract.pr.description` verbatim: the planner's `description`, then
-> rendered `## Test plan` / `## Manual steps` sections from
+> rendered `## Test Plan` / `## Manual Steps` sections from
 > `pr.test_plan` / `pr.manual_steps` (these fields were silently dropped
 > between #2777 and #3115 despite being preflight-required), then a
 > generated `## Pipeline context` footer — pipeline id, originating
