@@ -431,8 +431,8 @@ curl -X POST http://egg-orchestrator:9849/api/v1/contracts/<pipeline-id>/tasks/T
 
 | HTTP | Meaning |
 |------|---------|
-| 404 | Pipeline worktree or contract not found |
-| 400 | Mutation rejected (e.g., invalid task id) |
+| 404 | Pipeline worktree, contract, or task id not found |
+| 400 | Mutation rejected by the contract validator, or malformed request body / unresolvable pipeline id |
 | 500 | Contract save failed |
 
 ## BRC Consensus Protocol

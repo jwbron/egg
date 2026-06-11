@@ -515,10 +515,11 @@ marking the task complete as an audited operator action under `Role.HUMAN`. This
 replaces the previous workaround of `kubectl exec` into an agent pod and impersonating
 the agent's role.
 
-Optional commit evidence: append "commit `<sha>`" immediately after the completion
+Optional commit evidence: append "commit <sha>" immediately after the completion
 clause (e.g. `Mark task TASK-1-2 complete, commit abc1234`) to link the commit to the
-task row. Commits embedded later in the reply (with intervening prose) are not
-captured, to prevent unintended evidence attachment.
+task row. Write the SHA bare — the regex matches hex digits directly, not a
+backticked span. Commits embedded later in the reply (with intervening prose) are
+not captured, to prevent unintended evidence attachment.
 
 **Primary use case:** A task is (re)assigned to a producer that has already CONFIRMED.
 The `#3114` completeness gate holds the slice open over the undelivered row, while the
@@ -527,10 +528,12 @@ producer's CONFIRMED state blocks it from re-proposing. An HITL decision with a
 or the impasse-routing escalation) lets the operator unblock the slice without
 impersonating an agent role.
 
-After execution, the producer's consensus participation is automatically reopened on its
-next `next-action` poll (CONFIRMED → WORKING), so the existing re-propose machinery
-applies. If the producer wrapper already exited after CONFIRMED before the reopen fires,
-the direct REST path remains available:
+After the task is marked complete, the #3114 completeness gate releases over that row
+and the slice can finalize without the producer re-entering WORKING — the producer
+stays CONFIRMED. The HITL dispatch and the direct REST path (below) are two equivalent
+surfaces to the same `complete_task_as_operator` mutation; use REST when there is no
+live HITL decision to attach the dispatch to (e.g. the operator wants to act directly
+without first creating a decision).
 
 ```bash
 curl -X POST http://egg-orchestrator:9849/api/v1/contracts/<pipeline-id>/tasks/<task-id>/complete \
@@ -541,6 +544,12 @@ curl -X POST http://egg-orchestrator:9849/api/v1/contracts/<pipeline-id>/tasks/<
 
 Auth: lifecycle-secret guarded (operator/host surface only — not proxied by the gateway
 to sandbox agents).
+
+Note: #3129 also adds a *separate* auto-reopen mechanism that fires when a task is
+**reassigned** to a confirmed producer — see `_maybe_reopen_confirmed_producer` in
+`routes/consensus.py`. That path lets the producer re-propose against the new task. It
+does **not** fire after the operator-completion path above, because the completion flips
+the row to `complete` and `incomplete_tasks` then returns nothing to reopen for.
 
 ## Related Files
 
