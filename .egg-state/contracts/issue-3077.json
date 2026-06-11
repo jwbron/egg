@@ -14,7 +14,7 @@
       "id": "slice-1",
       "name": "R1 non-silent sync: surface sync_to_proposals() failures in the agent prompt",
       "goal": "sync_to_proposals() records per-SHA outcomes and the wrapper prepends\na NOT-synced banner to the fetched event prompt on any failure;\nthe event-prompt empty-delta caution cross-references the banner.\nSync behavior itself is unchanged.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -23,10 +23,10 @@
         {
           "id": "task-1-1",
           "description": "Record per-SHA sync outcomes and prepend the failure banner. In\n`orchestrator/consensus_wrapper.py` `sync_to_proposals()`\n(\u2248487-541), record an outcome per proposal SHA \u2014 `merged`,\n`already-ancestor`, `unresolvable`, `merge-failed` \u2014 at each\ncurrently fail-soft step (unresolvable SHA \u2248524-526; failed or\nconflicting merge \u2248534-535). On any failure outcome, the wrapper\nprepends a banner to the fetched event prompt BEFORE invoking the\nagent: \"worktree NOT synced to `<sha>` (`<reason>`); treat your\nlocal diff as unreliable \u2014 use the `git show` commands below.\"\nKeep the existing log lines; sync/abort semantics are unchanged \u2014\nonly outcome recording and banner prepending are new.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "ed19232eb2e4867b854f24b1b42de85c7b927d4c",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Implemented in orchestrator/consensus_wrapper.py:\n- Added a top-level ``SYNC_FAILURE_BANNERS`` shell variable, reset at the top of every ``sync_to_proposals()`` call.\n- Each pending review SHA records an explicit outcome via ``cw_log`` (``sync-to-proposal: outcome={merged,already-ancestor,unresolvable,merge-failed} sha=<sha>``).\n- On ``unresolvable`` or ``merge-failed`` outcomes the function appends a banner (\"worktree NOT synced to `<sha>` (`<reason>`); treat your local diff as unreliable \u2014 use the `git show` commands below.\") to ``SYNC_FAILURE_BANNERS``.\n- ``invoke_agent_for_event()`` prepends the accumulated banner to the composed prompt before handing it to the agent and re-clears the variable, so the no-failure path is byte-identical to slice-0 and a subsequent ``propose`` arm (R11a) inherits a clean state.\n\nSync/abort semantics are unchanged: merge --abort still runs on conflict; the function still ``return 0`` regardless of failures.\n\nVerification:\n- bash -n on the rendered template passes (Python str.format brace escaping correct).\n- TestSyncToProposals non-behavioral tests (5/5) pass.\n- Behavioral tests require git init inside /tmp which the container blocks; they would exercise the unchanged sync/abort path.",
           "acceptance_criteria": "- A conflicting merge yields a `merge-failed` outcome and the\n  banner (with SHA and reason) in the prompt handed to the agent.\n- An unresolvable SHA yields `unresolvable` + banner.\n- `merged` and `already-ancestor` outcomes produce no banner and a\n  byte-identical prompt.\n- Merge/abort behavior of sync_to_proposals() is unchanged.",
           "files_affected": [
             "orchestrator/consensus_wrapper.py"
@@ -44,10 +44,10 @@
         {
           "id": "task-1-2",
           "description": "Cross-reference the banner from the empty-delta caution. Update the\nempty-delta caution text in\n`orchestrator/routes/event_prompt.py` (\u2248266-281, inside\n`_render_producer_delta_section`) to point at the wrapper banner:\nwhen the delta is empty AND the worktree may not be synced, the\ncaution tells the reviewer to check for the NOT-synced banner and\nfall back to the rendered `git show` commands. No other rendering\nchanges in this slice.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "ed19232eb2e4867b854f24b1b42de85c7b927d4c",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Updated empty-delta caution in orchestrator/routes/event_prompt.py ``_render_producer_delta_section`` (legacy-payload ``else`` branch where ``proposal_sha`` is missing).\n\nThe caution now:\n- explicitly tells the reviewer to check for the slice-1 ``worktree NOT synced to <sha>`` banner at the top of the prompt;\n- says: when present, fall back to the rendered ``git show <sha>:<path>`` commands rather than the local diff;\n- preserves the prior advice to read the producer's branch via ``git log <producer-branch-or-sha> --not origin/<base> -p`` as the final fallback.\n\n``CAUTION`` and ``NOT evidence`` markers the existing snapshot test (test_render_delta_section_shows_proposal_sha_and_cautions_on_head) pins are preserved. The proposal-scoped (re-review-is-a-no-op) branch and the delta-present branch are untouched, so non-empty-delta rendering is byte-identical to today.\n\nVerification: full test_compose_event_prompt.py suite (85 tests) pass.",
           "acceptance_criteria": "- Empty-delta caution names the NOT-synced banner and the\n  `git show` fallback.\n- Non-empty-delta rendering is byte-identical to today.",
           "files_affected": [
             "orchestrator/routes/event_prompt.py"
@@ -65,8 +65,8 @@
         {
           "id": "task-1-3",
           "description": "Tests for non-silent sync: extend\n`orchestrator/tests/test_consensus_wrapper.py` with outcome\nrecording cases (merged, already-ancestor, unresolvable,\nmerge-failed via a simulated conflicting merge \u2014 fixture repo or\nmocked git calls matching existing test style) and assert the\nbanner is present in the agent-visible prompt on failure and\nabsent on success. Extend\n`orchestrator/tests/test_compose_event_prompt.py` for the\nempty-delta caution cross-reference.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "05397a6689b8bc69aa7dbe0b5ac9e76da49589fa",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Simulated conflicting merge \u21d2 banner present in the\n  agent-visible prompt (the R1 acceptance from refine).\n- Successful sync \u21d2 no banner, prompt unchanged.\n- All four outcome values covered at the wrapper level.",
@@ -87,11 +87,11 @@
       ],
       "dependencies": [],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3077/work",
+      "integration_base_sha": "0f16d34cbef74fa9d89149caf7e182f45a07a25b",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3140,
+      "pr_url": "https://github.com/jwbron/egg/pull/3140",
       "review_feedback": []
     },
     {
@@ -365,8 +365,8 @@
         {
           "id": "task-5-2",
           "description": "Delete/demote prompt-template sync prose (documenter-owned \u2014\n`shared/prompts/` is blocked for coder per\nshared/egg_restrictions/patterns.py). Replace the\n`shared/prompts/REVIEWER-SYNC.md` fetch/log delta-command row\n(\u2248109-111) with served-reads wording: wrapper-performed sync, the\nrendered `git show` delta commands, and the `egg-artifact` verb.\nDemote residual per-role draft-location prose in other\nagent-facing templates under `shared/prompts/` to a reference to\nthe artifact spec / `egg-artifact`.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "58c338528eba8abc4b73d8dcd85b42af6cbc0f36",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- No `git fetch` / `git merge` / `git pull` instruction text\n  remains in REVIEWER-SYNC.md or other shared/prompts\n  agent-facing templates.\n- No template references a brc-history disk path.\n- Replacement prose names the served mechanisms (wrapper sync,\n  git show delta commands, egg-artifact).",
@@ -386,8 +386,8 @@
         {
           "id": "task-5-3",
           "description": "Architecture invariant entry: add\n`docs/architecture/coordination-state.md` (NEW) stating the\nthree-clause invariant \u2014 (1) served reads for everything an agent\nconsumes but doesn't own, (2) harness-performed deterministic\nsync where a real checkout is needed, (3) one artifact spec from\nwhich validation, the read API, and prompt text derive \u2014 with the\nincident lineage from #3077, the mechanism map (read_peer_artifact,\nsync banner, artifact_spec, /api/v1/artifact/get, ratchet test),\nthe designed `_clear_concurrent_state` wipe vs accidental\nmid-phase loss distinction, and the #3002 unblocking note. Link\nfrom `docs/index.md`.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "58c338528eba8abc4b73d8dcd85b42af6cbc0f36",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Three clauses stated normatively (MUST language) with the\n  enforcing mechanism named for each.\n- `docs/index.md` links the new page.\n- Wipe-semantics distinction documented.",
@@ -685,6 +685,160 @@
       },
       "reason": "Created HITL decision: Durability bar for the BRC message store (clause-1...",
       "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:29:24.201627Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "ed19232eb2e4867b854f24b1b42de85c7b927d4c",
+      "reason": "Linked commit ed19232 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:29:24.232718Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "ed19232eb2e4867b854f24b1b42de85c7b927d4c",
+      "reason": "Linked commit ed19232 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:29:24.264908Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.notes",
+      "old_value": "",
+      "new_value": "Implemented in orchestrator/consensus_wrapper.py:\n- Added a top-level ``SYNC_FAILURE_BANNERS`` shell variable, reset at the top of every ``sync_to_proposals()`` call.\n- Each pending review SHA records an explicit outcome via ``cw_log`` (``sync-to-proposal: outcome={merged,already-ancestor,unresolvable,merge-failed} sha=<sha>``).\n- On ``unresolvable`` or ``merge-failed`` outcomes the function appends a banner (\"worktree NOT synced to `<sha>` (`<reason>`); treat your local diff as unreliable \u2014 use the `git show` commands below.\") to ``SYNC_FAILURE_BANNERS``.\n- ``invoke_agent_for_event()`` prepends the accumulated banner to the composed prompt before handing it to the agent and re-clears the variable, so the no-failure path is byte-identical to slice-0 and a subsequent ``propose`` arm (R11a) inherits a clean state.\n\nSync/abort semantics are unchanged: merge --abort still runs on conflict; the function still ``return 0`` regardless of failures.\n\nVerification:\n- bash -n on the rendered template passes (Python str.format brace escaping correct).\n- TestSyncToProposals non-behavioral tests (5/5) pass.\n- Behavioral tests require git init inside /tmp which the container blocks; they would exercise the unchanged sync/abort path.",
+      "reason": "Updated notes for task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:29:24.294153Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.notes",
+      "old_value": "",
+      "new_value": "Updated empty-delta caution in orchestrator/routes/event_prompt.py ``_render_producer_delta_section`` (legacy-payload ``else`` branch where ``proposal_sha`` is missing).\n\nThe caution now:\n- explicitly tells the reviewer to check for the slice-1 ``worktree NOT synced to <sha>`` banner at the top of the prompt;\n- says: when present, fall back to the rendered ``git show <sha>:<path>`` commands rather than the local diff;\n- preserves the prior advice to read the producer's branch via ``git log <producer-branch-or-sha> --not origin/<base> -p`` as the final fallback.\n\n``CAUTION`` and ``NOT evidence`` markers the existing snapshot test (test_render_delta_section_shows_proposal_sha_and_cautions_on_head) pins are preserved. The proposal-scoped (re-review-is-a-no-op) branch and the delta-present branch are untouched, so non-empty-delta rendering is byte-identical to today.\n\nVerification: full test_compose_event_prompt.py suite (85 tests) pass.",
+      "reason": "Updated notes for task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:31:40.540221Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": "ed19232eb2e4867b854f24b1b42de85c7b927d4c",
+      "new_value": "ed19232eb2e4867b854f24b1b42de85c7b927d4c",
+      "reason": "Linked commit ed19232 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:31:40.562496Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:31:40.758858Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": "ed19232eb2e4867b854f24b1b42de85c7b927d4c",
+      "new_value": "ed19232eb2e4867b854f24b1b42de85c7b927d4c",
+      "reason": "Linked commit ed19232 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:31:40.774509Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:35:59.888681Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.1.commit",
+      "old_value": null,
+      "new_value": "58c338528eba8abc4b73d8dcd85b42af6cbc0f36",
+      "reason": "Linked commit 58c3385 to task-5-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:35:59.906157Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-5-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:35:59.948205Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.2.commit",
+      "old_value": null,
+      "new_value": "58c338528eba8abc4b73d8dcd85b42af6cbc0f36",
+      "reason": "Linked commit 58c3385 to task-5-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:35:59.965284Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-5-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:42:51.627715Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": null,
+      "new_value": "05397a6689b8bc69aa7dbe0b5ac9e76da49589fa",
+      "reason": "Linked commit 05397a6 to task-1-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:42:51.653908Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-3 as complete",
+      "checkpoint_id": null
     }
   ],
   "refine_review_cycles": 0,
@@ -696,7 +850,7 @@
     "description": "Issue #3077 identifies a recurring failure class: pipeline coordination\nstate has one logical home but N physical replicas (orchestrator/gateway/\nper-agent worktrees, origin, per-role branches), synchronized by ad-hoc git\nchoreography and prompt prose. Eleven-plus incidents trace to this; served\nchannels (contract API, consensus signals) have produced zero. Phase 1\n(PRs #3078/#3083) landed served BRC transcript reads and wrapper-performed\nsync. This change lands the HITL-approved remaining scope (Option C) on\nthe architect's six-slice DAG (slices 1-5 serialized, slice 6 parallel):\n\n1. **R1 non-silent sync.** `sync_to_proposals()` records per-SHA outcomes\n   and the wrapper prepends a \"worktree NOT synced\" banner to the fetched\n   event prompt on any failure, so a reviewer whose worktree silently\n   failed to sync can no longer trust a stale local diff.\n2. **Artifact spec.** A declarative registry\n   (`shared/egg_contracts/artifact_spec.py`) becomes the single source of\n   truth for artifact name \u2192 path template \u2192 phase \u2192 producer \u2192 consumers,\n   with mandatory consistency tests pinning every existing hardcoding\n   (gateway phase gates, `_get_draft_path`, prompt literals) to it.\n3. **Spec-derived validation.** Propose-time draft validation generalizes\n   from plan-only to every refine/plan producer with a registered\n   artifact, subsuming `_validate_producer_draft_present` and reusing the\n   #3081 graceful-degradation git-show helper; plan keeps its parseability\n   and role-alignment extensions.\n4. **Gateway artifact reads.** `POST /api/v1/artifact/get` serves\n   committed artifact content by spec-registered name + hex-validated ref\n   via `git show` against the authoritative repo \u2014 strict, no raw-path\n   escape hatch (HITL) \u2014 removing the shared-object-store assumption and\n   unblocking #3002. A sandbox `egg-artifact` helper gives agents one\n   verb.\n5. **Prose retirement + ratchet.** REVIEWER-SYNC fetch prose and the\n   event-prompt self-fetch fallback are deleted now that served reads\n   cover them; `docs/architecture` gains the three-clause invariant entry;\n   a ratchet test keeps sync mechanics out of agent-facing prompts.\n6. **Bounded durability.** `auto`\u2192memory fallback fails loud (error log +\n   degraded health flag; explicit memory stays a warning) and a Redis\n   restart-semantics test distinguishes accidental mid-phase loss from the\n   designed `_clear_concurrent_state()` phase-boundary wipe. Per HITL,\n   `auto` selection semantics are unchanged; deeper work stays in #3070.",
     "test_plan": "Automated:\n- `make test` from the repo root narrows to the reachable suites per\n  slice; `make test-all` before phase exit.\n- Slice 1: extensions to `orchestrator/tests/test_consensus_wrapper.py`\n  (outcome recording; conflicting merge \u21d2 banner in the agent-visible\n  prompt; success \u21d2 no banner) and\n  `orchestrator/tests/test_compose_event_prompt.py` (empty-delta caution\n  cross-reference).\n- Slice 2: new `shared/egg_contracts/tests/test_artifact_spec.py`\n  (resolution and reverse lookup; consistency with\n  `gateway/phase_filter.py` gates, `phase_patterns.py` mirror,\n  `_get_draft_path` for both identifier shapes, and\n  `orchestrator/routes/pipelines.py` prompt literals).\n- Slice 3: extensions to `orchestrator/tests/test_signals.py`\n  (per-producer presence rejection, plan extensions retained,\n  `branch_verified` graceful degradation preserved, `no_changes_needed`\n  and artifact-less roles pass through).\n- Slice 4: new `gateway/tests/test_artifact_api.py` and\n  `orchestrator/tests/test_artifact_routes.py` (happy path byte-equality,\n  unregistered-name 400 listing registered names, non-hex ref rejection,\n  path-absent-at-ref handling, output caps + truncated flag).\n- Slice 5: new `orchestrator/tests/test_prompt_sync_ratchet.py` (template\n  scan with justified allowlist; `git show` references exempt).\n- Slice 6: extensions to `orchestrator/tests/test_message_store.py`\n  (auto\u2192memory error + degraded flag; explicit memory warning) and\n  `orchestrator/tests/test_redis_message_store.py` (mid-phase restart\n  survival vs designed `_clear_concurrent_state` wipe).\n\nManual (reviewer):\n- `make test` and `make lint` green.\n- Confirm the agent-visible prompt contains the NOT-synced banner when\n  `sync_to_proposals` is forced to fail (unit-level fixture acceptable).\n- Confirm `POST /api/v1/artifact/get` rejects an unregistered name with a\n  400 listing registered names and serves a registered name at a\n  committed ref.",
     "manual_steps": "Pre-merge: none.\n\nPost-merge: none required \u2014 all changes are server/harness-side and no-op\nfor running pipelines. Optional operator spot-check: trigger a sync\nfailure on a live pipeline and confirm the event prompt carries the\n\"worktree NOT synced\" banner; confirm the orchestrator health surface\nflags BRC-on-memory-backend in a dev environment without Redis.",
-    "context_pr_number": null,
+    "context_pr_number": 3139,
     "deferred_actions": []
   },
   "feedback": null,
