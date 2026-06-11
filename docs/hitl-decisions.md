@@ -476,6 +476,36 @@ This recovery fires at three sites:
 - **Post-phase** — when the post-phase sync fails
 - **`populate_contract`** — when the pre-populate sync fails. HTTP 409 with `reason="divergence_reconcile_unacked"` (#2792, #2979). The route is idempotent: if a reconcile HITL is already pending from a prior call, it returns 409 immediately without emitting a duplicate decision.
 
+### Implement-Start Plan Pre-Flight Rejection (#3100)
+
+When `start_phase=implement` is submitted and the plan draft is missing required `pr:` metadata, the orchestrator fails the pipeline immediately with a dedicated HITL rather than running the implement phase with no openable context PR. This gate fires after the empty-contract gate so the #2627 HITL routing is unchanged.
+
+**Scope:** Remote pipelines only — a `repo` or `base_branch` is set on the pipeline. Local-mode pipelines never open a context PR and are exempt.
+
+**Trigger condition:** The plan draft's `yaml-tasks` fence is missing one or more of: `pr.title`, `pr.description`, `pr.test_plan`, or the `pr.manual_steps` key. The HITL question names the specific missing fields.
+
+The pipeline is set to `FAILED` (not `AWAITING_HUMAN`) and the HITL surfaces for operator action.
+
+**Options:**
+
+| Option | Effect |
+|--------|--------|
+| `Fix the plan draft's pr: block and restart implement` | Operator manually adds a top-level `pr:` block (title, description, test_plan, manual_steps) to the draft's `# yaml-tasks` fence on the work branch, then calls `restart_phase implement`. |
+| `Restart plan phase` | Calls `restart_phase plan` to regenerate the draft from scratch. |
+| `Abort pipeline` | Calls `cancel_task` to abort the pipeline. |
+
+**Recovery steps for operators:**
+
+1. Open `/sdlc` and find the pending decision — the question text names the draft path and the missing fields.
+2. Choose an option:
+   - To fix the draft in place: edit the plan draft named in the HITL question (a path of the form `.egg-state/drafts/<prefix>-plan.md`, where `<prefix>` is the issue number or pipeline id — do not edit the unprefixed `.egg-state/drafts/plan.md`, which is a stale legacy path that gets reaped) on the work branch to add a `pr:` block with all four required keys, commit the change, then select **Fix the plan draft's pr: block and restart implement**.
+   - To regenerate: select **Restart plan phase** — the plan agent will rerun and produce a new draft.
+   - To abandon: select **Abort pipeline**.
+
+**Infra failures** (parser import unavailable, draft file unreadable) warn and continue rather than triggering this gate, so the pre-existing populate-path outcomes handle those cases.
+
+See also: [Plan pre-flight on implement-start resumes](guides/sdlc-pipeline.md#plan-pre-flight-on-implement-start-resumes) in the SDLC pipeline guide.
+
 ## Related Files
 
 - `orchestrator/mcp_tools.py` — MCP `get_status` tool; enriches all pending decisions with `draft_content`; enriches `phase_gate` decisions additionally with `completed_agents_summary` and `reviewer_feedback`
