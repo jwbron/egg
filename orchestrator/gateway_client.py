@@ -274,6 +274,24 @@ def _format_slice_title(program_slug: str, position_marker: str, subject: str) -
     return f"[{program_slug}][{position_marker}] {subject}".strip()
 
 
+def _truncate_title(title: str, max_len: int = 70) -> str:
+    """Truncate ``title`` to ``max_len`` chars at a word boundary.
+
+    Replaces the bare ``title[:67] + "..."`` cut that produced mid-word
+    titles like ``claim-che...`` (#3115). When a space exists in the
+    back half of the truncated prefix the cut moves to it, so the
+    ellipsis follows a whole word; otherwise (one giant token) the
+    hard cut is kept.
+    """
+    if len(title) <= max_len:
+        return title
+    prefix = title[: max_len - 3]
+    space = prefix.rfind(" ")
+    if space > (max_len - 3) // 2:
+        prefix = prefix[:space]
+    return prefix.rstrip() + "..."
+
+
 def _first_sentence(text: str, max_len: int = 120) -> str:
     """Return the first sentence of ``text``, capped at ``max_len`` chars.
 
@@ -360,10 +378,55 @@ def _append_this_slice_section(
         for path in slice_files_affected:
             body_lines.append(f"- `{path}`")
     if slice_tasks:
+        # Collapse the full task dump behind a <details> fold (#3115).
+        # Task descriptions are planning-consensus prose — useful for
+        # traceability, unreadable as the body's main content. The
+        # blank line after </summary> is required for GitHub to render
+        # the markdown list inside the fold.
         body_lines.append("")
-        body_lines.append("Tasks:")
+        body_lines.append("<details>")
+        body_lines.append(f"<summary>Tasks ({len(slice_tasks)}) + acceptance criteria</summary>")
+        body_lines.append("")
         _append_task_bullets(body_lines, slice_tasks, header=None)
+        body_lines.append("")
+        body_lines.append("</details>")
     body_lines.append("")
+
+
+def _append_diff_summary_section(
+    body_lines: list[str],
+    diffstat: str | None,
+    commit_subjects: list[str] | None,
+    *,
+    max_commits: int = 20,
+) -> None:
+    """Render the ``## What's in this PR`` block from real git state (#3115).
+
+    ``diffstat`` and ``commit_subjects`` are computed by the caller
+    (``_build_slice_diff_summary`` in the slice run loop) from the
+    pushed integration branch, so unlike the plan-derived task list
+    this section reflects what the branch actually contains. Skipped
+    entirely when neither input is available (diff summary is
+    best-effort — a fetch failure must not block PR creation).
+    """
+    if not diffstat and not commit_subjects:
+        return
+    body_lines.append("## What's in this PR")
+    body_lines.append("")
+    if commit_subjects:
+        shown = commit_subjects[:max_commits]
+        body_lines.append(f"Commits ({len(commit_subjects)}):")
+        for subject in shown:
+            body_lines.append(f"- {subject}")
+        remainder = len(commit_subjects) - len(shown)
+        if remainder > 0:
+            body_lines.append(f"- … and {remainder} more")
+        body_lines.append("")
+    if diffstat:
+        body_lines.append("```text")
+        body_lines.append(diffstat.rstrip("\n"))
+        body_lines.append("```")
+        body_lines.append("")
 
 
 def _format_stack_block(
@@ -399,11 +462,10 @@ def _format_stack_block(
     if context_pr_number is not None and context_pr_number >= 1:
         lines.append(f"- Base PR: #{context_pr_number}")
     lines.append(f"- Stacked on top of `{base_branch}`")
-    lines.append("")
-    # Keep the legacy footer string so existing tooling / scrapers that
-    # look for "Slice <id> of pipeline <pipeline>" keep working. The
-    # structured ``## Stack`` block above is the human-facing surface.
-    lines.append(f"Slice {slice_id} of pipeline {pipeline_id}. Stacked on top of `{base_branch}`.")
+    # The legacy plain-text footer ("Slice <id> of pipeline <id>. Stacked
+    # on top of `<base>`.") was dropped in #3115 — a repo-wide search
+    # found no parser consuming it, only the writer and its tests, and it
+    # duplicated every fact in the structured block above.
     return lines
 
 
@@ -1676,6 +1738,9 @@ class GatewayClient:
         slice_count: int | None = None,
         slice_files_affected: list[str] | None = None,
         context_pr_number: int | None = None,
+        slice_goal: str | None = None,
+        diffstat: str | None = None,
+        commit_subjects: list[str] | None = None,
     ) -> str | None:
         """Open a PR for one slice in a stacked-PR chain.
 
@@ -1702,12 +1767,19 @@ class GatewayClient:
           truncated). When ``program_title`` is empty (older contracts
           / planner skipped the field), titles fall back to the
           deterministic ``{slice_id}: {slice_name}`` form (#2539).
-        * **Body (with context PR).** Optional 1-line program blurb →
-          ``**Base PR:** #<context_pr_number>`` → ``## This slice``
-          (subject, files affected, full task descriptions + acceptance
-          criteria) → ``## Stack`` (base PR, position).
-        * **Body (no context PR — UX backstop).** Inline program
-          narrative (description + test plan + manual steps) so the
+          Over-long titles truncate at a word boundary (#3115).
+        * **Body (uniform shape, #3115).** Lead paragraph (the
+          planner's reviewer-facing ``slice_goal``; falls back to the
+          first sentence of ``program_description``) →
+          ``**Base PR:** #<context_pr_number>`` whenever the number is
+          known → ``## What's in this PR`` (commit subjects + diffstat
+          computed from the pushed branch, when the caller supplies
+          them) → ``## This slice`` (subject, files affected, full
+          task descriptions + acceptance criteria behind a
+          ``<details>`` fold) → ``## Stack`` (base PR, position).
+        * **No context PR — UX backstop.** When ``context_pr_number``
+          is missing, the program narrative (description + test plan +
+          manual steps) is inlined around the sections above so the
           slice PR is still reviewable as a standalone diff against
           ``/work``. NOTE: under cq-4 the context PR is hard-required
           and this branch should be unreachable in production; it
@@ -1737,23 +1809,31 @@ class GatewayClient:
             title = _format_slice_title(program_slug, position_marker, subject)
         else:
             title = f"{slice_id}: {slice_name}".strip()
-        if len(title) > 70:
-            title = title[:67] + "..."
+        title = _truncate_title(title)
 
         body_lines: list[str] = []
 
-        if has_program_title and has_base_pr:
-            # Lean body: defer the strategic narrative AND execution-time
-            # concerns (test plan / manual steps / obligations) to the
-            # context PR opened by ``_open_context_pr_at_implement_start``.
-            blurb = _first_sentence(program_description) if program_description else ""
-            if blurb:
-                body_lines.append(blurb)
-                body_lines.append("")
+        # Lead paragraph (#3115): the planner's reviewer-facing slice
+        # ``goal``. When absent (pre-#3115 contracts), fall back to the
+        # first sentence of the program description — except on the
+        # no-base-PR backstop branch, which inlines the full program
+        # description just below (the blurb would duplicate its first
+        # sentence).
+        inline_program_narrative = has_program_title and not has_base_pr
+        lead = (slice_goal or "").strip()
+        if not lead and program_description and not inline_program_narrative:
+            lead = _first_sentence(program_description)
+        if lead:
+            body_lines.append(lead)
+            body_lines.append("")
+
+        if has_base_pr:
+            # Rendered on every branch that knows the number (#3115) —
+            # previously the no-program-title fallback dropped the link
+            # even when the context PR existed.
             body_lines.append(f"**Base PR:** #{context_pr_number}")
             body_lines.append("")
-            _append_this_slice_section(body_lines, slice_name, slice_files_affected, slice_tasks)
-        elif has_program_title and not has_base_pr:
+        elif inline_program_narrative:
             # UX backstop: ``context_pr_number`` is missing (under cq-4
             # this should be unreachable since the new opener is
             # hard-required). Inline the program narrative so the slice
@@ -1763,7 +1843,11 @@ class GatewayClient:
             if program_description and program_description.strip():
                 body_lines.append(program_description.strip())
                 body_lines.append("")
-            _append_this_slice_section(body_lines, slice_name, slice_files_affected, slice_tasks)
+
+        _append_diff_summary_section(body_lines, diffstat, commit_subjects)
+        _append_this_slice_section(body_lines, slice_name, slice_files_affected, slice_tasks)
+
+        if inline_program_narrative:
             if program_test_plan and program_test_plan.strip():
                 body_lines.append("## Test Plan")
                 body_lines.append("")
@@ -1774,12 +1858,6 @@ class GatewayClient:
                 body_lines.append("")
                 body_lines.append(program_manual_steps.strip())
                 body_lines.append("")
-        else:
-            # Fallback: contract.pr missing or program_title empty.
-            # Render the deterministic per-slice body with no narrative.
-            body_lines.append(slice_name)
-            _append_task_bullets(body_lines, slice_tasks, header="Tasks in this slice:")
-            body_lines.append("")
 
         # ``## Stack`` block — parent PR + base PR + position. Replaces
         # the old "Slice X of pipeline Y. Stacked on top of `<base>`."

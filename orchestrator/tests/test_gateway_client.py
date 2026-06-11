@@ -1510,7 +1510,9 @@ class TestCreateSlicePR:
     def test_no_contract_pr_falls_back_to_auto_generated_title_and_body(self, gateway_client):
         """When ``contract.pr`` is missing (no ``program_title``), every slice
         — terminal or not — falls back to the deterministic ``<slice_id>:
-        <name>`` title and a bulleted task body. No narrative to render."""
+        <name>`` title. Post-#3115 the body uses the same uniform
+        ``## This slice`` shape as the narrative branches (tasks behind a
+        ``<details>`` fold), just with no program narrative around it."""
         captured, ctx = self._capture(gateway_client)
         with ctx:
             gateway_client.create_slice_pr(
@@ -1524,12 +1526,136 @@ class TestCreateSlicePR:
             )
         assert captured["title"] == "slice-1: Pattern adoption"
         assert "Pattern adoption" in captured["body"]
-        assert "Tasks in this slice:" in captured["body"]
+        assert "## This slice" in captured["body"]
+        assert "<details>" in captured["body"]
         assert "- task-1-1: Add the barrel re-export" in captured["body"]
-        assert "Slice slice-1 of pipeline issue-42" in captured["body"]
-        # No program-umbrella banner / per-slice section when neither field is set.
+        # Legacy plain-text footer dropped in #3115 (no consumers).
+        assert "Slice slice-1 of pipeline issue-42" not in captured["body"]
+        # No program-umbrella banner when neither program field is set.
         assert "Program-level umbrella PR" not in captured["body"]
-        assert "## This slice" not in captured["body"]
+
+    def test_no_program_title_still_links_base_pr_when_known(self, gateway_client):
+        """#3115: the no-program-title fallback previously dropped the
+        ``**Base PR:**`` link even when the caller knew the context PR
+        number (e.g. recovered from ``pipeline.pr_number`` on a #3100-
+        degraded contract). The link now renders on every branch."""
+        captured, ctx = self._capture(gateway_client)
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="pipeline-2d9cc50d",
+                repo="owner/repo",
+                slice_id="slice-1",
+                slice_name="Foundation",
+                slice_tasks=[{"id": "task-1-1", "description": "do X"}],
+                head="egg/pipeline-2d9cc50d/slice-1",
+                base="egg/pipeline-2d9cc50d/work",
+                context_pr_number=40099,
+            )
+        assert "**Base PR:** #40099" in captured["body"]
+        assert "- Base PR: #40099" in captured["body"]
+
+    def test_slice_goal_leads_body_over_program_blurb(self, gateway_client):
+        """#3115: the planner's reviewer-facing ``slice_goal`` is the body's
+        lead paragraph, taking precedence over the first-sentence
+        program-description blurb."""
+        captured, ctx = self._capture(gateway_client)
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-1",
+                slice_name="Pattern adoption",
+                slice_tasks=[{"id": "task-1-1", "description": "do X"}],
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42/work",
+                program_title="Decompose oversize files",
+                program_description="The lint added in #2250 caps Python files at 1500 lines.",
+                slice_index=1,
+                slice_count=3,
+                context_pr_number=99,
+                slice_goal="Adopt the barrel re-export pattern across the orchestrator.",
+            )
+        body = captured["body"]
+        assert body.startswith("Adopt the barrel re-export pattern across the orchestrator.")
+        # The blurb fallback must not ALSO render.
+        assert "The lint added in #2250" not in body
+
+    def test_diff_summary_section_renders_commits_and_diffstat(self, gateway_client):
+        """#3115: ``## What's in this PR`` renders caller-supplied commit
+        subjects (capped at 20 with a remainder line) and the diffstat in
+        a text fence, between the lead/Base-PR header and ``## This
+        slice``."""
+        captured, ctx = self._capture(gateway_client)
+        subjects = [f"commit {i}" for i in range(25)]
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-1",
+                slice_name="Pattern adoption",
+                slice_tasks=[{"id": "task-1-1", "description": "do X"}],
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42/work",
+                program_title="Decompose oversize files",
+                slice_index=1,
+                slice_count=3,
+                context_pr_number=99,
+                diffstat=" foo.py | 10 +++---\n 2 files changed, 7 insertions(+)",
+                commit_subjects=subjects,
+            )
+        body = captured["body"]
+        assert "## What's in this PR" in body
+        assert "Commits (25):" in body
+        assert "- commit 0" in body
+        assert "- commit 19" in body
+        assert "- commit 20" not in body
+        assert "- … and 5 more" in body
+        assert "```text\n foo.py | 10 +++---\n 2 files changed, 7 insertions(+)\n```" in body
+        assert body.index("**Base PR:**") < body.index("## What's in this PR")
+        assert body.index("## What's in this PR") < body.index("## This slice")
+
+    def test_diff_summary_section_omitted_when_unavailable(self, gateway_client):
+        """#3115: the diff summary is best-effort — when the caller has
+        neither commits nor diffstat the section is omitted entirely."""
+        captured, ctx = self._capture(gateway_client)
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-1",
+                slice_name="Pattern adoption",
+                slice_tasks=[{"id": "task-1-1", "description": "do X"}],
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42/work",
+                program_title="Decompose oversize files",
+                slice_index=1,
+                slice_count=3,
+                context_pr_number=99,
+            )
+        assert "## What's in this PR" not in captured["body"]
+
+    def test_title_truncates_at_word_boundary(self, gateway_client):
+        """#3115: over-long titles cut at a word boundary instead of
+        mid-word (``claim-che...``)."""
+        captured, ctx = self._capture(gateway_client)
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="pipeline-2d9cc50d",
+                repo="owner/repo",
+                slice_id="slice-1",
+                slice_name=(
+                    "Foundation: source-of-truth library + verifier + claim-check + drift CLI"
+                ),
+                slice_tasks=None,
+                head="egg/pipeline-2d9cc50d/slice-1",
+                base="egg/pipeline-2d9cc50d/work",
+            )
+        title = captured["title"]
+        assert len(title) <= 70
+        assert title.endswith("...")
+        # The pre-#3115 hard cut produced "claim-che..."; the word-boundary
+        # cut must end on a whole token.
+        assert not title.endswith("claim-che...")
 
     def test_non_terminal_slice_with_base_pr_renders_lean_body(self, gateway_client):
         """#2745: when the base/context PR (#2548) exists, non-terminal slice
@@ -1590,8 +1716,8 @@ class TestCreateSlicePR:
         assert "- Base PR: #99" in body
         assert "- Stacked on top of `egg/issue-42/work`" in body
         assert "- Position: slice 1 of 3 in pipeline `issue-42`" in body
-        # Legacy footer string kept for tooling/scrapers.
-        assert "Slice slice-1 of pipeline issue-42" in body
+        # Legacy plain-text footer dropped in #3115 (no consumers).
+        assert "Slice slice-1 of pipeline issue-42" not in body
 
     def test_non_terminal_slice_without_base_pr_falls_back_to_inline_narrative(
         self, gateway_client

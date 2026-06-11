@@ -99,6 +99,15 @@ class TestParsedPhase:
         assert phase.id == "slice-1"
         assert phase.name == "Setup"
         assert len(phase.tasks) == 1
+        # #3115: the planner's reviewer-facing goal is carried onto the
+        # contract slice (rendered as the slice PR body's lead paragraph).
+        assert phase.goal == "Initialize the project"
+
+    def test_to_contract_slice_strips_goal_whitespace(self):
+        """#3115: block-scalar goals arrive with trailing newlines; the
+        contract carries the stripped text."""
+        parsed = ParsedPhase(number=2, name="Rollout", goal="  Ship it.\n")
+        assert parsed.to_contract_slice().goal == "Ship it."
 
 
 class TestTaskPatternMatching:

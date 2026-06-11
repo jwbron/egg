@@ -9363,6 +9363,7 @@ def _collect_pre_merge_obligations(
 def _build_brc_history_link_line(
     worktree_repo_path: Path,
     identifier: int | str | None,
+    link_base: str | None = None,
 ) -> str:
     """Build a one-line pointer to the committed BRC history transcripts.
 
@@ -9371,6 +9372,13 @@ def _build_brc_history_link_line(
     each phase's transcript, ordered by canonical execution order
     (``refine`` → ``plan`` → ``implement`` → ``pr``; unknown names sorted
     alphabetically after).
+
+    ``link_base`` (#3115): when set (e.g.
+    ``https://github.com/<repo>/blob/<branch>``), links are rendered as
+    branch-qualified absolute URLs instead of the default ``./``-relative
+    form. GitHub resolves relative links in PR bodies against the repo's
+    default branch, where ``.egg-state/`` does not exist — so any caller
+    embedding this line in a PR body must pass ``link_base``.
 
     Returns an empty string when ``identifier`` is ``None`` or no
     transcripts exist on disk.
@@ -9420,10 +9428,97 @@ def _build_brc_history_link_line(
 
     phases.sort(key=_sort_key)
 
+    prefix_url = f"{link_base.rstrip('/')}/" if link_base else "./"
     links = ", ".join(
-        f"[`{phase}`](./.egg-state/brc-history/{identifier}-{phase}.md)" for phase in phases
+        f"[`{phase}`]({prefix_url}.egg-state/brc-history/{identifier}-{phase}.md)"
+        for phase in phases
     )
     return f"_Per-phase BRC transcripts: {links}._"
+
+
+def _compose_context_pr_body(
+    *,
+    contract,
+    pipeline,
+    worktree_repo_path: Path,
+    identifier: int | str,
+) -> str:
+    """Compose the context-PR body from contract + pipeline state (#3115).
+
+    Before #3115 the context PR's body was ``contract.pr.description``
+    verbatim, which dropped ``test_plan`` / ``manual_steps`` on the
+    floor (the composer that rendered them died with the PR phase in
+    #2777 even though the plan preflight still requires both fields)
+    and linked to none of the pipeline artifacts the orchestrator
+    deterministically knows about. This helper restores the full shape:
+
+    1. The planner's ``description`` (narrative, verbatim).
+    2. ``## Test plan`` / ``## Manual steps`` from the contract fields.
+    3. A generated ``## Pipeline context`` footer: pipeline id,
+       originating issue, the slice table, and links to the refine
+       analysis draft, the plan draft, and the per-phase BRC
+       transcripts committed on the work branch.
+
+    Artifact links are branch-qualified absolute URLs
+    (``https://github.com/<repo>/blob/<work-branch>/...``) — GitHub
+    resolves relative links in PR bodies against the default branch,
+    where ``.egg-state/`` does not exist. Draft links are only emitted
+    for files that exist in the worktree, so a pipeline that skipped
+    refine does not link a 404.
+
+    Pure string composition over already-loaded state — no git or
+    gateway calls — so the opener's failure surface is unchanged.
+    """
+    pr = contract.pr
+    sections: list[str] = []
+
+    description = (pr.description or "").strip() if pr else ""
+    if description:
+        sections.append(description)
+
+    test_plan = (pr.test_plan or "").strip() if pr else ""
+    if test_plan:
+        sections.append(f"## Test plan\n\n{test_plan}")
+
+    manual_steps = (pr.manual_steps or "").strip() if pr else ""
+    if manual_steps:
+        sections.append(f"## Manual steps\n\n{manual_steps}")
+
+    context_lines: list[str] = ["## Pipeline context", ""]
+    context_lines.append(f"- Pipeline: `{pipeline.id}`")
+    if pipeline.issue_number:
+        # Bare ``#N`` autolinks within the same repo, which is where
+        # the pipeline's originating issue lives.
+        context_lines.append(f"- Issue: #{pipeline.issue_number}")
+
+    slices = list(contract.slices or [])
+    if slices:
+        context_lines.append(f"- Slices ({len(slices)}):")
+        for s in slices:
+            name = " ".join((s.name or s.id).split())
+            context_lines.append(f"  {s.id.removeprefix('slice-')}. {name} (`{s.id}`)")
+
+    link_base: str | None = None
+    if pipeline.repo and pipeline.branch:
+        link_base = f"https://github.com/{pipeline.repo}/blob/{pipeline.branch}"
+
+    if link_base:
+        doc_links: list[str] = []
+        for phase, label in (("refine", "Refine analysis"), ("plan", "Implementation plan")):
+            rel_path = _get_draft_path(
+                phase, issue_number=pipeline.issue_number, pipeline_id=pipeline.id
+            )
+            if rel_path and (worktree_repo_path / rel_path).is_file():
+                doc_links.append(f"[{label}]({link_base}/{rel_path})")
+        if doc_links:
+            context_lines.append(f"- Docs: {', '.join(doc_links)}")
+        brc_line = _build_brc_history_link_line(worktree_repo_path, identifier, link_base=link_base)
+        if brc_line:
+            context_lines.append("")
+            context_lines.append(brc_line)
+
+    sections.append("\n".join(context_lines))
+    return "\n\n".join(sections)
 
 
 def _persist_context_pr_number(
@@ -9628,10 +9723,12 @@ def _open_context_pr_at_implement_start(
        PR and filtering client-side (#2934). On hit, persist the PR number
        via :func:`_persist_context_pr_number` and return it (no
        ``gh pr create`` invocation).
-    4. On miss, read ``contract.pr.title`` / ``contract.pr.description``
-       — the canonical fields populated from the plan's ``pr:`` block
-       per :func:`extract_pr_metadata_from_yaml`. Call
-       ``GatewayClient.create_pr`` to open the PR, persist the PR
+    4. On miss, read ``contract.pr.title`` and compose the body via
+       :func:`_compose_context_pr_body` (#3115) — the planner's
+       ``description`` plus rendered ``test_plan`` / ``manual_steps``
+       and a generated pipeline-context footer (issue, slice table,
+       analysis/plan draft + BRC transcript links on the work branch).
+       Call ``GatewayClient.create_pr`` to open the PR, persist the PR
        number, and return it.
 
     Raises:
@@ -9821,14 +9918,22 @@ def _open_context_pr_at_implement_start(
             reason="missing_pr_metadata",
         )
     pr_title = contract.pr.title.strip()
-    pr_description = contract.pr.description or ""
+    # #3115: render the full context-PR body (description + test plan +
+    # manual steps + generated pipeline-context footer) instead of the
+    # bare ``contract.pr.description``.
+    pr_body = _compose_context_pr_body(
+        contract=contract,
+        pipeline=pipeline,
+        worktree_repo_path=worktree_repo_path,
+        identifier=identifier,
+    )
 
     try:
         pr_url = spawner.gateway.create_pr(
             pipeline_id=pipeline_id,
             repo=pipeline.repo,
             title=pr_title,
-            body=pr_description,
+            body=pr_body,
             head=pipeline.branch,
             base=effective_base,
             issue_number=pipeline.issue_number,
@@ -10883,6 +10988,106 @@ def _commit_slice_brc_history_to_integration_branch(
             pass
 
 
+def _build_slice_diff_summary(
+    pipeline,
+    spawner: "ContainerSpawner",  # noqa: UP037
+    worktree_repo_path: Path,
+    integration_branch: str,
+    parent_branch: str,
+) -> tuple[list[str] | None, str | None]:
+    """Compute commit subjects + diffstat for a slice PR body (#3115).
+
+    The slice PR body's task list is plan-derived — it describes intent,
+    not what the pushed branch actually contains. This helper reads the
+    real git state so ``create_slice_pr`` can render a ``## What's in
+    this PR`` section: the slice's commit subjects
+    (``git log origin/<parent>..origin/<head>``) and a diffstat against
+    the merge base (``git diff --stat origin/<parent>...origin/<head>``,
+    three-dot to match GitHub's PR diff semantics).
+
+    Both remote-tracking refs are refreshed first via
+    ``GatewayClient.fetch_branch`` — the slice's agents push directly to
+    origin, so the orchestrator worktree's tracking refs may lag (same
+    pattern as :func:`_commit_slice_brc_history_to_integration_branch`,
+    which runs immediately before this in the slice loop).
+
+    Strictly best-effort: returns ``(None, None)`` on any failure
+    (fetch, git error, timeout) and never raises — a missing diff
+    summary must not block slice PR creation.
+    """
+    pipeline_id = pipeline.id
+    try:
+        for branch in (parent_branch, integration_branch):
+            try:
+                spawner.gateway.fetch_branch(
+                    pipeline_id,
+                    str(worktree_repo_path),
+                    args=[f"+refs/heads/{branch}:refs/remotes/origin/{branch}"],
+                )
+            except Exception as fetch_err:  # noqa: BLE001
+                # The ref may already be current (the BRC-history hook
+                # fetched the integration branch moments ago); a stale
+                # parent ref degrades the diffstat, it doesn't break it.
+                logger.debug(
+                    "Slice diff summary: fetch_branch failed (continuing) (#3115)",
+                    pipeline_id=pipeline_id,
+                    branch=branch,
+                    error=str(fetch_err),
+                )
+
+        git_base = [
+            "git",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            f"safe.directory={worktree_repo_path}",
+            "-C",
+            str(worktree_repo_path),
+        ]
+        span = f"origin/{parent_branch}..origin/{integration_branch}"
+        log_proc = subprocess.run(
+            [*git_base, "log", "--no-merges", "--format=%s", span],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        commit_subjects = (
+            [line.strip() for line in log_proc.stdout.splitlines() if line.strip()]
+            if log_proc.returncode == 0
+            else None
+        )
+        # ``--stat=100,80,40``: 100-col output, then git truncates past
+        # 40 entries with an ellipsis line — a slice touching hundreds
+        # of files must not produce a body longer than the task dump
+        # this section exists to displace.
+        diff_proc = subprocess.run(
+            [
+                *git_base,
+                "diff",
+                "--stat=100,80,40",
+                f"origin/{parent_branch}...origin/{integration_branch}",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        diffstat = diff_proc.stdout.strip() if diff_proc.returncode == 0 else None
+        if not commit_subjects and not diffstat:
+            return None, None
+        return commit_subjects or None, diffstat or None
+    except Exception as err:  # noqa: BLE001
+        logger.warning(
+            "Slice diff summary failed (slice PR opens without it) (#3115)",
+            pipeline_id=pipeline_id,
+            integration_branch=integration_branch,
+            parent_branch=parent_branch,
+            error=str(err),
+        )
+        return None, None
+
+
 # Shared PR description guidance injected into planner prompts.
 # Kept as a constant so both _build_phase_prompt and _build_agent_prompt
 # stay in sync when the guidance evolves.
@@ -11492,7 +11697,12 @@ def _build_phase_prompt(
                 "    name: |-",
                 "      Slice Name",
                 "    goal: |-",
-                "      What this slice achieves",
+                "      What this slice achieves, written for a reviewer of the",
+                "      target repo. This text is rendered verbatim as the lead",
+                "      paragraph of the slice's PR body (#3115), so keep it 1-3",
+                "      plain-language sentences with no plan-internal",
+                "      cross-references (reviewer codes, section numbers, draft",
+                "      version markers).",
                 "    tasks:",
                 "      - id: TASK-1-1",
                 "        description: |-",
@@ -13648,7 +13858,12 @@ def _build_agent_prompt(
                 "    name: |-",
                 "      Slice Name",
                 "    goal: |-",
-                "      What this slice achieves",
+                "      What this slice achieves, written for a reviewer of the",
+                "      target repo. This text is rendered verbatim as the lead",
+                "      paragraph of the slice's PR body (#3115), so keep it 1-3",
+                "      plain-language sentences with no plan-internal",
+                "      cross-references (reviewer codes, section numbers, draft",
+                "      version markers).",
                 "    tasks:",
                 "      - id: TASK-1-1",
                 "        description: |-",
@@ -16368,6 +16583,11 @@ def _run_implement_phase_slices(
                                         slice_files_affected_list.append(path)
                             slice_pr_data = {
                                 "slice_name": slice_obj.name or slice_id,
+                                # Planner's reviewer-facing summary —
+                                # rendered as the slice PR body's lead
+                                # paragraph (#3115). Empty for
+                                # pre-#3115 contracts.
+                                "slice_goal": getattr(slice_obj, "goal", "") or None,
                                 "slice_tasks": [
                                     {
                                         "id": t.id,
@@ -16382,16 +16602,25 @@ def _run_implement_phase_slices(
                                 # ``context_pr_number`` is populated by
                                 # ``_open_context_pr_at_implement_start``
                                 # at the plan→implement boundary (#2777
-                                # cq-4). When None — should be
-                                # unreachable under the new
-                                # hard-required opener but kept as
+                                # cq-4). When the contract linkage is
+                                # missing (e.g. ``contract.pr`` is None
+                                # on an implement-start resume, #3100),
+                                # fall back to ``pipeline.pr_number`` —
+                                # the pipeline-level mirror written by
+                                # ``_persist_context_pr_number`` whose
+                                # sole post-#2777 writer is the same
+                                # opener — so the slice PR still links
+                                # its base PR (#3115). When both are
+                                # None — should be unreachable under
+                                # the hard-required opener but kept as
                                 # defence-in-depth — ``create_slice_pr``
                                 # falls back to the pre-#2745 inline-
                                 # narrative body so the slice PR stays
                                 # reviewable as a standalone diff
                                 # against ``/work``.
                                 "context_pr_number": (
-                                    program_pr.context_pr_number if program_pr else None
+                                    (program_pr.context_pr_number if program_pr else None)
+                                    or pipeline.pr_number
                                 ),
                                 "program_title": (program_pr.title if program_pr else None),
                                 "program_description": (
@@ -16451,6 +16680,17 @@ def _run_implement_phase_slices(
 
                 pr_created = True
                 if slice_pr_data is not None and pipeline.repo:
+                    # Best-effort real-diff summary for the PR body
+                    # (#3115) — commit subjects + diffstat from the
+                    # pushed integration branch. (None, None) on any
+                    # failure; the PR opens without the section.
+                    commit_subjects, diffstat = _build_slice_diff_summary(
+                        pipeline,
+                        spawner,
+                        worktree_repo_path,
+                        integration_branch,
+                        parent_branch,
+                    )
                     try:
                         spawner.gateway.create_slice_pr(
                             pipeline_id=pipeline_id,
@@ -16471,6 +16711,9 @@ def _run_implement_phase_slices(
                             slice_count=slice_pr_data["slice_count"],
                             slice_files_affected=slice_pr_data["slice_files_affected"],
                             context_pr_number=slice_pr_data["context_pr_number"],
+                            slice_goal=slice_pr_data["slice_goal"],
+                            diffstat=diffstat,
+                            commit_subjects=commit_subjects,
                         )
                     except Exception as pr_err:  # noqa: BLE001
                         # Single `gateway.create_slice_pr` HTTP call.

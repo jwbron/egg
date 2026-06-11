@@ -1463,6 +1463,24 @@ class TestBuildBrcHistoryLinkLine:
         # Canonical phase (plan) must appear before the non-canonical one
         assert result.index("plan") < result.index("custom")
 
+    def test_link_base_renders_branch_qualified_urls(self, tmp_path):
+        """#3115: a caller embedding the line in a PR body passes
+        ``link_base`` so links resolve on the work branch — GitHub
+        resolves ``./``-relative PR-body links against the default
+        branch, where ``.egg-state/`` does not exist. A trailing slash
+        on ``link_base`` must not double up."""
+        from routes.pipelines import _build_brc_history_link_line
+
+        self._touch(tmp_path, "42-plan.md")
+
+        base = "https://github.com/owner/repo/blob/egg/issue-42/work"
+        result = _build_brc_history_link_line(tmp_path, 42, link_base=base)
+        assert f"[`plan`]({base}/.egg-state/brc-history/42-plan.md)" in result
+        assert "(./" not in result
+
+        result_slash = _build_brc_history_link_line(tmp_path, 42, link_base=base + "/")
+        assert f"[`plan`]({base}/.egg-state/brc-history/42-plan.md)" in result_slash
+
 
 class TestBuildPrBodyBrcLink:
     """Deleted per #2777 TASK-3-11 (7).

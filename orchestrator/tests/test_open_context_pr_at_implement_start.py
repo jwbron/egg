@@ -51,6 +51,7 @@ from models import Pipeline, PipelinePhase, PipelineStatus  # noqa: E402
 from routes.pipelines import (  # noqa: E402
     ContextPrCreationError,
     ContextPrCreationReason,
+    _compose_context_pr_body,
     _open_context_pr_at_implement_start,
     _persist_context_pr_number,
 )
@@ -227,8 +228,92 @@ class TestOpenContextPRAtImplementStartHappyPath:
         assert pr_kwargs["head"] == "egg/issue-2777/work"
         assert pr_kwargs["base"] == "main"
         assert pr_kwargs["title"] == "Add feature X"
-        assert pr_kwargs["body"] == "Body"
+        # #3115: the body is composed (description + generated pipeline-
+        # context footer), no longer ``contract.pr.description`` verbatim.
+        assert pr_kwargs["body"].startswith("Body")
+        assert "## Pipeline context" in pr_kwargs["body"]
+        assert "- Pipeline: `issue-2777`" in pr_kwargs["body"]
+        assert "- Issue: #2777" in pr_kwargs["body"]
         assert save_calls == [9001]
+
+
+class TestComposeContextPrBody:
+    """#3115: the context-PR body composer renders test plan / manual
+    steps (silently dropped since #2777) and a generated pipeline-context
+    footer with branch-qualified artifact links."""
+
+    def _contract(self, *, test_plan="", manual_steps="", slices=()):
+        from egg_contracts.models import Contract, IssueInfo, PRMetadata
+
+        return Contract(
+            issue=IssueInfo(number=2777, title="t", url=""),
+            pipeline_id="issue-2777",
+            pr=PRMetadata(
+                title="Add feature X",
+                description="The narrative.",
+                test_plan=test_plan,
+                manual_steps=manual_steps,
+            ),
+            slices=list(slices),
+        )
+
+    def test_full_composition_with_artifacts(self, tmp_path):
+        from egg_contracts.models import Slice
+
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "2777-analysis.md").write_text("analysis")
+        (drafts / "2777-plan.md").write_text("plan")
+        history = tmp_path / ".egg-state" / "brc-history"
+        history.mkdir(parents=True)
+        (history / "2777-plan.md").write_text("transcript")
+
+        body = _compose_context_pr_body(
+            contract=self._contract(
+                test_plan="- Automated: make test-all.",
+                manual_steps="Post-merge: redeploy.",
+                slices=[
+                    Slice(id="slice-1", name="Foundation", tasks=[]),
+                    Slice(id="slice-2", name="Rollout", tasks=[]),
+                ],
+            ),
+            pipeline=_make_pipeline(),
+            worktree_repo_path=tmp_path,
+            identifier=2777,
+        )
+
+        assert body.startswith("The narrative.")
+        assert "## Test plan\n\n- Automated: make test-all." in body
+        assert "## Manual steps\n\nPost-merge: redeploy." in body
+        assert "## Pipeline context" in body
+        assert "- Pipeline: `issue-2777`" in body
+        assert "- Issue: #2777" in body
+        assert "- Slices (2):" in body
+        assert "1. Foundation (`slice-1`)" in body
+        assert "2. Rollout (`slice-2`)" in body
+        # Branch-qualified absolute links — relative links in PR bodies
+        # resolve against the default branch, where .egg-state/ is absent.
+        base = "https://github.com/owner/repo/blob/egg/issue-2777/work"
+        assert f"[Refine analysis]({base}/.egg-state/drafts/2777-analysis.md)" in body
+        assert f"[Implementation plan]({base}/.egg-state/drafts/2777-plan.md)" in body
+        assert f"[`plan`]({base}/.egg-state/brc-history/2777-plan.md)" in body
+
+    def test_minimal_contract_omits_empty_sections(self, tmp_path):
+        body = _compose_context_pr_body(
+            contract=self._contract(),
+            pipeline=_make_pipeline(),
+            worktree_repo_path=tmp_path,
+            identifier=2777,
+        )
+        assert body.startswith("The narrative.")
+        assert "## Test plan" not in body
+        assert "## Manual steps" not in body
+        # No drafts / transcripts on disk → no dangling links.
+        assert "- Docs:" not in body
+        assert "BRC transcripts" not in body
+        assert "- Slices" not in body
+        # The footer itself always renders.
+        assert "## Pipeline context" in body
 
 
 class TestOpenContextPRAtImplementStartTypedErrors:
