@@ -541,10 +541,12 @@ def operator_complete_task(identifier: str, task_id: str) -> tuple[Response, int
 
     logger.info(
         "Operator marked task complete",
-        pipeline_id=pipeline_id,
-        task_id=task_id,
-        actor=actor,
-        source=getattr(request, "egg_source", "unknown"),
+        extra={
+            "pipeline_id": pipeline_id,
+            "task_id": task_id,
+            "actor": actor,
+            "source": getattr(request, "egg_source", "unknown"),
+        },
     )
 
     return _success(f"Task {task_id} marked complete by operator", data=result)
