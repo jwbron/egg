@@ -507,11 +507,20 @@ def _invalidate_conditional_acks(
 # "Other (explain in reply)" reply. The documented free-form flow ("Mark
 # task <id> complete, commit <sha>") still matches; only buried
 # substrings are rejected.
+#
+# Optional commit evidence is captured ONLY when it immediately follows
+# the completion clause, separated by whitespace or punctuation with no
+# intervening prose. This prevents replies like "Mark task X complete;
+# the prior commit abc1234 was wrong" from attaching ``abc1234`` as
+# evidence when the operator was referring to an unrelated commit. The
+# documented forms ("Mark task X complete, commit <sha>" / "Mark task X
+# complete commit <sha>") still capture; only commits gated behind
+# intervening words are rejected.
 _COMPLETE_TASK_RESOLUTION_RE = re.compile(
-    r"\s*Mark task\s+`{0,2}([A-Za-z0-9._\-]+)`{0,2}\s+complete",
+    r"\s*Mark task\s+`{0,2}([A-Za-z0-9._\-]+)`{0,2}\s+complete"
+    r"(?:[\s,;:.]+\bcommit[\s:=]+([0-9a-fA-F]{7,40})\b)?",
     re.IGNORECASE,
 )
-_COMMIT_EVIDENCE_RE = re.compile(r"\bcommit[\s:=]+([0-9a-fA-F]{7,40})\b")
 
 
 def _maybe_complete_task_from_resolution(
@@ -535,8 +544,7 @@ def _maybe_complete_task_from_resolution(
     if not match:
         return None
     task_id = match.group(1)
-    commit_match = _COMMIT_EVIDENCE_RE.search(resolution)
-    commit = commit_match.group(1) if commit_match else None
+    commit = match.group(2)
 
     from operator_actions import OperatorActionError, complete_task_as_operator
 

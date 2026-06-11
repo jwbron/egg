@@ -702,6 +702,35 @@ class TestDecisionResolutionDispatch:
         assert result["success"] is True
         complete_mock.assert_called_once()
 
+    def test_unrelated_commit_after_prose_is_not_attached(self):
+        # Commit evidence must immediately follow the completion clause
+        # (separated only by whitespace/punctuation, never prose). A
+        # free-form reply like "Mark task X complete; the prior commit
+        # abc1234 was wrong" must not attach abc1234 as evidence when
+        # the operator was referring to an unrelated commit.
+        result, complete_mock = self._dispatch(
+            "Mark task TASK-2-3 complete; the prior commit abc1234def was wrong",
+            return_value={"task_id": "TASK-2-3", "status": "complete"},
+        )
+        assert result["success"] is True
+        complete_mock.assert_called_once()
+        assert complete_mock.call_args[1]["commit"] is None
+
+    def test_commit_evidence_after_punctuation_separator_attaches(self):
+        # The documented free-form flow allows any of comma, semicolon,
+        # colon, period, or whitespace as the separator between the
+        # completion clause and the commit evidence — all four must
+        # still capture the commit.
+        for separator in (",", ";", ":", "."):
+            result, complete_mock = self._dispatch(
+                f"Mark task TASK-2-3 complete{separator} commit abc1234def",
+                return_value={"task_id": "TASK-2-3", "status": "complete"},
+            )
+            assert result["success"] is True, f"separator {separator!r} failed"
+            assert complete_mock.call_args[1]["commit"] == "abc1234def", (
+                f"separator {separator!r} did not capture commit"
+            )
+
 
 # ---------------------------------------------------------------------------
 # impasse escalation exposes the executable option
