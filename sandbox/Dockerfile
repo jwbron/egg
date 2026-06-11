@@ -256,9 +256,27 @@ ARG CLAUDE_CODE_VERSION=latest
 # the install layer below re-runs exactly when the release channel moves to a
 # new version. Without it the layer is keyed on the literal channel name
 # ('latest'/'stable') and the image's Claude Code freezes at whatever the
-# channel pointed to the first time the layer built. When a concrete version
-# is passed as the build-arg instead, a channel bump still re-runs the layer;
-# that reinstall is deterministic and harmless.
+# channel pointed to the first time the layer built.
+#
+# Caveats worth knowing if this ever silently regresses (#3137 review):
+#   - The URL is hardcoded to the 'latest' manifest regardless of the
+#     CLAUDE_CODE_VERSION arg. If the operator overrides the arg to
+#     'stable' or to a concrete version (e.g. '2.1.173'), the layer still
+#     rebuilds whenever 'latest' moves. For 'stable' this is wasteful but
+#     functionally fine — the install reruns and re-fetches the stable
+#     pointer. For a concrete version the reinstall is deterministic and
+#     idempotent. The wasteful-rebuild edge case is intentional: keeping
+#     the URL hardcoded keeps the cache-bust behaviour the same across
+#     channel-name args, which is the dominant path.
+#   - The cache-bust depends on the CDN preserving HTTP cache headers
+#     (verified: 'cache-control: public,no-cache,max-age=0' + 'ETag' +
+#     'Last-Modified', which BuildKit's 'ADD <URL>' uses as its cache
+#     key). If the CDN ever drops those headers (config change, hosting
+#     migration), the bust silently degrades to 'cached forever per URL
+#     string'. The alias gate further down catches that regression at
+#     build time as long as the 'fable' / 'opus' families haven't both
+#     also stagnated, but defense-in-depth: rebuild with --no-cache if
+#     you're debugging a stuck channel pointer.
 ADD https://downloads.claude.ai/claude-code-releases/latest /tmp/claude-code-latest-release
 RUN su - egg -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_CODE_VERSION" && \
     rm -f /tmp/claude-code-latest-release && \
@@ -279,6 +297,9 @@ RUN su - egg -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_CO
             echo "ERROR: installed Claude Code ($(cat /home/egg/.local/VERSION 2>/dev/null)) does not know the '${family}' model family."; \
             echo "agent_model_resolution.py uses '${family}' as a built-in default — agents would crash-loop at spawn (#3136)."; \
             echo "Pass a newer build: docker build --build-arg CLAUDE_CODE_VERSION=<version|latest> ..."; \
+            echo "If pinning to an older CC build is intentional (and every"; \
+            echo "agent_models entry has been pinned away from '${family}'),"; \
+            echo "comment this 'for family in ...' loop out to bypass the gate."; \
             exit 1; \
         fi; \
     done && \

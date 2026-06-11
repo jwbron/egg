@@ -195,6 +195,20 @@ async def run_agent_async(
     """
     model = model or DEFAULT_MODEL
 
+    # Pin MCP servers to blocking connect (#3137 review). The 0.2 SDK / CLI
+    # bump made the spawned Claude Code default ``MCP_CONNECTION_NONBLOCKING``
+    # to non-zero, so a slow stdio MCP server is reported as ``pending`` and
+    # its tools are not available on the model's first turn. egg's in-process
+    # SDK MCP servers (registered below) don't actually connect over stdio so
+    # the change does not affect them, but the egg-ddg stdio fallback
+    # registered for the LiteLLM→non-Anthropic path does — and the
+    # ``SYSTEM_PROMPT_NUDGE`` that steers tool discovery is load-bearing on
+    # the first turn. Force blocking-connect so DDG tools are reliably ready
+    # before the first model call; ``setdefault`` preserves an operator-set
+    # value if one is already on the env. Cheap to keep on for the in-process
+    # path too (no-op there).
+    os.environ.setdefault("MCP_CONNECTION_NONBLOCKING", "0")
+
     # Resolve cwd: explicit arg > EGG_REPO_PATH > SDK default (os.getcwd()).
     # Sandbox agents start at HOME (/home/egg) while the repo lives at
     # /home/egg/repos/<repo> (EGG_REPO_PATH).  Defaulting to EGG_REPO_PATH

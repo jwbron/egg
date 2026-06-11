@@ -198,7 +198,7 @@ A producer may legitimately spend time reading, grepping, and exploring before e
 | `plan` | 3 minutes |
 | `implement` | 10 minutes |
 
-Active tool calls (file reads, grep, web searches, `Agent` spawns, `TodoWrite`) observed via `get_container_logs` during this window are **evidence of legitimate work**, not a stall. Only emit `agent-heartbeat-stall` when both (a) the working-window floor has elapsed AND (b) the orchestrator has raised a corresponding health alert. **Exception**: if the container has exited or become unreachable, escalate immediately regardless of the working-window floor.
+Active tool calls (file reads, grep, web searches, `Agent` spawns, `TaskCreate` / `TaskUpdate`, or the legacy `TodoWrite` on older Claude Code builds) observed via `get_container_logs` during this window are **evidence of legitimate work**, not a stall. Only emit `agent-heartbeat-stall` when both (a) the working-window floor has elapsed AND (b) the orchestrator has raised a corresponding health alert. **Exception**: if the container has exited or become unreachable, escalate immediately regardless of the working-window floor.
 
 ### Escalation triggers
 
