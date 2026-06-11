@@ -165,7 +165,10 @@ class TestOpenContextPrHappyPath:
         kwargs = spawner.gateway.create_pr.call_args.kwargs
         assert contract.pr is not None  # narrow for the asserts below
         assert kwargs["title"] == contract.pr.title
-        assert kwargs["body"] == contract.pr.description
+        # #3115: the body is composed (description + generated pipeline-
+        # context footer), no longer ``contract.pr.description`` verbatim.
+        assert kwargs["body"].startswith(contract.pr.description)
+        assert "## Pipeline context" in kwargs["body"]
         assert kwargs["head"] == pipeline.branch
         assert kwargs["base"] == pipeline.base_branch
         # Number must be persisted so the slice loop sees it on the next

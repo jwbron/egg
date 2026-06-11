@@ -11,6 +11,22 @@ For each task in the contract, verify:
 2. **Acceptance criteria met**: The specific acceptance criteria for the task is satisfied
 3. **Commit linked**: If a commit is linked, verify it relates to the task
 4. **Tests present**: Where applicable, tests cover the new functionality
+5. **Task record is complete**: The task's recorded `status` is `complete` with
+   a linked commit. A task whose work appears in the diff but whose record is
+   still `pending` is NOT verified — either the work landed unrecorded (the
+   producer must mark it complete) or the record is the truth and the work is
+   missing. Read the **live** task records (via the contract MCP/CLI surface),
+   not the `.egg-state/contracts/` file in your checkout — that file is an
+   init-time snapshot and does not reflect mutations.
+
+### Scope: every producer, every row
+
+Contract review covers **all task rows owned by the producer under review**,
+not just the rows that overlap the proposal's diff. A proposal that delivers a
+subset of the producer's rows and defers the rest ("will land in later
+proposals") leaves the contract unsatisfied: the deferred rows are open
+obligations. Do not approve the producer until every row it owns is delivered
+and recorded complete, or a human has explicitly descoped the row.
 
 ### Phase Consistency
 

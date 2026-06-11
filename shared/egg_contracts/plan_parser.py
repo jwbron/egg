@@ -382,6 +382,7 @@ class ParsedPhase:
         return Slice(
             id=f"slice-{self.number}",
             name=self.name,
+            goal=(self.goal or "").strip(),
             status=SliceStatus.PENDING,
             tasks=[task.to_contract_task() for task in self.tasks],
             dependencies=normalized_deps,

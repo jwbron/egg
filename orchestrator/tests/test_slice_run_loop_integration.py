@@ -532,6 +532,91 @@ class TestRunImplementPhaseSlices:
         assert pr_kwargs["head"] == f"egg/{pipeline.id}/slice-1"
         assert pr_kwargs["slice_id"] == "slice-1"
 
+    def test_slice_pr_linkage_persisted_and_context_pr_body_refreshed(self) -> None:
+        """#3122: the run loop records the opened slice PR's number/URL on
+        the contract slice (same write as status=COMPLETE) and then
+        refreshes the context PR body so its slice table links the PR."""
+        from egg_contracts.models import PRMetadata
+
+        pipeline = _make_pipeline()
+        slice_obj = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        contract = _make_contract(slices=[slice_obj])
+        contract.pr = PRMetadata(
+            title="Add feature X",
+            description="The narrative.",
+            context_pr_number=4242,
+        )
+        load_mock, save_mock = self._make_loader_save_pair(contract)
+
+        with (
+            patch("egg_contracts.loader.load_contract", load_mock),
+            patch("egg_contracts.loader.save_contract", save_mock),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = self._make_spawner()
+            spawner.gateway.create_slice_pr.return_value = "https://github.com/owner/repo/pull/4243"
+            spawner.gateway.update_pr_body.return_value = True
+            exit_code, _logs = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert exit_code == 0
+        # PR linkage persisted on the contract slice (#3122).
+        assert slice_obj.pr_number == 4243
+        assert slice_obj.pr_url == "https://github.com/owner/repo/pull/4243"
+        # Context PR body refreshed with the slice link.
+        spawner.gateway.update_pr_body.assert_called_once()
+        refresh_kwargs = spawner.gateway.update_pr_body.call_args.kwargs
+        assert refresh_kwargs["pr_number"] == 4242
+        assert "1. Slice slice-1 (`slice-1`) — #4243" in refresh_kwargs["body"]
+
+    def test_unparseable_slice_pr_url_skips_linkage_and_refresh(self) -> None:
+        """#3122: a slice PR URL without ``/pull/<n>`` (e.g. a stub) means
+        no linkage is recorded and no body refresh fires — the slice
+        still completes normally."""
+        pipeline = _make_pipeline()
+        slice_obj = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        contract = _make_contract(slices=[slice_obj])
+        load_mock, save_mock = self._make_loader_save_pair(contract)
+
+        with (
+            patch("egg_contracts.loader.load_contract", load_mock),
+            patch("egg_contracts.loader.save_contract", save_mock),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = self._make_spawner()  # returns "https://example/pr/1"
+            exit_code, _logs = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert exit_code == 0
+        assert slice_obj.pr_number is None
+        assert slice_obj.pr_url is None
+        spawner.gateway.update_pr_body.assert_not_called()
+        assert slice_obj.status == SliceStatus.COMPLETE
+
     def test_child_slice_targets_parent_integration_branch(self) -> None:
         pipeline = _make_pipeline()
         root = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
@@ -673,6 +758,104 @@ class TestRunImplementPhaseSlices:
         assert spawner.gateway.create_slice_pr.call_count == 2, (
             "Sibling slice must still run regardless of slice-1's PR failure"
         )
+
+    def test_evidence_reachability_failure_fails_slice_without_pr(self) -> None:
+        """#3125 review: pin the wiring between
+        ``_run_one_slice_inner`` (post-consensus) and
+        ``_check_slice_evidence_reachability``.
+
+        The unit-level gate is covered exhaustively by
+        ``test_evidence_reachability_gate.py``. This test locks the
+        13-line block that calls into it from the slice run loop so a
+        future refactor — e.g. drift on the ``# type: ignore[arg-type]``
+        for ``gateway_mode`` — does not silently lose the wire-up. The
+        gate verdict (a non-None failure string) must:
+
+        * route through ``scheduler.record_failure(slice_id)`` and the
+          existing cascade machinery,
+        * surface as a non-zero overall exit code,
+        * carry the failure string into the slice logs, and
+        * skip ``create_slice_pr`` for the failed slice — the close
+          side effects are exactly what the gate runs *before* to
+          prevent a silent-loss PR ship.
+
+        Sibling slices remain independent (decision-2): a sibling whose
+        evidence is intact still runs to completion and opens its PR.
+        """
+        pipeline = _make_pipeline()
+        failing = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        sibling = _make_slice("slice-2", tasks=[_make_task("task-2-1")])
+        contract = _make_contract(slices=[failing, sibling])
+
+        evidence_failure_text = (
+            "slice slice-1: evidence-reachability gate failed — contract task "
+            "records cite commits that are not on integration branch "
+            "egg/issue-9999/slice-1: task-1-1 (role=coder, commit=deadbeef)"
+        )
+
+        def _gate_side_effect(
+            _pipeline_id: str,
+            _spawner: Any,
+            _worktree_repo_path: Path,
+            slice_id: str,
+            _integration_branch: str,
+            **_kwargs: Any,
+        ) -> str | None:
+            return evidence_failure_text if slice_id == "slice-1" else None
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
+            patch(
+                "routes.pipelines._check_slice_evidence_reachability",
+                side_effect=_gate_side_effect,
+            ) as mock_gate,
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = self._make_spawner()
+            exit_code, logs = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+
+        # Gate was called for each slice post-consensus.
+        gate_slice_ids = {c.args[3] for c in mock_gate.call_args_list}
+        assert gate_slice_ids == {"slice-1", "slice-2"}
+        # Each call routes the pre-loaded contract through ``contract=``
+        # so the gate skips its own (lock-held) load (#3125 review
+        # nit-4): locks the wiring that the unit-level
+        # ``test_pre_loaded_contract_skips_internal_load`` cannot see.
+        for call in mock_gate.call_args_list:
+            assert call.kwargs.get("contract") is contract, (
+                "Close path must thread the pre-loaded contract through "
+                "to the gate so the lock-held internal load is skipped"
+            )
+        # Failing slice surfaces a non-zero overall exit code.
+        assert exit_code != 0, (
+            "Evidence-reachability failure must propagate to a non-zero exit "
+            "via scheduler.record_failure → cascade machinery"
+        )
+        # The gate's failure string lands in the slice logs operator-side.
+        assert "evidence-reachability gate failed" in logs
+        # The failing slice does NOT get a PR — close side effects are
+        # skipped exactly to prevent a silent-loss ship.
+        pr_calls_slice_ids = [
+            c.kwargs["slice_id"] for c in spawner.gateway.create_slice_pr.call_args_list
+        ]
+        assert "slice-1" not in pr_calls_slice_ids
+        # Sibling with reachable evidence still runs and opens its PR.
+        assert "slice-2" in pr_calls_slice_ids
 
     def test_reconciler_started_and_stopped(self) -> None:
         pipeline = _make_pipeline()

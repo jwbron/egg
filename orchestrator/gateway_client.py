@@ -16,7 +16,8 @@ import socket
 import subprocess
 import sys
 import time
-from collections.abc import Callable
+import uuid
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from http.client import HTTPException
@@ -49,6 +50,15 @@ except ImportError:
     # Fallback defaults
     GATEWAY_CONTAINER_NAME = "egg-gateway"
     GATEWAY_PORT = 9848  # noqa: EGG002
+
+try:
+    from egg_contracts.markdown import unwrap_soft_breaks
+except ImportError:
+    # Fallback: render prose verbatim when egg_contracts is unavailable
+    # (matches the egg_logging/egg_config degradation above).
+    def unwrap_soft_breaks(text: str | None) -> str:  # type: ignore[misc]
+        return text or ""
+
 
 logger = get_logger("orchestrator.gateway_client")
 
@@ -274,6 +284,34 @@ def _format_slice_title(program_slug: str, position_marker: str, subject: str) -
     return f"[{program_slug}][{position_marker}] {subject}".strip()
 
 
+_TITLE_TRAILING_PUNCT = " \t\r\n.,;:!?-+/\\|&*=~^<>\"'()[]{}"
+
+
+def _truncate_title(title: str, max_len: int = 70) -> str:
+    """Truncate ``title`` to ``max_len`` chars at a word boundary.
+
+    Replaces the bare ``title[:67] + "..."`` cut that produced mid-word
+    titles like ``claim-che...`` (#3115). When a space exists in the
+    back half of the truncated prefix the cut moves to it, so the
+    ellipsis follows a whole word; otherwise (one giant token) the
+    hard cut is kept. Any trailing punctuation / symbols are stripped
+    before ``...`` is appended so we don't produce results like
+    ``library +...`` (the ``...`` itself is the only trailing
+    punctuation we want).
+    """
+    if len(title) <= max_len:
+        return title
+    # Guard against degenerate ``max_len`` — without this,
+    # ``_truncate_title("a a", 2)`` returns ``"a..."`` (length 4 > 2).
+    if max_len <= 3:
+        return title[:max_len]
+    prefix = title[: max_len - 3]
+    space = prefix.rfind(" ")
+    if space > (max_len - 3) // 2:
+        prefix = prefix[:space]
+    return prefix.rstrip(_TITLE_TRAILING_PUNCT) + "..."
+
+
 def _first_sentence(text: str, max_len: int = 120) -> str:
     """Return the first sentence of ``text``, capped at ``max_len`` chars.
 
@@ -360,10 +398,55 @@ def _append_this_slice_section(
         for path in slice_files_affected:
             body_lines.append(f"- `{path}`")
     if slice_tasks:
+        # Collapse the full task dump behind a <details> fold (#3115).
+        # Task descriptions are planning-consensus prose — useful for
+        # traceability, unreadable as the body's main content. The
+        # blank line after </summary> is required for GitHub to render
+        # the markdown list inside the fold.
         body_lines.append("")
-        body_lines.append("Tasks:")
+        body_lines.append("<details>")
+        body_lines.append(f"<summary>Tasks ({len(slice_tasks)}) + acceptance criteria</summary>")
+        body_lines.append("")
         _append_task_bullets(body_lines, slice_tasks, header=None)
+        body_lines.append("")
+        body_lines.append("</details>")
     body_lines.append("")
+
+
+def _append_diff_summary_section(
+    body_lines: list[str],
+    diffstat: str | None,
+    commit_subjects: list[str] | None,
+    *,
+    max_commits: int = 20,
+) -> None:
+    """Render the ``## What's in this PR`` block from real git state (#3115).
+
+    ``diffstat`` and ``commit_subjects`` are computed by the caller
+    (``_build_slice_diff_summary`` in the slice run loop) from the
+    pushed integration branch, so unlike the plan-derived task list
+    this section reflects what the branch actually contains. Skipped
+    entirely when neither input is available (diff summary is
+    best-effort — a fetch failure must not block PR creation).
+    """
+    if not diffstat and not commit_subjects:
+        return
+    body_lines.append("## What's in this PR")
+    body_lines.append("")
+    if commit_subjects:
+        shown = commit_subjects[:max_commits]
+        body_lines.append(f"Commits ({len(commit_subjects)}):")
+        for subject in shown:
+            body_lines.append(f"- {subject}")
+        remainder = len(commit_subjects) - len(shown)
+        if remainder > 0:
+            body_lines.append(f"- … and {remainder} more")
+        body_lines.append("")
+    if diffstat:
+        body_lines.append("```text")
+        body_lines.append(diffstat.rstrip("\n"))
+        body_lines.append("```")
+        body_lines.append("")
 
 
 def _format_stack_block(
@@ -399,11 +482,10 @@ def _format_stack_block(
     if context_pr_number is not None and context_pr_number >= 1:
         lines.append(f"- Base PR: #{context_pr_number}")
     lines.append(f"- Stacked on top of `{base_branch}`")
-    lines.append("")
-    # Keep the legacy footer string so existing tooling / scrapers that
-    # look for "Slice <id> of pipeline <pipeline>" keep working. The
-    # structured ``## Stack`` block above is the human-facing surface.
-    lines.append(f"Slice {slice_id} of pipeline {pipeline_id}. Stacked on top of `{base_branch}`.")
+    # The legacy plain-text footer ("Slice <id> of pipeline <id>. Stacked
+    # on top of `<base>`.") was dropped in #3115 — a repo-wide search
+    # found no parser consuming it, only the writer and its tests, and it
+    # duplicated every fact in the structured block above.
     return lines
 
 
@@ -1676,6 +1758,9 @@ class GatewayClient:
         slice_count: int | None = None,
         slice_files_affected: list[str] | None = None,
         context_pr_number: int | None = None,
+        slice_goal: str | None = None,
+        diffstat: str | None = None,
+        commit_subjects: list[str] | None = None,
     ) -> str | None:
         """Open a PR for one slice in a stacked-PR chain.
 
@@ -1702,12 +1787,19 @@ class GatewayClient:
           truncated). When ``program_title`` is empty (older contracts
           / planner skipped the field), titles fall back to the
           deterministic ``{slice_id}: {slice_name}`` form (#2539).
-        * **Body (with context PR).** Optional 1-line program blurb →
-          ``**Base PR:** #<context_pr_number>`` → ``## This slice``
-          (subject, files affected, full task descriptions + acceptance
-          criteria) → ``## Stack`` (base PR, position).
-        * **Body (no context PR — UX backstop).** Inline program
-          narrative (description + test plan + manual steps) so the
+          Over-long titles truncate at a word boundary (#3115).
+        * **Body (uniform shape, #3115).** Lead paragraph (the
+          planner's reviewer-facing ``slice_goal``; falls back to the
+          first sentence of ``program_description``) →
+          ``**Base PR:** #<context_pr_number>`` whenever the number is
+          known → ``## What's in this PR`` (commit subjects + diffstat
+          computed from the pushed branch, when the caller supplies
+          them) → ``## This slice`` (subject, files affected, full
+          task descriptions + acceptance criteria behind a
+          ``<details>`` fold) → ``## Stack`` (base PR, position).
+        * **No context PR — UX backstop.** When ``context_pr_number``
+          is missing, the program narrative (description + test plan +
+          manual steps) is inlined around the sections above so the
           slice PR is still reviewable as a standalone diff against
           ``/work``. NOTE: under cq-4 the context PR is hard-required
           and this branch should be unreachable in production; it
@@ -1737,23 +1829,34 @@ class GatewayClient:
             title = _format_slice_title(program_slug, position_marker, subject)
         else:
             title = f"{slice_id}: {slice_name}".strip()
-        if len(title) > 70:
-            title = title[:67] + "..."
+        title = _truncate_title(title)
 
         body_lines: list[str] = []
 
-        if has_program_title and has_base_pr:
-            # Lean body: defer the strategic narrative AND execution-time
-            # concerns (test plan / manual steps / obligations) to the
-            # context PR opened by ``_open_context_pr_at_implement_start``.
-            blurb = _first_sentence(program_description) if program_description else ""
-            if blurb:
-                body_lines.append(blurb)
-                body_lines.append("")
+        # Lead paragraph (#3115): the planner's reviewer-facing slice
+        # ``goal``. When absent (pre-#3115 contracts), fall back to the
+        # first sentence of the program description — except on the
+        # no-base-PR backstop branch, which inlines the full program
+        # description just below (the blurb would duplicate its first
+        # sentence).
+        inline_program_narrative = has_program_title and not has_base_pr
+        # Soft-break unwrapping (#3122): the goal / description reach us
+        # as YAML block scalars hard-wrapped at ~75 chars, and GitHub
+        # renders every newline in a PR body as a line break.
+        lead = unwrap_soft_breaks(slice_goal).strip()
+        if not lead and program_description and not inline_program_narrative:
+            lead = _first_sentence(unwrap_soft_breaks(program_description))
+        if lead:
+            body_lines.append(lead)
+            body_lines.append("")
+
+        if has_base_pr:
+            # Rendered on every branch that knows the number (#3115) —
+            # previously the no-program-title fallback dropped the link
+            # even when the context PR existed.
             body_lines.append(f"**Base PR:** #{context_pr_number}")
             body_lines.append("")
-            _append_this_slice_section(body_lines, slice_name, slice_files_affected, slice_tasks)
-        elif has_program_title and not has_base_pr:
+        elif inline_program_narrative:
             # UX backstop: ``context_pr_number`` is missing (under cq-4
             # this should be unreachable since the new opener is
             # hard-required). Inline the program narrative so the slice
@@ -1761,25 +1864,23 @@ class GatewayClient:
             # ``/work``. The stack is structurally unmergeable in this
             # state — fixing the body here is a UX backstop, not a fix.
             if program_description and program_description.strip():
-                body_lines.append(program_description.strip())
+                body_lines.append(unwrap_soft_breaks(program_description).strip())
                 body_lines.append("")
-            _append_this_slice_section(body_lines, slice_name, slice_files_affected, slice_tasks)
+
+        _append_diff_summary_section(body_lines, diffstat, commit_subjects)
+        _append_this_slice_section(body_lines, slice_name, slice_files_affected, slice_tasks)
+
+        if inline_program_narrative:
             if program_test_plan and program_test_plan.strip():
                 body_lines.append("## Test Plan")
                 body_lines.append("")
-                body_lines.append(program_test_plan.strip())
+                body_lines.append(unwrap_soft_breaks(program_test_plan).strip())
                 body_lines.append("")
             if program_manual_steps and program_manual_steps.strip():
                 body_lines.append("## Manual Steps")
                 body_lines.append("")
-                body_lines.append(program_manual_steps.strip())
+                body_lines.append(unwrap_soft_breaks(program_manual_steps).strip())
                 body_lines.append("")
-        else:
-            # Fallback: contract.pr missing or program_title empty.
-            # Render the deterministic per-slice body with no narrative.
-            body_lines.append(slice_name)
-            _append_task_bullets(body_lines, slice_tasks, header="Tasks in this slice:")
-            body_lines.append("")
 
         # ``## Stack`` block — parent PR + base PR + position. Replaces
         # the old "Slice X of pipeline Y. Stacked on top of `<base>`."
@@ -1837,6 +1938,120 @@ class GatewayClient:
             mode=mode,
             draft=draft,
         )
+
+    def update_pr_body(
+        self,
+        pipeline_id: str,
+        repo: str,
+        *,
+        pr_number: int,
+        body: str,
+        issue_number: int | None = None,
+        agent_role: str | None = None,
+        mode: Literal["public", "private"] = "public",
+    ) -> bool:
+        """Replace an existing PR's body via the gateway (#3122).
+
+        Routes through the per-agent ``/api/v1/gh/pr/edit`` endpoint
+        (``gh api repos/<repo>/pulls/<n> -X PATCH -f body=...``) under a
+        synthetic phase-less session, exactly like :meth:`create_pr` /
+        :meth:`rebase_onto` — no new privileged orchestrator endpoint.
+        The gateway's PR-ownership policy still applies, which is the
+        desired bound: the orchestrator only rewrites PRs the egg bot
+        user authored.
+
+        Sole production caller is the run loop's context-PR refresh:
+        after a slice PR opens, the context PR body is recomposed with a
+        link to it. Pipeline-generated PR bodies are machine-owned —
+        each call fully replaces the body, clobbering manual edits.
+
+        Returns ``True`` on success, ``False`` on any failure. Unlike
+        :meth:`create_pr` this method does NOT propagate errors: a body
+        refresh is cosmetic, and no caller should fail a slice over it.
+        """
+        if (
+            not repo
+            or pr_number is None
+            or isinstance(pr_number, bool)
+            or not isinstance(pr_number, int)
+            or pr_number < 1
+        ):
+            logger.warning(
+                "update_pr_body: invalid repo/pr_number",
+                pipeline_id=pipeline_id,
+                repo=repo,
+                pr_number=pr_number,
+            )
+            return False
+
+        # The gateway's ``gh pr edit`` rejects an empty payload (#3431
+        # in gateway/gateway.py) — short-circuit before burning a
+        # synthetic-session create+delete round-trip on a guaranteed
+        # 400.
+        if not body:
+            logger.warning(
+                "update_pr_body: empty body",
+                pipeline_id=pipeline_id,
+                repo=repo,
+                pr_number=pr_number,
+            )
+            return False
+
+        # Suffix the container id with a short random tag so two
+        # concurrent refreshes for the same pipeline (two slices in
+        # the same wave finishing within ms of each other) don't share
+        # a session-table key in the gateway. Matches the
+        # per-slice-id uniqueness create_pr / rebase_onto already get
+        # for free.
+        temp_container_id = f"{pipeline_id}-pr-body-update-{uuid.uuid4().hex[:8]}"
+        session_token: str | None = None
+        try:
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip=self.self_ip,
+                mode=mode,
+                pipeline_id=pipeline_id,
+                repos=[repo],
+                issue_number=issue_number,
+                agent_role=agent_role,
+                synthetic=True,
+            )
+            session_token = session.session_token
+
+            self._make_request(
+                "/api/v1/gh/pr/edit",
+                method="POST",
+                data={
+                    "repo": repo,
+                    "pr_number": int(pr_number),
+                    "body": body,
+                },
+                bearer_token=session_token,
+            )
+            logger.info(
+                "Updated PR body via gateway",
+                pipeline_id=pipeline_id,
+                repo=repo,
+                pr_number=pr_number,
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001
+            # Session registration + single gh-pr-edit HTTP call.
+            # Catches GatewayError and OSError (DNS / socket).
+            logger.warning(
+                "update_pr_body: gateway request failed",
+                pipeline_id=pipeline_id,
+                repo=repo,
+                pr_number=pr_number,
+                error=str(exc),
+            )
+            return False
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
 
     def rebase_onto(
         self,
@@ -2333,6 +2548,155 @@ class GatewayClient:
                 error=str(exc),
             )
             return False
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
+
+    def find_unreachable_evidence_commits(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        *,
+        commit_shas: Sequence[str],
+        integration_branch: str,
+        mode: Literal["public", "private"] = "public",
+    ) -> list[str] | None:
+        """Return the subset of ``commit_shas`` NOT reachable from the
+        integration branch's tip on origin (#3125).
+
+        The slice close path uses this to verify that every commit SHA
+        cited by a contract task record actually landed on the
+        integration branch before the slice PR is opened. A producer's
+        post-confirmation commit (the prescribed ``complete-task
+        --commit`` unblock flow) lives only on that agent's local
+        worktree branch unless something pushed it — this check is what
+        turns that silent loss into a hard stop.
+
+        Tri-state per SHA, derived from ``git merge-base --is-ancestor
+        <sha> <tip>`` through ``/api/v1/git/execute``:
+
+        * exit 0 — reachable;
+        * exit 1 — the commit object exists locally but is not an
+          ancestor of the tip → unreachable;
+        * exit 128 — the SHA does not resolve to an object at all
+          (never pushed and the worktree odb was pruned, or an
+          abbreviated SHA that no longer resolves) → unreachable. This
+          is the fully-lost variant of the same gap, so it must fail
+          the gate, not skip it.
+
+        Returns ``None`` (caller skips the gate with a warning) when
+        the check cannot be evaluated at all — branch tip unresolvable
+        on origin, fetch failure, or a gateway/network error on the
+        merge-base call itself. A transient infrastructure failure must
+        not fail the slice; the conservative posture matches the other
+        completeness checks (#3081 / #3114).
+
+        Transport mirrors :meth:`is_slice_branch_merged_into_parent`:
+        one synthetic launcher-authenticated session shared across the
+        ls-remote, the fetch, and every merge-base call.
+        """
+        if not commit_shas:
+            return []
+        if not integration_branch:
+            # No branch to probe means we cannot evaluate reachability.
+            # Skip the gate rather than silently approve — matches the
+            # other "cannot evaluate" paths in this method (#3125 review).
+            return None
+
+        temp_container_id = (
+            f"{pipeline_id}-evidence-reachability-{integration_branch.replace('/', '-')}"
+        )
+        session_token: str | None = None
+        try:
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip=self.self_ip,
+                mode=mode,
+                pipeline_id=pipeline_id,
+                synthetic=True,
+            )
+            session_token = session.session_token
+
+            tip_sha = self.get_remote_branch_sha(
+                pipeline_id,
+                repo_path,
+                f"refs/heads/{integration_branch}",
+                mode=mode,
+                bearer_token=session_token,
+            )
+            if not tip_sha:
+                logger.warning(
+                    "Evidence-reachability check skipped: integration branch "
+                    "tip unresolvable on origin (#3125)",
+                    pipeline_id=pipeline_id,
+                    integration_branch=integration_branch,
+                )
+                return None
+
+            # The tip's objects must be locally reachable for merge-base
+            # to evaluate. Unlike the ancestor probes elsewhere, a failed
+            # fetch here must SKIP the gate rather than degrade — with no
+            # tip objects every merge-base would exit 128 and every cited
+            # commit would be falsely flagged unreachable, failing the
+            # slice on a network blip.
+            fetched = self.fetch_branch(
+                pipeline_id,
+                repo_path,
+                args=[f"+refs/heads/{integration_branch}:refs/remotes/origin/{integration_branch}"],
+                mode=mode,
+                bearer_token=session_token,
+            )
+            if not fetched:
+                logger.warning(
+                    "Evidence-reachability check skipped: integration branch fetch failed (#3125)",
+                    pipeline_id=pipeline_id,
+                    integration_branch=integration_branch,
+                )
+                return None
+
+            unreachable: list[str] = []
+            for sha in commit_shas:
+                try:
+                    self._make_request(
+                        "/api/v1/git/execute",
+                        method="POST",
+                        data={
+                            "repo_path": repo_path,
+                            "operation": "merge-base",
+                            "args": ["--is-ancestor", sha, tip_sha],
+                        },
+                        bearer_token=session_token,
+                    )
+                except GatewayError as exc:
+                    details = exc.details or {}
+                    returncode = details.get("returncode")
+                    if returncode in (1, 128):
+                        # 1 — object present, not an ancestor.
+                        # 128 — SHA unresolvable in the odb (fully lost).
+                        unreachable.append(sha)
+                        continue
+                    logger.warning(
+                        "Evidence-reachability check skipped: merge-base "
+                        "failed unexpectedly (#3125)",
+                        pipeline_id=pipeline_id,
+                        integration_branch=integration_branch,
+                        commit_sha=sha,
+                        returncode=returncode,
+                        error=str(exc),
+                    )
+                    return None
+            return unreachable
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Evidence-reachability check skipped: gateway request failed (#3125)",
+                pipeline_id=pipeline_id,
+                integration_branch=integration_branch,
+                error=str(exc),
+            )
+            return None
         finally:
             if session_token:
                 try:

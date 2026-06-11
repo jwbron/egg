@@ -307,6 +307,7 @@ except ImportError:
         get_state_store,
     )
 
+from egg_contracts.markdown import unwrap_soft_breaks
 from egg_contracts.orchestrator import load_agent_output, save_agent_output
 from egg_git.default_branch import get_default_branch
 from lifecycle_auth import require_lifecycle_secret
@@ -5642,6 +5643,7 @@ def _pull_contract_from_source_branch(
     pipeline_id: str,
     spawner: Any | None = None,
     gateway_mode: str = "public",
+    task_description: str | None = None,
 ) -> bool:
     """Load a persisted contract from ``origin/<source_branch>`` into the worktree.
 
@@ -5653,6 +5655,20 @@ def _pull_contract_from_source_branch(
     reads the contract via ``git show``, rebinds its pipeline_id to the new
     pipeline, and writes it into the worktree so the caller can skip
     ``create_contract()`` and proceed to commit+push the pulled contract.
+
+    ``task_description`` is the NEW submit's prompt. The pulled contract
+    carries the SOURCE pipeline's ``task_description``, but the resubmit's
+    description is authoritative for THIS pipeline and is where operators
+    put binding resume directives (e.g. "adopt prior branch X, do not
+    reimplement" — #3123). When non-empty it replaces the pulled value;
+    the source value stays recoverable from the source branch's git
+    history. When ``None`` AND ``issue_number is not None`` the pulled
+    value is cleared (the live issue body is the authoritative task
+    statement and ``task_description`` should be ``None``, mirroring the
+    ``create_contract()`` shape on the call site's fallback path —
+    without this clear, forking a free-text pipeline into an issue
+    pipeline would leak the source pipeline's description into every
+    per-event prompt). Otherwise the pulled value is preserved.
 
     Returns True when a contract was successfully pulled, False otherwise.
     Best-effort: missing, invalid, or unreachable source contracts all yield
@@ -5746,6 +5762,32 @@ def _pull_contract_from_source_branch(
     # canonical key when the pipeline was forked with a qualifier
     # (e.g. source=issue-1965, new=issue-1965-v2).
     contract.pipeline_id = pipeline_id
+    # Refresh the task statement from the new submit (#3123): without
+    # this, the resubmit's prompt — including any operator resume
+    # directives — never reaches any agent-visible surface, because the
+    # caller skips create_contract() (the only other writer of
+    # ``task_description``) whenever the pull succeeds.
+    #
+    # Three cases:
+    #   1. Caller passed a non-blank prompt → replace (free-text resubmit
+    #      with the new directives).
+    #   2. Caller passed ``None`` and the pipeline has an ``issue_number``
+    #      → explicit clear. The create_contract() fallback at the call
+    #      site (pipelines.py::_run_pipeline) passes ``task_description=
+    #      None`` for issue pipelines because the live body is fetched
+    #      via ``gh issue view`` instead. Without the explicit clear,
+    #      forking a free-text pipeline into an issue pipeline (source
+    #      branch = egg/free-text-x, new issue_number = 42) would carry
+    #      the SOURCE pipeline's free-text description into the per-event
+    #      prompt of every issue-pipeline agent.
+    #   3. Caller passed ``None`` or blank and no ``issue_number`` (a
+    #      plain resume with no new prompt) → preserve the pulled value
+    #      so the source pipeline's task statement still drives the
+    #      resumed run.
+    if task_description is not None and task_description.strip():
+        contract.task_description = task_description
+    elif task_description is None and issue_number is not None:
+        contract.task_description = None
     save_contract(contract, repo_path)
 
     logger.info(
@@ -9363,6 +9405,7 @@ def _collect_pre_merge_obligations(
 def _build_brc_history_link_line(
     worktree_repo_path: Path,
     identifier: int | str | None,
+    link_base: str | None = None,
 ) -> str:
     """Build a one-line pointer to the committed BRC history transcripts.
 
@@ -9371,6 +9414,13 @@ def _build_brc_history_link_line(
     each phase's transcript, ordered by canonical execution order
     (``refine`` → ``plan`` → ``implement`` → ``pr``; unknown names sorted
     alphabetically after).
+
+    ``link_base`` (#3115): when set (e.g.
+    ``https://github.com/<repo>/blob/<branch>``), links are rendered as
+    branch-qualified absolute URLs instead of the default ``./``-relative
+    form. GitHub resolves relative links in PR bodies against the repo's
+    default branch, where ``.egg-state/`` does not exist — so any caller
+    embedding this line in a PR body must pass ``link_base``.
 
     Returns an empty string when ``identifier`` is ``None`` or no
     transcripts exist on disk.
@@ -9420,10 +9470,124 @@ def _build_brc_history_link_line(
 
     phases.sort(key=_sort_key)
 
+    prefix_url = f"{link_base.rstrip('/')}/" if link_base else "./"
     links = ", ".join(
-        f"[`{phase}`](./.egg-state/brc-history/{identifier}-{phase}.md)" for phase in phases
+        f"[`{phase}`]({prefix_url}.egg-state/brc-history/{identifier}-{phase}.md)"
+        for phase in phases
     )
     return f"_Per-phase BRC transcripts: {links}._"
+
+
+def _compose_context_pr_body(
+    *,
+    contract,
+    pipeline,
+    worktree_repo_path: Path,
+    identifier: int | str,
+) -> str:
+    """Compose the context-PR body from contract + pipeline state (#3115).
+
+    Before #3115 the context PR's body was ``contract.pr.description``
+    verbatim, which dropped ``test_plan`` / ``manual_steps`` on the
+    floor (the composer that rendered them died with the PR phase in
+    #2777 even though the plan preflight still requires both fields)
+    and linked to none of the pipeline artifacts the orchestrator
+    deterministically knows about. This helper restores the full shape:
+
+    1. The planner's ``description`` (narrative, verbatim).
+    2. ``## Test Plan`` / ``## Manual Steps`` from the contract fields
+       (Title Case matches the global PR template and the slice PR's
+       inline-narrative branch in ``gateway_client.py``).
+    3. A generated ``## Pipeline context`` footer: pipeline id,
+       originating issue, the slice table, and links to the refine
+       analysis draft, the plan draft, and the per-phase BRC
+       transcripts committed on the work branch.
+
+    Artifact links are branch-qualified absolute URLs
+    (``https://github.com/<repo>/blob/<work-branch>/...``) — GitHub
+    resolves relative links in PR bodies against the default branch,
+    where ``.egg-state/`` does not exist. Draft links are only emitted
+    for files that exist in the worktree, so a pipeline that skipped
+    refine does not link a 404.
+
+    Pure string composition over already-loaded state — no git or
+    gateway calls — so the opener's failure surface is unchanged.
+    """
+    pr = contract.pr
+    sections: list[str] = []
+
+    # Soft-break unwrapping (#3122): the ``pr:`` block fields arrive as
+    # YAML block scalars hard-wrapped at ~75 chars, and GitHub renders
+    # every newline in a PR body as a line break — join the wraps back
+    # into paragraphs, leaving real markdown structure alone.
+    description = unwrap_soft_breaks(pr.description if pr else None).strip()
+    if description:
+        sections.append(description)
+
+    test_plan = unwrap_soft_breaks(pr.test_plan if pr else None).strip()
+    if test_plan:
+        sections.append(f"## Test Plan\n\n{test_plan}")
+
+    manual_steps = unwrap_soft_breaks(pr.manual_steps if pr else None).strip()
+    if manual_steps:
+        sections.append(f"## Manual Steps\n\n{manual_steps}")
+
+    # Build the footer body first; only emit the ``## Pipeline context``
+    # header when *more than* the bare pipeline-id line gets added (a
+    # single ``- Pipeline: <id>`` line under its own ``##`` header is
+    # noise — every reviewer can read that off the URL).
+    body_lines: list[str] = [f"- Pipeline: `{pipeline.id}`"]
+    has_meaningful_content = False
+    if pipeline.issue_number:
+        # Bare ``#N`` autolinks within the same repo, which is where
+        # the pipeline's originating issue lives.
+        body_lines.append(f"- Issue: #{pipeline.issue_number}")
+        has_meaningful_content = True
+
+    slices = list(contract.slices or [])
+    if slices:
+        body_lines.append(f"- Slices ({len(slices)}):")
+        for s in slices:
+            name = " ".join((s.name or s.id).split())
+            # Strip both ``slice-`` and the legacy ``phase-`` prefix —
+            # ``Slice.id`` still permits the latter (models.py) and
+            # ``_migrate_phases_to_slices`` only rewrites it on JSON
+            # load, so a directly-constructed Slice can still carry it.
+            number = s.id.removeprefix("slice-").removeprefix("phase-")
+            line = f"  {number}. {name} (`{s.id}`)"
+            # Cross-link the stack (#3122): once the slice's PR is open
+            # its number is persisted on the contract and the run loop
+            # re-composes this body, so the entry gains a link. Bare
+            # ``#N`` autolinks within the repo the context PR lives in.
+            if getattr(s, "pr_number", None):
+                line += f" — #{s.pr_number}"
+            body_lines.append(line)
+        has_meaningful_content = True
+
+    link_base: str | None = None
+    if pipeline.repo and pipeline.branch:
+        link_base = f"https://github.com/{pipeline.repo}/blob/{pipeline.branch}"
+
+    if link_base:
+        doc_links: list[str] = []
+        for phase, label in (("refine", "Refine analysis"), ("plan", "Implementation plan")):
+            rel_path = _get_draft_path(
+                phase, issue_number=pipeline.issue_number, pipeline_id=pipeline.id
+            )
+            if rel_path and (worktree_repo_path / rel_path).is_file():
+                doc_links.append(f"[{label}]({link_base}/{rel_path})")
+        if doc_links:
+            body_lines.append(f"- Docs: {', '.join(doc_links)}")
+            has_meaningful_content = True
+        brc_line = _build_brc_history_link_line(worktree_repo_path, identifier, link_base=link_base)
+        if brc_line:
+            body_lines.append("")
+            body_lines.append(brc_line)
+            has_meaningful_content = True
+
+    if has_meaningful_content:
+        sections.append("\n".join(["## Pipeline context", "", *body_lines]))
+    return "\n\n".join(sections)
 
 
 def _persist_context_pr_number(
@@ -9591,6 +9755,99 @@ def _persist_context_pr_number(
         ) from save_err
 
 
+def _refresh_context_pr_body(
+    pipeline_id: str,
+    *,
+    pipeline: Any,
+    spawner: Any,
+    worktree_repo_path: Path,
+    identifier: int | str,
+    gateway_mode: str = "public",
+) -> bool:
+    """Re-compose and push the context PR's body to GitHub (#3122).
+
+    Called by the run loop after a slice PR opens and its number is
+    persisted on the contract, so the context PR's slice table gains a
+    link to each slice PR as the stack materialises
+    (:func:`_compose_context_pr_body` renders ``— #N`` for every slice
+    with a recorded ``pr_number``).
+
+    The context PR body is machine-owned: the refresh fully regenerates
+    it from contract + pipeline state through the same composer the
+    opener used, clobbering any manual edits. Best-effort by design —
+    a body refresh is cosmetic, so every failure (contract load,
+    composition, gateway) logs a warning and returns ``False`` without
+    raising; no slice outcome may depend on it.
+
+    **Concurrency contract**: the caller must hold
+    ``get_pipeline_state_lock(pipeline_id)`` for the entire load +
+    compose + push sequence — without it, two slices completing in the
+    same wave can interleave so the slice whose refresh lands later
+    clobbers a body that already included both links. Because no
+    later slice fires a refresh after the last one, the final slice's
+    ``— #N`` link would stay missing forever if the race fired on it.
+    Serializing inside the per-pipeline lock eliminates the race; the
+    sole production caller (``_run_implement_phase_slices``) already
+    holds it.
+    """
+    if not pipeline.repo:
+        return False
+
+    try:
+        from egg_contracts.loader import load_contract
+
+        contract = load_contract(identifier, worktree_repo_path)
+    except Exception as load_err:  # noqa: BLE001
+        # Lazy import + contract load: ImportError, loader validation
+        # errors, OSError on the contract file read.
+        logger.warning(
+            "Context PR body refresh: contract load failed (skipping)",
+            pipeline_id=pipeline_id,
+            error=str(load_err),
+        )
+        return False
+
+    context_pr_number = (
+        contract.pr.context_pr_number if contract.pr else None
+    ) or pipeline.pr_number
+    if not context_pr_number:
+        # No context PR to refresh — reachable on #3100-degraded
+        # contracts where the opener never persisted linkage.
+        return False
+
+    try:
+        body = _compose_context_pr_body(
+            contract=contract,
+            pipeline=pipeline,
+            worktree_repo_path=worktree_repo_path,
+            identifier=identifier,
+        )
+    except Exception as compose_err:  # noqa: BLE001
+        # Pure string composition over loaded state; a raise here is a
+        # programming error, but the cosmetic-refresh contract still
+        # holds — log and skip rather than fail the slice.
+        logger.warning(
+            "Context PR body refresh: composition failed (skipping)",
+            pipeline_id=pipeline_id,
+            pr_number=context_pr_number,
+            error=str(compose_err),
+        )
+        return False
+
+    return spawner.gateway.update_pr_body(
+        pipeline_id,
+        pipeline.repo,
+        pr_number=context_pr_number,
+        body=body,
+        issue_number=pipeline.issue_number,
+        # Attribute the action in the gateway audit log; matches
+        # sibling orchestrator-driven PR mutations (create_slice_pr,
+        # rebase_onto).
+        agent_role="orchestrator",
+        mode=gateway_mode,
+    )
+
+
 def _open_context_pr_at_implement_start(
     pipeline_id: str, repo_path: Path | None = None
 ) -> int | None:
@@ -9628,10 +9885,12 @@ def _open_context_pr_at_implement_start(
        PR and filtering client-side (#2934). On hit, persist the PR number
        via :func:`_persist_context_pr_number` and return it (no
        ``gh pr create`` invocation).
-    4. On miss, read ``contract.pr.title`` / ``contract.pr.description``
-       — the canonical fields populated from the plan's ``pr:`` block
-       per :func:`extract_pr_metadata_from_yaml`. Call
-       ``GatewayClient.create_pr`` to open the PR, persist the PR
+    4. On miss, read ``contract.pr.title`` and compose the body via
+       :func:`_compose_context_pr_body` (#3115) — the planner's
+       ``description`` plus rendered ``test_plan`` / ``manual_steps``
+       and a generated pipeline-context footer (issue, slice table,
+       analysis/plan draft + BRC transcript links on the work branch).
+       Call ``GatewayClient.create_pr`` to open the PR, persist the PR
        number, and return it.
 
     Raises:
@@ -9821,14 +10080,22 @@ def _open_context_pr_at_implement_start(
             reason="missing_pr_metadata",
         )
     pr_title = contract.pr.title.strip()
-    pr_description = contract.pr.description or ""
+    # #3115: render the full context-PR body (description + test plan +
+    # manual steps + generated pipeline-context footer) instead of the
+    # bare ``contract.pr.description``.
+    pr_body = _compose_context_pr_body(
+        contract=contract,
+        pipeline=pipeline,
+        worktree_repo_path=worktree_repo_path,
+        identifier=identifier,
+    )
 
     try:
         pr_url = spawner.gateway.create_pr(
             pipeline_id=pipeline_id,
             repo=pipeline.repo,
             title=pr_title,
-            body=pr_description,
+            body=pr_body,
             head=pipeline.branch,
             base=effective_base,
             issue_number=pipeline.issue_number,
@@ -10545,6 +10812,128 @@ def _escalate_blocked_slice_to_hitl(
     )
 
 
+def _check_slice_evidence_reachability(
+    pipeline_id: str,
+    spawner: "ContainerSpawner",  # noqa: UP037
+    worktree_repo_path: Path,
+    slice_id: str,
+    integration_branch: str,
+    *,
+    gateway_mode: Literal["public", "private"] = "public",
+    contract: Any | None = None,
+) -> str | None:
+    """Verify the slice's cited evidence commits reached the integration branch (#3125).
+
+    The integration branch only advances when a producer pushes
+    (``consensus_push`` at propose time). A commit recorded by
+    ``egg-contract complete-task --commit <sha>`` *after* that producer
+    confirmed — the prescribed HITL unblock flow for a post-confirmation
+    task reassignment (#3124) — lives only on the agent's local worktree
+    branch, so the slice would otherwise close and open its PR without
+    the deliverable while the contract task record points at a commit
+    nothing retains.
+
+    Runs after slice consensus and before any close side effects (BRC
+    transcript commit, slice PR). Returns ``None`` when the slice may
+    close, or a human-readable failure string listing every task row
+    whose cited commit is not an ancestor of the integration branch tip
+    — the caller records the slice failure with it, which routes
+    through the existing cascade + HITL escalation machinery instead of
+    closing silently.
+
+    Failure posture mirrors the other completeness checks (#3081 /
+    #3114): the gate degrades to ``None`` (close proceeds, warning
+    logged) when the contract cannot be read, the slice id does not
+    resolve, or the gateway reachability probe cannot be evaluated.
+    Only a definitive "this cited commit is not on the branch" verdict
+    fails the close. ``EGG_EVIDENCE_REACHABILITY_GATE`` is the operator
+    kill switch.
+
+    ``contract`` is an optional pre-loaded contract: the close path
+    already needs the contract one stretch later for the slice PR data
+    snapshot, so threading the same load through saves one file read
+    and one ``get_pipeline_state_lock`` acquisition. When ``None``
+    (the default — keeps the gate self-contained for tests), the gate
+    loads the contract itself under the lock.
+    """
+    try:
+        import contract_completeness as cc
+    except ImportError:
+        from .. import contract_completeness as cc  # type: ignore[no-redef]
+
+    if not cc.evidence_gate_enabled():
+        logger.info(
+            "Evidence-reachability gate disabled by kill switch (#3125)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+        )
+        return None
+
+    if contract is None:
+        from egg_contracts.loader import load_contract as _load_contract
+
+        try:
+            with get_pipeline_state_lock(pipeline_id):
+                contract = _load_contract(pipeline_id, worktree_repo_path)
+        except Exception as load_err:  # noqa: BLE001
+            logger.warning(
+                "Evidence-reachability gate skipped: contract load failed (#3125)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                error=str(load_err),
+            )
+            return None
+
+    rows = cc.evidence_commits(contract, slice_id)
+    if rows is None:
+        logger.warning(
+            "Evidence-reachability gate skipped: slice not found in contract (#3125)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+        )
+        return None
+    if not rows:
+        return None
+
+    # De-duplicate while preserving first-seen order: multiple task rows
+    # can cite the same commit (the prescribed unblock flow #3124 often
+    # links one commit across two adjacent rows). Each duplicate would
+    # otherwise burn one merge-base round-trip per dupe. The membership
+    # join below re-attaches the verdict to every row that cites it.
+    probe_shas = list(dict.fromkeys(r["commit"] for r in rows))
+    unreachable_shas = spawner.gateway.find_unreachable_evidence_commits(
+        pipeline_id,
+        str(worktree_repo_path),
+        commit_shas=probe_shas,
+        integration_branch=integration_branch,
+        mode=gateway_mode,
+    )
+    if unreachable_shas is None:
+        # The probe itself could not be evaluated (gateway/network).
+        # find_unreachable_evidence_commits already logged the cause.
+        return None
+    if not unreachable_shas:
+        return None
+
+    lost = [r for r in rows if r["commit"] in set(unreachable_shas)]
+    summary = cc.format_evidence_rows(lost)
+    logger.error(
+        "Slice close blocked: task records cite commits unreachable from "
+        "the integration branch (#3125)",
+        pipeline_id=pipeline_id,
+        slice_id=slice_id,
+        integration_branch=integration_branch,
+        unreachable=summary,
+    )
+    return (
+        f"slice {slice_id}: evidence-reachability gate failed — contract task "
+        f"records cite commits that are not on integration branch "
+        f"{integration_branch}: {summary}. Cherry-pick (or push) the cited "
+        f"commits onto {integration_branch}, then re-run the slice close; "
+        f"set {cc.EVIDENCE_GATE_ENV_VAR}=off to bypass."
+    )
+
+
 def _commit_slice_brc_history_to_integration_branch(
     pipeline,
     spawner: "ContainerSpawner",  # noqa: UP037
@@ -10881,6 +11270,104 @@ def _commit_slice_brc_history_to_integration_branch(
             shutil.rmtree(tmp_worktree, ignore_errors=True)
         except Exception:  # noqa: BLE001
             pass
+
+
+def _build_slice_diff_summary(
+    pipeline,
+    spawner: "ContainerSpawner",  # noqa: UP037
+    worktree_repo_path: Path,
+    integration_branch: str,
+    parent_branch: str,
+    gateway_mode: Literal["public", "private"] = "public",
+) -> tuple[list[str] | None, str | None]:
+    """Compute commit subjects + diffstat for a slice PR body (#3115).
+
+    The slice PR body's task list is plan-derived — it describes intent,
+    not what the pushed branch actually contains. This helper reads the
+    real git state so ``create_slice_pr`` can render a ``## What's in
+    this PR`` section: the slice's commit subjects
+    (``git log origin/<parent>..origin/<head>``) and a diffstat against
+    the merge base (``git diff --stat origin/<parent>...origin/<head>``,
+    three-dot to match GitHub's PR diff semantics).
+
+    Both remote-tracking refs are refreshed first via
+    ``GatewayClient.fetch_branch`` — the slice's agents push directly to
+    origin, so the orchestrator worktree's tracking refs may lag (same
+    pattern as :func:`_commit_slice_brc_history_to_integration_branch`,
+    which runs immediately before this in the slice loop). ``gateway_mode``
+    must be threaded from the pipeline-computed mode at the call site;
+    defaulting to ``public`` against a private/internal repo causes the
+    gateway to refuse the session and the whole diff section silently
+    no-ops.
+
+    Strictly best-effort: returns ``(None, None)`` on any failure
+    (fetch, git error, timeout) and never raises — a missing diff
+    summary must not block slice PR creation.
+    """
+    pipeline_id = pipeline.id
+    try:
+        for branch in (parent_branch, integration_branch):
+            # ``fetch_branch`` swallows exceptions and returns False;
+            # a stale parent ref degrades the diffstat, it doesn't
+            # break it, so we just continue.
+            spawner.gateway.fetch_branch(
+                pipeline_id,
+                str(worktree_repo_path),
+                args=[f"+refs/heads/{branch}:refs/remotes/origin/{branch}"],
+                mode=gateway_mode,
+            )
+
+        git_base = [
+            "git",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            f"safe.directory={worktree_repo_path}",
+            "-C",
+            str(worktree_repo_path),
+        ]
+        span = f"origin/{parent_branch}..origin/{integration_branch}"
+        log_proc = subprocess.run(
+            [*git_base, "log", "--no-merges", "--format=%s", span],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        commit_subjects = (
+            [line.strip() for line in log_proc.stdout.splitlines() if line.strip()]
+            if log_proc.returncode == 0
+            else None
+        )
+        # ``--stat=100,80,40``: 100-col output, then git truncates past
+        # 40 entries with an ellipsis line — a slice touching hundreds
+        # of files must not produce a body longer than the task dump
+        # this section exists to displace.
+        diff_proc = subprocess.run(
+            [
+                *git_base,
+                "diff",
+                "--stat=100,80,40",
+                f"origin/{parent_branch}...origin/{integration_branch}",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        diffstat = diff_proc.stdout.strip() if diff_proc.returncode == 0 else None
+        if not commit_subjects and not diffstat:
+            return None, None
+        return commit_subjects or None, diffstat or None
+    except Exception as err:  # noqa: BLE001
+        logger.warning(
+            "Slice diff summary failed (slice PR opens without it) (#3115)",
+            pipeline_id=pipeline_id,
+            integration_branch=integration_branch,
+            parent_branch=parent_branch,
+            error=str(err),
+        )
+        return None, None
 
 
 # Shared PR description guidance injected into planner prompts.
@@ -11492,7 +11979,12 @@ def _build_phase_prompt(
                 "    name: |-",
                 "      Slice Name",
                 "    goal: |-",
-                "      What this slice achieves",
+                "      What this slice achieves, written for a reviewer of the",
+                "      target repo. This text is rendered verbatim as the lead",
+                "      paragraph of the slice's PR body (#3115), so keep it 1-3",
+                "      plain-language sentences with no plan-internal",
+                "      cross-references (reviewer codes, section numbers, draft",
+                "      version markers).",
                 "    tasks:",
                 "      - id: TASK-1-1",
                 "        description: |-",
@@ -11836,6 +12328,19 @@ def _build_phase_prompt(
 # ---------------------------------------------------------------------------
 
 
+def _contract_enforcer_role_names() -> frozenset[str]:
+    """Roles whose ACK/CONFIRM is gated on contract-task completeness (#3114).
+
+    Lazy wrapper so the preamble builder keys its enforcer-specific
+    instructions off the same capability set the orchestrator's signal
+    gate enforces (``egg_contracts.agent_roles.CONTRACT_ENFORCER_ROLES``)
+    — prose and enforcement stay in lockstep.
+    """
+    from egg_contracts.agent_roles import CONTRACT_ENFORCER_ROLE_NAMES
+
+    return CONTRACT_ENFORCER_ROLE_NAMES
+
+
 def _build_brc_preamble(
     role_value: str,
     phase: str,
@@ -12013,6 +12518,16 @@ def _build_brc_preamble(
         if phase == "implement":
             propose_line += (
                 "\n\n"
+                "   **Mark your contract tasks complete (#3114).** Record each "
+                "delivered task with `mcp__task__complete` (link the commit) — "
+                "the contract reviewer's ACK is gated on your rows being "
+                "`complete`, so finished-but-unrecorded work blocks the slice. "
+                "A task waiting on a peer's work: note it in your proposal and "
+                "deliver after the dependency lands; the gate holds the slice "
+                "open until then."
+            )
+            propose_line += (
+                "\n\n"
                 "   **No work for you in this slice? Submit a no-op propose (#3027).** "
                 "If after ORIENT you find your role has no assigned task here AND "
                 "nothing to contribute (e.g. a documenter on a code-only slice, a "
@@ -12024,7 +12539,8 @@ def _build_brc_preamble(
                 "you; reviewers accept it as a non-blocking no-op (they will not "
                 "NACK it). Then CONFIRM (step 5) as normal once peers have proposed. "
                 "Reach for a real propose instead the moment you do find work "
-                "(e.g. the coder's diff turns out to need docs)."
+                "(e.g. the coder's diff turns out to need docs). Rejected while "
+                "you still own incomplete contract tasks here (#3114)."
             )
         producer_lifecycle.extend(
             [
@@ -12209,7 +12725,34 @@ def _build_brc_preamble(
                 "NACK is rejected with HTTP 409 inlining the current "
                 "proposal snapshot (version, artifacts, commit_sha). "
                 "`git fetch && git merge`, re-review against the new "
-                "commit, and re-submit — don't retry the same payload.",
+                "commit, and re-submit — don't retry the same payload."
+                + (
+                    "\n\n"
+                    "   **Contract-enforcer gate (#3114) — applies to you.** "
+                    "Your ACK of a producer is structurally gated on the "
+                    "contract: the orchestrator REJECTS it (409 "
+                    "`contract_incomplete`) while any task row owned by that "
+                    "producer in this slice is not `status=complete`. Read "
+                    "the live task records with `mcp__sdlc__show_contract` — "
+                    "the `.egg-state/contracts/` copy in your checkout is an "
+                    "init-time snapshot; do not trust it. When rows are "
+                    "incomplete, NACK the producer citing the exact task "
+                    "ids: either the work is missing (it must deliver) or it "
+                    "landed unrecorded (it must run `mcp__task__complete`). "
+                    "When all rows are complete, your ACK MUST carry "
+                    '`attestation={"tasks_verified": ["task-…", …]}` on '
+                    "`mcp__brc__ack`, covering every task id the producer "
+                    "owns in this slice — absent or non-covering lists are "
+                    "rejected (`attestation_required` / "
+                    "`attestation_mismatch`). Your CONFIRM is likewise "
+                    "rejected while ANY row in the slice is incomplete. A "
+                    "producer's declared deferral (\"will land in later "
+                    'proposals") is an open obligation, not an end-state — '
+                    "hold consensus open until the rows are delivered or a "
+                    "human descopes them."
+                    if phase == "implement" and role_value in _contract_enforcer_role_names()
+                    else ""
+                ),
                 "6. **CONFIRM**: When all assigned producers reviewed: "
                 "`egg-orch consensus confirmed`",
                 "7. **HANDLE RE-REVIEW**: When you are re-invoked with a "
@@ -13648,7 +14191,12 @@ def _build_agent_prompt(
                 "    name: |-",
                 "      Slice Name",
                 "    goal: |-",
-                "      What this slice achieves",
+                "      What this slice achieves, written for a reviewer of the",
+                "      target repo. This text is rendered verbatim as the lead",
+                "      paragraph of the slice's PR body (#3115), so keep it 1-3",
+                "      plain-language sentences with no plan-internal",
+                "      cross-references (reviewer codes, section numbers, draft",
+                "      version markers).",
                 "    tasks:",
                 "      - id: TASK-1-1",
                 "        description: |-",
@@ -15723,7 +16271,13 @@ def _run_implement_phase_slices(
                 error=str(push_err),
             )
 
-    def _persist_slice_status_complete(slice_id: str, *, commit_to_branch: bool = True) -> None:
+    def _persist_slice_status_complete(
+        slice_id: str,
+        *,
+        pr_number: int | None = None,
+        pr_url: str | None = None,
+        commit_to_branch: bool = True,
+    ) -> None:
         """Mark ``slice_id`` as ``SliceStatus.COMPLETE`` on the contract.
 
         Durable signal so the bootstrap reconciliation pass below and
@@ -15749,6 +16303,23 @@ def _run_implement_phase_slices(
         mutations remain uncommitted in the worktree until the next
         successful slice's commit (the pipeline-scoped glob picks them
         up) or the phase-boundary commit, whichever fires first.
+
+        When the caller just opened the slice's PR it passes
+        ``pr_number`` / ``pr_url`` so the linkage lands in the same
+        contract write (#3122) — the context-PR body refresh and any
+        later stack consumer read them from ``Slice.pr_number``.
+        ``None`` (the merged-skip and bootstrap callers) leaves any
+        previously recorded linkage untouched.
+
+        TODO(#3122): the three ``None`` callers — bootstrap layer-A
+        (contract-recorded COMPLETE), bootstrap layer-B (merged on
+        origin), and the run-loop merged-skip — do not recover the
+        slice PR number from GitHub (`gh pr list --head … --state
+        merged`), so on a resume past those points the slice-table
+        entries for merged slices stay unlinked. Acceptable for v1
+        because the per-slice ``— #N`` link is most useful while the
+        stack is live, but worth backfilling if reviewers ask for
+        complete cross-linkage on archived stacks.
         """
         try:
             with get_pipeline_state_lock(pipeline_id):
@@ -15756,6 +16327,10 @@ def _run_implement_phase_slices(
                 for s in contract_local.slices:
                     if s.id == slice_id:
                         s.status = SliceStatus.COMPLETE
+                        if pr_number is not None:
+                            s.pr_number = pr_number
+                        if pr_url is not None:
+                            s.pr_url = pr_url
                         break
                 save_contract(contract_local, worktree_repo_path)
         except Exception as save_err:  # noqa: BLE001
@@ -16418,16 +16993,62 @@ def _run_implement_phase_slices(
                     )
                     return exit_code_inner, logs_inner
 
-                # Slice consensus reached — snapshot the slice's PR
-                # data under the per-pipeline state lock, then RELEASE
-                # the lock before the gateway HTTP round-trip so we
-                # don't serialise other contract writers for the
-                # gateway timeout (~30 s). The lock only needs to
-                # cover the contract read.
-                slice_pr_data: dict[str, Any] | None = None
+                # Slice consensus reached — load the contract ONCE
+                # under the per-pipeline state lock and reuse the same
+                # snapshot for the #3125 evidence-reachability gate
+                # AND the slice's PR data snapshot below. Both readers
+                # previously took the lock independently; collapsing
+                # them eliminates one file read + lock acquire per
+                # slice close (#3125 review).
+                #
+                # The slice_pr_data block below originally documented
+                # the lock as covering only the contract read so the
+                # gateway HTTP round-trip wouldn't serialise other
+                # writers — the same posture applies here: we release
+                # the lock before the gateway call inside the gate.
+                contract_post: Any | None = None
                 try:
                     with get_pipeline_state_lock(pipeline_id):
                         contract_post = load_contract(pipeline_id, worktree_repo_path)
+                except Exception as load_err:  # noqa: BLE001
+                    logger.warning(
+                        "Slice close: contract load failed (continuing) (#3125)",
+                        pipeline_id=pipeline_id,
+                        slice_id=slice_id,
+                        error=str(load_err),
+                    )
+
+                # #3125 — evidence-reachability gate: every commit SHA
+                # cited by this slice's contract task records must be
+                # an ancestor of the integration branch tip, or the
+                # slice PR would ship without a deliverable the task
+                # record claims is done (the post-confirmation
+                # ``complete-task --commit`` unblock flow, #3124).
+                # Fails the slice BEFORE any close side effect so the
+                # cascade + HITL machinery surfaces the gap loudly.
+                # ``contract_post`` may be None if the load above
+                # raised — the gate falls back to its own load in that
+                # case (and skips gracefully if that fails too).
+                if pipeline.repo:
+                    evidence_failure = _check_slice_evidence_reachability(
+                        pipeline_id,
+                        spawner,
+                        worktree_repo_path,
+                        slice_id,
+                        integration_branch,
+                        gateway_mode=gateway_mode,  # type: ignore[arg-type]
+                        contract=contract_post,
+                    )
+                    if evidence_failure is not None:
+                        scheduler.record_failure(slice_id)
+                        return 1, evidence_failure
+
+                # Snapshot the slice's PR data from the same loaded
+                # contract — no second lock acquire, no second file
+                # read.
+                slice_pr_data: dict[str, Any] | None = None
+                try:
+                    if contract_post is not None:
                         slice_obj = next(
                             (s for s in contract_post.slices if s.id == slice_id),
                             None,
@@ -16475,6 +17096,11 @@ def _run_implement_phase_slices(
                                         slice_files_affected_list.append(path)
                             slice_pr_data = {
                                 "slice_name": slice_obj.name or slice_id,
+                                # Planner's reviewer-facing summary —
+                                # rendered as the slice PR body's lead
+                                # paragraph (#3115). Empty for
+                                # pre-#3115 contracts.
+                                "slice_goal": getattr(slice_obj, "goal", "") or None,
                                 "slice_tasks": [
                                     {
                                         "id": t.id,
@@ -16489,16 +17115,25 @@ def _run_implement_phase_slices(
                                 # ``context_pr_number`` is populated by
                                 # ``_open_context_pr_at_implement_start``
                                 # at the plan→implement boundary (#2777
-                                # cq-4). When None — should be
-                                # unreachable under the new
-                                # hard-required opener but kept as
+                                # cq-4). When the contract linkage is
+                                # missing (e.g. ``contract.pr`` is None
+                                # on an implement-start resume, #3100),
+                                # fall back to ``pipeline.pr_number`` —
+                                # the pipeline-level mirror written by
+                                # ``_persist_context_pr_number`` whose
+                                # sole post-#2777 writer is the same
+                                # opener — so the slice PR still links
+                                # its base PR (#3115). When both are
+                                # None — should be unreachable under
+                                # the hard-required opener but kept as
                                 # defence-in-depth — ``create_slice_pr``
                                 # falls back to the pre-#2745 inline-
                                 # narrative body so the slice PR stays
                                 # reviewable as a standalone diff
                                 # against ``/work``.
                                 "context_pr_number": (
-                                    program_pr.context_pr_number if program_pr else None
+                                    (program_pr.context_pr_number if program_pr else None)
+                                    or pipeline.pr_number
                                 ),
                                 "program_title": (program_pr.title if program_pr else None),
                                 "program_description": (
@@ -16509,19 +17144,19 @@ def _run_implement_phase_slices(
                                     program_pr.manual_steps if program_pr else None
                                 ),
                             }
-                except Exception as load_err:  # noqa: BLE001
-                    # Contract load + nested attribute traversal on
-                    # slice/program PR objects. Surface includes
-                    # loader validation errors, OSError, plus
-                    # AttributeError / KeyError on partially-populated
-                    # PR rollup fields. Continue without slice_pr_data
-                    # (the gateway PR creation just below is gated
-                    # on it being non-None).
+                except Exception as attr_err:  # noqa: BLE001
+                    # Nested attribute traversal on slice/program PR
+                    # objects (the contract load was lifted out to the
+                    # block above). Surface is AttributeError /
+                    # KeyError on partially-populated PR rollup
+                    # fields. Continue without slice_pr_data (the
+                    # gateway PR creation just below is gated on it
+                    # being non-None).
                     logger.warning(
                         "Slice PR pre-load failed (continuing)",
                         pipeline_id=pipeline_id,
                         slice_id=slice_id,
-                        error=str(load_err),
+                        error=str(attr_err),
                     )
 
                 # Persist this slice's per-slice BRC consensus history
@@ -16557,9 +17192,23 @@ def _run_implement_phase_slices(
                         )
 
                 pr_created = True
+                slice_pr_url: str | None = None
+                slice_pr_number: int | None = None
                 if slice_pr_data is not None and pipeline.repo:
+                    # Best-effort real-diff summary for the PR body
+                    # (#3115) — commit subjects + diffstat from the
+                    # pushed integration branch. (None, None) on any
+                    # failure; the PR opens without the section.
+                    commit_subjects, diffstat = _build_slice_diff_summary(
+                        pipeline,
+                        spawner,
+                        worktree_repo_path,
+                        integration_branch,
+                        parent_branch,
+                        gateway_mode=gateway_mode,  # type: ignore[arg-type]
+                    )
                     try:
-                        spawner.gateway.create_slice_pr(
+                        slice_pr_url = spawner.gateway.create_slice_pr(
                             pipeline_id=pipeline_id,
                             repo=pipeline.repo,
                             slice_id=slice_id,
@@ -16578,6 +17227,9 @@ def _run_implement_phase_slices(
                             slice_count=slice_pr_data["slice_count"],
                             slice_files_affected=slice_pr_data["slice_files_affected"],
                             context_pr_number=slice_pr_data["context_pr_number"],
+                            slice_goal=slice_pr_data["slice_goal"],
+                            diffstat=diffstat,
+                            commit_subjects=commit_subjects,
                         )
                     except Exception as pr_err:  # noqa: BLE001
                         # Single `gateway.create_slice_pr` HTTP call.
@@ -16599,8 +17251,57 @@ def _run_implement_phase_slices(
                         f"base={parent_branch})"
                     )
 
-                scheduler.record_complete(slice_id)
-                _persist_slice_status_complete(slice_id)
+                # Parse the slice PR number from the returned URL
+                # (#3122) — same trailing-boundary pattern the context-
+                # PR opener uses, narrowed to ``[1-9]\d*`` so a
+                # malformed ``/pull/0/...`` URL doesn't make it as far
+                # as ``Slice.pr_number``'s ``ge=1`` validator (which
+                # would silently downgrade to a warning log via the
+                # save try/except in ``_persist_slice_status_complete``).
+                # Best-effort: an unparseable URL just means the
+                # linkage isn't recorded this pass; the idempotent
+                # ``create_slice_pr`` re-yields it on a resume.
+                if slice_pr_url:
+                    pr_match = re.search(r"/pull/([1-9]\d*)(?:[/?#]|$)", slice_pr_url)
+                    if pr_match:
+                        slice_pr_number = int(pr_match.group(1))
+
+                # Hold the per-pipeline state lock across both the
+                # contract-write (``_persist_slice_status_complete``
+                # itself reacquires this RLock) and the context-PR
+                # body refresh (load + compose + push). Without the
+                # outer lock, two slices in the same wave could
+                # interleave between persist and push so the slice
+                # whose refresh starts earlier but lands later
+                # clobbers the body that already included both links
+                # — and because no later slice fires a refresh, the
+                # final slice's ``— #N`` link would stay missing
+                # forever. Serializing here bounds the per-slice tail
+                # latency by one gateway PATCH per concurrent slice
+                # rather than racing them.
+                with get_pipeline_state_lock(pipeline_id):
+                    scheduler.record_complete(slice_id)
+                    _persist_slice_status_complete(
+                        slice_id,
+                        pr_number=slice_pr_number,
+                        pr_url=slice_pr_url if slice_pr_number else None,
+                    )
+
+                    # Refresh the context PR body so its slice table
+                    # links the PR that just opened (#3122). Strictly
+                    # cosmetic and best-effort: every failure path
+                    # inside logs + returns False without raising, and
+                    # the slice outcome below never depends on it.
+                    if slice_pr_number:
+                        _refresh_context_pr_body(
+                            pipeline_id,
+                            pipeline=pipeline,
+                            spawner=spawner,
+                            worktree_repo_path=worktree_repo_path,
+                            identifier=_pipeline_identifier(pipeline.issue_number, pipeline_id),
+                            gateway_mode=gateway_mode,
+                        )
+
                 try:
                     remove_peer_consensus_tracker(pipeline_id, slice_id)
                 except Exception:  # noqa: BLE001
@@ -21456,6 +22157,14 @@ def _run_pipeline(
                             pipeline_id=pipeline.id,
                             spawner=spawner,
                             gateway_mode=gateway_mode,
+                            # Mirror the create_contract() fallback below:
+                            # ``task_description`` is populated only for
+                            # pipelines without a GitHub issue (#3042); for
+                            # issue pipelines agents fetch the live body
+                            # via ``gh issue view`` instead.
+                            task_description=(
+                                pipeline.prompt if pipeline.issue_number is None else None
+                            ),
                         )
                     except Exception:
                         logger.warning(

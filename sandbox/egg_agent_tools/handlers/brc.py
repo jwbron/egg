@@ -553,6 +553,23 @@ def brc_propose(req: dict[str, Any]) -> dict[str, Any]:
                 "message": exc.message,
                 "rejection": exc.details,
             }
+        # Contract-completeness rejection on no-op propose (#3114): the
+        # producer still owns incomplete contract rows in this slice, so
+        # ``no_changes_needed`` is not an exit. Surface the rows as
+        # structured data so the agent NACKs/delivers without parsing
+        # stderr (mirrors the ACK / CONFIRM unwrap paths).
+        if (
+            getattr(exc, "status_code", None) == 400
+            and isinstance(exc.details, dict)
+            and exc.details.get("status") == "contract_incomplete"
+        ):
+            return {
+                "ok": False,
+                "role": role,
+                "status": "contract_incomplete",
+                "message": exc.message,
+                "rejection": exc.details,
+            }
         raise
     if not result.get("success"):
         raise GatewayError(result.get("message", "propose failed"))
@@ -582,6 +599,13 @@ def brc_ack(req: dict[str, Any]) -> dict[str, Any]:
             PR" subsection so reviewers don't see merge-blocking boilerplate
             on busywork (#2336). Only meaningful alongside a non-empty
             ``pre_merge_condition``.
+        attestation (dict): role-specific reviewer attestation (#3114).
+            REQUIRED for reviewer_contract ACKs in the implement phase:
+            ``{"tasks_verified": ["task-2-1", ...]}`` covering every task id
+            the producer owns in the slice. The orchestrator rejects the ACK
+            with status ``contract_incomplete`` while owned rows are not
+            complete, ``attestation_required`` when the list is absent, and
+            ``attestation_mismatch`` when it doesn't cover the rows.
         pipeline_id, role: overrides.
     """
     pid = _require_pipeline_id(req)
@@ -599,6 +623,16 @@ def brc_ack(req: dict[str, Any]) -> dict[str, Any]:
         "reason": reason,
         "ack_version": ack_version,
     }
+    # Role-specific reviewer attestation (#3114). Threaded through so the
+    # orchestrator's contract-completeness gate can require and
+    # cross-check ``tasks_verified`` on enforcer ACKs — before this, the
+    # MCP boundary silently dropped attestations, making the server-side
+    # attestation validation unreachable in production.
+    attestation = req.get("attestation")
+    if attestation:
+        if not isinstance(attestation, dict):
+            raise HandlerError("'attestation' must be an object")
+        payload["attestation"] = attestation
     pre_merge_condition = req.get("pre_merge_condition") or ""
     resolved_in_diff = req.get("pre_merge_condition_resolved_in_diff") or ""
     # Thread both fields through unconditionally so the signal-layer
@@ -619,21 +653,30 @@ def brc_ack(req: dict[str, Any]) -> dict[str, Any]:
     try:
         result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
     except GatewayError as exc:
-        # Stale-version rejection (#2142): the orchestrator returns 409
-        # with the producer's current proposal snapshot inlined when the
-        # ACK targeted a superseded version.  Surface it as structured
-        # data so the reviewer can re-fetch and re-review without
-        # parsing stderr.
+        # Structured 409 rejections, surfaced as data instead of stderr:
+        #   * stale_version (#2142) — the producer re-proposed; the inlined
+        #     snapshot lets the reviewer re-review without a separate fetch.
+        #   * contract_incomplete / attestation_required /
+        #     attestation_mismatch (#3114) — the contract-completeness gate
+        #     refused the ACK; ``rejection`` carries the incomplete task
+        #     rows / expected task ids so the reviewer can NACK the
+        #     producer citing them, or re-send with a correct attestation.
         if (
             getattr(exc, "status_code", None) == 409
             and isinstance(exc.details, dict)
-            and exc.details.get("status") == "stale_version"
+            and exc.details.get("status")
+            in (
+                "stale_version",
+                "contract_incomplete",
+                "attestation_required",
+                "attestation_mismatch",
+            )
         ):
             return {
                 "ok": False,
                 "role": role,
                 "producer_role": producer_role,
-                "status": "stale_version",
+                "status": exc.details["status"],
                 "message": exc.message,
                 "rejection": exc.details,
             }
@@ -750,7 +793,26 @@ def brc_confirm(req: dict[str, Any]) -> dict[str, Any]:
         "agent_role": role,
     }
     _maybe_attach_slice_id(req, data)
-    result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    try:
+        result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    except GatewayError as exc:
+        # Contract-completeness rejection (#3114): the enforcer's CONFIRM
+        # was refused because task rows in the slice are incomplete.
+        # Surface the rows as structured data — the agent NACKs the owning
+        # producer(s) or escalates, rather than parsing stderr.
+        if (
+            getattr(exc, "status_code", None) == 409
+            and isinstance(exc.details, dict)
+            and exc.details.get("status") == "contract_incomplete"
+        ):
+            return {
+                "ok": False,
+                "role": role,
+                "status": "contract_incomplete",
+                "message": exc.message,
+                "rejection": exc.details,
+            }
+        raise
     if not result.get("success"):
         raise GatewayError(result.get("message", "confirm failed"))
     body = result.get("data", {})

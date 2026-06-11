@@ -45,13 +45,25 @@ class TestValidateMutation:
         assert result.valid is True
 
     def test_valid_reviewer_mutation(self):
-        """Test that reviewer can modify status."""
+        """Reviewer may demote a task's status (flagging it)."""
+        result = validate_mutation(
+            role=Role.REVIEWER,
+            field_path="phases.0.tasks.0.status",
+            new_value="incomplete",
+        )
+        assert result.valid is True
+
+    def test_reviewer_cannot_promote_to_complete(self):
+        """Reviewer task-status writes are demote-only (#3114): only the
+        implementer may claim completion, so the contract-completeness
+        gate cannot be satisfied by the enforcer flipping rows itself."""
         result = validate_mutation(
             role=Role.REVIEWER,
             field_path="phases.0.tasks.0.status",
             new_value="complete",
         )
-        assert result.valid is True
+        assert result.valid is False
+        assert result.required_role == Role.IMPLEMENTER.value
 
     def test_invalid_reviewer_mutation(self):
         """Test that reviewer cannot modify commit."""
@@ -165,7 +177,19 @@ class TestApplyMutation:
         assert result.contract.phases[0].tasks[0].status == TaskStatus.COMPLETE
 
     def test_apply_reviewer_mutation(self, sample_contract):
-        """Test reviewer can mark task complete."""
+        """Reviewer can flag a task (demote-only writes, #3114)."""
+        result = apply_mutation(
+            contract=sample_contract,
+            role=Role.REVIEWER,
+            actor="reviewer-agent",
+            field_path="phases.0.tasks.0.status",
+            new_value=TaskStatus.INCOMPLETE,
+        )
+        assert result.success is True
+        assert result.contract.phases[0].tasks[0].status == TaskStatus.INCOMPLETE
+
+    def test_apply_reviewer_complete_rejected(self, sample_contract):
+        """Reviewer cannot mark a task complete (demote-only, #3114)."""
         result = apply_mutation(
             contract=sample_contract,
             role=Role.REVIEWER,
@@ -173,8 +197,8 @@ class TestApplyMutation:
             field_path="phases.0.tasks.0.status",
             new_value=TaskStatus.COMPLETE,
         )
-        assert result.success is True
-        assert result.contract.phases[0].tasks[0].status == TaskStatus.COMPLETE
+        assert result.success is False
+        assert result.error_kind == "authorization"
 
     def test_audit_log_appended(self, sample_contract):
         """Test that audit log entry is appended."""

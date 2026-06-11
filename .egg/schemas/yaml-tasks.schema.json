@@ -88,7 +88,7 @@
         },
         "goal": {
           "type": "string",
-          "description": "What this slice achieves"
+          "description": "What this slice achieves. Rendered verbatim as the lead paragraph of the slice's PR body (#3115), so write it as a reviewer-facing summary in plain language — no plan-internal cross-references."
         },
         "dependencies": {
           "type": "string",

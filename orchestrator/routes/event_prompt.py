@@ -86,6 +86,22 @@ _ENVELOPE_TRUNCATION_SENTINEL: str = (
     "blocker before re-proposing)\n"
 )
 
+# Cap on the inline copy of the contract's ``task_description`` (#3123).
+# The full text stays one tool call away (``mcp__sdlc__show_contract``);
+# this inline excerpt exists so the operator's task framing — including
+# binding directives like "adopt prior branch X, do not reimplement" —
+# is PUSHED into every one-shot invocation instead of relying on the
+# agent pulling it per the rules file. 4 KB inside the 10 KB envelope
+# leaves room for the event payload and the (separately truncatable)
+# NACKs section.
+TASK_DESCRIPTION_MAX_CHARS: int = 4000
+
+_TASK_TRUNCATION_SENTINEL: str = (
+    "\n…(task description truncated — read the full text with "
+    "``mcp__sdlc__show_contract`` before making scope or adopt-vs-"
+    "reimplement decisions)\n"
+)
+
 
 def _truncate(text: str, max_chars: int) -> str:
     """Trim ``text`` to ``max_chars`` characters with an ellipsis sentinel.
@@ -363,6 +379,89 @@ def _render_memory_section(memory_excerpt: str) -> str:
     )
 
 
+def _render_task_section(task_description: str) -> str:
+    """Render the contract's ``task_description`` as a pushed section (#3123).
+
+    The #3033/#3042 channel made the submit description reliably land in
+    ``contract.task_description``, but delivery stayed pull-based: nothing
+    in the per-event prompt or the role-scoped task views surfaced it, so
+    an agent could complete a whole slice without ever reading the
+    operator's directives (observed live: a slice coder reimplemented 12
+    completed tasks from scratch past a prominent "ADOPT, DO NOT
+    REIMPLEMENT" directive). This section closes the last hop by pushing
+    the text into every one-shot invocation.
+
+    Truncated at ``TASK_DESCRIPTION_MAX_CHARS`` with an explicit sentinel
+    — the full text is one ``mcp__sdlc__show_contract`` call away.
+    """
+    if not (task_description or "").strip():
+        return ""
+    body = (task_description or "").strip()
+    if len(body) > TASK_DESCRIPTION_MAX_CHARS:
+        body = body[:TASK_DESCRIPTION_MAX_CHARS] + _TASK_TRUNCATION_SENTINEL
+    return "\n".join(
+        [
+            "## Task & operator directives (contract ``task_description``)",
+            "",
+            "This is the operator's authoritative, submit-time task "
+            "statement for the whole pipeline. It is BINDING for every "
+            "event you handle: re-read it before structural decisions "
+            "(what to adopt vs. implement from scratch, scope "
+            "boundaries, hard requirements). If it conflicts with what "
+            "you were about to do, the directive wins — course-correct "
+            "or raise a HITL decision rather than proceeding.",
+            "",
+            body,
+            "",
+        ]
+    )
+
+
+def _read_task_description(repo_path: Path) -> str:
+    """Read ``task_description`` from the worktree contract file (#3123).
+
+    Resolves the contract identifier from ``EGG_PIPELINE_ID`` /
+    ``EGG_ISSUE_NUMBER`` (both exported into agent pods; the composer
+    subprocess inherits them) and reads
+    ``.egg-state/contracts/<key>.json`` directly — this script runs
+    standalone via the wrapper bash, so it cannot import
+    ``egg_contracts``. The contract file is committed and pushed to the
+    assigned branch before any agent spawns, so a fresh worktree always
+    carries it; ``task_description`` is written at contract creation and
+    never mutated mid-phase, so the worktree copy cannot go stale.
+
+    Fail-soft like the memory reader above: a missing file, malformed
+    JSON, or absent field yields ``""`` (section omitted) rather than
+    failing the composer — the wrapper would otherwise fall back to the
+    stub prompt and lose the delta/NACK sections too.
+    """
+    candidates: list[str] = []
+    pipeline_id = (os.environ.get("EGG_PIPELINE_ID") or "").strip()
+    if pipeline_id:
+        candidates.append(f"{pipeline_id}.json")
+    issue_number = (os.environ.get("EGG_ISSUE_NUMBER") or "").strip()
+    if issue_number:
+        # Mirrors egg_contracts.loader._canonical_key for int identifiers.
+        candidates.append(f"issue-{issue_number}.json")
+
+    contracts_dir = repo_path / ".egg-state" / "contracts"
+    for name in candidates:
+        try:
+            raw = (contracts_dir / name).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(data, dict):
+            continue
+        task_description = data.get("task_description")
+        if isinstance(task_description, str) and task_description.strip():
+            return task_description.strip()
+    return ""
+
+
 def compose_event_prompt(
     role: str,
     event_payload: dict[str, Any] | None,
@@ -370,6 +469,8 @@ def compose_event_prompt(
     nacks: list[dict[str, Any]] | None,
     git_log_delta: list[dict[str, Any]] | None,
     base_branch: str,
+    *,
+    task_description: str = "",
 ) -> str:
     """Compose the per-event one-shot prompt the wrapper hands the agent.
 
@@ -377,7 +478,8 @@ def compose_event_prompt(
     (TASK-3-1): ``(role, event_payload, memory_excerpt, nacks,
     git_log_delta, base_branch) -> str``. The wrapper bash invokes this
     via ``python3 -c`` so changing the positional order would silently
-    break the call site; keep the order stable.
+    break the call site; keep the order stable. New inputs go after the
+    ``*`` as keyword-only with a safe default (see ``task_description``).
 
     Args:
         role: Agent role token (e.g. ``"coder"``, ``"reviewer_code"``).
@@ -403,6 +505,13 @@ def compose_event_prompt(
             surface).
         base_branch: Base branch the delta excludes (renders as
             ``--not origin/<base_branch>``). Usually ``main``.
+        task_description: The contract's ``task_description`` (#3123) —
+            the operator's submit-time task statement including any
+            binding directives. Rendered (capped at
+            ``TASK_DESCRIPTION_MAX_CHARS``) right after the event
+            section so every one-shot invocation carries the operator's
+            framing; pass ``""`` to omit (GitHub-issue pipelines, or a
+            worktree without the contract file).
 
     Returns:
         Rendered prompt string suitable for passing as the positional
@@ -419,6 +528,7 @@ def compose_event_prompt(
     base_branch = (base_branch or "main").strip() or "main"
 
     event_section = _render_event_section(role, event_payload)
+    task_section = _render_task_section(task_description)
     delta_section, _delta_bytes = _render_producer_delta_section(git_log_delta, base_branch)
     nacks_section = _render_nacks_section(nacks)
     memory_section = _render_memory_section(memory_excerpt)
@@ -443,13 +553,16 @@ def compose_event_prompt(
     # prompt envelope (excluding delta) ≤ 10 KB"). The envelope is the
     # sum of all sections EXCLUDING the rendered delta; if it would
     # overflow we truncate the NACKs section (the variable-size driver
-    # — event/contract are bounded and memory is already 2 KB capped)
+    # — event/contract are bounded, memory is already 2 KB capped, and
+    # the task section is pre-capped at TASK_DESCRIPTION_MAX_CHARS)
     # while preserving the architect's od-6 tail-position contract for
     # memory. The truncation is byte-exact with ``errors="replace"`` so
     # a UTF-8 multibyte sequence split at the boundary doesn't crash;
     # the sentinel's own byte length is subtracted from the per-section
     # budget so the post-truncation envelope honours the cap.
-    envelope_sections = [s for s in (event_section, nacks_section, contract, memory_section) if s]
+    envelope_sections = [
+        s for s in (event_section, task_section, nacks_section, contract, memory_section) if s
+    ]
     envelope_bytes = sum(len(s.encode("utf-8")) for s in envelope_sections) + max(
         0, len(envelope_sections) - 1
     )
@@ -465,6 +578,8 @@ def compose_event_prompt(
             )
 
     parts: list[str] = [event_section]
+    if task_section:
+        parts.append(task_section)
     if delta_section:
         parts.append(delta_section)
     if nacks_section:
@@ -1020,6 +1135,9 @@ def _cli(argv: list[str] | None = None) -> int:
       ``write-only`` to keep the writer warm without reading the
       excerpt, or ``off`` for the one-release rollback escape hatch
       (no writes, no reads).
+    * ``EGG_PIPELINE_ID`` / ``EGG_ISSUE_NUMBER`` (pod env, inherited —
+      not re-exported by the wrapper) — contract identifier for the
+      ``task_description`` section (#3123). Unset → section omitted.
     """
     parser = argparse.ArgumentParser(
         description="Render the per-event BRC event-pump prompt (slice-3).",
@@ -1093,6 +1211,14 @@ def _cli(argv: list[str] | None = None) -> int:
 
     nacks = _extract_nacks(event_payload)
 
+    # Contract task statement (#3123) — pushed into every per-event
+    # prompt so operator directives don't depend on the agent pulling
+    # ``task_description`` per the rules file. Identifier comes from
+    # ``EGG_PIPELINE_ID`` / ``EGG_ISSUE_NUMBER`` (pod env, inherited by
+    # this subprocess); empty on GitHub-issue pipelines or when the
+    # worktree lacks the contract file (fail-soft).
+    task_description = _read_task_description(repo_path)
+
     prompt = compose_event_prompt(
         role,
         event_payload if isinstance(event_payload, dict) else {"raw": event_payload},
@@ -1100,6 +1226,7 @@ def _cli(argv: list[str] | None = None) -> int:
         nacks,
         delta_entries,
         base_branch,
+        task_description=task_description,
     )
     sys.stdout.write(prompt)
     return 0

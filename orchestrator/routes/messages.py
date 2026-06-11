@@ -303,7 +303,7 @@ def poll_messages(pipeline_id: str) -> tuple[Response, int]:
     since_id = request.args.get("since_id")
     try:
         limit = int(request.args.get("limit", "100"))
-    except ValueError, TypeError:
+    except (ValueError, TypeError):  # fmt: skip
         return _make_error("Invalid limit parameter: must be an integer")
 
     # Long-polling support. Cap is configurable via EGG_MESSAGE_POLL_MAX_WAIT
@@ -311,7 +311,7 @@ def poll_messages(pipeline_id: str) -> tuple[Response, int]:
     # requests will return 504; see docs/reference/agent-wait-patterns.md.
     try:
         wait = min(max(int(request.args.get("wait", "0")), 0), _get_poll_max_wait())
-    except ValueError, TypeError:
+    except (ValueError, TypeError):  # fmt: skip
         wait = 0
 
     message_store = get_message_store()
@@ -500,7 +500,7 @@ def get_brc_transcript(pipeline_id: str) -> tuple[Response, int]:
 
     try:
         limit = int(request.args.get("limit", str(_BRC_TRANSCRIPT_DEFAULT_LIMIT)))
-    except ValueError, TypeError:
+    except (ValueError, TypeError):  # fmt: skip
         return _make_error("Invalid limit parameter: must be an integer")
     if limit <= 0:
         return _make_error("Invalid limit parameter: must be > 0")
@@ -722,12 +722,12 @@ def wait_messages(pipeline_id: str) -> tuple[Response, int]:
     since_id = request.args.get("since_id")
     try:
         limit = int(request.args.get("limit", "100"))
-    except ValueError, TypeError:
+    except (ValueError, TypeError):  # fmt: skip
         return _make_error("Invalid limit parameter: must be an integer")
 
     try:
         timeout = min(max(int(request.args.get("timeout", "0")), 0), _get_poll_max_wait())
-    except ValueError, TypeError:
+    except (ValueError, TypeError):  # fmt: skip
         timeout = 0
 
     if timeout <= 0:

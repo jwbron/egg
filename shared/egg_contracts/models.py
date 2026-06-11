@@ -341,6 +341,18 @@ class Slice(EggContractBaseModel):
         ),
     )
     name: str = Field(..., min_length=1, description="Human-readable slice name")
+    goal: str = Field(
+        default="",
+        description=(
+            "Planner-written, reviewer-facing summary of what this slice "
+            "achieves (#3115). Parsed from the plan's per-slice ``goal:`` "
+            "key and rendered as the lead paragraph of the slice PR body, "
+            "so it should read as plain language for a reviewer of the "
+            "target repo — no plan-internal cross-references. Empty for "
+            "contracts written before the field existed (the slice PR "
+            "body then falls back to the program-description blurb)."
+        ),
+    )
     status: SliceStatus = Field(default=SliceStatus.PENDING, description="Slice status")
     review_cycles: int = Field(default=0, ge=0, description="Number of review cycles")
     max_cycles: int = Field(default=3, ge=1, description="Max cycles before escalation")
@@ -399,6 +411,26 @@ class Slice(EggContractBaseModel):
         default=None,
         pattern=r"^[a-f0-9]{7,40}$",
         description="Git commit SHA linked to this slice",
+    )
+    pr_number: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "GitHub PR number of this slice's stacked PR (#3122). "
+            "Recorded by the run loop when ``create_slice_pr`` returns "
+            "(including the idempotent already-open hit), so the context "
+            "PR body can be regenerated with a link to each slice PR as "
+            "it opens. ``None`` until the slice PR exists, and for "
+            "contracts written before the field existed."
+        ),
+    )
+    pr_url: str | None = Field(
+        default=None,
+        description=(
+            "Canonical URL of this slice's PR (#3122). Written together "
+            "with ``pr_number``; kept separately so consumers don't have "
+            "to re-derive the repo to build a link."
+        ),
     )
     review_feedback: list[ReviewFeedback] = Field(
         default_factory=list, description="Feedback from reviewer"

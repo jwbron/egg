@@ -1192,6 +1192,19 @@ EGG_ONLY_REVIEWERS: set[AgentRole] = {AgentRole.REVIEWER_AGENT_DESIGN}
 # String values for use by review_graph and other modules
 EGG_ONLY_REVIEWER_NAMES: set[str] = {r.value for r in EGG_ONLY_REVIEWERS}
 
+# Reviewer roles that enforce contract-task completeness at consensus
+# time (#3114). The orchestrator rejects an enforcer's ACK of a producer
+# whose contract task rows in the active slice are not ``complete``, and
+# rejects its CONFIRM while any slice row is incomplete — making the
+# contract reviewer the structural gate that holds a slice's consensus
+# open until the contract is actually delivered. Capability set rather
+# than a hardcoded role string so a future enforcer role inherits the
+# gate without orchestrator changes.
+CONTRACT_ENFORCER_ROLES: frozenset[AgentRole] = frozenset({AgentRole.REVIEWER_CONTRACT})
+
+# String values for use by the orchestrator signal routes.
+CONTRACT_ENFORCER_ROLE_NAMES: frozenset[str] = frozenset(r.value for r in CONTRACT_ENFORCER_ROLES)
+
 
 def get_roles_for_phase(
     phase: str,

@@ -854,6 +854,10 @@ class TestScaledReEvaluation:
             "reviewer_code_holistic", "tester", {"artifact_references": ["tests/test_main.py"]}
         )
 
+        # reviewer_contract ACKs tester and documenter (CRITICAL edges — issue #3114)
+        t.handle_ack("reviewer_contract", "tester", {"artifact_references": ["tests/test_main.py"]})
+        t.handle_ack("reviewer_contract", "documenter", {"artifact_references": ["docs/README.md"]})
+
         # Lens reviewers (critical) ACK coder and tester
         t.handle_ack(
             "reviewer_security", "coder", {"artifact_references": ["src/main.py", "src/utils.py"]}
@@ -3379,9 +3383,10 @@ class TestGetFullyAckedProducers:
             "documenter",
             {"summary": "docs", "artifacts": ["docs/README.md"], "commit_sha": "abc1234"},
         )
-        # All critical reviewers ACK documenter (default-implement graph
-        # uses reviewer_code as the lone critical reviewer for documenter).
+        # All critical reviewers ACK documenter (reviewer_contract holds
+        # documenter's critical edge since #3114; reviewer_code is advisory).
         t.handle_ack("reviewer_code", "documenter", {"artifact_references": ["docs/README.md"]})
+        t.handle_ack("reviewer_contract", "documenter", {"artifact_references": ["docs/README.md"]})
 
         result = t.get_fully_acked_producers()
         assert "documenter" not in result, (
@@ -3439,10 +3444,17 @@ class TestReadyToConfirmNudge:
         # No producer is ready yet — coder/tester are zero-proposal.
         assert propose_result["newly_ready"] == []
 
-        # The single ADVISORY ACK fully ACKs documenter at the
-        # critical-reviewer level, but the global guard still blocks confirm.
+        # The ADVISORY ACK alone no longer fully-ACKs documenter —
+        # reviewer_contract holds its critical edge since #3114.
         ack_result = t.handle_ack(
             "reviewer_code", "documenter", {"artifact_references": ["docs/README.md"]}
+        )
+        assert ack_result["fully_acked"] is False
+
+        # The critical ACK fully ACKs documenter, but the global
+        # zero-proposal guard still blocks confirm (#2078).
+        ack_result = t.handle_ack(
+            "reviewer_contract", "documenter", {"artifact_references": ["docs/README.md"]}
         )
         assert ack_result["fully_acked"] is True
         assert ack_result["newly_ready"] == [], (
@@ -3460,6 +3472,8 @@ class TestReadyToConfirmNudge:
 
         self._propose(t, "documenter", artifacts=["docs/README.md"])
         t.handle_ack("reviewer_code", "documenter", {"artifact_references": ["docs/README.md"]})
+        # reviewer_contract holds documenter's critical edge since #3114.
+        t.handle_ack("reviewer_contract", "documenter", {"artifact_references": ["docs/README.md"]})
 
         # Coder proposes — tester still missing, so global guard still blocks.
         coder_result = self._propose(t, "coder", artifacts=["src/main.py"])

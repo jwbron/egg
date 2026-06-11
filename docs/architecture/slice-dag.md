@@ -502,9 +502,12 @@ program_test_plan=None, program_manual_steps=None,
 program_deferred_actions=None, terminal_slice_id=None, slice_index=None,
 slice_count=None, slice_files_affected=None, context_pr_number=None, ...)`
 opens one PR per slice (#2745). Slice PRs are scoped to their own slice:
-the body shows the slice subject, files affected, and full task
-descriptions with acceptance criteria. Strategic context (analysis doc,
-plan doc, refine/plan BRC history) lives on the **context PR** —
+the body leads with the planner's reviewer-facing slice `goal`, shows
+what the branch actually contains (commit subjects + diffstat, #3115),
+and carries the slice subject, files affected, and full task
+descriptions with acceptance criteria behind a `<details>` fold.
+Strategic context (analysis doc, plan doc, refine/plan BRC history)
+lives on the **context PR** —
 `egg/<pipeline_id>/work → main`, opened up-front at the plan→implement
 boundary (#2777) — which slice PRs link to via `context_pr_number`.
 Program-level test plan, manual steps, and pre-merge obligations now
@@ -512,40 +515,61 @@ live on that context PR (no longer on a "terminal slice umbrella"), so
 every slice PR is purely slice-scoped.
 
 - **Title.** `[<program-slug>][<position>] <subject>`, capped at 70
-  chars (titles longer than that get truncated to `title[:67] + "..."`).
-  `program-slug` is derived from `pipeline_id`: `issue-<N>` pipelines
-  collapse to `issue-<N>` (version suffix dropped); `pipeline-<hash>`
-  pipelines keep a truncated prefix. `position` is `slice-N/M` and
-  `subject` is the slice name; the legacy `merge-gate` marker and the
-  program-title fallback on the terminal slice were removed alongside
-  the umbrella banner (#2777). When `program_title` is empty (older
-  contracts / planner skipped the field), every slice falls back to
-  the deterministic `{slice_id}: {slice_name}` form (#2539).
-- **Body (slice-scoped, `context_pr_number` present).** Optional
-  1-line program blurb (first sentence of `program_description`) →
-  `**Base PR:** #<context_pr_number>` → `## This slice` (slice name,
-  files affected, full task descriptions + acceptance criteria) →
-  `## Stack` (position, base PR, base branch). Program-level test
-  plan, manual steps and pre-merge obligations live on the up-front
-  context PR (#2777), not on any slice PR.
-- **Body (slice-scoped, no `context_pr_number` — should not occur
-  under #2777).** Because the context PR is opened up-front,
-  hard-required and idempotent at the plan→implement boundary, every
-  slice PR sees a populated `context_pr_number`. The legacy "inline
-  program narrative" backstop body was removed in #2777; if
-  `context_pr_number` is unexpectedly missing, the slice PR opens
-  without the `**Base PR:**` line and the stack is non-mergeable until
-  the operator reconciles the missing context PR.
+  chars; over-long titles truncate at a word boundary (#3115), not the
+  pre-#3115 hard `title[:67] + "..."` cut that produced mid-word
+  fragments. `program-slug` is derived from `pipeline_id`: `issue-<N>`
+  pipelines collapse to `issue-<N>` (version suffix dropped);
+  `pipeline-<hash>` pipelines keep a truncated prefix. `position` is
+  `slice-N/M` and `subject` is the slice name; the legacy `merge-gate`
+  marker and the program-title fallback on the terminal slice were
+  removed alongside the umbrella banner (#2777). When `program_title`
+  is empty (older contracts / planner skipped the field), every slice
+  falls back to the deterministic `{slice_id}: {slice_name}` form
+  (#2539).
+- **Body (uniform shape, #3115).** Lead paragraph — the planner's
+  reviewer-facing per-slice `goal` from the contract (falls back to
+  the first sentence of `program_description` for pre-#3115
+  contracts) → `**Base PR:** #<context_pr_number>` whenever the
+  number is known (the run loop falls back to `pipeline.pr_number`
+  when the contract linkage is missing, #3100/#3115) →
+  `## What's in this PR` (commit subjects + diffstat computed by
+  `_build_slice_diff_summary` from the pushed integration branch;
+  best-effort, omitted on any git/fetch failure) → `## This slice`
+  (slice name, files affected, full task descriptions + acceptance
+  criteria behind a `<details>` fold) → `## Stack` (position, base
+  PR, base branch). Program-level test plan, manual steps and
+  pre-merge obligations live on the up-front context PR (#2777), not
+  on any slice PR. Prose fields (`goal`, inlined program narrative)
+  have their YAML block-scalar hard wraps joined back into paragraphs
+  before rendering (`unwrap_soft_breaks`, #3122).
+- **Reverse linkage (#3122).** After a slice PR opens, the run loop
+  parses the PR number from the returned URL, persists it on the
+  contract slice (`Slice.pr_number` / `Slice.pr_url` — also on the
+  idempotent already-open path, so resumes recover the linkage), and
+  refreshes the machine-owned context-PR body so its slice table links
+  the new PR (`— #N`). The refresh routes through
+  `GatewayClient.update_pr_body` (synthetic session →
+  `/api/v1/gh/pr/edit`, same seam as `rebase_onto`'s base retarget)
+  and is strictly best-effort: failures log and never fail the slice.
+- **No `context_pr_number` — should not occur under #2777.** Because
+  the context PR is opened up-front, hard-required and idempotent at
+  the plan→implement boundary, every slice PR sees a populated
+  `context_pr_number`. If it is unexpectedly missing AND the contract
+  carries program metadata, the program narrative (description + test
+  plan + manual steps) is inlined around the sections above as a UX
+  backstop; the stack is non-mergeable until the operator reconciles
+  the missing context PR.
 
-The `## Stack` block is the human-facing footer, but `_format_stack_block`
-also appends a legacy plain-text line (``Slice <slice-id> of pipeline
-<pipeline>. Stacked on top of `<base>`.``) after it, preserved so
-existing tooling / scrapers that grep for that exact phrase keep
-working.
+The `## Stack` block is the body's footer. The legacy plain-text line
+(``Slice <slice-id> of pipeline <pipeline>. Stacked on top of
+`<base>`.``) that used to follow it was dropped in #3115 — a repo-wide
+search found no consumer parsing it.
 
 Task bullets carry full descriptions (the pre-#2745 300-char
 truncation is removed) and a nested `Acceptance criteria:` line when
-`task.acceptance_criteria` is set.
+`task.acceptance_criteria` is set; since #3115 the whole task list
+renders inside a collapsed `<details>` block so traceability does not
+crowd out the reviewer-facing summary.
 
 `program_deferred_actions` is **terminal-only** by convention — the
 merge gate is the last-to-merge PR in the stack, so obligations live
@@ -560,9 +584,14 @@ every slice (no terminal-slice selection under #2777):
 1. For **every** slice: compute 1-based `slice_index` (position in
    `contract.slices`) and total `slice_count`; collect
    `slice_files_affected` as the union of `task.files_affected` across
-   the slice's tasks; pass `context_pr_number` from
+   the slice's tasks; pass `slice_goal` from the contract slice
+   (#3115); pass `context_pr_number` from
    `program_pr.context_pr_number` (the up-front context PR opened by
-   #2777 at the plan→implement boundary).
+   #2777 at the plan→implement boundary), falling back to
+   `pipeline.pr_number` when the contract linkage is missing
+   (#3100/#3115); compute `commit_subjects` + `diffstat` via
+   `_build_slice_diff_summary` (best-effort — `(None, None)` on any
+   fetch/git failure and the PR opens without the section).
 2. `program_deferred_actions` is **always `None`** on slice PRs —
    pre-merge obligations live on the context PR (#2777), not on any
    slice PR.
