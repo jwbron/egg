@@ -380,6 +380,7 @@ class TestProposeContentValidation:
         data = json.loads(response.data)
         assert "boilerplate" in data["message"]
 
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
     @patch("routes.signals.subprocess.run")
     @patch("routes.signals.resolve_worktree_path", return_value=Path("/tmp/wt"))
     @patch("routes.signals.get_state_store")
@@ -390,6 +391,7 @@ class TestProposeContentValidation:
         mock_get_store,
         mock_resolve_wt,
         mock_subprocess_run,
+        mock_gateway_fetch,
         app,
         mock_pipeline,
     ):
@@ -408,7 +410,6 @@ class TestProposeContentValidation:
         mock_get_tracker.return_value = mock_tracker
 
         mock_subprocess_run.side_effect = [
-            MagicMock(returncode=0),  # fetch
             MagicMock(stdout="  origin/egg/issue-42\n"),  # branch --contains
         ]
 
@@ -544,6 +545,7 @@ class TestReProposeContentValidation:
         data = json.loads(response.data)
         assert "chars" in data["message"]
 
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
     @patch("routes.signals.subprocess.run")
     @patch("routes.signals.resolve_worktree_path", return_value=Path("/tmp/wt"))
     @patch("routes.signals.get_state_store")
@@ -554,6 +556,7 @@ class TestReProposeContentValidation:
         mock_get_store,
         mock_resolve_wt,
         mock_subprocess_run,
+        mock_gateway_fetch,
         app,
         mock_pipeline,
     ):
@@ -569,7 +572,6 @@ class TestReProposeContentValidation:
         mock_get_tracker.return_value = mock_tracker
 
         mock_subprocess_run.side_effect = [
-            MagicMock(returncode=0),
             MagicMock(stdout="  origin/egg/issue-42\n"),
         ]
 
