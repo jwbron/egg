@@ -1878,7 +1878,7 @@ class TestAssignedBranchForkPoint:
                 result = manager._resolve_assigned_fork_point(
                     main_repo=tmp_path / "repos" / "test-repo",
                     assigned_branch="egg/pipe-3/work",
-                    repo_slug="Khan/test-repo",
+                    repo_slug="acme/test-repo",
                     container_id="pipe-3-coder",
                 )
 
@@ -1920,7 +1920,7 @@ class TestAssignedBranchForkPoint:
                 result = manager._resolve_assigned_fork_point(
                     main_repo=tmp_path / "repos" / "test-repo",
                     assigned_branch="egg/pipe-4/work",
-                    repo_slug="Khan/test-repo",
+                    repo_slug="acme/test-repo",
                     container_id="pipe-4-coder",
                 )
 
