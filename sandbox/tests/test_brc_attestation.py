@@ -97,7 +97,7 @@ class TestStructuredGateRejections:
         "status",
         ["contract_incomplete", "attestation_required", "attestation_mismatch"],
     )
-    def test_ack_surfaces_gate_rejection(self, status: str):
+    def test_ack_surfaces_gate_rejection(self, status: str) -> None:
         from egg_agent_tools.handlers import brc as handlers
         from egg_agent_tools.handlers.errors import GatewayError
 
