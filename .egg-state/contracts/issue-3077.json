@@ -98,7 +98,7 @@
       "id": "slice-2",
       "name": "Artifact spec module: single declarative registry of coordination artifacts",
       "goal": "shared/egg_contracts/artifact_spec.py with frozen ArtifactSpec rows\nand resolution helpers, plus MANDATORY in-slice consistency tests\npinning every existing path hardcoding to the spec. No consumer\nbehavior change yet.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -107,8 +107,8 @@
         {
           "id": "task-2-1",
           "description": "Create `shared/egg_contracts/artifact_spec.py` (NEW): frozen\n`ArtifactSpec` dataclass rows \u2014 `name`, `path_template` keyed on\n`{identifier}`, `phase`, `producer_role`, `consumer_roles` \u2014 for\n`analysis-draft` (refine), `plan-draft` (plan),\n`architect-output`, `architect-slices`, and `risk-analyst-output`\n(plan), matching the paths currently encoded by `_get_draft_path`\n(`orchestrator/routes/signals.py:1162-1166`) and the agent-output\nconventions in `.egg-state/agent-outputs/`. Helpers:\n`resolve_artifact_path(name, identifier)`,\n`specs_for(phase, producer_role)`, `spec_by_name(name)`. Pure\nPython, no orchestrator/gateway imports, no new config format\n(#3017 consumes this later, decoupled).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "15258a428eb2667be28c31286bf2e44cb7fdf04b",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- `resolve_artifact_path(\"plan-draft\", \"3077\")` yields\n  `.egg-state/drafts/3077-plan.md`; `analysis-draft` yields the\n  `-analysis.md` path; both identifier shapes (issue number,\n  pipeline id) resolve.\n- `specs_for(\"plan\", \"task_planner\")` returns exactly the\n  plan-draft row; `spec_by_name` round-trips every row.\n- Rows are immutable (frozen) and each names one producer_role\n  and at least one consumer role.\n- Module imports cleanly with no orchestrator/gateway deps.",
@@ -128,8 +128,8 @@
         {
           "id": "task-2-2",
           "description": "Mandatory consistency suite in\n`shared/egg_contracts/tests/test_artifact_spec.py` (NEW):\n(a) every spec path (both identifier shapes) is admitted by the\nmatching `gateway/phase_filter.py` phase gate AND the\n`shared/egg_restrictions/phase_patterns.py` mirror;\n(b) `_get_draft_path` output equals spec resolution for refine and\nplan across both identifier shapes;\n(c) the prompt f-string literals in\n`orchestrator/routes/pipelines.py` that name draft paths match\nspec resolution. Plus resolution/reverse-lookup round-trips for\nevery registered row. These tests are the refine-risk-1\nmitigation: any future drift in any replica fails CI instead of\nreproducing #3016.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "29dd619cf0701b2cac28b850d8f6a9e9c0c1af40",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Consistency assertions (a), (b), (c) all present and green.\n- A deliberate template mutation (parametrized) demonstrably\n  fails the gate-admission assertion.\n- Every spec row is exercised by a resolve/round-trip case.",
@@ -151,11 +151,11 @@
         "slice-1"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3077/slice-1",
+      "integration_base_sha": "8e5ef2c00204a3fffcc6b5861417829fa2ed6140",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3141,
+      "pr_url": "https://github.com/jwbron/egg/pull/3141",
       "review_feedback": []
     },
     {
@@ -838,6 +838,61 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:57:11.509165Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": null,
+      "new_value": "15258a428eb2667be28c31286bf2e44cb7fdf04b",
+      "reason": "Linked commit 15258a4 to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:59:44.217979Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": "15258a428eb2667be28c31286bf2e44cb7fdf04b",
+      "new_value": "15258a428eb2667be28c31286bf2e44cb7fdf04b",
+      "reason": "Linked commit 15258a4 to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:59:44.242988Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T22:13:12.763211Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": null,
+      "new_value": "29dd619cf0701b2cac28b850d8f6a9e9c0c1af40",
+      "reason": "Linked commit 29dd619 to task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T22:13:12.794952Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-2 as complete",
       "checkpoint_id": null
     }
   ],
