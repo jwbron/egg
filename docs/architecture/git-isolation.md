@@ -365,10 +365,10 @@ On Cloud Run, containers are stateless and can be preempted. Additional consider
 
 If an agent container crashes without cleanup:
 
-1. **On next gateway startup**: Gateway scans for orphaned worktrees
-2. **Orphan detection**: Compare worktree list against active containers
-3. **Cleanup**: Remove worktrees for containers that no longer exist
-4. **Branch preservation**: Committed work is preserved; only working directory removed
+1. **On next gateway startup**: Gateway queries the orchestrator for active (non-terminal) pipeline IDs, then scans for orphaned worktrees
+2. **Orphan detection**: A worktree is orphaned only when its container is gone **and** it is not anchored to an active pipeline. A pipeline parked at a HITL gate has no running containers, but its worktree holds the contract and any un-pushed work — container liveness alone cannot distinguish it from a crashed leftover.
+3. **Fail-safe**: If the orchestrator is unreachable at startup, the sweep is **skipped entirely** rather than run blind. A redeploy with no answer from the orchestrator is safer than silently deleting a parked pipeline's work.
+4. **Cleanup**: Remove working directories for confirmed orphans; branches are **never** deleted by the sweep — the sweep cannot know whether branches were pushed, and deleting them turns a recoverable mistake into data loss.
 
 **Restart recovery:** When an agent is restarted (via `restart_agent` or `restart_phase`), the gateway's idempotent `create_worktrees` API detects the existing worktree keyed by `{pipeline_id}-{role}` and returns its host paths. The respawned container mounts the same worktree with all committed work intact. Uncommitted changes from the previous container are lost — agents should commit work incrementally to maximize recovery. See [Agent Recovery Reference](../reference/agent-recovery.md#worktree-preservation) for details.
 
@@ -377,14 +377,21 @@ def cleanup_orphaned_worktrees():
     """Remove worktrees for containers that no longer exist."""
     worktrees = list_all_worktrees()
     active_containers = get_active_containers()
+    # Fail-safe: skip sweep entirely if orchestrator cannot answer.
+    active_pipeline_ids = fetch_active_pipeline_ids()
+    if active_pipeline_ids is None:
+        return
 
     for worktree in worktrees:
         container_id = extract_container_id(worktree.path)
-        if container_id not in active_containers:
-            # Log warning if uncommitted changes
-            if has_uncommitted_changes(worktree.path):
-                log.warning(f"Removing worktree with uncommitted changes: {container_id}")
-            remove_worktree(worktree.path, force=True)
+        if container_id in active_containers:
+            continue
+        # Preserve worktrees belonging to a live pipeline even with no container
+        # (e.g. a pipeline parked at a HITL gate between phases).
+        if is_pipeline_anchored(container_id, active_pipeline_ids):
+            continue
+        # Remove working directory only; never delete branches here.
+        remove_worktree(worktree.path, force=True, delete_branch=False)
 ```
 
 ---
