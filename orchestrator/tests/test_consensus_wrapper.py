@@ -1607,9 +1607,7 @@ class TestSyncOutcomesAndBanner:
 
     _STUB_PROMPT_BODY = "STUB_PROMPT_BODY_FOR_SLICE_1_TESTS"
 
-    def _build_harness(
-        self, script: str, repo: str, payload: str, capture: str, stub: str
-    ) -> str:
+    def _build_harness(self, script: str, repo: str, payload: str, capture: str, stub: str) -> str:
         """Compose a runnable bash harness that links the wrapper's
         ``cw_log`` / ``sync_to_proposals`` / ``invoke_agent_for_event``
         functions, stubs the event_prompt composer (``stub``), and
@@ -1624,9 +1622,7 @@ class TestSyncOutcomesAndBanner:
 
         cw_match = _re.search(r"cw_log\(\) \{.*?\n\}", script, flags=_re.DOTALL)
         sync_match = _re.search(r"sync_to_proposals\(\) \{.*?\n\}", script, flags=_re.DOTALL)
-        invoke_match = _re.search(
-            r"invoke_agent_for_event\(\) \{.*?\n\}", script, flags=_re.DOTALL
-        )
+        invoke_match = _re.search(r"invoke_agent_for_event\(\) \{.*?\n\}", script, flags=_re.DOTALL)
         assert cw_match is not None
         assert sync_match is not None
         assert invoke_match is not None
@@ -1643,7 +1639,7 @@ class TestSyncOutcomesAndBanner:
             invoke_body,
         )
         assert n_subs == 1, (
-            "Expected exactly one ``python3 -m egg_agent ... \"$prompt\"`` "
+            'Expected exactly one ``python3 -m egg_agent ... "$prompt"`` '
             "call inside ``invoke_agent_for_event``; the test harness "
             "rewrites that call to a capture sink so the agent-visible "
             "prompt can be byte-inspected."
@@ -1713,14 +1709,8 @@ class TestSyncOutcomesAndBanner:
 
     def _run_harness(self, tmp_path, monkeypatch, payload, capture, stub):
         script = self._script(monkeypatch)
-        repo, _ = (
-            (None, None)
-            if not (tmp_path / "repo").exists()
-            else (tmp_path / "repo", None)
-        )
-        harness = self._build_harness(
-            script, str(tmp_path / "repo"), payload, str(capture), stub
-        )
+        repo, _ = (None, None) if not (tmp_path / "repo").exists() else (tmp_path / "repo", None)
+        harness = self._build_harness(script, str(tmp_path / "repo"), payload, str(capture), stub)
         result = subprocess.run(
             ["bash", "-c", harness, "harness", payload],
             capture_output=True,
@@ -1777,8 +1767,7 @@ class TestSyncOutcomesAndBanner:
         result = self._run_harness(tmp_path, monkeypatch, payload, capture, stub)
 
         assert "merged" in result.stderr, (
-            "``merged`` outcome must be observable at the wrapper "
-            f"level. stderr={result.stderr!r}"
+            f"``merged`` outcome must be observable at the wrapper level. stderr={result.stderr!r}"
         )
         prompt = capture.read_text(encoding="utf-8")
         assert prompt == self._STUB_PROMPT_BODY, (
@@ -1848,8 +1837,7 @@ class TestSyncOutcomesAndBanner:
             f"closing-the-silence behaviour. Prompt: {prompt!r}"
         )
         assert unresolvable_sha in prompt, (
-            "Banner must carry the failed SHA so the agent can "
-            f"correlate. Prompt: {prompt!r}"
+            f"Banner must carry the failed SHA so the agent can correlate. Prompt: {prompt!r}"
         )
         assert "unresolvable" in prompt, (
             "Banner must name the reason (``unresolvable``) so the "
@@ -1912,16 +1900,12 @@ class TestSyncOutcomesAndBanner:
             "the slice-1 R1 acceptance from refine. "
             f"Prompt: {prompt!r}"
         )
-        assert sha in prompt, (
-            "Banner must carry the failed SHA. "
-            f"Prompt: {prompt!r}"
-        )
+        assert sha in prompt, f"Banner must carry the failed SHA. Prompt: {prompt!r}"
         assert "merge-failed" in prompt, (
             "Banner must name the reason (``merge-failed``) so the "
             "agent can distinguish conflict from unresolvable-SHA. "
             f"Prompt: {prompt!r}"
         )
         assert self._STUB_PROMPT_BODY in prompt, (
-            "Composed prompt body must still reach the agent. "
-            f"Prompt: {prompt!r}"
+            f"Composed prompt body must still reach the agent. Prompt: {prompt!r}"
         )

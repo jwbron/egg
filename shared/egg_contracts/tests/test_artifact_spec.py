@@ -147,9 +147,7 @@ class TestRegistryShape:
             assert isinstance(spec.producer_role, str) and spec.producer_role, (
                 f"{spec.name}: producer_role must be a non-empty string"
             )
-            assert spec.consumer_roles, (
-                f"{spec.name}: consumer_roles must be non-empty"
-            )
+            assert spec.consumer_roles, f"{spec.name}: consumer_roles must be non-empty"
             # Defensive: producer should not list itself as a consumer
             # via the same row (the row exists precisely because there
             # is an inter-role handoff).
@@ -157,9 +155,7 @@ class TestRegistryShape:
                 f"{spec.name}: producer cannot be its own consumer in the same row"
             )
 
-    def test_every_row_targets_refine_or_plan(
-        self, all_specs: tuple[ArtifactSpec, ...]
-    ) -> None:
+    def test_every_row_targets_refine_or_plan(self, all_specs: tuple[ArtifactSpec, ...]) -> None:
         # ``task-2-1`` registers analysis-draft (refine) + plan-draft,
         # architect-output, architect-slices, risk-analyst-output (plan).
         # Slice-2 adds nothing else; later slices may extend, but they
@@ -178,9 +174,7 @@ class TestRegistryShape:
                 f"{spec.name}: path_template must key on {{identifier}}"
             )
 
-    def test_expected_rows_are_registered(
-        self, all_specs: tuple[ArtifactSpec, ...]
-    ) -> None:
+    def test_expected_rows_are_registered(self, all_specs: tuple[ArtifactSpec, ...]) -> None:
         # Pin the registered names so a silent drop (e.g. a refactor
         # that removes architect-slices) fails here loudly rather than
         # weakening every per-row test into a no-op iteration.
@@ -226,13 +220,9 @@ class TestResolutionRoundTrip:
         # outputs explicitly; this test would have caught the path
         # drift in #3016 (draft committed at one path, validator
         # reading another).
+        assert resolve_artifact_path("plan-draft", "3077") == ".egg-state/drafts/3077-plan.md"
         assert (
-            resolve_artifact_path("plan-draft", "3077")
-            == ".egg-state/drafts/3077-plan.md"
-        )
-        assert (
-            resolve_artifact_path("analysis-draft", "3077")
-            == ".egg-state/drafts/3077-analysis.md"
+            resolve_artifact_path("analysis-draft", "3077") == ".egg-state/drafts/3077-analysis.md"
         )
 
     def test_specs_for_plan_draft_is_singleton(self) -> None:
@@ -346,9 +336,7 @@ class TestConsistencyB_GetDraftPathEquality:
     ) -> None:
         phase, spec_name = phase_to_spec
         issue_number, pipeline_id = self._identifier_from(identifier)
-        legacy = _get_draft_path(
-            phase, issue_number=issue_number, pipeline_id=pipeline_id
-        )
+        legacy = _get_draft_path(phase, issue_number=issue_number, pipeline_id=pipeline_id)
         spec_resolved = resolve_artifact_path(spec_name, identifier)
         assert legacy == spec_resolved, (
             f"{spec_name}: _get_draft_path({phase!r}) → {legacy!r} but "
@@ -383,10 +371,7 @@ class TestConsistencyC_PromptFStringLiterals:
     """
 
     PIPELINES_PATH = (
-        Path(__file__).resolve().parents[3]
-        / "orchestrator"
-        / "routes"
-        / "pipelines.py"
+        Path(__file__).resolve().parents[3] / "orchestrator" / "routes" / "pipelines.py"
     )
 
     # The literals are typically embedded inside agent-prose f-strings
@@ -408,13 +393,9 @@ class TestConsistencyC_PromptFStringLiterals:
         return tuple(self._FSTRING_RE.findall(text))
 
     def test_pipelines_py_is_readable(self) -> None:
-        assert self.PIPELINES_PATH.exists(), (
-            f"missing: {self.PIPELINES_PATH} — has the file moved?"
-        )
+        assert self.PIPELINES_PATH.exists(), f"missing: {self.PIPELINES_PATH} — has the file moved?"
 
-    def test_extracted_at_least_one_literal(
-        self, pipelines_literals: tuple[str, ...]
-    ) -> None:
+    def test_extracted_at_least_one_literal(self, pipelines_literals: tuple[str, ...]) -> None:
         # If the regex stops matching (e.g. the strings get
         # broken across concatenations), the suite would silently pass
         # — guard against that.
@@ -439,9 +420,7 @@ class TestConsistencyC_PromptFStringLiterals:
                 continue
             # Translate the spec template (uses ``{identifier}``) onto
             # the pipelines.py literal form (uses ``{_identifier}``).
-            expected_literal = spec.path_template.replace(
-                "{identifier}", "{_identifier}"
-            )
+            expected_literal = spec.path_template.replace("{identifier}", "{_identifier}")
             assert expected_literal in literal_templates, (
                 f"{spec.name}: expected literal {expected_literal!r} not "
                 f"found in pipelines.py f-strings — drift between spec and "
@@ -461,8 +440,7 @@ class TestConsistencyC_PromptFStringLiterals:
         # artifact slipping into the prompt (e.g. someone adds a new
         # ``analyst-supplement.json`` literal without a spec row).
         spec_paths_for_id: dict[str, str] = {
-            resolve_artifact_path(spec.name, identifier): spec.name
-            for spec in all_specs
+            resolve_artifact_path(spec.name, identifier): spec.name for spec in all_specs
         }
         for literal in pipelines_literals:
             formatted = literal.replace("{_identifier}", str(identifier))
@@ -504,9 +482,7 @@ def _mutate_template(template: str, mutation: str) -> str:
         # matches. Agent-output rows have no such token in the gate, so
         # we strip the directory instead (already covered above);
         # callers parametrize over rows where this is meaningful.
-        return template.replace("-analysis", "-misnamed").replace(
-            "-plan", "-misnamed"
-        )
+        return template.replace("-analysis", "-misnamed").replace("-plan", "-misnamed")
     raise AssertionError(f"unknown mutation {mutation!r}")
 
 
@@ -540,9 +516,7 @@ class TestSpecMutationFailsGate:
             )
             mutated_path = mutated_template.format(identifier=identifier)
             phase = PipelinePhase(spec.phase)
-            result = _gateway_phase_filter.check_phase_file_restrictions(
-                phase, [mutated_path]
-            )
+            result = _gateway_phase_filter.check_phase_file_restrictions(phase, [mutated_path])
             assert not result.allowed, (
                 f"{spec.name}: mutated path {mutated_path!r} was wrongly "
                 f"admitted by the gateway phase filter — gate-admission "
@@ -583,17 +557,13 @@ class TestSpecMutationFailsGate:
         # ``*analysis*`` / ``*plan*``). Skip agent-output rows here:
         # the ``wrong_directory`` test above covers their gate
         # discrimination.
-        drafts_specs = [
-            s for s in all_specs if s.path_template.startswith(".egg-state/drafts/")
-        ]
+        drafts_specs = [s for s in all_specs if s.path_template.startswith(".egg-state/drafts/")]
         assert drafts_specs, "expected at least one drafts/ row"
         for spec in drafts_specs:
             mutated_template = _mutate_template(spec.path_template, "wrong_token")
             mutated_path = mutated_template.format(identifier=identifier)
             phase = PipelinePhase(spec.phase)
-            result = _gateway_phase_filter.check_phase_file_restrictions(
-                phase, [mutated_path]
-            )
+            result = _gateway_phase_filter.check_phase_file_restrictions(phase, [mutated_path])
             assert not result.allowed, (
                 f"{spec.name}: token-mutated path {mutated_path!r} was wrongly "
                 f"admitted by the gateway — the analysis/plan token does "
@@ -636,9 +606,7 @@ class TestSpecModuleIsPure:
                 if module_name == prefix or module_name.startswith(prefix + "."):
                     offenders.append((attr_name, module_name))
                     break
-        assert not offenders, (
-            f"egg_contracts.artifact_spec imports forbidden modules: {offenders}"
-        )
+        assert not offenders, f"egg_contracts.artifact_spec imports forbidden modules: {offenders}"
 
 
 # ---------------------------------------------------------------------------
