@@ -2297,3 +2297,244 @@ def test_cli_empty_stdin_falls_back_to_action_only_payload(tmp_path) -> None:
     assert rc == 0
     out = out_buf.getvalue()
     assert "Action: **confirm**" in out
+
+
+# ---------------------------------------------------------------------------
+# Task & operator directives section (#3123)
+# ---------------------------------------------------------------------------
+
+
+def test_task_section_rendered_when_task_description_provided() -> None:
+    """The contract task statement is pushed into the per-event prompt."""
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose", "tasks": ["task-1-1"]},
+        "",
+        [],
+        [],
+        "main",
+        task_description=(
+            "## PRIOR SLICE-1 WORK: ADOPT, DO NOT REIMPLEMENT\n"
+            "Merge origin egg/prior/slice-1 @ cfdca2b; do not rewrite."
+        ),
+    )
+
+    assert "## Task & operator directives (contract ``task_description``)" in prompt
+    assert "ADOPT, DO NOT REIMPLEMENT" in prompt
+    # The directive framing makes bindingness explicit.
+    assert "BINDING" in prompt
+    # Placed right after the event section, before the role contract.
+    event_idx = prompt.index("## Event")
+    task_idx = prompt.index("## Task & operator directives")
+    contract_idx = prompt.index("## What to do")
+    assert event_idx < task_idx < contract_idx
+
+
+def test_task_section_omitted_when_empty_or_default() -> None:
+    """No task section without a task_description (GitHub-issue pipelines)."""
+    for kwargs in ({}, {"task_description": ""}, {"task_description": "   \n"}):
+        prompt = compose_event_prompt(
+            "coder",
+            {"action": "propose"},
+            "",
+            [],
+            [],
+            "main",
+            **kwargs,
+        )
+        assert "## Task & operator directives" not in prompt
+
+
+def test_task_section_truncates_at_cap_with_sentinel() -> None:
+    """Oversized descriptions are cut with an explicit pointer to the contract."""
+    from orchestrator.routes.event_prompt import TASK_DESCRIPTION_MAX_CHARS
+
+    oversized = "directive " * (TASK_DESCRIPTION_MAX_CHARS // 5)
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose"},
+        "",
+        [],
+        [],
+        "main",
+        task_description=oversized,
+    )
+
+    assert "task description truncated" in prompt
+    assert "mcp__sdlc__show_contract" in prompt
+    # The retained prefix is exactly the cap.
+    task_idx = prompt.index("## Task & operator directives")
+    assert "directive directive" in prompt[task_idx:]
+
+
+def test_task_section_counts_toward_envelope_cap() -> None:
+    """A capped task section + pathological NACKs still honour the 10 KB bound."""
+    from orchestrator.routes.event_prompt import TASK_DESCRIPTION_MAX_CHARS
+
+    nacks = [
+        {
+            "reviewer": f"reviewer_{i}",
+            "version": 3,
+            "reason": "blocker " * 600,
+            "artifact_refs": [],
+        }
+        for i in range(6)
+    ]
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose"},
+        "",
+        nacks,
+        [],
+        "main",
+        task_description="x" * TASK_DESCRIPTION_MAX_CHARS,
+    )
+
+    envelope = _strip_git_log_blocks(prompt)
+    assert len(envelope.encode("utf-8")) <= PROMPT_ENVELOPE_MAX_BYTES + 1024, (
+        "envelope must stay near the cap with the task section included"
+    )
+    # The NACKs section (the designated variable-size driver) was the
+    # part that got truncated — the task section survives whole.
+    assert "NACK list truncated" in prompt
+    assert "task description truncated" not in prompt
+
+
+def test_read_task_description_from_pipeline_id_contract(tmp_path) -> None:
+    """``EGG_PIPELINE_ID`` resolves the worktree contract file."""
+    import json as _json
+    import os
+
+    from orchestrator.routes.event_prompt import _read_task_description
+
+    contracts = tmp_path / ".egg-state" / "contracts"
+    contracts.mkdir(parents=True)
+    (contracts / "pipeline-abc123.json").write_text(
+        _json.dumps({"task_description": "Adopt the prior branch.  "}),
+        encoding="utf-8",
+    )
+
+    saved = {k: os.environ.get(k) for k in ("EGG_PIPELINE_ID", "EGG_ISSUE_NUMBER")}
+    try:
+        os.environ["EGG_PIPELINE_ID"] = "pipeline-abc123"
+        os.environ.pop("EGG_ISSUE_NUMBER", None)
+        assert _read_task_description(tmp_path) == "Adopt the prior branch."
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def test_read_task_description_issue_number_fallback(tmp_path) -> None:
+    """``EGG_ISSUE_NUMBER`` falls back to the ``issue-<N>.json`` key."""
+    import json as _json
+    import os
+
+    from orchestrator.routes.event_prompt import _read_task_description
+
+    contracts = tmp_path / ".egg-state" / "contracts"
+    contracts.mkdir(parents=True)
+    (contracts / "issue-42.json").write_text(
+        _json.dumps({"task_description": "from issue contract"}),
+        encoding="utf-8",
+    )
+
+    saved = {k: os.environ.get(k) for k in ("EGG_PIPELINE_ID", "EGG_ISSUE_NUMBER")}
+    try:
+        # Pipeline id points at a MISSING file; the issue key must win.
+        os.environ["EGG_PIPELINE_ID"] = "pipeline-missing"
+        os.environ["EGG_ISSUE_NUMBER"] = "42"
+        assert _read_task_description(tmp_path) == "from issue contract"
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def test_read_task_description_fail_soft(tmp_path) -> None:
+    """Missing dir, malformed JSON, absent/None field → '' (never raises)."""
+    import os
+
+    from orchestrator.routes.event_prompt import _read_task_description
+
+    saved = {k: os.environ.get(k) for k in ("EGG_PIPELINE_ID", "EGG_ISSUE_NUMBER")}
+    try:
+        os.environ["EGG_PIPELINE_ID"] = "pipeline-x"
+        os.environ.pop("EGG_ISSUE_NUMBER", None)
+
+        # No contracts dir at all.
+        assert _read_task_description(tmp_path) == ""
+
+        contracts = tmp_path / ".egg-state" / "contracts"
+        contracts.mkdir(parents=True)
+        target = contracts / "pipeline-x.json"
+
+        # Malformed JSON.
+        target.write_text("{not json", encoding="utf-8")
+        assert _read_task_description(tmp_path) == ""
+
+        # Valid JSON, field absent / null (GitHub-issue contracts).
+        target.write_text('{"pipeline_id": "pipeline-x"}', encoding="utf-8")
+        assert _read_task_description(tmp_path) == ""
+        target.write_text('{"task_description": null}', encoding="utf-8")
+        assert _read_task_description(tmp_path) == ""
+
+        # No identifier env at all.
+        os.environ.pop("EGG_PIPELINE_ID", None)
+        target.write_text('{"task_description": "text"}', encoding="utf-8")
+        assert _read_task_description(tmp_path) == ""
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def test_cli_renders_task_section_from_worktree_contract(tmp_path) -> None:
+    """End-to-end: the CLI reads the contract file and renders the section."""
+    import io
+    import json as _json
+    import os
+    import sys as _sys
+
+    from orchestrator.routes import event_prompt
+
+    contracts = tmp_path / ".egg-state" / "contracts"
+    contracts.mkdir(parents=True)
+    (contracts / "pipeline-e2e.json").write_text(
+        _json.dumps({"task_description": "PRIOR WORK: ADOPT, DO NOT REIMPLEMENT"}),
+        encoding="utf-8",
+    )
+
+    saved_env = {
+        k: os.environ.get(k)
+        for k in ("EGG_AGENT_ROLE", "EGG_REPO_PATH", "EGG_PIPELINE_ID", "EGG_ISSUE_NUMBER")
+    }
+    saved_stdin = _sys.stdin
+    saved_stdout = _sys.stdout
+    out_buf = io.StringIO()
+    try:
+        os.environ["EGG_AGENT_ROLE"] = "coder"
+        os.environ["EGG_REPO_PATH"] = str(tmp_path)
+        os.environ["EGG_PIPELINE_ID"] = "pipeline-e2e"
+        os.environ.pop("EGG_ISSUE_NUMBER", None)
+        _sys.stdin = io.StringIO('{"action": "propose"}')
+        _sys.stdout = out_buf
+        rc = event_prompt._cli(["propose"])
+    finally:
+        _sys.stdin = saved_stdin
+        _sys.stdout = saved_stdout
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    assert rc == 0
+    out = out_buf.getvalue()
+    assert "## Task & operator directives" in out
+    assert "PRIOR WORK: ADOPT, DO NOT REIMPLEMENT" in out

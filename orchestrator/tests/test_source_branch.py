@@ -1637,3 +1637,72 @@ class TestPullContractFromSourceBranch:
 
         assert result is True
         assert saved["contract"].pipeline_id == "run-abc123"
+
+    def test_refreshes_task_description_from_new_submit(self, tmp_path):
+        """The resubmit's prompt replaces the pulled task_description (#3123).
+
+        The pulled contract carries the SOURCE pipeline's description;
+        without the refresh, the new submit's operator directives (e.g.
+        adopt-prior-work instructions) never reach any agent-visible
+        surface because the pull short-circuits create_contract().
+        """
+        from routes.pipelines import _pull_contract_from_source_branch
+
+        source_contract = self._make_contract(pipeline_id="run-abc123")
+        source_contract.task_description = "old v5 description"
+
+        saved = {}
+
+        with (
+            patch("subprocess.run") as mock_subprocess,
+            patch(
+                "egg_contracts.loader.load_contract_from_branch",
+                return_value=source_contract,
+            ),
+            patch("egg_contracts.loader.save_contract") as mock_save,
+        ):
+            mock_subprocess.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            mock_save.side_effect = lambda c, r: saved.setdefault("contract", c)
+            result = _pull_contract_from_source_branch(
+                repo_path=tmp_path,
+                source_branch="egg/run-abc123",
+                issue_number=None,
+                pipeline_id="run-abc123-v2",
+                task_description="v6: PRIOR WORK: ADOPT, DO NOT REIMPLEMENT",
+            )
+
+        assert result is True
+        assert saved["contract"].task_description == ("v6: PRIOR WORK: ADOPT, DO NOT REIMPLEMENT")
+
+    def test_preserves_pulled_task_description_when_none_provided(self, tmp_path):
+        """No/blank new prompt keeps the pulled description (no regression)."""
+        from routes.pipelines import _pull_contract_from_source_branch
+
+        for new_description in (None, "", "   "):
+            source_contract = self._make_contract(pipeline_id="run-abc123")
+            source_contract.task_description = "original description"
+
+            saved = {}
+
+            with (
+                patch("subprocess.run") as mock_subprocess,
+                patch(
+                    "egg_contracts.loader.load_contract_from_branch",
+                    return_value=source_contract,
+                ),
+                patch("egg_contracts.loader.save_contract") as mock_save,
+            ):
+                mock_subprocess.return_value = subprocess.CompletedProcess(
+                    [], 0, stdout="", stderr=""
+                )
+                mock_save.side_effect = lambda c, r, _saved=saved: _saved.setdefault("contract", c)
+                result = _pull_contract_from_source_branch(
+                    repo_path=tmp_path,
+                    source_branch="egg/run-abc123",
+                    issue_number=None,
+                    pipeline_id="run-abc123",
+                    task_description=new_description,
+                )
+
+            assert result is True
+            assert saved["contract"].task_description == "original description"

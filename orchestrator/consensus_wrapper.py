@@ -380,7 +380,9 @@ wait_for_event() {{
 # ``compose_event_prompt`` payload: memory excerpt (when
 # ``EGG_BRC_MEMORY=full``) + per-producer
 # ``git log {{sha}}..HEAD --not origin/{{base}} -p`` delta + NACK
-# payload. The composer lives at
+# payload + the contract's ``task_description`` (#3123, read from the
+# worktree contract file via the pod-inherited ``EGG_PIPELINE_ID`` /
+# ``EGG_ISSUE_NUMBER``). The composer lives at
 # ``/opt/egg-runtime/orchestrator/routes/event_prompt.py`` -- the
 # wrapper invokes its ``if __name__ == '__main__'`` CLI directly so the
 # heavy ``orchestrator.routes`` package ``__init__.py`` (Flask import)

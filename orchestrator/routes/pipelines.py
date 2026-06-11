@@ -5642,6 +5642,7 @@ def _pull_contract_from_source_branch(
     pipeline_id: str,
     spawner: Any | None = None,
     gateway_mode: str = "public",
+    task_description: str | None = None,
 ) -> bool:
     """Load a persisted contract from ``origin/<source_branch>`` into the worktree.
 
@@ -5653,6 +5654,14 @@ def _pull_contract_from_source_branch(
     reads the contract via ``git show``, rebinds its pipeline_id to the new
     pipeline, and writes it into the worktree so the caller can skip
     ``create_contract()`` and proceed to commit+push the pulled contract.
+
+    ``task_description`` is the NEW submit's prompt. The pulled contract
+    carries the SOURCE pipeline's ``task_description``, but the resubmit's
+    description is authoritative for THIS pipeline and is where operators
+    put binding resume directives (e.g. "adopt prior branch X, do not
+    reimplement" — #3123). When non-empty it replaces the pulled value;
+    the source value stays recoverable from the source branch's git
+    history.
 
     Returns True when a contract was successfully pulled, False otherwise.
     Best-effort: missing, invalid, or unreachable source contracts all yield
@@ -5746,6 +5755,13 @@ def _pull_contract_from_source_branch(
     # canonical key when the pipeline was forked with a qualifier
     # (e.g. source=issue-1965, new=issue-1965-v2).
     contract.pipeline_id = pipeline_id
+    # Refresh the task statement from the new submit (#3123): without
+    # this, the resubmit's prompt — including any operator resume
+    # directives — never reaches any agent-visible surface, because the
+    # caller skips create_contract() (the only other writer of
+    # ``task_description``) whenever the pull succeeds.
+    if task_description and task_description.strip():
+        contract.task_description = task_description
     save_contract(contract, repo_path)
 
     logger.info(
@@ -21349,6 +21365,14 @@ def _run_pipeline(
                             pipeline_id=pipeline.id,
                             spawner=spawner,
                             gateway_mode=gateway_mode,
+                            # Mirror the create_contract() fallback below:
+                            # ``task_description`` is populated only for
+                            # pipelines without a GitHub issue (#3042); for
+                            # issue pipelines agents fetch the live body
+                            # via ``gh issue view`` instead.
+                            task_description=(
+                                pipeline.prompt if pipeline.issue_number is None else None
+                            ),
                         )
                     except Exception:
                         logger.warning(

@@ -1418,3 +1418,63 @@ class TestCanUseToolPassesMcpNames:
             assert isinstance(_run_async(_check(name, {}, object())), PermissionResultAllow), (
                 f"MCP tool denied: {name}"
             )
+
+
+class TestMidturnMessageHook:
+    """Issue #3123: pipeline sessions get a PostToolUse hook that polls the
+    message bus mid-turn and injects new operator messages, so a correction
+    can land inside a 30+ minute propose invocation instead of after it.
+    Gated on pipeline context (EGG_PIPELINE_ID + EGG_AGENT_ROLE) with the
+    EGG_MIDTURN_MESSAGES=false escape hatch.
+    """
+
+    @staticmethod
+    def _post_tool_use_hooks(mock_query):
+        opts = mock_query.call_args.kwargs["options"]
+        hooks = getattr(opts, "hooks", None) or {}
+        return hooks.get("PostToolUse", [])
+
+    @patch.dict(
+        os.environ,
+        {
+            "EGG_PIPELINE_ID": "pipeline-test",
+            "EGG_AGENT_ROLE": "coder",
+            "EGG_MCP_TOOLS": "false",
+        },
+    )
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_hook_registered_in_pipeline_session(self, mock_query):
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        post_hooks = self._post_tool_use_hooks(mock_query)
+        assert len(post_hooks) == 1
+        # No matcher → fires on every tool (the poller's interval gate
+        # makes that effectively free between actual bus polls).
+        assert post_hooks[0].matcher is None
+        assert len(post_hooks[0].hooks) == 1
+
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_hook_not_registered_outside_pipeline(self, mock_query):
+        env = os.environ.copy()
+        env.pop("EGG_PIPELINE_ID", None)
+        env.pop("EGG_AGENT_ROLE", None)
+        env["EGG_MCP_TOOLS"] = "false"
+        with patch.dict(os.environ, env, clear=True):
+            result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        assert self._post_tool_use_hooks(mock_query) == []
+
+    @patch.dict(
+        os.environ,
+        {
+            "EGG_PIPELINE_ID": "pipeline-test",
+            "EGG_AGENT_ROLE": "coder",
+            "EGG_MIDTURN_MESSAGES": "false",
+            "EGG_MCP_TOOLS": "false",
+        },
+    )
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_escape_hatch_disables_hook(self, mock_query):
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        assert self._post_tool_use_hooks(mock_query) == []

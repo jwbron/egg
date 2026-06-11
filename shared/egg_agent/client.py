@@ -478,6 +478,56 @@ async def run_agent_async(
             event_subtype="ddg_mcp_enabled",
         )
 
+    # --- Mid-turn operator message delivery (#3123) ---
+    # One propose invocation under the BRC event-pump can run 30+ minutes
+    # (a slice coder implements its whole task list in one turn), and the
+    # message bus is only consulted between invocations — so an operator
+    # correction sent via send_message lands after the contradicting work
+    # is done. A throttled PostToolUse hook polls the bus during the turn
+    # and surfaces new operator-authored messages as additionalContext.
+    # Gated on pipeline context (EGG_PIPELINE_ID + EGG_AGENT_ROLE) so
+    # non-pipeline egg_agent callers are untouched; EGG_MIDTURN_MESSAGES=
+    # false is the rollback escape hatch.
+    from egg_agent.midturn_messages import (
+        MidturnMessagePoller,
+        is_midturn_messages_disabled,
+    )
+
+    midturn_pipeline_id = (os.environ.get("EGG_PIPELINE_ID") or "").strip()
+    midturn_role = (os.environ.get("EGG_AGENT_ROLE") or "").strip()
+    if not is_midturn_messages_disabled() and midturn_pipeline_id and midturn_role:
+        midturn_poller = MidturnMessagePoller(midturn_pipeline_id, midturn_role)
+
+        async def _inject_midturn_messages(
+            input_data: HookInput, tool_use_id: str | None, context: HookContext
+        ) -> HookJSONOutput:
+            # poll() runs an egg-orch subprocess when the interval has
+            # elapsed; keep it off the event loop. Between polls it is a
+            # monotonic-clock comparison.
+            context_block = await asyncio.to_thread(midturn_poller.poll)
+            if not context_block:
+                return {}
+            logger.info(
+                "Injected mid-turn operator messages",
+                event_type="system",
+                event_subtype="midturn_message_injection",
+                tool_use_id=tool_use_id,
+                block_chars=len(context_block),
+            )
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PostToolUse",
+                    "additionalContext": context_block,
+                }
+            }
+
+        existing_hooks = getattr(options, "hooks", None) or {}
+        # No matcher → fires for every tool; the poller's interval gate
+        # makes that effectively free between actual bus polls.
+        post_tool_use = list(existing_hooks.get("PostToolUse", []))
+        post_tool_use.append(HookMatcher(matcher=None, hooks=[_inject_midturn_messages]))
+        options.hooks = {**existing_hooks, "PostToolUse": post_tool_use}
+
     stdout_parts: list[str] = []
     actual_model: str | None = None
     result_meta: dict[str, Any] = {}
