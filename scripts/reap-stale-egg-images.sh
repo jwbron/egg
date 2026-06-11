@@ -14,8 +14,8 @@
 # Four scopes (issue #2999):
 #   - containerd (always): remove stale egg refs via crictl rmi. An image's
 #     authoritative ref form depends on its publish path: registry-subset
-#     images (args 3+) are authoritative as <registry>/<image>:<tag>, while
-#     save+import images (the sandbox, by default) are authoritative as
+#     images (args 3+, all of them by default) are authoritative as
+#     <registry>/<image>:<tag>, while save+import images are authoritative as
 #     docker.io/library/<image>:<tag>. Refs in the non-authoritative form for
 #     their image -- e.g. bare leftovers from before the registry flow -- are
 #     stale by definition (the digest guard below still protects
@@ -57,9 +57,9 @@ shift
 # check-egg-images-present.sh.
 IMAGES=(egg-gateway egg-orchestrator egg-sandbox egg-litellm)
 
-# Args 3+ name the registry-subset images (EGG_REGISTRY_IMAGES — by default
-# everything but the private-content egg-sandbox). An image's AUTHORITATIVE
-# containerd ref is <registry>/<image>:<tag> when it is in the subset and
+# Args 3+ name the registry-subset images (EGG_REGISTRY_IMAGES — all egg
+# images by default). An image's AUTHORITATIVE containerd ref is
+# <registry>/<image>:<tag> when it is in the subset and
 # docker.io/library/<image>:<tag> when it is not (save+import path). With no
 # registry the subset is forced empty — every image is bare, the
 # pre-registry behavior, unchanged.
@@ -335,3 +335,14 @@ if docker exec egg-registry registry garbage-collect --delete-untagged \
 else
   echo "==> registry reap: deleted ${reg_removed} stale tag manifest(s); garbage-collect FAILED (non-fatal)." >&2
 fi
+
+# Restart the registry to drop its in-memory blob-descriptor cache. GC runs
+# as a SEPARATE process (docker exec) and deletes blob files behind the
+# serving process's back; the stock registry:2 config caches blob existence
+# in memory, so without a restart the next `docker push` is told "Layer
+# already exists" for a blob whose file GC just removed, the layer never
+# re-uploads, and the subsequent containerd pull dies with
+# "short read: ... unexpected EOF". Observed live on the first #3101
+# deploy. The restart takes ~1s; a pod pull racing it just retries.
+docker restart egg-registry >/dev/null 2>&1 ||
+  echo "==> registry reap: restart of egg-registry failed -- run 'docker restart egg-registry' before the next push." >&2

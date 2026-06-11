@@ -15,12 +15,11 @@
 # leaves the running cluster broken until the operator runs `make redeploy`.
 #
 # Publishing is split (issue #2999): the registry-subset images (args 3+,
-# from EGG_REGISTRY_IMAGES — by default everything except the private-content
-# egg-sandbox) are pulled by the cluster from the loopback registry, so the
-# registry's HTTP API is their source of truth. The remaining images are
-# save+imported, so k3s's containerd is theirs. With no registry (arg 2
-# empty, e.g. CI) every image is checked in containerd — the pre-registry
-# behavior, unchanged.
+# from EGG_REGISTRY_IMAGES — all egg images by default) are pulled by the
+# cluster from the loopback registry, so the registry's HTTP API is their
+# source of truth. Any images excluded from the subset are save+imported, so
+# k3s's containerd is theirs. With no registry (arg 2 empty, e.g. CI) every
+# image is checked in containerd — the pre-registry behavior, unchanged.
 #
 set -euo pipefail
 

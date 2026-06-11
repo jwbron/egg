@@ -220,29 +220,32 @@ class TestReapAwkDigestGuard:
 
 class TestReapHybridMode:
     """Hybrid-mode reap: registry-subset images are authoritative as
-    ``<registry>/<image>:<tag>``; bare-subset images (the sandbox, by default)
-    are authoritative as ``docker.io/library/<image>:<tag>``. A ref in the
-    NON-authoritative form for its image (e.g. a bare ``docker.io/library/
-    egg-gateway:<tag>`` left over from a pre-registry deploy, or a registry-
-    qualified leftover for the sandbox) is a reap candidate by definition;
-    the digest guard then spares any candidate that shares an image ID with
-    a kept ref.
+    ``<registry>/<image>:<tag>``; bare-subset images (whatever the operator
+    excludes from ``EGG_REGISTRY_IMAGES``) are authoritative as
+    ``docker.io/library/<image>:<tag>``. A ref in the NON-authoritative form
+    for its image (e.g. a bare ``docker.io/library/egg-gateway:<tag>`` left
+    over from a pre-registry deploy, or a registry-qualified leftover for an
+    excluded image) is a reap candidate by definition; the digest guard
+    then spares any candidate that shares an image ID with a kept ref.
 
-    The default config in this PR has ``EGG_REGISTRY_IMAGES = egg-gateway
-    egg-orchestrator egg-litellm`` — egg-sandbox stays on the save+import
-    path because it bakes in private repo content. These tests pin that
-    split's behavior against the awk extractor's match/auth-ref logic so a
-    regression in any of registry-subset authoritative form, bare-prefix
-    non-authoritative form on subset images, mixed authority across
-    IMAGES[], or the digest guard's interaction with non-authoritative
-    refs that match `match_re` but neither `auth_reg_re` nor `auth_bare_re`,
-    silently fails the test instead of silently fails the reap (the failure
-    mode is no-reap = slow disk fill-up, not destructive — exactly the
-    creeping regression #2999 was about).
+    Post-#3109 the default is all-registry-authoritative (covered by
+    :class:`TestReapAllRegistryMode`); this class exercises the
+    operator-opt-out config — ``EGG_REGISTRY_IMAGES = egg-gateway
+    egg-orchestrator egg-litellm``, excluding egg-sandbox so it publishes via
+    save+import. The path remains supported and is what an operator who
+    wants to keep the sandbox image off the loopback registry would land
+    on. These tests pin that split's behavior against the awk extractor's
+    match/auth-ref logic so a regression in any of registry-subset
+    authoritative form, bare-prefix non-authoritative form on subset images,
+    mixed authority across IMAGES[], or the digest guard's interaction with
+    non-authoritative refs that match `match_re` but neither `auth_reg_re`
+    nor `auth_bare_re`, silently fails the test instead of silently fails
+    the reap (the failure mode is no-reap = slow disk fill-up, not
+    destructive — exactly the creeping regression #2999 was about).
     """
 
     REGISTRY = "localhost:5000"
-    # Default subset for this PR: sandbox stays on import (bare-authoritative).
+    # Operator-opt-out subset: sandbox stays on import (bare-authoritative).
     SUBSET = ("egg-gateway", "egg-orchestrator", "egg-litellm")
 
     def _baseline_kept_refs(self, keep: str) -> list[str]:
@@ -381,20 +384,167 @@ class TestReapHybridMode:
         assert reaped == []
 
 
+class TestReapAllRegistryMode:
+    """Default reap (post-#3109): every image in ``EGG_REGISTRY_IMAGES``, so
+    every image is authoritative as ``<registry>/<image>:<tag>``. The migration
+    path real operators hit on the first redeploy after the default flips is
+    bare ``docker.io/library/egg-sandbox:<tag>`` leftovers from pre-#3109
+    deploys — those are non-authoritative under the new default and must be
+    reaped, except when they still share an image ID with a kept registry-
+    qualified ref (digest guard, same as the other modes).
+
+    These tests pin the awk extractor on the all-registry default so a future
+    edit that re-narrows the authoritative-form regexes silently fails the
+    test instead of leaving the bare-leftover refs to fill the disk.
+    """
+
+    REGISTRY = "localhost:5000"
+    # Default subset for this PR: all four images registry-authoritative.
+    SUBSET = ("egg-gateway", "egg-orchestrator", "egg-sandbox", "egg-litellm")
+
+    def _baseline_kept_refs(self, keep: str) -> list[str]:
+        """The four authoritative kept refs under the all-registry default."""
+        return [
+            _row(f"{self.REGISTRY}/egg-gateway:{keep}", "sha256:aaa"),
+            _row(f"{self.REGISTRY}/egg-orchestrator:{keep}", "sha256:bbb"),
+            _row(f"{self.REGISTRY}/egg-sandbox:{keep}", "sha256:ccc"),
+            _row(f"{self.REGISTRY}/egg-litellm:{keep}", "sha256:ddd"),
+        ]
+
+    def test_sandbox_bare_leftover_sharing_digest_is_spared(self) -> None:
+        """First redeploy after the default flip: sandbox is now authoritative
+        as ``<registry>/egg-sandbox:<tag>``, but a bare leftover from the
+        previous deploy shares its digest. ``crictl rmi`` by name would yank
+        the current image, so the digest guard must spare it.
+        """
+        listing = "\n".join(
+            [
+                *self._baseline_kept_refs("v2"),
+                # Bare leftover from pre-#3109 deploys, same digest as kept.
+                _row("docker.io/library/egg-sandbox:v2", "sha256:ccc"),
+            ]
+        )
+        reaped = _run_awk(listing, keep="v2", registry=self.REGISTRY, registry_subset=self.SUBSET)
+        assert reaped == []
+
+    def test_sandbox_bare_leftover_distinct_digest_is_reaped(self) -> None:
+        """Second redeploy after the default flip: the sandbox tag has rolled
+        on, so the pre-#3109 bare leftover no longer shares its digest with
+        any kept ref. It is non-authoritative AND digest-distinct — reap it.
+        """
+        listing = "\n".join(
+            [
+                *self._baseline_kept_refs("v2"),
+                _row("docker.io/library/egg-sandbox:v1", "sha256:oldsand"),
+            ]
+        )
+        reaped = _run_awk(listing, keep="v2", registry=self.REGISTRY, registry_subset=self.SUBSET)
+        assert reaped == ["docker.io/library/egg-sandbox:v1"]
+
+    def test_bare_leftovers_across_all_images_distinct_digests_reaped(self) -> None:
+        """The full migration shape: every image has a bare-prefix stale ref
+        from a pre-registry deploy, none of which share digests with the kept
+        registry-qualified refs. All four must be reaped.
+        """
+        listing = "\n".join(
+            [
+                *self._baseline_kept_refs("v2"),
+                _row("docker.io/library/egg-gateway:v1", "sha256:old-g"),
+                _row("docker.io/library/egg-orchestrator:v1", "sha256:old-o"),
+                _row("docker.io/library/egg-sandbox:v1", "sha256:old-s"),
+                _row("docker.io/library/egg-litellm:v1", "sha256:old-l"),
+            ]
+        )
+        reaped = _run_awk(listing, keep="v2", registry=self.REGISTRY, registry_subset=self.SUBSET)
+        assert sorted(reaped) == sorted(
+            [
+                "docker.io/library/egg-gateway:v1",
+                "docker.io/library/egg-orchestrator:v1",
+                "docker.io/library/egg-sandbox:v1",
+                "docker.io/library/egg-litellm:v1",
+            ]
+        )
+
+    def test_authoritative_stale_refs_are_reaped(self) -> None:
+        """Authoritative (registry-qualified) stale refs with distinct digests
+        are the canonical reap path: a previous tag's images that haven't been
+        garbage-collected from containerd yet.
+        """
+        listing = "\n".join(
+            [
+                *self._baseline_kept_refs("v2"),
+                _row(f"{self.REGISTRY}/egg-gateway:v1", "sha256:old-g"),
+                _row(f"{self.REGISTRY}/egg-orchestrator:v1", "sha256:old-o"),
+                _row(f"{self.REGISTRY}/egg-sandbox:v1", "sha256:old-s"),
+                _row(f"{self.REGISTRY}/egg-litellm:v1", "sha256:old-l"),
+            ]
+        )
+        reaped = _run_awk(listing, keep="v2", registry=self.REGISTRY, registry_subset=self.SUBSET)
+        assert sorted(reaped) == sorted(
+            [
+                f"{self.REGISTRY}/egg-gateway:v1",
+                f"{self.REGISTRY}/egg-orchestrator:v1",
+                f"{self.REGISTRY}/egg-sandbox:v1",
+                f"{self.REGISTRY}/egg-litellm:v1",
+            ]
+        )
+
+    def test_latest_authoritative_protects_bare_leftover_sharing_digest(self) -> None:
+        """``:latest`` on the authoritative (registry-qualified) prefix protects
+        a bare leftover sharing its digest — the digest guard must look across
+        the prefix boundary, otherwise a fresh push that leaves :latest pointing
+        at content the pre-#3109 bare ref still shares would lose the bare ref's
+        underlying image ID with it.
+        """
+        listing = "\n".join(
+            [
+                *self._baseline_kept_refs("v2"),
+                _row(f"{self.REGISTRY}/egg-sandbox:latest", "sha256:zzz"),
+                _row("docker.io/library/egg-sandbox:v1", "sha256:zzz"),
+            ]
+        )
+        reaped = _run_awk(listing, keep="v2", registry=self.REGISTRY, registry_subset=self.SUBSET)
+        assert reaped == []
+
+
 class TestReapScriptSafetyGuard:
     """End-to-end test of the four-image safety gate via PATH shimming.
 
     The script gates the whole reap on all four egg-*:KEEP_TAG refs being
-    visible. If any one is missing, the script must exit 0 having reaped
-    nothing -- otherwise the awk loop would not record that image's
-    KEEP_TAG digest and every prior tag of that image would be reaped,
-    leaving no image to run the next agent pod.
+    visible IN EACH IMAGE'S AUTHORITATIVE PREFIX FORM. If any one is
+    missing, the script must exit 0 having reaped nothing -- otherwise
+    the awk loop would not record that image's KEEP_TAG digest and every
+    prior tag of that image would be reaped, leaving no image to run the
+    next agent pod.
+
+    The per-image expected-prefix branch
+    (``scripts/reap-stale-egg-images.sh:128-137``) picks registry-qualified
+    for ``is_registry_image`` images and bare for the rest. Both branches
+    are exercised end-to-end here: no-registry mode (every image bare-
+    authoritative) and all-registry mode (every image registry-
+    authoritative, the post-#3109 default).
     """
 
     def _run_script(
-        self, tmp_path: Path, listing: str, keep: str
+        self,
+        tmp_path: Path,
+        listing: str,
+        keep: str,
+        *,
+        registry: str = "",
+        registry_subset: tuple[str, ...] = (),
     ) -> subprocess.CompletedProcess[str]:
-        """Run reap-stale-egg-images.sh with `sudo k3s` shimmed to return `listing`."""
+        """Run reap-stale-egg-images.sh with `sudo k3s` shimmed to return `listing`.
+
+        Pass ``registry`` + ``registry_subset`` to drive the all-registry
+        safety-gate path; the values are forwarded to the script as positional
+        args 2+ (the same form the Makefile uses). The registry-side reap that
+        runs after the containerd reap exits cleanly when ``localhost:5000``
+        isn't a real registry (the ``curl`` probe at
+        ``scripts/reap-stale-egg-images.sh:281`` returns non-zero and the
+        script ``exit 0``s), so the safety-gate path under test isn't
+        contaminated by side effects from the test environment.
+        """
         bindir = tmp_path / "bin"
         bindir.mkdir()
         # `sudo` shim: drop the leading `sudo` arg and exec the rest from our bindir.
@@ -420,8 +570,12 @@ class TestReapScriptSafetyGuard:
             "PATH": f"{bindir}:/usr/bin:/bin",
             "HOME": str(tmp_path),
         }
+        args = ["bash", str(SCRIPT), keep]
+        if registry:
+            args.append(registry)
+            args.extend(registry_subset)
         return subprocess.run(
-            ["bash", str(SCRIPT), keep],
+            args,
             capture_output=True,
             text=True,
             env=env,
@@ -459,6 +613,82 @@ class TestReapScriptSafetyGuard:
         result = self._run_script(tmp_path, listing, keep="v2")
         assert result.returncode == 0, result.stderr
         assert "reaped docker.io/library/egg-gateway:v1" in result.stdout
+
+    def test_all_registry_mode_proceeds_when_all_registry_kept_refs_present(
+        self, tmp_path: Path
+    ) -> None:
+        """All four images authoritative as ``localhost:5000/<image>:v2`` —
+        the per-image expected-prefix branch picks the registry prefix for
+        every image, the safety gate passes, and a bare leftover with a
+        distinct digest is reaped end-to-end.
+        """
+        listing = "\n".join(
+            [
+                _row("localhost:5000/egg-gateway:v2", "sha256:aaa"),
+                _row("localhost:5000/egg-orchestrator:v2", "sha256:bbb"),
+                _row("localhost:5000/egg-sandbox:v2", "sha256:ccc"),
+                _row("localhost:5000/egg-litellm:v2", "sha256:ddd"),
+                # Bare leftover with distinct digest — must be reaped end-to-end.
+                _row("docker.io/library/egg-sandbox:v1", "sha256:oldsand"),
+            ]
+        )
+        result = self._run_script(
+            tmp_path,
+            listing,
+            keep="v2",
+            registry="localhost:5000",
+            registry_subset=(
+                "egg-gateway",
+                "egg-orchestrator",
+                "egg-sandbox",
+                "egg-litellm",
+            ),
+        )
+        assert result.returncode == 0, result.stderr
+        assert "reaped docker.io/library/egg-sandbox:v1" in result.stdout
+        # Safety gate didn't fire — no containerd "skipping" line.
+        assert "containerd reap: not all" not in result.stdout
+
+    def test_all_registry_mode_skips_reap_when_kept_ref_only_at_bare_prefix(
+        self, tmp_path: Path
+    ) -> None:
+        """Under the post-#3109 default every image's authoritative form is
+        ``localhost:5000/<image>:<tag>``. If a registry-subset image's KEEP_TAG
+        is visible only at the legacy bare prefix (e.g. a push failed mid-flight,
+        or the sandbox import path was never re-run after the default flipped),
+        the per-image expected-prefix branch sees the authoritative form as
+        missing and the safety gate must fire. Otherwise the awk loop would
+        not record the sandbox digest, and every prior sandbox tag would be
+        reaped — exactly the next-pod-cannot-find-an-image failure the gate
+        exists to prevent.
+        """
+        listing = "\n".join(
+            [
+                _row("localhost:5000/egg-gateway:v2", "sha256:aaa"),
+                _row("localhost:5000/egg-orchestrator:v2", "sha256:bbb"),
+                # Sandbox KEEP_TAG only at bare prefix — wrong form under the default.
+                _row("docker.io/library/egg-sandbox:v2", "sha256:ccc"),
+                _row("docker.io/library/egg-sandbox:v1", "sha256:oldsand"),
+                _row("localhost:5000/egg-litellm:v2", "sha256:ddd"),
+            ]
+        )
+        result = self._run_script(
+            tmp_path,
+            listing,
+            keep="v2",
+            registry="localhost:5000",
+            registry_subset=(
+                "egg-gateway",
+                "egg-orchestrator",
+                "egg-sandbox",
+                "egg-litellm",
+            ),
+        )
+        assert result.returncode == 0, result.stderr
+        assert "skipping" in result.stdout
+        assert "egg-sandbox:v2" in result.stdout
+        # No per-ref containerd reap line emitted.
+        assert "   reaped " not in result.stdout
 
 
 if __name__ == "__main__":

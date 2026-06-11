@@ -40,17 +40,17 @@ EGG_IMAGE_REGISTRY ?= localhost:5000
 # in the manifest rewrites in `deploy`.
 EGG_IMAGE_PREFIX := $(if $(EGG_IMAGE_REGISTRY),$(EGG_IMAGE_REGISTRY)/,)
 
-# The full egg image set, and the subset published via the registry. The
-# sandbox image is EXCLUDED from the registry subset by default: it bakes in
-# private repo content (node_modules/.venv/anything repositories.yaml
-# build_commands produce), so it never goes near a registry — even the
-# loopback-only local one — unless the operator opts in by adding
-# egg-sandbox to EGG_REGISTRY_IMAGES. Excluded images publish through the
-# save+import path instead (slower for the big sandbox image, but entirely
-# store-to-store on this host). push-egg-images.sh independently refuses any
-# non-loopback registry, so opting in still cannot publish off-host.
+# The full egg image set, and the subset published via the registry (all of
+# them by default). The registry is loopback-only — the egg images (the
+# sandbox especially) bake in private repo content, and the privacy controls
+# are that setup-local-registry.sh only ever creates a 127.0.0.1-bound
+# registry and push-egg-images.sh refuses any non-loopback registry with no
+# override, so nothing can be published off-host. To keep an image off the
+# registry entirely, remove it from EGG_REGISTRY_IMAGES; excluded images
+# publish through the save+import path instead (slower, but entirely
+# store-to-store on this host, no registry involved).
 EGG_ALL_IMAGES := egg-gateway egg-orchestrator egg-sandbox egg-litellm
-EGG_REGISTRY_IMAGES ?= egg-gateway egg-orchestrator egg-litellm
+EGG_REGISTRY_IMAGES ?= $(EGG_ALL_IMAGES)
 # Images the registry path does NOT cover (imported via k3s-import instead).
 EGG_IMPORT_IMAGES := $(filter-out $(EGG_REGISTRY_IMAGES),$(EGG_ALL_IMAGES))
 # Per-image manifest prefix: registry-qualified only when registry mode is on
@@ -507,8 +507,8 @@ lint-yaml-fix: sync-venv-if-uv
 # Tag set for one image: bare names always (k3s-import + local tooling),
 # registry-qualified names only when registry mode is on AND the image is in
 # the registry subset (what `k3s-push` pushes and `deploy` rewrites the
-# manifests to). Non-subset images (the sandbox, by default) never even get
-# a registry-qualified tag.
+# manifests to). Images excluded from the subset never even get a
+# registry-qualified tag.
 define image_tags
 -t $(1):latest -t $(1):$(EGG_IMAGE_TAG) $(if $(call reg_prefix,$(1)),-t $(call reg_prefix,$(1))$(1):latest -t $(call reg_prefix,$(1))$(1):$(EGG_IMAGE_TAG))
 endef
@@ -724,12 +724,12 @@ deploy: sudo-keepalive check-egg-images-present  ## Deploy egg to k3s
 redeploy: sudo-keepalive build k3s-publish deploy  ## Rebuild, publish images, and redeploy in one step
 
 # Publish dispatch (issue #2999): in registry mode, push the registry subset
-# (layer-incremental — the fast path) and save+import the rest (the sandbox,
-# unless opted in via EGG_REGISTRY_IMAGES); without a registry — or with an
-# empty registry subset (EGG_REGISTRY_IMAGES="") — save+import everything.
+# (layer-incremental — the fast path; all images by default) and save+import
+# any images excluded from EGG_REGISTRY_IMAGES; without a registry — or with
+# an empty registry subset (EGG_REGISTRY_IMAGES="") — save+import everything.
 k3s-publish: sudo-keepalive
 	@if [ -n "$(EGG_IMAGE_REGISTRY)" ] && [ -n "$(strip $(EGG_REGISTRY_IMAGES))" ]; then \
-		$(MAKE) --no-print-directory k3s-push; \
+		$(MAKE) --no-print-directory k3s-push || exit 1; \
 		if [ -n "$(strip $(EGG_IMPORT_IMAGES))" ]; then \
 			$(MAKE) --no-print-directory k3s-import K3S_IMPORT_IMAGES="$(EGG_IMPORT_IMAGES)"; \
 		fi; \
@@ -799,13 +799,13 @@ sudo-keepalive:
 # would only mismatch if :$(EGG_IMAGE_TAG) is also absent (the inner grep
 # guard skips when it is already present).
 # NOTE (#2999): k3s-import is the save+import publish path. The default
-# `make redeploy` flow uses it only for the images excluded from the registry
-# subset (the sandbox, which must not be pushed to any registry by default —
-# see EGG_REGISTRY_IMAGES above); with EGG_IMAGE_REGISTRY= (empty) it covers
-# everything, e.g. for CI. K3S_IMPORT_IMAGES narrows the image set
-# (k3s-publish passes the registry-subset complement). It deals in BARE
-# image names (egg-sandbox:<tag>), matching what `deploy` writes into the
-# manifests for non-registry images.
+# `make redeploy` flow uses it only for images excluded from the registry
+# subset (none by default — see EGG_REGISTRY_IMAGES above); with
+# EGG_IMAGE_REGISTRY= (empty) it covers everything, e.g. for CI.
+# K3S_IMPORT_IMAGES narrows the image set (k3s-publish passes the
+# registry-subset complement). It deals in BARE image names
+# (egg-sandbox:<tag>), matching what `deploy` writes into the manifests for
+# non-registry images.
 K3S_IMPORT_IMAGES ?= $(EGG_ALL_IMAGES)
 k3s-import: SHELL := /bin/bash
 k3s-import: sudo-keepalive  ## Import built images into k3s (registry-excluded set)
