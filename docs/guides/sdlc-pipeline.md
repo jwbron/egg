@@ -774,7 +774,7 @@ The orchestrator pushes worktree state (including `.egg-state/` files) to the re
 
 **Push points:**
 
-1. **After contract initialization** — Pushes initial contract and analysis/plan drafts so the first agents in the next phase see them
+1. **After contract initialization** — Pushes initial contract and analysis/plan drafts so the first agents in the next phase see them. Because fresh agent worktrees now fork from `origin/<assigned_branch>` tip (falling back to the base branch when the assigned branch has not been pushed yet — see [#3068](https://github.com/jwbron/egg/issues/3068)), this push is also what ensures seeded artifacts reach agents spawned by `restart_phase`: the re-forked worktrees materialise whatever is on the assigned branch at spawn time.
 2. **After phase completion** — Pushes statefiles (drafts, reviews, BRC history, check results, contract updates) so the next phase's agents don't have unpushed `.egg-state/` files in their diff
 3. **On pipeline failure** — Best-effort failsafe push to preserve in-progress work
 
