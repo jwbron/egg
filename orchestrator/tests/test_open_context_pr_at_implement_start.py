@@ -470,6 +470,10 @@ class TestRefreshContextPrBody:
         kwargs = spawner.gateway.update_pr_body.call_args.kwargs
         assert kwargs["pr_number"] == 4242
         assert "1. Foundation (`slice-1`) — #4243" in kwargs["body"]
+        # The gateway audit log attributes the action to ``orchestrator``,
+        # matching sibling orchestrator-driven PR mutations
+        # (create_slice_pr, rebase_onto) — review feedback on #3128.
+        assert kwargs["agent_role"] == "orchestrator"
 
     def test_no_context_pr_number_skips(self, tmp_path, spawner_factory):
         spawner = spawner_factory()

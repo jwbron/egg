@@ -90,6 +90,27 @@ class TestUnwrapSoftBreaks:
         text = "see the docs\n[docs]: https://example.com"
         assert unwrap_soft_breaks(text) == text
 
+    def test_preserves_html_block_open(self):
+        """#3122 review: GitHub renders raw HTML in PR bodies, so a
+        ``<details>`` (or any HTML block open) must not be folded into
+        the previous prose line — joining would corrupt the block."""
+        text = "prose above\n<details>\n<summary>hidden</summary>\nbody\n</details>"
+        assert unwrap_soft_breaks(text) == text
+
+    def test_setext_heading_without_blank_line_known_limitation(self):
+        """#3122 review: the conservative line-local heuristic cannot
+        disambiguate a setext heading from prose when no blank line
+        precedes it — ``Heading`` looks like prose and is joined onto
+        ``Some prose``, leaving ``===`` as an orphan thematic break.
+        Planners should always blank-line-separate setext headings or
+        use ATX (``# Heading``), which is unambiguous and preserved."""
+        text = "Some prose\nHeading text\n===\nprose below"
+        # Known limitation: the setext underline is *preserved* as a
+        # standalone ``===`` line (which GitHub renders as a thematic
+        # break), but the heading text itself is joined into the prose
+        # above it. We assert the current behaviour to lock it in.
+        assert unwrap_soft_breaks(text) == "Some prose Heading text\n===\nprose below"
+
     def test_idempotent(self):
         text = (
             "A wrapped\nparagraph here.\n\n- bullet one\n  wrapped\n- bullet two\n\n"

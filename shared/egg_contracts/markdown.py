@@ -9,6 +9,23 @@ comes out as a choppy column of short lines instead of paragraphs.
 :func:`unwrap_soft_breaks` joins those soft wraps back into paragraphs
 while leaving real markdown structure alone. The heuristic is
 conservative: when a line *could* be structural, it is never joined.
+
+**Known limitations of the conservative heuristic.** The unwrapper is
+intentionally line-local — it does not look ahead to disambiguate. Two
+corners worth knowing about:
+
+* **Setext heading without a preceding blank line.** ``Heading\n===``
+  is recognised as a setext H1 because ``===`` looks structural on its
+  own line, but ``some prose\nHeading\n===`` joins ``Heading`` onto
+  ``some prose`` (both look like prose), leaving ``===`` as an orphan
+  thematic break. Planners writing setext headings should always
+  precede them with a blank line — or just use ATX (``# Heading``),
+  which is unambiguous and always preserved.
+* **HTML block opens are carved out**, but only on their *opening*
+  tag. A line beginning with ``<details>`` / ``<div>`` / etc. is
+  treated as block-structural and never joined; the matching close
+  tag is also opaque (joining onto a non-prose previous line is
+  blocked by ``_is_prose``). Inline HTML mid-paragraph is unaffected.
 """
 
 from __future__ import annotations
@@ -20,8 +37,10 @@ import re
 # never have the following line appended to it (the element ends at the
 # newline). Covers: ATX headings, bullet / ordered list items,
 # blockquotes, table rows, fences, thematic breaks and setext-heading
-# underlines (``---`` / ``===``), and footnote/link-reference
-# definitions (``[label]: ...``).
+# underlines (``---`` / ``===``), footnote/link-reference definitions
+# (``[label]: ...``), and HTML block opens (``<details>``, ``<div>``,
+# etc. — GitHub renders raw HTML in PR bodies, and joining ``<details>``
+# onto a prose tail would corrupt the block).
 _BLOCK_MARKER = re.compile(
     r"""^\s{0,3}(
         \#{1,6}(\s|$)          # ATX heading
@@ -35,6 +54,7 @@ _BLOCK_MARKER = re.compile(
       | (_\s*){3,}$            # thematic break (underscores)
       | =+\s*$                 # setext h1 underline
       | \[[^\]]+\]:            # link-reference definition
+      | </?[a-zA-Z]            # HTML block open / close tag
     )""",
     re.VERBOSE,
 )

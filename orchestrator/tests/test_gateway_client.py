@@ -1548,14 +1548,33 @@ class TestUpdatePrBody:
         )
         assert result is False
 
-    @pytest.mark.parametrize("bad_number", [None, 0, -1, True])
+    @pytest.mark.parametrize("bad_number", [None, 0, -1, True, "123", 1.0])
     def test_update_pr_body_invalid_pr_number_returns_false(self, gateway_client, bad_number):
+        """Locks in the contract: any non-int (string, float, bool) or
+        ``< 1`` int returns False without burning a synthetic-session
+        round-trip. ``"123"`` would previously have crashed on
+        ``"123" < 1`` (Python 3 TypeError) — review feedback on
+        #3128."""
         with patch.object(gateway_client, "_make_request") as mock_req:
             result = gateway_client.update_pr_body(
                 pipeline_id="issue-42",
                 repo="owner/repo",
                 pr_number=bad_number,
                 body="body",
+            )
+        assert result is False
+        mock_req.assert_not_called()
+
+    def test_update_pr_body_empty_body_short_circuits(self, gateway_client):
+        """The gateway's ``gh pr edit`` rejects an empty payload — short-
+        circuit before burning a synthetic-session round-trip (review
+        feedback on #3128)."""
+        with patch.object(gateway_client, "_make_request") as mock_req:
+            result = gateway_client.update_pr_body(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                pr_number=4242,
+                body="",
             )
         assert result is False
         mock_req.assert_not_called()

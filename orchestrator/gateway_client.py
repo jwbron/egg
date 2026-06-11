@@ -16,6 +16,7 @@ import socket
 import subprocess
 import sys
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -1968,7 +1969,13 @@ class GatewayClient:
         :meth:`create_pr` this method does NOT propagate errors: a body
         refresh is cosmetic, and no caller should fail a slice over it.
         """
-        if not repo or pr_number is None or isinstance(pr_number, bool) or pr_number < 1:
+        if (
+            not repo
+            or pr_number is None
+            or isinstance(pr_number, bool)
+            or not isinstance(pr_number, int)
+            or pr_number < 1
+        ):
             logger.warning(
                 "update_pr_body: invalid repo/pr_number",
                 pipeline_id=pipeline_id,
@@ -1977,7 +1984,26 @@ class GatewayClient:
             )
             return False
 
-        temp_container_id = f"{pipeline_id}-pr-body-update"
+        # The gateway's ``gh pr edit`` rejects an empty payload (#3431
+        # in gateway/gateway.py) — short-circuit before burning a
+        # synthetic-session create+delete round-trip on a guaranteed
+        # 400.
+        if not body:
+            logger.warning(
+                "update_pr_body: empty body",
+                pipeline_id=pipeline_id,
+                repo=repo,
+                pr_number=pr_number,
+            )
+            return False
+
+        # Suffix the container id with a short random tag so two
+        # concurrent refreshes for the same pipeline (two slices in
+        # the same wave finishing within ms of each other) don't share
+        # a session-table key in the gateway. Matches the
+        # per-slice-id uniqueness create_pr / rebase_onto already get
+        # for free.
+        temp_container_id = f"{pipeline_id}-pr-body-update-{uuid.uuid4().hex[:8]}"
         session_token: str | None = None
         try:
             session = self.register_session(

@@ -9737,6 +9737,17 @@ def _refresh_context_pr_body(
     a body refresh is cosmetic, so every failure (contract load,
     composition, gateway) logs a warning and returns ``False`` without
     raising; no slice outcome may depend on it.
+
+    **Concurrency contract**: the caller must hold
+    ``get_pipeline_state_lock(pipeline_id)`` for the entire load +
+    compose + push sequence — without it, two slices completing in the
+    same wave can interleave so the slice whose refresh lands later
+    clobbers a body that already included both links. Because no
+    later slice fires a refresh after the last one, the final slice's
+    ``— #N`` link would stay missing forever if the race fired on it.
+    Serializing inside the per-pipeline lock eliminates the race; the
+    sole production caller (``_run_implement_phase_slices``) already
+    holds it.
     """
     if not pipeline.repo:
         return False
@@ -9788,6 +9799,10 @@ def _refresh_context_pr_body(
         pr_number=context_pr_number,
         body=body,
         issue_number=pipeline.issue_number,
+        # Attribute the action in the gateway audit log; matches
+        # sibling orchestrator-driven PR mutations (create_slice_pr,
+        # rebase_onto).
+        agent_role="orchestrator",
         mode=gateway_mode,
     )
 
@@ -16038,6 +16053,16 @@ def _run_implement_phase_slices(
         later stack consumer read them from ``Slice.pr_number``.
         ``None`` (the merged-skip and bootstrap callers) leaves any
         previously recorded linkage untouched.
+
+        TODO(#3122): the three ``None`` callers — bootstrap layer-A
+        (contract-recorded COMPLETE), bootstrap layer-B (merged on
+        origin), and the run-loop merged-skip — do not recover the
+        slice PR number from GitHub (`gh pr list --head … --state
+        merged`), so on a resume past those points the slice-table
+        entries for merged slices stay unlinked. Acceptable for v1
+        because the per-slice ``— #N`` link is most useful while the
+        stack is live, but worth backfilling if reviewers ask for
+        complete cross-linkage on archived stacks.
         """
         try:
             with get_pipeline_state_lock(pipeline_id):
@@ -16911,35 +16936,54 @@ def _run_implement_phase_slices(
 
                 # Parse the slice PR number from the returned URL
                 # (#3122) — same trailing-boundary pattern the context-
-                # PR opener uses. Best-effort: an unparseable URL just
-                # means the linkage isn't recorded this pass; the
-                # idempotent create_slice_pr re-yields it on a resume.
+                # PR opener uses, narrowed to ``[1-9]\d*`` so a
+                # malformed ``/pull/0/...`` URL doesn't make it as far
+                # as ``Slice.pr_number``'s ``ge=1`` validator (which
+                # would silently downgrade to a warning log via the
+                # save try/except in ``_persist_slice_status_complete``).
+                # Best-effort: an unparseable URL just means the
+                # linkage isn't recorded this pass; the idempotent
+                # ``create_slice_pr`` re-yields it on a resume.
                 if slice_pr_url:
-                    pr_match = re.search(r"/pull/(\d+)(?:[/?#]|$)", slice_pr_url)
+                    pr_match = re.search(r"/pull/([1-9]\d*)(?:[/?#]|$)", slice_pr_url)
                     if pr_match:
                         slice_pr_number = int(pr_match.group(1))
 
-                scheduler.record_complete(slice_id)
-                _persist_slice_status_complete(
-                    slice_id,
-                    pr_number=slice_pr_number,
-                    pr_url=slice_pr_url if slice_pr_number else None,
-                )
-
-                # Refresh the context PR body so its slice table links
-                # the PR that just opened (#3122). Strictly cosmetic and
-                # best-effort: every failure path inside logs + returns
-                # False without raising, and the slice outcome below
-                # never depends on it.
-                if slice_pr_number:
-                    _refresh_context_pr_body(
-                        pipeline_id,
-                        pipeline=pipeline,
-                        spawner=spawner,
-                        worktree_repo_path=worktree_repo_path,
-                        identifier=_pipeline_identifier(pipeline.issue_number, pipeline_id),
-                        gateway_mode=gateway_mode,
+                # Hold the per-pipeline state lock across both the
+                # contract-write (``_persist_slice_status_complete``
+                # itself reacquires this RLock) and the context-PR
+                # body refresh (load + compose + push). Without the
+                # outer lock, two slices in the same wave could
+                # interleave between persist and push so the slice
+                # whose refresh starts earlier but lands later
+                # clobbers the body that already included both links
+                # — and because no later slice fires a refresh, the
+                # final slice's ``— #N`` link would stay missing
+                # forever. Serializing here bounds the per-slice tail
+                # latency by one gateway PATCH per concurrent slice
+                # rather than racing them.
+                with get_pipeline_state_lock(pipeline_id):
+                    scheduler.record_complete(slice_id)
+                    _persist_slice_status_complete(
+                        slice_id,
+                        pr_number=slice_pr_number,
+                        pr_url=slice_pr_url if slice_pr_number else None,
                     )
+
+                    # Refresh the context PR body so its slice table
+                    # links the PR that just opened (#3122). Strictly
+                    # cosmetic and best-effort: every failure path
+                    # inside logs + returns False without raising, and
+                    # the slice outcome below never depends on it.
+                    if slice_pr_number:
+                        _refresh_context_pr_body(
+                            pipeline_id,
+                            pipeline=pipeline,
+                            spawner=spawner,
+                            worktree_repo_path=worktree_repo_path,
+                            identifier=_pipeline_identifier(pipeline.issue_number, pipeline_id),
+                            gateway_mode=gateway_mode,
+                        )
 
                 try:
                     remove_peer_consensus_tracker(pipeline_id, slice_id)
