@@ -465,7 +465,7 @@ class TestAckGate:
         signals_module,
         app,
         gate_env,
-        capfd: pytest.CaptureFixture[str],
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """An empty/missing producer_role on the ACK check is logged and skipped.
 
@@ -474,26 +474,38 @@ class TestAckGate:
         silently degrading (``task_ids_for_role`` would otherwise filter
         ``task.role == ""`` and skip the attestation check).
 
-        ``EggLogger`` disables propagation to the root logger, so caplog
-        cannot observe it. ``capsys`` is also unreliable here: the
-        logger's ``StreamHandler(sys.stderr)`` captures the original
-        ``sys.stderr`` at lazy-init time, so a later ``capsys`` swap of
-        the Python-level ``sys.stderr`` does not redirect writes through
-        the handler. ``capfd`` captures at the file-descriptor level
-        and sees the write regardless of which Python object holds the
-        reference.
+        ``EggLogger`` disables propagation to the root logger, so the
+        default ``caplog`` root-attachment does not observe records from
+        ``orchestrator.signals``. Attach ``caplog.handler`` to the
+        underlying Python logger directly so the record is captured
+        regardless of propagation or stream-reference timing (which
+        defeated both ``capsys`` and ``capfd`` in earlier attempts).
         """
+        import logging as _logging
+
         _write_contract(gate_env, slice2_complete=True)
-        result = _reject(
-            signals_module,
-            app,
-            check="ack",
-            enforcer_role="reviewer_contract",
-            producer_role="",
-        )
+
+        sig_logger = _logging.getLogger("orchestrator.signals")
+        sig_logger.addHandler(caplog.handler)
+        prior_level = sig_logger.level
+        sig_logger.setLevel(_logging.WARNING)
+        try:
+            result = _reject(
+                signals_module,
+                app,
+                check="ack",
+                enforcer_role="reviewer_contract",
+                producer_role="",
+            )
+        finally:
+            sig_logger.removeHandler(caplog.handler)
+            sig_logger.setLevel(prior_level)
+
         assert result is None
-        captured = capfd.readouterr()
-        assert "empty producer_role" in captured.err
+        assert any(
+            "empty producer_role" in record.getMessage()
+            for record in caplog.records
+        ), caplog.text
 
 
 class TestKillSwitchAllChecks:
