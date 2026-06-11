@@ -491,6 +491,95 @@ def _invalidate_conditional_acks(
         )
 
 
+# Canonical executable task-completion resolution (#3124). Any decision
+# whose chosen option (or free-form reply) matches this shape EXECUTES
+# the completion when resolved — instead of recording a choice and
+# leaving the operator to ``kubectl exec`` into an agent pod and
+# impersonate its role. Decision creators that want an executable
+# completion option should emit a label of the form
+# ``Mark task <task-id> complete`` (backticks around the id tolerated);
+# free-form replies may append ``commit <sha>`` to link evidence.
+_COMPLETE_TASK_RESOLUTION_RE = re.compile(
+    r"Mark task\s+`{0,2}([A-Za-z0-9._\-]+)`{0,2}\s+complete",
+    re.IGNORECASE,
+)
+_COMMIT_EVIDENCE_RE = re.compile(r"\bcommit[\s:=]+([0-9a-fA-F]{7,40})\b")
+
+
+def _maybe_complete_task_from_resolution(
+    pipeline_id: str,
+    decision_id: str,
+    resolution: str | None,
+) -> dict[str, Any] | None:
+    """Execute an operator ``Mark task <id> complete`` resolution (#3124).
+
+    Returns the executed-action payload (merged into the resolve
+    response so the operator sees the completion happened), or ``None``
+    when the resolution is not a task-completion choice. Execution
+    failure is logged AND surfaced in the returned payload — the
+    decision is already marked resolved by the time dispatch runs, so a
+    silent failure here would recreate the records-a-choice-but-
+    executes-nothing gap this hook closes.
+    """
+    if not resolution:
+        return None
+    match = _COMPLETE_TASK_RESOLUTION_RE.search(resolution)
+    if not match:
+        return None
+    task_id = match.group(1)
+    commit_match = _COMMIT_EVIDENCE_RE.search(resolution)
+    commit = commit_match.group(1) if commit_match else None
+
+    from operator_actions import OperatorActionError, complete_task_as_operator
+
+    try:
+        result = complete_task_as_operator(
+            pipeline_id,
+            task_id,
+            commit=commit,
+            reason=f"HITL decision {decision_id} resolved with task-completion option",
+            actor=f"operator:decision:{decision_id}",
+        )
+    except OperatorActionError as exc:
+        logger.error(
+            "Task-completion resolution failed; task remains incomplete",
+            pipeline_id=pipeline_id,
+            decision_id=decision_id,
+            task_id=task_id,
+            error=exc.message,
+        )
+        return {
+            "action": "complete_task",
+            "task_id": task_id,
+            "success": False,
+            "error": exc.message,
+        }
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.error(
+            "Task-completion resolution raised unexpectedly",
+            pipeline_id=pipeline_id,
+            decision_id=decision_id,
+            task_id=task_id,
+            error=str(exc),
+            exc_info=True,
+        )
+        return {
+            "action": "complete_task",
+            "task_id": task_id,
+            "success": False,
+            "error": str(exc),
+        }
+
+    logger.info(
+        "Executed task completion from decision resolution",
+        pipeline_id=pipeline_id,
+        decision_id=decision_id,
+        task_id=task_id,
+        commit=commit,
+    )
+    return {"action": "complete_task", "success": True, **result}
+
+
 @decisions_bp.route("/<pipeline_id>/decisions", methods=["GET"])
 def list_decisions(pipeline_id: str) -> tuple[Response, int]:
     """
@@ -874,6 +963,13 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
         # required one was removed), so resolution just marks the decision
         # RESOLVED.
 
+        # Executable task-completion option (#3124): "Mark task <id>
+        # complete" performs the audited operator mutation instead of
+        # leaving the operator to impersonate an agent role via pod exec.
+        executed_action = _maybe_complete_task_from_resolution(
+            pipeline_id, decision_id, dispatch_resolution
+        )
+
         return make_success_response(
             "Decision resolved",
             data={
@@ -885,7 +981,8 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
                     if decision.resolved_at
                     else None,
                     "scope": "queue",
-                }
+                },
+                **({"executed_action": executed_action} if executed_action else {}),
             },
         )
 
@@ -1104,6 +1201,13 @@ def _resolve_contract_decision(
             exc_info=True,
         )
 
+    # Executable task-completion option (#3124) — same dispatch as the
+    # queue path, so a contract-resident (``cq-N``) decision resolved
+    # pre-bridge also executes instead of only recording the choice.
+    executed_action = _maybe_complete_task_from_resolution(
+        pipeline_id, decision_id, _normalize_choice_resolution(resolution)
+    )
+
     return make_success_response(
         "Decision resolved",
         data={
@@ -1113,7 +1217,8 @@ def _resolve_contract_decision(
                 "resolution": resolution,
                 "resolved_at": resolved_at.isoformat(),
                 "scope": "contract",
-            }
+            },
+            **({"executed_action": executed_action} if executed_action else {}),
         },
     )
 

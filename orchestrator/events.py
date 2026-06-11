@@ -82,6 +82,9 @@ class EventType(StrEnum):
     CONSENSUS_WITHDRAW_RECEIVED = "consensus.withdraw_received"
     CONSENSUS_FAILURE = "consensus.failure"
     CONSENSUS_OBLIGATION_RESOLVED = "consensus.obligation_resolved"
+    # A CONFIRMED producer's consensus participation was reopened after a
+    # contract task was reassigned to it post-confirm (#3124).
+    CONSENSUS_PRODUCER_REOPENED = "consensus.producer_reopened"
 
     # HITL events
     DECISION_CREATED = "decision.created"

@@ -58,6 +58,7 @@ from egg_contracts import (  # noqa: E402
 from egg_contracts import (
     contract_exists as _contract_exists,
 )
+from lifecycle_auth import require_lifecycle_secret  # noqa: E402
 
 logger = logging.getLogger("orchestrator.contracts")
 
@@ -397,10 +398,128 @@ def mutate_contract(identifier: str) -> tuple[Response, int]:
         },
     )
 
+    _audit_confirmed_assignee_reassignment(result.contract, field_path, new_value, actor)
+
     return _success(
         "Mutation applied successfully",
         data={"contract": export_contract(result.contract, include_audit_log=False)},
     )
+
+
+_TASK_ROLE_PATH_RE = re.compile(r"^phases\.(\d+)\.tasks\.\d+\.role$")
+
+
+def _audit_confirmed_assignee_reassignment(
+    contract: Contract,
+    field_path: str,
+    new_value: Any,
+    actor: str,
+) -> None:
+    """Log when a ``tasks.*.role`` mutation targets a confirmed producer (#3124).
+
+    Reassigning a task to a producer that has already CONFIRMED its
+    slice consensus used to deadlock silently: the assignee could never
+    re-enter WORKING, and the #3114 completeness gate held the slice
+    open over the undelivered row. The next-action route now reopens
+    the producer's participation on its next poll
+    (``routes.consensus._maybe_reopen_confirmed_producer``), so this
+    hook is observability only — it makes the reassign-after-confirm
+    moment visible in the orchestrator log instead of leaving the
+    reopen to be discovered post-hoc. Best-effort: any failure here
+    must not affect the mutation that already succeeded.
+    """
+    try:
+        match = _TASK_ROLE_PATH_RE.match(field_path)
+        if not match or not isinstance(new_value, str):
+            return
+
+        pipeline_id, _repo_hint = _pipeline_context()
+        if not pipeline_id:
+            return
+
+        slice_idx = int(match.group(1))
+        slices = list(getattr(contract, "slices", None) or [])
+        slice_id = getattr(slices[slice_idx], "id", None) if slice_idx < len(slices) else None
+
+        from peer_consensus import get_peer_consensus_tracker
+
+        tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
+        if tracker is None:
+            return
+        if new_value in tracker.confirmed_roles:
+            logger.warning(
+                "Task reassigned to an already-confirmed producer; its consensus "
+                "participation will reopen on its next next-action poll (#3124)",
+                extra={
+                    "pipeline_id": pipeline_id,
+                    "slice_id": slice_id,
+                    "field_path": field_path,
+                    "new_assignee": new_value,
+                    "actor": actor,
+                },
+            )
+    except Exception:  # pragma: no cover — observability must not break mutations
+        logger.debug("Confirmed-assignee reassignment audit skipped", exc_info=True)
+
+
+@contracts_bp.route("/<identifier>/tasks/<task_id>/complete", methods=["POST"])
+@require_lifecycle_secret
+def operator_complete_task(identifier: str, task_id: str) -> tuple[Response, int]:
+    """Mark a contract task complete as an audited operator action (#3124).
+
+    The in-band remediation for a task no live agent is permitted to
+    satisfy (e.g. reassigned to a producer that already CONFIRMED).
+    Replaces the ``kubectl exec`` + ``EGG_AGENT_ROLE=<role>
+    egg-contract complete-task`` impersonation workaround.
+
+    URL params:
+        identifier: Pipeline id (preferred) or issue number.
+        task_id: Contract task id (e.g. ``TASK-2-3``).
+
+    Request body (all optional)::
+
+        {"commit": "<sha evidence>",
+         "reason": "<why the operator is attesting completion>"}
+
+    Auth: lifecycle-secret guarded — operator/host surface only.
+    Sandbox agents keep using ``mcp__task__complete`` under their own
+    role; this route is not proxied by the gateway.
+    """
+    # Lazy import — operator_actions pulls in contract_store locking and
+    # egg_contracts; importing per-call mirrors the heavy-dependency
+    # seams used by routes/decisions.py.
+    from operator_actions import OperatorActionError, complete_task_as_operator
+
+    ident = _coerce_identifier(identifier)
+    validation_error = _validate_identifier(ident)
+    if validation_error:
+        return validation_error
+
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return _error("Request body must be a JSON object")
+
+    pipeline_id = body.get("pipeline_id") or (str(ident) if not isinstance(ident, int) else None)
+    if not pipeline_id:
+        return _error(
+            "Cannot resolve pipeline worktree: pass the pipeline id as the "
+            "URL identifier or in the request body as 'pipeline_id'",
+            status_code=400,
+        )
+
+    try:
+        result = complete_task_as_operator(
+            pipeline_id,
+            task_id,
+            commit=body.get("commit"),
+            reason=body.get("reason", ""),
+            actor=body.get("actor", "operator"),
+            issue_number=ident if isinstance(ident, int) else None,
+        )
+    except OperatorActionError as exc:
+        return _error(exc.message, status_code=exc.status_code)
+
+    return _success(f"Task {task_id} marked complete by operator", data=result)
 
 
 @contract_mutations_bp.route("/validate", methods=["POST"])

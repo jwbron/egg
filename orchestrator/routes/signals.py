@@ -2516,6 +2516,29 @@ def _existing_confirmed_for_role(
     except Exception:
         return (False, False)
 
+    # Confirmed-producer reopen awareness (#3124): a CONSENSUS_REOPENED
+    # targeting this role invalidates any *earlier* CONFIRMED message —
+    # the role re-entered WORKING, so its eventual re-confirm must write
+    # a fresh CONFIRMED message. Without this, the dedupe below would
+    # swallow the re-confirm and message replay (which processes the
+    # post-reopen re-propose *after* the stale CONFIRMED) would leave
+    # the role unconfirmed forever after an orchestrator restart.
+    latest_reopen_ts = None
+    for m in messages:
+        if str(getattr(m, "message_type", "")) != "CONSENSUS_REOPENED":
+            continue
+        if getattr(m, "to_role", None) != agent_role:
+            continue
+        msg_phase = getattr(m, "phase", None)
+        if phase is not None and msg_phase is not None and msg_phase != phase:
+            continue
+        metadata = getattr(m, "metadata", None) or {}
+        if metadata.get("slice_id") != slice_id:
+            continue
+        ts = getattr(m, "timestamp", None)
+        if ts is not None and (latest_reopen_ts is None or ts > latest_reopen_ts):
+            latest_reopen_ts = ts
+
     has_final = False
     has_pending = False
     for m in messages:
@@ -2537,6 +2560,13 @@ def _existing_confirmed_for_role(
         # confirms.
         if metadata.get("slice_id") != slice_id:
             continue
+        # Stale: confirmed before the latest reopen (#3124). A missing
+        # timestamp counts as stale — the safe failure direction here is
+        # a duplicate CONFIRMED write, not a lost re-confirm.
+        if latest_reopen_ts is not None:
+            ts = getattr(m, "timestamp", None)
+            if ts is None or ts <= latest_reopen_ts:
+                continue
         if metadata.get("pending_acks"):
             has_pending = True
         else:
