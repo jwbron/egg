@@ -74,6 +74,14 @@ class MessageType:
     # re-emerges from replay and the HITL gate asks the operator about
     # work that was already done.
     CONSENSUS_OBLIGATION_RESOLVED = "CONSENSUS_OBLIGATION_RESOLVED"
+    # Confirmed-producer reopen (#3124): a contract task was reassigned to
+    # a producer after it CONFIRMED, so the orchestrator reopened its
+    # consensus participation (CONFIRMED → WORKING). Persisted so
+    # ``reconstruct_tracker_from_messages`` can replay the transition —
+    # without it, replay would reject the producer's post-reopen proposal
+    # (the propose guard requires WORKING) and a restart would resurrect
+    # the deadlock the reopen resolved. ``to_role`` carries the producer.
+    CONSENSUS_REOPENED = "CONSENSUS_REOPENED"
     # Overseer anomaly broadcasts (issue #1413)
     OVERSEER_ALERT = "OVERSEER_ALERT"
     # Tier 1 health monitor nudge messages (issue #1428)

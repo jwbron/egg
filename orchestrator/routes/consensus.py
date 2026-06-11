@@ -53,6 +53,7 @@ from peer_consensus import (
     reconstruct_tracker_from_messages,
 )
 from slice_id_validation import extract_slice_id as _extract_slice_id
+from state_store import get_state_store
 
 logger = get_logger("orchestrator.consensus")
 
@@ -421,6 +422,197 @@ def _derive_next_action(
         return "wait", None, "role not in review graph"
 
 
+def _maybe_reopen_confirmed_producer(
+    tracker: PeerConsensusTracker,
+    pipeline_id: str,
+    slice_id: str | None,
+    role: str,
+) -> list[dict[str, Any]] | None:
+    """Reopen ``role``'s consensus participation when a contract task was
+    (re)assigned to it after it confirmed (#3124).
+
+    Task reassignment (impasse delegation, direct operator mutation of
+    ``phases.*.tasks.*.role``) does not consult consensus state, so it
+    can land on a producer that already CONFIRMED. Confirmation is
+    otherwise a one-way lock — ``_derive_next_action`` short-circuits a
+    confirmed role to ``wait`` and ``check_propose_guard`` rejects
+    proposals from CONFIRMED — while the #3114 completeness gate
+    (correctly) holds the slice open over the undelivered row. Without
+    a reopen, the slice deadlocks with no in-band remediation.
+
+    Detection is derived purely from persistent contract state (the
+    confirmed producer owns non-``complete`` task rows in scope), so
+    the check is naturally idempotent across polls, restarts, and
+    tracker reconstruction. A ``CONSENSUS_REOPENED`` message is written
+    to the bus *before* the tracker mutation so message replay performs
+    the same transition (see ``reconstruct_tracker_from_messages``).
+
+    Returns the incomplete task rows when a reopen happened (or was
+    already in effect for this poll), else ``None``. Failure posture
+    mirrors the #3114 gate: fail-open — an orchestrator-side read
+    failure skips the reopen (the role keeps waiting; the gate and the
+    operator path remain the backstop) rather than crashing the poll.
+    The ``EGG_CONTRACT_ACK_GATE`` kill switch disables this check along
+    with the rest of the completeness-gate family: with the gate off,
+    consensus can close over incomplete rows, so there is nothing to
+    reopen for.
+    """
+    if not tracker.graph.is_producer(role):
+        return None
+    # Cheap pre-check before any contract IO: only a confirmed producer
+    # (or one whose producer FSM is CONFIRMED — the dual-role
+    # intermediate state) can need reopening. Reading _producer_phases
+    # without the lock is a hint only; reopen_producer re-checks under
+    # the lock.
+    #
+    # The OR-guard intentionally catches the dual-role intermediate
+    # window between ``handle_confirmed`` setting
+    # ``_producer_phases[role] = CONFIRMED`` and ``is_fully_confirmed``
+    # adding the role to ``_confirmed``. During that window
+    # ``role in tracker.confirmed_roles`` is False but
+    # ``_producer_phases.get(role) == CONFIRMED`` — both halves are
+    # load-bearing for dual-role correctness; do not simplify to a
+    # single-clause check.
+    #
+    # Concurrency note: two parallel next-action polls for the same
+    # role can both pass this lock-free pre-check, each persist a
+    # ``CONSENSUS_REOPENED`` bus message, and only the first will flip
+    # the FSM (the second's ``reopen_producer`` returns
+    # ``{"status": "noop"}`` because the lock-held re-check sees
+    # ``WORKING``). The tracker stays consistent and the contract IO
+    # is idempotent; the bus picks up a duplicate informational
+    # message. This is preferable to spanning a lock across contract
+    # IO — the duplicate is harmless and the replay arm is idempotent
+    # over repeated reopens.
+    if role not in tracker.confirmed_roles and (
+        tracker._producer_phases.get(role) != ConsensusPhase.CONFIRMED
+    ):
+        return None
+
+    try:
+        import contract_completeness as cc
+    except ImportError:
+        from .. import contract_completeness as cc  # type: ignore[no-redef]
+
+    if not cc.gate_enabled():
+        return None
+
+    try:
+        from routes import (
+            get_repo_path,
+            resolve_repo_path_for_pipeline,
+            resolve_worktree_path,
+        )
+
+        repo_path = resolve_repo_path_for_pipeline(pipeline_id, get_repo_path())
+        pipeline_state = get_state_store(repo_path).load_pipeline(pipeline_id)
+        phase_attr = getattr(pipeline_state, "current_phase", None)
+        current_phase = phase_attr.value if phase_attr is not None else None
+        issue_number = getattr(pipeline_state, "issue_number", None)
+    except Exception as exc:
+        logger.warning(
+            "Confirmed-producer reopen check skipped: pipeline state unreadable",
+            pipeline_id=pipeline_id,
+            role=role,
+            error=str(exc),
+        )
+        return None
+
+    # Implement phase only — plan/refine consensus runs against contracts
+    # whose task rows are expected to be pending (#3114 scoping).
+    if current_phase != "implement":
+        return None
+
+    try:
+        worktree = resolve_worktree_path(pipeline_id, repo_path)
+    except Exception as exc:
+        logger.warning(
+            "Confirmed-producer reopen check skipped: worktree unresolvable",
+            pipeline_id=pipeline_id,
+            role=role,
+            error=str(exc),
+        )
+        return None
+
+    identifiers: list[int | str] = [pipeline_id]
+    if issue_number:
+        identifiers.append(issue_number)
+    contract = cc.load_live_contract(worktree, identifiers)
+    if contract is None:
+        return None
+
+    rows = cc.incomplete_tasks(contract, slice_id, role=role)
+    if not rows:
+        # Empty (everything delivered) or None (slice not found) — the
+        # confirmed state is consistent with the contract; nothing to do.
+        return None
+
+    reason = (
+        f"contract task(s) {[r['id'] for r in rows]} assigned to {role} after it confirmed (#3124)"
+    )
+
+    # Persist the reopen for replay BEFORE mutating the tracker: if the
+    # write succeeds but the orchestrator dies before the mutation, the
+    # idempotent replay arm applies it; if the write fails, the tracker
+    # stays confirmed and the next poll retries the whole sequence.
+    try:
+        from message_store import Message, MessageType, get_message_store
+
+        get_message_store().add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="orchestrator",
+                to_role=role,
+                message_type=MessageType.CONSENSUS_REOPENED,
+                subject=f"Consensus reopened for {role}",
+                body=reason,
+                phase=current_phase,
+                metadata={
+                    "incomplete_tasks": rows,
+                    **({"slice_id": slice_id} if slice_id is not None else {}),
+                },
+            )
+        )
+    except Exception as exc:
+        logger.warning(
+            "Confirmed-producer reopen skipped: could not persist CONSENSUS_REOPENED",
+            pipeline_id=pipeline_id,
+            role=role,
+            error=str(exc),
+        )
+        return None
+
+    try:
+        result = tracker.reopen_producer(role, reason=reason)
+    except ValueError as exc:
+        logger.warning(
+            "Confirmed-producer reopen failed",
+            pipeline_id=pipeline_id,
+            role=role,
+            error=str(exc),
+        )
+        return None
+
+    if result.get("status") == "reopened":
+        logger.info(
+            "Reopened confirmed producer after task reassignment",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            role=role,
+            incomplete_tasks=[r["id"] for r in rows],
+        )
+        # The consensus-confirmed marker (#1473) asserts "BRC review
+        # complete" to the gateway's session-cleanup auto-commit; that
+        # is no longer true, so remove it (best-effort).
+        try:
+            marker = worktree / ".egg-state" / "agent-outputs" / "consensus-confirmed"
+            marker.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    return rows
+
+
 @consensus_bp.route("/<pipeline_id>/consensus/next-action", methods=["POST"])
 def handle_next_action(pipeline_id: str) -> tuple[Response, int]:
     """Derive the next BRC action for the given role.
@@ -488,7 +680,20 @@ def handle_next_action(pipeline_id: str) -> tuple[Response, int]:
             status_code=400,
         )
 
+    # Confirmed-producer reopen (#3124): a task reassigned to this role
+    # after it confirmed flips it back to WORKING so the derivation
+    # below returns ``propose`` instead of locking it on ``wait``.
+    reopened_rows = _maybe_reopen_confirmed_producer(tracker, pipeline_id, slice_id, role)
+
     action, event_payload, reason = _derive_next_action(tracker, role)
+    if reopened_rows and action == "propose":
+        event_payload = dict(event_payload or {})
+        event_payload["reopened_after_confirm"] = True
+        event_payload["incomplete_tasks"] = reopened_rows
+        reason = (
+            "consensus reopened: contract task(s) were assigned to this role "
+            "after it confirmed — deliver them, mark them complete, and re-propose"
+        )
     if action not in _VALID_ACTIONS:  # pragma: no cover - defensive
         logger.error(
             "next-action produced invalid action; coercing to wait",

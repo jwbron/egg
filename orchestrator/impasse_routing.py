@@ -293,6 +293,24 @@ def _build_hitl_decision(
             label="Resolve the underlying blocker manually, then resume",
         )
     )
+    if task is not None:
+        # Executable option (#3124): the resolve route's dispatch hook
+        # (``routes.decisions._maybe_complete_task_from_resolution``)
+        # recognizes the ``Mark task <id> complete`` shape and performs
+        # the audited operator completion — no pod-exec impersonation.
+        options.append(
+            DecisionOption(
+                id=f"opt-{len(options) + 1}",
+                label=f"Mark task {task.id} complete",
+                description=(
+                    "Operator attests the deliverable already exists. "
+                    "Resolving with this option EXECUTES the completion "
+                    "(status=complete) as an audited operator action; "
+                    "reply free-form with 'Mark task "
+                    f"{task.id} complete, commit <sha>' to link evidence."
+                ),
+            )
+        )
     options.append(
         DecisionOption(
             id=f"opt-{len(options) + 1}",
