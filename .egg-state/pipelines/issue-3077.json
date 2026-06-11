@@ -220,10 +220,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Durability bar for the BRC message store (clause-1 prerequisite, issue #3077): is a fail-loud signal sufficient when EGG_MESSAGE_STORE_BACKEND resolves to the in-memory backend while BRC phases run (recommended — bounded), or should 'auto' refuse to run BRC phases without Redis Streams (stricter, but breaks dev setups without Redis)?",
+      "context": "Open contract question cq-2, registered by an agent during the refine phase.",
+      "options": [
+        "Fail-loud warning/health signal on memory backend (recommended)",
+        "Refuse to run BRC phases without Redis",
+        "Defer durability entirely to the #3070 lineage",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-06-11T21:04:29.052389Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-06-11T20:48:15.005064Z",
-  "updated_at": "2026-06-11T21:04:29.016965Z",
+  "updated_at": "2026-06-11T21:04:29.062191Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -236,7 +255,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13,
+  "version": 14,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
