@@ -307,6 +307,7 @@ except ImportError:
         get_state_store,
     )
 
+from egg_contracts.markdown import unwrap_soft_breaks
 from egg_contracts.orchestrator import load_agent_output, save_agent_output
 from egg_git.default_branch import get_default_branch
 from lifecycle_auth import require_lifecycle_secret
@@ -9474,15 +9475,19 @@ def _compose_context_pr_body(
     pr = contract.pr
     sections: list[str] = []
 
-    description = (pr.description or "").strip() if pr else ""
+    # Soft-break unwrapping (#3122): the ``pr:`` block fields arrive as
+    # YAML block scalars hard-wrapped at ~75 chars, and GitHub renders
+    # every newline in a PR body as a line break — join the wraps back
+    # into paragraphs, leaving real markdown structure alone.
+    description = unwrap_soft_breaks(pr.description if pr else None).strip()
     if description:
         sections.append(description)
 
-    test_plan = (pr.test_plan or "").strip() if pr else ""
+    test_plan = unwrap_soft_breaks(pr.test_plan if pr else None).strip()
     if test_plan:
         sections.append(f"## Test Plan\n\n{test_plan}")
 
-    manual_steps = (pr.manual_steps or "").strip() if pr else ""
+    manual_steps = unwrap_soft_breaks(pr.manual_steps if pr else None).strip()
     if manual_steps:
         sections.append(f"## Manual Steps\n\n{manual_steps}")
 
@@ -9508,7 +9513,14 @@ def _compose_context_pr_body(
             # ``_migrate_phases_to_slices`` only rewrites it on JSON
             # load, so a directly-constructed Slice can still carry it.
             number = s.id.removeprefix("slice-").removeprefix("phase-")
-            body_lines.append(f"  {number}. {name} (`{s.id}`)")
+            line = f"  {number}. {name} (`{s.id}`)"
+            # Cross-link the stack (#3122): once the slice's PR is open
+            # its number is persisted on the contract and the run loop
+            # re-composes this body, so the entry gains a link. Bare
+            # ``#N`` autolinks within the repo the context PR lives in.
+            if getattr(s, "pr_number", None):
+                line += f" — #{s.pr_number}"
+            body_lines.append(line)
         has_meaningful_content = True
 
     link_base: str | None = None
@@ -9700,6 +9712,99 @@ def _persist_context_pr_number(
             reason="save_failed",
             cause=save_err,
         ) from save_err
+
+
+def _refresh_context_pr_body(
+    pipeline_id: str,
+    *,
+    pipeline: Any,
+    spawner: Any,
+    worktree_repo_path: Path,
+    identifier: int | str,
+    gateway_mode: str = "public",
+) -> bool:
+    """Re-compose and push the context PR's body to GitHub (#3122).
+
+    Called by the run loop after a slice PR opens and its number is
+    persisted on the contract, so the context PR's slice table gains a
+    link to each slice PR as the stack materialises
+    (:func:`_compose_context_pr_body` renders ``— #N`` for every slice
+    with a recorded ``pr_number``).
+
+    The context PR body is machine-owned: the refresh fully regenerates
+    it from contract + pipeline state through the same composer the
+    opener used, clobbering any manual edits. Best-effort by design —
+    a body refresh is cosmetic, so every failure (contract load,
+    composition, gateway) logs a warning and returns ``False`` without
+    raising; no slice outcome may depend on it.
+
+    **Concurrency contract**: the caller must hold
+    ``get_pipeline_state_lock(pipeline_id)`` for the entire load +
+    compose + push sequence — without it, two slices completing in the
+    same wave can interleave so the slice whose refresh lands later
+    clobbers a body that already included both links. Because no
+    later slice fires a refresh after the last one, the final slice's
+    ``— #N`` link would stay missing forever if the race fired on it.
+    Serializing inside the per-pipeline lock eliminates the race; the
+    sole production caller (``_run_implement_phase_slices``) already
+    holds it.
+    """
+    if not pipeline.repo:
+        return False
+
+    try:
+        from egg_contracts.loader import load_contract
+
+        contract = load_contract(identifier, worktree_repo_path)
+    except Exception as load_err:  # noqa: BLE001
+        # Lazy import + contract load: ImportError, loader validation
+        # errors, OSError on the contract file read.
+        logger.warning(
+            "Context PR body refresh: contract load failed (skipping)",
+            pipeline_id=pipeline_id,
+            error=str(load_err),
+        )
+        return False
+
+    context_pr_number = (
+        contract.pr.context_pr_number if contract.pr else None
+    ) or pipeline.pr_number
+    if not context_pr_number:
+        # No context PR to refresh — reachable on #3100-degraded
+        # contracts where the opener never persisted linkage.
+        return False
+
+    try:
+        body = _compose_context_pr_body(
+            contract=contract,
+            pipeline=pipeline,
+            worktree_repo_path=worktree_repo_path,
+            identifier=identifier,
+        )
+    except Exception as compose_err:  # noqa: BLE001
+        # Pure string composition over loaded state; a raise here is a
+        # programming error, but the cosmetic-refresh contract still
+        # holds — log and skip rather than fail the slice.
+        logger.warning(
+            "Context PR body refresh: composition failed (skipping)",
+            pipeline_id=pipeline_id,
+            pr_number=context_pr_number,
+            error=str(compose_err),
+        )
+        return False
+
+    return spawner.gateway.update_pr_body(
+        pipeline_id,
+        pipeline.repo,
+        pr_number=context_pr_number,
+        body=body,
+        issue_number=pipeline.issue_number,
+        # Attribute the action in the gateway audit log; matches
+        # sibling orchestrator-driven PR mutations (create_slice_pr,
+        # rebase_onto).
+        agent_role="orchestrator",
+        mode=gateway_mode,
+    )
 
 
 def _open_context_pr_at_implement_start(
@@ -15927,7 +16032,12 @@ def _run_implement_phase_slices(
     except ImportError:
         from state_store import get_pipeline_state_lock  # type: ignore[no-redef]
 
-    def _persist_slice_status_complete(slice_id: str) -> None:
+    def _persist_slice_status_complete(
+        slice_id: str,
+        *,
+        pr_number: int | None = None,
+        pr_url: str | None = None,
+    ) -> None:
         """Mark ``slice_id`` as ``SliceStatus.COMPLETE`` on the contract.
 
         Durable signal so the bootstrap reconciliation pass below and
@@ -15936,6 +16046,23 @@ def _run_implement_phase_slices(
         on save failure the in-memory scheduler state still reflects
         completion for this pass and the next ``start_pipeline``
         re-detects via the merged-detection helper.
+
+        When the caller just opened the slice's PR it passes
+        ``pr_number`` / ``pr_url`` so the linkage lands in the same
+        contract write (#3122) — the context-PR body refresh and any
+        later stack consumer read them from ``Slice.pr_number``.
+        ``None`` (the merged-skip and bootstrap callers) leaves any
+        previously recorded linkage untouched.
+
+        TODO(#3122): the three ``None`` callers — bootstrap layer-A
+        (contract-recorded COMPLETE), bootstrap layer-B (merged on
+        origin), and the run-loop merged-skip — do not recover the
+        slice PR number from GitHub (`gh pr list --head … --state
+        merged`), so on a resume past those points the slice-table
+        entries for merged slices stay unlinked. Acceptable for v1
+        because the per-slice ``— #N`` link is most useful while the
+        stack is live, but worth backfilling if reviewers ask for
+        complete cross-linkage on archived stacks.
         """
         try:
             with get_pipeline_state_lock(pipeline_id):
@@ -15943,6 +16070,10 @@ def _run_implement_phase_slices(
                 for s in contract_local.slices:
                     if s.id == slice_id:
                         s.status = SliceStatus.COMPLETE
+                        if pr_number is not None:
+                            s.pr_number = pr_number
+                        if pr_url is not None:
+                            s.pr_url = pr_url
                         break
                 save_contract(contract_local, worktree_repo_path)
         except Exception as save_err:  # noqa: BLE001
@@ -16744,6 +16875,8 @@ def _run_implement_phase_slices(
                         )
 
                 pr_created = True
+                slice_pr_url: str | None = None
+                slice_pr_number: int | None = None
                 if slice_pr_data is not None and pipeline.repo:
                     # Best-effort real-diff summary for the PR body
                     # (#3115) — commit subjects + diffstat from the
@@ -16758,7 +16891,7 @@ def _run_implement_phase_slices(
                         gateway_mode=gateway_mode,  # type: ignore[arg-type]
                     )
                     try:
-                        spawner.gateway.create_slice_pr(
+                        slice_pr_url = spawner.gateway.create_slice_pr(
                             pipeline_id=pipeline_id,
                             repo=pipeline.repo,
                             slice_id=slice_id,
@@ -16801,8 +16934,57 @@ def _run_implement_phase_slices(
                         f"base={parent_branch})"
                     )
 
-                scheduler.record_complete(slice_id)
-                _persist_slice_status_complete(slice_id)
+                # Parse the slice PR number from the returned URL
+                # (#3122) — same trailing-boundary pattern the context-
+                # PR opener uses, narrowed to ``[1-9]\d*`` so a
+                # malformed ``/pull/0/...`` URL doesn't make it as far
+                # as ``Slice.pr_number``'s ``ge=1`` validator (which
+                # would silently downgrade to a warning log via the
+                # save try/except in ``_persist_slice_status_complete``).
+                # Best-effort: an unparseable URL just means the
+                # linkage isn't recorded this pass; the idempotent
+                # ``create_slice_pr`` re-yields it on a resume.
+                if slice_pr_url:
+                    pr_match = re.search(r"/pull/([1-9]\d*)(?:[/?#]|$)", slice_pr_url)
+                    if pr_match:
+                        slice_pr_number = int(pr_match.group(1))
+
+                # Hold the per-pipeline state lock across both the
+                # contract-write (``_persist_slice_status_complete``
+                # itself reacquires this RLock) and the context-PR
+                # body refresh (load + compose + push). Without the
+                # outer lock, two slices in the same wave could
+                # interleave between persist and push so the slice
+                # whose refresh starts earlier but lands later
+                # clobbers the body that already included both links
+                # — and because no later slice fires a refresh, the
+                # final slice's ``— #N`` link would stay missing
+                # forever. Serializing here bounds the per-slice tail
+                # latency by one gateway PATCH per concurrent slice
+                # rather than racing them.
+                with get_pipeline_state_lock(pipeline_id):
+                    scheduler.record_complete(slice_id)
+                    _persist_slice_status_complete(
+                        slice_id,
+                        pr_number=slice_pr_number,
+                        pr_url=slice_pr_url if slice_pr_number else None,
+                    )
+
+                    # Refresh the context PR body so its slice table
+                    # links the PR that just opened (#3122). Strictly
+                    # cosmetic and best-effort: every failure path
+                    # inside logs + returns False without raising, and
+                    # the slice outcome below never depends on it.
+                    if slice_pr_number:
+                        _refresh_context_pr_body(
+                            pipeline_id,
+                            pipeline=pipeline,
+                            spawner=spawner,
+                            worktree_repo_path=worktree_repo_path,
+                            identifier=_pipeline_identifier(pipeline.issue_number, pipeline_id),
+                            gateway_mode=gateway_mode,
+                        )
+
                 try:
                     remove_peer_consensus_tracker(pipeline_id, slice_id)
                 except Exception:  # noqa: BLE001
