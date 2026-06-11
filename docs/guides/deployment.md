@@ -275,8 +275,9 @@ Pre-built `egg-sandbox` images on GHCR are built without a host
 to populate `.venv`, `npm ci` to populate `node_modules`) are **not**
 applied to the published image. Operators relying on prebuilt deps —
 including the project's own `.venv` for `make test` / `make lint` — should
-build the image locally with `make build` and import it via
-`make k3s-import` rather than pulling from GHCR. `make build` runs
+build the image locally with `make build` and publish it via
+`make k3s-push` (or `make k3s-import` on hosts without the local
+registry) rather than pulling from GHCR. `make build` runs
 `scripts/prepare-sandbox-build-context.py` to populate `repo-deps/` from
 your `repositories.yaml` before the Docker build, so per-repo deps are
 included (see #2499).
@@ -459,7 +460,7 @@ Fix: rebuild and re-import the sandbox image. The legacy `egg --reset` shortcut 
 
 ```bash
 make build         # rebuild egg-sandbox / egg-orchestrator / egg-gateway / egg-litellm images
-make k3s-import    # import rebuilt images into k3s
+make k3s-push      # publish rebuilt images (or k3s-import without the local registry)
 make deploy        # roll out deployments in egg-system
 ```
 

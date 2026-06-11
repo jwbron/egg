@@ -70,15 +70,20 @@ Setting `auth_mode: user` tells the gateway to use `GITHUB_USER_TOKEN` for git/g
 ## 3. Build and deploy
 
 ```bash
+make registry-setup     # one-time: local image registry + k3s registries.yaml
 make build              # build gateway, orchestrator, and sandbox images
-make k3s-import         # import images into k3s containerd store
+make k3s-push           # push images to the local registry + pre-pull into k3s
 make k3s-secrets        # create k8s Secrets from ~/.config/egg/
 make deploy             # deploy gateway + orchestrator to k3s (idempotent)
 kubectl get pods -n egg-system  # verify pods are running
 egg --public            # start sandbox session
 ```
 
-`make build` builds the Docker images. `make k3s-import` imports them into k3s's containerd image store (without this, pods will get `ImagePullBackOff`). `make deploy` applies the Kustomize manifests — it is idempotent and can be re-run after code changes to update the running deployment. `make deploy` also performs a pre-flight check: it aborts before touching the cluster if the images for the current tag are not yet in k3s, directing you to run `make redeploy` instead.
+`make registry-setup` is a one-time host step (also run by `make k3s-setup`): it starts a `registry:2` container **bound to 127.0.0.1 only** (nothing is published off-host) and points k3s's containerd at it via `/etc/rancher/k3s/registries.yaml`. `make build` builds the Docker images. `make k3s-push` publishes the registry-subset images through the registry — `docker push` and the containerd pull are both layer-aware, so after the first publish a code-only rebuild moves tens of MB instead of full images (issue #2999). `make deploy` applies the Kustomize manifests — it is idempotent and can be re-run after code changes to update the running deployment. `make deploy` also performs a pre-flight check: it aborts before touching the cluster if the images for the current tag were never published, directing you to run `make redeploy` instead.
+
+By default the registry subset is `egg-gateway egg-orchestrator egg-litellm` (`EGG_REGISTRY_IMAGES`). The **sandbox image is excluded**: it bakes in private repo content (prebuilt `node_modules`/`.venv` from `repositories.yaml` build commands), so it is never pushed to any registry — even the loopback one — unless you opt in by adding `egg-sandbox` to `EGG_REGISTRY_IMAGES`; it publishes via `docker save` + `ctr import` instead (store-to-store on this host, no registry involved). Opting in makes sandbox publishes layer-incremental too, and `push-egg-images.sh` hard-refuses non-loopback registries either way.
+
+In practice you rarely run these individually — `make redeploy` chains build → publish → deploy. To run without the local registry entirely (e.g. an ephemeral CI host), set `EGG_IMAGE_REGISTRY=` (empty); every image then goes through `make k3s-import`.
 
 ## 4. Using the SDLC pipeline
 

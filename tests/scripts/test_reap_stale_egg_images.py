@@ -33,10 +33,13 @@ def _extract_awk_program() -> str:
     run instead of letting a stale hardcoded copy mask a regression.
     """
     src = SCRIPT.read_text()
-    # The script invokes awk with two -v flags: `keep="$KEEP_TAG"` and
-    # `image_re="$IMAGE_RE"` (the latter is built from IMAGES via IFS join).
+    # The script feeds KEEP_TAG / IMAGE_RE / PREFIX_ALT_RE / AUTH_REG_RE /
+    # AUTH_BARE_RE to awk via the environment (NOT -v: gawk escape-processes
+    # -v values, and the `\.` in "docker\.io/library/" would both warn and
+    # lose its backslash). Anchor on AUTH_BARE_RE so we pick the containerd
+    # reap block specifically, not the later docker-store awk.
     m = re.search(
-        r"awk -v keep=\"\$KEEP_TAG\" -v image_re=\"\$IMAGE_RE\" '(.+?)'\s*<<<",
+        r"AUTH_BARE_RE=\"\$AUTH_BARE_RE\"\s+awk\s+'(.+?)'\s*<<<",
         src,
         re.DOTALL,
     )
@@ -57,17 +60,57 @@ def _extract_images() -> list[str]:
     return m.group(1).split()
 
 
-def _run_awk(listing: str, keep: str) -> list[str]:
-    """Run the script's awk block against a synthetic listing."""
+def _run_awk(
+    listing: str,
+    keep: str,
+    *,
+    registry: str = "",
+    registry_subset: tuple[str, ...] = (),
+) -> list[str]:
+    """Run the script's awk block against a synthetic listing.
+
+    With `registry=""` and `registry_subset=()` this mirrors the no-registry
+    case: every egg image is on the legacy docker.io/library/ prefix, and
+    the registry-authority branch is the never-matching '^$' placeholder.
+
+    With `registry` set (e.g. ``"localhost:5000"``) and `registry_subset`
+    naming the registry-mode images (e.g. ``("egg-gateway", "egg-orchestrator",
+    "egg-litellm")``), this mirrors hybrid mode: registry-subset images are
+    authoritative as ``<registry>/<image>:<tag>`` while bare-subset images
+    (the sandbox, by default) are authoritative as ``docker.io/library/...``.
+    The PREFIX_ALT_RE / AUTH_REG_RE / AUTH_BARE_RE construction below mirrors
+    reap-stale-egg-images.sh:88-114 — keep both halves in sync.
+    """
     awk = shutil.which("awk")
     assert awk, "awk binary not on PATH"
-    image_re = "|".join(_extract_images())
+    images = _extract_images()
+    image_re = "|".join(images)
+    legacy_prefix_re = r"docker\.io/library/"
+    if registry:
+        registry_prefix_re = re.escape(f"{registry}/")
+        prefix_alt_re = f"{registry_prefix_re}|{legacy_prefix_re}"
+    else:
+        registry_prefix_re = ""
+        prefix_alt_re = legacy_prefix_re
+    reg_img_alt = "|".join(i for i in images if i in registry_subset)
+    bare_img_alt = "|".join(i for i in images if i not in registry_subset)
+    auth_reg_re = f"^{registry_prefix_re}({reg_img_alt}):" if reg_img_alt else "^$"
+    auth_bare_re = f"^{legacy_prefix_re}({bare_img_alt}):" if bare_img_alt else "^$"
+    env = {
+        "KEEP_TAG": keep,
+        "IMAGE_RE": image_re,
+        "PREFIX_ALT_RE": prefix_alt_re,
+        "AUTH_REG_RE": auth_reg_re,
+        "AUTH_BARE_RE": auth_bare_re,
+        "PATH": "/usr/bin:/bin",
+    }
     result = subprocess.run(
-        [awk, "-v", f"keep={keep}", "-v", f"image_re={image_re}", _extract_awk_program()],
+        [awk, _extract_awk_program()],
         input=listing,
         capture_output=True,
         text=True,
         check=True,
+        env=env,
     )
     return [line for line in result.stdout.splitlines() if line]
 
@@ -172,6 +215,169 @@ class TestReapAwkDigestGuard:
             ]
         )
         reaped = _run_awk(listing, keep="v2")
+        assert reaped == []
+
+
+class TestReapHybridMode:
+    """Hybrid-mode reap: registry-subset images are authoritative as
+    ``<registry>/<image>:<tag>``; bare-subset images (the sandbox, by default)
+    are authoritative as ``docker.io/library/<image>:<tag>``. A ref in the
+    NON-authoritative form for its image (e.g. a bare ``docker.io/library/
+    egg-gateway:<tag>`` left over from a pre-registry deploy, or a registry-
+    qualified leftover for the sandbox) is a reap candidate by definition;
+    the digest guard then spares any candidate that shares an image ID with
+    a kept ref.
+
+    The default config in this PR has ``EGG_REGISTRY_IMAGES = egg-gateway
+    egg-orchestrator egg-litellm`` — egg-sandbox stays on the save+import
+    path because it bakes in private repo content. These tests pin that
+    split's behavior against the awk extractor's match/auth-ref logic so a
+    regression in any of registry-subset authoritative form, bare-prefix
+    non-authoritative form on subset images, mixed authority across
+    IMAGES[], or the digest guard's interaction with non-authoritative
+    refs that match `match_re` but neither `auth_reg_re` nor `auth_bare_re`,
+    silently fails the test instead of silently fails the reap (the failure
+    mode is no-reap = slow disk fill-up, not destructive — exactly the
+    creeping regression #2999 was about).
+    """
+
+    REGISTRY = "localhost:5000"
+    # Default subset for this PR: sandbox stays on import (bare-authoritative).
+    SUBSET = ("egg-gateway", "egg-orchestrator", "egg-litellm")
+
+    def _baseline_kept_refs(self, keep: str) -> list[str]:
+        """The four authoritative kept refs under the default hybrid split."""
+        return [
+            _row(f"{self.REGISTRY}/egg-gateway:{keep}", "sha256:aaa"),
+            _row(f"{self.REGISTRY}/egg-orchestrator:{keep}", "sha256:bbb"),
+            _row(f"docker.io/library/egg-sandbox:{keep}", "sha256:ccc"),
+            _row(f"{self.REGISTRY}/egg-litellm:{keep}", "sha256:ddd"),
+        ]
+
+    def test_subset_image_bare_leftover_sharing_digest_is_spared(self) -> None:
+        """Registry-subset image kept authoritatively; a bare leftover with the
+        SAME digest is non-authoritative but shares the image ID, so the digest
+        guard must spare it — `crictl rmi` by name would yank the current image.
+        """
+        listing = "\n".join(
+            [
+                *self._baseline_kept_refs("v2"),
+                # Bare leftover for a registry-subset image, same digest as kept.
+                _row("docker.io/library/egg-gateway:v2", "sha256:aaa"),
+            ]
+        )
+        reaped = _run_awk(listing, keep="v2", registry=self.REGISTRY, registry_subset=self.SUBSET)
+        assert reaped == []
+
+    def test_subset_image_bare_stale_with_distinct_digest_is_reaped(self) -> None:
+        """Registry-subset image kept authoritatively; a bare leftover with a
+        DIFFERENT digest is non-authoritative AND digest-distinct — exactly the
+        case the new auth-aware logic exists to catch (pre-registry deploy left
+        a stale bare ref behind, no longer shared with any kept ref).
+        """
+        listing = "\n".join(
+            [
+                *self._baseline_kept_refs("v2"),
+                _row("docker.io/library/egg-gateway:v1", "sha256:old"),
+            ]
+        )
+        reaped = _run_awk(listing, keep="v2", registry=self.REGISTRY, registry_subset=self.SUBSET)
+        assert reaped == ["docker.io/library/egg-gateway:v1"]
+
+    def test_bare_subset_image_registry_leftover_sharing_digest_is_spared(self) -> None:
+        """The sandbox is authoritative as bare under the default subset; a
+        registry-qualified leftover with the SAME digest is non-authoritative
+        but shares the image ID, so the digest guard must spare it.
+        """
+        listing = "\n".join(
+            [
+                *self._baseline_kept_refs("v2"),
+                _row(f"{self.REGISTRY}/egg-sandbox:v2", "sha256:ccc"),
+            ]
+        )
+        reaped = _run_awk(listing, keep="v2", registry=self.REGISTRY, registry_subset=self.SUBSET)
+        assert reaped == []
+
+    def test_bare_subset_image_registry_leftover_distinct_digest_is_reaped(self) -> None:
+        """Sandbox authoritative as bare; a registry-qualified leftover with a
+        DIFFERENT digest must be reaped — this is the symmetric case to the
+        registry-subset-bare-stale path.
+        """
+        listing = "\n".join(
+            [
+                *self._baseline_kept_refs("v2"),
+                _row(f"{self.REGISTRY}/egg-sandbox:v1", "sha256:oldsand"),
+            ]
+        )
+        reaped = _run_awk(listing, keep="v2", registry=self.REGISTRY, registry_subset=self.SUBSET)
+        assert reaped == [f"{self.REGISTRY}/egg-sandbox:v1"]
+
+    def test_mixed_stale_refs_across_all_images(self) -> None:
+        """Combined: prior-deploy KEEP_TAG=v1 leftovers for every image, in
+        each image's NON-authoritative prefix form. None share digests with
+        the kept refs, so all should be reaped.
+        """
+        listing = "\n".join(
+            [
+                *self._baseline_kept_refs("v2"),
+                # Non-authoritative stale refs for registry-subset images
+                _row("docker.io/library/egg-gateway:v1", "sha256:old-g"),
+                _row("docker.io/library/egg-orchestrator:v1", "sha256:old-o"),
+                _row("docker.io/library/egg-litellm:v1", "sha256:old-l"),
+                # Non-authoritative stale ref for the bare-subset image
+                _row(f"{self.REGISTRY}/egg-sandbox:v1", "sha256:old-s"),
+            ]
+        )
+        reaped = _run_awk(listing, keep="v2", registry=self.REGISTRY, registry_subset=self.SUBSET)
+        assert sorted(reaped) == sorted(
+            [
+                "docker.io/library/egg-gateway:v1",
+                "docker.io/library/egg-orchestrator:v1",
+                "docker.io/library/egg-litellm:v1",
+                f"{self.REGISTRY}/egg-sandbox:v1",
+            ]
+        )
+
+    def test_authoritative_stale_refs_are_reaped(self) -> None:
+        """Authoritative stale refs (registry-qualified for subset, bare for
+        sandbox) with distinct digests are the canonical reap path — exercising
+        it here under hybrid prefixes ensures the auth-aware regex doesn't
+        accidentally over-protect refs that ARE in the authoritative form but
+        carry a stale tag.
+        """
+        listing = "\n".join(
+            [
+                *self._baseline_kept_refs("v2"),
+                _row(f"{self.REGISTRY}/egg-gateway:v1", "sha256:old-g"),
+                _row(f"{self.REGISTRY}/egg-orchestrator:v1", "sha256:old-o"),
+                _row("docker.io/library/egg-sandbox:v1", "sha256:old-s"),
+                _row(f"{self.REGISTRY}/egg-litellm:v1", "sha256:old-l"),
+            ]
+        )
+        reaped = _run_awk(listing, keep="v2", registry=self.REGISTRY, registry_subset=self.SUBSET)
+        assert sorted(reaped) == sorted(
+            [
+                f"{self.REGISTRY}/egg-gateway:v1",
+                f"{self.REGISTRY}/egg-orchestrator:v1",
+                "docker.io/library/egg-sandbox:v1",
+                f"{self.REGISTRY}/egg-litellm:v1",
+            ]
+        )
+
+    def test_latest_authoritative_protects_shared_digest(self) -> None:
+        """:latest on the authoritative prefix protects refs sharing its digest,
+        same invariant as no-registry mode but now exercised under the hybrid
+        prefix split.
+        """
+        listing = "\n".join(
+            [
+                *self._baseline_kept_refs("v2"),
+                _row(f"{self.REGISTRY}/egg-gateway:latest", "sha256:zzz"),
+                # Old bare ref shares :latest's digest — must be spared.
+                _row("docker.io/library/egg-gateway:v1", "sha256:zzz"),
+            ]
+        )
+        reaped = _run_awk(listing, keep="v2", registry=self.REGISTRY, registry_subset=self.SUBSET)
         assert reaped == []
 
 

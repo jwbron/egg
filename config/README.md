@@ -207,7 +207,7 @@ Each `build_commands` entry has:
 - `watch_files`: Files that trigger a rebuild when changed. These are copied into the Docker build context so Docker layer caching invalidates correctly — only a change to these files triggers a dependency rebuild.
 - `commands`: Shell commands to run during the image build (e.g., `npm ci`, `pip install`, `make deps`). Commands run as root in a directory seeded with the watch files.
 - `persist_dirs`: Directories (relative to repo root) to preserve from the build context into the Docker image. After `commands` run, these directories are copied to `/opt/prebuilt-deps/<repo>/` and restored into the mounted repo at container startup by `entrypoint.py`. Use this for local dependencies like `node_modules` that would otherwise be lost when the build context is cleaned up.
-- `persist_system_dirs`: Absolute-path system directories to preserve from the build stage into the final image. After `commands` run, these directories are copied to `/opt/prebuilt-deps/__egg_system_dirs__/<abs_path>/` and the Dockerfile restores them to their original absolute locations. Use this for system-level tool installations that land outside the repo directory (e.g., `/usr/local/go`, `/usr/local/node`). Top-level system paths (`/`, `/etc`, `/usr`, `/var`, etc.) and all paths under `/proc`, `/sys`, `/dev`, `/run`, `/boot` are blocked.
+- `persist_system_dirs`: Absolute-path system directories to preserve from the build stage into the final image. After `commands` run, these directories are copied to `/opt/egg-system-dirs/<abs_path>/` and the Dockerfile restores them to their original absolute locations. Use this for system-level tool installations that land outside the repo directory (e.g., `/usr/local/go`, `/usr/local/node`). Top-level system paths (`/`, `/etc`, `/usr`, `/var`, etc.) and all paths under `/proc`, `/sys`, `/dev`, `/run`, `/boot` are blocked.
 
 **Fail-fast contract (since #2087):** A non-zero exit from any command, a missing watch-files directory, or a `persist_dirs` / `persist_system_dirs` entry that doesn't exist after the commands run all abort the image build. Earlier behavior printed a warning and continued, which silently produced empty `/opt/prebuilt-deps/<repo>/` trees. Path-traversal rejection in `persist_dirs` remains warn-and-skip — it's a security control, not a misconfiguration we want to crash on.
 
@@ -216,8 +216,8 @@ Each `build_commands` entry has:
 2. The `COPY repo-deps/` layer in the Dockerfile keys on watch-file contents, so a change to (e.g.) `package-lock.json` invalidates the dependency layer on the next `make build`
 3. During `docker build`, the `docker-setup.py` script reads both `build_commands` and `extra_packages` from `manifest.json` (since `repositories.yaml` is unavailable in the build context) and executes them in order
 4. All repos' dependencies are installed into the **same image** — no per-repo images
-5. After commands run, `persist_build_dirs()` copies `persist_dirs` entries to `/opt/prebuilt-deps/<repo>/` and `persist_system_dirs` entries to `/opt/prebuilt-deps/__egg_system_dirs__/<abs_path>/` inside the image
-6. The Dockerfile copies `__egg_system_dirs__` back to `/` so system tools are available at their original absolute paths
+5. After commands run, `persist_build_dirs()` copies `persist_dirs` entries to `/opt/prebuilt-deps/<repo>/` and `persist_system_dirs` entries to `/opt/egg-system-dirs/<abs_path>/` inside the image (separate bases so the final stage stores the system dirs once, not twice — issue #2999)
+6. The Dockerfile copies `/opt/egg-system-dirs/` back to `/` so system tools are available at their original absolute paths
 7. At container startup, `restore_prebuilt_deps()` in `entrypoint.py` copies `persist_dirs` directories into the mounted repo (skipping files that already exist)
 
 **Key properties:**

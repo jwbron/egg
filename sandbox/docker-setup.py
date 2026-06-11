@@ -372,6 +372,7 @@ def persist_build_dirs(
     build_commands: list[dict[str, Any]],
     repo_deps_base: Path = Path("/tmp/repo-deps"),
     prebuilt_base: Path = Path("/opt/prebuilt-deps"),
+    system_base: Path = Path("/opt/egg-system-dirs"),
 ) -> None:
     """Persist directories from build context into the Docker image.
 
@@ -379,11 +380,20 @@ def persist_build_dirs(
     copied to a persistent location so they survive the /tmp/repo-deps cleanup.
     They are restored into mounted repos at container startup by entrypoint.py.
 
+    System-level absolute paths (persist_system_dirs) go to a SEPARATE base
+    (system_base, default /opt/egg-system-dirs) rather than under
+    prebuilt_base: the Dockerfile's final stage COPYs prebuilt_base verbatim
+    and restores system_base to ``/`` — keeping them apart means the multi-GB
+    system dirs land in the image exactly once instead of twice (issue #2999).
+
     Args:
         build_commands: List of dicts with 'repo', 'commands', 'persist_dirs',
             and 'persist_system_dirs' keys.
         repo_deps_base: Base path for repo build contexts (default: /tmp/repo-deps).
-        prebuilt_base: Destination base for persisted directories (default: /opt/prebuilt-deps).
+        prebuilt_base: Destination base for persisted repo directories
+            (default: /opt/prebuilt-deps).
+        system_base: Destination base for persisted system directories
+            (default: /opt/egg-system-dirs).
     """
     persist_count = 0
     for entry in build_commands:
@@ -427,9 +437,13 @@ def persist_build_dirs(
     DENIED_PREFIXES = ("/proc", "/sys", "/dev", "/run", "/boot")
     DENIED_EXACT = ("/", "/etc", "/bin", "/sbin", "/lib", "/lib64", "/usr", "/var")
 
-    # Also deny the prebuilt and repo-deps directories themselves to prevent
-    # self-referential copies that would bloat the image
-    denied_exact = DENIED_EXACT + (str(prebuilt_base), str(repo_deps_base))
+    # Also deny the prebuilt/system/repo-deps directories themselves to
+    # prevent self-referential copies that would bloat the image
+    denied_exact = DENIED_EXACT + (
+        str(prebuilt_base),
+        str(repo_deps_base),
+        str(system_base),
+    )
 
     # Persist system-level directories (absolute paths like /usr/local/go)
     for entry in build_commands:
@@ -438,7 +452,7 @@ def persist_build_dirs(
         if not system_dirs:
             continue
 
-        system_dest = prebuilt_base / "__egg_system_dirs__"
+        system_dest = system_base
 
         for abs_dir in system_dirs:
             abs_dir = str(abs_dir)
@@ -468,7 +482,8 @@ def persist_build_dirs(
                     f"not produce that path."
                 )
 
-            # Store under __egg_system_dirs__/<abs_path> so it can be restored to the same location
+            # Store under <system_base>/<abs_path> so the Dockerfile can
+            # restore it to the same location with a single COPY to /.
             # Strip leading / for the destination path
             dest_dir = system_dest / abs_dir_clean.lstrip("/")
             dest_dir.parent.mkdir(parents=True, exist_ok=True)

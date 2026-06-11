@@ -855,8 +855,10 @@ def restore_prebuilt_deps(
     for repo_dir in prebuilt_base.iterdir():
         if not repo_dir.is_dir():
             continue
-        # __egg_system_dirs__ contains system-level installs (e.g. /usr/local/go)
-        # already restored by the Dockerfile; skip it here.
+        # __egg_system_dirs__ held system-level installs (e.g. /usr/local/go)
+        # in pre-#2999 images; they now persist to /opt/egg-system-dirs (outside
+        # this tree) and are restored by the Dockerfile either way. Keep the
+        # skip so older images don't get system dirs restored into a repo.
         if repo_dir.name == "__egg_system_dirs__":
             continue
         # repo_dir is like /opt/prebuilt-deps/owner--repo

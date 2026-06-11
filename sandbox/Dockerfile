@@ -53,13 +53,16 @@ COPY repo-deps/ /tmp/repo-deps/
 COPY sandbox/docker-setup.py /tmp/docker-setup.py
 
 # Run docker-setup.py: installs extra packages, runs build commands,
-# persists output dirs to /opt/prebuilt-deps/
+# persists repo output dirs to /opt/prebuilt-deps/ and system-level installs
+# (e.g. /usr/local/go) to /opt/egg-system-dirs/. The trailing mkdirs make
+# both paths exist even when nothing was persisted, so the final stage's
+# COPY --from of each cannot fail on a missing source.
 RUN chmod +x /tmp/docker-setup.py && \
     apt-get update && \
     python3 /tmp/docker-setup.py && \
     rm /tmp/docker-setup.py && \
     rm -rf /tmp/repo-deps && \
-    mkdir -p /opt/prebuilt-deps
+    mkdir -p /opt/prebuilt-deps /opt/egg-system-dirs
 
 # =============================================================================
 # Stage 2: base — system packages, Python 3.14, pip deps, Claude tools
@@ -280,11 +283,14 @@ RUN if [ -f /opt/prebuilt-deps/extra-packages-apt.txt ] && [ -s /opt/prebuilt-de
 
 # Restore system-level directories installed by build_commands in Stage 1.
 # These are absolute-path installations (e.g., /usr/local/go, /usr/local/node)
-# that were persisted to /opt/prebuilt-deps/__egg_system_dirs__/<abs_path> by docker-setup.py.
-# Copy the entire tree back to / so paths are restored to their original locations.
-RUN if [ -d /opt/prebuilt-deps/__egg_system_dirs__ ]; then \
-        cp -a /opt/prebuilt-deps/__egg_system_dirs__/. /; \
-    fi
+# that were persisted to /opt/egg-system-dirs/<abs_path> by docker-setup.py.
+# COPY straight from Stage 1 to / so paths land at their original locations.
+# This must be a COPY --from, not a `cp` of an already-COPYed tree: copying
+# a directory the image already contains stores its multi-GB content TWICE
+# (once in the source layer, once in the cp layer) — the pre-#2999 layout
+# did exactly that via /opt/prebuilt-deps/__egg_system_dirs__ and cost ~2 GB
+# of image size.
+COPY --from=repo-deps /opt/egg-system-dirs/ /
 
 # Copy sandbox runtime scripts and tools to /opt/egg-runtime
 # This provides container-resident executables available in PATH
