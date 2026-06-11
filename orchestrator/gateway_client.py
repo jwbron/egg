@@ -50,6 +50,15 @@ except ImportError:
     GATEWAY_CONTAINER_NAME = "egg-gateway"
     GATEWAY_PORT = 9848  # noqa: EGG002
 
+try:
+    from egg_contracts.markdown import unwrap_soft_breaks
+except ImportError:
+    # Fallback: render prose verbatim when egg_contracts is unavailable
+    # (matches the egg_logging/egg_config degradation above).
+    def unwrap_soft_breaks(text: str | None) -> str:  # type: ignore[misc]
+        return text or ""
+
+
 logger = get_logger("orchestrator.gateway_client")
 
 T = TypeVar("T")
@@ -1830,9 +1839,12 @@ class GatewayClient:
         # description just below (the blurb would duplicate its first
         # sentence).
         inline_program_narrative = has_program_title and not has_base_pr
-        lead = (slice_goal or "").strip()
+        # Soft-break unwrapping (#3122): the goal / description reach us
+        # as YAML block scalars hard-wrapped at ~75 chars, and GitHub
+        # renders every newline in a PR body as a line break.
+        lead = unwrap_soft_breaks(slice_goal).strip()
         if not lead and program_description and not inline_program_narrative:
-            lead = _first_sentence(program_description)
+            lead = _first_sentence(unwrap_soft_breaks(program_description))
         if lead:
             body_lines.append(lead)
             body_lines.append("")
@@ -1851,7 +1863,7 @@ class GatewayClient:
             # ``/work``. The stack is structurally unmergeable in this
             # state — fixing the body here is a UX backstop, not a fix.
             if program_description and program_description.strip():
-                body_lines.append(program_description.strip())
+                body_lines.append(unwrap_soft_breaks(program_description).strip())
                 body_lines.append("")
 
         _append_diff_summary_section(body_lines, diffstat, commit_subjects)
@@ -1861,12 +1873,12 @@ class GatewayClient:
             if program_test_plan and program_test_plan.strip():
                 body_lines.append("## Test Plan")
                 body_lines.append("")
-                body_lines.append(program_test_plan.strip())
+                body_lines.append(unwrap_soft_breaks(program_test_plan).strip())
                 body_lines.append("")
             if program_manual_steps and program_manual_steps.strip():
                 body_lines.append("## Manual Steps")
                 body_lines.append("")
-                body_lines.append(program_manual_steps.strip())
+                body_lines.append(unwrap_soft_breaks(program_manual_steps).strip())
                 body_lines.append("")
 
         # ``## Stack`` block — parent PR + base PR + position. Replaces
@@ -1925,6 +1937,95 @@ class GatewayClient:
             mode=mode,
             draft=draft,
         )
+
+    def update_pr_body(
+        self,
+        pipeline_id: str,
+        repo: str,
+        *,
+        pr_number: int,
+        body: str,
+        issue_number: int | None = None,
+        agent_role: str | None = None,
+        mode: Literal["public", "private"] = "public",
+    ) -> bool:
+        """Replace an existing PR's body via the gateway (#3122).
+
+        Routes through the per-agent ``/api/v1/gh/pr/edit`` endpoint
+        (``gh api repos/<repo>/pulls/<n> -X PATCH -f body=...``) under a
+        synthetic phase-less session, exactly like :meth:`create_pr` /
+        :meth:`rebase_onto` — no new privileged orchestrator endpoint.
+        The gateway's PR-ownership policy still applies, which is the
+        desired bound: the orchestrator only rewrites PRs the egg bot
+        user authored.
+
+        Sole production caller is the run loop's context-PR refresh:
+        after a slice PR opens, the context PR body is recomposed with a
+        link to it. Pipeline-generated PR bodies are machine-owned —
+        each call fully replaces the body, clobbering manual edits.
+
+        Returns ``True`` on success, ``False`` on any failure. Unlike
+        :meth:`create_pr` this method does NOT propagate errors: a body
+        refresh is cosmetic, and no caller should fail a slice over it.
+        """
+        if not repo or pr_number is None or isinstance(pr_number, bool) or pr_number < 1:
+            logger.warning(
+                "update_pr_body: invalid repo/pr_number",
+                pipeline_id=pipeline_id,
+                repo=repo,
+                pr_number=pr_number,
+            )
+            return False
+
+        temp_container_id = f"{pipeline_id}-pr-body-update"
+        session_token: str | None = None
+        try:
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip=self.self_ip,
+                mode=mode,
+                pipeline_id=pipeline_id,
+                repos=[repo],
+                issue_number=issue_number,
+                agent_role=agent_role,
+                synthetic=True,
+            )
+            session_token = session.session_token
+
+            self._make_request(
+                "/api/v1/gh/pr/edit",
+                method="POST",
+                data={
+                    "repo": repo,
+                    "pr_number": int(pr_number),
+                    "body": body,
+                },
+                bearer_token=session_token,
+            )
+            logger.info(
+                "Updated PR body via gateway",
+                pipeline_id=pipeline_id,
+                repo=repo,
+                pr_number=pr_number,
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001
+            # Session registration + single gh-pr-edit HTTP call.
+            # Catches GatewayError and OSError (DNS / socket).
+            logger.warning(
+                "update_pr_body: gateway request failed",
+                pipeline_id=pipeline_id,
+                repo=repo,
+                pr_number=pr_number,
+                error=str(exc),
+            )
+            return False
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
 
     def rebase_onto(
         self,

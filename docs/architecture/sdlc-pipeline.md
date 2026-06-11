@@ -195,6 +195,22 @@ the agent reads to recover the task:
 > links are branch-qualified absolute URLs
 > (`https://github.com/<repo>/blob/<work-branch>/...`) because GitHub
 > resolves relative links in PR bodies against the default branch.
+>
+> **Body reflow + stack cross-links (#3122).** Prose fields
+> (`pr.description` / `pr.test_plan` / `pr.manual_steps`, and the
+> per-slice `goal` lead on slice PRs) are treated as markdown source,
+> not preformatted text: `egg_contracts.markdown.unwrap_soft_breaks`
+> joins the ~75-char YAML block-scalar hard wraps back into paragraphs
+> (lists, headings, tables, code fences, and explicit hard breaks are
+> preserved) so GitHub renders prose instead of a choppy column. After
+> each slice PR opens, the run loop records its number/URL on the
+> contract slice (`Slice.pr_number` / `Slice.pr_url`) and re-composes +
+> pushes the context-PR body via the gateway's `gh pr edit` REST route,
+> so the slice table gains a `— #N` link to each slice PR as the stack
+> materialises. Pipeline-generated PR bodies are **machine-owned**: the
+> refresh fully regenerates the body and clobbers manual edits. The
+> refresh is best-effort/cosmetic — failures log and never fail the
+> slice.
 
 ### Schema v1.1 → v1.2 migration note (#2777)
 

@@ -539,7 +539,18 @@ every slice PR is purely slice-scoped.
   criteria behind a `<details>` fold) → `## Stack` (position, base
   PR, base branch). Program-level test plan, manual steps and
   pre-merge obligations live on the up-front context PR (#2777), not
-  on any slice PR.
+  on any slice PR. Prose fields (`goal`, inlined program narrative)
+  have their YAML block-scalar hard wraps joined back into paragraphs
+  before rendering (`unwrap_soft_breaks`, #3122).
+- **Reverse linkage (#3122).** After a slice PR opens, the run loop
+  parses the PR number from the returned URL, persists it on the
+  contract slice (`Slice.pr_number` / `Slice.pr_url` — also on the
+  idempotent already-open path, so resumes recover the linkage), and
+  refreshes the machine-owned context-PR body so its slice table links
+  the new PR (`— #N`). The refresh routes through
+  `GatewayClient.update_pr_body` (synthetic session →
+  `/api/v1/gh/pr/edit`, same seam as `rebase_onto`'s base retarget)
+  and is strictly best-effort: failures log and never fail the slice.
 - **No `context_pr_number` — should not occur under #2777.** Because
   the context PR is opened up-front, hard-required and idempotent at
   the plan→implement boundary, every slice PR sees a populated

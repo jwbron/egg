@@ -76,6 +76,8 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
             self._handle_git_fetch(data)
         elif self.path == "/api/v1/gh/pr/create":
             self._handle_pr_create(data)
+        elif self.path == "/api/v1/gh/pr/edit":
+            self._handle_pr_edit(data)
         elif self.path.startswith("/api/v1/sessions/by-container/") and self.path.endswith(
             "/heartbeat"
         ):
@@ -298,6 +300,24 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
                     "stderr": "",
                     "auth_mode": "bot",
                 },
+            }
+        )
+
+    def _handle_pr_edit(self, data):
+        """Handle PR edit (POST /api/v1/gh/pr/edit) — records the payload (#3122)."""
+        auth_header = self.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer ") or not auth_header[7:]:
+            self._send_error(401, "Unauthorized")
+            return
+
+        # Expose the last edit payload for assertions.
+        MockGatewayHandler.last_pr_edit = data
+
+        self._send_json(
+            {
+                "success": True,
+                "message": "PR updated",
+                "data": {"stdout": "{}"},
             }
         )
 
@@ -1493,6 +1513,64 @@ class TestCreatePR:
             assert call_kwargs.kwargs.get("phase") is None
 
 
+class TestUpdatePrBody:
+    """Tests for update_pr_body (#3122) — best-effort context-PR body refresh."""
+
+    def test_update_pr_body_success(self, gateway_client, mock_gateway_server):
+        result = gateway_client.update_pr_body(
+            pipeline_id="issue-42",
+            repo="owner/repo",
+            pr_number=4242,
+            body="## Pipeline context\n\n- Slices (1):\n  1. Foundation (`slice-1`) — #4243",
+        )
+        assert result is True
+        payload = MockGatewayHandler.last_pr_edit
+        assert payload["repo"] == "owner/repo"
+        assert payload["pr_number"] == 4242
+        assert "— #4243" in payload["body"]
+        # Body-only edit: never touches title or base.
+        assert "title" not in payload
+        assert "base" not in payload
+
+    def test_update_pr_body_gateway_unreachable_returns_false(self):
+        """No raise on failure — a body refresh is cosmetic by contract."""
+        client = GatewayClient(
+            gateway_host="localhost",
+            gateway_port=19999,
+            launcher_secret="test-secret",
+            timeout=1,
+        )
+        result = client.update_pr_body(
+            pipeline_id="issue-42",
+            repo="owner/repo",
+            pr_number=4242,
+            body="body",
+        )
+        assert result is False
+
+    @pytest.mark.parametrize("bad_number", [None, 0, -1, True])
+    def test_update_pr_body_invalid_pr_number_returns_false(self, gateway_client, bad_number):
+        with patch.object(gateway_client, "_make_request") as mock_req:
+            result = gateway_client.update_pr_body(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                pr_number=bad_number,
+                body="body",
+            )
+        assert result is False
+        mock_req.assert_not_called()
+
+    def test_update_pr_body_cleans_up_session(self, gateway_client, mock_gateway_server):
+        with patch.object(gateway_client, "delete_session") as mock_delete:
+            gateway_client.update_pr_body(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                pr_number=4242,
+                body="body",
+            )
+            mock_delete.assert_called_once_with("test-token-12345")
+
+
 class TestCreateSlicePR:
     """Body / title composition for create_slice_pr (#2340, #2538, #2745)."""
 
@@ -1579,6 +1657,59 @@ class TestCreateSlicePR:
         assert body.startswith("Adopt the barrel re-export pattern across the orchestrator.")
         # The blurb fallback must not ALSO render.
         assert "The lint added in #2250" not in body
+
+    def test_slice_goal_soft_breaks_unwrapped(self, gateway_client):
+        """#3122: the goal arrives as a YAML block scalar hard-wrapped at
+        ~75 chars; the lead paragraph joins the wraps so GitHub renders
+        prose, not a choppy column."""
+        captured, ctx = self._capture(gateway_client)
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-1",
+                slice_name="Pattern adoption",
+                slice_tasks=[{"id": "task-1-1", "description": "do X"}],
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42/work",
+                program_title="Decompose oversize files",
+                slice_index=1,
+                slice_count=3,
+                context_pr_number=99,
+                slice_goal=(
+                    "Adopt the barrel re-export pattern\nacross the orchestrator so each\n"
+                    "module fits the size cap."
+                ),
+            )
+        assert captured["body"].startswith(
+            "Adopt the barrel re-export pattern across the orchestrator "
+            "so each module fits the size cap."
+        )
+
+    def test_inline_program_narrative_soft_breaks_unwrapped(self, gateway_client):
+        """#3122: the no-base-PR backstop's inlined program description /
+        test plan / manual steps get the same unwrapping."""
+        captured, ctx = self._capture(gateway_client)
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-1",
+                slice_name="Pattern adoption",
+                slice_tasks=[{"id": "task-1-1", "description": "do X"}],
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42/work",
+                program_title="Decompose oversize files",
+                program_description="A description wrapped\nby the block scalar.",
+                program_test_plan="- automated tests\n- manual check of\n  the rendered body",
+                program_manual_steps="Redeploy after\nmerge.",
+                slice_index=1,
+                slice_count=3,
+            )
+        body = captured["body"]
+        assert "A description wrapped by the block scalar." in body
+        assert "- automated tests\n- manual check of the rendered body" in body
+        assert "Redeploy after merge." in body
 
     def test_diff_summary_section_renders_commits_and_diffstat(self, gateway_client):
         """#3115: ``## What's in this PR`` renders caller-supplied commit
