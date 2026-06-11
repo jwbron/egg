@@ -1,7 +1,12 @@
 # task_planner BRC memory — issue-3077 (plan phase)
 
 ## Verdict / state
-- Proposed plan v1: `.egg-state/drafts/3077-plan.md` (3 serialized slices, 16 tasks).
+- Proposed plan: `.egg-state/drafts/3077-plan.md` (3 serialized slices, 17 tasks).
+- v1 propose rejected by server role↔files validation: TASK-3-1 mixed
+  `shared/prompts/REVIEWER-SYNC.md` (documenter-owned) with coder files. Fixed by
+  splitting: TASK-3-1 (coder, event_prompt.py only) + TASK-3-4 (documenter,
+  shared/prompts). All task file lists now verified via check_file_restriction
+  (coder/tester/documenter, phase=implement) — all can_write=true.
 - Validated locally: `parse_plan` success, 0 warnings; `validate_plan_preflight` OK
   (yaml-tasks + pr.title/description/test_plan/manual_steps all present).
 
