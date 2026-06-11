@@ -1,7 +1,7 @@
 # refiner BRC memory — issue-3077 (refine)
 
 ## Status
-- v1 proposal: analysis written to `.egg-state/drafts/issue-3077-analysis.md`, committed + pushed, CONSENSUS_PROPOSE sent.
+- v1 proposal: analysis written to `.egg-state/drafts/3077-analysis.md`, committed + pushed, CONSENSUS_PROPOSE sent.
 - HITL decisions registered: cq-1 (scope A/B/C; recommended C = full remaining scope), cq-2 (durability bar; recommended fail-loud on memory backend).
 
 ## Verdict / position
