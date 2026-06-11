@@ -172,6 +172,33 @@ the wrapper back off (≤ 2 s in test mode, exponential in production) and
 retry. A permanent error (exit 3 — 4xx, bad pipeline id, argparse misuse)
 makes the wrapper exit 1 so the agent fails fast.
 
+### Mid-turn operator message delivery (#3123)
+
+Wait-loop and the event-pump deliver messages **between** agent
+invocations, but one producer invocation can legitimately run 30+
+minutes (a slice coder implements its whole task list in a single
+`propose` turn). To keep operator corrections from landing only after
+the contradicting work is done, the SDK driver
+(`shared/egg_agent/client.py`) installs a throttled PostToolUse hook
+backed by `shared/egg_agent/midturn_messages.py`: at most once per
+`EGG_MIDTURN_MESSAGES_INTERVAL_SECS` (default 60 s) it runs
+`egg-orch message poll` against the bus and injects any **new
+operator-authored** messages (`from_role` ∈ overseer/human/operator/
+user) into the running session as additional context. Peer-agent and
+protocol traffic (`CONSENSUS_*`, heartbeats) is never injected — it
+stays on the between-invocation path the wrapper sequences.
+
+The poll cursor persists in `EGG_WAIT_CURSOR_DIR` across one-shot
+invocations (same back-channel pattern as the wait-loop cursor above),
+so a message landing between invocations is injected at the start of
+the next one and nothing is double-delivered. The first poll of a
+fresh pipeline seeds the cursor at the stream tip without injecting —
+the hook is for corrections that arrive after work started, not for
+replaying history. Every failure mode (missing `egg-orch`, orchestrator
+unreachable, malformed JSON, unwritable cursor) degrades to "no
+injection", never an agent failure. `EGG_MIDTURN_MESSAGES=false`
+disables the hook entirely.
+
 ### Multi-reviewer NACK aggregation barrier (#2142)
 
 When two or more reviewers have NACKed the producer's current version,
@@ -1503,13 +1530,15 @@ reverse-merge order; see
 #### 10.9.1 What shows up in the per-event prompt
 
 `compose_event_prompt(role, event_payload, memory_excerpt, nacks,
-git_log_delta, base_branch) -> str` (slice-3, `orchestrator/routes/pipelines.py`)
+git_log_delta, base_branch, *, task_description="") -> str` (slice-3,
+`orchestrator/routes/pipelines.py`)
 assembles the single user prompt the wrapper dispatches at each
 `INVOKE` branch of the §10.1 deterministic loop. The shape:
 
 | Position | Section | Where it comes from | Bound |
 |----------|---------|---------------------|-------|
 | Top | Role banner + one-line event description | `role` + `event_payload.kind` | A few hundred bytes per case. |
+| Top | Task & operator directives (#3123) | Contract `task_description` read from the worktree contract file (`EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER`); omitted for GitHub-issue pipelines | ≤ 4 KB, truncated with a `mcp__sdlc__show_contract` pointer. |
 | Middle | Per-reviewer NACK block (`reason` + `artifact_refs`) | `orchestrator/peer_consensus.py` `_open_nacks_barrier_response.nacks[]` (line numbers come from the slice-3 contract spec and are drift-prone — prefer the function-name reference; the function span is around lines 949–1046 in practice) — the same NACK envelope a producer sees in the aggregated-NACK 409 from §10.6 | One block per NACKing reviewer. |
 | Middle | The single expected action | `event_payload.kind` | A few hundred bytes. |
 | Tail | Git-log delta (full, per-producer — see §10.9.2) | `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p` with `last_reviewed_commit_sha` read from the slice-1 [BRC memory file](../architecture/brc-memory.md) | Scaled by change size; **NOT** counted against the 10 KB envelope. |

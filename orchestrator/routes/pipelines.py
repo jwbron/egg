@@ -5643,6 +5643,7 @@ def _pull_contract_from_source_branch(
     pipeline_id: str,
     spawner: Any | None = None,
     gateway_mode: str = "public",
+    task_description: str | None = None,
 ) -> bool:
     """Load a persisted contract from ``origin/<source_branch>`` into the worktree.
 
@@ -5654,6 +5655,20 @@ def _pull_contract_from_source_branch(
     reads the contract via ``git show``, rebinds its pipeline_id to the new
     pipeline, and writes it into the worktree so the caller can skip
     ``create_contract()`` and proceed to commit+push the pulled contract.
+
+    ``task_description`` is the NEW submit's prompt. The pulled contract
+    carries the SOURCE pipeline's ``task_description``, but the resubmit's
+    description is authoritative for THIS pipeline and is where operators
+    put binding resume directives (e.g. "adopt prior branch X, do not
+    reimplement" — #3123). When non-empty it replaces the pulled value;
+    the source value stays recoverable from the source branch's git
+    history. When ``None`` AND ``issue_number is not None`` the pulled
+    value is cleared (the live issue body is the authoritative task
+    statement and ``task_description`` should be ``None``, mirroring the
+    ``create_contract()`` shape on the call site's fallback path —
+    without this clear, forking a free-text pipeline into an issue
+    pipeline would leak the source pipeline's description into every
+    per-event prompt). Otherwise the pulled value is preserved.
 
     Returns True when a contract was successfully pulled, False otherwise.
     Best-effort: missing, invalid, or unreachable source contracts all yield
@@ -5747,6 +5762,32 @@ def _pull_contract_from_source_branch(
     # canonical key when the pipeline was forked with a qualifier
     # (e.g. source=issue-1965, new=issue-1965-v2).
     contract.pipeline_id = pipeline_id
+    # Refresh the task statement from the new submit (#3123): without
+    # this, the resubmit's prompt — including any operator resume
+    # directives — never reaches any agent-visible surface, because the
+    # caller skips create_contract() (the only other writer of
+    # ``task_description``) whenever the pull succeeds.
+    #
+    # Three cases:
+    #   1. Caller passed a non-blank prompt → replace (free-text resubmit
+    #      with the new directives).
+    #   2. Caller passed ``None`` and the pipeline has an ``issue_number``
+    #      → explicit clear. The create_contract() fallback at the call
+    #      site (pipelines.py::_run_pipeline) passes ``task_description=
+    #      None`` for issue pipelines because the live body is fetched
+    #      via ``gh issue view`` instead. Without the explicit clear,
+    #      forking a free-text pipeline into an issue pipeline (source
+    #      branch = egg/free-text-x, new issue_number = 42) would carry
+    #      the SOURCE pipeline's free-text description into the per-event
+    #      prompt of every issue-pipeline agent.
+    #   3. Caller passed ``None`` or blank and no ``issue_number`` (a
+    #      plain resume with no new prompt) → preserve the pulled value
+    #      so the source pipeline's task statement still drives the
+    #      resumed run.
+    if task_description is not None and task_description.strip():
+        contract.task_description = task_description
+    elif task_description is None and issue_number is not None:
+        contract.task_description = None
     save_contract(contract, repo_path)
 
     logger.info(
@@ -22008,6 +22049,14 @@ def _run_pipeline(
                             pipeline_id=pipeline.id,
                             spawner=spawner,
                             gateway_mode=gateway_mode,
+                            # Mirror the create_contract() fallback below:
+                            # ``task_description`` is populated only for
+                            # pipelines without a GitHub issue (#3042); for
+                            # issue pipelines agents fetch the live body
+                            # via ``gh issue view`` instead.
+                            task_description=(
+                                pipeline.prompt if pipeline.issue_number is None else None
+                            ),
                         )
                     except Exception:
                         logger.warning(
