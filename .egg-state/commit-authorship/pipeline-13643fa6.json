@@ -72,6 +72,14 @@
       "repo": null,
       "role": "tester"
     },
+    "bb6b545900394bd7838ab6c631ef9aa85edcc7ad": {
+      "branch": "egg/pipeline-13643fa6/slice-2",
+      "patch_id": "9be902b7b38113d7c4dcabc74eb4da36eb3f22c0",
+      "pipeline_id": "pipeline-13643fa6",
+      "registered_at": "2026-06-11T10:22:56.343551+00:00",
+      "repo": null,
+      "role": "documenter"
+    },
     "bff1dbde8806efffaf8d2fd8cd37ffa0b8563a13": {
       "branch": "egg/pipeline-13643fa6/slice-1",
       "patch_id": "6006455d98d3dcf33a1eddee4a6a4c0317042501",
