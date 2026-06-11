@@ -1317,3 +1317,178 @@ class TestEffortFlag:
         cmd = build_consensus_wrapped_command("Prompt", model="opus")
         script = cmd[2]
         assert "--effort" not in script
+
+
+class TestSyncToProposals:
+    """Wrapper-performed sync-to-proposal on review actions (#3076 /
+    #3077 clause 2).
+
+    The designed mid-phase artifact flow used to live as fetch/merge
+    prose in spawn prompts the event pump provably discards
+    (``del prompt_text``, #3033) — so reviewers that must RUN a
+    proposal (tester) never had the producer's commits in their
+    worktree. The wrapper now performs that sync deterministically:
+    before an ``ack``/``nack`` invocation it merges each pending
+    producer's ``proposal_commit_sha`` into the reviewer worktree,
+    fail-soft at every step.
+    """
+
+    def _script(self, monkeypatch) -> str:
+        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+        return build_consensus_wrapped_command("Prompt")[2]
+
+    def test_template_defines_sync_to_proposals(self, monkeypatch):
+        script = self._script(monkeypatch)
+        assert "sync_to_proposals() {" in script
+
+    def test_sync_runs_only_for_review_actions(self, monkeypatch):
+        """The sync call must be gated on ack/nack — a producer's own
+        ``propose`` invocation must NOT merge peers' commits into its
+        worktree (R11a: propose own work first, peer state irrelevant).
+        """
+        script = self._script(monkeypatch)
+        guard = 'if [ "$ACTION" = "ack" ] || [ "$ACTION" = "nack" ]; then'
+        assert guard in script
+        # The call rides inside that guard, with the event payload.
+        guarded_block = script.split(guard, 1)[1].split("fi", 1)[0]
+        assert 'sync_to_proposals "$EVENT_PAYLOAD"' in guarded_block
+
+    def test_sync_precedes_agent_invocation(self, monkeypatch):
+        """Ordering invariant: the worktree must be synced BEFORE the
+        one-shot agent runs, or the tester still reviews a stale tree.
+        """
+        script = self._script(monkeypatch)
+        sync_pos = script.index('sync_to_proposals "$EVENT_PAYLOAD"')
+        invoke_pos = script.index('invoke_agent_for_event "$ACTION" "$EVENT_PAYLOAD"')
+        assert sync_pos < invoke_pos
+
+    def test_sha_extraction_is_hex_validated(self, monkeypatch):
+        """The producer-supplied SHA is interpolated into git argv;
+        the extractor must hex-validate (7-64 chars) so shell
+        metacharacters and non-hex sentinels (RECONSTRUCTED_NO_SHA)
+        never reach git.
+        """
+        script = self._script(monkeypatch)
+        assert "[0-9a-fA-F]{7,64}" in script
+        assert "fullmatch" in script
+
+    def test_merge_failure_is_fail_soft(self, monkeypatch):
+        """A conflicting merge must abort and continue — the per-event
+        prompt's ``git show`` reads (#3078) remain the fallback; the
+        agent invocation must never be blocked on the sync.
+        """
+        script = self._script(monkeypatch)
+        assert "merge --abort" in script
+        # The function never propagates failure into the action arm.
+        fn_body = script.split("sync_to_proposals() {", 1)[1]
+        # Take through the function's closing `return 0`.
+        assert "return 0" in fn_body.split("\n}\n", 1)[0]
+
+    def _extract_sync_harness(self, script: str, repo: str, payload: str) -> str:
+        """Build a runnable bash harness: cw_log + sync_to_proposals."""
+        import re
+
+        cw_match = re.search(r"cw_log\(\) \{.*?\n\}", script, flags=re.DOTALL)
+        assert cw_match is not None
+        sync_match = re.search(r"sync_to_proposals\(\) \{.*?\n\}", script, flags=re.DOTALL)
+        assert sync_match is not None
+        return (
+            "#!/bin/bash\nset -uo pipefail\n"
+            f"EGG_REPO_PATH={shlex.quote(repo)}\n"
+            + cw_match.group(0)
+            + "\n"
+            + sync_match.group(0)
+            + "\nsync_to_proposals "
+            + shlex.quote(payload)
+            + '\necho "SYNC_RC=$?"\n'
+        )
+
+    def test_behavioral_merge_and_metachar_filter(self, tmp_path, monkeypatch):
+        """End-to-end: a real proposal SHA on a producer branch is
+        merged into the reviewer's checkout (the proposed artifact
+        becomes Read-able); a shell-metachar SHA is filtered before
+        any git command; the function exits 0 regardless.
+        """
+        import json as _json
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+
+        def git(*args):
+            subprocess.run(
+                ["git", "-C", str(repo), *args],
+                check=True,
+                capture_output=True,
+                env={
+                    **os.environ,
+                    "GIT_AUTHOR_NAME": "t",
+                    "GIT_AUTHOR_EMAIL": "t@t",
+                    "GIT_COMMITTER_NAME": "t",
+                    "GIT_COMMITTER_EMAIL": "t@t",
+                },
+            )
+
+        git("init", "-q", "-b", "main")
+        (repo / "f.txt").write_text("base\n")
+        git("add", ".")
+        git("commit", "-qm", "base")
+        git("checkout", "-qb", "producer")
+        (repo / "plan.md").write_text("the plan\n")
+        git("add", ".")
+        git("commit", "-qm", "plan draft")
+        sha = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        git("checkout", "-qb", "reviewer", "main")
+
+        payload = _json.dumps(
+            {
+                "pending_reviews": [
+                    {"producer": "architect", "proposal_commit_sha": sha},
+                    {"producer": "evil", "proposal_commit_sha": "abc; rm -rf /"},
+                    {"producer": "noop", "proposal_commit_sha": ""},
+                ]
+            }
+        )
+        script = self._script(monkeypatch)
+        harness = self._extract_sync_harness(script, str(repo), payload)
+        result = subprocess.run(
+            ["bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={
+                **os.environ,
+                "GIT_AUTHOR_NAME": "t",
+                "GIT_AUTHOR_EMAIL": "t@t",
+                "GIT_COMMITTER_NAME": "t",
+                "GIT_COMMITTER_EMAIL": "t@t",
+            },
+        )
+        assert "SYNC_RC=0" in result.stdout, (
+            f"sync_to_proposals must exit 0; stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        # The proposed artifact is now a real file in the reviewer tree.
+        assert (repo / "plan.md").read_text() == "the plan\n"
+        # The metachar SHA was filtered, not executed/attempted.
+        assert "rm -rf" not in result.stderr
+
+    def test_behavioral_unresolvable_sha_logs_and_continues(self, tmp_path, monkeypatch):
+        """A well-formed but unknown SHA logs the git-show fallback and
+        exits 0 — never fails the action arm."""
+        import json as _json
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "-C", str(repo), "init", "-q", "-b", "main"], check=True)
+        payload = _json.dumps(
+            {"pending_reviews": [{"producer": "x", "proposal_commit_sha": "a" * 40}]}
+        )
+        script = self._script(monkeypatch)
+        harness = self._extract_sync_harness(script, str(repo), payload)
+        result = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, timeout=30)
+        assert "SYNC_RC=0" in result.stdout
+        assert "unresolvable" in result.stderr

@@ -987,13 +987,65 @@ def _resolve_env_identifier_for_brc_history() -> str:
     )
 
 
-def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
-    """Read consensus history for a peer from the local brc-history log.
+def _fetch_live_brc_transcript(
+    phase: str,
+    *,
+    slice_id: str | None,
+    include_unattributed: bool,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Query the orchestrator's live BRC transcript route (#3076).
 
-    No CLI counterpart (decision-8): reads from the local
-    ``.egg-state/brc-history/`` files written by
-    ``orchestrator.routes.pipelines._write_brc_history`` so reviewers
-    never have to hand-grep JSON off disk.
+    Returns ``(records, live_ok)``. ``live_ok=False`` means the route
+    was unreachable or returned an unusable shape (older orchestrator
+    without the route, transport failure) — the caller degrades to the
+    on-disk files and says so in the ``hint``. Never raises: the live
+    read is an enhancement over the disk read, not a new hard
+    dependency.
+    """
+    pid = get_pipeline_id()
+    if not pid:
+        return [], False
+    params: dict[str, str] = {"phase": phase}
+    role = get_agent_role()
+    if role:
+        params["role"] = role
+    if slice_id:
+        params["slice_id"] = slice_id
+        if not include_unattributed:
+            params["include_unattributed"] = "false"
+    try:
+        result = orchestrator_request(f"/api/v1/pipelines/{pid}/brc-transcript?{urlencode(params)}")
+    except GatewayError as exc:
+        _logger.warning("live brc-transcript query failed: %s", exc)
+        return [], False
+    data = result.get("data") if isinstance(result, dict) else None
+    records = data.get("records") if isinstance(data, dict) else None
+    if not isinstance(records, list):
+        return [], False
+    return [r for r in records if isinstance(r, dict)], True
+
+
+def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
+    """Read the BRC transcript for a phase: live store + on-disk history.
+
+    Two sources, merged (#3076 / #3077 phase 1):
+
+    * **Live** — the orchestrator's ``/brc-transcript`` route, serving
+      the in-flight phase's CONSENSUS_*/BRC records straight from the
+      message store (which holds exactly the current phase; it is
+      cleared on phase transitions). This is what makes the tool
+      truthful mid-phase: a reviewer sees a producer's
+      CONSENSUS_PROPOSE as soon as it is sent.
+    * **Disk** — the local ``.egg-state/brc-history/`` files written by
+      ``orchestrator.routes.pipelines._write_brc_history`` at phase
+      COMPLETION; they cover phases that completed before this agent
+      spawned (and survive orchestrator restarts).
+
+    Records are deduplicated by message ``id`` and sorted by timestamp.
+    A live-route failure degrades gracefully to disk-only with a
+    ``hint`` saying the live source was unavailable.
+
+    No CLI counterpart (decision-8).
 
     File resolution mirrors the writer's per-slice partition (#2548):
 
@@ -1040,14 +1092,20 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
 
     Response:
         { ok: True, phase: str, items: [...], next_cursor: str|None,
-          total_available: int, skipped_malformed: int, hint?: str }
+          total_available: int, skipped_malformed: int, live: bool,
+          hint?: str }
 
-    ``hint`` is present only when no history file exists on disk —
-    the expected state for the phase currently in flight (#3076):
-    brc-history is written at phase COMPLETION and reaches an agent
-    worktree only via the spawn fork point, so an empty result for
-    the current phase is structural, not evidence that peers have
-    not proposed.
+    ``live`` reports whether the orchestrator's live transcript route
+    contributed records (``True``) or was unavailable and the result
+    is disk-only (``False``).
+
+    ``hint`` is present only when both sources yielded zero records.
+    With a reachable live route that genuinely means no BRC messages
+    exist for the phase yet; without one, the hint explains the
+    structural emptiness (#3076): brc-history is written at phase
+    COMPLETION and reaches an agent worktree only via the spawn fork
+    point, so a disk-only empty result for the current phase is not
+    evidence that peers have not proposed.
 
     ``skipped_malformed`` counts brc-history records that were
     silently skipped because they failed isinstance-dict parsing; the
@@ -1120,6 +1178,7 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
     # cross-cutting `unattributed` sibling. Other phases and non-slice
     # implement runs read the aggregate file.
     history_files: list[Path] = []
+    slice_id_env: str | None = None
     if phase == "implement":
         # Defense-in-depth via the public _gateway helper: resolves
         # EGG_SLICE_ID, validates against the canonical `^slice-<N>$`
@@ -1149,11 +1208,9 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
             raise HandlerError("Resolved brc-history path escapes .egg-state/brc-history/")
 
     records: list[Any] = []
-    any_existed = False
     for hf in history_files:
         if not hf.exists():
             continue
-        any_existed = True
         try:
             chunk = json.loads(hf.read_text())
         except (OSError, json.JSONDecodeError) as exc:
@@ -1166,15 +1223,65 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
             )
         records.extend(chunk)
 
-    if not any_existed:
-        # No history file on disk. This is the EXPECTED state for the
-        # phase currently in flight (#3076): brc-history files are
-        # written by the orchestrator at phase COMPLETION, into the
-        # pipeline work branch — they reach an agent worktree only via
-        # the spawn fork point, i.e. only for phases that completed
-        # before this agent spawned. Say so explicitly: a bare empty
-        # result here reads as "peers produced nothing" and has driven
-        # reviewers to NACK proposals they simply could not see.
+    # Live source (#3076 / #3077 phase 1): the orchestrator's message
+    # store holds exactly the in-flight phase's records (it is cleared
+    # on phase transitions), which is precisely the window the on-disk
+    # files structurally cannot cover. Merge the two, dedup by message
+    # id (overlap is possible when a restarted phase's prior transcript
+    # was committed and reached this worktree at the spawn fork).
+    live_records, live_ok = _fetch_live_brc_transcript(
+        phase,
+        slice_id=slice_id_env,
+        include_unattributed=include_unattributed,
+    )
+    # Disk records pass through untouched (the writer's partitions are
+    # disjoint by construction); only LIVE records are dedup'd against
+    # what disk already covers — the overlap case is a restarted
+    # phase whose prior transcript was committed and reached this
+    # worktree at the spawn fork.
+    disk_ids: set[str] = {
+        rec["id"] for rec in records if isinstance(rec, dict) and isinstance(rec.get("id"), str)
+    }
+    merged: list[Any] = list(records)
+    seen_live: set[str] = set()
+    for rec in live_records:
+        rid = rec.get("id")
+        if isinstance(rid, str) and rid:
+            if rid in disk_ids or rid in seen_live:
+                continue
+            seen_live.add(rid)
+        merged.append(rec)
+
+    if not merged:
+        # Nothing on disk and nothing live. With a reachable live route
+        # this now genuinely means "no BRC messages for this phase yet"
+        # (e.g. no peer has proposed); without one, fall back to the
+        # structural explanation so an empty result is never read as
+        # "peers produced nothing" — that misreading drove reviewers to
+        # NACK proposals they simply could not see (#3076).
+        if live_ok:
+            hint = (
+                f"No BRC messages recorded for phase {phase!r} yet "
+                "(live orchestrator store reachable, no on-disk "
+                "brc-history records). If you expected a peer proposal, "
+                "the peer has not proposed yet — wait for the "
+                "CONSENSUS_PROPOSE event rather than concluding the "
+                "work does not exist."
+            )
+        else:
+            hint = (
+                "No brc-history file exists in this worktree for phase "
+                f"{phase!r}, and the live orchestrator transcript route "
+                "was unavailable. brc-history is written at phase "
+                "COMPLETION; for the phase currently in flight an empty "
+                "result here is structural and is NOT evidence that "
+                "peers have not proposed. Live proposals arrive via "
+                "your event payload (pending_reviews carries each "
+                "producer's proposal_commit_sha and artifact_refs); "
+                "read a peer's proposed artifact with `git show "
+                "<proposal_commit_sha>:<path>` — the SHA resolves from "
+                "your worktree via the shared object store."
+            )
         return {
             "ok": True,
             "phase": phase,
@@ -1182,23 +1289,13 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
             "next_cursor": None,
             "total_available": 0,
             "skipped_malformed": prior_skipped,
-            "hint": (
-                "No brc-history file exists in this worktree for phase "
-                f"{phase!r}. brc-history is written at phase COMPLETION; "
-                "for the phase currently in flight this tool is always "
-                "empty and that is NOT evidence that peers have not "
-                "proposed. Live proposals arrive via your event payload "
-                "(pending_reviews carries each producer's "
-                "proposal_commit_sha and artifact_refs); read a peer's "
-                "proposed artifact with `git show "
-                "<proposal_commit_sha>:<path>` — the SHA resolves from "
-                "your worktree via the shared object store."
-            ),
+            "live": live_ok,
+            "hint": hint,
         }
 
     filtered: list[dict[str, Any]] = []
     skipped_malformed = 0
-    for rec in records:
+    for rec in merged:
         if not isinstance(rec, dict):
             skipped_malformed += 1
             continue
@@ -1208,11 +1305,10 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
             continue
         filtered.append(rec)
 
-    # Re-sort merged records by timestamp so the per-slice transcript
-    # and the unattributed sibling interleave chronologically. Records
+    # Re-sort by timestamp so disk transcripts, the unattributed
+    # sibling, and live records interleave chronologically. Records
     # without a timestamp sort last, in original order (stable sort).
-    if len(history_files) > 1:
-        filtered.sort(key=lambda r: (r.get("timestamp") is None, r.get("timestamp") or ""))
+    filtered.sort(key=lambda r: (r.get("timestamp") is None, r.get("timestamp") or ""))
 
     total = len(filtered)
     total_skipped = prior_skipped + skipped_malformed
@@ -1235,4 +1331,5 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
         "next_cursor": next_cursor,
         "total_available": total,
         "skipped_malformed": total_skipped,
+        "live": live_ok,
     }

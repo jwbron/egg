@@ -2066,3 +2066,161 @@ class TestBrcMemoryReturnValuesUnchanged:
             "Stale-version rejection must not write a memory entry — "
             "the reviewer has not actually issued a verdict."
         )
+
+
+def _live_envelope(records):
+    """Shape returned by the orchestrator's /brc-transcript route."""
+    return {
+        "success": True,
+        "message": "BRC transcript retrieved",
+        "data": {"records": records, "count": len(records), "phase": "plan", "truncated": False},
+    }
+
+
+class TestBrcReadPeerArtifactLive:
+    """Live message-store merge for read_peer_artifact (#3076 / #3077
+    phase 1).
+
+    The on-disk brc-history files are written at phase COMPLETION, so
+    the phase in flight is structurally invisible through them. The
+    handler now also queries the orchestrator's /brc-transcript route
+    (the live message store holds exactly the current phase) and merges
+    the two sources, dedup'd by message id.
+    """
+
+    def _set_env(self, monkeypatch, tmp_path, identifier="1917"):
+        monkeypatch.setenv("EGG_ISSUE_NUMBER", identifier)
+        monkeypatch.setenv("EGG_REPO_PATH", str(tmp_path))
+        # Live queries key off the pipeline id; set it alongside the
+        # issue number (the issue number wins for FILE naming only).
+        monkeypatch.setenv("EGG_PIPELINE_ID", "pipeline-2b3d8b0b")
+        monkeypatch.setenv("EGG_AGENT_ROLE", "risk_analyst")
+        monkeypatch.delenv("EGG_SLICE_ID", raising=False)
+
+    def test_live_records_returned_without_any_disk_file(self, tmp_path, monkeypatch):
+        """The #3076 incident shape: producers proposed mid-phase, no
+        brc-history file exists anywhere — the records must now come
+        back from the live store, with no misleading hint."""
+        self._set_env(monkeypatch, tmp_path)
+        live = _records(("architect", "CONSENSUS_PROPOSE"))
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_live_envelope(live),
+        ):
+            resp = brc.brc_read_peer_artifact({"phase": "plan"})
+        assert resp["ok"] is True
+        assert resp["live"] is True
+        assert [r["from_role"] for r in resp["items"]] == ["architect"]
+        assert "hint" not in resp
+
+    def test_live_and_disk_merge_dedup_by_id(self, tmp_path, monkeypatch):
+        self._set_env(monkeypatch, tmp_path)
+        disk = _records(("coder", "CONSENSUS_PROPOSE"), ("tester", "CONSENSUS_ACK"))
+        _make_history_file(tmp_path, "1917", "plan", disk)
+        # Live store holds one duplicate (same id) and one new record.
+        live = [disk[1], dict(disk[1], id="id-99", from_role="architect")]
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_live_envelope(live),
+        ):
+            resp = brc.brc_read_peer_artifact({"phase": "plan"})
+        ids = [r["id"] for r in resp["items"]]
+        assert sorted(ids) == ["id-1", "id-2", "id-99"]
+        assert resp["total_available"] == 3
+        assert resp["live"] is True
+
+    def test_live_failure_degrades_to_disk(self, tmp_path, monkeypatch):
+        self._set_env(monkeypatch, tmp_path)
+        _make_history_file(tmp_path, "1917", "plan", _records(("coder", "CONSENSUS_PROPOSE")))
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            side_effect=GatewayError("connection refused"),
+        ):
+            resp = brc.brc_read_peer_artifact({"phase": "plan"})
+        assert len(resp["items"]) == 1
+        assert resp["live"] is False
+        assert "hint" not in resp
+
+    def test_empty_with_live_reachable_says_not_proposed_yet(self, tmp_path, monkeypatch):
+        """With a reachable live route, emptiness is a real answer —
+        the hint must say "not proposed yet", NOT the structural
+        explanation (which would wrongly suggest the channel is dead)."""
+        self._set_env(monkeypatch, tmp_path)
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_live_envelope([]),
+        ):
+            resp = brc.brc_read_peer_artifact({"phase": "plan"})
+        assert resp["items"] == []
+        assert resp["live"] is True
+        assert "not proposed yet" in resp["hint"]
+        assert "phase COMPLETION" not in resp["hint"]
+
+    def test_empty_with_live_down_keeps_structural_hint(self, tmp_path, monkeypatch):
+        self._set_env(monkeypatch, tmp_path)
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            side_effect=GatewayError("boom"),
+        ):
+            resp = brc.brc_read_peer_artifact({"phase": "plan"})
+        assert resp["items"] == []
+        assert resp["live"] is False
+        hint = resp["hint"]
+        assert "phase COMPLETION" in hint
+        assert "NOT evidence" in hint
+        assert "git show" in hint
+        assert "unavailable" in hint
+
+    def test_filters_apply_to_live_records(self, tmp_path, monkeypatch):
+        self._set_env(monkeypatch, tmp_path)
+        live = _records(
+            ("architect", "CONSENSUS_PROPOSE"),
+            ("risk_analyst", "CONSENSUS_NACK"),
+        )
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_live_envelope(live),
+        ):
+            resp = brc.brc_read_peer_artifact({"phase": "plan", "peer_role": "architect"})
+        assert [r["from_role"] for r in resp["items"]] == ["architect"]
+
+    def test_live_query_carries_phase_role_and_slice(self, tmp_path, monkeypatch):
+        """The query must scope to the requested phase, pass the
+        caller's role (Delphi filtering server-side) and the env slice
+        id for implement-phase reads."""
+        self._set_env(monkeypatch, tmp_path)
+        monkeypatch.setenv("EGG_SLICE_ID", "slice-2")
+        captured = {}
+
+        def _capture(endpoint, **kw):
+            captured["endpoint"] = endpoint
+            return _live_envelope([])
+
+        with patch("egg_agent_tools.handlers.brc.orchestrator_request", side_effect=_capture):
+            brc.brc_read_peer_artifact({"phase": "implement"})
+        ep = captured["endpoint"]
+        assert ep.startswith("/api/v1/pipelines/pipeline-2b3d8b0b/brc-transcript?")
+        assert "phase=implement" in ep
+        assert "role=risk_analyst" in ep
+        assert "slice_id=slice-2" in ep
+
+    def test_unusable_live_shape_treated_as_unavailable(self, tmp_path, monkeypatch):
+        self._set_env(monkeypatch, tmp_path)
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={"success": True, "data": {"records": "bogus"}},
+        ):
+            resp = brc.brc_read_peer_artifact({"phase": "plan"})
+        assert resp["live"] is False
+
+    def test_no_pipeline_id_skips_live_query(self, tmp_path, monkeypatch):
+        """Without EGG_PIPELINE_ID the handler must not attempt HTTP at
+        all (spawn contexts that only carry EGG_ISSUE_NUMBER)."""
+        self._set_env(monkeypatch, tmp_path)
+        monkeypatch.delenv("EGG_PIPELINE_ID")
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            side_effect=AssertionError("must not be called"),
+        ):
+            resp = brc.brc_read_peer_artifact({"phase": "plan"})
+        assert resp["live"] is False
