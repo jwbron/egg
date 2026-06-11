@@ -1478,6 +1478,67 @@ class PeerConsensusTracker:
                 "affected_reviewers": reviewers,
             }
 
+    def reopen_producer(self, agent_role: str, reason: str = "") -> dict[str, Any]:
+        """Reopen a CONFIRMED producer's consensus participation (#3124).
+
+        A task reassignment (impasse delegation or a direct operator
+        mutation of ``phases.*.tasks.*.role``) can land on a producer
+        that has already CONFIRMED. Confirmation is otherwise a one-way
+        lock — ``check_propose_guard`` rejects proposals from the
+        CONFIRMED phase — so the contract would carry an incomplete
+        task row that no live agent is permitted to deliver, while the
+        #3114 completeness gate (correctly) refuses to close the slice
+        over it. Reopening flips the producer's FSM back to WORKING and
+        clears its confirmed status so the next ``next-action`` poll
+        derives ``propose``; from there the existing re-propose
+        machinery applies (#1411 stale-confirm discard on propose,
+        ``_un_confirm_stale_reviewers`` forcing re-review of the new
+        version).
+
+        Dual-role agents keep their reviewer-side FSM untouched — their
+        prior reviews of peers remain valid; only their own deliverable
+        is reopened. ``handle_confirmed`` already requires both FSMs to
+        be CONFIRMED before re-adding the role to the confirmed set.
+
+        Idempotent: returns ``{"status": "noop"}`` when the producer is
+        not confirmed (nothing to reopen), so message replay can apply
+        it blindly.
+
+        Raises ValueError if the role is not a producer in the graph.
+        """
+        with self._lock:
+            if not self.graph.is_producer(agent_role):
+                raise ValueError(
+                    f"Cannot reopen '{agent_role}': not a producer in the review graph"
+                )
+
+            was_confirmed = (
+                agent_role in self._confirmed
+                or self._producer_phases.get(agent_role) == ConsensusPhase.CONFIRMED
+            )
+            if not was_confirmed:
+                return {"status": "noop", "role": agent_role}
+
+            self._producer_phases[agent_role] = ConsensusPhase.WORKING
+            self._confirmed.discard(agent_role)
+
+            emit_event(
+                EventType.CONSENSUS_PRODUCER_REOPENED,
+                self.pipeline_id,
+                data={"role": agent_role, "reason": reason},
+            )
+
+            logger.info(
+                "Reopened confirmed producer",
+                producer=agent_role,
+                reason=reason,
+                pipeline_id=self.pipeline_id,
+            )
+
+            self._run_invariant_checks("reopen_producer")
+
+            return {"status": "reopened", "role": agent_role, "reason": reason}
+
     def is_timeout_handled(self) -> bool:
         """Check whether the BRC tracker has already handled the timeout."""
         with self._lock:
@@ -2041,6 +2102,12 @@ def reconstruct_tracker_from_messages(
         # this, a satisfied obligation re-emerges and the HITL gate
         # asks the operator about work that was already done.
         "CONSENSUS_OBLIGATION_RESOLVED",
+        # Confirmed-producer reopen after task reassignment (#3124).
+        # Replayed so the CONFIRMED→WORKING transition survives restarts —
+        # without it, replay would reject the producer's post-reopen
+        # proposal (the propose guard requires WORKING) and resurrect the
+        # deadlock the reopen resolved.
+        "CONSENSUS_REOPENED",
     }
     consensus_msgs = [m for m in messages if m.message_type in consensus_types]
 
@@ -2180,6 +2247,17 @@ def reconstruct_tracker_from_messages(
 
             elif msg.message_type == "CONSENSUS_CONFIRMED":
                 tracker.handle_confirmed(msg.from_role)
+
+            elif msg.message_type == "CONSENSUS_REOPENED":
+                # Emitted by the orchestrator (next-action route) when a
+                # contract task was reassigned to an already-confirmed
+                # producer (#3124). ``to_role`` carries the producer;
+                # ``from_role`` is the orchestrator and is deliberately
+                # not replayed as a participant. reopen_producer is
+                # idempotent, so a duplicate message is harmless.
+                reopened_producer = msg.to_role
+                if reopened_producer and reopened_producer != "all":
+                    tracker.reopen_producer(reopened_producer, reason="replay")
 
             elif msg.message_type == "CONSENSUS_OBLIGATION_RESOLVED":
                 # Metadata carries the participant roles plus optional

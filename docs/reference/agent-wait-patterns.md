@@ -183,13 +183,15 @@ the contradicting work is done, the SDK driver
 backed by `shared/egg_agent/midturn_messages.py`: at most once per
 `EGG_MIDTURN_MESSAGES_INTERVAL_SECS` (default 60 s) it runs
 `egg-orch message poll` against the bus and injects any **new
-operator-authored** messages (`from_role` ∈ overseer/orchestrator/
-human/operator/user) into the running session as additional context.
-The `orchestrator` role is included so that deterministic nudges
-(BRC confirmation-timeout wake, overseer-respawn broadcast) reach a
-running producer instead of being silently dropped. Peer-agent and
-protocol traffic (`CONSENSUS_*`, heartbeats) is never injected — it
-stays on the between-invocation path the wrapper sequences.
+operator-authored** messages (`from_role` ∈ overseer/orchestrator/human/
+operator/user) into the running session as additional context. The
+`orchestrator` role covers deterministic course-correction nudges that
+originate in the orchestrator itself — notably the
+`brc_confirmation_timeout` directed wake to a stuck producer and the
+overseer-respawn broadcast; without it those nudges would be silently
+dropped mid-turn. Peer-agent and protocol traffic (`CONSENSUS_*`,
+heartbeats) is never injected — it stays on the between-invocation path
+the wrapper sequences.
 
 The poll cursor persists in `EGG_WAIT_CURSOR_DIR` across one-shot
 invocations (same back-channel pattern as the wait-loop cursor above),
