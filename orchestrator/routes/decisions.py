@@ -499,8 +499,16 @@ def _invalidate_conditional_acks(
 # completion option should emit a label of the form
 # ``Mark task <task-id> complete`` (backticks around the id tolerated);
 # free-form replies may append ``commit <sha>`` to link evidence.
+#
+# Pattern is anchored to the start of the resolution (optional leading
+# whitespace) and matched with ``re.match``: an unanchored ``re.search``
+# would fire on prose like "I do **not** want to mark task X complete",
+# triggering an audited, durable status mutation buried in a free-form
+# "Other (explain in reply)" reply. The documented free-form flow ("Mark
+# task <id> complete, commit <sha>") still matches; only buried
+# substrings are rejected.
 _COMPLETE_TASK_RESOLUTION_RE = re.compile(
-    r"Mark task\s+`{0,2}([A-Za-z0-9._\-]+)`{0,2}\s+complete",
+    r"\s*Mark task\s+`{0,2}([A-Za-z0-9._\-]+)`{0,2}\s+complete",
     re.IGNORECASE,
 )
 _COMMIT_EVIDENCE_RE = re.compile(r"\bcommit[\s:=]+([0-9a-fA-F]{7,40})\b")
@@ -523,7 +531,7 @@ def _maybe_complete_task_from_resolution(
     """
     if not resolution:
         return None
-    match = _COMPLETE_TASK_RESOLUTION_RE.search(resolution)
+    match = _COMPLETE_TASK_RESOLUTION_RE.match(resolution)
     if not match:
         return None
     task_id = match.group(1)

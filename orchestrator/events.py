@@ -84,6 +84,12 @@ class EventType(StrEnum):
     CONSENSUS_OBLIGATION_RESOLVED = "consensus.obligation_resolved"
     # A CONFIRMED producer's consensus participation was reopened after a
     # contract task was reassigned to it post-confirm (#3124).
+    # Intentionally has no subscriber today — emitted by
+    # ``peer_consensus.reopen_producer`` as a forward-compat hook for
+    # future SSE filters / metrics that want to count reopens (e.g.
+    # to alert when a slice churns post-confirm). The reopen itself is
+    # driven by the persisted ``CONSENSUS_REOPENED`` bus message, not
+    # by this event.
     CONSENSUS_PRODUCER_REOPENED = "consensus.producer_reopened"
 
     # HITL events

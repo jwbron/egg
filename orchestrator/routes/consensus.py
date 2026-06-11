@@ -464,6 +464,26 @@ def _maybe_reopen_confirmed_producer(
     # intermediate state) can need reopening. Reading _producer_phases
     # without the lock is a hint only; reopen_producer re-checks under
     # the lock.
+    #
+    # The OR-guard intentionally catches the dual-role intermediate
+    # window between ``handle_confirmed`` setting
+    # ``_producer_phases[role] = CONFIRMED`` and ``is_fully_confirmed``
+    # adding the role to ``_confirmed``. During that window
+    # ``role in tracker.confirmed_roles`` is False but
+    # ``_producer_phases.get(role) == CONFIRMED`` — both halves are
+    # load-bearing for dual-role correctness; do not simplify to a
+    # single-clause check.
+    #
+    # Concurrency note: two parallel next-action polls for the same
+    # role can both pass this lock-free pre-check, each persist a
+    # ``CONSENSUS_REOPENED`` bus message, and only the first will flip
+    # the FSM (the second's ``reopen_producer`` returns
+    # ``{"status": "noop"}`` because the lock-held re-check sees
+    # ``WORKING``). The tracker stays consistent and the contract IO
+    # is idempotent; the bus picks up a duplicate informational
+    # message. This is preferable to spanning a lock across contract
+    # IO — the duplicate is harmless and the replay arm is idempotent
+    # over repeated reopens.
     if role not in tracker.confirmed_roles and (
         tracker._producer_phases.get(role) != ConsensusPhase.CONFIRMED
     ):

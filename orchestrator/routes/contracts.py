@@ -456,6 +456,16 @@ def _audit_confirmed_assignee_reassignment(
                     "field_path": field_path,
                     "new_assignee": new_value,
                     "actor": actor,
+                    # The reopen is contingent on the producer wrapper
+                    # still polling next-action. If the wrapper already
+                    # exited after CONFIRMED (the #3124 motivating
+                    # scenario for slices that closed before the
+                    # mutation landed), no poll will fire and the
+                    # operator-grade fallback
+                    # (POST /api/v1/contracts/<id>/tasks/<task>/complete
+                    # or the executable "Mark task <id> complete" HITL
+                    # option) is the only path forward.
+                    "reopen_requires_active_poll": True,
                 },
             )
     except Exception:  # pragma: no cover — observability must not break mutations
@@ -507,17 +517,35 @@ def operator_complete_task(identifier: str, task_id: str) -> tuple[Response, int
             status_code=400,
         )
 
+    # Scope the audit actor under the ``operator:`` namespace so a
+    # body-provided string can't be set to a sandbox-agent role like
+    # ``coder``/``reviewer`` and read in the audit log as an agent
+    # mutation. The route is lifecycle-secret guarded so this is
+    # belt-and-braces, but it keeps the audit trail honest if two
+    # different host-side tools call this endpoint with their own
+    # actor suffixes.
+    actor_suffix = body.get("actor")
+    actor = f"operator:{actor_suffix}" if actor_suffix else "operator"
+
     try:
         result = complete_task_as_operator(
             pipeline_id,
             task_id,
             commit=body.get("commit"),
             reason=body.get("reason", ""),
-            actor=body.get("actor", "operator"),
+            actor=actor,
             issue_number=ident if isinstance(ident, int) else None,
         )
     except OperatorActionError as exc:
         return _error(exc.message, status_code=exc.status_code)
+
+    logger.info(
+        "Operator marked task complete",
+        pipeline_id=pipeline_id,
+        task_id=task_id,
+        actor=actor,
+        source=getattr(request, "egg_source", "unknown"),
+    )
 
     return _success(f"Task {task_id} marked complete by operator", data=result)
 

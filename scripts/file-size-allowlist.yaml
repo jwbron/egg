@@ -73,7 +73,7 @@ files:
     issue: "3033"
   # #3124 added the operator complete-task route, executable decision
   # resolution dispatch, and impasse-escalation option, pushing the file
-  # from ~1,490 lines to 1,512 lines (12 over the 1,500-line hard cap).
+  # from ~1,490 lines to ~1,520 lines (20 over the 1,500-line hard cap).
   # Decompose in a follow-up PR.
   orchestrator/routes/decisions.py:
     issue: "3124"

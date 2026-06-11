@@ -368,17 +368,20 @@ class TestNextActionReopen:
         assert sent.message_type == "CONSENSUS_REOPENED"
         assert sent.to_role == "coder"
 
-    def test_confirmed_producer_with_no_incomplete_tasks_stays_wait(self, client):
+    def test_no_incomplete_rows_does_not_reopen(self, client):
+        # The invariants under test are: (1) no reopen — coder stays
+        # confirmed — and (2) no CONSENSUS_REOPENED message hits the
+        # bus. The reported action is incidental (consensus is globally
+        # complete here, so the confirmed short-circuit reports
+        # "complete"); the name used to suggest "stays wait", which the
+        # behaviour contradicts.
         tracker = _tracker()
         _confirm_all(tracker)
 
         resp, msg_store = _next_action_with_reopen_env(client, tracker, rows=[])
 
         action, _ = _action(resp)
-        # Consensus is globally complete here, so the confirmed
-        # short-circuit reports completion — the point is it does NOT
-        # reopen or propose.
-        assert action in ("wait", "complete")
+        assert action != "propose"
         assert "coder" in tracker.confirmed_roles
         msg_store.add_message.assert_not_called()
 
@@ -605,6 +608,31 @@ class TestOperatorCompleteTaskRoute:
         assert data["data"]["status"] == "complete"
         assert data["data"]["task_id"] == "task-1-1"
 
+    def test_route_scopes_body_actor_under_operator_namespace(self, route_client):
+        # A body-provided ``actor`` must be prefixed with ``operator:``
+        # so it can't be set to an agent role and read in the audit log
+        # as an agent mutation.
+        with patch("operator_actions.complete_task_as_operator") as complete_mock:
+            complete_mock.return_value = {"task_id": "task-1-1", "status": "complete"}
+            route_client.post(
+                "/api/v1/contracts/pid-3124/tasks/task-1-1/complete",
+                headers={"Authorization": "Bearer test-secret"},
+                data=json.dumps({"actor": "coder"}),
+                content_type="application/json",
+            )
+        assert complete_mock.call_args[1]["actor"] == "operator:coder"
+
+    def test_route_default_actor_is_operator(self, route_client):
+        with patch("operator_actions.complete_task_as_operator") as complete_mock:
+            complete_mock.return_value = {"task_id": "task-1-1", "status": "complete"}
+            route_client.post(
+                "/api/v1/contracts/pid-3124/tasks/task-1-1/complete",
+                headers={"Authorization": "Bearer test-secret"},
+                data=json.dumps({}),
+                content_type="application/json",
+            )
+        assert complete_mock.call_args[1]["actor"] == "operator"
+
 
 # ---------------------------------------------------------------------------
 # decisions: executable "Mark task <id> complete" resolution
@@ -651,6 +679,28 @@ class TestDecisionResolutionDispatch:
         )
         assert result["success"] is False
         assert "contract gone" in result["error"]
+
+    def test_buried_prose_does_not_execute_completion(self):
+        # An operator who chooses "Other (explain in reply)" and writes
+        # a free-form reply that happens to quote the option label
+        # ("...do not want to mark task X complete...") must not trigger
+        # the audited status mutation. The pattern is anchored to the
+        # start of the resolution; only the documented free-form flow
+        # ("Mark task <id> complete[, commit <sha>]") executes.
+        result, complete_mock = self._dispatch(
+            "I do not want to mark task TASK-2-3 complete; "
+            "the producer should fix the failing test instead.",
+        )
+        assert result is None
+        complete_mock.assert_not_called()
+
+    def test_leading_whitespace_still_matches(self):
+        result, complete_mock = self._dispatch(
+            "   Mark task TASK-2-3 complete",
+            return_value={"task_id": "TASK-2-3", "status": "complete"},
+        )
+        assert result["success"] is True
+        complete_mock.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
