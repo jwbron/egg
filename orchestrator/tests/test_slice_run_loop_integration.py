@@ -1479,15 +1479,24 @@ class TestSliceBoundaryStatefileCommit:
         )
         assert len(self._work_branch_pushes(spawner, pipeline)) == 1
 
-    def test_concurrent_wave_serialises_commits_and_collapses_noop(self) -> None:
+    def test_concurrent_wave_no_op_collapse_elides_second_push(self) -> None:
         """Two independent slices in the same ready batch run through
         ``_run_one_slice`` concurrently and both hit
-        ``_persist_slice_status_complete``. The per-pipeline state lock
-        serialises the two commits; the second commit sees no staged
-        changes (the first already swept the pipeline-scoped glob) and
-        ``_commit_statefiles_to_worktree`` returns False, so the second
-        push is correctly elided. This exercises the lock-serialisation
-        + no-op-collapse path that single-slice tests can't reach."""
+        ``_persist_slice_status_complete``. When the first thread's
+        commit sweeps the pipeline-scoped glob and the second thread's
+        commit sees no staged changes, ``_commit_statefiles_to_worktree``
+        returns False and the second push is correctly elided.
+
+        Scope: this verifies the no-op-collapse semantics — both slices
+        reach the helper, only one push hits the gateway. It does NOT
+        directly verify lock serialisation: ``side_effect=[True, False]``
+        is consumed in mock-call order, not in slice-completion order,
+        so the assertions hold under any interleaving rather than
+        proving the per-pipeline state lock enforces one. Production
+        correctness for the serialisation property comes from the lock
+        itself; this test pins the externally observable behavior
+        (single push per wave when subsequent commits are no-ops) that
+        single-slice tests can't reach."""
         pipeline = _make_pipeline()
         # No deps between slices → both READY in the first wave →
         # ThreadPoolExecutor dispatches both into ``_run_one_slice``
@@ -1495,9 +1504,9 @@ class TestSliceBoundaryStatefileCommit:
         slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
         slice2 = _make_slice("slice-2", tasks=[_make_task("task-2-1")])
         contract = _make_contract(slices=[slice1, slice2])
-        # First slice's commit succeeds (sweeps the contract + any
-        # task-record mutations); second slice's commit is a no-op
-        # because the glob has nothing new to stage.
+        # Whichever thread's commit lands first sweeps the contract +
+        # any task-record mutations; the other thread's commit sees an
+        # empty staged set and returns False (the no-op collapse).
         commit_mock = MagicMock(side_effect=[True, False])
         spawner = self._make_spawner()
 
