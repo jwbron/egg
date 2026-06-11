@@ -5661,7 +5661,13 @@ def _pull_contract_from_source_branch(
     put binding resume directives (e.g. "adopt prior branch X, do not
     reimplement" — #3123). When non-empty it replaces the pulled value;
     the source value stays recoverable from the source branch's git
-    history.
+    history. When ``None`` AND ``issue_number is not None`` the pulled
+    value is cleared (the live issue body is the authoritative task
+    statement and ``task_description`` should be ``None``, mirroring the
+    ``create_contract()`` shape on the call site's fallback path —
+    without this clear, forking a free-text pipeline into an issue
+    pipeline would leak the source pipeline's description into every
+    per-event prompt). Otherwise the pulled value is preserved.
 
     Returns True when a contract was successfully pulled, False otherwise.
     Best-effort: missing, invalid, or unreachable source contracts all yield
@@ -5760,8 +5766,27 @@ def _pull_contract_from_source_branch(
     # directives — never reaches any agent-visible surface, because the
     # caller skips create_contract() (the only other writer of
     # ``task_description``) whenever the pull succeeds.
-    if task_description and task_description.strip():
+    #
+    # Three cases:
+    #   1. Caller passed a non-blank prompt → replace (free-text resubmit
+    #      with the new directives).
+    #   2. Caller passed ``None`` and the pipeline has an ``issue_number``
+    #      → explicit clear. The create_contract() fallback at the call
+    #      site (pipelines.py::_run_pipeline) passes ``task_description=
+    #      None`` for issue pipelines because the live body is fetched
+    #      via ``gh issue view`` instead. Without the explicit clear,
+    #      forking a free-text pipeline into an issue pipeline (source
+    #      branch = egg/free-text-x, new issue_number = 42) would carry
+    #      the SOURCE pipeline's free-text description into the per-event
+    #      prompt of every issue-pipeline agent.
+    #   3. Caller passed ``None`` or blank and no ``issue_number`` (a
+    #      plain resume with no new prompt) → preserve the pulled value
+    #      so the source pipeline's task statement still drives the
+    #      resumed run.
+    if task_description is not None and task_description.strip():
         contract.task_description = task_description
+    elif task_description is None and issue_number is not None:
+        contract.task_description = None
     save_contract(contract, repo_path)
 
     logger.info(

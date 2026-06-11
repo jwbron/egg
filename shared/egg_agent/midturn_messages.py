@@ -44,6 +44,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -59,11 +60,20 @@ DEFAULT_POLL_INTERVAL_SECS = 60.0
 # 15 s; one extra second of headroom avoids racing it.
 _POLL_SUBPROCESS_TIMEOUT_SECS = 16
 
-# ``from_role`` values whose messages are operator-authored course
-# corrections worth surfacing mid-turn. ``overseer`` covers both the
-# MCP ``send_message`` tool (sent as the overseer role) and overseer
-# monitor alerts; the rest cover direct human/operator senders.
-_INJECT_FROM_ROLES = frozenset({"overseer", "human", "operator", "user"})
+# ``from_role`` values whose messages are operator-authored or
+# orchestrator-issued course corrections worth surfacing mid-turn.
+# ``overseer`` covers both the MCP ``send_message`` tool (sent as the
+# overseer role) and overseer monitor alerts; ``orchestrator`` covers
+# deterministic nudges that originate in the orchestrator itself —
+# notably the ``brc_confirmation_timeout`` directed wake to a stuck
+# producer (``orchestrator/routes/pipelines.py::_send_brc_confirmation_nudge``)
+# and the overseer-respawn broadcast (same module, ``_handle_overseer_respawn``).
+# Without ``orchestrator`` in this set the brc-confirmation-timeout nudge
+# would be silently dropped — the producer's poll fetches it, advances
+# the cursor past it, and injects nothing, which is exactly the
+# silent-drop failure mode #3123 was meant to close. The remaining
+# entries cover direct human/operator senders.
+_INJECT_FROM_ROLES = frozenset({"overseer", "orchestrator", "human", "operator", "user"})
 
 # Cap on the rendered injection block. Operator messages are normally
 # short directives; a pathological body should not blow up the turn.
@@ -119,6 +129,13 @@ class MidturnMessagePoller:
         self.interval_secs = interval_secs if interval_secs is not None else _poll_interval_secs()
         self._now = now
         self._last_poll: float | None = None
+        # Guards the throttle check-and-set so two concurrent PostToolUse
+        # callbacks (today serial, but the SDK may move to concurrent
+        # delivery) cannot both observe a stale ``_last_poll`` and both
+        # spawn a poll subprocess. ``is_due_to_poll`` outside the lock is
+        # intentionally lockless — it is a fast-path hint for hook
+        # callers; the authoritative gate is in ``poll`` under this lock.
+        self._poll_lock = threading.Lock()
 
         base_dir = cursor_dir or os.environ.get("EGG_WAIT_CURSOR_DIR") or tempfile.gettempdir()
         # Hash the identifiers into the filename so arbitrary pipeline
@@ -178,7 +195,7 @@ class MidturnMessagePoller:
                 timeout=_POLL_SUBPROCESS_TIMEOUT_SECS,
                 check=False,
             )
-        except subprocess.SubprocessError, OSError:
+        except (subprocess.SubprocessError, OSError):  # fmt: skip
             return None
         if proc.returncode != 0:
             return None
@@ -199,6 +216,22 @@ class MidturnMessagePoller:
 
     # -- public API -------------------------------------------------------
 
+    def is_due_to_poll(self) -> bool:
+        """Lockless predicate — does the throttle window allow a poll now?
+
+        Intended as a fast-path hint for hook callers that want to avoid
+        crossing the ``asyncio.to_thread`` boundary on every tool call
+        when the poll is clearly throttled. False positives are
+        possible under concurrent calls (two callers can both observe
+        the same stale ``_last_poll``) — the authoritative gate is in
+        ``poll`` under ``_poll_lock``, which re-checks atomically and
+        ensures only one fetch runs per interval.
+        """
+        last = self._last_poll
+        if last is None:
+            return True
+        return (self._now() - last) >= self.interval_secs
+
     def poll(self) -> str | None:
         """Poll the bus if the interval has elapsed; return a block to inject.
 
@@ -206,10 +239,14 @@ class MidturnMessagePoller:
         new messages arrived, or when the new messages are all
         non-operator traffic (their ids still advance the cursor).
         """
-        now = self._now()
-        if self._last_poll is not None and (now - self._last_poll) < self.interval_secs:
-            return None
-        self._last_poll = now
+        # Atomic check-and-set: closes the race where two concurrent
+        # callers both observe a stale ``_last_poll`` and both pass the
+        # gate, spawning duplicate subprocesses.
+        with self._poll_lock:
+            now = self._now()
+            if self._last_poll is not None and (now - self._last_poll) < self.interval_secs:
+                return None
+            self._last_poll = now
 
         cursor = self._read_cursor()
         fetched = self._fetch(since_id=cursor)

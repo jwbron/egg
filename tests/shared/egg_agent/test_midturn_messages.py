@@ -91,6 +91,65 @@ class TestFirstPollSeedsCursor:
         assert "pipeline-test" in cmd
         assert "--role" in cmd
 
+    def test_first_poll_with_overflow_history_snaps_to_tip(self, tmp_path):
+        """Pre-existing history past the bus limit doesn't re-inject as new.
+
+        ``message_store`` returns ``matches[-limit:]`` with no ``since_id``
+        — the LAST ``limit`` messages, not the oldest — so the seed-at-tip
+        guarantee in the docstring is load-bearing on that semantic.
+        This test pins the poller's behavior: when the store returns the
+        last ``limit`` messages and an operator-authored directive is
+        among them (i.e. could plausibly be \"new\"), the first poll
+        still treats the whole batch as history, advances the cursor to
+        the very tip, and injects nothing. A second poll with no further
+        messages then asserts the cursor stayed at the tip (no replay).
+        """
+        clock = _Clock()
+        poller = _make_poller(tmp_path, clock)
+
+        # Simulate the store returning the last 100 (tail of 110+ stream).
+        # Include an operator-authored message in the batch so we can
+        # confirm seed-at-tip suppresses it (a regression would render
+        # it because operator filtering would otherwise kick in).
+        tail_count = 100
+        tail = [
+            _message(
+                f"msg-{i}",
+                from_role=("overseer" if i == 50 else "coder"),
+                body=("historical operator directive" if i == 50 else "peer chatter"),
+            )
+            for i in range(11, 11 + tail_count)
+        ]
+
+        with (
+            patch("egg_agent.midturn_messages.shutil.which", return_value="/usr/bin/egg-orch"),
+            patch(
+                "egg_agent.midturn_messages.subprocess.run",
+                return_value=_completed(_poll_response(tail)),
+            ) as mock_run,
+        ):
+            assert poller.poll() is None  # seed-at-tip — historical operator msg suppressed
+
+        assert poller._cursor_path.read_text() == f"msg-{11 + tail_count - 1}"  # tip
+        cmd = mock_run.call_args.args[0]
+        assert "--since" not in cmd
+
+        # Second poll, interval elapsed, store returns nothing new.
+        clock.value += 61.0
+        with (
+            patch("egg_agent.midturn_messages.shutil.which", return_value="/usr/bin/egg-orch"),
+            patch(
+                "egg_agent.midturn_messages.subprocess.run",
+                return_value=_completed(_poll_response([])),
+            ) as mock_run,
+        ):
+            assert poller.poll() is None
+
+        # Cursor still at the tip; no historical operator message was injected.
+        assert poller._cursor_path.read_text() == f"msg-{11 + tail_count - 1}"
+        cmd = mock_run.call_args.args[0]
+        assert cmd[cmd.index("--since") + 1] == f"msg-{11 + tail_count - 1}"
+
     def test_second_poll_injects_new_operator_message(self, tmp_path):
         """A message arriving after the seed is rendered for injection."""
         clock = _Clock()
@@ -143,6 +202,94 @@ class TestThrottle:
             poller.poll()
 
         assert mock_run.call_count == 1
+
+    def test_concurrent_polls_share_the_throttle_slot(self, tmp_path):
+        """Two callers entering ``poll`` simultaneously fetch at most once.
+
+        ``poll()`` runs under ``asyncio.to_thread``; if PostToolUse ever
+        delivers callbacks concurrently, the throttle check-and-set must
+        be atomic — otherwise both callers observe a stale ``_last_poll``,
+        both pass the gate, and both spawn a subprocess (and risk a
+        duplicate-injection window). The lock around the check-and-set
+        in ``poll`` closes the race; here we drive two threads through
+        the gate simultaneously and assert only one fetch ran.
+        """
+        import threading as _threading
+
+        clock = _Clock()
+        poller = _make_poller(tmp_path, clock)
+        # Seed cursor so the first eligible poll is treated as new
+        # (covers both throttle paths: seed and steady-state).
+        poller._cursor_path.write_text("msg-0", encoding="utf-8")
+
+        gate = _threading.Event()
+        fetch_started = _threading.Event()
+
+        def slow_run(*_a, **_kw):
+            fetch_started.set()
+            gate.wait(timeout=2.0)
+            return _completed(_poll_response([_message("msg-1", body="op directive")]))
+
+        results: list[Any] = []
+        errors: list[BaseException] = []
+
+        def runner():
+            try:
+                results.append(poller.poll())
+            except BaseException as exc:  # pragma: no cover - propagate
+                errors.append(exc)
+
+        with (
+            patch("egg_agent.midturn_messages.shutil.which", return_value="/usr/bin/egg-orch"),
+            patch("egg_agent.midturn_messages.subprocess.run", side_effect=slow_run) as mock_run,
+        ):
+            t1 = _threading.Thread(target=runner)
+            t2 = _threading.Thread(target=runner)
+            t1.start()
+            # Wait until t1 is inside the fetch (so t2 hits the lock /
+            # post-set throttle and must see ``_last_poll`` advanced).
+            assert fetch_started.wait(timeout=2.0)
+            t2.start()
+            gate.set()
+            t1.join(timeout=3.0)
+            t2.join(timeout=3.0)
+
+        assert not errors, errors
+        assert mock_run.call_count == 1
+        # Exactly one caller gets the block; the other is throttled out.
+        assert sum(r is not None for r in results) == 1
+        assert sum(r is None for r in results) == 1
+
+    def test_is_due_to_poll_predicate(self, tmp_path):
+        """Lockless fast-path predicate exposes the throttle window.
+
+        Lets ``client.py``'s PostToolUse hook skip ``asyncio.to_thread``
+        on every tool call once the interval gate is closed. The
+        predicate is intentionally lockless; the authoritative gate is
+        in ``poll`` under ``_poll_lock`` (covered by
+        ``test_concurrent_polls_share_the_throttle_slot``).
+        """
+        clock = _Clock()
+        poller = _make_poller(tmp_path, clock)
+
+        # Never polled yet → due.
+        assert poller.is_due_to_poll() is True
+
+        with (
+            patch("egg_agent.midturn_messages.shutil.which", return_value="/usr/bin/egg-orch"),
+            patch(
+                "egg_agent.midturn_messages.subprocess.run",
+                return_value=_completed(_poll_response([])),
+            ),
+        ):
+            poller.poll()
+
+        # Just polled → not due.
+        assert poller.is_due_to_poll() is False
+        clock.value += 30.0
+        assert poller.is_due_to_poll() is False
+        clock.value += 31.0  # past 60s interval
+        assert poller.is_due_to_poll() is True
 
     def test_default_interval_from_env(self, monkeypatch):
         monkeypatch.setenv("EGG_MIDTURN_MESSAGES_INTERVAL_SECS", "120")
@@ -207,6 +354,37 @@ class TestFiltering:
         assert "operator directive" in block
         assert "human follow-up" in block
         assert "peer chatter" not in block
+
+    def test_orchestrator_role_is_injected(self, tmp_path):
+        """Orchestrator-issued nudges surface mid-turn (e.g. the
+        ``brc_confirmation_timeout`` directed wake from
+        ``orchestrator/routes/pipelines.py::_send_brc_confirmation_nudge``,
+        whose whole point is to nudge a producer that has stalled
+        post-ACK)."""
+        clock = _Clock()
+        poller = self._seeded_poller(tmp_path, clock)
+        batch = [
+            _message(
+                "msg-1",
+                from_role="orchestrator",
+                message_type="OVERSEER_ALERT",
+                subject="BRC confirmation timeout — call mcp__brc__confirm",
+                body="You are PROPOSED and fully ACKed but have not confirmed in 300s.",
+            )
+        ]
+
+        with (
+            patch("egg_agent.midturn_messages.shutil.which", return_value="/usr/bin/egg-orch"),
+            patch(
+                "egg_agent.midturn_messages.subprocess.run",
+                return_value=_completed(_poll_response(batch)),
+            ),
+        ):
+            block = poller.poll()
+
+        assert block is not None
+        assert "mcp__brc__confirm" in block
+        assert "from orchestrator" in block
 
     def test_since_id_stale_resnaps_without_injecting(self, tmp_path):
         """Store-side cursor invalidation (#2464) re-snaps to tip silently."""

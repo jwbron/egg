@@ -501,6 +501,15 @@ async def run_agent_async(
         async def _inject_midturn_messages(
             input_data: HookInput, tool_use_id: str | None, context: HookContext
         ) -> HookJSONOutput:
+            # Fast-path: when the interval gate is clearly closed, skip
+            # the thread boundary entirely. The matcher is None so this
+            # hook fires on every tool call; under a chatty tool storm
+            # the per-call cost (thread creation + GIL handoff) is
+            # otherwise paid even when there is no work to do. The
+            # lockless predicate may produce false positives under
+            # concurrent calls; poll() re-checks atomically.
+            if not midturn_poller.is_due_to_poll():
+                return {}
             # poll() runs an egg-orch subprocess when the interval has
             # elapsed; keep it off the event loop. Between polls it is a
             # monotonic-clock comparison.
