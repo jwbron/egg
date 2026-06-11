@@ -1090,21 +1090,19 @@ class StateStore:
         individual store ever crossed the threshold even when the repo's
         underlying remote was repeatedly failing.
         """
+        recovered_from = 0
+        log_recovery = False
         with _sync_failure_state_lock:
             failures, _ = _sync_failure_state.get(self.repo_path, (0, None))
             if ok:
                 if failures >= self._SYNC_ALERT_THRESHOLD:
                     recovered_from = failures
                     log_recovery = True
-                else:
-                    log_recovery = False
                 _sync_failure_state.pop(self.repo_path, None)
                 n = 0
             else:
                 n = failures + 1
                 _sync_failure_state[self.repo_path] = (n, detail)
-                log_recovery = False
-                recovered_from = 0
 
         if ok:
             if log_recovery:

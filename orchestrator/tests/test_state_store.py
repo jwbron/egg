@@ -1254,6 +1254,22 @@ class TestRunGitLocking:
 class TestRemoteSync:
     """Tests for remote sync (push/restore) of the state branch."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_sync_failure_state(self):
+        """Reset the module-global per-repo failure counter between tests.
+
+        ``_sync_failure_state`` is keyed on ``repo_path``; each test's
+        ``state_store`` fixture uses a fresh ``tmp_path`` so collisions
+        are unlikely today, but a future fixture that reuses paths
+        (session-scoped stores, parametrised cases) would inherit prior
+        counter state.  Clearing on teardown is cheap insurance.
+        """
+        import state_store as _state_store_mod
+
+        _state_store_mod._sync_failure_state.clear()
+        yield
+        _state_store_mod._sync_failure_state.clear()
+
     def test_sync_to_remote_calls_gateway_client(self, state_store):
         """sync_to_remote calls push_worktree_branch on the gateway client.
 
@@ -1469,6 +1485,28 @@ class TestRemoteSync:
         assert state_store._sync_consecutive_failures == 0
         assert state_store._sync_last_error is None
         assert "recovered" in caplog.text
+
+    def test_persistent_sync_failure_respams_on_period(self, state_store, caplog):
+        """Re-fire branch: alert again every ``_SYNC_ALERT_RESPAM_PERIOD``.
+
+        Guards the ``n > _SYNC_ALERT_THRESHOLD and n % _RESPAM_PERIOD == 0``
+        branch the PR specifically added a constant for.  A regression that
+        swaps the operator (``or`` for ``and``) or strips the ``n > THRESHOLD``
+        guard would slip through the threshold-only test.
+        """
+        threshold = StateStore._SYNC_ALERT_THRESHOLD
+        period = StateStore._SYNC_ALERT_RESPAM_PERIOD
+        with caplog.at_level(logging.ERROR, logger="orchestrator.state_store"):
+            for _ in range(threshold + period):
+                state_store._record_sync_outcome(ok=False, detail="still dead")
+
+        alert_count = caplog.text.count("OVERSEER_ALERT state_sync_push_failing")
+        # Initial fire at THRESHOLD plus one re-fire at the next RESPAM_PERIOD
+        # boundary above THRESHOLD.
+        assert alert_count == 2, (
+            f"expected 2 alerts (initial + 1 respam), got {alert_count} "
+            f"after {threshold + period} failures"
+        )
 
     def test_sync_to_remote_async_debounces_and_retries(self, state_store):
         """_sync_to_remote_async retries after in-flight push when pending flag is set."""
