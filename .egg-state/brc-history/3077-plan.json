@@ -1,0 +1,1743 @@
+[
+  {
+    "id": "d70cb3ff-bb42-45",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump start (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:05:24.359287+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "31a04e5c-47eb-4d",
+    "pipeline_id": "issue-3077",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump start (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:05:24.393906+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "67d9fd29-a2d1-48",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump start (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:05:24.400772+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fcffe0b2-fc47-44",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump start (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:05:24.456240+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1e16ad27-1579-49",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:05:25.295735+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6154ef37-c79e-49",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:05:55.390972+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "13f7fa11-d652-4b",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:06:26.096406+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f36e6c37-1856-44",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:06:26.584497+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "510d910f-ec68-49",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:06:27.363500+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "017007b8-9512-4c",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:06:57.455001+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "398b4529-6bba-4b",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:07:28.034746+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "812ff3ca-0c4e-42",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:07:28.542857+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8ea18124-52e7-4a",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:07:29.310588+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f2bd6673-0d59-4a",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:07:59.374211+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5e05097b-fd63-4d",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:08:30.007789+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2228a8d9-c078-4a",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:08:30.509151+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c453e35a-e17c-40",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:08:31.291131+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5a1e067d-13e7-4f",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:09:01.432093+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3586c2dc-9855-4e",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:09:32.061510+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "830864e0-293a-42",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:09:32.538833+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5c7fc827-24ac-4e",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:09:33.287825+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4fb1d082-c8e8-46",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from risk_analyst",
+    "body": "Risk assessment for issue #3077 Option C (full remaining scope): overall MEDIUM, PROCEED_WITH_MITIGATIONS. Seven risks, three HIGH-severity but all closable at design time: R1 the artifact-spec module becoming a fourth replica of path knowledge unless each existing hardcoding is explicitly DERIVED or containment-ASSERTED with a CI test; R2 the generalized propose-time validator either bricking legitimate artifact-less proposals (no_changes_needed, sentinel SHAs, dual-role agents) or silently degrading into never-validating \u2014 #3081 on both edges \u2014 mitigated by an explicit per-(role,condition) degradation matrix with observable skips; R3 the gateway artifact-read endpoint's residual ref-injection/cross-pipeline-scoping surface (HITL Q2's name-only resolution already closes the path dimension) \u2014 flagged requires_human_review for the session-binding decision #3002 will inherit. Plus: R4 sync-failure warning must be injected sandbox-side (wrapper), not orchestrator-side event_prompt \u2014 the two sides never exchange state and the wrapper is a format-string template; R5 phase-3 prose deletion ordered last + ratchet-test allowlist; R6 spec module must live in shared/egg_contracts or both Dockerfiles need COPY updates (verified both already ship egg_contracts/egg_restrictions); R7 fail-loud durability signal keyed to BRC-on-memory-backend in deployed context, not mere backend selection (auto\u2192memory is the normal dev path; the existing fallback warning has prevented nothing). Grounded against the working tree: consensus_wrapper.py:487-539, signals.py:1067-1200, message_store.py:589-650, phase_filter.py:595-655, both Dockerfiles.",
+    "metadata": {
+      "payload": {
+        "summary": "Risk assessment for issue #3077 Option C (full remaining scope): overall MEDIUM, PROCEED_WITH_MITIGATIONS. Seven risks, three HIGH-severity but all closable at design time: R1 the artifact-spec module becoming a fourth replica of path knowledge unless each existing hardcoding is explicitly DERIVED or containment-ASSERTED with a CI test; R2 the generalized propose-time validator either bricking legitimate artifact-less proposals (no_changes_needed, sentinel SHAs, dual-role agents) or silently degrading into never-validating \u2014 #3081 on both edges \u2014 mitigated by an explicit per-(role,condition) degradation matrix with observable skips; R3 the gateway artifact-read endpoint's residual ref-injection/cross-pipeline-scoping surface (HITL Q2's name-only resolution already closes the path dimension) \u2014 flagged requires_human_review for the session-binding decision #3002 will inherit. Plus: R4 sync-failure warning must be injected sandbox-side (wrapper), not orchestrator-side event_prompt \u2014 the two sides never exchange state and the wrapper is a format-string template; R5 phase-3 prose deletion ordered last + ratchet-test allowlist; R6 spec module must live in shared/egg_contracts or both Dockerfiles need COPY updates (verified both already ship egg_contracts/egg_restrictions); R7 fail-loud durability signal keyed to BRC-on-memory-backend in deployed context, not mere backend selection (auto\u2192memory is the normal dev path; the existing fallback warning has prevented nothing). Grounded against the working tree: consensus_wrapper.py:487-539, signals.py:1067-1200, message_store.py:589-650, phase_filter.py:595-655, both Dockerfiles.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/3077-plan-risk-analyst.json"
+        ],
+        "risk_considered": "Assessment itself is read-only analysis; main hazard is anchoring the plan on a wrong claim, so every cited line range was re-verified against the working tree before writing. Flagged R3 as requires_human_review rather than self-adjudicating the cross-pipeline isolation model.",
+        "commit_sha": "4b4b7f10b299444cd1cb421251c2788757657dd5",
+        "files_changed": [
+          ".egg-state/drafts/3077-plan-risk-analyst.json",
+          ".egg-state/agent-outputs/risk_analyst/brc-memory.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "4b4b7f10b299444cd1cb421251c2788757657dd5"
+    },
+    "timestamp": "2026-06-11T21:09:37.769371+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d43b5f95-a6dc-4e",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=risk_analyst (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:10:03.285282+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a46f4499-0183-42",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=0) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:10:03.326917+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a1cf12b1-1cc0-44",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=risk_analyst (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:10:33.354710+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7d81cc15-d5c5-4f",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=risk_analyst (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:11:03.920863+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "abcd8439-b918-42",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:11:04.405831+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1e93a5b4-ed40-4f",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=risk_analyst (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:11:05.169102+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c002599d-5c6d-42",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "risk_analyst",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for risk_analyst",
+    "body": "ACK risk_analyst plan-phase risk assessment v1 (commit 4b4b7f1). Spot-verified every load-bearing factual claim against the working tree: signals.py:1067 _validate_plan_proposal degradation matrix and _get_draft_path lazy-import fallback (grounds R2); consensus_wrapper.py sync_to_proposals format-string template with {{ }} escaping (grounds R4's escaping hazard and process-boundary analysis); message_store.py auto\u2192memory fallback with existing weak warning (grounds R7); phase_filter.py:603+ hardcoded glob dicts where this very artifact matches '*plan*' (grounds R1's glob-vs-template mismatch); both Dockerfiles already COPY egg_contracts (grounds R6's placement recommendation). hitl_alignment matches all three resolved refine HITL decisions exactly (Option C, strict name-only endpoint, fail-loud durability). Risk coverage spans all six work-breakdown tasks with concrete, AC-encodable mitigations; severity calibration (MEDIUM overall, three design-time-closable HIGHs) is defensible. R3's requires_human_review flag on the endpoint session-binding decision is appropriate and should be carried into the plan by task_planner. No blockers.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3077-plan-risk-analyst.json",
+          ".egg-state/drafts/3077-analysis.md",
+          "orchestrator/routes/signals.py",
+          "orchestrator/consensus_wrapper.py",
+          "orchestrator/message_store.py",
+          "gateway/phase_filter.py",
+          "orchestrator/Dockerfile",
+          "gateway/Dockerfile",
+          "orchestrator/routes/event_prompt.py"
+        ],
+        "reason": "ACK risk_analyst plan-phase risk assessment v1 (commit 4b4b7f1). Spot-verified every load-bearing factual claim against the working tree: signals.py:1067 _validate_plan_proposal degradation matrix and _get_draft_path lazy-import fallback (grounds R2); consensus_wrapper.py sync_to_proposals format-string template with {{ }} escaping (grounds R4's escaping hazard and process-boundary analysis); message_store.py auto\u2192memory fallback with existing weak warning (grounds R7); phase_filter.py:603+ hardcoded glob dicts where this very artifact matches '*plan*' (grounds R1's glob-vs-template mismatch); both Dockerfiles already COPY egg_contracts (grounds R6's placement recommendation). hitl_alignment matches all three resolved refine HITL decisions exactly (Option C, strict name-only endpoint, fail-loud durability). Risk coverage spans all six work-breakdown tasks with concrete, AC-encodable mitigations; severity calibration (MEDIUM overall, three design-time-closable HIGHs) is defensible. R3's requires_human_review flag on the endpoint session-binding decision is appropriate and should be carried into the plan by task_planner. No blockers.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-06-11T21:11:30.832287+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4ed24740-198f-49",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=0) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:11:35.242564+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "774d6602-44e6-42",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=risk_analyst (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:11:36.018796+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bfbe0115-96c5-4b",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:11:45.047812+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "185aef16-3358-44",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=risk_analyst (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:12:06.115138+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d1ce444a-2bf9-48",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:12:15.050513+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7fa86980-b904-41",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=risk_analyst (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:12:36.776963+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "34127365-eed0-4d",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:12:37.271054+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0f66010c-29da-41",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=risk_analyst (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:12:38.016790+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "00dc59ed-1d09-41",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:12:45.560409+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "73805fb5-0ad2-46",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:12:46.080917+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3ff85522-1b2c-44",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:12:46.854140+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "00c61e2b-0066-4f",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from architect",
+    "body": "Architecture for #3077 Option C (HITL-approved full scope), 6-slice DAG. Slice-1: R1 non-silent sync \u2014 sync_to_proposals() (consensus_wrapper.py:487-541) records per-SHA outcomes and the wrapper prepends an explicit not-synced banner to the reviewer prompt on failure; event_prompt.py empty-delta caution cross-references it. Slice-2: declarative artifact-spec module at shared/egg_contracts/artifact_spec.py (5-row registry: analysis-draft, plan-draft, architect-output, architect-slices, risk-analyst-output) with MANDATORY consistency tests against gateway/phase_filter.py gates, _get_draft_path, and prompt f-string literals. Slice-3: spec-derived propose-time presence validation for ALL refine/plan producers in signals.py, subsuming _validate_producer_draft_present and the task_planner-only validator; preserves #3081 graceful-degradation; plan keeps parse_plan + role-alignment extensions. Slice-4: strict gateway artifact-read endpoint (HITL Q2: spec-registered names only, path unrepresentable in schema; hex-validated committed refs; contract_api.py forward pattern; new orchestrator/routes/artifacts.py; sandbox helper) \u2014 unblocks #3002. Slice-5: REVIEWER-SYNC/event-prompt fetch-prose deletion + docs/architecture invariant entry + no-sync-mechanics ratchet test; last on chain (hard event_prompt.py overlap with slice-1 per #3046, serialized_chain_order recorded). Slice-6: bounded durability per HITL Q3 \u2014 fail-loud health-visible flag on auto\u2192memory fallback in message_store.py + Redis restart-semantics test distinguishing the designed _clear_concurrent_state() wipe from accidental loss; parallel root (disjoint files). NOTE for task_planner: this scaffold (#2809) is binding and landed AFTER your 3077-plan.md draft \u2014 copy the slices.yaml verbatim into the # yaml-tasks appendix and re-align tasks to the 6-slice chain on your next cycle. All claims carry file:line evidence; runtime-primitive contexts surfaced per #2594.",
+    "metadata": {
+      "payload": {
+        "summary": "Architecture for #3077 Option C (HITL-approved full scope), 6-slice DAG. Slice-1: R1 non-silent sync \u2014 sync_to_proposals() (consensus_wrapper.py:487-541) records per-SHA outcomes and the wrapper prepends an explicit not-synced banner to the reviewer prompt on failure; event_prompt.py empty-delta caution cross-references it. Slice-2: declarative artifact-spec module at shared/egg_contracts/artifact_spec.py (5-row registry: analysis-draft, plan-draft, architect-output, architect-slices, risk-analyst-output) with MANDATORY consistency tests against gateway/phase_filter.py gates, _get_draft_path, and prompt f-string literals. Slice-3: spec-derived propose-time presence validation for ALL refine/plan producers in signals.py, subsuming _validate_producer_draft_present and the task_planner-only validator; preserves #3081 graceful-degradation; plan keeps parse_plan + role-alignment extensions. Slice-4: strict gateway artifact-read endpoint (HITL Q2: spec-registered names only, path unrepresentable in schema; hex-validated committed refs; contract_api.py forward pattern; new orchestrator/routes/artifacts.py; sandbox helper) \u2014 unblocks #3002. Slice-5: REVIEWER-SYNC/event-prompt fetch-prose deletion + docs/architecture invariant entry + no-sync-mechanics ratchet test; last on chain (hard event_prompt.py overlap with slice-1 per #3046, serialized_chain_order recorded). Slice-6: bounded durability per HITL Q3 \u2014 fail-loud health-visible flag on auto\u2192memory fallback in message_store.py + Redis restart-semantics test distinguishing the designed _clear_concurrent_state() wipe from accidental loss; parallel root (disjoint files). NOTE for task_planner: this scaffold (#2809) is binding and landed AFTER your 3077-plan.md draft \u2014 copy the slices.yaml verbatim into the # yaml-tasks appendix and re-align tasks to the 6-slice chain on your next cycle. All claims carry file:line evidence; runtime-primitive contexts surfaced per #2594.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/3077-architect-output.json",
+          ".egg-state/agent-outputs/3077-architect-slices.yaml"
+        ],
+        "risk_considered": "r-1 spec-as-fourth-replica (mitigated: in-slice blocking consistency tests + slice-3 re-derivation); r-2 gateway policy surface (strict name-only schema, hex refs, session auth, output caps); r-3 prose-deletion regression (slice-5 last on chain, replacements live first); r-4 ratchet false positives (agent-facing scope + justified allowlist); r-5 banner/prompt drift (fixed versioned string, end-to-end test); r-6 #3081 degradation contract (reuse single helper, per-role tests).",
+        "commit_sha": "f975c4dd98ecb698a7edaa0492e7ab731d631862",
+        "files_changed": [
+          ".egg-state/agent-outputs/3077-architect-output.json",
+          ".egg-state/agent-outputs/3077-architect-slices.yaml"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "f975c4dd98ecb698a7edaa0492e7ab731d631862"
+    },
+    "timestamp": "2026-06-11T21:12:53.258060+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6922d9c1-46f3-46",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=0) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:13:08.100717+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ad483d69-ae40-4f",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=0) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:13:16.875428+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "df8d04dc-da73-4a",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=architect (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:14:02.409404+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "22506212-d74d-44",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from risk_analyst for architect",
+    "body": "Risk review PASS \u2014 design satisfies all risk gates from my assessment (v1). R1: spec consistency tests in-slice/blocking (ac-2), literals asserted in slice-2 then derived in slice-3. R2: explicit per-condition degradation matrix (no_changes_needed/RECONSTRUCTED_NO_SHA skip, no-spec roles validate nothing, infra ambiguity degrades non-blocking), existing helper reused without fork, #3081 semantics preserved, per-role tests mandated. R3: strict name-only schema (path unrepresentable per HITL Q2), hex-validated committed refs, session-bound pipeline_id, explicit truncated flag. R4: sync-failure banner is wrapper-side (correct process boundary); orchestrator round-trip explicitly rejected. R5: prose deletion ordered last on chain; ratchet allowlist with per-entry justification. R6: spec in shared/egg_contracts, already shipped in both containers. R7: auto\u2192memory escalates to error+health flag, explicit memory stays warning \u2014 consent-based, avoids alert fatigue. Non-blocking notes for implement: (a) slice-3 validation skips should emit an observable log line per skip condition; (b) slice-4 should specify honest 4xx (not 500) when a registered name is absent at the requested ref.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3077-architect-output.json",
+          ".egg-state/agent-outputs/3077-architect-slices.yaml"
+        ],
+        "reason": "Risk review PASS \u2014 design satisfies all risk gates from my assessment (v1). R1: spec consistency tests in-slice/blocking (ac-2), literals asserted in slice-2 then derived in slice-3. R2: explicit per-condition degradation matrix (no_changes_needed/RECONSTRUCTED_NO_SHA skip, no-spec roles validate nothing, infra ambiguity degrades non-blocking), existing helper reused without fork, #3081 semantics preserved, per-role tests mandated. R3: strict name-only schema (path unrepresentable per HITL Q2), hex-validated committed refs, session-bound pipeline_id, explicit truncated flag. R4: sync-failure banner is wrapper-side (correct process boundary); orchestrator round-trip explicitly rejected. R5: prose deletion ordered last on chain; ratchet allowlist with per-entry justification. R6: spec in shared/egg_contracts, already shipped in both containers. R7: auto\u2192memory escalates to error+health flag, explicit memory stays warning \u2014 consent-based, avoids alert fatigue. Non-blocking notes for implement: (a) slice-3 validation skips should emit an observable log line per skip condition; (b) slice-4 should specify honest 4xx (not 500) when a registered name is absent at the requested ref.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-06-11T21:14:23.511050+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5ea5213e-3a52-4b",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=0) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:14:32.370343+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ca7fb0c6-078c-42",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=architect (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:14:33.140791+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4a405025-e060-48",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=risk_analyst (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:14:58.164047+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "05e42417-42f1-42",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for architect",
+    "body": "ACK architect plan v1 (commit f975c4d). Verified all 11 evidence refs against the working tree: sync_to_proposals fail-soft cw_log-only channel (consensus_wrapper.py:487-541); delta rendering orthogonal to sync outcome + fetch-fallback prose (event_prompt.py:207-304, ~850-880); REVIEWER-SYNC.md fetch+log delta row; prompt f-string artifact paths (pipelines.py:14021,14112); _get_draft_path lazy import + git-show helper with #3081 semantics (signals.py:1162-1200); contract_api forward pattern + shared/ on gateway path; phase_filter glob dicts; message_store auto\u2192memory fallback; slice-dag forest constraint (\u22641 parent) confirming the serialized-chain rationale. HITL bindings match the three resolved decisions exactly (Q1 Option C full scope, Q2 strict name-only endpoint with path unrepresentable, Q3 fail-loud without refusing auto). Slices YAML parses against plan_parser schema (slices: key, string dependencies, serialized_chain_order recognized); DAG is a valid forest with slice-6 a genuinely disjoint parallel root. Six slices cover all six Option-C work items 1:1 with concrete, testable acceptance criteria; risk register aligns with risk_analyst's assessment (spec-as-fourth-replica closed by mandatory in-slice consistency tests); out-of-scope list is explicit and HITL-consistent.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3077-architect-output.json",
+          ".egg-state/agent-outputs/3077-architect-slices.yaml"
+        ],
+        "reason": "ACK architect plan v1 (commit f975c4d). Verified all 11 evidence refs against the working tree: sync_to_proposals fail-soft cw_log-only channel (consensus_wrapper.py:487-541); delta rendering orthogonal to sync outcome + fetch-fallback prose (event_prompt.py:207-304, ~850-880); REVIEWER-SYNC.md fetch+log delta row; prompt f-string artifact paths (pipelines.py:14021,14112); _get_draft_path lazy import + git-show helper with #3081 semantics (signals.py:1162-1200); contract_api forward pattern + shared/ on gateway path; phase_filter glob dicts; message_store auto\u2192memory fallback; slice-dag forest constraint (\u22641 parent) confirming the serialized-chain rationale. HITL bindings match the three resolved decisions exactly (Q1 Option C full scope, Q2 strict name-only endpoint with path unrepresentable, Q3 fail-loud without refusing auto). Slices YAML parses against plan_parser schema (slices: key, string dependencies, serialized_chain_order recognized); DAG is a valid forest with slice-6 a genuinely disjoint parallel root. Six slices cover all six Option-C work items 1:1 with concrete, testable acceptance criteria; risk register aligns with risk_analyst's assessment (spec-as-fourth-replica closed by mandatory in-slice consistency tests); out-of-scope list is explicit and HITL-consistent.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-06-11T21:14:58.402575+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "45044998-9d82-46",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=0) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:15:03.161386+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fe7d15f8-b335-45",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=architect (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:15:03.936819+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d82c8296-20a5-42",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=risk_analyst (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:15:28.218947+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3e9a6b27-e641-4b",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=architect (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:15:33.958926+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "136b52eb-62be-4b",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:15:53.563127+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "dd26ac7b-37b9-49",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=risk_analyst (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:15:58.762929+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ef0fdfa6-614b-40",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:15:59.255141+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0bb4179b-cda1-48",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=risk_analyst (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:16:00.016306+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8f1e6eb7-6590-41",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=architect (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:16:04.487018+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2616c903-561c-4d",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:16:04.997775+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d2d12ef4-f9a7-4d",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=architect (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:16:05.776365+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "76b320d5-3148-4f",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:16:23.504663+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "23bd023c-5363-4b",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=risk_analyst (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:16:30.095022+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e9a452b8-8b48-47",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=architect (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:16:35.794087+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d4386677-3d3f-45",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:16:54.028366+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b44f26fa-0f69-46",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=risk_analyst (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:17:00.654934+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9db7f929-4e60-45",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:17:01.142145+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "87950c54-9212-46",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=risk_analyst (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:17:01.902082+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0b05db7e-1fd1-43",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=architect (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:17:06.321670+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9d8daac1-f8d2-44",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:17:06.827191+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b74b0d69-5258-4b",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=architect (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:17:07.570218+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fb9100df-0964-4d",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:17:24.548663+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ebe51d24-45b3-43",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:17:25.321344+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "51d75be9-cc2a-4d",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=risk_analyst (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:17:31.985082+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1e5961b1-3cee-4d",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=architect (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:17:37.593104+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0ff95e8b-72db-4a",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:17:55.333899+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fffed485-f774-41",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=risk_analyst (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:18:02.523643+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "13bc0ac6-91d8-48",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:18:03.045420+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b3e43968-126b-4f",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=risk_analyst (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:18:03.784298+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "739bf870-d92a-47",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=architect (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:18:08.103126+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e69383d9-93df-46",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:18:08.613558+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6d4786df-fd55-4e",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=architect (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:18:09.352371+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a769ae26-3d98-4e",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:18:25.847922+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a37dd845-ddbe-40",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:18:26.373581+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2d6680ee-6ed7-44",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:18:27.149919+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "70258a9a-9ee5-4b",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=risk_analyst (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:18:33.788129+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "43914ef4-d331-4f",
+    "pipeline_id": "issue-3077",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Plan for #3077 (HITL Option C, full remaining scope) on the architect's 6-slice DAG: slices 1-5 serialized, slice 6 parallel root; 17 tasks. Slice 1 \u2014 R1 non-silent sync: sync_to_proposals() records per-SHA outcomes (merged/already-ancestor/unresolvable/merge-failed) and the wrapper prepends a \"worktree NOT synced\" banner to the fetched event prompt on failure; event_prompt empty-delta caution cross-references it. Slice 2 \u2014 artifact spec module (shared/egg_contracts/artifact_spec.py: frozen rows for analysis-draft, plan-draft, architect-output, architect-slices, risk-analyst-output; resolve_artifact_path/specs_for/spec_by_name) with MANDATORY in-slice consistency tests pinning phase gates, the phase_patterns mirror, _get_draft_path (both identifier shapes), and pipelines.py prompt literals to the spec; no consumer rewiring yet. Slice 3 \u2014 spec-derived propose validation for all refine/plan producers, reusing the #3081 branch_verified graceful-degradation git-show helper, keeping plan parseability/role-alignment extensions, deleting _validate_producer_draft_present, re-deriving the asserted literals. Slice 4 \u2014 strict gateway POST /api/v1/artifact/get (gateway/artifact_api.py blueprint forwarding to new orchestrator/routes/artifacts.py; no path field in schema, hex-validated refs, 400 lists registered names, output caps + truncated flag \u2014 HITL Q2; unblocks #3002) plus sandbox egg-artifact helper. Slice 5 \u2014 prose retirement (event_prompt self-fetch fallback: coder; REVIEWER-SYNC fetch prose: documenter, per shared/prompts role ownership), docs/architecture/coordination-state.md invariant entry, ratchet test; #3046 event_prompt.py overlap with slice 1 handled by chain serialization. Slice 6 \u2014 bounded durability per HITL Q3: auto\u2192memory fallback = error-level log + degraded health flag, explicit memory = warning, no change to auto semantics; Redis restart-semantics test distinguishing the designed _clear_concurrent_state wipe from accidental mid-phase loss. Draft validated locally: parse_plan success, 0 warnings; validate_plan_preflight OK; every task's files verified writable by its role via check_file_restriction.",
+    "metadata": {
+      "payload": {
+        "summary": "Plan for #3077 (HITL Option C, full remaining scope) on the architect's 6-slice DAG: slices 1-5 serialized, slice 6 parallel root; 17 tasks. Slice 1 \u2014 R1 non-silent sync: sync_to_proposals() records per-SHA outcomes (merged/already-ancestor/unresolvable/merge-failed) and the wrapper prepends a \"worktree NOT synced\" banner to the fetched event prompt on failure; event_prompt empty-delta caution cross-references it. Slice 2 \u2014 artifact spec module (shared/egg_contracts/artifact_spec.py: frozen rows for analysis-draft, plan-draft, architect-output, architect-slices, risk-analyst-output; resolve_artifact_path/specs_for/spec_by_name) with MANDATORY in-slice consistency tests pinning phase gates, the phase_patterns mirror, _get_draft_path (both identifier shapes), and pipelines.py prompt literals to the spec; no consumer rewiring yet. Slice 3 \u2014 spec-derived propose validation for all refine/plan producers, reusing the #3081 branch_verified graceful-degradation git-show helper, keeping plan parseability/role-alignment extensions, deleting _validate_producer_draft_present, re-deriving the asserted literals. Slice 4 \u2014 strict gateway POST /api/v1/artifact/get (gateway/artifact_api.py blueprint forwarding to new orchestrator/routes/artifacts.py; no path field in schema, hex-validated refs, 400 lists registered names, output caps + truncated flag \u2014 HITL Q2; unblocks #3002) plus sandbox egg-artifact helper. Slice 5 \u2014 prose retirement (event_prompt self-fetch fallback: coder; REVIEWER-SYNC fetch prose: documenter, per shared/prompts role ownership), docs/architecture/coordination-state.md invariant entry, ratchet test; #3046 event_prompt.py overlap with slice 1 handled by chain serialization. Slice 6 \u2014 bounded durability per HITL Q3: auto\u2192memory fallback = error-level log + degraded health flag, explicit memory = warning, no change to auto semantics; Redis restart-semantics test distinguishing the designed _clear_concurrent_state wipe from accidental mid-phase loss. Draft validated locally: parse_plan success, 0 warnings; validate_plan_preflight OK; every task's files verified writable by its role via check_file_restriction.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/3077-plan.md"
+        ],
+        "risk_considered": "Spec becoming a fourth path replica (mandatory in-slice consistency tests in TASK-2-2; slice 3 re-derives the asserted literals); gateway endpoint policy-surface creep (strict name-only schema with no path field, hex-validated committed refs, reused output caps + truncated flag); prose-deletion regression (slices 1-5 strictly serialized so every replacement mechanism is live before its prose predecessor is deleted); validation generalization breaking no_changes_needed/artifact-less roles (explicit pass-through acceptance in TASK-3-1); event_prompt.py hard file-overlap between slices 1 and 5 (#3046 \u2014 serialized chain, slice-5 task rebases on slice-1 state); conflating the designed _clear_concurrent_state phase-boundary wipe with accidental mid-phase loss (TASK-6-2 asserts both separately); role\u2194files push failures at implement time (every task file list pre-checked via check_file_restriction, including the documenter split for shared/prompts).",
+        "commit_sha": "2e2a884fe0eac2ac16c66d1c89101c783d367efb",
+        "files_changed": [
+          ".egg-state/drafts/3077-plan.md",
+          ".egg-state/agent-outputs/task_planner/brc-memory.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "2e2a884fe0eac2ac16c66d1c89101c783d367efb"
+    },
+    "timestamp": "2026-06-11T21:18:36.678228+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1ae784f6-5a2f-44",
+    "pipeline_id": "issue-3077",
+    "from_role": "orchestrator",
+    "to_role": "architect",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-06-11T21:18:36.678301+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "115635eb-cb17-41",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=0) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:18:39.347532+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0fba3198-6dcd-48",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-06-11T21:18:40.105430+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ee0567e2-0cca-47",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=architect (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:18:40.889811+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "deebc0ef-5863-41",
+    "pipeline_id": "issue-3077",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: PROPOSED",
+    "body": "task_planner plan proposal v1 sent (commit 2e2a884fe); awaiting reviewer_plan + risk_analyst review",
+    "metadata": {
+      "state": "PROPOSED"
+    },
+    "timestamp": "2026-06-11T21:18:42.621973+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "86f031cc-012f-48",
+    "pipeline_id": "issue-3077",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=task_planner (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:18:56.471941+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "22d76e45-040a-4f",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=0) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:18:57.122212+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6401bcb2-b400-46",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=0) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:19:04.382821+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8f25da15-c9b9-41",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=architect (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:19:10.905906+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "67952025-0972-42",
+    "pipeline_id": "issue-3077",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=task_planner (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:19:26.469188+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c0f3e7d9-a16d-49",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=architect (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:19:41.455490+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0b6645a1-5dbd-43",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:19:41.960632+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b7bc929e-e895-4a",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=architect (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:19:42.793206+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f7ba834c-fed3-41",
+    "pipeline_id": "issue-3077",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=task_planner (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:19:56.998571+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "635f7990-bee9-40",
+    "pipeline_id": "issue-3077",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:19:57.481511+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2ab0b493-cfed-4f",
+    "pipeline_id": "issue-3077",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=task_planner (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:19:58.253843+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "41a08882-358e-40",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=architect (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:20:12.897451+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0cc8cbb5-c234-4e",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for task_planner",
+    "body": "Plan v1 (commit 2e2a884) faithfully realizes the architect's six-slice change model: serialized chain 1\u21922\u21923\u21924\u21925 (single-parent deps + serialized_chain_order on slice-5, #3046 overlap mitigated) with slice-6 as parallel root on a disjoint file set. All three HITL resolutions honored (Option C scope; Q2 strict name-only endpoint with no path field; Q3 fail-loud auto\u2192memory with no refusal). Slice-2 consistency tests are mandatory and in-slice (refine risk 1); slice-3 deletes _validate_producer_draft_present and preserves #3081 branch_verified degradation without forking the git-show helper; slice-4 follows the contract_api.py forward pattern. Code anchors spot-verified (sync_to_proposals @consensus_wrapper.py:487, _get_draft_path @signals.py:1156, _create_message_store @message_store.py:603, _clear_concurrent_state @phases.py:113). Role\u2194files alignment verified for every task via check_file_restriction (coder/documenter/tester all writable under both gateway layers, phase=implement). Minor non-blocking nit: the \u22481115-1117 anchor for _validate_producer_draft_present points at docstring references; the def is @1307.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3077-plan.md"
+        ],
+        "reason": "Plan v1 (commit 2e2a884) faithfully realizes the architect's six-slice change model: serialized chain 1\u21922\u21923\u21924\u21925 (single-parent deps + serialized_chain_order on slice-5, #3046 overlap mitigated) with slice-6 as parallel root on a disjoint file set. All three HITL resolutions honored (Option C scope; Q2 strict name-only endpoint with no path field; Q3 fail-loud auto\u2192memory with no refusal). Slice-2 consistency tests are mandatory and in-slice (refine risk 1); slice-3 deletes _validate_producer_draft_present and preserves #3081 branch_verified degradation without forking the git-show helper; slice-4 follows the contract_api.py forward pattern. Code anchors spot-verified (sync_to_proposals @consensus_wrapper.py:487, _get_draft_path @signals.py:1156, _create_message_store @message_store.py:603, _clear_concurrent_state @phases.py:113). Role\u2194files alignment verified for every task via check_file_restriction (coder/documenter/tester all writable under both gateway layers, phase=implement). Minor non-blocking nit: the \u22481115-1117 anchor for _validate_producer_draft_present points at docstring references; the def is @1307.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-06-11T21:20:26.750477+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c0a85242-683d-4c",
+    "pipeline_id": "issue-3077",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=0) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:20:28.262703+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "01046f1c-a25a-4c",
+    "pipeline_id": "issue-3077",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=task_planner (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:20:29.059908+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a8fe10eb-fbea-44",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from risk_analyst for task_planner",
+    "body": "Risk review PASS \u2014 plan v1 (commit 2e2a884) satisfies all 7 risk gates from my register. R1: TASK-2-2 consistency suite mandatory/in-slice (gates, mirror, _get_draft_path, pipelines literals); TASK-3-1 re-derives literals and deletes _validate_producer_draft_present (asserted\u2192derived). R2: validation scoped to proposes carrying commit_sha; no_changes_needed skips; artifact-less roles validate nothing; #3081 branch_verified reused via single helper, no fork; per-role rejection + pass-through tests in TASK-3-2. R3: strict name-only schema (no path field), hex-validated ref, 400 listing registered names, absent-at-ref structured 4xx not 500 (incorporates my carried note b), caps + truncated flag, session-bound role. R4: banner prepended wrapper-side before agent invocation. R5: slice 5 ordered last on serialized chain; ratchet allowlist justified; git show exempt; #3046 overlap named with rebase mitigation. R6: spec in shared/egg_contracts, pure Python. R7: auto\u2192memory error+degraded flag vs explicit-memory warning, no refusal, harness not spammed; wipe semantics dual-asserted in TASK-6-2. Non-blocking carried to implement: (a) TASK-3-1 validation skips should emit an observable log line per skip condition; (b') TASK-3-2 pass-through coverage should include the missing/reconstructed-commit_sha case explicitly.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3077-plan.md"
+        ],
+        "reason": "Risk review PASS \u2014 plan v1 (commit 2e2a884) satisfies all 7 risk gates from my register. R1: TASK-2-2 consistency suite mandatory/in-slice (gates, mirror, _get_draft_path, pipelines literals); TASK-3-1 re-derives literals and deletes _validate_producer_draft_present (asserted\u2192derived). R2: validation scoped to proposes carrying commit_sha; no_changes_needed skips; artifact-less roles validate nothing; #3081 branch_verified reused via single helper, no fork; per-role rejection + pass-through tests in TASK-3-2. R3: strict name-only schema (no path field), hex-validated ref, 400 listing registered names, absent-at-ref structured 4xx not 500 (incorporates my carried note b), caps + truncated flag, session-bound role. R4: banner prepended wrapper-side before agent invocation. R5: slice 5 ordered last on serialized chain; ratchet allowlist justified; git show exempt; #3046 overlap named with rebase mitigation. R6: spec in shared/egg_contracts, pure Python. R7: auto\u2192memory error+degraded flag vs explicit-memory warning, no refusal, harness not spammed; wipe semantics dual-asserted in TASK-6-2. Non-blocking carried to implement: (a) TASK-3-1 validation skips should emit an observable log line per skip condition; (b') TASK-3-2 pass-through coverage should include the missing/reconstructed-commit_sha case explicitly.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-06-11T21:20:30.335677+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ec359b5b-6de4-4b",
+    "pipeline_id": "issue-3077",
+    "from_role": "orchestrator",
+    "to_role": "task_planner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-06-11T21:20:30.335735+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d3883051-fea0-4b",
+    "pipeline_id": "issue-3077",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-06-11T21:20:30.335750+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4650a48c-4db7-4b",
+    "pipeline_id": "issue-3077",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by risk_analyst",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-06-11T21:20:37.804766+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3e1002bc-4288-40",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=architect (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:20:43.504187+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3047c9e6-e594-40",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:20:44.015625+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b53ff795-1d96-49",
+    "pipeline_id": "issue-3077",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=architect (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:20:44.858770+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b3133c81-3963-4f",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_plan",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-06-11T21:20:57.378140+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "78226764-3813-40",
+    "pipeline_id": "issue-3077",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_plan (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-11T21:20:58.161259+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e6c938db-87f0-41",
+    "pipeline_id": "issue-3077",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=0) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-11T21:20:59.022641+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2a93a9c7-afaa-48",
+    "pipeline_id": "issue-3077",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by task_planner",
+    "body": "",
+    "metadata": {
+      "consensus_reached": true
+    },
+    "timestamp": "2026-06-11T21:20:59.790961+00:00",
+    "phase": "plan"
+  }
+]
