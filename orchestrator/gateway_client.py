@@ -1174,6 +1174,7 @@ class GatewayClient:
         ref: str | None = None,
         base_branch: str | None = None,
         force: bool = False,
+        force_with_lease: bool = False,
     ) -> PushResult:
         """Push a branch to remote with launcher-auth (orchestrator-trusted).
 
@@ -1217,6 +1218,15 @@ class GatewayClient:
                 helper to replace a stale ``origin/<branch>`` with a
                 rebased-onto-base version (#2098).  Skips reconcile on
                 failure since force-push has nothing to reconcile against.
+            force_with_lease: When ``True``, send ``--force-with-lease``
+                — overwrite a non-ancestor remote tip only if it still
+                matches the local tracking ref ``refs/remotes/origin/
+                {branch}`` at ``repo_path``.  The caller must have just
+                fetched that tracking ref with an explicit refspec (a
+                bare-name fetch leaves it stale on narrow-refspec
+                mirrors, #3072) or the lease will reject.  Used by the
+                state-branch divergence reconciler (#3088).  Skips
+                reconcile on failure, like ``force``.
 
         Returns:
             ``PushResult`` whose ``ok`` flag is ``True`` on success and
@@ -1235,6 +1245,7 @@ class GatewayClient:
             mode=mode,
             refspec=refspec,
             force=force,
+            force_with_lease=force_with_lease,
         )
         if first.ok:
             return first
@@ -1243,7 +1254,7 @@ class GatewayClient:
         # mutates the checkout at repo_path, which we only want to do when
         # that checkout is a dedicated pipeline worktree.  Force pushes
         # also skip reconcile — the caller has already decided to overwrite.
-        if ref is not None or force:
+        if ref is not None or force or force_with_lease:
             logger.warning(
                 "Push failed (no reconcile available)",
                 pipeline_id=pipeline_id,
@@ -1273,6 +1284,7 @@ class GatewayClient:
         mode: Literal["public", "private"],
         refspec: str,
         force: bool = False,
+        force_with_lease: bool = False,
     ) -> PushResult:
         """Send a single push request to the gateway with launcher auth.
 
@@ -1302,6 +1314,7 @@ class GatewayClient:
                     "refspec": refspec,
                     "mode": mode,
                     "force": force,
+                    "force_with_lease": force_with_lease,
                 },
                 use_launcher_auth=True,
             )
