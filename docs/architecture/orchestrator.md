@@ -20,7 +20,7 @@ The orchestrator persists pipeline state using a dedicated git worktree on an or
 - All pipeline state is stored in `.egg-state/pipelines/{id}.json` files
 - Files live on the `egg/pipeline-state` orphan branch (never merged to main)
 - Accessed via a persistent git worktree at `/home/egg/.egg-state/pipeline-worktree` (single-repo) or `/home/egg/.egg-state/pipeline-worktree-{repo_name}` per repo (multi-repo)
-- State branch is synced to remote after every commit (best-effort, async push via daemon thread)
+- State branch is synced to remote after every commit (best-effort, async push via daemon thread); non-fast-forward rejections (out-of-band remote writes) are auto-reconciled via `--force-with-lease` when safe (#3088) — unrelated-histories and remote-ahead shapes are refused and logged as `OVERSEER_ALERT state_sync_unrelated_histories` / `state_sync_remote_ahead`; persistent push failures escalate to `OVERSEER_ALERT state_sync_push_failing` in orchestrator logs after a consecutive-failure threshold
 - On startup, restores from remote if local branch is missing (cross-host recovery)
 
 **Key properties:**
