@@ -558,14 +558,19 @@ egg-orch brc resolve-obligation \
   --commit-sha $(git rev-parse HEAD) \
   --note-file .egg-state/agent-outputs/obligation-resolved.md
 
-# brc read-peer-artifact — paginated read over .egg-state/brc-history/<id>-<phase>.json
-# files. Used by reviewers (and the prompt composer in slice-3) to reconstruct
-# peer-to-peer review history without hand-grepping JSON off disk. --phase is required;
-# --peer-role / --producer-role narrows by sender; --message-type can be repeated to
-# filter by CONSENSUS_* / STATUS / HANDOFF / etc. --limit defaults to 50, max 500;
-# --cursor is the opaque token returned by the previous call. Slice-scoped reads
-# (phase=implement + EGG_SLICE_ID set) merge in the per-pipeline unattributed file by
-# default; pass --no-include-unattributed to read only the per-slice file.
+# brc read-peer-artifact — dual-source BRC transcript read: the orchestrator's
+# live /brc-transcript route (in-flight phase, message store) merged with the
+# on-disk .egg-state/brc-history/<id>-<phase>.json files (completed phases).
+# Used by reviewers (and the prompt composer in slice-3) to reconstruct peer-to-
+# peer review history without hand-grepping JSON off disk. --phase is required;
+# --peer-role / --producer-role narrows by sender; --message-type can be repeated
+# to filter by CONSENSUS_* / STATUS / HANDOFF / etc. --limit defaults to 50,
+# max 500; --cursor is the opaque token returned by the previous call. Slice-
+# scoped reads (phase=implement + EGG_SLICE_ID set) merge in the per-pipeline
+# unattributed file by default; pass --no-include-unattributed to read only the
+# per-slice file. The response includes a `live` bool (true iff the live route
+# was reachable and returned a usable record list — empty lists still count as
+# reachable) and an optional `hint` when both sources are empty.
 egg-orch brc read-peer-artifact --phase implement --peer-role coder \
   --message-type CONSENSUS_PROPOSE --message-type CONSENSUS_ACK --limit 100
 ```
@@ -576,9 +581,9 @@ egg-orch brc read-peer-artifact --phase implement --peer-role coder \
 | `brc get-state` | `mcp__brc__get_state` | Full BRC consensus state. `--verbose` includes the full pipeline-status payload. |
 | `brc list-blocking` | `mcp__brc__list_blocking` | Roles currently blocking consensus. Newline-delimited by default; `--json` returns the array. |
 | `brc resolve-obligation` | `mcp__brc__resolve_obligation` | Mark a reviewer's conditional-ACK obligation satisfied in-cycle (#2338). |
-| `brc read-peer-artifact` | `mcp__brc__read_peer_artifact` | Paginated read over the local `.egg-state/brc-history/<id>-<phase>.json` log. |
+| `brc read-peer-artifact` | `mcp__brc__read_peer_artifact` | Dual-source BRC transcript read (#3076): merges the orchestrator's live `/brc-transcript` route (in-flight phase) with the on-disk `.egg-state/brc-history/<id>-<phase>.json` files (completed phases). Records are deduped by message id and sorted by timestamp. |
 
-Four of the five subcommands — `next-action`, `get-state`, `list-blocking`, `resolve-obligation` — honour `EGG_ORCHESTRATOR_URL` and `EGG_LIFECYCLE_SECRET` and run against the gateway routes the MCP tools use. `brc read-peer-artifact` is the odd one out: it reads `.egg-state/brc-history/<identifier>-<phase>.json` files from local disk, with no HTTP transport. It consumes `EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER` (to resolve the identifier) and `EGG_SLICE_ID` (to pick the per-slice partition for `phase == "implement"`) directly from the environment; `EGG_ORCHESTRATOR_URL` and `EGG_LIFECYCLE_SECRET` do not apply, so missing-secret failures against `read-peer-artifact` are misdiagnosed if you trace them through the HTTP layer. The `brc` surface is additive to the existing `consensus` surface — every prior subcommand under `consensus` keeps working unchanged; the split only reflects that `consensus` is verb-by-state-change (proposes / acks / withdraws) and `brc` is verb-by-read-or-derive (derive-next, list-blocking, read history, resolve obligation).
+All five subcommands honour `EGG_ORCHESTRATOR_URL` and `EGG_LIFECYCLE_SECRET` for their HTTP requests. `brc read-peer-artifact` additionally consumes `EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER` (to resolve the identifier) and `EGG_SLICE_ID` (to pick the per-slice partition for `phase == "implement"`). The live source (`/api/v1/pipelines/{id}/brc-transcript`) serves the in-flight phase's records from the message store, which is cleared on phase transitions — so for completed phases the on-disk files are the authoritative source. A live-route failure (older orchestrator, network error) degrades gracefully to disk-only and sets `live=false` in the response. The `brc` surface is additive to the existing `consensus` surface — every prior subcommand under `consensus` keeps working unchanged; the split only reflects that `consensus` is verb-by-state-change (proposes / acks / withdraws) and `brc` is verb-by-read-or-derive (derive-next, list-blocking, read history, resolve obligation).
 
 ## Context PR Surfaces ([#2777](https://github.com/jwbron/egg/issues/2777))
 
