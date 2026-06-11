@@ -310,6 +310,7 @@ shared/
 │   ├── dependency_graph.py # Generic dependency graph (PEP-695 typed): used for agent-role DAGs and for the implement-phase slice DAG (#2137 generification)
 │   ├── plan_parser.py      # Plan document parsing with task extraction and phase dependency normalization
 │   ├── agent_recovery.py   # Failed agent recovery logic
+│   ├── markdown.py         # Markdown soft-break unwrapper for pipeline-generated PR bodies (unwrap_soft_breaks, #3122)
 │   └── redactor.py         # Sensitive data redaction (env vars, secrets, sensitive file paths)
 ├── check-fixers.yml         # Per-check fixer config (non-LLM fixes, retries, model)
 ├── prompts/                # Shared prompt criteria (used by GHA scripts AND orchestrator)
@@ -385,6 +386,7 @@ tests/
 │       ├── test_models.py         # Contract model tests including check models
 │       ├── test_phase_defaults.py # Phase default configuration tests
 │       ├── test_agent_recovery.py # Agent recovery and circuit breaker tests
+│       ├── test_markdown.py       # Markdown soft-break unwrapper tests (unwrap_soft_breaks, #3122)
 │       └── test_redactor.py       # Redactor tests for sensitive data masking
 └── workflows/                     # Workflow integration tests
     ├── __init__.py
