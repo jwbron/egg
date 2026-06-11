@@ -569,7 +569,8 @@ egg-orch brc resolve-obligation \
 # scoped reads (phase=implement + EGG_SLICE_ID set) merge in the per-pipeline
 # unattributed file by default; pass --no-include-unattributed to read only the
 # per-slice file. The response includes a `live` bool (true iff the live route
-# contributed) and an optional `hint` when both sources are empty.
+# was reachable and returned a usable record list — empty lists still count as
+# reachable) and an optional `hint` when both sources are empty.
 egg-orch brc read-peer-artifact --phase implement --peer-role coder \
   --message-type CONSENSUS_PROPOSE --message-type CONSENSUS_ACK --limit 100
 ```

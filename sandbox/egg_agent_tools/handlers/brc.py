@@ -1043,7 +1043,11 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
 
     Records are deduplicated by message ``id`` and sorted by timestamp.
     A live-route failure degrades gracefully to disk-only with a
-    ``hint`` saying the live source was unavailable.
+    ``hint`` saying the live source was unavailable. The response's
+    ``live`` flag reports route *reachability* (i.e. the live endpoint
+    returned a usable record list — empty lists still count as
+    reachable), not whether the live source contributed records to the
+    merged output.
 
     No CLI counterpart (decision-8).
 
