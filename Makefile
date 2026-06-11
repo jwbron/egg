@@ -524,17 +524,25 @@ build: sync-venv-if-uv
 # repo-deps/ build context has been prepared (the `build` target does that
 # first, sequentially) — run `build`, not these, unless you know repo-deps/
 # is fresh.
+#
+# DOCKER_BUILDKIT=1 is required so BuildKit honors the per-Dockerfile
+# `<Dockerfile>.dockerignore` lookup (see sandbox/Dockerfile.dockerignore).
+# The legacy builder reads only the root .dockerignore — under it the
+# sandbox build's `COPY repo-deps/ /tmp/repo-deps/` would fail because
+# repo-deps/ is excluded at the root. Docker 23+ defaults to BuildKit;
+# pinning the env var keeps older Docker (18.09–22.x, which supports
+# BuildKit but doesn't default to it) on the same path.
 build-gateway:
-	docker build $(call image_tags,egg-gateway) -f gateway/Dockerfile .
+	DOCKER_BUILDKIT=1 docker build $(call image_tags,egg-gateway) -f gateway/Dockerfile .
 
 build-orchestrator:
-	docker build $(call image_tags,egg-orchestrator) -f orchestrator/Dockerfile .
+	DOCKER_BUILDKIT=1 docker build $(call image_tags,egg-orchestrator) -f orchestrator/Dockerfile .
 
 build-sandbox:
-	docker build $(call image_tags,egg-sandbox) -f sandbox/Dockerfile .
+	DOCKER_BUILDKIT=1 docker build $(call image_tags,egg-sandbox) -f sandbox/Dockerfile .
 
 build-litellm:
-	docker build $(call image_tags,egg-litellm) -f config/litellm/Dockerfile config/litellm
+	DOCKER_BUILDKIT=1 docker build $(call image_tags,egg-litellm) -f config/litellm/Dockerfile config/litellm
 
 # ============================================================================
 # Kubernetes (k3s) targets

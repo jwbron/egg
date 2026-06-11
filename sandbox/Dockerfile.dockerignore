@@ -6,6 +6,7 @@
 #
 # KEEP IN SYNC WITH the root .dockerignore: any new exclusion added there
 # must be added here too, or the sandbox build context will silently bloat.
+# Mechanically enforced by tests/scripts/test_dockerignore_drift.py.
 
 # Git directories (avoid permission issues and unnecessary context)
 .git

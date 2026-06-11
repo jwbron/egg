@@ -22,7 +22,8 @@
 # only used by sandbox/Dockerfile (`COPY repo-deps/ /tmp/repo-deps/`). Excluding
 # it here keeps the gateway/orchestrator builds from shipping it as part of
 # their build context. The sandbox build re-includes it via the per-Dockerfile
-# `sandbox/Dockerfile.dockerignore` override — keep these two files in sync.
+# `sandbox/Dockerfile.dockerignore` override — keep these two files in sync
+# (drift mechanically enforced by tests/scripts/test_dockerignore_drift.py).
 repo-deps/
 
 # Mobile app dependencies and build artifacts
