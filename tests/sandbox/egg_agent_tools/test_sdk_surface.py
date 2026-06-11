@@ -20,7 +20,7 @@ import pytest
 # Symbols imported by ``shared/egg_agent/client.py`` — a 0.3 bump that
 # renames or drops any of these must update this list AND the importer
 # in lockstep, or agent spawn breaks with ``ImportError`` at runtime.
-# Sourced from ``shared/egg_agent/client.py:205-221`` and the
+# Sourced from ``shared/egg_agent/client.py:219-235`` and the
 # ``CLIJSONDecodeError`` reference in the same block (#2804 marker).
 _EGG_AGENT_CLIENT_SYMBOLS = (
     "AssistantMessage",

@@ -299,7 +299,9 @@ RUN su - egg -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_CO
             echo "Pass a newer build: docker build --build-arg CLAUDE_CODE_VERSION=<version|latest> ..."; \
             echo "If pinning to an older CC build is intentional (and every"; \
             echo "agent_models entry has been pinned away from '${family}'),"; \
-            echo "comment this 'for family in ...' loop out to bypass the gate."; \
+            echo "drop '${family}' from the 'for family in ...' list above to"; \
+            echo "skip the gate for that family (matches the bypass guidance"; \
+            echo "in docs/guides/per-agent-models.md)."; \
             exit 1; \
         fi; \
     done && \
