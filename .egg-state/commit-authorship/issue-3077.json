@@ -47,6 +47,14 @@
       "registered_at": "2026-06-11T21:11:25.962245+00:00",
       "repo": null,
       "role": "task_planner"
+    },
+    "e0d720c9d216daaf63355ca67ff7664af3fd7046": {
+      "branch": "egg/issue-3077/work",
+      "patch_id": "cc2de891ad40a41d7fa01e046deaba1c6b8aa5df",
+      "pipeline_id": "issue-3077",
+      "registered_at": "2026-06-11T21:11:56.103410+00:00",
+      "repo": null,
+      "role": "architect"
     }
   },
   "version": 2
