@@ -98,3 +98,16 @@ Nothing declarative exists yet: phases are a code enum (`shared/egg_contracts/mo
 - **Spec adoption risk**: if existing hardcodings are left in place alongside the spec (rather than derived/asserted), the spec becomes a fourth replica of path knowledge. Mitigation: consistency test in task 2 is mandatory, not optional.
 - **Endpoint scope creep**: a generic file-serving route on the gateway is a policy surface; restrict to spec-registered artifacts + committed refs, reuse existing output caps.
 - **Prose deletion regressions**: reviewers on the current deploy still occasionally rely on local fetch fallback; sequence phase-3 deletion after tasks 1-4 land in the same pipeline.
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the refine phase gate:
+
+## Resolved Questions
+
+**Q1 — Scope (Option A / B / C):** Option C — full remaining scope: R1 non-silent sync residual + artifact spec module + spec-derived propose validation for all producers + gateway artifact-read endpoint (strict) + Phase-3 prose cleanup, docs/architecture invariant entry, and ratchet test + bounded durability.
+
+**Q2 — Endpoint resolution surface:** Strict — the gateway artifact-read endpoint accepts only spec-registered artifact names (no raw repo-path escape hatch). Path-guessing is the disease this issue retires; keep the gateway policy surface small.
+
+**Q3 — Durability bar:** Fail-loud is sufficient for this pipeline — a prominent startup warning/health signal when BRC consensus runs on the in-memory message-store backend, plus a restart-semantics test for the Redis Streams path (distinguishing the designed _clear_concurrent_state() phase-boundary wipe from accidental mid-phase restart loss). Do NOT change `auto` to refuse BRC without Redis; deeper durability work stays in the #3070 lineage.
