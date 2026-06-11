@@ -67,6 +67,18 @@ def _reset_prune_lock():
             pass
 
 
+@pytest.fixture(autouse=True)
+def _verified_pipeline_liveness():
+    """Stub the orchestrator's active-pipelines answer (#3070).
+
+    The route refuses (503) when pipeline liveness cannot be verified, so
+    every pre-existing test runs with a verified-empty answer. Tests that
+    exercise the unverified path override the patch themselves.
+    """
+    with patch.object(gateway, "fetch_active_pipeline_ids", return_value=set()) as mock:
+        yield mock
+
+
 class TestWorktreesPruneAuth:
     """Launcher auth is the only thing standing between an orchestrator-
     side compromise and wholesale worktree removal. Belt-and-suspenders
@@ -137,6 +149,48 @@ class TestWorktreesPruneDryRun:
         assert data["removed_count"] == 0
 
 
+class TestWorktreesPrunePipelineLiveness:
+    """Pipeline liveness is mandatory input to the sweep (#3070)."""
+
+    def test_returns_503_when_liveness_unverifiable(
+        self, client, launcher_auth_headers, fake_manager
+    ):
+        """Orchestrator unreachable → refuse, never sweep blind."""
+        with (
+            patch.object(gateway, "get_worktree_manager", return_value=fake_manager),
+            patch.object(gateway, "fetch_active_pipeline_ids", return_value=None),
+        ):
+            response = client.post(
+                "/api/v1/worktrees/prune",
+                json={"dry_run": False},
+                headers=launcher_auth_headers,
+            )
+        assert response.status_code == 503
+        fake_manager.cleanup_orphaned_worktrees.assert_not_called()
+        fake_manager.list_orphan_worktree_dirs.assert_not_called()
+
+    def test_active_pipeline_ids_forwarded_to_sweep(
+        self, client, launcher_auth_headers, fake_manager
+    ):
+        """The orchestrator's answer reaches both enumeration and cleanup."""
+        live = {"pipeline-c978dac3"}
+        with (
+            patch.object(gateway, "get_worktree_manager", return_value=fake_manager),
+            patch.object(gateway, "fetch_active_pipeline_ids", return_value=live),
+        ):
+            response = client.post(
+                "/api/v1/worktrees/prune",
+                json={"dry_run": False},
+                headers=launcher_auth_headers,
+            )
+        assert response.status_code == 200
+        _args, kwargs = fake_manager.cleanup_orphaned_worktrees.call_args
+        assert kwargs.get("active_pipeline_ids") == live
+        _largs, lkwargs = fake_manager.list_orphan_worktree_dirs.call_args
+        assert lkwargs.get("active_pipeline_ids") == live
+        assert response.get_json()["data"]["active_pipelines_count"] == 1
+
+
 class TestWorktreesPruneMutation:
     """Non-dry-run path actually cleans up orphaned dirs."""
 
@@ -150,7 +204,7 @@ class TestWorktreesPruneMutation:
         orphan_path.mkdir()
         fake_manager.list_orphan_worktree_dirs.return_value = [str(orphan_path)]
 
-        def _fake_cleanup(active_containers):
+        def _fake_cleanup(active_containers, active_pipeline_ids=None):
             orphan_path.rmdir()
             return 1
 

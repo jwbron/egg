@@ -170,6 +170,10 @@ try:
     )
     from .jira_search import extract_search_projects
     from .mode_gate import require_private_mode
+    from .orchestrator_pipelines import (
+        fetch_active_pipeline_ids,
+        wait_for_active_pipeline_ids,
+    )
     from .phase_filter import (
         OperationType,
         PipelinePhase,
@@ -324,6 +328,10 @@ except ImportError:
         extract_search_projects,
     )
     from mode_gate import require_private_mode  # type: ignore[no-redef, import-untyped]
+    from orchestrator_pipelines import (  # type: ignore[no-redef, import-untyped]
+        fetch_active_pipeline_ids,
+        wait_for_active_pipeline_ids,
+    )
     from phase_filter import (  # type: ignore[no-redef, import-untyped]
         OperationType,
         PipelinePhase,
@@ -8066,8 +8074,11 @@ def worktrees_prune() -> tuple[Response, int] | Response:
     that would be removed but does not mutate the filesystem. When
     false, removes them using the existing ``cleanup_orphaned_worktrees``
     helper.  The active-container set is derived from the session
-    manager (plus an opportunistic ``docker ps`` fallback) so a live
-    pipeline's worktree is never mistaken for an orphan.
+    manager (plus an opportunistic ``docker ps`` fallback), and worktrees
+    anchored to a non-terminal pipeline (per the orchestrator) are
+    preserved even with no live container — a pipeline parked at a HITL
+    gate has neither (#3070). Returns 503 when pipeline liveness cannot
+    be verified.
 
     Proxied from the orchestrator's
     ``/api/v1/deployment/prune-worktrees`` endpoint (#1759).
@@ -8083,15 +8094,32 @@ def worktrees_prune() -> tuple[Response, int] | Response:
     if not _worktree_prune_lock.acquire(timeout=60):
         return make_error("Another worktree prune is in progress", status_code=409)
     try:
+        # Pipeline liveness is required, not best-effort: a parked pipeline
+        # has no containers or sessions, so the container-derived set alone
+        # would mark its worktree an orphan (#3070). This endpoint is proxied
+        # from the orchestrator, so it is normally up; refuse rather than
+        # sweep blind if it cannot answer.
+        active_pipeline_ids = fetch_active_pipeline_ids()
+        if active_pipeline_ids is None:
+            return make_error(
+                "Cannot verify pipeline liveness (orchestrator unreachable); "
+                "refusing to prune worktrees",
+                status_code=503,
+            )
+
         active_container_ids = _collect_active_container_ids()
         git_prune_report = manager.git_worktree_prune_all()
-        orphan_dirs = manager.list_orphan_worktree_dirs(active_containers=active_container_ids)
+        orphan_dirs = manager.list_orphan_worktree_dirs(
+            active_containers=active_container_ids,
+            active_pipeline_ids=active_pipeline_ids,
+        )
 
         removed_count = 0
         removed_paths: list[str] = []
         if not dry_run and orphan_dirs:
             removed_count = manager.cleanup_orphaned_worktrees(
                 active_containers=active_container_ids,
+                active_pipeline_ids=active_pipeline_ids,
             )
             # Any orphan we enumerated that no longer exists on disk
             # was removed by the helper.
@@ -8111,6 +8139,7 @@ def worktrees_prune() -> tuple[Response, int] | Response:
                 "git_worktree_prune": git_prune_report,
                 "orphan_dirs_count": len(orphan_dirs),
                 "active_containers_count": len(active_container_ids),
+                "active_pipelines_count": len(active_pipeline_ids),
                 "removed_count": removed_count,
             },
         )
@@ -8122,6 +8151,7 @@ def worktrees_prune() -> tuple[Response, int] | Response:
                 "git_worktree_prune": git_prune_report,
                 "orphan_dirs": orphan_dirs,
                 "active_containers_count": len(active_container_ids),
+                "active_pipelines_count": len(active_pipeline_ids),
                 "removed_count": removed_count,
                 "removed_paths": removed_paths,
             },
@@ -10167,9 +10197,19 @@ def main() -> None:
     # could serve any requests. See: https://github.com/jwbron/egg/issues/1400
     def _background_worktree_cleanup() -> None:
         try:
+            # Container liveness alone cannot distinguish a crashed leftover
+            # from a pipeline parked at a HITL gate (no containers, no
+            # sessions — that's its normal state). Ask the orchestrator which
+            # pipelines are live before sweeping; on a redeploy it may still
+            # be booting, so poll up to the configured deadline. If it never
+            # answers, startup_cleanup skips the sweep (fail-safe) — see
+            # #3070, where a blind sweep with active_containers=0 deleted a
+            # parked pipeline's worktree, contract, and branches.
+            active_pipeline_ids = wait_for_active_pipeline_ids()
             orphans_removed = startup_cleanup(
                 active_containers=active_container_ids,
                 session_manager=get_session_manager(),
+                active_pipeline_ids=active_pipeline_ids,
             )
             if orphans_removed > 0:
                 logger.info(f"Startup cleanup removed {orphans_removed} orphaned worktree(s)")

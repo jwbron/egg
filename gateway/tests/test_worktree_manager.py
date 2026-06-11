@@ -284,6 +284,80 @@ class TestWorktreeManager:
         assert removed == 0
         assert container_dir.exists()
 
+    def test_cleanup_preserves_active_pipeline_worktrees(self, manager, temp_dirs):
+        """Worktrees of live pipelines survive even with zero containers.
+
+        Regression for #3070: a pipeline parked at a HITL gate has no
+        running containers and no sessions, so the container-derived active
+        set is empty — its worktrees (pipeline-level and per-agent) must be
+        preserved via the orchestrator-reported pipeline list instead.
+        """
+        worktree_base, _ = temp_dirs
+
+        preserved = []
+        for name in ("pipeline-c978dac3", "pipeline-c978dac3-refiner"):
+            d = worktree_base / name
+            d.mkdir(parents=True)
+            (d / "webapp").mkdir()
+            preserved.append(d)
+        orphan = worktree_base / "pipeline-deadbeef-coder"
+        orphan.mkdir(parents=True)
+        (orphan / "webapp").mkdir()
+
+        manager.cleanup_orphaned_worktrees(set(), active_pipeline_ids={"pipeline-c978dac3"})
+
+        for d in preserved:
+            assert d.exists(), f"{d.name} should have been preserved"
+        assert not orphan.exists()
+
+    def test_cleanup_pipeline_anchor_is_delimiter_bound(self, manager, temp_dirs):
+        """``issue-302`` must not anchor ``issue-3023-*`` worktrees."""
+        worktree_base, _ = temp_dirs
+
+        near_miss = worktree_base / "issue-3023-coder"
+        near_miss.mkdir(parents=True)
+        (near_miss / "egg").mkdir()
+
+        manager.cleanup_orphaned_worktrees(set(), active_pipeline_ids={"issue-302"})
+
+        assert not near_miss.exists()
+
+    def test_cleanup_never_deletes_branches(self, manager, temp_dirs):
+        """Orphan sweeps must not delete branches (#3070).
+
+        The sweep cannot know whether the branch's work was pushed;
+        deleting it strands commits as dangling. Branch deletion belongs
+        to the explicit per-container teardown paths only.
+        """
+        worktree_base, _ = temp_dirs
+
+        orphan = worktree_base / "pipeline-deadbeef"
+        orphan.mkdir(parents=True)
+        (orphan / "webapp").mkdir()
+
+        with patch.object(manager, "remove_worktree", wraps=manager.remove_worktree) as spy:
+            manager.cleanup_orphaned_worktrees(set(), active_pipeline_ids=set())
+
+        assert spy.call_count >= 1
+        for call in spy.call_args_list:
+            assert call.kwargs.get("delete_branch") is False
+
+    def test_list_orphan_worktree_dirs_respects_pipeline_anchors(self, manager, temp_dirs):
+        """Dry-run listing mirrors the sweep's pipeline-anchor skip."""
+        worktree_base, _ = temp_dirs
+
+        live = worktree_base / "pipeline-c978dac3-overseer"
+        live.mkdir(parents=True)
+        orphan = worktree_base / "pipeline-deadbeef"
+        orphan.mkdir(parents=True)
+
+        orphans = manager.list_orphan_worktree_dirs(
+            set(), active_pipeline_ids={"pipeline-c978dac3"}
+        )
+
+        assert str(orphan) in orphans
+        assert str(live) not in orphans
+
 
 class TestGetActiveDockerContainers:
     """Tests for get_active_docker_containers helper."""
@@ -350,11 +424,35 @@ class TestStartupCleanup:
             mock_instance.cleanup_orphaned_worktrees.return_value = 1
             MockManager.return_value = mock_instance
 
-            removed = startup_cleanup(active_containers={"active-container"})
+            removed = startup_cleanup(
+                active_containers={"active-container"},
+                active_pipeline_ids=set(),
+            )
             assert removed == 1
             mock_instance.cleanup_orphaned_worktrees.assert_called_once_with(
-                {"active-container"}, None
+                {"active-container"}, None, active_pipeline_ids=set()
             )
+
+    def test_skips_sweep_when_pipeline_liveness_unknown(self):
+        """No sweep without a verified pipeline list (#3070 fail-safe).
+
+        ``active_pipeline_ids=None`` means the orchestrator could not be
+        reached — sweeping on container liveness alone is what deleted a
+        HITL-parked pipeline's worktree, contract, and branches in #3070.
+        """
+        from worktree_manager import startup_cleanup
+
+        with patch("worktree_manager.WorktreeManager") as MockManager:
+            mock_instance = MagicMock()
+            MockManager.return_value = mock_instance
+
+            removed = startup_cleanup(active_containers=set(), active_pipeline_ids=None)
+
+            assert removed == 0
+            mock_instance.cleanup_orphaned_worktrees.assert_not_called()
+            # The safe maintenance passes still run.
+            mock_instance.prune_stale_worktrees.assert_called_once()
+            mock_instance.cleanup_orphaned_pack_files.assert_called_once()
 
     def test_with_none_uses_docker(self):
         """Falls back to querying Docker when active_containers is None."""
@@ -369,7 +467,7 @@ class TestStartupCleanup:
                 "worktree_manager.get_active_docker_containers",
                 return_value={"container-1"},
             ):
-                removed = startup_cleanup(active_containers=None)
+                removed = startup_cleanup(active_containers=None, active_pipeline_ids=set())
                 assert removed == 0
 
     def test_with_empty_set(self):
@@ -381,7 +479,7 @@ class TestStartupCleanup:
             mock_instance.cleanup_orphaned_worktrees.return_value = 3
             MockManager.return_value = mock_instance
 
-            removed = startup_cleanup(active_containers=set())
+            removed = startup_cleanup(active_containers=set(), active_pipeline_ids=set())
             assert removed == 3
 
 
@@ -2891,7 +2989,7 @@ class TestStartupCleanupWithPrune:
             mock_instance.prune_stale_worktrees.return_value = 1
             MockManager.return_value = mock_instance
 
-            startup_cleanup(active_containers=set())
+            startup_cleanup(active_containers=set(), active_pipeline_ids=set())
 
             mock_instance.cleanup_orphaned_worktrees.assert_called_once()
             mock_instance.prune_stale_worktrees.assert_called_once()
@@ -2907,7 +3005,7 @@ class TestStartupCleanupWithPrune:
             MockManager.return_value = mock_instance
 
             # Should not raise
-            removed = startup_cleanup(active_containers=set())
+            removed = startup_cleanup(active_containers=set(), active_pipeline_ids=set())
             assert removed == 2
 
     def test_calls_pack_cleanup_after_prune(self):
@@ -2921,7 +3019,7 @@ class TestStartupCleanupWithPrune:
             mock_instance.cleanup_orphaned_pack_files.return_value = (5, 1024000)
             MockManager.return_value = mock_instance
 
-            startup_cleanup(active_containers=set())
+            startup_cleanup(active_containers=set(), active_pipeline_ids=set())
 
             mock_instance.cleanup_orphaned_worktrees.assert_called_once()
             mock_instance.prune_stale_worktrees.assert_called_once()
@@ -2938,7 +3036,7 @@ class TestStartupCleanupWithPrune:
             mock_instance.cleanup_orphaned_pack_files.side_effect = RuntimeError("disk error")
             MockManager.return_value = mock_instance
 
-            removed = startup_cleanup(active_containers=set())
+            removed = startup_cleanup(active_containers=set(), active_pipeline_ids=set())
             assert removed == 1
 
 

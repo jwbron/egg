@@ -16,6 +16,7 @@ def _run_gateway_main():
         patch.object(gateway, "get_session_manager") as mock_sm,
         patch.object(gateway, "get_active_docker_containers", return_value=set()),
         patch.object(gateway, "startup_cleanup", return_value=0),
+        patch.object(gateway, "wait_for_active_pipeline_ids", return_value=set()),
         patch.object(gateway, "get_launcher_secret", return_value="secret"),
         patch.object(gateway, "serve"),
         patch("signal.signal") as mock_signal,
