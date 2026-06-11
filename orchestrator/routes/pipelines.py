@@ -16195,11 +16195,88 @@ def _run_implement_phase_slices(
     except ImportError:
         from state_store import get_pipeline_state_lock  # type: ignore[no-redef]
 
+    def _commit_and_push_slice_statefiles(message: str) -> None:
+        """Commit + push pipeline-scoped ``.egg-state/`` writes to the work branch.
+
+        Contract mutations — agent task-record updates via
+        ``mutate_contract`` and the ``slice.status`` flips below — land
+        on the shared pipeline worktree's disk copy only. Without a
+        slice-boundary commit, the work branch's contract file stays
+        frozen at the init-time "Initialize SDLC contract" commit for
+        the entire implement phase, and a mid-phase orchestrator crash
+        or worktree prune loses every accumulated task record (#3117).
+        The phase-boundary commit at the end of the run loop is too
+        coarse for multi-slice phases.
+
+        Scope (per #3117): this closes durability for the post-prune
+        audit record, operator/PR-side review of mid-phase contract
+        state, and orchestrator-restart resume at slice granularity.
+        It is deliberately NOT the read path for live agents — agents
+        read the contract via ``mcp__sdlc__show_contract`` against the
+        orchestrator's in-memory state, never from their checkout's
+        ``.egg-state/contracts/`` file (#3077).
+
+        Best-effort: slice completion must not block on statefile
+        durability; failures are logged and the next boundary (later
+        slice close or phase completion) carries the writes. The commit
+        runs under the per-pipeline state lock to serialise concurrent
+        slice-close threads against the shared worktree's git index;
+        the push runs outside the lock. The expected case is a linear
+        fast-forward (lock-serialised commits stack), and a no-op FF
+        of the same SHA from two threads is harmless. The residual
+        hazard is ``_reconcile_and_retry_push`` on a non-FF rejection
+        (``gateway_client.py:1361``): two threads both fetching+rebasing
+        in the shared worktree can interleave ``.git/index.lock``.
+        Within the implement phase no other writer pushes to
+        ``pipeline.branch`` so non-FF shouldn't fire in normal
+        operation; an external push (operator hand-fix, stale
+        concurrent orchestrator) is the only known trigger.
+        """
+        try:
+            with get_pipeline_state_lock(pipeline_id):
+                committed = _commit_statefiles_to_worktree(
+                    worktree_repo_path,
+                    message,
+                    _pipeline_identifier(issue_number, pipeline_id),
+                    pipeline_id=pipeline_id,
+                )
+        except Exception as commit_err:  # noqa: BLE001
+            # The helper raises CalledProcessError / TimeoutExpired
+            # from subprocess.run and OSError from glob (#2219 family).
+            logger.warning(
+                "Failed to commit slice statefiles to work branch (continuing) (#3117)",
+                pipeline_id=pipeline_id,
+                commit_message=message,
+                error=str(commit_err),
+            )
+            return
+        if not committed or not pipeline.branch or worktree_repo_path == store.repo_path:
+            return
+        try:
+            spawner.gateway.push_worktree_branch(
+                pipeline_id=pipeline_id,
+                repo_path=str(worktree_repo_path),
+                branch=pipeline.branch,
+                mode=gateway_mode,  # type: ignore[arg-type]
+                base_branch=pipeline.base_branch,
+            )
+        except Exception as push_err:  # noqa: BLE001
+            # Gateway HTTP push (GatewayError / OSError). The commit is
+            # already on the local work branch; the next successful
+            # push carries it.
+            logger.warning(
+                "Failed to push slice statefiles to work branch (continuing) (#3117)",
+                pipeline_id=pipeline_id,
+                commit_message=message,
+                error=str(push_err),
+            )
+
     def _persist_slice_status_complete(
         slice_id: str,
         *,
         pr_number: int | None = None,
         pr_url: str | None = None,
+        commit_to_branch: bool = True,
     ) -> None:
         """Mark ``slice_id`` as ``SliceStatus.COMPLETE`` on the contract.
 
@@ -16209,6 +16286,23 @@ def _run_implement_phase_slices(
         on save failure the in-memory scheduler state still reflects
         completion for this pass and the next ``start_pipeline``
         re-detects via the merged-detection helper.
+
+        With *commit_to_branch* (the default), the saved contract —
+        along with any other uncommitted pipeline statefiles, e.g.
+        agent task-record mutations made during the slice — is
+        committed and pushed to the pipeline work branch so the durable
+        copy tracks the live one (#3117). The bootstrap reconciliation
+        passes set it to ``False`` and batch a single commit after the
+        loop instead of one per reconciled slice.
+
+        Called only after a slice successfully closes (BRC consensus
+        reached + PR opened, or merged-skip / bootstrap-COMPLETE
+        reconciliation). Failed slices — ``exit_code_inner != 0``
+        (#16410) or ``pr_created == False`` (#16588) — return early
+        without calling this helper, so their accumulated task-record
+        mutations remain uncommitted in the worktree until the next
+        successful slice's commit (the pipeline-scoped glob picks them
+        up) or the phase-boundary commit, whichever fires first.
 
         When the caller just opened the slice's PR it passes
         ``pr_number`` / ``pr_url`` so the linkage lands in the same
@@ -16250,6 +16344,11 @@ def _run_implement_phase_slices(
                 pipeline_id=pipeline_id,
                 slice_id=slice_id,
                 error=str(save_err),
+            )
+            return
+        if commit_to_branch:
+            _commit_and_push_slice_statefiles(
+                f"Persist contract after slice {slice_id} completion (#3117)"
             )
 
     # Bootstrap reconciliation pass (#2549). Before the run loop ticks,
@@ -16343,7 +16442,7 @@ def _run_implement_phase_slices(
         for slice_id, already_merged in results:
             if already_merged:
                 scheduler.record_complete(slice_id)
-                _persist_slice_status_complete(slice_id)
+                _persist_slice_status_complete(slice_id, commit_to_branch=False)
                 bootstrap_merged.append(slice_id)
 
     # Layer (C): non-COMPLETE slice classification (slice-4 TASK-4-4).
@@ -16407,7 +16506,7 @@ def _run_implement_phase_slices(
                 slice_id=s.id,
             )
             scheduler.record_complete(s.id)
-            _persist_slice_status_complete(s.id)
+            _persist_slice_status_complete(s.id, commit_to_branch=False)
             bootstrap_consensus_complete.append(s.id)
             continue
         if classification == "resume":
@@ -16434,6 +16533,15 @@ def _run_implement_phase_slices(
             bootstrap_corrupt.append(s.id)
             continue
         # "fresh" → no Layer-C action, scheduler re-yields READY.
+
+    # The bootstrap passes above persist with ``commit_to_branch=False``
+    # — one batched commit+push here covers every reconciled slice
+    # (Layer B merged-detection + Layer-C case 3) instead of a commit
+    # per slice (#3117).
+    if bootstrap_merged or bootstrap_consensus_complete:
+        _commit_and_push_slice_statefiles(
+            "Persist slice completion statuses after bootstrap reconciliation (#3117)"
+        )
 
     if bootstrap_complete or bootstrap_merged:
         logger.info(
