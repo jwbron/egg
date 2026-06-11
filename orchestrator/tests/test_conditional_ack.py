@@ -241,7 +241,7 @@ class TestTrackerCondition:
             {
                 "summary": "impl",
                 "artifacts": ["src/a.py"],
-                "commit_sha": "abc123",
+                "commit_sha": "abc1234",
             },
         )
         result = tracker.handle_ack(
@@ -272,7 +272,7 @@ class TestTrackerCondition:
             {
                 "summary": "impl",
                 "artifacts": ["src/a.py"],
-                "commit_sha": "abc123",
+                "commit_sha": "abc1234",
             },
         )
         result = tracker.handle_ack(
@@ -294,7 +294,7 @@ class TestTrackerCondition:
         tracker.register_agent("reviewer_contract")
         tracker.handle_propose(
             "coder",
-            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc"},
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc1234"},
         )
         result = tracker.handle_ack(
             "reviewer_code",
@@ -320,7 +320,7 @@ class TestEvaluateSurfacesConditions:
         tracker.register_agent("reviewer_contract")
         tracker.handle_propose(
             "coder",
-            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc"},
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc1234"},
         )
         tracker.handle_ack(
             "reviewer_code",
@@ -345,7 +345,7 @@ class TestEvaluateSurfacesConditions:
         tracker.register_agent("reviewer_contract")
         tracker.handle_propose(
             "coder",
-            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc"},
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc1234"},
         )
         tracker.handle_ack(
             "reviewer_code",
@@ -367,7 +367,7 @@ class TestPrBodyRendering:
         tracker.register_agent("reviewer_contract")
         tracker.handle_propose(
             "coder",
-            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc"},
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc1234"},
         )
         tracker.handle_ack(
             "reviewer_code",
@@ -409,7 +409,7 @@ class TestPrBodyRendering:
         tracker.register_agent("reviewer_contract")
         tracker.handle_propose(
             "coder",
-            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc"},
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc1234"},
         )
         tracker.handle_ack(
             "reviewer_code",
@@ -474,7 +474,7 @@ class TestSignalPathIntegration:
         tracker.register_agent("reviewer_contract")
         tracker.handle_propose(
             "coder",
-            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc123"},
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc1234"},
         )
         return tracker
 
@@ -624,7 +624,7 @@ class TestReconstructionSurvivesCondition:
                     "payload": {
                         "summary": "impl",
                         "artifacts": ["src/a.py"],
-                        "commit_sha": "abc123",
+                        "commit_sha": "abc1234",
                     }
                 },
                 timestamp=base,
@@ -676,7 +676,7 @@ class TestReconstructionSurvivesCondition:
                     "payload": {
                         "summary": "impl",
                         "artifacts": ["src/a.py"],
-                        "commit_sha": "abc123",
+                        "commit_sha": "abc1234",
                     }
                 },
                 timestamp=base,
@@ -1084,7 +1084,7 @@ class TestObligationResolutionTracker:
         tracker.register_agent("reviewer_contract")
         tracker.handle_propose(
             "coder",
-            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc"},
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc1234"},
         )
         tracker.handle_ack(
             "reviewer_contract",
@@ -1129,7 +1129,7 @@ class TestObligationResolutionTracker:
         tracker.register_agent("reviewer_contract")
         tracker.handle_propose(
             "coder",
-            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc"},
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc1234"},
         )
         # Unconditional ACK — no obligation to resolve.
         tracker.handle_ack(
@@ -1170,7 +1170,7 @@ class TestResolveObligationSignalHandler:
         tracker.register_agent("reviewer_contract")
         tracker.handle_propose(
             "coder",
-            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc"},
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc1234"},
         )
         tracker.handle_ack(
             "reviewer_contract",
@@ -1329,7 +1329,7 @@ class TestResolveObligationSignalHandler:
         tracker.register_agent("reviewer_contract")
         tracker.handle_propose(
             "coder",
-            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc"},
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc1234"},
         )
         tracker.handle_ack(
             "reviewer_contract",

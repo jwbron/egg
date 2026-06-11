@@ -5,10 +5,13 @@ and reviews. They serve as costly signals — harder to produce without
 actually doing the work — and enable cross-verification by reviewers.
 """
 
+import re
 from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
+
+_COMMIT_SHA_PATTERN = re.compile(r"[A-Za-z0-9_]{7,64}")
 
 
 class AttestationStrictness(StrEnum):
@@ -209,6 +212,55 @@ class ProposalPayload(BaseModel):
             raise ValueError(
                 "Proposal must include commit_sha referencing a pushed commit. "
                 "Commit and push your work before proposing consensus."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_commit_sha_format(self) -> ProposalPayload:
+        """Reject commit_sha values containing shell metacharacters (#3076).
+
+        The producer-supplied SHA is interpolated into rendered shell
+        commands in the reviewer's event prompt (the per-producer
+        ``git log <sha>..<proposal_sha>`` and ``git show <sha>:<path>``
+        renders in ``orchestrator/routes/event_prompt.py``).
+        ``_extract_proposal_sha_for_producer`` gates the read path with
+        a stricter hex-only regex, but downstream consumers
+        (``orchestrator/peer_consensus.py``,
+        ``orchestrator/routes/signals.py``,
+        ``orchestrator/routes/pipelines.py``) read
+        ``_proposal_commit_shas`` directly without revalidating — so
+        enforce a shell-safe baseline at the writer too: only
+        ``[A-Za-z0-9_]`` permitted, 7-64 chars. This rejects every
+        dangerous form (whitespace, ``;``, ``$(…)``, ``..``, ranges)
+        while accepting reconstruction sentinels like
+        ``RECONSTRUCTED_NO_SHA`` that downstream code keys on. Skipped
+        for a no-op propose (#3027): ``commit_sha`` is empty by design
+        there.
+
+        Asymmetric regex with
+        ``orchestrator/routes/event_prompt.py::_extract_proposal_sha_for_producer``
+        is intentional: the strict hex-only check there is the
+        shell-interpolation boundary (rejects sentinels before they
+        reach a rendered ``git`` command), while this loose
+        alphanumeric+underscore check is the writer-side baseline
+        (admits sentinels so they can round-trip through
+        ``_proposal_commit_shas`` to non-shell consumers). Do not
+        unify — tightening this regex breaks the sentinel round-trip;
+        loosening the reader regex re-opens the shell-injection gap.
+
+        Relies on ``validate_commit_sha_present`` running first
+        (pydantic ``model_validator(mode="after")`` honours definition
+        order) to reject empty non-no-op proposals before this check
+        sees them; the ``not self.commit_sha`` guard below is
+        defence-in-depth and unreachable in practice.
+        """
+        if self.no_changes_needed or not self.commit_sha:
+            return self
+        if not _COMMIT_SHA_PATTERN.fullmatch(self.commit_sha):
+            raise ValueError(
+                "Proposal commit_sha must be 7-64 alphanumeric/underscore "
+                "characters (no shell metacharacters); got "
+                f"{self.commit_sha!r}."
             )
         return self
 

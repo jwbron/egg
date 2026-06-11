@@ -77,7 +77,7 @@ def _make_tracker(graph, condition="git mv legacy/x new/x before merge"):
     tracker.register_agent("reviewer_contract")
     tracker.handle_propose(
         "coder",
-        {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc"},
+        {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc1234"},
     )
     if condition:
         tracker.handle_ack(
@@ -729,7 +729,7 @@ class TestPrRenderResolvedObligations:
         tracker.register_agent("reviewer_contract")
         tracker.handle_propose(
             "coder",
-            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc"},
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc1234"},
         )
         tracker.handle_ack(
             "reviewer_code",

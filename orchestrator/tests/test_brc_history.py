@@ -686,7 +686,7 @@ class TestWriteBrcHistoryLossless:
                 subject="Proposal with code",
                 body=body_with_fences,
                 phase="implement",
-                metadata={"version": 1, "commit_sha": "abc123"},
+                metadata={"version": 1, "commit_sha": "abc1234"},
             ),
         ]
 
@@ -716,7 +716,7 @@ class TestWriteBrcHistoryLossless:
                 parsed = yaml.safe_load("\n".join(yaml_lines))
                 assert parsed is not None, "YAML block should be parseable"
                 assert "metadata" in parsed
-                assert parsed["metadata"]["commit_sha"] == "abc123"
+                assert parsed["metadata"]["commit_sha"] == "abc1234"
             elif in_yaml:
                 yaml_lines.append(line)
         assert yaml_blocks_found >= 1, "Should find at least one YAML metadata block"
@@ -1077,7 +1077,7 @@ class TestYamlMetadataRoundTrip:
                 "files_reviewed": ["a.py", "b.py"],
             },
             "revision_count": 3,
-            "commit_sha": "abc123",
+            "commit_sha": "abc1234",
             "version": 2,
         }
         messages = [
@@ -1113,7 +1113,7 @@ class TestYamlMetadataRoundTrip:
                 assert parsed["metadata"]["payload"]["reason"] == "Missing error handling"
                 assert parsed["metadata"]["payload"]["files_reviewed"] == ["a.py", "b.py"]
                 assert parsed["metadata"]["revision_count"] == 3
-                assert parsed["metadata"]["commit_sha"] == "abc123"
+                assert parsed["metadata"]["commit_sha"] == "abc1234"
                 found_yaml = True
             elif in_yaml:
                 yaml_lines.append(line)

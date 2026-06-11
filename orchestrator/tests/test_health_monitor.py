@@ -2607,7 +2607,7 @@ class TestBRCProgressGlobalZeroProposalGate:
         # level. The advisory ACK below makes that explicit.
         tracker.handle_propose(
             "documenter",
-            {"summary": "docs", "artifacts": ["docs/README.md"], "commit_sha": "abc"},
+            {"summary": "docs", "artifacts": ["docs/README.md"], "commit_sha": "abc1234"},
         )
         tracker.handle_ack(
             "reviewer_code",
@@ -2657,7 +2657,7 @@ class TestBRCProgressGlobalZeroProposalGate:
         tracker = self._build_tracker()
         tracker.handle_propose(
             "documenter",
-            {"summary": "docs", "artifacts": ["docs/README.md"], "commit_sha": "abc"},
+            {"summary": "docs", "artifacts": ["docs/README.md"], "commit_sha": "abc1234"},
         )
         tracker.handle_ack(
             "reviewer_code",
@@ -2684,11 +2684,11 @@ class TestBRCProgressGlobalZeroProposalGate:
         # Peers finally propose — global guard clears.
         tracker.handle_propose(
             "coder",
-            {"summary": "code", "artifacts": ["src/m.py"], "commit_sha": "def"},
+            {"summary": "code", "artifacts": ["src/m.py"], "commit_sha": "def5678"},
         )
         tracker.handle_propose(
             "tester",
-            {"summary": "tests", "artifacts": ["tests/t.py"], "commit_sha": "ghi"},
+            {"summary": "tests", "artifacts": ["tests/t.py"], "commit_sha": "9111111"},
         )
         # Critical reviewers ACK coder and tester (default implement graph).
         for reviewer in (
@@ -2747,7 +2747,7 @@ class TestBRCProgressGlobalZeroProposalGate:
         tracker.register_agent("reviewer_solo")
         tracker.handle_propose(
             "solo_producer",
-            {"summary": "solo", "artifacts": ["a.py"], "commit_sha": "abc"},
+            {"summary": "solo", "artifacts": ["a.py"], "commit_sha": "abc1234"},
         )
         tracker.handle_ack(
             "reviewer_solo",

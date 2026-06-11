@@ -406,11 +406,16 @@ async def brc_resolve_obligation(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "read_peer_artifact",
-    "Read BRC consensus history for a peer from the local "
-    "`.egg-state/brc-history/<identifier>-<phase>.json` log. Paginated via "
-    "`limit` + opaque `cursor`. No CLI counterpart — this is a net-new "
-    "capability so reviewers don't have to hand-grep brc-history files "
-    "(decision-8).",
+    "Read the BRC consensus TRANSCRIPT (message records, not artifact "
+    "content) for a COMPLETED phase from the local "
+    "`.egg-state/brc-history/<identifier>-<phase>.json` log. The log is "
+    "written by the orchestrator at phase completion and reaches your "
+    "worktree only at spawn — so for the phase currently in flight this "
+    "tool is always empty (#3076); that is NOT evidence peers have not "
+    "proposed. For live proposals use your event payload "
+    "(pending_reviews carries `proposal_commit_sha` + `artifact_refs`) "
+    "and read artifact content with `git show <sha>:<path>`. Paginated "
+    "via `limit` + opaque `cursor`.",
     _READ_PEER_ARTIFACT_SCHEMA,
 )
 async def brc_read_peer_artifact(args: dict[str, Any]) -> dict[str, Any]:

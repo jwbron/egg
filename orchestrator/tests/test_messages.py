@@ -87,7 +87,7 @@ class TestDelphiFiltering:
             {
                 "summary": "Implemented auth",
                 "artifacts": ["src/auth.py"],
-                "commit_sha": "abc123",
+                "commit_sha": "abc1234",
             },
         )
 
@@ -106,7 +106,7 @@ class TestDelphiFiltering:
                         "summary": "Implemented auth",
                         "artifacts": ["src/auth.py"],
                         "version": 1,
-                        "commit_sha": "abc123",
+                        "commit_sha": "abc1234",
                     }
                 },
             )
@@ -132,7 +132,7 @@ class TestDelphiFiltering:
                 assert msg["metadata"]["delphi_redacted"] is True
                 # Payload should only contain version and commit_sha
                 assert msg["metadata"]["payload"]["version"] == 1
-                assert msg["metadata"]["payload"]["commit_sha"] == "abc123"
+                assert msg["metadata"]["payload"]["commit_sha"] == "abc1234"
                 assert "summary" not in msg["metadata"]["payload"]
                 assert "artifacts" not in msg["metadata"]["payload"]
 
@@ -155,7 +155,7 @@ class TestDelphiFiltering:
             {
                 "summary": "Implemented auth",
                 "artifacts": ["src/auth.py"],
-                "commit_sha": "abc123",
+                "commit_sha": "abc1234",
             },
         )
 
@@ -182,7 +182,7 @@ class TestDelphiFiltering:
                         "summary": "Implemented auth",
                         "artifacts": ["src/auth.py"],
                         "version": 1,
-                        "commit_sha": "abc123",
+                        "commit_sha": "abc1234",
                     }
                 },
             )
@@ -228,7 +228,7 @@ class TestDelphiFiltering:
             {
                 "summary": "Implemented auth",
                 "artifacts": ["src/auth.py"],
-                "commit_sha": "abc123",
+                "commit_sha": "abc1234",
             },
         )
 
@@ -279,7 +279,7 @@ class TestDelphiFiltering:
             {
                 "summary": "Implemented auth",
                 "artifacts": ["src/auth.py"],
-                "commit_sha": "abc123",
+                "commit_sha": "abc1234",
             },
         )
 
@@ -297,7 +297,7 @@ class TestDelphiFiltering:
                         "summary": "Implemented auth module",
                         "artifacts": ["src/auth.py"],
                         "version": 2,
-                        "commit_sha": "def456",
+                        "commit_sha": "def5678",
                     }
                 },
             )
@@ -328,7 +328,7 @@ class TestDelphiFiltering:
 
                 # Payload: version and commit_sha preserved
                 assert msg["metadata"]["payload"]["version"] == 2
-                assert msg["metadata"]["payload"]["commit_sha"] == "def456"
+                assert msg["metadata"]["payload"]["commit_sha"] == "def5678"
 
                 # Body and sensitive payload fields stripped
                 assert msg["body"] == ""
@@ -355,7 +355,7 @@ class TestDelphiFiltering:
             {
                 "summary": "Implemented auth",
                 "artifacts": ["src/auth.py"],
-                "commit_sha": "abc123",
+                "commit_sha": "abc1234",
             },
         )
 
@@ -415,7 +415,7 @@ class TestDelphiFiltering:
             {
                 "summary": "Implemented auth",
                 "artifacts": ["src/auth.py"],
-                "commit_sha": "abc123",
+                "commit_sha": "abc1234",
             },
         )
 
@@ -425,7 +425,7 @@ class TestDelphiFiltering:
                 "summary": "Implemented auth",
                 "artifacts": ["src/auth.py"],
                 "version": 1,
-                "commit_sha": "abc123",
+                "commit_sha": "abc1234",
             }
         }
 
@@ -530,7 +530,7 @@ class TestDelphiFiltering:
             {
                 "summary": "Code implementation",
                 "artifacts": ["src/auth.py"],
-                "commit_sha": "code123",
+                "commit_sha": "c0de123",
             },
         )
 
@@ -544,7 +544,7 @@ class TestDelphiFiltering:
                 subject="Proposal from coder",
                 body="Coder self-assessment",
                 metadata={
-                    "payload": {"summary": "Code impl", "version": 1, "commit_sha": "code123"}
+                    "payload": {"summary": "Code impl", "version": 1, "commit_sha": "c0de123"}
                 },
             )
         )
@@ -557,7 +557,7 @@ class TestDelphiFiltering:
                 subject="Proposal from tester",
                 body="Tester self-assessment",
                 metadata={
-                    "payload": {"summary": "Test results", "version": 1, "commit_sha": "test123"}
+                    "payload": {"summary": "Test results", "version": 1, "commit_sha": "7e57123"}
                 },
             )
         )

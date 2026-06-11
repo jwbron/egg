@@ -207,6 +207,16 @@ def _has_pending_peer_proposals(
                     "prior_version": entry.version if entry else 0,
                     "prior_verdict": entry.state.value if entry else "pending",
                     "artifact_refs": artifact_refs,
+                    # The producer's proposed commit SHA (#3076). Per-role
+                    # worktrees share the host repo's object store, so the
+                    # composer can scope the re-review delta to
+                    # ``{last_reviewed}..{proposal_commit_sha}`` and render
+                    # ``git show <sha>:<path>`` reads that work from the
+                    # reviewer's worktree without any push/merge
+                    # choreography. ``{sha}..HEAD`` against the REVIEWER's
+                    # HEAD never contains the producer's commits — that was
+                    # the "re-review delta is empty" phantom-NACK.
+                    "proposal_commit_sha": str(snapshot.get("commit_sha") or ""),
                 }
             )
     return bool(pending), pending

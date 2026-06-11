@@ -63,9 +63,76 @@ class TestProposalPayloadNoOp:
     def test_real_proposal_still_requires_artifacts_and_commit(self):
         """The exemption is scoped to no-op — a normal proposal is unchanged."""
         with pytest.raises(ValueError, match="artifact"):
-            ProposalPayload(summary="x" * 30, commit_sha="abc123")
+            ProposalPayload(summary="x" * 30, commit_sha="abc1234")
         with pytest.raises(ValueError, match="commit_sha"):
             ProposalPayload(summary="x" * 30, artifacts=["src/a.py"])
+
+
+# --- ProposalPayload.commit_sha format ------------------------------------
+
+
+class TestProposalPayloadCommitShaFormat:
+    """The ``commit_sha`` field is regex-validated at the writer (#3076).
+
+    Defense-in-depth for downstream consumers that read
+    ``_proposal_commit_shas`` directly without revalidating —
+    ``_extract_proposal_sha_for_producer`` already gates the read path
+    in ``orchestrator/routes/event_prompt.py`` with stricter hex-only
+    matching, but enforcing a shell-safe baseline at the writer
+    prevents a future consumer from re-introducing a shell-injection
+    gap. The writer regex is intentionally more permissive than the
+    read regex so reconstruction sentinels like
+    ``RECONSTRUCTED_NO_SHA`` (peer_consensus.py:2134) round-trip.
+    """
+
+    def test_hex_commit_sha_accepted(self):
+        ProposalPayload(summary="x" * 30, artifacts=["src/a.py"], commit_sha="abc1234")
+        ProposalPayload(
+            summary="x" * 30,
+            artifacts=["src/a.py"],
+            commit_sha="0" * 40,
+        )
+
+    def test_reconstruction_sentinel_accepted(self):
+        """The ``RECONSTRUCTED_NO_SHA`` sentinel (peer_consensus.py:2134)
+        rounds through the validator unchanged — the writer regex is
+        permissive enough to admit it, downstream consumers key on the
+        exact string."""
+        payload = ProposalPayload(
+            summary="x" * 30,
+            artifacts=["src/a.py"],
+            commit_sha="RECONSTRUCTED_NO_SHA",
+        )
+        assert payload.commit_sha == "RECONSTRUCTED_NO_SHA"
+
+    @pytest.mark.parametrize(
+        "bad_sha",
+        [
+            "abc",  # too short (< 7 chars)
+            "abc123",  # 6 chars, still too short
+            "$(rm -rf /)",  # shell injection attempt
+            "abc1234..def5678",  # range syntax (dots forbidden)
+            "abc1234 def5678",  # whitespace
+            "abc-1234",  # hyphen
+            "abc/1234",  # slash
+            "`whoami`",  # backtick injection
+            "abc;rm",  # semicolon
+            "abc|rm",  # pipe
+        ],
+    )
+    def test_shell_unsafe_commit_sha_rejected(self, bad_sha):
+        with pytest.raises(ValueError, match="commit_sha"):
+            ProposalPayload(summary="x" * 30, artifacts=["src/a.py"], commit_sha=bad_sha)
+
+    def test_no_op_skips_format_check(self):
+        """A no-op proposal has empty commit_sha by design — skip the
+        format validator (the present-check already returns early)."""
+        payload = ProposalPayload(
+            summary="x" * 30,
+            no_changes_needed=True,
+            no_changes_reason="no work in this slice",
+        )
+        assert payload.commit_sha == ""
 
 
 # --- ApprovalMatrix no-op semantics ---------------------------------------
@@ -269,7 +336,7 @@ class TestProposalPayloadMutualExclusion:
         payload = ProposalPayload(
             summary="x" * 30,
             artifacts=["src/a.py"],
-            commit_sha="abc123",
+            commit_sha="abc1234",
             attestation={
                 "tests_execution_blocked": True,
                 "tests_execution_blocked_reason": "no network",

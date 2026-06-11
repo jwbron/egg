@@ -177,7 +177,7 @@ class TestBRCSingleCycleGuardsHonored:
         assert result["status"] == "acked"
         assert result["version"] == 0
         # Now the producer proposes — invalidation kicks in.
-        result = tracker.handle_propose("coder", propose_payload(commit_sha="abc"))
+        result = tracker.handle_propose("coder", propose_payload(commit_sha="abc1234"))
         assert "reviewer_code" in result["stale_reviewers"]
 
     def test_pre_proposal_ack_with_explicit_version_is_rejected(
@@ -210,7 +210,7 @@ class TestBRCSingleCycleGuardsHonored:
         """
         pipeline_id = self.PIPELINE_ID + "-prod"
         tracker = make_tracker(pipeline_id, two_reviewer_graph)
-        tracker.handle_propose("coder", propose_payload(commit_sha="abc"))
+        tracker.handle_propose("coder", propose_payload(commit_sha="abc1234"))
         tracker.handle_ack("reviewer_code", "coder", {"ack_version": 1, **ack_payload()})
         # Only reviewer_code has ACKed; reviewer_contract has not.
         result = tracker.handle_confirmed("coder")

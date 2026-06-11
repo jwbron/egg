@@ -759,6 +759,41 @@ class TestBrcReadPeerArtifact:
         # Again: no ``path`` echo in the empty-result branch.
         assert "path" not in resp
 
+    def test_missing_history_file_explains_itself(self, tmp_path, monkeypatch):
+        """The no-file branch must carry a ``hint`` (#3076).
+
+        brc-history is written at phase COMPLETION; for the phase in
+        flight the file never exists in an agent worktree, so a bare
+        empty result reads as "peers produced nothing" — that drove
+        reviewers to NACK proposals they could not see. The hint must
+        say the emptiness is structural and point at the live channel.
+        """
+        self._set_env(monkeypatch, tmp_path)
+        resp = brc.brc_read_peer_artifact({"phase": "plan"})
+        hint = resp.get("hint")
+        assert hint, "empty no-file response must carry a hint (#3076)"
+        assert "phase COMPLETION" in hint
+        assert "NOT evidence" in hint
+        assert "git show" in hint
+
+    def test_hint_absent_when_history_file_exists(self, tmp_path, monkeypatch):
+        """A populated (or even filtered-to-empty) read of an existing
+        file is a real answer — no structural-emptiness hint."""
+        self._set_env(monkeypatch, tmp_path)
+        _make_history_file(
+            tmp_path,
+            "1917",
+            "plan",
+            _records(("coder", "CONSENSUS_PROPOSE")),
+        )
+        resp = brc.brc_read_peer_artifact({"phase": "plan"})
+        assert "hint" not in resp
+        # Filtered to zero records: still no hint — the file existed,
+        # so emptiness reflects the filter, not the channel.
+        resp = brc.brc_read_peer_artifact({"phase": "plan", "peer_role": "tester"})
+        assert resp["items"] == []
+        assert "hint" not in resp
+
     def test_missing_phase_rejected(self, tmp_path, monkeypatch):
         self._set_env(monkeypatch, tmp_path)
         with pytest.raises(HandlerError):
