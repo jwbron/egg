@@ -2408,3 +2408,840 @@ class TestReReviewDeltaRangeReachesMessageBody:
             assert "named v1 blockers" in body
         finally:
             remove_peer_consensus_tracker(pipeline_id)
+
+
+# ---------------------------------------------------------------------------
+# Spec-derived propose-time validation (#3077 slice-3 TASK-3-2)
+# ---------------------------------------------------------------------------
+
+
+def _pipeline_with_phase(
+    phase_value: str,
+    *,
+    issue_number: int = 42,
+    pipeline_id: str = "issue-42",
+    branch: str = "egg/issue-42",
+):
+    """Build a real ``Pipeline`` pinned to ``phase_value`` so the spec-derived
+    propose validator can resolve ``specs_for(current_phase, role)``.
+
+    The spec-derived validation that slice-3 lands keys off the pipeline's
+    ``current_phase`` (not a hard-coded role→phase table), so every test
+    in :class:`TestSpecDerivedProposeValidation` constructs a real
+    :class:`Pipeline` with the appropriate phase. This helper centralises
+    that wiring so individual tests stay readable.
+    """
+    from models import Pipeline, PipelinePhase
+
+    return Pipeline(
+        id=pipeline_id,
+        issue_number=issue_number,
+        repo="owner/repo",
+        branch=branch,
+        current_phase=PipelinePhase(phase_value),
+    )
+
+
+def _make_subprocess_router(
+    *,
+    branch_stdout: str = "  origin/egg/issue-42\n",
+    branch_returncode: int = 0,
+    missing_paths: tuple[str, ...] = (),
+    show_stdout_overrides: dict[str, str] | None = None,
+):
+    """Return a callable suitable for ``subprocess.run.side_effect`` that
+    routes each invocation to the right canned response.
+
+    The slice-3 spec-derived dispatch may call ``subprocess.run`` more than
+    once per propose: first the ``git branch -r --contains`` check from
+    ``_verify_commit_on_branch`` (#1473), then one ``git show
+    <sha>:<path>`` per registered artifact. A static
+    ``side_effect=[...]`` list is brittle (architect has two artifacts,
+    risk_analyst has one), so route by command shape instead.
+
+    Args:
+        branch_stdout: stdout for the ``git branch -r --contains`` call.
+        branch_returncode: returncode for the branch check.
+        missing_paths: substrings of artifact-spec paths that should be
+            reported as absent at the commit (``git show`` returncode
+            128). Useful for asserting per-artifact rejection messages.
+        show_stdout_overrides: optional mapping of path-substring →
+            stdout to return when the matching artifact is requested
+            (used for the plan-validation extensions tests).
+    """
+    show_stdout_overrides = show_stdout_overrides or {}
+
+    def _run(cmd, *_args, **_kwargs):
+        # Surface non-list cmds defensively — real callers always pass a list.
+        if not isinstance(cmd, list | tuple):
+            return _make_subprocess_result()
+        cmd_str = " ".join(str(p) for p in cmd)
+        if "branch" in cmd_str and "--contains" in cmd_str:
+            return _make_subprocess_result(stdout=branch_stdout, returncode=branch_returncode)
+        if "show" in cmd_str:
+            for missing in missing_paths:
+                if missing in cmd_str:
+                    return _make_subprocess_result(
+                        returncode=128, stderr=f"fatal: path '{missing}' does not exist\n"
+                    )
+            for path_marker, override in show_stdout_overrides.items():
+                if path_marker in cmd_str:
+                    return _make_subprocess_result(stdout=override)
+            # Default: artifact present and non-empty.
+            return _make_subprocess_result(stdout="present\n")
+        if "cat-file" in cmd_str:
+            # ``_commit_object_resolvable`` path — the commit object is in
+            # the local store unless the test explicitly overrides this.
+            return _make_subprocess_result(returncode=0)
+        return _make_subprocess_result()
+
+    return _run
+
+
+def _propose_payload(
+    *,
+    summary: str = (
+        "Implemented authentication with JWT validation and session management for issue-42"
+    ),
+    artifacts: tuple[str, ...] = ("src/a.py",),
+    commit_sha: str = "abc1234",
+    no_changes_needed: bool = False,
+    extra: dict | None = None,
+) -> dict:
+    """Build a propose payload that satisfies ``_validate_brc_content``
+    (the minimum-content guard rejects short summaries) so the test
+    actually reaches the spec-derived validator under test.
+    """
+    payload: dict = {
+        "summary": summary,
+        "artifacts": list(artifacts),
+        "commit_sha": commit_sha,
+    }
+    if no_changes_needed:
+        payload["no_changes_needed"] = True
+        payload["no_changes_reason"] = "nothing to do in this slice"
+        # A no-op carries no commit_sha (mirrors the producer path).
+        payload.pop("commit_sha", None)
+    if extra:
+        payload.update(extra)
+    return payload
+
+
+class TestSpecDerivedProposeValidation:
+    """Spec-derived propose-time validation for every refine/plan producer
+    with a registered artifact (#3077 slice-3 TASK-3-2).
+
+    The slice-3 coder generalises propose-time draft validation in
+    ``handle_consensus_propose_signal`` from the old hard-coded
+    refiner / task_planner branches to a single pass driven by
+    :func:`shared.egg_contracts.artifact_spec.specs_for` against the
+    pipeline's ``current_phase``:
+
+    * Every refine/plan producer with at least one registered artifact
+      (``refiner`` ⇒ ``analysis-draft``; ``task_planner`` ⇒
+      ``plan-draft``; ``architect`` ⇒ ``architect-output`` +
+      ``architect-slices``; ``risk_analyst`` ⇒
+      ``risk-analyst-output``) is rejected at propose time when the
+      committed artifact is absent at the proposed SHA. The rejection
+      message names the spec path so the producer can fix and
+      re-propose.
+    * Producers in implement (coder, documenter, tester non-coverage,
+      reviewers) carry no registered artifact for the implement phase
+      and pass through unchanged.
+    * ``no_changes_needed`` proposals skip the presence loop entirely
+      (#3027) — the per-phase no-op guard upstream of this slice is
+      what rejects no-ops outside implement.
+    * ``branch_verified`` graceful degradation (#3081) is unchanged:
+      ``branch_verified=None`` + commit-object absent ⇒ skip the
+      presence check; commit-object present ⇒ still validate.
+    * task_planner keeps its #3026 (parseability) and #2527 (role↔files)
+      extensions layered on top of the presence check. The plan-only
+      validator path is preserved.
+    """
+
+    # Spec paths for issue 42 — derived from
+    # ``shared.egg_contracts.artifact_spec`` rows. Mirrored here as plain
+    # strings so the assertions read straightforwardly; if the spec
+    # template drifts, slice-2's consistency suite catches it.
+    _ANALYSIS_DRAFT_PATH = ".egg-state/drafts/42-analysis.md"
+    _PLAN_DRAFT_PATH = ".egg-state/drafts/42-plan.md"
+    _ARCHITECT_OUTPUT_PATH = ".egg-state/agent-outputs/42-architect-output.json"
+    _ARCHITECT_SLICES_PATH = ".egg-state/agent-outputs/42-architect-slices.yaml"
+    _RISK_ANALYST_OUTPUT_PATH = ".egg-state/agent-outputs/42-risk_analyst-output.json"
+
+    # -----------------------------------------------------------------
+    # Per-producer rejection coverage — one case per registered
+    # refine/plan producer (TASK-3-2 acceptance: "Rejection coverage
+    # for every registered refine/plan producer").
+    # -----------------------------------------------------------------
+
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    @patch("routes.signals.subprocess.run")
+    def test_refiner_proposal_rejected_when_analysis_draft_absent(
+        self,
+        mock_subprocess_run,
+        mock_get_tracker,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_gateway_fetch,
+        app,
+    ):
+        """Refiner propose with the analysis draft absent at the proposed
+        commit ⇒ 400 naming the ``analysis-draft`` spec path.
+        """
+        pipeline = _pipeline_with_phase("refine")
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        mock_tracker = MagicMock()
+        mock_get_tracker.return_value = mock_tracker
+
+        mock_subprocess_run.side_effect = _make_subprocess_router(
+            missing_paths=(self._ANALYSIS_DRAFT_PATH,)
+        )
+
+        with app.app_context():
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {"agent_role": "refiner", "payload": _propose_payload()},
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 400, response.get_json()
+        message = response.get_json().get("message", "")
+        assert self._ANALYSIS_DRAFT_PATH in message, message
+        # Tracker untouched on rejection (mirrors #1459 / #2527 invariant).
+        mock_tracker.handle_propose.assert_not_called()
+
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    @patch("routes.signals.subprocess.run")
+    def test_task_planner_proposal_rejected_when_plan_draft_absent(
+        self,
+        mock_subprocess_run,
+        mock_get_tracker,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_gateway_fetch,
+        app,
+    ):
+        """Task planner propose with the plan draft absent at the commit ⇒
+        400 naming the ``plan-draft`` spec path. The plan-only validator
+        retains its #3016 presence behaviour after slice-3 (it's the same
+        path, just resolved from the spec instead of a literal).
+        """
+        pipeline = _pipeline_with_phase("plan")
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        mock_tracker = MagicMock()
+        mock_get_tracker.return_value = mock_tracker
+
+        mock_subprocess_run.side_effect = _make_subprocess_router(
+            missing_paths=(self._PLAN_DRAFT_PATH,)
+        )
+
+        with app.app_context():
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {"agent_role": "task_planner", "payload": _propose_payload()},
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 400, response.get_json()
+        message = response.get_json().get("message", "")
+        assert self._PLAN_DRAFT_PATH in message, message
+        mock_tracker.handle_propose.assert_not_called()
+
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    @patch("routes.signals.subprocess.run")
+    def test_architect_proposal_rejected_when_architect_output_absent(
+        self,
+        mock_subprocess_run,
+        mock_get_tracker,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_gateway_fetch,
+        app,
+    ):
+        """Architect propose with the architect-output JSON missing at the
+        proposed commit ⇒ 400 naming the ``architect-output`` spec path.
+
+        Before slice-3 the architect role had NO propose-time
+        presence check (it didn't match the hard-coded ``refiner`` /
+        ``task_planner`` elif branches in
+        ``handle_consensus_propose_signal``), so an architect that
+        forgot to commit its outputs reached consensus and the
+        task_planner downstream broke when it tried to read the
+        artifact. Slice-3's spec-derived dispatch is what closes that
+        gap.
+        """
+        pipeline = _pipeline_with_phase("plan")
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        mock_tracker = MagicMock()
+        mock_get_tracker.return_value = mock_tracker
+
+        # Architect has TWO registered artifacts; mark the JSON output
+        # missing while the slices YAML is present, so the rejection
+        # message names the specific spec path that failed.
+        mock_subprocess_run.side_effect = _make_subprocess_router(
+            missing_paths=(self._ARCHITECT_OUTPUT_PATH,)
+        )
+
+        with app.app_context():
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {"agent_role": "architect", "payload": _propose_payload()},
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 400, response.get_json()
+        message = response.get_json().get("message", "")
+        assert self._ARCHITECT_OUTPUT_PATH in message, message
+        mock_tracker.handle_propose.assert_not_called()
+
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    @patch("routes.signals.subprocess.run")
+    def test_architect_proposal_rejected_when_architect_slices_absent(
+        self,
+        mock_subprocess_run,
+        mock_get_tracker,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_gateway_fetch,
+        app,
+    ):
+        """Architect propose with the architect-slices YAML missing ⇒ 400
+        naming the ``architect-slices`` spec path.
+
+        Companion to the architect-output case: covers the *other*
+        registered architect artifact so a future spec edit that
+        accidentally drops one row from the loop fails on the right
+        path.
+        """
+        pipeline = _pipeline_with_phase("plan")
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        mock_tracker = MagicMock()
+        mock_get_tracker.return_value = mock_tracker
+
+        mock_subprocess_run.side_effect = _make_subprocess_router(
+            missing_paths=(self._ARCHITECT_SLICES_PATH,)
+        )
+
+        with app.app_context():
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {"agent_role": "architect", "payload": _propose_payload()},
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 400, response.get_json()
+        message = response.get_json().get("message", "")
+        assert self._ARCHITECT_SLICES_PATH in message, message
+        mock_tracker.handle_propose.assert_not_called()
+
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    @patch("routes.signals.subprocess.run")
+    def test_risk_analyst_proposal_rejected_when_output_absent(
+        self,
+        mock_subprocess_run,
+        mock_get_tracker,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_gateway_fetch,
+        app,
+    ):
+        """risk_analyst propose with its output JSON missing ⇒ 400 naming
+        the ``risk-analyst-output`` spec path.
+
+        Like ``architect``, risk_analyst had no propose-time presence
+        check before slice-3. The disk filename uses an underscore
+        (``risk_analyst-output.json``) — the path the rejection names
+        must match the actual on-disk shape, not the hyphenated artifact
+        *name*.
+        """
+        pipeline = _pipeline_with_phase("plan")
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        mock_tracker = MagicMock()
+        mock_get_tracker.return_value = mock_tracker
+
+        mock_subprocess_run.side_effect = _make_subprocess_router(
+            missing_paths=(self._RISK_ANALYST_OUTPUT_PATH,)
+        )
+
+        with app.app_context():
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {"agent_role": "risk_analyst", "payload": _propose_payload()},
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 400, response.get_json()
+        message = response.get_json().get("message", "")
+        assert self._RISK_ANALYST_OUTPUT_PATH in message, message
+        # Underscore in the disk filename (matches the prompt prose);
+        # the registry deliberately exposes this as ``risk-analyst-output``.
+        assert "risk_analyst-output.json" in message, message
+        mock_tracker.handle_propose.assert_not_called()
+
+    # -----------------------------------------------------------------
+    # Pass-through cases (TASK-3-2 acceptance: "Pass-through cases
+    # asserted (no_changes_needed, artifact-less roles, reviewer
+    # messages)").
+    # -----------------------------------------------------------------
+
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    @patch("routes.signals.subprocess.run")
+    def test_implement_role_without_registered_artifact_passes_through(
+        self,
+        mock_subprocess_run,
+        mock_get_tracker,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_gateway_fetch,
+        app,
+    ):
+        """A ``coder`` propose in implement carries no registered
+        artifact ⇒ the spec-derived loop is a no-op and the proposal is
+        accepted (status 200). Prevents the slice-3 generalisation from
+        sneaking new rejections onto roles that today never had one.
+        """
+        pipeline = _pipeline_with_phase("implement")
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_propose.return_value = {
+            "version": 1,
+            "status": "proposed",
+            "commit_sha": "abc1234",
+            "reviewers": [],
+            "stale_reviewers": [],
+        }
+        mock_get_tracker.return_value = mock_tracker
+
+        # All paths present (even though the loop should not query them).
+        mock_subprocess_run.side_effect = _make_subprocess_router()
+
+        with app.app_context():
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {"agent_role": "coder", "payload": _propose_payload()},
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 200, response.get_json()
+        mock_tracker.handle_propose.assert_called_once()
+
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    @patch("routes.signals.subprocess.run")
+    def test_documenter_implement_propose_passes_through(
+        self,
+        mock_subprocess_run,
+        mock_get_tracker,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_gateway_fetch,
+        app,
+    ):
+        """A documenter propose in implement has no registered artifact
+        either ⇒ accepted. Belt-and-braces complement to the coder case
+        because the documenter is the role most-often a no-op contributor
+        in implement-phase slices (it's the role the #3027 no-op
+        propose was added for).
+        """
+        pipeline = _pipeline_with_phase("implement")
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_propose.return_value = {
+            "version": 1,
+            "status": "proposed",
+            "commit_sha": "abc1234",
+            "reviewers": [],
+            "stale_reviewers": [],
+        }
+        mock_get_tracker.return_value = mock_tracker
+
+        mock_subprocess_run.side_effect = _make_subprocess_router()
+
+        with app.app_context():
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {"agent_role": "documenter", "payload": _propose_payload()},
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 200, response.get_json()
+        mock_tracker.handle_propose.assert_called_once()
+
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    @patch("routes.signals.subprocess.run")
+    def test_no_changes_needed_skips_artifact_validation(
+        self,
+        mock_subprocess_run,
+        mock_get_tracker,
+        mock_get_store,
+        mock_resolve_wt,
+        app,
+    ):
+        """A ``no_changes_needed=true`` proposal in implement carries no
+        ``commit_sha`` and skips the spec-derived presence loop. This
+        case never reaches ``git show`` — the no-op invariant from
+        #3027 holds after the slice-3 generalisation.
+        """
+        pipeline = _pipeline_with_phase("implement")
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_propose.return_value = {
+            "version": 1,
+            "status": "proposed",
+            "commit_sha": "",
+            "reviewers": [],
+            "stale_reviewers": [],
+        }
+        mock_get_tracker.return_value = mock_tracker
+
+        with app.app_context():
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {
+                    "agent_role": "documenter",
+                    "payload": _propose_payload(no_changes_needed=True),
+                },
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 200, response.get_json()
+        # No ``git show`` of any spec path — the no-op short-circuits
+        # both branch verification and the spec loop.
+        for call in mock_subprocess_run.call_args_list:
+            cmd = call.args[0] if call.args else []
+            cmd_str = " ".join(str(p) for p in cmd) if isinstance(cmd, list | tuple) else ""
+            assert ".egg-state/" not in cmd_str, (
+                f"no_changes_needed should skip artifact git show; got {cmd_str!r}"
+            )
+
+    # -----------------------------------------------------------------
+    # branch_verified graceful degradation preserved (TASK-3-2
+    # acceptance: "branch_verified degradation unchanged"). The slice-3
+    # generalisation must not regress #3081 — a transient (credential
+    # / network) fetch failure must not be misblamed on the producer
+    # as a missing draft when the commit object is not locally
+    # resolvable.
+    # -----------------------------------------------------------------
+
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=False)
+    @patch("routes.signals._commit_object_resolvable", return_value=False)
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    @patch("routes.signals.subprocess.run")
+    def test_branch_verified_inconclusive_and_commit_absent_skips_validation(
+        self,
+        mock_subprocess_run,
+        mock_get_tracker,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_commit_resolvable,
+        mock_gateway_fetch,
+        app,
+    ):
+        """``branch_verified=None`` (fetch failed) AND commit object not
+        locally resolvable ⇒ presence check is skipped, propose succeeds.
+        Preserves the #3081 graceful-degradation posture for every
+        spec-derived role, not just the legacy plan/refine branches.
+        """
+        pipeline = _pipeline_with_phase("plan")
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_propose.return_value = {
+            "version": 1,
+            "status": "proposed",
+            "commit_sha": "abc1234",
+            "reviewers": [],
+            "stale_reviewers": [],
+        }
+        mock_get_tracker.return_value = mock_tracker
+
+        # Set the default response — for any ``git show`` invocation the
+        # spec-derived loop would treat the path as absent. The test
+        # asserts that no such invocation actually occurs.
+        mock_subprocess_run.side_effect = _make_subprocess_router(
+            branch_returncode=0,
+            missing_paths=(
+                self._ARCHITECT_OUTPUT_PATH,
+                self._ARCHITECT_SLICES_PATH,
+            ),
+        )
+
+        with app.app_context():
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {"agent_role": "architect", "payload": _propose_payload()},
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 200, response.get_json()
+        # No ``git show`` for any spec-registered path — the validator
+        # bailed out before that.
+        for call in mock_subprocess_run.call_args_list:
+            cmd = call.args[0] if call.args else []
+            cmd_str = " ".join(str(p) for p in cmd) if isinstance(cmd, list | tuple) else ""
+            assert "show" not in cmd_str, (
+                f"branch_verified=None + commit absent must skip git show; got {cmd_str!r}"
+            )
+
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=False)
+    @patch("routes.signals._commit_object_resolvable", return_value=True)
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    @patch("routes.signals.subprocess.run")
+    def test_branch_verified_inconclusive_but_commit_local_still_validates(
+        self,
+        mock_subprocess_run,
+        mock_get_tracker,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_commit_resolvable,
+        mock_gateway_fetch,
+        app,
+    ):
+        """``branch_verified=None`` + commit object locally resolvable ⇒
+        the presence check still runs, so a path-absent ``git show``
+        reliably means the artifact is missing at the commit. This is
+        the #3081 fix: an unconditional skip-on-None let a persistent
+        fetch failure disable producer validation entirely — slice-3's
+        generalisation must NOT reintroduce that hole.
+        """
+        pipeline = _pipeline_with_phase("plan")
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        mock_tracker = MagicMock()
+        mock_get_tracker.return_value = mock_tracker
+
+        mock_subprocess_run.side_effect = _make_subprocess_router(
+            missing_paths=(self._RISK_ANALYST_OUTPUT_PATH,),
+        )
+
+        with app.app_context():
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {"agent_role": "risk_analyst", "payload": _propose_payload()},
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 400, response.get_json()
+        message = response.get_json().get("message", "")
+        assert self._RISK_ANALYST_OUTPUT_PATH in message, message
+        mock_tracker.handle_propose.assert_not_called()
+
+    # -----------------------------------------------------------------
+    # Plan-validation extensions retention (TASK-3-2 acceptance:
+    # "Existing plan-validation tests pass unmodified or with
+    # mechanical-only updates"). These are not duplicates of the
+    # TestPlanProposalValidation suite in test_pipeline_prompts.py —
+    # they pin that the integration through the signal handler still
+    # surfaces the parseability and role-alignment rejections after
+    # the spec-derived dispatch lands.
+    # -----------------------------------------------------------------
+
+    _PLAN_WITHOUT_YAML_TASKS = (
+        "# Plan: issue-42\n"
+        "\n"
+        "## Overview\n"
+        "\n"
+        "Prose-only plan with no machine-readable yaml-tasks fence.\n"
+    )
+
+    _PLAN_WITH_MISASSIGNED_TASK = (
+        "# Plan\n"
+        "\n"
+        "```yaml\n"
+        "# yaml-tasks\n"
+        "slices:\n"
+        "  - id: 1\n"
+        "    name: Setup\n"
+        "    goal: scaffolding\n"
+        "    tasks:\n"
+        "      - id: TASK-1-1\n"
+        "        description: Document the new fixtures\n"
+        "        acceptance: docs updated\n"
+        "        role: coder\n"
+        "        files:\n"
+        "          - docs/fixtures.md\n"
+        "```\n"
+    )
+
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    @patch("routes.signals.subprocess.run")
+    def test_plan_proposal_parse_failure_still_rejected_post_slice3(
+        self,
+        mock_subprocess_run,
+        mock_get_tracker,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_gateway_fetch,
+        app,
+    ):
+        """#3026 retention: a plan draft present at the spec path but
+        missing its ``# yaml-tasks`` fence still triggers a propose-time
+        rejection ("does not parse into any tasks"), even though slice-3
+        moves the presence check onto the spec-derived path. The plan's
+        layered extensions are NOT subsumed.
+        """
+        pipeline = _pipeline_with_phase("plan")
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        mock_tracker = MagicMock()
+        mock_get_tracker.return_value = mock_tracker
+
+        mock_subprocess_run.side_effect = _make_subprocess_router(
+            show_stdout_overrides={
+                self._PLAN_DRAFT_PATH: self._PLAN_WITHOUT_YAML_TASKS,
+            }
+        )
+
+        with app.app_context():
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {"agent_role": "task_planner", "payload": _propose_payload()},
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 400, response.get_json()
+        message = response.get_json().get("message", "")
+        assert "does not parse into any tasks" in message, message
+        mock_tracker.handle_propose.assert_not_called()
+
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    @patch("routes.signals.subprocess.run")
+    def test_plan_proposal_role_alignment_still_rejected_post_slice3(
+        self,
+        mock_subprocess_run,
+        mock_get_tracker,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_gateway_fetch,
+        app,
+    ):
+        """#2527 / #2528 retention: a plan that parses but assigns a
+        documentation file to ``coder`` is still rejected at propose
+        time with the role↔files alignment error, after slice-3 moves
+        the presence check onto the spec. The plan-only extensions live
+        on top of the spec-derived presence check; they are NOT replaced.
+        """
+        pipeline = _pipeline_with_phase("plan")
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        mock_tracker = MagicMock()
+        mock_get_tracker.return_value = mock_tracker
+
+        mock_subprocess_run.side_effect = _make_subprocess_router(
+            show_stdout_overrides={
+                self._PLAN_DRAFT_PATH: self._PLAN_WITH_MISASSIGNED_TASK,
+            }
+        )
+
+        with app.app_context():
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {"agent_role": "task_planner", "payload": _propose_payload()},
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 400, response.get_json()
+        message = response.get_json().get("message", "")
+        assert "role↔files alignment violations" in message, message
+        mock_tracker.handle_propose.assert_not_called()
