@@ -88,6 +88,14 @@
       "repo": null,
       "role": "architect"
     },
+    "ed19232eb2e4867b854f24b1b42de85c7b927d4c": {
+      "branch": "egg/issue-3077/slice-1",
+      "patch_id": "0007bed1d61099573411320e7251bcc9dad35eee",
+      "pipeline_id": "issue-3077",
+      "registered_at": "2026-06-11T21:29:02.522971+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "f975c4dd98ecb698a7edaa0492e7ab731d631862": {
       "branch": "egg/issue-3077/work",
       "patch_id": null,
