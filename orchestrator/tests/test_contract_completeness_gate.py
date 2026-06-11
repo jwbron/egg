@@ -465,7 +465,7 @@ class TestAckGate:
         signals_module,
         app,
         gate_env,
-        capsys: pytest.CaptureFixture[str],
+        capfd: pytest.CaptureFixture[str],
     ) -> None:
         """An empty/missing producer_role on the ACK check is logged and skipped.
 
@@ -475,7 +475,13 @@ class TestAckGate:
         ``task.role == ""`` and skip the attestation check).
 
         ``EggLogger`` disables propagation to the root logger, so caplog
-        cannot observe it — assert against captured stderr instead.
+        cannot observe it. ``capsys`` is also unreliable here: the
+        logger's ``StreamHandler(sys.stderr)`` captures the original
+        ``sys.stderr`` at lazy-init time, so a later ``capsys`` swap of
+        the Python-level ``sys.stderr`` does not redirect writes through
+        the handler. ``capfd`` captures at the file-descriptor level
+        and sees the write regardless of which Python object holds the
+        reference.
         """
         _write_contract(gate_env, slice2_complete=True)
         result = _reject(
@@ -486,7 +492,7 @@ class TestAckGate:
             producer_role="",
         )
         assert result is None
-        captured = capsys.readouterr()
+        captured = capfd.readouterr()
         assert "empty producer_role" in captured.err
 
 
