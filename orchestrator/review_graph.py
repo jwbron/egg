@@ -254,7 +254,7 @@ def get_default_implement_graph() -> ReviewGraph:
     - reviewer_code_holistic reviews coder and tester (critical) — issue
       #2126: distinct CRITICAL role so a holistic NACK on architectural
       coherence stands on its own.
-    - reviewer_contract reviews coder (critical)
+    - reviewer_contract reviews coder, tester, and documenter (critical)
     - tester reviews coder (critical, implicitly via tests and lint/type-checks)
     - reviewer_security reviews coder and tester (critical) — lens reviewer
     - reviewer_concurrency reviews coder and tester (critical) — lens reviewer
@@ -263,6 +263,14 @@ def get_default_implement_graph() -> ReviewGraph:
     ``reviewer_concurrency`` from ADVISORY to CRITICAL: a NACK from
     either lens now blocks consensus until the producer re-proposes,
     closing #1997.
+
+    Issue #3114 extended ``reviewer_contract`` from a single coder edge
+    to a CRITICAL edge to every producer: the contract enforcer's ACK is
+    gated on the producer's contract task rows being complete (see
+    ``routes/signals.py:_contract_completeness_rejection``), and that
+    gate only blocks producers the enforcer actually reviews. Before
+    this, a documenter's contract rows could go entirely undelivered —
+    its only reviewer was advisory — and the slice still closed.
 
     Producers: coder, tester, documenter
     Reviewers: reviewer_code, reviewer_code_holistic, reviewer_contract,
@@ -280,6 +288,12 @@ def get_default_implement_graph() -> ReviewGraph:
             ReviewEdge("reviewer_code_holistic", "tester", ReviewCriticality.CRITICAL),
             # reviewer_contract reviews coder (critical)
             ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
+            # reviewer_contract reviews tester and documenter (critical —
+            # #3114): the contract enforcer needs a blocking edge to EVERY
+            # producer or a producer's contract rows can go undelivered
+            # with no reviewer able to refuse.
+            ReviewEdge("reviewer_contract", "tester", ReviewCriticality.CRITICAL),
+            ReviewEdge("reviewer_contract", "documenter", ReviewCriticality.CRITICAL),
             # tester reviews coder (critical — via writing/running tests and lint/type-checks)
             ReviewEdge("tester", "coder", ReviewCriticality.CRITICAL),
             # reviewer_code reviews documenter (advisory)

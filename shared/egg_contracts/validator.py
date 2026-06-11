@@ -82,6 +82,27 @@ def validate_mutation(
             required_role=required,
         )
 
+    # Reviewer task-status writes are demote-only (#3114): a reviewer may
+    # flag a row (incomplete / blocked / pending) but only the implementer
+    # may claim completion. Without this, the contract-completeness gate
+    # that blocks an enforcer's ACK on incomplete rows could be satisfied
+    # by the enforcer itself flipping the rows to complete.
+    if (
+        role == Role.REVIEWER
+        and normalize_path(field_path) == "phases.*.tasks.*.status"
+        and new_value == "complete"
+    ):
+        return ValidationResult(
+            valid=False,
+            message=f"Cannot set '{normalize_path(field_path)}' to 'complete' "
+            f"as role '{role.value}': task completion is claimed by the "
+            f"implementer that did the work (demote-only reviewer writes, "
+            f"#3114). Reviewers may set 'incomplete', 'blocked', or "
+            f"'pending' to flag a row.",
+            field_path=field_path,
+            required_role=Role.IMPLEMENTER.value,
+        )
+
     return ValidationResult(valid=True, message="Mutation allowed")
 
 
