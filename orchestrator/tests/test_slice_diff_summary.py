@@ -15,7 +15,7 @@ reads ``origin/<branch>`` after its (mocked-out) gateway fetch.
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -133,5 +133,24 @@ def test_identical_branches_return_none(repo):
     """Empty slice branch (tip == parent) → nothing to report."""
     spawner = MagicMock()
     subjects, diffstat = _build_slice_diff_summary(_pipeline(), spawner, repo, "work", "work")
+    assert subjects is None
+    assert diffstat is None
+
+
+def test_subprocess_raise_is_nonfatal(tmp_path):
+    """Outer ``except Exception`` catches subprocess-level failures
+    (timeout, FileNotFoundError if git is absent, OSError) and degrades
+    to ``(None, None)``. Without this catch a missing-git host or a
+    runaway subprocess would block slice PR creation. Uses ``tmp_path``
+    directly (no real git repo needed): the patched ``subprocess.run``
+    raises before any git invocation."""
+    spawner = MagicMock()
+    with patch(
+        "routes.pipelines.subprocess.run",
+        side_effect=subprocess.TimeoutExpired(cmd="git", timeout=30),
+    ):
+        subjects, diffstat = _build_slice_diff_summary(
+            _pipeline(), spawner, tmp_path, "slice-1", "work"
+        )
     assert subjects is None
     assert diffstat is None

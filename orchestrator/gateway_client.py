@@ -274,7 +274,7 @@ def _format_slice_title(program_slug: str, position_marker: str, subject: str) -
     return f"[{program_slug}][{position_marker}] {subject}".strip()
 
 
-_TITLE_TRAILING_PUNCT = " \t\r\n.,;:!?-+/\\|&*=~^<>"
+_TITLE_TRAILING_PUNCT = " \t\r\n.,;:!?-+/\\|&*=~^<>\"'()[]{}"
 
 
 def _truncate_title(title: str, max_len: int = 70) -> str:

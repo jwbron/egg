@@ -1663,19 +1663,34 @@ class TestCreateSlicePR:
 
     def test_truncate_title_helper_strips_trailing_punctuation_and_guards_max_len(self):
         """#3115 follow-up: trailing punctuation gets stripped before the
-        ``...`` is appended (so ``library + ...`` doesn't happen), and a
+        ``...`` is appended (so ``verifier +...`` doesn't happen), and a
         degenerate ``max_len <= 3`` returns a string no longer than
         ``max_len`` instead of ``"a..."``."""
         from gateway_client import _truncate_title
 
-        # Force a real truncation by aiming the cut at the trailing ``+``.
-        # ``Foundation: source-of-truth library +`` is 39 chars, so
-        # ``max_len=40`` puts the cut point right after the ``+``; the
-        # pre-fix code returned ``…library +...``.
-        cut = _truncate_title("Foundation: source-of-truth library + verifier", max_len=40)
-        assert cut.endswith("...")
-        assert not cut.endswith("+...")
-        assert not cut.endswith(" ...")
+        # The real-world failure case: an 82-char slice title with
+        # ``+``-joined segments. The intermediate (post-3db69157,
+        # pre-0d8b811) implementation used ``rstrip()`` which only
+        # stripped whitespace, so the word-boundary cut landed at the
+        # space after a ``+`` and returned
+        # ``[slice-1] Foundation: source-of-truth library + verifier +...``.
+        # With the trailing-punct strip the ``+`` and its preceding
+        # space go too, yielding ``…verifier...``.
+        long_title = (
+            "[slice-1] Foundation: source-of-truth library + verifier + claim-check + drift CLI"
+        )
+        cut = _truncate_title(long_title, max_len=70)
+        assert cut.endswith("verifier...")
+        assert "+..." not in cut
+        assert " ..." not in cut
+
+        # Brackets/quotes are also stripped. With ``max_len=11`` the
+        # word-boundary cut lands at the space after ``(cd)``; without
+        # bracket coverage the rstrip would leave ``ab (cd)...``.
+        bracket_cut = _truncate_title("ab (cd) efghijklmnopq", max_len=11)
+        assert bracket_cut.endswith("...")
+        assert not bracket_cut.endswith(")...")
+        assert not bracket_cut.endswith(") ...")
 
         # Degenerate guard: pre-fix returned ``"a..."`` (length 4) for
         # ``max_len=2``; the guard now caps the length at ``max_len``.
