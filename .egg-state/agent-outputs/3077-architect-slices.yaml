@@ -1,0 +1,104 @@
+slices:
+  - id: 1
+    name: |-
+      R1 non-silent sync: surface sync_to_proposals() failures in the reviewer prompt
+    goal: |-
+      Close the phase-1 residual: sync_to_proposals()
+      (orchestrator/consensus_wrapper.py:487-541) records per-SHA
+      outcomes (merged / already-ancestor / unresolvable /
+      merge-failed) and the wrapper prepends an explicit
+      "worktree NOT synced to <sha> (<reason>); treat your local
+      diff as unreliable — use the git show commands below"
+      banner to the fetched event prompt on any failure, before
+      the agent is invoked. Update the empty-delta caution in
+      orchestrator/routes/event_prompt.py (~266-281) to
+      cross-reference the banner. Test: simulated conflicting
+      merge => banner present in the agent-visible prompt;
+      successful sync => no banner.
+    # root slice — head of the serialized main chain
+  - id: 2
+    name: |-
+      Artifact spec module: single declarative registry of coordination artifacts
+    goal: |-
+      Add shared/egg_contracts/artifact_spec.py: frozen
+      ArtifactSpec rows (name, path_template keyed on
+      {identifier}, phase, producer_role, consumer_roles) for
+      analysis-draft, plan-draft, architect-output,
+      architect-slices, risk-analyst-output; resolution helpers
+      resolve_artifact_path / specs_for / spec_by_name. MANDATORY
+      in-slice consistency tests: every spec path admitted by the
+      matching gateway/phase_filter.py phase gate (and the
+      shared/egg_restrictions/phase_patterns.py mirror);
+      _get_draft_path output equals spec resolution for both
+      identifier shapes; prompt f-string literals in
+      orchestrator/routes/pipelines.py match the spec. No
+      behavior change to consumers yet.
+    dependencies: slice-1
+  - id: 3
+    name: |-
+      Spec-derived propose-time validation for all refine/plan producers
+    goal: |-
+      Generalize orchestrator/routes/signals.py propose
+      validation: for every CONSENSUS_PROPOSE with a commit_sha,
+      resolve specs_for(phase, producer_role) and run the
+      existing git-show presence check per artifact (reusing the
+      single helper and the #3081 branch_verified graceful-
+      degradation semantics — no fork). Plan-draft keeps its
+      parse_plan (#3026) and role-alignment (#2527/#2528)
+      extensions. Subsume and delete
+      _validate_producer_draft_present (refine). Derive
+      orchestrator prompt/validation path construction from the
+      spec (replacing asserted literals from slice-2). Roles with
+      no registered artifact validate nothing; no_changes_needed
+      skips.
+    dependencies: slice-2
+  - id: 4
+    name: |-
+      Gateway artifact-read endpoint (strict, name-resolving) + sandbox helper
+    goal: |-
+      POST /api/v1/artifact/get: new gateway blueprint modeled on
+      gateway/contract_api.py (session auth, role from session,
+      forward to orchestrator); new orchestrator/routes/artifacts.py
+      resolves spec-registered name + hex-validated committed ref
+      via git show against the authoritative repo, with existing
+      output caps and a truncated flag. STRICT per HITL Q2: no
+      path field exists in the schema; unregistered names get a
+      400 listing registered names. Add a small sandbox-side read
+      helper agents call instead of hand-built curl. Cross-link
+      as unblocking #3002.
+    dependencies: slice-3
+  - id: 5
+    name: |-
+      Phase-3 prose cleanup, docs invariant entry, and the no-sync-mechanics ratchet test
+    goal: |-
+      Delete the agent-facing fetch/log sync prose: REVIEWER-SYNC.md
+      delta-command row (replace with served-reads wording) and
+      the event_prompt.py "fetch and read the diffs yourself"
+      fallback prose (~850-880). Add the docs/architecture
+      served-coordination-state invariant entry (three clauses +
+      incident lineage). Add the ratchet pytest scanning
+      agent-facing prompt sources (shared/prompts/*.md, prompt-
+      constructing template strings) for git fetch/merge/pull
+      imperatives and brc-history paths, with a justified
+      allowlist for harness-internal code. Ordered last so every
+      replacement mechanism (banner, spec, validation, endpoint)
+      is live before its prose predecessor is deleted; hard
+      file-overlap with slice-1 on event_prompt.py (#3046).
+    dependencies: slice-4
+    serialized_chain_order: [slice-1, slice-2, slice-3, slice-4]
+  - id: 6
+    name: |-
+      Bounded durability: fail-loud memory-backend signal + Redis restart-semantics test
+    goal: |-
+      Per HITL Q3 (fail-loud only, no refusal): in
+      orchestrator/message_store.py _create_message_store(), an
+      auto->memory fallback emits an error-level structured log
+      with a stable marker and sets a health-visible degraded
+      flag; explicit EGG_MESSAGE_STORE_BACKEND=memory stays a
+      warning. Redis-path restart-semantics test: mid-phase
+      messages survive store re-instantiation against the same
+      Redis, while the designed _clear_concurrent_state()
+      (orchestrator/routes/phases.py:113) phase-boundary wipe
+      still occurs. Touches only message_store.py + tests —
+      parallel root, disjoint from the main chain.
+    # root slice — file set disjoint from slices 1-5
