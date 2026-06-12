@@ -52,13 +52,18 @@ import pytest
 from egg_restrictions.phase_patterns import phase_file_verdict
 from routes.pipelines import _get_draft_path
 
-# The spec module is the unit under test.
+# The spec module is the unit under test. ``all_specs`` is aliased on
+# import to avoid colliding with the pytest fixture of the same name —
+# the fixture exists so dependent tests can name their parameter after
+# the registry concept, while the underlying source of truth is the
+# module function.
 from egg_contracts.artifact_spec import (
     ArtifactSpec,
     resolve_artifact_path,
     spec_by_name,
     specs_for,
 )
+from egg_contracts.artifact_spec import all_specs as registered_specs
 from egg_contracts.models import PipelinePhase
 
 PhaseFilter = phase_filter.PhaseFilter
@@ -82,44 +87,26 @@ _IDENTIFIERS: tuple[int | str, ...] = (_INT_IDENTIFIER, _STR_IDENTIFIER)
 def all_specs() -> tuple[ArtifactSpec, ...]:
     """Return every registered ArtifactSpec row.
 
-    The module exposes the canonical list via ``specs_for`` (per-phase /
-    per-producer projection); the union across the refine + plan phase
-    rosters covers every row by construction. We rely on
-    :func:`spec_by_name` for de-duplication so a future
-    multi-producer row (unlikely under the contract that each row names
-    exactly one producer) would still resolve once.
+    Delegates to :func:`egg_contracts.artifact_spec.all_specs` (aliased
+    here as ``registered_specs`` to avoid colliding with this fixture's
+    name) so a future row added to the registry is automatically
+    exercised by every consistency / mutation test that consumes the
+    fixture, even if its producer role is outside the refine + plan
+    roster slice-2 originally covered. ``specs_for`` projections are
+    exercised independently by :meth:`TestResolutionRoundTrip.
+    test_specs_for_plan_draft_is_singleton`.
     """
-    seen: dict[str, ArtifactSpec] = {}
-    for phase in ("refine", "plan"):
-        # ``specs_for`` is producer-scoped per the contract; iterate the
-        # producer role inventory rather than guessing roles in the
-        # test. We let ``specs_for`` fall over on an unknown role
-        # (rather than silently returning an empty tuple) so a
-        # registry-level inversion is caught here.
-        for role in _candidate_producer_roles_for_phase(phase):
-            for spec in specs_for(phase, role):
-                seen.setdefault(spec.name, spec)
-    assert seen, "no specs registered — registry is empty"
-    return tuple(seen.values())
+    specs = registered_specs()
+    assert specs, "no specs registered — registry is empty"
+    return specs
 
 
-def _candidate_producer_roles_for_phase(phase: str) -> tuple[str, ...]:
-    """Return producer roles that may have a registered artifact in ``phase``.
-
-    Hard-coded to the refine + plan producers named in the #3077 plan;
-    the contract for ``task-2-1`` says every registered row names one
-    producer drawn from this list. If a future row adds a producer
-    outside this set, this helper must be updated alongside the spec —
-    the failure surfaces via :func:`test_specs_for_round_trips_every_row`,
-    which compares the union of ``specs_for(...)`` against
-    :func:`spec_by_name` on every registered row.
-    """
-    if phase == "refine":
-        # Refine's only producer in the spec is the analysis-draft author.
-        return ("refiner",)
-    if phase == "plan":
-        return ("task_planner", "architect", "risk_analyst")
-    raise AssertionError(f"unexpected phase: {phase!r}")
+@pytest.fixture(scope="module")
+def _gateway_phase_filter() -> PhaseFilter:
+    # Module-scoped so consistency-A and mutation tests share one
+    # instance — ``PhaseFilter()`` is cheap but its glob compilation
+    # touches the filesystem, and we'd rather not re-do that per test.
+    return PhaseFilter()
 
 
 # ---------------------------------------------------------------------------
@@ -194,8 +181,15 @@ class TestResolutionRoundTrip:
     """``resolve_artifact_path`` and ``spec_by_name`` round-trip every row."""
 
     def test_spec_by_name_round_trips(self, all_specs: tuple[ArtifactSpec, ...]) -> None:
+        # Identity (``is``) is the right check here, not structural
+        # equality: ``_BY_NAME`` stores the same instance built at
+        # module import time, so a rebuilt spec with matching fields
+        # would compare ``==`` (frozen dataclasses get structural eq for
+        # free) but would *not* be ``is`` — and that case would defeat
+        # the round-trip's intent of pinning the registry as the source
+        # of truth.
         for spec in all_specs:
-            assert spec_by_name(spec.name) is spec or spec_by_name(spec.name) == spec
+            assert spec_by_name(spec.name) is spec
 
     @pytest.mark.parametrize("identifier", _IDENTIFIERS, ids=("int", "str"))
     def test_resolve_artifact_path_matches_template(
@@ -255,21 +249,17 @@ class TestConsistencyA_PhaseFilterAdmits:
     eliminate.
     """
 
-    @pytest.fixture(scope="class")
-    def phase_filter(self) -> PhaseFilter:
-        return PhaseFilter()
-
     @pytest.mark.parametrize("identifier", _IDENTIFIERS, ids=("int", "str"))
     def test_gateway_phase_filter_admits_every_spec_path(
         self,
         all_specs: tuple[ArtifactSpec, ...],
-        phase_filter: PhaseFilter,
+        _gateway_phase_filter: PhaseFilter,
         identifier: int | str,
     ) -> None:
         for spec in all_specs:
             path = resolve_artifact_path(spec.name, identifier)
             phase = PipelinePhase(spec.phase)
-            result = phase_filter.check_phase_file_restrictions(phase, [path])
+            result = _gateway_phase_filter.check_phase_file_restrictions(phase, [path])
             assert result.allowed, (
                 f"{spec.name}: gateway phase filter rejected {path!r} for "
                 f"phase {spec.phase!r}: {getattr(result, 'message', None)!r}"
@@ -441,11 +431,6 @@ class TestConsistencyC_PromptDerivesFromSpec:
 # ---------------------------------------------------------------------------
 # Mutation: a deliberate template mutation must fail (a)
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(scope="module")
-def _gateway_phase_filter() -> PhaseFilter:
-    return PhaseFilter()
 
 
 def _mutate_template(template: str, mutation: str) -> str:

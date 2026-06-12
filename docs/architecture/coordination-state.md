@@ -22,6 +22,34 @@
 > has produced zero such incidents. The invariant below is the structural fix
 > that retires the failure class.
 
+## Slice landings (status as of slice-1)
+
+This page describes the **final shape** of the #3077 invariant. The epic is
+being landed in six slices; not every enforcing mechanism cited below exists
+on `main` yet. The table tracks what has shipped vs what is still pending so
+a reader cannot mistake the design target for the current state.
+
+| Mechanism | Cited under | Status |
+|-----------|-------------|--------|
+| Wrapper `sync_to_proposals()` per-SHA outcome recording + "worktree NOT synced" banner | Clause 2 | **Shipped** (slice-1) |
+| Empty-delta caution cross-reference to the wrapper banner | Clause 2 | **Shipped** (slice-1) |
+| `mcp__brc__read_peer_artifact` (live store + on-disk merge, `live` flag) | Clause 1 | **Shipped** (predates #3077) |
+| Contract reads via `mcp__sdlc__show_contract` / `mcp__task__*` / `mcp__phase__get_context` | Clause 1 | **Shipped** (predates #3077) |
+| `mcp__progress__query_status` / `mcp__progress__emit` HTTP-backed reads | Clause 1 | **Shipped** (predates #3077) |
+| `shared/egg_contracts/artifact_spec.py` declarative artifact registry | Clause 3 | **Pending** (slice-2) |
+| `shared/egg_contracts/tests/test_artifact_spec.py` spec-consistency tests | Clause 3 | **Pending** (slice-2) |
+| `handle_consensus_propose_signal` generalisation to every spec-registered artifact | Clause 3 | **Pending** (slice-3) |
+| Gateway `POST /api/v1/artifact/get` + `orchestrator/routes/artifacts.py` | Clause 1 | **Pending** (slice-4) |
+| Sandbox `egg-artifact` verb | Clauses 1, 3 | **Pending** (slice-4) |
+| `orchestrator/tests/test_prompt_sync_ratchet.py` no-sync-mechanics ratchet | Clause 2 | **Pending** (slice-5) |
+| Fail-loud memory-backend signal + Redis restart-semantics test | Wipe-semantics | **Pending** (slice-6) |
+
+The clause descriptions below are written in present tense as the **target
+state** the epic is landing. Until a slice ships, treat the corresponding
+"Enforcing mechanisms" bullet as a design specification for that slice, not
+a current-state claim. The shipped column above is the source of truth for
+what exists today.
+
 ## The Three-Clause Invariant
 
 These clauses are **normative**. A new mechanism MUST satisfy all three, or
