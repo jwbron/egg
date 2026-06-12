@@ -36,7 +36,7 @@ import os
 import threading
 import time
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 try:
@@ -205,6 +205,7 @@ class EventDecision:
 # Supervision state (slice-3, #3138) — tracked per-dedupe-key.
 # ---------------------------------------------------------------------------
 
+
 class JobSupervisor:
     """Track per-event failures, enforce backoff, raise OVERSEER_ALERT.
 
@@ -265,7 +266,11 @@ class JobSupervisor:
         The wrapper equivalent is the wrapper arm's own logic —
         ``egg-orch consensus confirmed`` → exit 0, no counter increment.
         """
-        logger.debug("JobSupervisor: legitimate outcome (%s) for key=%s — streak untouched", outcome, dedupe_key)
+        logger.debug(
+            "JobSupervisor: legitimate outcome (%s) for key=%s — streak untouched",
+            outcome,
+            dedupe_key,
+        )
 
     def record_abort(self, dedupe_key: str, action: str, role: str) -> None:
         """Called when a Job terminates abnormally (non-zero, non-BRC-legitimate).
@@ -350,10 +355,7 @@ class JobSupervisor:
             self._overseer_alert(
                 anomaly="agent-invocation-fail-streak",
                 priority="high",
-                summary=(
-                    f"agent invocation failing repeatedly (action={action}, "
-                    f"streak={streak})"
-                ),
+                summary=(f"agent invocation failing repeatedly (action={action}, streak={streak})"),
                 detail=(
                     f"Event-pump for role={role} has had {streak} consecutive "
                     f"agent-invocation failures on action={action}. "
@@ -363,7 +365,6 @@ class JobSupervisor:
                     f"Threshold: streak >= {SUPERVISION_FAILURE_STREAK_ALERT}."
                 ),
             )
-
 
 
 class OrchestratorEventLoop:
