@@ -1,0 +1,13 @@
+{
+  "entries": {
+    "f480264124bd96eacf14425b6ec21edc98266265": {
+      "branch": "egg/issue-3064/work",
+      "patch_id": "e484507555f4e74122c65c637de22b5d0862ac50",
+      "pipeline_id": "issue-3064",
+      "registered_at": "2026-06-12T16:43:59.598264+00:00",
+      "repo": null,
+      "role": "refiner"
+    }
+  },
+  "version": 2
+}
