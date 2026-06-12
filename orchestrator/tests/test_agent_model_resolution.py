@@ -433,7 +433,7 @@ class TestSubOneMContextModels:
     safely below their window. See #2987.
     """
 
-    @pytest.mark.parametrize("model", ["kimi-k2.6", "glm-5.1"])
+    @pytest.mark.parametrize("model", ["kimi-k2.7-code", "glm-5.1"])
     def test_sub_1m_model_drops_1m_suffix(self, model):
         resolve_agent_model = _resolver()
         AgentRole = _agent_role()
@@ -450,7 +450,7 @@ class TestSubOneMContextModels:
             f"model's real limit; got {d.claude_code_alias!r}"
         )
 
-    @pytest.mark.parametrize("model", ["kimi-k2.6", "glm-5.1"])
+    @pytest.mark.parametrize("model", ["kimi-k2.7-code", "glm-5.1"])
     def test_pre_suffixed_sub_1m_model_normalized_to_bare(self, model):
         """A stray operator ``[1m]`` on a sub-1M model is overridden — the
         registry is authoritative, so the alias is still bare.
@@ -465,14 +465,14 @@ class TestSubOneMContextModels:
         assert d.upstream_model == model
         assert d.claude_code_alias == model
 
-    @pytest.mark.parametrize("model", ["kimi-k2.6", "glm-5.1"])
+    @pytest.mark.parametrize("model", ["kimi-k2.7-code", "glm-5.1"])
     def test_sub_1m_env_vars_carry_bare_name(self, model):
         """Every custom-model env var for a sub-1M model carries the bare
         name — none may leak the ``[1m]`` suffix (which would re-trigger the
         1M profile for the main agent or its Task-tool subagents). Parametrized
         over both registry entries so a future drift that only broke ``glm-5.1``
         (e.g. a ``.lower()`` or escape that special-cased the hyphen-period in
-        ``k2.6``) is caught here, not in the field.
+        ``k2.7``) is caught here, not in the field.
         """
         resolve_agent_model = _resolver()
         AgentRole = _agent_role()
@@ -524,7 +524,7 @@ class TestSubOneMContextModels:
             )
 
     def test_pre_suffixed_sub_1m_emits_override_warning(self, caplog):
-        """When an operator passes ``kimi-k2.6[1m]`` (sub-1M model with a
+        """When an operator passes ``kimi-k2.7-code[1m]`` (sub-1M model with a
         stray [1m] suffix), the resolver overrides the suffix and emits a
         warning — silent overrides leave operators chasing why their
         requested 1M profile isn't being applied.
@@ -534,24 +534,24 @@ class TestSubOneMContextModels:
         from agent_model_resolution import classify_model
 
         with caplog.at_level(logging.WARNING, logger="agent_model_resolution"):
-            d = classify_model("kimi-k2.6[1m]")
+            d = classify_model("kimi-k2.7-code[1m]")
 
-        assert d.claude_code_alias == "kimi-k2.6"
+        assert d.claude_code_alias == "kimi-k2.7-code"
         # The warning's %r formatting puts repr quotes around the input alias and
         # the normalised bare name; assert both quoted forms appear so a future
         # drift that swapped the format args (e.g. logged ``bare`` twice instead
         # of ``model, bare``) would still fail this test rather than passing on
         # the substring ``"[1m]"`` in the static format string alone.
         assert any(
-            "'kimi-k2.6[1m]'" in record.message and "'kimi-k2.6'" in record.message
+            "'kimi-k2.7-code[1m]'" in record.message and "'kimi-k2.7-code'" in record.message
             for record in caplog.records
         ), (
-            f"expected override warning naming both 'kimi-k2.6[1m]' and 'kimi-k2.6'; "
+            f"expected override warning naming both 'kimi-k2.7-code[1m]' and 'kimi-k2.7-code'; "
             f"got {[r.message for r in caplog.records]!r}"
         )
 
     def test_bare_sub_1m_emits_no_warning(self, caplog):
-        """The common case (operator passes the bare ``kimi-k2.6`` name)
+        """The common case (operator passes the bare ``kimi-k2.7-code`` name)
         must NOT emit the override warning — the warning is reserved for
         the actual override.
         """
@@ -560,7 +560,7 @@ class TestSubOneMContextModels:
         from agent_model_resolution import classify_model
 
         with caplog.at_level(logging.WARNING, logger="agent_model_resolution"):
-            classify_model("kimi-k2.6")
+            classify_model("kimi-k2.7-code")
 
         assert not caplog.records, (
             f"bare sub-1M model must not warn; got {[r.message for r in caplog.records]!r}"

@@ -134,7 +134,7 @@ The resolver's classifier divides model strings into two camps:
 | `opus`, `opus[1m]`, `sonnet`, `sonnet[1m]`, `haiku`, `fable`, `fable[1m]` | `"anthropic"` | the model string verbatim | `None` |
 | `claude-*` (e.g. `claude-3-5-sonnet-20241022`) | `"anthropic"` | the model string verbatim | `None` |
 | Everything else with a real window ≥1M (e.g. `qwen3.7-max`, `deepseek-v4-*`) | `"litellm"` | `<model>[1m]` (the bare upstream name plus the 1M-context opt-in suffix) | the bare upstream name |
-| Sub-1M-window models (`_SUB_1M_CONTEXT_MODELS`: `kimi-k2.6` 256K, `glm-5.1` 202K) | `"litellm"` | `<model>` — bare, **no** `[1m]` (takes Claude Code's 200K default) | the bare upstream name |
+| Sub-1M-window models (`_SUB_1M_CONTEXT_MODELS`: `kimi-k2.7-code` 256K, `glm-5.1` 202K) | `"litellm"` | `<model>` — bare, **no** `[1m]` (takes Claude Code's 200K default) | the bare upstream name |
 
 Two consequences:
 
@@ -221,7 +221,7 @@ two env vars (plus one egg-side auth marker):
 - `ANTHROPIC_CUSTOM_MODEL_OPTION=<upstream>[1m]` — registers the
   custom model ID and tells Claude Code to use 1M-context
   compaction math. For models in `_SUB_1M_CONTEXT_MODELS` (Kimi
-  K2.6, GLM-5.1) this is set to the **bare** `<upstream>` without
+  K2.7-Code, GLM-5.1) this is set to the **bare** `<upstream>` without
   the `[1m]` suffix; see the *Sub-1M-window upstreams (#2987)*
   callout below.
 - `ANTHROPIC_CUSTOM_MODEL_OPTION_NAME=<upstream>` — the bare
@@ -288,7 +288,7 @@ registration.
 > `DISABLE_COMPACT` (which egg never sets). So the resolver appends
 > `[1m]` only for genuine ≥1M upstreams and **withholds it** for
 > models whose real window is below 1M — `_SUB_1M_CONTEXT_MODELS` in
-> `agent_model_resolution.py` (Kimi K2.6 256K, GLM-5.1 202K). Those
+> `agent_model_resolution.py` (Kimi K2.7-Code 256K, GLM-5.1 202K). Those
 > take Claude Code's 200K default, which auto-compacts safely below
 > their real limit instead of deferring compaction toward 1M and
 > overflowing the upstream mid-turn. The cost is the unused headroom
