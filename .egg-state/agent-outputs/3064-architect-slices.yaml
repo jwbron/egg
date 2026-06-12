@@ -58,13 +58,21 @@ slices:
     goal: |-
       kubernetes_spawner: re-attach-first worktree branch
       (validate expected branch, .git integrity, no foreign lock;
-      fall back to today's create-with-retry on any mismatch) and
-      per-role session reuse (re-register only when no live
+      fall back to today's create-with-retry on any mismatch).
+      Dirty-state policy (R6): on every successful re-attach,
+      discard uncommitted changes and untracked staging artifacts
+      (reset --hard + clean -fd) and hard-sync to the role branch
+      tip before agent invocation — a predecessor pod killed
+      mid-event (slice-3 supervision respawn is the canonical
+      producer) must never leak unproposed residue into a
+      successor's commit; discard failure => recreate fallback.
+      Per-role session reuse (re-register only when no live
       session / token aged out; teardown moves to phase end or
       streak exhaustion in orchestrator mode). At-most-one-live-
       pod-per-role+slice (slice-2 dedupe) is the ownership story
-      — asserted in tests. Meets the p50<60s spawn->invoke budget
-      in a simulated-clock test.
+      — asserted in tests; ac-4 adds an induced dirty-worktree
+      case alongside corruption/branch-mismatch. Meets the
+      p50<60s spawn->invoke budget in a simulated-clock test.
     dependencies: slice-3
   - id: 5
     name: |-
