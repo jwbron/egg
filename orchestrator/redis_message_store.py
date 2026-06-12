@@ -532,7 +532,17 @@ class RedisMessageStore:
         key = _stream_key(pipeline_id)
         try:
             entries = self._redis.xrevrange(key, count=1)
-        except redis.RedisError:
+        except redis.RedisError as exc:
+            # Mirror the since_id transient-degradation path above: log
+            # before degrading so the rare event is visible. On a
+            # non-empty stream this re-delivers pre-existing history as if
+            # new (at-least-once), the safe direction vs. dropping a
+            # message; the caller's deadline loop still bounds the read.
+            logger.warning(
+                "from_tip tip resolution failed transiently; degrading to 0-0",
+                pipeline_id=pipeline_id,
+                error=str(exc),
+            )
             return "0-0"
         if entries:
             stream_id = entries[0][0]

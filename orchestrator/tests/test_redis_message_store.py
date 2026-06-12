@@ -849,10 +849,11 @@ class TestRedisFromTipSemantics:
             )
         )
 
-        # fakeredis's XREAD with $ is a no-op on streams with data — it
-        # returns empty immediately because no "later" entry exists. This
-        # is the correct behaviour contract even though real Redis would
-        # actually block for the timeout.
+        # Production resolves the tip to a concrete id before XREAD (see
+        # _resolve_tip_stream_id), so the read starts from that id
+        # exclusively and returns empty — the pre-existing match is never
+        # delivered. Regressing _resolve_tip_stream_id to always-"0-0"
+        # would surface the pre-existing match and fail this assertion.
         start = time.monotonic()
         messages = store.get_messages(
             "test-pipeline",
