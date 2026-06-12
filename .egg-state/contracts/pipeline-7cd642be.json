@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1.3",
+  "issue": null,
+  "task_description": "Add a brief \"when to run this manually\" note to the header comment of scripts/clear-stuck-egg-pods.sh, explaining the symptom that warrants running it by hand outside of `make deploy` (e.g. pods stuck Terminating/Pending after an interrupted deploy) and what the script does about it.",
+  "pipeline_id": "pipeline-7cd642be",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "slices": [],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
