@@ -17,6 +17,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -397,6 +398,173 @@ def _classify_spawn_error(e: BaseException | None) -> str | None:
     return f"unknown_{status_code}"
 
 
+# ------------------------------------------------------------------
+# #3064 slice-4: worktree re-attach helpers
+# ------------------------------------------------------------------
+
+
+def _validate_worktree_for_reuse(
+    agent_worktree_id: str,
+    repos: list[str],
+    branch: str | None,
+) -> dict[str, str] | None:
+    """Validate an existing worktree for re-attach (#3064 slice-4).
+
+    Checks the filesystem worktree at ``WORKTREE_BASE_DIR / agent_worktree_id / <repo>``
+    for directory existence, ``.git`` integrity (``git rev-parse --git-dir``), lock
+    files (``.git/*.lock`` and ``.git/refs/*/*.lock``), and expected branch (when
+    ``branch`` is supplied — the worktree's ``HEAD`` should be on the role's branch).
+
+    On success, **discards dirty state** (R6 dirty-state policy):
+    ``git reset --hard && git clean -fd``, then hard-syncs to the role
+    branch tip via ``git fetch origin {branch} && git reset --hard
+    origin/{branch}``. This ensures residue from a killed predecessor
+    pod (slice-3 supervision respawn is the canonical producer) never
+    leaks into a successor's commit.
+
+    Returns a ``{owner/repo: filesystem_path}`` dict on success (matching
+    ``GatewayClient.create_worktrees`` output shape), or ``None`` on ANY
+    validation or cleanup mismatch (the caller falls back to
+    create-with-retry). Best-effort logging.
+    """
+    import subprocess as _sp
+
+    if not repos or not WORKTREE_BASE_DIR.exists():
+        return None
+    wt = WORKTREE_BASE_DIR / agent_worktree_id
+    if not wt.exists() or not wt.is_dir():
+        logger.info(
+            "Worktree re-attach: directory missing",
+            agent_worktree_id=agent_worktree_id,
+        )
+        return None
+
+    vols: dict[str, str] = {}
+    for ref in repos:
+        n = ref.split("/")[-1] if "/" in ref else ref
+        d = wt / n
+        if not d.exists() or not d.is_dir():
+            logger.info(
+                "Worktree re-attach: repo directory missing",
+                agent_worktree_id=agent_worktree_id, repo=n,
+            )
+            return None
+
+        # .git integrity
+        try:
+            gd = _sp.run(
+                ["git", "-C", str(d), "rev-parse", "--git-dir"],
+                capture_output=True, text=True, timeout=15, check=True,
+            ).stdout.strip()
+            gdp = Path(gd)
+            if not gdp.is_absolute():
+                gdp = d / gdp
+        except Exception as e:
+            logger.info(
+                "Worktree re-attach: .git check failed",
+                agent_worktree_id=agent_worktree_id, repo=n, error=str(e),
+            )
+            return None
+
+        # Lock files
+        for lk in (gdp / "index.lock", gdp / "HEAD.lock", gdp / "config.lock"):
+            if lk.exists():
+                logger.info(
+                    "Worktree re-attach: lock file present",
+                    agent_worktree_id=agent_worktree_id, repo=n, lock=str(lk),
+                )
+                return None
+        try:
+            for pat in ("refs/heads/*.lock", "refs/remotes/*.lock"):
+                if list(gdp.glob(pat)):
+                    logger.info(
+                        "Worktree re-attach: ref lock file present",
+                        agent_worktree_id=agent_worktree_id, repo=n,
+                    )
+                    return None
+        except Exception:
+            pass
+
+        # Expected branch
+        if branch:
+            try:
+                cb = _sp.run(
+                    ["git", "-C", str(d), "rev-parse", "--abbrev-ref", "HEAD"],
+                    capture_output=True, text=True, timeout=10, check=True,
+                ).stdout.strip()
+                if cb != branch and cb != "HEAD":
+                    logger.info(
+                        "Worktree re-attach: branch mismatch",
+                        agent_worktree_id=agent_worktree_id, repo=n,
+                        expected=branch, actual=cb,
+                    )
+                    return None
+            except Exception as e:
+                logger.info(
+                    "Worktree re-attach: branch check failed",
+                    agent_worktree_id=agent_worktree_id, repo=n, error=str(e),
+                )
+                return None
+
+        vols[ref] = str(d)
+
+    # Dirty-state policy
+    for ref in repos:
+        n = ref.split("/")[-1] if "/" in ref else ref
+        d = wt / n
+        try:
+            _sp.run(
+                ["git", "-C", str(d), "-c", "core.hooksPath=/dev/null",
+                 "-c", "safe.directory=*", "reset", "--hard"],
+                capture_output=True, text=True, timeout=30, check=True,
+            )
+        except Exception as e:
+            logger.warning(
+                "Worktree re-attach: reset --hard failed",
+                agent_worktree_id=agent_worktree_id, repo=n, error=str(e),
+            )
+            return None
+        try:
+            _sp.run(
+                ["git", "-C", str(d), "-c", "core.hooksPath=/dev/null",
+                 "-c", "safe.directory=*", "clean", "-fd"],
+                capture_output=True, text=True, timeout=30, check=True,
+            )
+        except Exception as e:
+            logger.warning(
+                "Worktree re-attach: clean -fd failed",
+                agent_worktree_id=agent_worktree_id, repo=n, error=str(e),
+            )
+            return None
+        try:
+            fb = branch or ""
+            if fb:
+                _sp.run(
+                    ["git", "-C", str(d), "-c", "core.hooksPath=/dev/null",
+                     "-c", "safe.directory=*", "fetch", "origin", fb],
+                    capture_output=True, text=True, timeout=60, check=True,
+                )
+                _sp.run(
+                    ["git", "-C", str(d), "-c", "core.hooksPath=/dev/null",
+                     "-c", "safe.directory=*", "reset", "--hard",
+                     f"origin/{fb}"],
+                    capture_output=True, text=True, timeout=30, check=True,
+                )
+        except Exception as e:
+            logger.warning(
+                "Worktree re-attach: hard-sync failed",
+                agent_worktree_id=agent_worktree_id, repo=n, error=str(e),
+            )
+            return None
+
+    logger.info(
+        "Worktree re-attach: validated and cleaned successfully",
+        agent_worktree_id=agent_worktree_id,
+        repos=[r.split("/")[-1] if "/" in r else r for r in repos],
+    )
+    return vols
+
+
 # Roles that can run without a per-agent git worktree.  Reviewers and
 # operator-facing roles only poll consensus messages / pipeline state —
 # they never commit or push, so spawning them with ``repos=[]`` is a
@@ -550,6 +718,9 @@ class KubernetesSpawner:
         # pattern as state_store.py).
         self._restart_locks: dict[tuple[str, str, str | None], threading.Lock] = {}
         self._restart_locks_lock = threading.Lock()
+        # #3064 slice-4: session token cache for worktree re-attach.
+        # Key: (pipeline_id, agent_role_value, slice_id, job_name)
+        self._session_token_cache: dict[tuple[str, str, str | None, str], str] = {}
 
     @property
     def k8s(self) -> KubernetesClient:
@@ -629,6 +800,8 @@ class KubernetesSpawner:
         upstream_model: str | None = None,
         extra_labels: dict[str, str] | None = None,
         job_name_suffix: str | None = None,
+        reuse_worktree_id: str | None = None,
+        existing_session_token: str | None = None,
     ) -> SpawnedContainer:
         """Spawn a Kubernetes Job for an agent.
 
@@ -659,6 +832,17 @@ class KubernetesSpawner:
                 request body's ``model`` field to (#2769 slice-2).
                 ``None`` on the Anthropic path — the body is forwarded
                 unchanged.
+            reuse_worktree_id: When set, skip ``create_worktrees()`` and use
+                this id as the per-agent worktree identifier (the worktree
+                was validated by the caller via
+                :func:`_validate_worktree_for_reuse`). The caller supplies the
+                resolved ``repo_volumes`` separately. ``None`` preserves the
+                existing create-with-retry path (#3064 slice-4).
+            existing_session_token: When set, skip gateway session
+                registration and use this token directly. ``None`` registers
+                a fresh session. Used together with ``reuse_worktree_id``
+                to avoid redundant gateway round-trips across successive
+                one-shot event spawns (#3064 slice-4).
 
         Returns:
             SpawnedContainer with Job and session info
@@ -733,19 +917,31 @@ class KubernetesSpawner:
         host_uid = int(os.environ.get("HOST_UID", 1000))
         host_gid = int(os.environ.get("HOST_GID", 1000))
 
-        # Per-agent worktree isolation: create a dedicated worktree.
+        # Per-agent worktree isolation: create or reuse a dedicated worktree.
         # Slice scope (#2403): concurrent slices in the same pipeline
         # MUST get distinct worktree ids — otherwise slice-N's coder
         # spawns onto slice-(N-1)'s already-mounted worktree (or
         # races with it during cleanup). The id is also the agent's
         # ``CONTAINER_ID`` env and the gateway worktree key, so the
         # whole gateway / agent / orchestrator triangle agrees on it.
-        agent_worktree_id = self._build_agent_worktree_id(
-            pipeline_id, agent_role, slice_id=slice_id
-        )
-        worktree_created_this_call = False
+        # When ``reuse_worktree_id`` is set (#3064 slice-4), the caller
+        # already validated the worktree via ``_validate_worktree_for_reuse``.
+        if reuse_worktree_id:
+            agent_worktree_id = reuse_worktree_id
+            worktree_created_this_call = False
+            logger.info(
+                "Reusing existing validated worktree",
+                agent_worktree_id=agent_worktree_id,
+                role=agent_role.value,
+                pipeline_id=pipeline_id,
+            )
+        else:
+            agent_worktree_id = self._build_agent_worktree_id(
+                pipeline_id, agent_role, slice_id=slice_id
+            )
+            worktree_created_this_call = False
 
-        if repos:
+        if repos and not reuse_worktree_id:
             max_attempts = max(1, spawn_max_retries + 1)
             for attempt in range(max_attempts):
                 attempt_started = time.monotonic()
@@ -887,11 +1083,29 @@ class KubernetesSpawner:
 
         # Register gateway session (token-only, no container_ip)
         session_info = None
-        session_token = None
+        session_token = existing_session_token  # #3064 slice-4: reuse when supplied
         agent_anchor_id = f"{agent_role.value}-{job_name[:8]}"
 
         try:
-            try:
+            if existing_session_token:
+                # #3064 slice-4: caller provided a validated, live session
+                # token — skip gateway registration. Build a minimal
+                # SessionInfo stub so downstream env injection works.
+                logger.info(
+                    "Reusing existing gateway session",
+                    job_name=job_name,
+                    session_token=session_token[:12] + "..." if session_token else "(none)",
+                )
+                session_info = SessionInfo(
+                    session_token=session_token,
+                    container_id=job_name,
+                    container_ip=None,
+                    mode=mode or "public",
+                    created_at=datetime.now(),
+                    expires_at=datetime.now() + timedelta(hours=24),
+                )
+
+            if session_info is None:
                 session_info = self.gateway.register_session(
                     container_id=job_name,
                     container_ip=None,  # Token-only auth for k8s
@@ -939,11 +1153,17 @@ class KubernetesSpawner:
                     session_token=session_token[:12] + "...",
                 )
 
-            except GatewayError as e:
-                raise KubernetesSpawnError(
-                    f"Failed to register gateway session for {job_name}: {e}"
-                ) from e
+                # Cache the session token for potential re-attach on the next
+                # one-shot event spawn (#3064 slice-4).
+                cache_key = (pipeline_id, agent_role.value, slice_id, job_name)
+                self._session_token_cache[cache_key] = session_token
 
+        except GatewayError as e:
+            raise KubernetesSpawnError(
+                f"Failed to register gateway session for {job_name}: {e}"
+            ) from e
+
+        try:
             # Build environment variables for the agent container.
             # Derive repo name from the first repo in the list (owner/name format).
             repo_base = "/home/egg/repos"
@@ -1288,6 +1508,58 @@ class KubernetesSpawner:
             )
             return None
 
+        # --- #3064 slice-4: attempt worktree re-attach + session reuse ---
+        reuse_worktree_id: str | None = None
+        reuse_repo_volumes: dict[str, str] | None = None
+        reuse_session_token: str | None = None
+        branch = spawn_kwargs.get("branch")
+        repos = spawn_kwargs.get("repos")
+
+        # Build the candidate worktree id matching the existing convention.
+        candidate_id = self._build_agent_worktree_id(
+            pipeline_id, agent_role, slice_id=slice_id
+        )
+        if repos:
+            validated = _validate_worktree_for_reuse(candidate_id, repos, branch)
+            if validated is not None:
+                reuse_worktree_id = candidate_id
+                reuse_repo_volumes = validated
+                logger.info(
+                    "Event spawn: worktree re-attach succeeded",
+                    agent_worktree_id=candidate_id,
+                    pipeline_id=pipeline_id, role=agent_role.value,
+                )
+            else:
+                logger.info(
+                    "Event spawn: worktree re-attach failed — falling back to create-with-retry",
+                    agent_worktree_id=candidate_id,
+                    pipeline_id=pipeline_id, role=agent_role.value,
+                )
+
+        # Session reuse: check cache for a live session token for this role.
+        event_suffix = dedupe_key[:_EVENT_JOB_NAME_DISCRIMINATOR_LEN]
+        job_name, _jn2 = self._build_k8s_job_names(
+            pipeline_id, agent_role, slice_id=slice_id
+        )
+        if event_suffix:
+            job_name = _fit_k8s_name(f"{job_name}-{event_suffix}")
+        session_cache_key = (pipeline_id, agent_role.value, slice_id, job_name)
+        cached_token = self._session_token_cache.get(session_cache_key)
+        if cached_token is not None and reuse_worktree_id is not None:
+            if self.gateway.heartbeat_session_by_container(job_name):
+                reuse_session_token = cached_token
+                logger.info(
+                    "Event spawn: reusing cached gateway session",
+                    pipeline_id=pipeline_id, role=agent_role.value,
+                    job_name=job_name,
+                )
+            else:
+                logger.info(
+                    "Event spawn: cached session stale — will re-register",
+                    pipeline_id=pipeline_id, role=agent_role.value,
+                    job_name=job_name,
+                )
+
         event_env: dict[str, str] = {
             ENV_EVENT_LOOP_OWNER: "orchestrator",
             ENV_EVENT_ACTION: action,
@@ -1318,6 +1590,8 @@ class KubernetesSpawner:
             extra_env=merged_env,
             extra_labels=merged_labels,
             job_name_suffix=dedupe_key[:_EVENT_JOB_NAME_DISCRIMINATOR_LEN],
+            reuse_worktree_id=reuse_worktree_id,
+            existing_session_token=reuse_session_token,
             **spawn_kwargs,
         )
 
