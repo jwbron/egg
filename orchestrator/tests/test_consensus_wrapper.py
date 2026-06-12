@@ -15,6 +15,7 @@ import shlex
 import subprocess
 import sys
 
+import pytest
 from consensus_wrapper import build_consensus_wrapped_command
 
 # Sentinel event types the event-pump wait filter must always cover.
@@ -2288,26 +2289,24 @@ class TestEventLoopOwnerAccessor:
 
         assert get_event_loop_owner() == "pod"
 
-    def test_invalid_value_rejected_loudly_and_falls_back_to_pod(
-        self, monkeypatch, caplog
-    ):
-        """An unrecognised value must NOT raise (module convention) — it
-        falls back to ``pod`` and logs a WARNING naming the offending
-        value so the operator notices the typo ("rejected loudly")."""
-        import logging
-
+    def test_invalid_value_rejected_loudly(self, monkeypatch):
+        """An unrecognised ownership mode is rejected LOUDLY by raising
+        ``ValueError`` — there is no safe silent fallback for an ownership
+        mode (#3023: a wrong mode deadlocks BRC or duplicates pods, so a
+        typo must surface at read time rather than masquerade as the
+        default). This is the deliberate exception to the module's usual
+        never-raise/warn-and-default convention. The raised message must
+        name both the env var and the offending value so the operator can
+        find the typo."""
         from env_config import get_event_loop_owner
 
         monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", "kubernetes")
-        with caplog.at_level(logging.WARNING, logger="orchestrator.env_config"):
-            assert get_event_loop_owner() == "pod"
-        assert any(
-            "EGG_EVENT_LOOP_OWNER" in rec.getMessage()
-            and "kubernetes" in rec.getMessage()
-            for rec in caplog.records
-        ), (
-            "invalid EGG_EVENT_LOOP_OWNER must be rejected loudly with a "
-            f"WARNING naming the bad value. Captured: {caplog.text!r}"
+        with pytest.raises(ValueError) as excinfo:
+            get_event_loop_owner()
+        msg = str(excinfo.value)
+        assert "EGG_EVENT_LOOP_OWNER" in msg and "kubernetes" in msg, (
+            "the ValueError must name the env var and the offending value. "
+            f"Got: {msg!r}"
         )
 
 
@@ -2333,22 +2332,54 @@ class TestOneShotArmStructure:
             "arm, which is NOT byte-identical to the in-pod event-pump."
         )
 
-    def test_one_shot_omits_blocking_wait_loop(self, monkeypatch):
-        """The dedupe backstop is a single ``brc next-action`` re-check,
-        not a blocking ``message wait-loop`` / ``while true`` poll."""
-        script = self._one_shot_script(monkeypatch)
-        assert "egg-orch message wait-loop" not in script, (
-            "one-shot arm must not block on the message bus."
+    @staticmethod
+    def _one_shot_arm_segment(script: str) -> str:
+        """Isolate the spliced one-shot arm — the region from where it
+        first reads the injected ``EGG_EVENT_LOOP_OWNER`` env up to the
+        main event-pump loop marker. The shared helper *definitions*
+        (``wait_for_event``, ``start_background_heartbeat``, …) live ABOVE
+        this region and the ``while true`` loop BELOW it, so this segment
+        is exactly the one-shot execution path — what task-1-2 calls "the
+        one-shot path"."""
+        main_marker = "# --- main event-pump loop ---"
+        assert main_marker in script, (
+            "orchestrator-mode script must still contain the in-pod loop "
+            "(the one-shot arm reuses its helper functions and the loop is "
+            "the dormant fall-through when no event is injected)."
         )
-        assert "while true; do" not in script, (
-            "one-shot arm handles exactly one event — no main poll loop."
+        owner_read = script.index("EGG_EVENT_LOOP_OWNER")
+        main_idx = script.index(main_marker)
+        assert owner_read < main_idx, (
+            "the one-shot arm must be spliced BEFORE the main loop so an "
+            "injected event is handled and exits without ever reaching the "
+            "blocking loop."
+        )
+        return script[owner_read:main_idx]
+
+    def test_one_shot_path_does_not_block_on_wait_loop(self, monkeypatch):
+        """task-1-2: "absence of wait-loop … constructs in the one-shot
+        path". The arm's own block must not call the blocking bus wait —
+        the dedupe backstop is a single ``brc next-action`` re-check. (The
+        helper definitions remain in the script because the arm reuses
+        other helpers and the loop is the dormant fall-through; the arm
+        execution path simply never reaches them.)"""
+        arm = self._one_shot_arm_segment(self._one_shot_script(monkeypatch))
+        assert "wait_for_event" not in arm, (
+            "one-shot path must not call wait_for_event (blocking bus poll)."
+        )
+        assert "egg-orch message wait-loop" not in arm, (
+            "one-shot path must not block on the message bus."
         )
 
-    def test_one_shot_omits_background_heartbeat(self, monkeypatch):
-        """No long-lived pod ⇒ no wrapper-owned background heartbeat
-        emitter (the orchestrator owns liveness in this mode)."""
-        script = self._one_shot_script(monkeypatch)
-        assert "start_background_heartbeat" not in script
+    def test_one_shot_path_starts_no_background_heartbeat(self, monkeypatch):
+        """task-1-2: "absence of … background-heartbeat constructs in the
+        one-shot path". A one-shot pod is short-lived, so the arm must not
+        start the wrapper-owned background heartbeat emitter (a single
+        foreground ``emit_heartbeat`` ping is fine and expected)."""
+        arm = self._one_shot_arm_segment(self._one_shot_script(monkeypatch))
+        assert "start_background_heartbeat" not in arm, (
+            "one-shot path must not spawn the background heartbeat emitter."
+        )
 
     def test_one_shot_reads_injected_event_action(self, monkeypatch):
         script = self._one_shot_script(monkeypatch)
