@@ -320,8 +320,8 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "pending",
-      "started_at": null,
+      "status": "running",
+      "started_at": "2026-06-12T02:52:23.660748Z",
       "work_started_at": null,
       "completed_at": null,
       "containers": [],
@@ -333,7 +333,7 @@
       "error": null,
       "operator_directives": [],
       "iteration_history": [],
-      "phase_start_sha": "0f16d34cbef74fa9d89149caf7e182f45a07a25b",
+      "phase_start_sha": "15428256195d626ed7d028bcc24cb5562392dd95",
       "agent_exits": []
     }
   },
@@ -412,7 +412,7 @@
     }
   ],
   "created_at": "2026-06-11T20:48:15.005064Z",
-  "updated_at": "2026-06-12T02:51:44.143675Z",
+  "updated_at": "2026-06-12T02:52:23.660932Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -425,7 +425,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-12T02:51:44.138297Z",
-  "version": 45,
+  "version": 46,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
