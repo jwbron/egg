@@ -1892,3 +1892,161 @@ class TestCleanupPipelineSliceWorktrees:
         # Sibling pipelines are left alone.
         assert "issue-2261-v7-other-thing" not in cleaned
         assert "issue-9999-coder" not in cleaned
+
+
+# ---------------------------------------------------------------------------
+# Slice-2 (#3064 TASK-2-3): one-shot event-spawn entry
+# ---------------------------------------------------------------------------
+#
+# Test-first contract for TASK-2-2's one-shot spawn entry. The orchestrator
+# event loop (TASK-2-1) drives per-event Jobs through a NEW spawner entry
+# pinned here as ``KubernetesSpawner.spawn_event_job(...)``. It must:
+#   * set EGG_EVENT_LOOP_OWNER=orchestrator plus the event identity
+#     (EGG_EVENT_ACTION, EGG_EVENT_DEDUPE_KEY, payload refs) in Job env;
+#   * carry the dedupe key as a Job label (the reconciliation handle the
+#     loop uses for stateless restart);
+#   * derive the Job name from the existing
+#     egg-agent-<pipeline>[-<slice>]-<role> convention plus a short event
+#     discriminator, staying within the k8s 63-char budget;
+#   * adopt an already-live Job for the same dedupe key rather than
+#     duplicating it;
+#   * leave the long-lived ``spawn_agent_job()`` pod-mode path unchanged.
+#
+# These tests fail until the coder's parallel TASK-2-2 lands; convergence
+# (coder + tester merge) makes them green, mirroring slice-1's test-first
+# alignment. ``confirm``/``complete`` are agent-free and never reach here.
+
+
+class TestSpawnEventJobOneShot:
+    """One-shot per-event spawn entry (orchestrator-owned lifecycle)."""
+
+    _KEY = "a" * 64  # a stand-in sha256 dedupe key
+
+    def test_event_job_sets_owner_and_event_identity_env(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        result = spawner.spawn_event_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            action="propose",
+            dedupe_key=self._KEY,
+            slice_id="slice-2",
+            phase="implement",
+            repos=["owner/repo"],
+        )
+        env = result.environment
+        # Owner flag flips the wrapper into its one-shot arm.
+        assert env["EGG_EVENT_LOOP_OWNER"] == "orchestrator"
+        # Full event identity is injected.
+        assert env["EGG_EVENT_ACTION"] == "propose"
+        assert env["EGG_EVENT_DEDUPE_KEY"] == self._KEY
+        # Standard agent scope still present.
+        assert env["EGG_PIPELINE_ID"] == "pipe-1"
+        assert env["EGG_AGENT_ROLE"] == "coder"
+        assert env["EGG_SLICE_ID"] == "slice-2"
+        assert env["EGG_PHASE"] == "implement"
+
+    def test_event_job_carries_dedupe_key_as_label(self, spawner, mock_k8s_client, mock_gateway):
+        spawner.spawn_event_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.REVIEWER_CODE,
+            action="ack",
+            dedupe_key=self._KEY,
+            slice_id="slice-2",
+            phase="implement",
+            repos=["owner/repo"],
+        )
+        labels = mock_k8s_client.create_container.call_args.kwargs["labels"]
+        # The dedupe key is selectable as a Job label — the reconciliation
+        # handle the event loop rebuilds its live set from on restart.
+        assert self._KEY in labels.values(), f"dedupe key not present in Job labels: {labels}"
+        # Standard orchestrator labels remain.
+        assert labels[LABEL_ORCHESTRATOR] == "true"
+        assert labels[LABEL_PIPELINE_ID] == "pipe-1"
+        assert labels[LABEL_AGENT_ROLE] == "reviewer_code"
+
+    def test_event_action_must_be_a_spawn_verb(self, spawner, mock_k8s_client):
+        """confirm/complete are agent-free and must never reach the spawner;
+        the one-shot entry rejects them loudly.
+        """
+        for bad in ("confirm", "complete"):
+            with pytest.raises((ValueError, AssertionError)):
+                spawner.spawn_event_job(
+                    pipeline_id="pipe-1",
+                    agent_role=AgentRole.CODER,
+                    action=bad,
+                    dedupe_key=self._KEY,
+                    slice_id="slice-2",
+                    phase="implement",
+                    repos=["owner/repo"],
+                )
+
+    def test_event_job_name_within_k8s_budget(self, spawner, mock_k8s_client):
+        """Long pipeline/slice/role + event discriminator stays within the
+        63-char RFC-1123 budget (existing truncation convention applies).
+        """
+        spawner.spawn_event_job(
+            pipeline_id="issue-2261-verylongpipelineidentifier-v7",
+            agent_role=AgentRole.REVIEWER_CODE_HOLISTIC,
+            action="nack",
+            dedupe_key="b" * 64,
+            slice_id="slice-12-a-very-long-slice-name",
+            phase="implement",
+            repos=["owner/repo"],
+        )
+        name = mock_k8s_client.create_container.call_args.kwargs["name"]
+        assert len(name) <= 63, f"Job name exceeds k8s budget: {name!r} ({len(name)})"
+        assert name.startswith("egg-agent-")
+        # RFC-1123: lowercase, hyphen-separated, no underscores.
+        assert "_" not in name
+
+    def test_same_dedupe_key_adopts_existing_job(self, spawner, mock_k8s_client, mock_gateway):
+        """Requesting a spawn for an already-live dedupe key adopts the
+        existing Job (no duplicate create_container).
+        """
+        # First spawn: no live Job for the key.
+        mock_k8s_client.list_jobs.return_value = []
+        spawner.spawn_event_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            action="propose",
+            dedupe_key=self._KEY,
+            slice_id="slice-2",
+            phase="implement",
+            repos=["owner/repo"],
+        )
+        assert mock_k8s_client.create_container.call_count == 1
+
+        # Second request for the SAME key: a live Job already carries the
+        # dedupe label, so the entry adopts it instead of creating another.
+        existing = MagicMock()
+        existing.labels = {"egg.event.dedupe-key": self._KEY}
+        existing.job_name = "egg-agent-pipe-1-slice-2-coder-ev"
+        mock_k8s_client.list_jobs.return_value = [existing]
+
+        spawner.spawn_event_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            action="propose",
+            dedupe_key=self._KEY,
+            slice_id="slice-2",
+            phase="implement",
+            repos=["owner/repo"],
+        )
+        # create_container was NOT called a second time — the Job was adopted.
+        assert mock_k8s_client.create_container.call_count == 1
+
+    def test_spawn_agent_job_pod_path_unchanged(self, spawner, mock_k8s_client):
+        """The long-lived pod-mode entry never injects the one-shot event
+        identity — pod mode is byte-for-byte the prior behavior.
+        """
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+        )
+        env = result.environment
+        assert "EGG_EVENT_ACTION" not in env
+        assert "EGG_EVENT_DEDUPE_KEY" not in env
+        # Owner flag is not forced on by the pod-mode path.
+        assert env.get("EGG_EVENT_LOOP_OWNER", "pod") in ("pod", None)
