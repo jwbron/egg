@@ -17,7 +17,7 @@ Anthropic credentials.
 
 Implementation choice: **Option B (two-call pattern)** per the SDK
 spike recorded at ``.egg-state/agent-outputs/1962-sdk-spike.md``. The
-vendored ``claude-agent-sdk==0.1.65`` does not expose the native
+vendored ``claude-agent-sdk`` (0.1.65 at the time) did not expose the native
 ``advisor_20260301`` tool, so we issue a separate ``run_agent_async``
 call against the configured Opus model with a single-turn prompt that
 follows the ``decision-20`` opt-3 contract (distilled summary).

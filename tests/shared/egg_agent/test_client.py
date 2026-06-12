@@ -469,6 +469,29 @@ class TestRunAgentAsync:
             options = mock_query.call_args.kwargs["options"]
             assert options.cwd is None
 
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_mcp_connection_nonblocking_default(self, mock_query):
+        """``run_agent_async`` must set ``MCP_CONNECTION_NONBLOCKING=0`` on os.environ
+        before the SDK runs, so stdio MCP servers (e.g. the egg-ddg fallback
+        on the LiteLLM→non-Anthropic path) finish their handshake before the
+        first model turn — see #3137 for the SDK 0.2.x behavior shift."""
+        with patch.dict(os.environ, {}, clear=False) as env:
+            env.pop("MCP_CONNECTION_NONBLOCKING", None)
+            _run_async(run_agent_async("test prompt"))
+
+            assert os.environ.get("MCP_CONNECTION_NONBLOCKING") == "0"
+
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_mcp_connection_nonblocking_preserves_operator_override(self, mock_query):
+        """``setdefault`` semantics: if an operator already set the var (e.g.
+        to ``1`` for debugging a slow MCP server), ``run_agent_async`` must
+        not clobber it. Preserving operator intent is a hard requirement of
+        the #3137 fix."""
+        with patch.dict(os.environ, {"MCP_CONNECTION_NONBLOCKING": "1"}):
+            _run_async(run_agent_async("test prompt"))
+
+            assert os.environ.get("MCP_CONNECTION_NONBLOCKING") == "1"
+
     @patch("claude_agent_sdk.query", side_effect=_mock_query_error)
     def test_structured_logging_on_error(self, mock_query):
         """Test that system/result log is emitted on error paths."""

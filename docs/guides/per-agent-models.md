@@ -109,12 +109,13 @@ in `orchestrator/agent_model_resolution.py` walks the chain:
 > **Minimum sandbox Claude Code version.** The `fable` / `fable[1m]`
 > aliases require Claude Code ≥ 2.1.170. The sandbox's
 > `CLAUDE_CODE_VERSION` build-arg in `sandbox/Dockerfile` defaults to
-> `stable`, which satisfies this on a fresh build. Deployments that
-> pin an older `CLAUDE_CODE_VERSION` will see refine/plan agent spawns
-> fail with an "unknown model" error from Claude Code — either bump
-> the pinned version or set a repo-level `default_agent_model: opus`
-> to opt back out of the fable default until the sandbox image is
-> rebuilt.
+> `latest` (#3137 — `stable` lagged the fable launch and crash-looped
+> refine/plan agents per #3136). A build-time gate in the Dockerfile
+> fails the image build if the installed binary doesn't know `fable`
+> or `opus`, so a stale pin surfaces at build time rather than at
+> spawn. If you need to pin to an older `CLAUDE_CODE_VERSION` that
+> predates the alias, also set a repo-level `default_agent_model: opus`
+> AND temporarily drop `fable` from the Dockerfile gate.
 
 The result is an `AgentModelDecision` dataclass with fields
 `(claude_code_alias: str, upstream: str, upstream_model: str | None,

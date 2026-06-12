@@ -230,12 +230,14 @@ RUN groupadd -g 1000 egg && \
     mkdir -p /home/egg/.config && chown egg:egg /home/egg/.config
 
 # Install claude-agent-sdk (changes more often than base deps, less often than CLI)
-# The egg script always passes the specific PyPI version to bust Docker's layer
-# cache when a new version is released. The "latest" fallback only applies if the
-# build-arg is omitted (e.g. manual docker build without the egg script).
-ARG CLAUDE_AGENT_SDK_VERSION=0.1.65
+# Nothing passes this build-arg anymore (the legacy egg CLI that resolved a
+# concrete PyPI version was removed in #1762), so the default below is the
+# operative pin — bumping it is also what busts Docker's layer cache so the
+# new release actually installs. Keep it in sync with the bounded range in
+# sandbox/pyproject.toml.
+ARG CLAUDE_AGENT_SDK_VERSION=0.2.97
 RUN if [ "$CLAUDE_AGENT_SDK_VERSION" = "latest" ]; then \
-        pip3 install --no-cache-dir --upgrade 'claude-agent-sdk>=0.1.65,<0.2'; \
+        pip3 install --no-cache-dir --upgrade 'claude-agent-sdk>=0.2.97,<0.3'; \
     else \
         pip3 install --no-cache-dir claude-agent-sdk==${CLAUDE_AGENT_SDK_VERSION}; \
     fi && \
@@ -243,15 +245,66 @@ RUN if [ "$CLAUDE_AGENT_SDK_VERSION" = "latest" ]; then \
     (pip3 show claude-agent-sdk 2>/dev/null | grep '^Version:' | cut -d' ' -f2 > /opt/claude-agent-sdk-version.txt || true)
 
 # Install Claude Code CLI (native installer) for the egg user
-# The egg script always passes the specific npm version to bust Docker's layer
-# cache when a new version is released. The "stable" fallback only applies if the
-# build-arg is omitted (e.g. manual docker build without the egg script).
-ARG CLAUDE_CODE_VERSION=stable
+#
+# Channel choice: 'latest', not 'stable'. orchestrator/agent_model_resolution.py
+# defaults refine/plan roles to bare model-family aliases at launch ('fable'),
+# and the stable channel lags those launches — at the time of #3136 stable
+# (2.1.153) predated the fable alias entirely, so a stable-channel image
+# crash-loops every refine/plan agent at spawn.
+ARG CLAUDE_CODE_VERSION=latest
+# Cache-bust (#3136): BuildKit re-checks this URL's content on every build, so
+# the install layer below re-runs exactly when the release channel moves to a
+# new version. Without it the layer is keyed on the literal channel name
+# ('latest'/'stable') and the image's Claude Code freezes at whatever the
+# channel pointed to the first time the layer built.
+#
+# Caveats worth knowing if this ever silently regresses (#3137 review):
+#   - The URL is hardcoded to the 'latest' manifest regardless of the
+#     CLAUDE_CODE_VERSION arg. If the operator overrides the arg to
+#     'stable' or to a concrete version (e.g. '2.1.173'), the layer still
+#     rebuilds whenever 'latest' moves. For 'stable' this is wasteful but
+#     functionally fine — the install reruns and re-fetches the stable
+#     pointer. For a concrete version the reinstall is deterministic and
+#     idempotent. The wasteful-rebuild edge case is intentional: keeping
+#     the URL hardcoded keeps the cache-bust behaviour the same across
+#     channel-name args, which is the dominant path.
+#   - The cache-bust depends on the CDN preserving HTTP cache headers
+#     (verified: 'cache-control: public,no-cache,max-age=0' + 'ETag' +
+#     'Last-Modified', which BuildKit's 'ADD <URL>' uses as its cache
+#     key). If the CDN ever drops those headers (config change, hosting
+#     migration), the bust silently degrades to 'cached forever per URL
+#     string'. The alias gate further down catches that regression at
+#     build time as long as the 'fable' / 'opus' families haven't both
+#     also stagnated, but defense-in-depth: rebuild with --no-cache if
+#     you're debugging a stuck channel pointer.
+ADD https://downloads.claude.ai/claude-code-releases/latest /tmp/claude-code-latest-release
 RUN su - egg -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_CODE_VERSION" && \
+    rm -f /tmp/claude-code-latest-release && \
     # Fail the build if the CLI binary is missing (e.g. install script 403'd)
     test -x /home/egg/.local/bin/claude && \
     # Save installed version for update checks (non-fatal if this fails)
     (/home/egg/.local/bin/claude --version 2>/dev/null | head -1 > /home/egg/.local/VERSION || true) && \
+    # Fail the build if the installed build predates a model family that
+    # orchestrator/agent_model_resolution.py uses as a built-in default
+    # ('fable' for refine/plan roles, 'opus' for everything else): a Claude
+    # Code build whose alias table lacks the family rejects the bare alias at
+    # session init and the agent crash-loops at spawn (#3136). No auth is
+    # mounted at build time, so this is a strings-level heuristic — a build
+    # that knows a family alias embeds the versioned 'claude-<family>-*' IDs
+    # the alias maps to; a build that predates the family contains none.
+    for family in fable opus; do \
+        if ! grep -aq "claude-${family}-" /home/egg/.local/bin/claude; then \
+            echo "ERROR: installed Claude Code ($(cat /home/egg/.local/VERSION 2>/dev/null)) does not know the '${family}' model family."; \
+            echo "agent_model_resolution.py uses '${family}' as a built-in default — agents would crash-loop at spawn (#3136)."; \
+            echo "Pass a newer build: docker build --build-arg CLAUDE_CODE_VERSION=<version|latest> ..."; \
+            echo "If pinning to an older CC build is intentional (and every"; \
+            echo "agent_models entry has been pinned away from '${family}'),"; \
+            echo "drop '${family}' from the 'for family in ...' list above to"; \
+            echo "skip the gate for that family (matches the bypass guidance"; \
+            echo "in docs/guides/per-agent-models.md)."; \
+            exit 1; \
+        fi; \
+    done && \
     # Replace bundled ripgrep with system ripgrep to avoid ARM64 crashes on Asahi Linux
     CLAUDE_RG=$(find /home/egg/.local -name "rg" -type f 2>/dev/null | grep -E "ripgrep.*linux" | head -1) && \
     if [ -n "$CLAUDE_RG" ]; then \
