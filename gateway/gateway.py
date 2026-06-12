@@ -505,6 +505,17 @@ except ImportError:
 
     app.register_blueprint(phase_bp)
 
+# Register artifact API blueprint (#3077 slice-4: served reads of
+# spec-registered coordination artifacts; modeled on contract_api).
+try:
+    from .artifact_api import artifact_bp
+
+    app.register_blueprint(artifact_bp)
+except ImportError:
+    from artifact_api import artifact_bp  # type: ignore[import-untyped, no-redef]
+
+    app.register_blueprint(artifact_bp)
+
 
 @app.errorhandler(Exception)
 def handle_unhandled_exception(e: Exception) -> tuple[Response, int]:
