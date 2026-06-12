@@ -2345,11 +2345,7 @@ def update_pipeline_config(pipeline_id: str) -> tuple[Response, int]:
             # terminal-state precondition style. Checked under the lock against
             # freshly-loaded state so a concurrent terminal transition can't
             # slip a mutation through.
-            if current.status in (
-                PipelineStatus.COMPLETE,
-                PipelineStatus.FAILED,
-                PipelineStatus.CANCELLED,
-            ):
+            if current.status in PipelineStatus.terminal():
                 return make_error_response(
                     f"Pipeline {pipeline_id} is in terminal state "
                     f"{current.status.value}; agent_models cannot be updated "

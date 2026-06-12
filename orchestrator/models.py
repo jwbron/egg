@@ -58,6 +58,16 @@ class PipelineStatus(StrEnum):
     FAILED = "failed"
     CANCELLED = "cancelled"
 
+    @classmethod
+    def terminal(cls) -> frozenset[PipelineStatus]:
+        """Statuses indicating the pipeline has reached a terminal state.
+
+        A terminal pipeline spawns no further agents and transitions to no
+        other status. Centralized here so callers share one definition
+        rather than redefining the set and drifting (#3174 review).
+        """
+        return frozenset({cls.COMPLETE, cls.FAILED, cls.CANCELLED})
+
 
 class PipelineMode(StrEnum):
     """Pipeline execution mode."""
