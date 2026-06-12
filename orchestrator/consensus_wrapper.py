@@ -673,13 +673,19 @@ raise_agent_fail_alert() {{
     local last_rc="$2"
     local last_secs="$3"
     local action="$4"
-    # Duration-aware classification (#3138): a sub-second failure means
-    # the invocation died before/at SDK init -- unknown model alias,
-    # auth misconfiguration, prompt-rendering crash -- i.e. a permanent
+    # Duration-aware classification (#3138): a fast failure means the
+    # invocation died before/at SDK init -- unknown model alias, auth
+    # misconfiguration, prompt-rendering crash -- i.e. a permanent
     # configuration-class failure, not a transient. Name that in the
     # alert so the operator doesn't have to infer it from cadence. The
     # wrapper still never self-FAILs (post-#2908 design): the kill
     # decision stays with the operator.
+    #
+    # The ``-le 2`` threshold (not ``< 1``) is deliberate: ``$SECONDS``
+    # has whole-second granularity and ``invoke_agent_for_event`` includes
+    # prompt-composer overhead, so a genuine pre-SDK-init crash routinely
+    # measures 1-2s. Do not tighten this to ``< 1`` -- it would misclassify
+    # those crashes as transient.
     local classification="repeated agent-invocation failure; attempts are taking ${{last_secs}}s so this may be transient (API/quota/transport)"
     if [ "$last_secs" -le 2 ]; then
         classification="attempts are fast-failing (${{last_secs}}s, before/at SDK init) -- likely a permanent configuration-class failure (unknown model alias, auth misconfiguration, prompt-rendering crash)"
@@ -868,7 +874,10 @@ while true; do
                 AGENT_FAIL_STREAK=$(( AGENT_FAIL_STREAK + 1 ))
                 cw_log "agent invocation failed (action=$ACTION, rc=$agent_rc, streak=$AGENT_FAIL_STREAK, duration=${{agent_invoke_secs}}s). Idle counter continues to accrue."
                 if [ "$AGENT_FAIL_STREAK" -ge 5 ] && [ "$AGENT_FAIL_ALERTED_5" != "true" ]; then
-                    cw_log "agent invocation has failed ${{AGENT_FAIL_STREAK}} times in a row (action=$ACTION) -- this is likely a permanent failure (unknown model alias, auth misconfiguration, prompt-rendering crash), not a transient. Idle budget continues to accrue."
+                    # The per-failure line above already printed the streak
+                    # count this iteration; this escalation line adds the
+                    # diagnosis (likely permanent), not the count.
+                    cw_log "agent invocation streak crossed 5 (action=$ACTION) -- this is likely a permanent failure (unknown model alias, auth misconfiguration, prompt-rendering crash), not a transient. Idle budget continues to accrue."
                     AGENT_FAIL_ALERTED_5=true
                 fi
                 if [ "$AGENT_FAIL_STREAK" -ge 10 ] && [ "$AGENT_FAIL_ALERTED_10" != "true" ]; then

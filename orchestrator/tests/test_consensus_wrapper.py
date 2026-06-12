@@ -1331,7 +1331,11 @@ class TestEventPumpAgentFailStreakEscalation:
                 env=env,
                 capture_output=True,
                 text=True,
-                timeout=10,
+                # Needs >=10 loop iterations, each spawning several
+                # egg-orch/python3 subprocesses, to exercise the streak-10
+                # escalation. 20s gives headroom on a loaded CI host so the
+                # ``len(observed) >= 10`` assertion below doesn't flake.
+                timeout=20,
             )
         except subprocess.TimeoutExpired:
             pass  # expected — the wrapper loops; we bound it.
