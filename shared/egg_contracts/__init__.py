@@ -131,6 +131,7 @@ from .impasse import (
 from .loader import (
     ContractNotFoundError,
     ContractValidationError,
+    compose_task_description,
     contract_exists,
     create_contract,
     delete_contract,
@@ -280,6 +281,7 @@ __all__ = [
     "ValidationResult",
     "apply_mutation",
     "can_modify",
+    "compose_task_description",
     "contract_exists",
     # Loader
     "create_contract",

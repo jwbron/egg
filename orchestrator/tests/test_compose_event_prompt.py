@@ -1267,7 +1267,9 @@ def _make_tmp_repo_with_memory(
             ]
         )
     body_parts.extend(["## Decision log", "", "- entry", ""])
-    (mem_dir / "brc-memory.md").write_text("\n".join(body_parts), encoding="utf-8")
+    # Pipeline-scoped filename (#3163) — matches the EGG_PIPELINE_ID that
+    # ``_run_cli`` exports.
+    (mem_dir / "brc-memory-issue-99.md").write_text("\n".join(body_parts), encoding="utf-8")
     return repo
 
 
@@ -1282,7 +1284,14 @@ def _run_cli(repo, *, role: str, memory_mode: str, action: str, event_payload: d
 
     saved_env = {
         k: os.environ.get(k)
-        for k in ("EGG_AGENT_ROLE", "EGG_BASE_BRANCH", "EGG_REPO_PATH", "EGG_BRC_MEMORY")
+        for k in (
+            "EGG_AGENT_ROLE",
+            "EGG_BASE_BRANCH",
+            "EGG_REPO_PATH",
+            "EGG_BRC_MEMORY",
+            "EGG_PIPELINE_ID",
+            "EGG_ISSUE_NUMBER",
+        )
     }
     saved_stdin = _sys.stdin
     saved_stdout = _sys.stdout
@@ -1292,6 +1301,8 @@ def _run_cli(repo, *, role: str, memory_mode: str, action: str, event_payload: d
         os.environ["EGG_BASE_BRANCH"] = "main"
         os.environ["EGG_REPO_PATH"] = str(repo)
         os.environ["EGG_BRC_MEMORY"] = memory_mode
+        os.environ["EGG_PIPELINE_ID"] = "issue-99"
+        os.environ.pop("EGG_ISSUE_NUMBER", None)
         _sys.stdin = io.StringIO(_json.dumps(event_payload))
         _sys.stdout = out_buf
         rc = event_prompt._cli([action])
@@ -1360,6 +1371,34 @@ def test_cli_write_only_mode_omits_memory_keeps_delta(tmp_path) -> None:
     assert "Write-only-mode test." not in out
     # But the per-producer delta is still rendered against the stored SHA.
     assert "git log 0123abc..HEAD --not origin/main -p" in out
+
+
+def test_cli_ignores_prior_pipeline_role_keyed_memory(tmp_path) -> None:
+    """A stale role-keyed ``brc-memory.md`` (the pre-#3163 filename,
+    inherited from a previous pipeline via main) must never reach the
+    prompt: the reader only resolves the pipeline-scoped filename.
+    Observed live: a task_planner's first event prompt in pipeline
+    issue-3064 carried memory headed issue-3077.
+    """
+    repo = _make_tmp_repo_with_memory(
+        tmp_path,
+        role="reviewer_code",
+        producer_sha="0123abc",
+        codebase="Current-pipeline memory.",
+    )
+    mem_dir = repo / ".egg-state" / "agent-outputs" / "reviewer_code"
+    # Rename to the legacy role-keyed filename — as if it came from a
+    # prior pipeline's merged context PR.
+    (mem_dir / "brc-memory-issue-99.md").rename(mem_dir / "brc-memory.md")
+    out = _run_cli(
+        repo,
+        role="reviewer_code",
+        memory_mode="full",
+        action="ack",
+        event_payload={"action": "ack", "producer": "coder", "version": 2},
+    )
+    assert "Current-pipeline memory." not in out
+    assert "## Durable BRC memory" not in out
 
 
 def test_cli_off_mode_omits_memory_and_uses_changed_artifacts_fallback(tmp_path) -> None:
@@ -2591,6 +2630,50 @@ def test_read_task_description_fail_soft(tmp_path) -> None:
         os.environ.pop("EGG_PIPELINE_ID", None)
         target.write_text('{"task_description": "text"}', encoding="utf-8")
         assert _read_task_description(tmp_path) == ""
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def test_read_task_description_issue_anchor_fallback(tmp_path) -> None:
+    """A pre-#3163 issue contract (``task_description: null`` but ``issue``
+    identity present) yields a synthesized anchor, so the binding task
+    section is never silently empty for issue-backed pipelines.
+    """
+    import json as _json
+    import os
+
+    from orchestrator.routes.event_prompt import _read_task_description
+
+    contracts = tmp_path / ".egg-state" / "contracts"
+    contracts.mkdir(parents=True)
+    (contracts / "issue-3064.json").write_text(
+        _json.dumps(
+            {
+                "task_description": None,
+                "issue": {
+                    "number": 3064,
+                    "title": "Issue #3064",
+                    "url": "https://github.com/owner/repo/issues/3064",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    saved = {k: os.environ.get(k) for k in ("EGG_PIPELINE_ID", "EGG_ISSUE_NUMBER")}
+    try:
+        os.environ["EGG_PIPELINE_ID"] = "issue-3064"
+        os.environ.pop("EGG_ISSUE_NUMBER", None)
+        anchor = _read_task_description(tmp_path)
+        assert "GitHub issue #3064" in anchor
+        assert "https://github.com/owner/repo/issues/3064" in anchor
+        assert "gh issue view 3064" in anchor
+        # The placeholder title is not echoed as if it were a real title.
+        assert "(Issue #3064)" not in anchor
     finally:
         for k, v in saved.items():
             if v is None:
