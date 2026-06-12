@@ -456,6 +456,18 @@ invoke_agent_for_event() {{
     if [ -n "${{err_tmp:-}}" ] && [ -e "$err_tmp" ]; then
         rm -f "$err_tmp" 2>/dev/null || true
     fi
+    # #3077 slice-1 task-1-1: prepend any sync-to-proposal failure
+    # banners the prior ``sync_to_proposals`` accumulated so the agent
+    # learns that its worktree may not reflect the producer's commit
+    # BEFORE it reads any local diff. The common (no-failure) path
+    # leaves ``SYNC_FAILURE_BANNERS`` empty so the prompt handed to the
+    # agent is byte-identical to the slice-0 prompt. Re-clear after
+    # consumption so a subsequent ``propose`` arm (which intentionally
+    # skips the sync per R11a) can never inherit stale banners.
+    if [ -n "${{SYNC_FAILURE_BANNERS:-}}" ]; then
+        prompt="${{SYNC_FAILURE_BANNERS}}${{prompt}}"
+        SYNC_FAILURE_BANNERS=""
+    fi
     {agent_command_prefix} "$prompt"
 }}
 
@@ -484,10 +496,24 @@ invoke_agent_for_event() {{
 # Neither is wrong — the per-event-prompt ``git show <sha>:<path>``
 # fallback covers the failure path either way — but this is durable
 # HEAD mutation, not transient enrichment.
+# Per-event accumulator for sync-to-proposal failure banners
+# (#3077 slice-1 task-1-1). Reset at the top of every
+# ``sync_to_proposals`` call; appended to per failed SHA; consumed
+# (and re-cleared) by ``invoke_agent_for_event`` which prepends the
+# accumulated banner text to the composed event prompt BEFORE handing
+# it to the agent. The default empty value keeps the
+# ``merged``/``already-ancestor`` (no-failure) path byte-identical to
+# the slice-0 prompt — the prepend is a no-op when this variable is
+# empty.
+SYNC_FAILURE_BANNERS=""
+
 sync_to_proposals() {{
     local event_payload="$1"
     local repo="${{EGG_REPO_PATH:-$PWD}}"
     local shas sha
+    # Reset the per-event failure accumulator at the top of each call
+    # so banners from a prior event never leak into the next prompt.
+    SYNC_FAILURE_BANNERS=""
     # Extract pending_reviews[].proposal_commit_sha, strictly hex-
     # validated (7-64 chars) before any git interpolation. The payload
     # is orchestrator-composed, but the producer-supplied SHA rides
@@ -523,16 +549,29 @@ print('\n'.join(out))
         fi
         if ! git -C "$repo" cat-file -e "$sha^{{commit}}" 2>/dev/null; then
             cw_log "sync-to-proposal: $sha unresolvable in $repo; reviewer falls back to the prompt's git-show reads."
+            cw_log "sync-to-proposal: outcome=unresolvable sha=$sha"
+            # ``unresolvable`` failure: append a NOT-synced banner so
+            # the agent treats its local diff as unreliable for this
+            # SHA and falls back to the rendered ``git show`` commands.
+            SYNC_FAILURE_BANNERS+="> **WARNING:** worktree NOT synced to \`$sha\` (\`unresolvable\`); treat your local diff as unreliable — use the rendered \`git log\` / \`git show\` fallback commands in this prompt instead."$'\n\n'
             continue
         fi
         if git -C "$repo" merge-base --is-ancestor "$sha" HEAD 2>/dev/null; then
+            cw_log "sync-to-proposal: outcome=already-ancestor sha=$sha"
             continue
         fi
         if git -C "$repo" merge --no-edit "$sha" >/dev/null 2>&1; then
             cw_log "sync-to-proposal: merged proposal commit $sha into the worktree."
+            cw_log "sync-to-proposal: outcome=merged sha=$sha"
         else
             git -C "$repo" merge --abort >/dev/null 2>&1 || true
             cw_log "sync-to-proposal: merge of $sha failed (conflict or dirty tree); aborted — reviewer reads via git show instead."
+            cw_log "sync-to-proposal: outcome=merge-failed sha=$sha"
+            # ``merge-failed`` failure: same banner shape as
+            # ``unresolvable`` so the agent learns NOT to trust the
+            # local diff and falls back to ``git show``. The merge
+            # was already aborted above so wrapper state is clean.
+            SYNC_FAILURE_BANNERS+="> **WARNING:** worktree NOT synced to \`$sha\` (\`merge-failed\`); treat your local diff as unreliable — use the rendered \`git log\` / \`git show\` fallback commands in this prompt instead."$'\n\n'
         fi
     done <<< "$shas"
     return 0

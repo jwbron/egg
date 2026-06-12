@@ -1099,6 +1099,110 @@ def test_render_delta_section_shows_proposal_sha_and_cautions_on_head() -> None:
     assert "NOT evidence" in section
 
 
+def test_empty_delta_caution_cross_references_not_synced_banner() -> None:
+    """The HEAD-scoped empty-delta caution names the wrapper's
+    "NOT-synced" banner and steers the reviewer at the rendered
+    fallback command in the same section (#3077 slice-1 TASK-1-2).
+
+    Plan TASK-1-2 acceptance: "Empty-delta caution names the
+    NOT-synced banner and the fallback command." The R1 contract
+    is end-to-end: the wrapper prepends a "worktree NOT synced ..."
+    banner on a sync failure, and the empty-delta caution — which the
+    reviewer hits when the delta block is empty and the worktree may
+    not contain the producer's commits — must point back at that same
+    banner so the reviewer follows a single, coherent decision tree
+    (check the banner → fall back to the rendered ``git log`` /
+    ``git show`` command) rather than two disconnected hints. The
+    re-review path renders a ``git log <sha>..<end_ref>`` command in
+    its "Re-review scope" line; the caution names that command rather
+    than ``git show`` (which is only rendered in the first-review
+    fallback path elsewhere in the prompt) so the reviewer doesn't
+    search for a string that isn't in their section.
+
+    Non-empty-delta and proposal-scoped paths are intentionally NOT
+    asserted on here — TASK-1-2 acceptance line 2 ("Non-empty-delta
+    rendering is byte-identical to today") is covered by the
+    surrounding tests in this module
+    (``test_render_delta_section_shows_proposal_sha_and_cautions_on_head``,
+    ``test_producer_delta_empty_string_renders_no_commits_sentinel``).
+    """
+    from orchestrator.routes.event_prompt import _render_producer_delta_section
+
+    # HEAD-scoped (no proposal_commit_sha) + empty delta is the only
+    # case that emits the caution; that is the case TASK-1-2 amends.
+    section, _ = _render_producer_delta_section(
+        [
+            {
+                "producer": "coder",
+                "last_reviewed_commit_sha": "0123abc",
+                "proposal_commit_sha": "",
+                "delta": "",
+            }
+        ],
+        "main",
+    )
+    # Banner cross-reference: the caution mentions the NOT-synced
+    # banner so a reviewer who sees both an empty delta AND the
+    # wrapper-prepended banner has one coherent path forward.
+    assert "NOT-synced" in section or "NOT synced" in section, (
+        "Empty-delta caution must name the wrapper's NOT-synced "
+        "banner (#3077 slice-1 TASK-1-2). Without the cross-reference "
+        "the reviewer sees two disconnected hints — an empty delta "
+        "block and a separate banner — instead of a single decision "
+        "tree."
+    )
+    assert "banner" in section.lower(), (
+        "Empty-delta caution must use the word 'banner' so the "
+        "reviewer correlates it with the wrapper's prepended banner "
+        "rather than guessing what 'NOT synced' refers to."
+    )
+    # Rendered fallback: the caution must name the rendered command in
+    # the same section so the reviewer has a coherent next step. The
+    # re-review path renders ``git log <sha>..<end_ref>`` (the
+    # "Re-review scope" line above the empty delta block); ``git show``
+    # only appears in the first-review fallback elsewhere. The caution
+    # names ``git log`` so it cross-references content that's actually
+    # in the reviewer's section (#3077 slice-1 follow-up to the
+    # initially-decorative ``git show`` cross-reference).
+    assert "git log" in section, (
+        "Empty-delta caution must point at the rendered ``git log`` "
+        "fallback — that is the command actually rendered above the "
+        "empty delta in the re-review path. Plan TASK-1-2 acceptance: "
+        "'Empty-delta caution names the NOT-synced banner and the "
+        "fallback command.'"
+    )
+
+
+def test_empty_delta_caution_unchanged_for_proposal_scoped_empty_range() -> None:
+    """Proposal-scoped empty delta keeps the trustworthy ``re-review is
+    a no-op`` verdict — the slice-1 TASK-1-2 amendment touches ONLY the
+    HEAD-scoped legacy caution, not the proposal-scoped path.
+
+    Plan TASK-1-2 acceptance: "Non-empty-delta rendering is
+    byte-identical to today." The proposal-scoped empty case is the
+    closest analogue and must also stay unchanged: it never had a
+    caution to amend.
+    """
+    from orchestrator.routes.event_prompt import _render_producer_delta_section
+
+    section, _ = _render_producer_delta_section(
+        [
+            {
+                "producer": "coder",
+                "last_reviewed_commit_sha": "0123abc",
+                "proposal_commit_sha": "def5678",
+                "delta": "",
+            }
+        ],
+        "main",
+    )
+    assert "re-review is a no-op" in section
+    # The proposal-scoped empty case is the trustworthy no-op verdict,
+    # so the NOT-synced banner cross-reference does NOT belong here.
+    assert "NOT-synced" not in section
+    assert "NOT synced" not in section
+
+
 # ---------------------------------------------------------------------------
 # CLI tests: the wrapper-bash entry-point (NACK #2 from reviewer_contract —
 # plan TASK-3-2 acceptance "snapshot test verifies both branches" for
