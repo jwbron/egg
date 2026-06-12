@@ -22,6 +22,10 @@ if TYPE_CHECKING:
     # these are never evaluated at runtime, so they don't belong in the
     # runtime import below — only HookMatcher is constructed at runtime.
     from claude_agent_sdk import HookContext, HookInput, HookJSONOutput
+    from claude_agent_sdk.types import SystemPromptFile, SystemPromptPreset
+
+    # The declared type of ``ClaudeAgentOptions.system_prompt``.
+    SystemPrompt = str | SystemPromptPreset | SystemPromptFile | None
 
 # Maximum length for tool input/output in log events to avoid bloating logs
 _MAX_TOOL_CONTENT_LOG_LEN = 2000
@@ -155,6 +159,32 @@ def _sdk_max_buffer_bytes() -> int:
         )
         return _MAX_SDK_MAX_BUFFER_BYTES
     return value
+
+
+def _append_system_prompt_addendum(
+    existing_prompt: SystemPrompt, addendum: str
+) -> tuple[SystemPrompt, bool]:
+    """Append ``addendum`` to a plain-str system prompt, preserving other forms.
+
+    ``options.system_prompt`` is typed ``str | SystemPromptPreset |
+    SystemPromptFile | None``. We only know how to extend the plain-str case:
+    we append after a blank line (rstrip first so the join is stable). For a
+    ``None`` prompt the addendum becomes the whole prompt. For the
+    preset / file forms append semantics are undefined, so the caller's prompt
+    is returned unchanged and ``appended=False`` signals the caller to log the
+    skip rather than silently drop either the caller's prompt or the addendum.
+
+    Returns ``(new_prompt, appended)``. This is the shared shape behind both
+    the MCP-tool ``SYSTEM_PROMPT_NUDGE`` append and the LiteLLM-route guidance
+    append (#3175 review) — keeping the data-loss-avoidance contract in one
+    tested place.
+    """
+    if isinstance(existing_prompt, str) and existing_prompt:
+        return existing_prompt.rstrip() + "\n\n" + addendum, True
+    if existing_prompt:
+        # SystemPromptPreset / SystemPromptFile — cannot append; preserve.
+        return existing_prompt, False
+    return addendum, True
 
 
 async def run_agent_async(
@@ -352,9 +382,10 @@ async def run_agent_async(
             # plumbing but SystemPromptPreset / SystemPromptFile
             # append semantics are not defined).
             existing_prompt = options.system_prompt
-            if isinstance(existing_prompt, str) and existing_prompt:
-                options.system_prompt = existing_prompt.rstrip() + "\n\n" + SYSTEM_PROMPT_NUDGE
-            elif existing_prompt:
+            options.system_prompt, appended = _append_system_prompt_addendum(
+                existing_prompt, SYSTEM_PROMPT_NUDGE
+            )
+            if not appended:
                 # SystemPromptPreset / SystemPromptFile — we cannot
                 # append to these forms.  Preserve the caller's prompt
                 # and skip the nudge to avoid silent data loss.
@@ -364,8 +395,6 @@ async def run_agent_async(
                     event_type="system",
                     event_subtype="mcp_nudge_skipped",
                 )
-            else:
-                options.system_prompt = SYSTEM_PROMPT_NUDGE
             logger.info(
                 "Registered egg MCP tools",
                 event_type="system",
@@ -508,9 +537,10 @@ async def run_agent_async(
     route_addendum = route_guidance_addendum()
     if route_addendum:
         existing_prompt = options.system_prompt
-        if isinstance(existing_prompt, str) and existing_prompt:
-            options.system_prompt = existing_prompt.rstrip() + "\n\n" + route_addendum
-        elif existing_prompt:
+        options.system_prompt, appended = _append_system_prompt_addendum(
+            existing_prompt, route_addendum
+        )
+        if not appended:
             # SystemPromptPreset / SystemPromptFile — append semantics are
             # not defined for these forms (same constraint as the MCP
             # nudge above); preserve the caller's prompt and skip.
@@ -520,8 +550,6 @@ async def run_agent_async(
                 event_type="system",
                 event_subtype="route_guidance_skipped",
             )
-        else:
-            options.system_prompt = route_addendum
         if isinstance(options.system_prompt, str) and route_addendum in options.system_prompt:
             logger.info(
                 "Appended LiteLLM-route working-style guidance to system prompt",
