@@ -13,7 +13,7 @@ import logging
 import os
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Any
 
 from egg_agent.result import AgentResult
 
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from claude_agent_sdk.types import SystemPromptFile, SystemPromptPreset
 
     # The declared type of ``ClaudeAgentOptions.system_prompt``.
-    SystemPrompt: TypeAlias = str | SystemPromptPreset | SystemPromptFile | None
+    type SystemPrompt = str | SystemPromptPreset | SystemPromptFile | None
 
 # Maximum length for tool input/output in log events to avoid bloating logs
 _MAX_TOOL_CONTENT_LOG_LEN = 2000
