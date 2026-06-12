@@ -80,31 +80,33 @@ _SCAN_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 # ---------------------------------------------------------------------------
 #
 # Same schema and review contract as `test_prompt_sync_ratchet.py`:
-# (source_basename, matched_substring, line_number_1_indexed), with a
-# JUSTIFICATION comment immediately above each row. The pinned line
-# number makes a drifted entry fail, forcing re-verification of the
-# justification. The only legitimate occurrences are NEGATIVE
-# instructions — text that names the forbidden command in order to
-# forbid it.
+# (source_relpath, matched_substring, line_number_1_indexed), with a
+# JUSTIFICATION comment immediately above each row. The source key is
+# the POSIX repo-relative path (not the basename) so a future
+# same-named file added to the other scanned directory cannot make a
+# line-pin mis-apply across files. The pinned line number makes a
+# drifted entry fail, forcing re-verification of the justification. The
+# only legitimate occurrences are NEGATIVE instructions — text that
+# names the forbidden command in order to forbid it.
 _ALLOWLIST: tuple[tuple[str, str, int], ...] = (
     # JUSTIFICATION: mission.md tells the agent it does NOT need to call
     # `egg-orch message wait` because the wrapper owns sequencing — the
     # token appears only inside the negative instruction that codifies
     # the event-pump contract (#2908 slice-3 mission rewrite).
-    ("mission.md", "egg-orch message wait", 155),
+    ("sandbox/agent-config/rules/mission.md", "egg-orch message wait", 155),
     # JUSTIFICATION: the rules/orchestrator.md CLI-reference callout
     # forbids agent-tier blocking waits (#3157); it names
     # `egg-orch message wait` / `wait-loop` only to mark them
     # wrapper-internal and direct the agent to exit instead. Two
     # matches on the same line (the wrapper attribution and the
     # "do NOT run" clause) — both covered by this entry.
-    ("orchestrator.md", "egg-orch message wait", 64),
+    ("sandbox/agent-config/rules/orchestrator.md", "egg-orch message wait", 64),
     # JUSTIFICATION: the per-event prompt contract string is the
     # authoritative agent-facing wording of the invariant — "Do NOT
     # block on ``egg-orch message wait-loop`` yourself: the wrapper
     # owns the wait and the heartbeat (#2908 slice-2)". The token is
     # present precisely to forbid the call.
-    ("event_prompt.py", "egg-orch message wait-loop", 560),
+    ("orchestrator/routes/event_prompt.py", "egg-orch message wait-loop", 560),
 )
 
 
@@ -131,13 +133,15 @@ def _scan_text(text: str) -> list[tuple[str, int, str]]:
 
 
 def _filter_allowlist(
-    source_basename: str, findings: list[tuple[str, int, str]]
+    source_relpath: str, findings: list[tuple[str, int, str]]
 ) -> list[tuple[str, int, str]]:
-    """Drop allowlisted findings; surface any remainder."""
+    """Drop allowlisted findings; surface any remainder. `source_relpath`
+    is the POSIX repo-relative path so a line-pin cannot mis-apply across
+    same-named files in different scanned directories."""
     survivors: list[tuple[str, int, str]] = []
     for label, line_number, matched in findings:
         allowlisted = any(
-            allow_src == source_basename and allow_text in matched and allow_line == line_number
+            allow_src == source_relpath and allow_text in matched and allow_line == line_number
             for allow_src, allow_text, allow_line in _ALLOWLIST
         )
         if not allowlisted:
@@ -160,7 +164,7 @@ def test_agent_facing_markdown_has_no_wait_instructions(prompt_path: Path) -> No
     or present the STAY ALIVE idiom as live. The wrapper owns all
     waiting (#2908); agents handle one event and exit (#3157)."""
     text = prompt_path.read_text(encoding="utf-8")
-    findings = _filter_allowlist(prompt_path.name, _scan_text(text))
+    findings = _filter_allowlist(prompt_path.relative_to(_REPO_ROOT).as_posix(), _scan_text(text))
     assert not findings, (
         f"blocking-wait instruction in {prompt_path.name}: {findings}; "
         f"agents never wait on the bus — the consensus wrapper owns "
@@ -176,7 +180,9 @@ def test_event_prompt_has_no_wait_instructions() -> None:
     The single allowlisted occurrence is the contract sentence that
     forbids them."""
     text = _EVENT_PROMPT_PATH.read_text(encoding="utf-8")
-    findings = _filter_allowlist(_EVENT_PROMPT_PATH.name, _scan_text(text))
+    findings = _filter_allowlist(
+        _EVENT_PROMPT_PATH.relative_to(_REPO_ROOT).as_posix(), _scan_text(text)
+    )
     assert not findings, (
         f"blocking-wait instruction in "
         f"{_EVENT_PROMPT_PATH.relative_to(_REPO_ROOT)}: {findings}; "
@@ -247,14 +253,14 @@ def test_ratchet_passes_through_legal_text(rendered: str, kind: str) -> None:
 
 
 def test_allowlist_entries_carry_justification_shape() -> None:
-    """Each `_ALLOWLIST` entry must be a (source_basename,
+    """Each `_ALLOWLIST` entry must be a (source_relpath,
     matched_substring, line_number) triple so the justification comment
     immediately above it is locatable on review, and the pinned line
     forces re-verification when the source moves."""
     for entry in _ALLOWLIST:
         assert len(entry) == 3, (
             f"_ALLOWLIST entry {entry!r} must be a "
-            f"(source_basename, matched_substring, line_number) triple."
+            f"(source_relpath, matched_substring, line_number) triple."
         )
         source, matched, line_number = entry
         assert isinstance(source, str) and source
