@@ -2930,6 +2930,73 @@ class TestSpecDerivedProposeValidation:
         assert status_code == 200, response.get_json()
         mock_tracker.handle_propose.assert_called_once()
 
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    @patch("routes.signals.subprocess.run")
+    def test_plan_reviewer_propose_passes_through(
+        self,
+        mock_subprocess_run,
+        mock_get_tracker,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_gateway_fetch,
+        app,
+    ):
+        """A reviewer role that proposes in the *plan* phase passes through
+        (status 200), even though that phase registers artifacts for its
+        producers (task_planner / architect / risk_analyst).
+
+        This mirrors the TASK-3-2 acceptance phrasing literally ("reviewer
+        messages" as a pass-through case). Reviewers issue ACK/NACK rather
+        than propose in practice, so this case is structurally covered by
+        the producer-membership early bail-out
+        (``agent_role not in {spec.producer_role for spec in all_specs()}``):
+        a ``reviewer`` is not the producer of any registered artifact, so the
+        presence loop never queries the plan-phase spec paths even with the
+        draft absent — the proposal is accepted unchanged.
+        """
+        pipeline = _pipeline_with_phase("plan")
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_propose.return_value = {
+            "version": 1,
+            "status": "proposed",
+            "commit_sha": "abc1234",
+            "reviewers": [],
+            "stale_reviewers": [],
+        }
+        mock_get_tracker.return_value = mock_tracker
+
+        # Mark every plan-phase artifact missing: a producer would be
+        # rejected, but the reviewer must bail out before the loop queries
+        # these paths and so is accepted regardless.
+        mock_subprocess_run.side_effect = _make_subprocess_router(
+            missing_paths=(
+                self._PLAN_DRAFT_PATH,
+                self._ARCHITECT_OUTPUT_PATH,
+                self._ARCHITECT_SLICES_PATH,
+                self._RISK_ANALYST_OUTPUT_PATH,
+            )
+        )
+
+        with app.app_context():
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {"agent_role": "reviewer", "payload": _propose_payload()},
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 200, response.get_json()
+        mock_tracker.handle_propose.assert_called_once()
+
     @patch("routes.signals.resolve_worktree_path")
     @patch("routes.signals.get_state_store")
     @patch("peer_consensus.get_peer_consensus_tracker")

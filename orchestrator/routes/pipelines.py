@@ -19492,20 +19492,30 @@ def _synthesize_plan_draft(
     # Derive the pipeline identifier for namespaced output filenames.
     _synth_id = _pipeline_identifier(issue_number, pipeline_id)
 
+    from egg_contracts.artifact_spec import resolve_artifact_path
+
     sections: list[str] = []
-    agent_files = [
-        ("architect-output.json", "Architecture Analysis"),
-        ("architect-slices.yaml", "Slice Scaffold"),
-        ("risk_analyst-output.json", "Risk Assessment"),
+    # Spec *names* — not bare filenames — so the agent-output path knowledge
+    # lives only in egg_contracts.artifact_spec (the slice-2 single-source-of-
+    # truth ratchet covers this reader, not just the prompt builder).
+    # ``resolve_artifact_path("<name>", id)`` yields the namespaced
+    # ``.egg-state/agent-outputs/{id}-<file>`` path; the old un-namespaced
+    # global filename (basename minus the ``{id}-`` prefix) stays the fallback.
+    agent_specs = [
+        ("architect-output", "Architecture Analysis"),
+        ("architect-slices", "Slice Scaffold"),
+        ("risk-analyst-output", "Risk Assessment"),
     ]
 
-    for filename, heading in agent_files:
+    for spec_name, heading in agent_specs:
+        prefixed_rel = resolve_artifact_path(spec_name, _synth_id)
+        global_filename = Path(prefixed_rel).name.removeprefix(f"{_synth_id}-")
         # Try prefixed filename first, fall back to old global filename
-        prefixed_file = outputs_dir / f"{_synth_id}-{filename}"
+        prefixed_file = repo_path / prefixed_rel
         if prefixed_file.exists():
             output_file = prefixed_file
         else:
-            output_file = outputs_dir / filename
+            output_file = outputs_dir / global_filename
         if not output_file.exists():
             continue
         try:
@@ -19521,7 +19531,7 @@ def _synthesize_plan_draft(
             logger.warning(
                 "Failed to read agent output for plan draft",
                 pipeline_id=pipeline_id,
-                file=filename,
+                file=global_filename,
                 error=str(e),
             )
             continue
@@ -19531,7 +19541,7 @@ def _synthesize_plan_draft(
             logger.warning(
                 "Agent output is empty, skipping from plan draft",
                 pipeline_id=pipeline_id,
-                file=filename,
+                file=global_filename,
             )
             continue
 
@@ -19548,7 +19558,7 @@ def _synthesize_plan_draft(
 
     # Guard against a draft that has section headings but no real content.
     stripped = draft_content
-    for _, heading in agent_files:
+    for _, heading in agent_specs:
         stripped = stripped.replace(f"## {heading}", "")
     if len(stripped.strip()) < _MIN_PLAN_DRAFT_CONTENT_LENGTH:
         logger.warning(
