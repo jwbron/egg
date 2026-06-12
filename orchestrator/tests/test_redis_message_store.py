@@ -1294,3 +1294,118 @@ class TestRedisRestartSemanticsVsPhaseBoundaryWipe:
         post_store = RedisMessageStore(redis_client)
         assert post_store.get_messages(pipeline_id, limit=100) == []
         assert post_store.get_status(pipeline_id) == {"total": 0, "by_type": {}}
+
+
+class TestBlockingChunkCap:
+    """Live-canary regression for #2662: XREAD BLOCK vs client socket_timeout.
+
+    The production connection pool (``get_redis_message_store``) sets
+    ``socket_timeout=5``. redis-py enforces that timeout on the blocked
+    read itself, so a single ``XREAD BLOCK`` longer than the socket
+    timeout dies with ``redis.TimeoutError`` before the server can
+    answer — on the first deployed pipeline every agent long-poll
+    (``wait=25``) errored at the 5 s mark. fakeredis has no sockets, so
+    the timeout itself cannot be reproduced at unit tier; these tests
+    pin the two halves of the fix instead:
+
+    * no single blocking read ever requests more than ``_MAX_BLOCK_MS``;
+    * a ``redis.TimeoutError`` on a blocking slice degrades to an idle
+      slice instead of killing the whole wait (non-blocking reads keep
+      raising).
+    """
+
+    class _BlockCaptured(Exception):
+        """Sentinel to stop the store after the first blocking read."""
+
+    def _capture_first_block(self, redis_client, monkeypatch):
+        captured: list[int | None] = []
+
+        def capturing_xread(streams, count=None, block=None):
+            captured.append(block)
+            raise self._BlockCaptured()
+
+        monkeypatch.setattr(redis_client, "xread", capturing_xread)
+        return captured
+
+    def test_cap_stays_below_pool_socket_timeout(self):
+        import redis_message_store
+
+        # get_redis_message_store pins socket_timeout=5 (5000 ms). The
+        # slice cap must stay below it with margin or the fix is void.
+        assert redis_message_store._MAX_BLOCK_MS < 5000
+
+    def test_fast_path_block_is_capped(self, redis_client, monkeypatch):
+        import redis_message_store
+
+        monkeypatch.setattr(redis_message_store, "_MAX_BLOCK_MS", 50)
+        captured = self._capture_first_block(redis_client, monkeypatch)
+        store = RedisMessageStore(redis_client)
+
+        with pytest.raises(self._BlockCaptured):
+            store.get_messages("cap-pipeline", wait=10)
+
+        # Pre-fix this was wait * 1000 == 10000 in a single XREAD.
+        assert captured == [50]
+
+    def test_wait_for_types_block_is_capped(self, redis_client, monkeypatch):
+        import redis_message_store
+
+        monkeypatch.setattr(redis_message_store, "_MAX_BLOCK_MS", 50)
+        captured = self._capture_first_block(redis_client, monkeypatch)
+        store = RedisMessageStore(redis_client)
+
+        with pytest.raises(self._BlockCaptured):
+            store.get_messages(
+                "cap-pipeline",
+                wait=10,
+                wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
+            )
+
+        assert captured == [50]
+
+    def test_blocking_timeout_degrades_to_idle_slice(self, redis_client, monkeypatch):
+        import redis
+
+        store = RedisMessageStore(redis_client)
+        store.add_message(
+            Message(
+                pipeline_id="timeout-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.PROGRESS,
+                subject="survives the flaky slice",
+            )
+        )
+
+        real_xread = redis_client.xread
+        calls = {"n": 0}
+
+        def flaky_xread(streams, count=None, block=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise redis.TimeoutError("Timeout reading from socket")
+            return real_xread(streams, count=count, block=block)
+
+        monkeypatch.setattr(redis_client, "xread", flaky_xread)
+
+        # Pre-fix the TimeoutError propagated and the route 500'd; now
+        # the first slice is treated as idle and the retry delivers.
+        messages = store.get_messages("timeout-pipeline", wait=2)
+
+        assert calls["n"] >= 2
+        assert [m.subject for m in messages] == ["survives the flaky slice"]
+
+    def test_nonblocking_timeout_still_raises(self, redis_client, monkeypatch):
+        import redis
+
+        def timeout_xrange(*args, **kwargs):
+            raise redis.TimeoutError("Timeout reading from socket")
+
+        monkeypatch.setattr(redis_client, "xrange", timeout_xrange)
+        store = RedisMessageStore(redis_client)
+
+        # The idle-slice degradation is scoped to blocking reads only —
+        # a timeout on a non-blocking read is a real error and must
+        # propagate, not silently return [].
+        with pytest.raises(redis.TimeoutError):
+            store.get_messages("timeout-pipeline", wait=0)

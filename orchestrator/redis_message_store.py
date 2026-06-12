@@ -34,6 +34,22 @@ from message_store import GetMessagesMeta, Message, coerce_deprecated_message_ty
 logger = get_logger("orchestrator.redis_message_store")
 
 
+# Upper bound for a single XREAD BLOCK, in milliseconds. MUST stay safely
+# below the connection pool's socket_timeout (5 s, see
+# ``get_redis_message_store``): redis-py enforces socket_timeout on the
+# blocked read itself, so a single BLOCK >= socket_timeout dies with
+# "Timeout reading from socket" before the server can answer — every
+# agent long-poll (25-60 s) 500'd at the 5 s mark. Long waits are
+# therefore chunked into BLOCK slices of at most this length; XREAD
+# returns immediately when data arrives, so chunking costs one extra
+# round-trip per idle slice, not delivery latency. Caught live by the
+# first deployed canary pipeline for #2662 — fakeredis has no sockets,
+# so the unit tier structurally cannot regress-test the timeout itself;
+# the slice-cap contract is pinned in test_redis_message_store.py
+# instead.
+_MAX_BLOCK_MS = 4000
+
+
 def _stream_key(pipeline_id: str) -> str:
     """Get the Redis Stream key for a pipeline."""
     return f"pipeline:{pipeline_id}:messages"
@@ -353,6 +369,28 @@ class RedisMessageStore:
                         if result_entries
                         else []
                     )
+            except redis.TimeoutError as e:
+                if block_ms is not None:
+                    # A blocked read outlived the client socket timeout.
+                    # _MAX_BLOCK_MS is sized to prevent this; if it fires
+                    # anyway (e.g. an operator lowered socket_timeout),
+                    # treat it as an idle slice — the caller's deadline
+                    # loop bounds the retries — rather than 500ing the
+                    # whole long-poll.
+                    logger.warning(
+                        "Blocking Redis Stream read hit the client socket "
+                        "timeout; treating as an empty slice",
+                        pipeline_id=pipeline_id,
+                        block_ms=block_ms,
+                        error=str(e),
+                    )
+                    return [], None
+                logger.error(
+                    "Failed to read from Redis Stream",
+                    pipeline_id=pipeline_id,
+                    error=str(e),
+                )
+                raise
             except redis.RedisError as e:
                 logger.error(
                     "Failed to read from Redis Stream",
@@ -379,7 +417,23 @@ class RedisMessageStore:
 
         # No type filter: preserve the original behaviour (fast path).
         if want_types is None:
-            messages, _ = _read_once(start_id, wait * 1000 if wait > 0 else None)
+            if wait > 0:
+                # Chunked blocking read (see _MAX_BLOCK_MS): re-issue
+                # XREAD BLOCK in slices until rows arrive or the wait
+                # budget elapses. Semantics match the former single
+                # XREAD BLOCK — the wait ends at the first batch of rows
+                # whether or not they survive the filters below.
+                fast_deadline = time.monotonic() + float(wait)
+                messages = []
+                while True:
+                    remaining_ms = int((fast_deadline - time.monotonic()) * 1000)
+                    if remaining_ms <= 0:
+                        break
+                    messages, _ = _read_once(start_id, min(remaining_ms, _MAX_BLOCK_MS))
+                    if messages:
+                        break
+            else:
+                messages, _ = _read_once(start_id, None)
             if role:
                 messages = [m for m in messages if m.to_role == role or m.to_role == "all"]
             if from_role:
@@ -401,7 +455,12 @@ class RedisMessageStore:
 
             block_ms: int | None
             if wait > 0:
-                block_ms = max(int(remaining * 1000), 1)
+                # Slice the remaining budget (see _MAX_BLOCK_MS). An idle
+                # slice reads nothing, leaves the cursor in place, and
+                # loops back here; the deadline check above terminates
+                # the wait. The inner-loop cap is no risk: 100 idle
+                # slices x 4 s far exceeds any wait budget.
+                block_ms = min(max(int(remaining * 1000), 1), _MAX_BLOCK_MS)
             else:
                 block_ms = None
 
