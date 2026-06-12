@@ -2147,3 +2147,417 @@ class TestSyncOutcomesAndBanner:
         assert self._STUB_PROMPT_BODY in prompt, (
             f"Composed prompt body must still reach the agent. Prompt: {prompt!r}"
         )
+
+
+# ===========================================================================
+# Slice-1 (#3064 task-1-2): ownership flag + one-shot wrapper arm.
+#
+# These tests are TEST-FIRST: they pin the slice-1 contract the coder's
+# parallel implementation (task-1-1) must satisfy. The pod-default golden
+# snapshot passes against the pre-#3064 rendering today (R1 guard); the
+# orchestrator-mode one-shot arm and the ``env_config`` accessor tests go
+# green once the coder's slice-1 implementation is integrated.
+#
+# Contract pinned here (the plan, "Slice 1 — Ownership flag + one-shot
+# wrapper arm"):
+#   * ``env_config.get_event_loop_owner()`` reads ``EGG_EVENT_LOOP_OWNER``
+#     ∈ {``pod`` (default), ``orchestrator``}; invalid values are rejected
+#     loudly (warn + fall back to ``pod``) per the module's
+#     never-raise/warn-on-malformed convention.
+#   * ``build_consensus_wrapped_command`` selects the rendering by owner:
+#     ``pod``/unset → today's in-pod event-pump template (byte-identical,
+#     golden-pinned); ``orchestrator`` → the single-event one-shot arm.
+#   * The one-shot arm skips the blocking wait-loop and background
+#     heartbeat, re-checks ``brc next-action`` once (stale ⇒ exit 0, no
+#     agent invocation — the dedupe backstop), invokes the agent exactly
+#     once on a fresh ``propose|ack|nack`` event, and exits with the
+#     agent's (#2908-classified) exit code. ``confirm``/``complete`` never
+#     reach the one-shot arm — an injected terminal action is rejected
+#     loudly.
+# ===========================================================================
+
+_GOLDEN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden")
+_POD_DEFAULT_GOLDEN_PATH = os.path.join(
+    _GOLDEN_DIR, "event_pump_wrapper_pod_default.sh"
+)
+
+
+def _read_pod_default_golden() -> str:
+    with open(_POD_DEFAULT_GOLDEN_PATH, encoding="utf-8") as fh:
+        return fh.read()
+
+
+class TestPodDefaultWrapperGoldenSnapshot:
+    """R1 guard (#3064 slice-1 acceptance: "Golden-file test fails on ANY
+    drift of the pod-default wrapper rendering").
+
+    The #3023 post-mortem deadlocked BRC by silencing the in-pod loop with
+    nothing replacing it. Slice-1 lands the ownership guard *dormant*: with
+    ``EGG_EVENT_LOOP_OWNER`` unset or ``pod`` the generated wrapper MUST be
+    byte-identical to the pre-#3064 event-pump rendering, so the guard can
+    never regress the production (pod) path silently.
+
+    To regenerate after an INTENTIONAL pod-path change, run from the
+    ``orchestrator/`` directory::
+
+        python3 -c "from consensus_wrapper import \\
+build_consensus_wrapped_command as b; \\
+open('tests/golden/event_pump_wrapper_pod_default.sh', 'w').write(b('x')[2])"
+
+    and review the diff — an unreviewed regeneration defeats the guard.
+    """
+
+    def test_pod_default_matches_golden_byte_for_byte(self, monkeypatch):
+        monkeypatch.delenv("EGG_EVENT_LOOP_OWNER", raising=False)
+        golden = _read_pod_default_golden()
+        cmd = build_consensus_wrapped_command("Prompt")
+        assert cmd[:2] == ["bash", "-c"]
+        assert cmd[2] == golden, (
+            "pod-default wrapper rendering drifted from the golden "
+            "snapshot. If the change to the pod path was intentional, "
+            "regenerate tests/golden/event_pump_wrapper_pod_default.sh "
+            "(see this class's docstring) and review the diff; otherwise "
+            "this is the #3064 R1 guard catching an unintended drift of "
+            "the in-pod event-pump rendering."
+        )
+
+    def test_explicit_pod_owner_matches_golden(self, monkeypatch):
+        """Explicit ``EGG_EVENT_LOOP_OWNER=pod`` is identical to unset."""
+        monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", "pod")
+        assert build_consensus_wrapped_command("Prompt")[2] == _read_pod_default_golden()
+
+    def test_pod_default_is_prompt_independent(self, monkeypatch):
+        """The event-pump emits its own per-event prompts, so the initial
+        prompt text never reaches the bash — the golden must hold for any
+        prompt argument."""
+        monkeypatch.delenv("EGG_EVENT_LOOP_OWNER", raising=False)
+        golden = _read_pod_default_golden()
+        assert build_consensus_wrapped_command("totally different prompt")[2] == golden
+
+    def test_golden_snapshot_is_the_in_pod_event_pump(self):
+        """Sanity-check the committed golden really is the in-pod
+        event-pump (blocking loop + wait-loop), so a stale/empty golden
+        can't make the byte-equality test vacuous."""
+        golden = _read_pod_default_golden()
+        assert "Event-pump wrapper (#2908 slice-2)" in golden
+        assert "while true; do" in golden
+        assert "egg-orch message wait-loop" in golden
+        assert "start_background_heartbeat" in golden
+
+
+class TestEventLoopOwnerAccessor:
+    """``env_config.get_event_loop_owner()`` — the #3064 slice-1 ownership
+    flag accessor. Follows the module's accessor conventions (never raise;
+    fall back to the documented default and warn on a value that looks
+    intentional but malformed — mirrors ``get_recovery_ref_cleanup_enabled``).
+    """
+
+    def test_unset_defaults_to_pod(self, monkeypatch):
+        monkeypatch.delenv("EGG_EVENT_LOOP_OWNER", raising=False)
+        from env_config import get_event_loop_owner
+
+        assert get_event_loop_owner() == "pod"
+
+    def test_explicit_pod(self, monkeypatch):
+        monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", "pod")
+        from env_config import get_event_loop_owner
+
+        assert get_event_loop_owner() == "pod"
+
+    def test_explicit_orchestrator(self, monkeypatch):
+        monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", "orchestrator")
+        from env_config import get_event_loop_owner
+
+        assert get_event_loop_owner() == "orchestrator"
+
+    def test_value_is_trimmed_and_case_insensitive(self, monkeypatch):
+        """Module convention (``.strip().lower()``): surrounding
+        whitespace and case must not change the parsed owner."""
+        from env_config import get_event_loop_owner
+
+        for raw in ("  orchestrator", "orchestrator  ", "Orchestrator", "ORCHESTRATOR"):
+            monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", raw)
+            assert get_event_loop_owner() == "orchestrator", repr(raw)
+        for raw in (" pod ", "POD", "Pod"):
+            monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", raw)
+            assert get_event_loop_owner() == "pod", repr(raw)
+
+    def test_blank_value_defaults_to_pod(self, monkeypatch):
+        monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", "   ")
+        from env_config import get_event_loop_owner
+
+        assert get_event_loop_owner() == "pod"
+
+    def test_invalid_value_rejected_loudly_and_falls_back_to_pod(
+        self, monkeypatch, caplog
+    ):
+        """An unrecognised value must NOT raise (module convention) — it
+        falls back to ``pod`` and logs a WARNING naming the offending
+        value so the operator notices the typo ("rejected loudly")."""
+        import logging
+
+        from env_config import get_event_loop_owner
+
+        monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", "kubernetes")
+        with caplog.at_level(logging.WARNING, logger="orchestrator.env_config"):
+            assert get_event_loop_owner() == "pod"
+        assert any(
+            "EGG_EVENT_LOOP_OWNER" in rec.getMessage()
+            and "kubernetes" in rec.getMessage()
+            for rec in caplog.records
+        ), (
+            "invalid EGG_EVENT_LOOP_OWNER must be rejected loudly with a "
+            f"WARNING naming the bad value. Captured: {caplog.text!r}"
+        )
+
+
+class TestOneShotArmStructure:
+    """Structural pins on the orchestrator-mode one-shot wrapper arm
+    (#3064 slice-1 task-1-2). With ``EGG_EVENT_LOOP_OWNER=orchestrator`` the
+    generated wrapper drops the in-pod blocking loop in favour of a
+    single-event arm driven by the injected ``EGG_EVENT_ACTION``.
+    """
+
+    def _one_shot_script(self, monkeypatch) -> str:
+        monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", "orchestrator")
+        cmd = build_consensus_wrapped_command("Prompt")
+        assert cmd[:2] == ["bash", "-c"]
+        return cmd[2]
+
+    def test_orchestrator_mode_differs_from_pod_default(self, monkeypatch):
+        monkeypatch.delenv("EGG_EVENT_LOOP_OWNER", raising=False)
+        pod = build_consensus_wrapped_command("Prompt")[2]
+        one_shot = self._one_shot_script(monkeypatch)
+        assert one_shot != pod, (
+            "EGG_EVENT_LOOP_OWNER=orchestrator must select the one-shot "
+            "arm, which is NOT byte-identical to the in-pod event-pump."
+        )
+
+    def test_one_shot_omits_blocking_wait_loop(self, monkeypatch):
+        """The dedupe backstop is a single ``brc next-action`` re-check,
+        not a blocking ``message wait-loop`` / ``while true`` poll."""
+        script = self._one_shot_script(monkeypatch)
+        assert "egg-orch message wait-loop" not in script, (
+            "one-shot arm must not block on the message bus."
+        )
+        assert "while true; do" not in script, (
+            "one-shot arm handles exactly one event — no main poll loop."
+        )
+
+    def test_one_shot_omits_background_heartbeat(self, monkeypatch):
+        """No long-lived pod ⇒ no wrapper-owned background heartbeat
+        emitter (the orchestrator owns liveness in this mode)."""
+        script = self._one_shot_script(monkeypatch)
+        assert "start_background_heartbeat" not in script
+
+    def test_one_shot_reads_injected_event_action(self, monkeypatch):
+        script = self._one_shot_script(monkeypatch)
+        assert "EGG_EVENT_ACTION" in script, (
+            "one-shot arm is driven by the injected EGG_EVENT_ACTION env."
+        )
+
+    def test_one_shot_rechecks_next_action_once(self, monkeypatch):
+        script = self._one_shot_script(monkeypatch)
+        assert "brc next-action" in script, (
+            "one-shot arm must re-check next-action once as the stale/"
+            "dedupe backstop."
+        )
+
+    def test_one_shot_retains_agent_invocation_path(self, monkeypatch):
+        """The one-shot arm reuses the existing ``invoke_agent_for_event``
+        composer path rather than inventing a parallel invocation."""
+        script = self._one_shot_script(monkeypatch)
+        assert "invoke_agent_for_event" in script
+
+
+class TestOneShotArmBehavior:
+    """Behavioural tests of the orchestrator-mode one-shot arm, driving the
+    rendered bash against PATH stubs (#3064 slice-1 task-1-2). Covers the
+    five one-shot behaviors: stale-exit, exactly-one-invocation, exit-code
+    passthrough, and loud rejection of injected confirm/complete.
+    """
+
+    def _render(self, monkeypatch) -> list[str]:
+        monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", "orchestrator")
+        return build_consensus_wrapped_command("Prompt")
+
+    @staticmethod
+    def _stub_bin(tmp_path, next_action_json: str, agent_exit: int = 0):
+        """Lay down PATH stubs:
+          - ``egg-orch`` — logs every call; ``brc get-state`` → incomplete,
+            ``brc next-action`` → the supplied JSON; everything else 0.
+          - ``python3`` — forwards inline ``-c``/``-`` JSON parsing to the
+            real interpreter; the ``-m egg_agent`` invocation records one
+            line per call and exits ``agent_exit``.
+        Returns ``(bin_dir, general_log, agent_log)``.
+        """
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        general_log = tmp_path / "egg_orch.log"
+        agent_log = tmp_path / "agent_invocations.log"
+
+        mock_orch = bin_dir / "egg-orch"
+        mock_orch.write_text(
+            "#!/bin/bash\n"
+            f'echo "$@" >> {shlex.quote(str(general_log))}\n'
+            'sub="$1 $2"\n'
+            'case "$sub" in\n'
+            '    "brc get-state")\n'
+            '        echo \'{"consensus":{"agents":{},"is_complete":false}}\'\n'
+            "        ;;\n"
+            '    "brc next-action")\n'
+            f"        printf '%s' {shlex.quote(next_action_json)}\n"
+            "        ;;\n"
+            "    *)\n"
+            "        ;;\n"
+            "esac\n"
+            "exit 0\n"
+        )
+        os.chmod(str(mock_orch), 0o755)  # nosec B103
+
+        real_python = sys.executable
+        mock_python = bin_dir / "python3"
+        mock_python.write_text(
+            "#!/bin/bash\n"
+            'if [ "$1" = "-c" ] || [ "$1" = "-" ]; then\n'
+            f'    exec {shlex.quote(real_python)} "$@"\n'
+            "fi\n"
+            'if [ "$1" = "-m" ] && [ "$2" = "egg_agent" ]; then\n'
+            f'    echo "invoke" >> {shlex.quote(str(agent_log))}\n'
+            f"    exit {int(agent_exit)}\n"
+            "fi\n"
+            # The compose_event_prompt path (``python3 <script> <action>``)
+            # never runs in tests (the default /opt path is unreadable, so
+            # invoke_agent_for_event uses its fallback prompt); forward it
+            # to the real interpreter defensively just in case.
+            f'exec {shlex.quote(real_python)} "$@"\n'
+        )
+        os.chmod(str(mock_python), 0o755)  # nosec B103
+        return bin_dir, general_log, agent_log
+
+    @staticmethod
+    def _env(bin_dir, action: str, dedupe: str = "evt-1"):
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["EGG_AGENT_ROLE"] = "tester"
+        env["EGG_PIPELINE_ID"] = "issue-3064"
+        env["EGG_SLICE_ID"] = "slice-1"
+        env["EGG_EVENT_LOOP_OWNER"] = "orchestrator"
+        env["EGG_EVENT_ACTION"] = action
+        env["EGG_EVENT_DEDUPE_KEY"] = dedupe
+        # Force the compose_event_prompt fallback (unreadable default path)
+        # so the agent invocation is the only ``python3 -m`` call.
+        env.pop("EGG_EVENT_PROMPT_SCRIPT", None)
+        return env
+
+    @staticmethod
+    def _agent_invocation_count(agent_log) -> int:
+        if not agent_log.exists():
+            return 0
+        return len([ln for ln in agent_log.read_text().splitlines() if ln.strip()])
+
+    def test_stale_event_exits_zero_without_invoking_agent(self, tmp_path, monkeypatch):
+        """The orchestrator injected a ``propose`` event, but by the time
+        the pod starts the live next-action has moved to ``wait`` (another
+        pod already handled it). The one-shot arm must re-check, detect the
+        stale event, and exit 0 WITHOUT invoking the agent — the dedupe
+        backstop."""
+        cmd = self._render(monkeypatch)
+        bin_dir, general_log, agent_log = self._stub_bin(
+            tmp_path, '{"action":"wait"}', agent_exit=0
+        )
+        env = self._env(bin_dir, "propose")
+        result = subprocess.run(
+            cmd, env=env, capture_output=True, text=True, timeout=30
+        )
+        assert result.returncode == 0, (
+            "stale one-shot event must exit 0. stderr:\n" + result.stderr
+        )
+        assert self._agent_invocation_count(agent_log) == 0, (
+            "stale one-shot event must NOT invoke the agent (dedupe "
+            "backstop). egg-orch log:\n"
+            + (general_log.read_text() if general_log.exists() else "(empty)")
+        )
+
+    def test_fresh_event_invokes_agent_exactly_once(self, tmp_path, monkeypatch):
+        """A fresh ``propose`` (live next-action still ``propose``) invokes
+        the agent exactly once, then exits — no loop, no second
+        invocation."""
+        cmd = self._render(monkeypatch)
+        bin_dir, general_log, agent_log = self._stub_bin(
+            tmp_path, '{"action":"propose"}', agent_exit=0
+        )
+        env = self._env(bin_dir, "propose")
+        result = subprocess.run(
+            cmd, env=env, capture_output=True, text=True, timeout=30
+        )
+        assert result.returncode == 0, (
+            "fresh one-shot event with a clean agent exit must exit 0. "
+            "stderr:\n" + result.stderr
+        )
+        count = self._agent_invocation_count(agent_log)
+        assert count == 1, (
+            "fresh one-shot event must invoke the agent EXACTLY once; got "
+            f"{count}. egg-orch log:\n"
+            + (general_log.read_text() if general_log.exists() else "(empty)")
+        )
+
+    def test_agent_exit_code_is_passed_through(self, tmp_path, monkeypatch):
+        """#2908 exit-code classification passthrough: a non-zero agent
+        exit (17 — not a signal code, so not reclassified) propagates to
+        the wrapper's exit code rather than being swallowed, so the
+        orchestrator can supervise the failure (slice-3)."""
+        cmd = self._render(monkeypatch)
+        bin_dir, general_log, agent_log = self._stub_bin(
+            tmp_path, '{"action":"propose"}', agent_exit=17
+        )
+        env = self._env(bin_dir, "propose")
+        result = subprocess.run(
+            cmd, env=env, capture_output=True, text=True, timeout=30
+        )
+        assert self._agent_invocation_count(agent_log) == 1, (
+            "agent should have been invoked once before the failure."
+        )
+        assert result.returncode == 17, (
+            "one-shot arm must pass the agent's exit code through (not "
+            f"swallow it to 0/1); got {result.returncode}. stderr:\n"
+            + result.stderr
+        )
+
+    def test_injected_confirm_is_rejected_loudly(self, tmp_path, monkeypatch):
+        self._assert_terminal_action_rejected(tmp_path, monkeypatch, "confirm")
+
+    def test_injected_complete_is_rejected_loudly(self, tmp_path, monkeypatch):
+        self._assert_terminal_action_rejected(tmp_path, monkeypatch, "complete")
+
+    def _assert_terminal_action_rejected(self, tmp_path, monkeypatch, action: str):
+        """``confirm``/``complete`` are executed orchestrator-side
+        (agent-free) under ``EGG_EVENT_LOOP_OWNER=orchestrator``; a pod is
+        never spawned for them. If one is injected anyway, the one-shot arm
+        must reject it loudly: non-zero exit, an error on stderr, no agent
+        invocation, and no ``consensus confirmed`` call."""
+        cmd = self._render(monkeypatch)
+        bin_dir, general_log, agent_log = self._stub_bin(
+            tmp_path, f'{{"action":"{action}"}}', agent_exit=0
+        )
+        env = self._env(bin_dir, action)
+        result = subprocess.run(
+            cmd, env=env, capture_output=True, text=True, timeout=30
+        )
+        assert result.returncode != 0, (
+            f"one-shot arm must reject an injected {action!r} action with a "
+            f"non-zero exit. stderr:\n{result.stderr}"
+        )
+        assert self._agent_invocation_count(agent_log) == 0, (
+            f"one-shot arm must NOT invoke the agent for {action!r}."
+        )
+        log = general_log.read_text() if general_log.exists() else ""
+        assert "consensus confirmed" not in log, (
+            f"one-shot arm must NOT run 'consensus confirmed' for {action!r}; "
+            "confirm/complete are orchestrator-side in owner=orchestrator "
+            f"mode. egg-orch log:\n{log}"
+        )
+        assert action in result.stderr, (
+            f"rejection of {action!r} must be LOUD — an error naming the "
+            f"offending action on stderr. stderr:\n{result.stderr}"
+        )
