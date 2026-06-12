@@ -1,0 +1,1239 @@
+{
+  "schemaVersion": "1.3",
+  "issue": {
+    "number": 3077,
+    "title": "Issue #3077",
+    "url": "https://github.com/jwbron/egg/issues/3077"
+  },
+  "task_description": null,
+  "pipeline_id": "issue-3077",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "slices": [
+    {
+      "id": "slice-1",
+      "name": "R1 non-silent sync: surface sync_to_proposals() failures in the agent prompt",
+      "goal": "sync_to_proposals() records per-SHA outcomes and the wrapper prepends\na NOT-synced banner to the fetched event prompt on any failure;\nthe event-prompt empty-delta caution cross-references the banner.\nSync behavior itself is unchanged.",
+      "status": "complete",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Record per-SHA sync outcomes and prepend the failure banner. In\n`orchestrator/consensus_wrapper.py` `sync_to_proposals()`\n(\u2248487-541), record an outcome per proposal SHA \u2014 `merged`,\n`already-ancestor`, `unresolvable`, `merge-failed` \u2014 at each\ncurrently fail-soft step (unresolvable SHA \u2248524-526; failed or\nconflicting merge \u2248534-535). On any failure outcome, the wrapper\nprepends a banner to the fetched event prompt BEFORE invoking the\nagent: \"worktree NOT synced to `<sha>` (`<reason>`); treat your\nlocal diff as unreliable \u2014 use the `git show` commands below.\"\nKeep the existing log lines; sync/abort semantics are unchanged \u2014\nonly outcome recording and banner prepending are new.",
+          "status": "complete",
+          "commit": "ed19232eb2e4867b854f24b1b42de85c7b927d4c",
+          "checkpoint_id": null,
+          "notes": "Implemented in orchestrator/consensus_wrapper.py:\n- Added a top-level ``SYNC_FAILURE_BANNERS`` shell variable, reset at the top of every ``sync_to_proposals()`` call.\n- Each pending review SHA records an explicit outcome via ``cw_log`` (``sync-to-proposal: outcome={merged,already-ancestor,unresolvable,merge-failed} sha=<sha>``).\n- On ``unresolvable`` or ``merge-failed`` outcomes the function appends a banner (\"worktree NOT synced to `<sha>` (`<reason>`); treat your local diff as unreliable \u2014 use the `git show` commands below.\") to ``SYNC_FAILURE_BANNERS``.\n- ``invoke_agent_for_event()`` prepends the accumulated banner to the composed prompt before handing it to the agent and re-clears the variable, so the no-failure path is byte-identical to slice-0 and a subsequent ``propose`` arm (R11a) inherits a clean state.\n\nSync/abort semantics are unchanged: merge --abort still runs on conflict; the function still ``return 0`` regardless of failures.\n\nVerification:\n- bash -n on the rendered template passes (Python str.format brace escaping correct).\n- TestSyncToProposals non-behavioral tests (5/5) pass.\n- Behavioral tests require git init inside /tmp which the container blocks; they would exercise the unchanged sync/abort path.",
+          "acceptance_criteria": "- A conflicting merge yields a `merge-failed` outcome and the\n  banner (with SHA and reason) in the prompt handed to the agent.\n- An unresolvable SHA yields `unresolvable` + banner.\n- `merged` and `already-ancestor` outcomes produce no banner and a\n  byte-identical prompt.\n- Merge/abort behavior of sync_to_proposals() is unchanged.",
+          "files_affected": [
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-2",
+          "description": "Cross-reference the banner from the empty-delta caution. Update the\nempty-delta caution text in\n`orchestrator/routes/event_prompt.py` (\u2248266-281, inside\n`_render_producer_delta_section`) to point at the wrapper banner:\nwhen the delta is empty AND the worktree may not be synced, the\ncaution tells the reviewer to check for the NOT-synced banner and\nfall back to the rendered `git show` commands. No other rendering\nchanges in this slice.",
+          "status": "complete",
+          "commit": "ed19232eb2e4867b854f24b1b42de85c7b927d4c",
+          "checkpoint_id": null,
+          "notes": "Updated empty-delta caution in orchestrator/routes/event_prompt.py ``_render_producer_delta_section`` (legacy-payload ``else`` branch where ``proposal_sha`` is missing).\n\nThe caution now:\n- explicitly tells the reviewer to check for the slice-1 ``worktree NOT synced to <sha>`` banner at the top of the prompt;\n- says: when present, fall back to the rendered ``git show <sha>:<path>`` commands rather than the local diff;\n- preserves the prior advice to read the producer's branch via ``git log <producer-branch-or-sha> --not origin/<base> -p`` as the final fallback.\n\n``CAUTION`` and ``NOT evidence`` markers the existing snapshot test (test_render_delta_section_shows_proposal_sha_and_cautions_on_head) pins are preserved. The proposal-scoped (re-review-is-a-no-op) branch and the delta-present branch are untouched, so non-empty-delta rendering is byte-identical to today.\n\nVerification: full test_compose_event_prompt.py suite (85 tests) pass.",
+          "acceptance_criteria": "- Empty-delta caution names the NOT-synced banner and the\n  `git show` fallback.\n- Non-empty-delta rendering is byte-identical to today.",
+          "files_affected": [
+            "orchestrator/routes/event_prompt.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-3",
+          "description": "Tests for non-silent sync: extend\n`orchestrator/tests/test_consensus_wrapper.py` with outcome\nrecording cases (merged, already-ancestor, unresolvable,\nmerge-failed via a simulated conflicting merge \u2014 fixture repo or\nmocked git calls matching existing test style) and assert the\nbanner is present in the agent-visible prompt on failure and\nabsent on success. Extend\n`orchestrator/tests/test_compose_event_prompt.py` for the\nempty-delta caution cross-reference.",
+          "status": "complete",
+          "commit": "05397a6689b8bc69aa7dbe0b5ac9e76da49589fa",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Simulated conflicting merge \u21d2 banner present in the\n  agent-visible prompt (the R1 acceptance from refine).\n- Successful sync \u21d2 no banner, prompt unchanged.\n- All four outcome values covered at the wrapper level.",
+          "files_affected": [
+            "orchestrator/tests/test_consensus_wrapper.py",
+            "orchestrator/tests/test_compose_event_prompt.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": "egg/issue-3077/work",
+      "integration_base_sha": "0f16d34cbef74fa9d89149caf7e182f45a07a25b",
+      "commit": null,
+      "pr_number": 3140,
+      "pr_url": "https://github.com/jwbron/egg/pull/3140",
+      "review_feedback": []
+    },
+    {
+      "id": "slice-2",
+      "name": "Artifact spec module: single declarative registry of coordination artifacts",
+      "goal": "shared/egg_contracts/artifact_spec.py with frozen ArtifactSpec rows\nand resolution helpers, plus MANDATORY in-slice consistency tests\npinning every existing path hardcoding to the spec. No consumer\nbehavior change yet.",
+      "status": "complete",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Create `shared/egg_contracts/artifact_spec.py` (NEW): frozen\n`ArtifactSpec` dataclass rows \u2014 `name`, `path_template` keyed on\n`{identifier}`, `phase`, `producer_role`, `consumer_roles` \u2014 for\n`analysis-draft` (refine), `plan-draft` (plan),\n`architect-output`, `architect-slices`, and `risk-analyst-output`\n(plan), matching the paths currently encoded by `_get_draft_path`\n(`orchestrator/routes/signals.py:1162-1166`) and the agent-output\nconventions in `.egg-state/agent-outputs/`. Helpers:\n`resolve_artifact_path(name, identifier)`,\n`specs_for(phase, producer_role)`, `spec_by_name(name)`. Pure\nPython, no orchestrator/gateway imports, no new config format\n(#3017 consumes this later, decoupled).",
+          "status": "complete",
+          "commit": "15258a428eb2667be28c31286bf2e44cb7fdf04b",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- `resolve_artifact_path(\"plan-draft\", \"3077\")` yields\n  `.egg-state/drafts/3077-plan.md`; `analysis-draft` yields the\n  `-analysis.md` path; both identifier shapes (issue number,\n  pipeline id) resolve.\n- `specs_for(\"plan\", \"task_planner\")` returns exactly the\n  plan-draft row; `spec_by_name` round-trips every row.\n- Rows are immutable (frozen) and each names one producer_role\n  and at least one consumer role.\n- Module imports cleanly with no orchestrator/gateway deps.",
+          "files_affected": [
+            "shared/egg_contracts/artifact_spec.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-2",
+          "description": "Mandatory consistency suite in\n`shared/egg_contracts/tests/test_artifact_spec.py` (NEW):\n(a) every spec path (both identifier shapes) is admitted by the\nmatching `gateway/phase_filter.py` phase gate AND the\n`shared/egg_restrictions/phase_patterns.py` mirror;\n(b) `_get_draft_path` output equals spec resolution for refine and\nplan across both identifier shapes;\n(c) the prompt f-string literals in\n`orchestrator/routes/pipelines.py` that name draft paths match\nspec resolution. Plus resolution/reverse-lookup round-trips for\nevery registered row. These tests are the refine-risk-1\nmitigation: any future drift in any replica fails CI instead of\nreproducing #3016.",
+          "status": "complete",
+          "commit": "29dd619cf0701b2cac28b850d8f6a9e9c0c1af40",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Consistency assertions (a), (b), (c) all present and green.\n- A deliberate template mutation (parametrized) demonstrably\n  fails the gate-admission assertion.\n- Every spec row is exercised by a resolve/round-trip case.",
+          "files_affected": [
+            "shared/egg_contracts/tests/test_artifact_spec.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": "egg/issue-3077/slice-1",
+      "integration_base_sha": "8e5ef2c00204a3fffcc6b5861417829fa2ed6140",
+      "commit": null,
+      "pr_number": 3141,
+      "pr_url": "https://github.com/jwbron/egg/pull/3141",
+      "review_feedback": []
+    },
+    {
+      "id": "slice-3",
+      "name": "Spec-derived propose-time validation for all refine/plan producers",
+      "goal": "signals.py propose validation resolves specs_for(phase, producer_role)\nfor every CONSENSUS_PROPOSE with a commit_sha and runs the existing\ngit-show presence check per artifact; _validate_producer_draft_present\nis subsumed and deleted; path literals asserted in slice 2 are\nre-derived from the spec.",
+      "status": "complete",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Generalize propose-time validation in\n`orchestrator/routes/signals.py` (\u22481076-1139): for every\nCONSENSUS_PROPOSE carrying a `commit_sha`, resolve\n`specs_for(phase, producer_role)` and run the existing server-side\n`git show` presence check (\u22481195) per registered artifact \u2014\nreusing the single helper and the #3081 `branch_verified`\ngraceful-degradation semantics, no forked code path. Keep the\nplan-draft extensions (`parse_plan` #3026, role\u2194files alignment\n#2527/#2528) layered on the plan artifact only. Subsume and DELETE\n`_validate_producer_draft_present` (\u22481115-1117) and re-implement\n`_get_draft_path` as a thin spec call. Re-derive the prompt path\nliterals in `orchestrator/routes/pipelines.py` from the spec\n(replacing the literals slice 2 asserted against). Roles with no\nregistered artifact validate nothing; `no_changes_needed`\nproposes skip validation.",
+          "status": "complete",
+          "commit": "7d78db5bf79a7167db9f0bfe1f305aca8fbe731a",
+          "checkpoint_id": null,
+          "notes": "Implemented spec-driven propose-time validation (#3077 slice-3).\n\norchestrator/routes/signals.py:\n- New ``_validate_producer_artifacts(agent_role, phase=None, \u2026)`` is the canonical spec-driven validator: for any CONSENSUS_PROPOSE with a commit_sha, it resolves ``specs_for(phase, agent_role)`` against ``egg_contracts.artifact_spec`` and runs the existing server-side ``git show`` presence check per registered artifact. Phase resolves from explicit kwarg \u2192 ``pipeline_state.current_phase.value`` \u2192 spec-registry inference (each producer role is locked to one phase). #3081 ``branch_verified`` graceful-degradation semantics preserved verbatim \u2014 the validator only raises when it can positively confirm absence at a locally-resolved commit.\n- Early bail-out for roles outside ``{spec.producer_role for spec in all_specs()}`` (coder, tester, documenter, every reviewer) \u2014 keeps these roles out of the state-store load path the original role-specific dispatch never reached for them (fixes test_propose_verification_failure_non_blocking, which mocks a generic Exception in get_state_store).\n- Plan-draft extensions (parseability #3026, role\u2194files alignment #2527/#2528) lifted into ``_validate_plan_extensions(plan_text, plan_rel, \u2026)`` and layered on the plan-draft artifact only \u2014 invoked from the spec-driven loop when ``spec.name == \"plan-draft\"``. Error shapes (\"no plan draft found\u2026\", \"does not parse into any tasks\", \"role\u2194files alignment violations\") preserved byte-identically.\n- ``_validate_plan_proposal`` is now a thin back-compat wrapper delegating to ``_validate_producer_artifacts(agent_role=\"task_planner\", phase=\"plan\")`` \u2014 pre-existing TestPlanProposalValidation tests (11 cases) stay green with no modification.\n- ``_validate_producer_draft_present`` DELETED entirely \u2014 its 9 direct-call unit tests were ported to handler-level integration tests already in TestProducerDraftPresentValidation (kept the 3 e2e tests; equivalent unit coverage moves to test_signals.py via task-3-2).\n- Handler dispatch (``handle_consensus_propose_signal``) collapsed from a 3-arm ``if/elif`` (tester/refiner/task_planner) into a single ``_validate_producer_artifacts`` call. Tester check-coverage path unchanged.\n\norchestrator/routes/pipelines.py:\n- ``_get_draft_path`` re-implemented as a thin spec call: refine/plan now route through ``resolve_artifact_path(\"analysis-draft\"|\"plan-draft\", identifier)``; pr falls back to the legacy ``_draft_filename`` path so the existing test_pr_phase case stays byte-identical; implement still returns ``None``.\n- Prompt path literals re-derived from the spec: ``_architect_output_path``, ``_architect_slices_path``, ``_risk_analyst_output_path`` are resolved once at the top of ``_build_role_section`` via ``resolve_artifact_path``, then interpolated into the architect/task_planner/risk_analyst prose. The raw ``.egg-state/agent-outputs/{_identifier}-\u2026`` f-string literals slice-2 asserted against are gone.\n\nshared/egg_contracts/tests/test_artifact_spec.py:\n- TestConsistencyC_PromptFStringLiterals renamed to TestConsistencyC_PromptDerivesFromSpec with the new invariant: forbid raw ``.egg-state/agent-outputs/{_identifier}-\u2026`` literals in pipelines.py (ratchet against #3016-style drift) AND require every ``agent-outputs/`` spec to appear as a ``resolve_artifact_path(\"<name>\", \u2026)`` call (either quoting style). 32 tests in the suite pass.\n\norchestrator/tests/test_pipeline_prompts.py:\n- Deleted TestProducerDraftPresentValidation's 9 direct-call unit tests (the symbol is gone). Kept the 3 handler-level e2e tests under the same class name; updated their docstrings/comments to reference the spec-driven validator and updated the docstring on TestPlanProposalValidation to note the slice-3 generalization.\n\nVerification:\n- All 850 tests across the changed surface pass: test_signals.py (80), test_pipeline_prompts.py (435), test_read_phase_draft.py (45), test_populate_contract_audit_events.py (70), test_short_flow_contract_population.py (29), test_artifact_spec.py (32), test_sdlc_hitl.py (159).\n- ``ruff check`` and ``ruff format --check`` clean across all four edited files.\n- Broader orchestrator failures (test_cli, test_agent_salvage, etc.) are pre-existing environment-bound failures (network timeouts, git init in /tmp restricted) \u2014 confirmed by isolating a CLI failure that timed out on urllib3 connection unrelated to my changes.\n\nAcceptance criteria:\n- Refine producer without analysis-draft at proposed commit \u2192 400 \u2713 (via spec-driven presence + new error shape \"refiner proposal rejected: no analysis draft found at \u2026\")\n- Plan parseability + role-alignment retained \u2713 (existing TestPlanProposalValidation tests pass unchanged)\n- ``branch_verified`` graceful degradation preserved \u2713 (per-spec ``_commit_object_resolvable`` skip; per-spec subprocess catch)\n- ``no_changes_needed`` skips validation \u2713 (guarded by ``if not no_changes`` in handler)\n- Artifact-less roles validate nothing \u2713 (early bail-out before state load)\n- ``_validate_producer_draft_present`` deleted \u2713; no second copy of path knowledge remains in signals.py or pipelines.py.",
+          "acceptance_criteria": "- A refine producer proposing without its analysis draft at the\n  proposed commit is rejected with the same error shape the plan\n  path uses today, naming the expected spec path.\n- Plan proposals retain parseability and role-alignment\n  rejection behavior (existing tests stay green).\n- `branch_verified` graceful degradation behaves as before\n  (#3081) for all producers.\n- `no_changes_needed` proposes and artifact-less roles are not\n  newly rejected.\n- `_validate_producer_draft_present` is deleted; no second copy\n  of path knowledge remains in signals.py or pipelines.py.",
+          "files_affected": [
+            "orchestrator/routes/signals.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-2",
+          "description": "Validation tests: extend `orchestrator/tests/test_signals.py` \u2014\none rejection case per producer role with a registered artifact\n(refine analysis-draft, plan plan-draft, architect and\nrisk_analyst outputs); plan extension retention; rejection\npayload names the expected spec path; `branch_verified`\ndegradation unchanged; pass-through for `no_changes_needed` and\nartifact-less roles.",
+          "status": "complete",
+          "commit": "60e1c76fd",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Rejection coverage for every registered refine/plan producer.\n- Pass-through cases asserted (no_changes_needed, artifact-less\n  roles, reviewer messages).\n- Existing plan-validation tests pass unmodified or with\n  mechanical-only updates.",
+          "files_affected": [
+            "orchestrator/tests/test_signals.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-2"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": "egg/issue-3077/slice-2",
+      "integration_base_sha": "939e3a53173e828288b22fd31bf00ff5af2bd385",
+      "commit": null,
+      "pr_number": 3142,
+      "pr_url": "https://github.com/jwbron/egg/pull/3142",
+      "review_feedback": []
+    },
+    {
+      "id": "slice-4",
+      "name": "Gateway artifact-read endpoint (strict, name-resolving) + sandbox helper",
+      "goal": "POST /api/v1/artifact/get serves committed artifact content by\nspec-registered name + hex-validated ref via git show on the\nauthoritative repo (gateway blueprint forwarding to a new orchestrator\nroute), with a sandbox-side helper. Unblocks #3002.",
+      "status": "complete",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Orchestrator artifact-read route: add\n`orchestrator/routes/artifacts.py` (NEW), registered per the\nexisting `orchestrator/routes/` convention. Request: artifact\n`name` (spec-registered), `ref` (hex-validated commit SHA), and\nthe issue/pipeline identifier. Resolves the path via\n`artifact_spec.resolve_artifact_path` and returns the content of\n`git show <ref>:<path>` from the authoritative repo, applying the\nexisting output caps with a `truncated` flag. STRICT per HITL Q2:\nthe schema has NO path field; an unregistered name returns 400\nlisting registered names; a non-hex ref returns 400; an\nunresolvable ref or path-absent-at-ref returns a structured 4xx,\nnever a 500. Cross-link #3002 in the module docstring.",
+          "status": "complete",
+          "commit": "ba6e55de009803c61581e4583bb4bf5569f77a6c",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Registered name + valid ref returns committed content\n  byte-identical to the blob; oversized content is capped with\n  `truncated: true`.\n- Unregistered name \u2192 400 listing registered names; non-hex ref\n  \u2192 400; absent-at-ref \u2192 structured 4xx.\n- No request field accepts a repo path (schema-level).\n- Works with no shared object store between agent worktree and\n  orchestrator repo (server-side git show only).",
+          "files_affected": [
+            "orchestrator/routes/artifacts.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-2",
+          "description": "Gateway blueprint: add `gateway/artifact_api.py` (NEW)\nimplementing `POST /api/v1/artifact/get`, modeled on\n`gateway/contract_api.py` \u2014 session auth, role taken from the\nsession (never the request body), forward to the orchestrator\nroute from TASK-4-1, propagate structured 4xx errors and the\n`truncated` flag verbatim. Wire the blueprint into the gateway\napp in `gateway/gateway.py` alongside the contract API\nregistration.",
+          "status": "complete",
+          "commit": "ba6e55de009803c61581e4583bb4bf5569f77a6c",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Authenticated session can fetch a registered artifact through\n  the gateway; response matches the orchestrator route's.\n- Unauthenticated/unknown-session requests are rejected the same\n  way contract_api rejects them.\n- Orchestrator 4xx bodies pass through unaltered (no 500\n  wrapping).",
+          "files_affected": [
+            "gateway/artifact_api.py",
+            "gateway/gateway.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-3",
+          "description": "Sandbox-side read helper `sandbox/scripts/egg-artifact` (NEW): a\nthin CLI wrapping `POST /api/v1/artifact/get` following the\nexisting sandbox script conventions (gateway base URL/session\nwiring as in `sandbox/scripts/jira`), with\n`egg-artifact get <name> --ref <sha> [--identifier <id>]`\nsemantics: content to stdout, structured errors to stderr,\nnon-zero exit on failure, an explicit notice when `truncated` is\nset. This is the single verb prompt templates reference after\nslice 5 deletes path prose.",
+          "status": "complete",
+          "commit": "ba6e55de009803c61581e4583bb4bf5569f77a6c",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- `egg-artifact get plan-draft --ref <sha>` prints served content\n  and exits 0.\n- Gateway 4xx surfaces as a clear stderr message and non-zero\n  exit (no stack trace); truncated responses print a notice.\n- The helper performs no git invocation (served read only).",
+          "files_affected": [
+            "sandbox/scripts/egg-artifact"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-4",
+          "description": "Endpoint tests: new `orchestrator/tests/test_artifact_routes.py`\n(happy path byte-equality, unregistered-name 400 listing\nregistered names, non-hex ref 400, absent-at-ref structured 4xx,\ncap + truncated flag at the boundary) and new\n`gateway/tests/test_artifact_api.py` following the\n`test_contract_api.py` style (session auth, forwarding, 4xx\npassthrough, no path field accepted).",
+          "status": "complete",
+          "commit": "629ae7dedfea2b151f19db6cc0e353c192e07ee7",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- All strict-resolution rejection branches covered on both\n  sides.\n- Happy path asserts byte-equality with the committed blob.\n- Cap behavior asserted at the boundary (content at/over the\n  cap, truncated flag set).",
+          "files_affected": [
+            "orchestrator/tests/test_artifact_routes.py",
+            "gateway/tests/test_artifact_api.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-3"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": "egg/issue-3077/slice-3",
+      "integration_base_sha": "a6785bf85573d784881aa03976d6496e4e7a63c8",
+      "commit": null,
+      "pr_number": 3143,
+      "pr_url": "https://github.com/jwbron/egg/pull/3143",
+      "review_feedback": []
+    },
+    {
+      "id": "slice-5",
+      "name": "Phase-3 prose cleanup, docs invariant entry, and the no-sync-mechanics ratchet",
+      "goal": "Delete agent-facing fetch/log sync prose now that every replacement\nmechanism (banner, spec, validation, endpoint) is live; add the\ndocs/architecture invariant entry; add the ratchet test that keeps\nsync mechanics out of agent-facing prompts. Hard file-overlap with\nslice 1 on event_prompt.py (#3046) \u2014 chain is serialized.",
+      "status": "complete",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Delete the event-prompt self-fetch fallback prose. Remove the\n\"fetch and read the diffs yourself\" instruction prose in\n`orchestrator/routes/event_prompt.py` (\u2248850-880, around\n`_render_producer_delta_section()` / `_run_git_log()` usage) \u2014\nthe rendered `git show` delta commands and the slice-1 banner\ncross-reference remain; the instruction to self-fetch goes.\nRebases on the slice-1 state of this file (#3046 overlap).",
+          "status": "complete",
+          "commit": "db79e6024ba862ae075ff2a08905278863b5710e",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- No `git fetch` / `git merge` / `git pull` instruction text\n  remains in event-prompt static prose.\n- Rendered review prompts still carry `git show` delta commands\n  and the banner cross-reference.\n- No rendered prompt references a brc-history disk path.",
+          "files_affected": [
+            "orchestrator/routes/event_prompt.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-2",
+          "description": "Delete/demote prompt-template sync prose (documenter-owned \u2014\n`shared/prompts/` is blocked for coder per\nshared/egg_restrictions/patterns.py). Replace the\n`shared/prompts/REVIEWER-SYNC.md` fetch/log delta-command row\n(\u2248109-111) with served-reads wording: wrapper-performed sync, the\nrendered `git show` delta commands, and the `egg-artifact` verb.\nDemote residual per-role draft-location prose in other\nagent-facing templates under `shared/prompts/` to a reference to\nthe artifact spec / `egg-artifact`.",
+          "status": "complete",
+          "commit": "58c338528eba8abc4b73d8dcd85b42af6cbc0f36",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- No `git fetch` / `git merge` / `git pull` instruction text\n  remains in REVIEWER-SYNC.md or other shared/prompts\n  agent-facing templates.\n- No template references a brc-history disk path.\n- Replacement prose names the served mechanisms (wrapper sync,\n  git show delta commands, egg-artifact).",
+          "files_affected": [
+            "shared/prompts/REVIEWER-SYNC.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-3",
+          "description": "Architecture invariant entry: add\n`docs/architecture/coordination-state.md` (NEW) stating the\nthree-clause invariant \u2014 (1) served reads for everything an agent\nconsumes but doesn't own, (2) harness-performed deterministic\nsync where a real checkout is needed, (3) one artifact spec from\nwhich validation, the read API, and prompt text derive \u2014 with the\nincident lineage from #3077, the mechanism map (read_peer_artifact,\nsync banner, artifact_spec, /api/v1/artifact/get, ratchet test),\nthe designed `_clear_concurrent_state` wipe vs accidental\nmid-phase loss distinction, and the #3002 unblocking note. Link\nfrom `docs/index.md`.",
+          "status": "complete",
+          "commit": "58c338528eba8abc4b73d8dcd85b42af6cbc0f36",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Three clauses stated normatively (MUST language) with the\n  enforcing mechanism named for each.\n- `docs/index.md` links the new page.\n- Wipe-semantics distinction documented.",
+          "files_affected": [
+            "docs/architecture/coordination-state.md",
+            "docs/index.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-4",
+          "description": "Ratchet test `orchestrator/tests/test_prompt_sync_ratchet.py`\n(NEW): scans agent-facing prompt sources \u2014 `shared/prompts/*.md`\nand prompt-constructing template strings in\n`orchestrator/routes/event_prompt.py` \u2014 for sync mechanics:\ninstructional occurrences of `git fetch`, `git merge`,\n`git pull`, and brc-history disk paths. Fails on any match\noutside an explicit, justified allowlist for harness-internal\ncode (the allowlist starts minimal; additions require editing the\ntest \u2014 that is the ratchet). Rendered `git show` delta commands\nare intentionally NOT matched (served-read companions, not sync\nmechanics).",
+          "status": "complete",
+          "commit": "9fbeb6cba",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Test fails when a `git fetch` imperative is reintroduced into\n  any scanned source (demonstrated via parametrized mutation or\n  tmp-file fixture).\n- Test passes on the post-cleanup tree (after TASK-5-1 and\n  TASK-5-2).\n- `git show` references do not trigger the ratchet; every\n  allowlist entry carries a justification comment.",
+          "files_affected": [
+            "orchestrator/tests/test_prompt_sync_ratchet.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-4"
+      ],
+      "serialized_chain_order": [
+        "slice-1",
+        "slice-2",
+        "slice-3",
+        "slice-4"
+      ],
+      "parent_branch_at_creation": "egg/issue-3077/slice-4",
+      "integration_base_sha": "4418f02f28f08426613fed0104873651c2e5c953",
+      "commit": null,
+      "pr_number": 3145,
+      "pr_url": "https://github.com/jwbron/egg/pull/3145",
+      "review_feedback": []
+    },
+    {
+      "id": "slice-6",
+      "name": "Bounded durability: fail-loud memory-backend signal + Redis restart-semantics test",
+      "goal": "auto\u2192memory fallback fails loud (error-level structured log with a\nstable marker + health-visible degraded flag; explicit memory stays a\nwarning); Redis restart semantics verified. Parallel root \u2014 file set\ndisjoint from slices 1-5. Per HITL Q3: no refusal, no change to auto\nselection.",
+      "status": "complete",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Fail-loud memory-backend signal in\n`orchestrator/message_store.py` `_create_message_store()`\n(backend selection \u2248589-633): when `auto` resolves to the\nin-memory fallback, emit an error-level structured log with a\nstable marker naming the mid-phase-restart loss risk (#3076\ncondition) and set a degraded flag visible on the orchestrator\nhealth surface. Explicit `EGG_MESSAGE_STORE_BACKEND=memory`\n(dev/test intent) emits a warning, not an error, and no degraded\nflag is required. Per HITL Q3: warning/error + health flag only \u2014\ndo NOT refuse to run and do NOT change `auto` selection\nsemantics. Test-harness contexts must not be spammed.",
+          "status": "complete",
+          "commit": "945e5edb9a41dc1e673f3ff3987eb51664fb4a70",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- `auto`\u2192memory fallback: exactly one error-level log with the\n  stable marker + health-surface degraded field.\n- Explicit memory backend: warning level, no degraded flag.\n- Redis backend: neither.\n- `auto` selection behavior (redis-when-available, memory\n  fallback) is unchanged; unit tests are not spammed.",
+          "files_affected": [
+            "orchestrator/message_store.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-6-2",
+          "description": "Durability tests: extend\n`orchestrator/tests/test_message_store.py` for the fail-loud\nmatrix (auto\u2192memory error + flag; explicit memory warning; redis\nsilent) and extend\n`orchestrator/tests/test_redis_message_store.py` with a\nrestart-semantics test: mid-phase messages survive store\nre-instantiation against the same Redis (simulated orchestrator\nrestart), while the DESIGNED phase-boundary wipe via\n`_clear_concurrent_state()` (`orchestrator/routes/phases.py:113`)\nstill clears state. The two wipe semantics are asserted in the\nsame module with explicit naming so accidental mid-phase loss\n(defect) cannot be conflated with the intentional wipe (required\nbehavior).",
+          "status": "complete",
+          "commit": "11a196409",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Redis path: mid-phase restart preserves the transcript;\n  `_clear_concurrent_state()` still wipes at the phase boundary.\n- Fail-loud matrix asserted (error/warning/silent \u00d7 flag).\n- Both wipe semantics named explicitly in test ids/docstrings.",
+          "files_affected": [
+            "orchestrator/tests/test_message_store.py",
+            "orchestrator/tests/test_redis_message_store.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": "egg/issue-3077/work",
+      "integration_base_sha": "15428256195d626ed7d028bcc24cb5562392dd95",
+      "commit": null,
+      "pr_number": 3144,
+      "pr_url": "https://github.com/jwbron/egg/pull/3144",
+      "review_feedback": []
+    }
+  ],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "Scope for issue #3077 pipeline: phase 1 already landed (PR #3078/#3083). Which remaining scope should this pipeline deliver? Option A = phase-1 residual (non-silent sync_to_proposals) + ratchet only; Option B = residual + phase 2 (artifact spec, spec-derived propose validation, gateway artifact-read endpoint unblocking #3002); Option C (recommended) = B + phase 3 cleanup (delete REVIEWER-SYNC fetch prose, docs invariant, no-sync-mechanics-in-prompts ratchet test) + bounded durability (fail-loud when BRC runs on the in-memory message-store backend). See .egg-state/drafts/issue-3077-analysis.md \"Scope Options\".",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option C \u2014 full remaining scope (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B \u2014 residual + phase 2 only",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Option A \u2014 residual + ratchet only",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option C \u2014 full remaining scope (recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-11T21:05:09.196216Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-2",
+      "question": "Durability bar for the BRC message store (clause-1 prerequisite, issue #3077): is a fail-loud signal sufficient when EGG_MESSAGE_STORE_BACKEND resolves to the in-memory backend while BRC phases run (recommended \u2014 bounded), or should 'auto' refuse to run BRC phases without Redis Streams (stricter, but breaks dev setups without Redis)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Fail-loud warning/health signal on memory backend (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Refuse to run BRC phases without Redis",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Defer durability entirely to the #3070 lineage",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Fail-loud warning/health signal on memory backend (recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-11T21:05:09.209029Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "## Resolved Questions\n\n**Q1 \u2014 Scope (Option A / B / C):** Option C \u2014 full remaining scope: R1 non-silent sync residual + artifact spec module + spec-derived propose validation for all producers + gateway artifact-read endpoint (strict) + Phase-3 prose cleanup, docs/architecture invariant entry, and ratchet test + bounded durability.\n\n**Q2 \u2014 Endpoint resolution surface:** Strict \u2014 the gateway artifact-read endpoint accepts only spec-registered artifact names (no raw repo-path escape hatch). Path-guessing is the disease this issue retires; keep the gateway policy surface small.\n\n**Q3 \u2014 Durability bar:** Fail-loud is sufficient for this pipeline \u2014 a prominent startup warning/health signal when BRC consensus runs on the in-memory message-store backend, plus a restart-semantics test for the Redis Streams path (distinguishing the designed _clear_concurrent_state() phase-boundary wipe from accidental mid-phase restart loss). Do NOT change `auto` to refuse BRC without Redis; deeper durability work stays in the #3070 lineage.",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-11T21:04:25.592314Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-3",
+      "question": "[#2777 slice-4 TASK-4-4 case 5] Slice slice-5 of pipeline issue-3077 has an impossible status enum value or state combination (e.g. status not in PENDING/IN_PROGRESS/COMPLETE/BLOCKED, or PENDING with commits on the integration branch). Bootstrap reconciliation cannot classify the slice safely. How should the orchestrator proceed?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Mark slice complete and continue",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Restart slice from scratch",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Cancel pipeline for manual investigation",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [
+    {
+      "timestamp": "2026-06-11T20:53:23.944479Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "Scope for issue #3077 pipeline: phase 1 already landed (PR #3078/#3083). Which remaining scope should this pipeline deliver? Option A = phase-1 residual (non-silent sync_to_proposals) + ratchet only; Option B = residual + phase 2 (artifact spec, spec-derived propose validation, gateway artifact-read endpoint unblocking #3002); Option C (recommended) = B + phase 3 cleanup (delete REVIEWER-SYNC fetch prose, docs invariant, no-sync-mechanics-in-prompts ratchet test) + bounded durability (fail-loud when BRC runs on the in-memory message-store backend). See .egg-state/drafts/issue-3077-analysis.md \"Scope Options\".",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option C \u2014 full remaining scope (recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option B \u2014 residual + phase 2 only",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Option A \u2014 residual + ratchet only",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Scope for issue #3077 pipeline: phase 1 already la...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T20:53:24.003699Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "Durability bar for the BRC message store (clause-1 prerequisite, issue #3077): is a fail-loud signal sufficient when EGG_MESSAGE_STORE_BACKEND resolves to the in-memory backend while BRC phases run (recommended \u2014 bounded), or should 'auto' refuse to run BRC phases without Redis Streams (stricter, but breaks dev setups without Redis)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Fail-loud warning/health signal on memory backend (recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Refuse to run BRC phases without Redis",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Defer durability entirely to the #3070 lineage",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Durability bar for the BRC message store (clause-1...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:29:24.201627Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "ed19232eb2e4867b854f24b1b42de85c7b927d4c",
+      "reason": "Linked commit ed19232 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:29:24.232718Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "ed19232eb2e4867b854f24b1b42de85c7b927d4c",
+      "reason": "Linked commit ed19232 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:29:24.264908Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.notes",
+      "old_value": "",
+      "new_value": "Implemented in orchestrator/consensus_wrapper.py:\n- Added a top-level ``SYNC_FAILURE_BANNERS`` shell variable, reset at the top of every ``sync_to_proposals()`` call.\n- Each pending review SHA records an explicit outcome via ``cw_log`` (``sync-to-proposal: outcome={merged,already-ancestor,unresolvable,merge-failed} sha=<sha>``).\n- On ``unresolvable`` or ``merge-failed`` outcomes the function appends a banner (\"worktree NOT synced to `<sha>` (`<reason>`); treat your local diff as unreliable \u2014 use the `git show` commands below.\") to ``SYNC_FAILURE_BANNERS``.\n- ``invoke_agent_for_event()`` prepends the accumulated banner to the composed prompt before handing it to the agent and re-clears the variable, so the no-failure path is byte-identical to slice-0 and a subsequent ``propose`` arm (R11a) inherits a clean state.\n\nSync/abort semantics are unchanged: merge --abort still runs on conflict; the function still ``return 0`` regardless of failures.\n\nVerification:\n- bash -n on the rendered template passes (Python str.format brace escaping correct).\n- TestSyncToProposals non-behavioral tests (5/5) pass.\n- Behavioral tests require git init inside /tmp which the container blocks; they would exercise the unchanged sync/abort path.",
+      "reason": "Updated notes for task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:29:24.294153Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.notes",
+      "old_value": "",
+      "new_value": "Updated empty-delta caution in orchestrator/routes/event_prompt.py ``_render_producer_delta_section`` (legacy-payload ``else`` branch where ``proposal_sha`` is missing).\n\nThe caution now:\n- explicitly tells the reviewer to check for the slice-1 ``worktree NOT synced to <sha>`` banner at the top of the prompt;\n- says: when present, fall back to the rendered ``git show <sha>:<path>`` commands rather than the local diff;\n- preserves the prior advice to read the producer's branch via ``git log <producer-branch-or-sha> --not origin/<base> -p`` as the final fallback.\n\n``CAUTION`` and ``NOT evidence`` markers the existing snapshot test (test_render_delta_section_shows_proposal_sha_and_cautions_on_head) pins are preserved. The proposal-scoped (re-review-is-a-no-op) branch and the delta-present branch are untouched, so non-empty-delta rendering is byte-identical to today.\n\nVerification: full test_compose_event_prompt.py suite (85 tests) pass.",
+      "reason": "Updated notes for task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:31:40.540221Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": "ed19232eb2e4867b854f24b1b42de85c7b927d4c",
+      "new_value": "ed19232eb2e4867b854f24b1b42de85c7b927d4c",
+      "reason": "Linked commit ed19232 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:31:40.562496Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:31:40.758858Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": "ed19232eb2e4867b854f24b1b42de85c7b927d4c",
+      "new_value": "ed19232eb2e4867b854f24b1b42de85c7b927d4c",
+      "reason": "Linked commit ed19232 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:31:40.774509Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:35:59.888681Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.1.commit",
+      "old_value": null,
+      "new_value": "58c338528eba8abc4b73d8dcd85b42af6cbc0f36",
+      "reason": "Linked commit 58c3385 to task-5-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:35:59.906157Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-5-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:35:59.948205Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.2.commit",
+      "old_value": null,
+      "new_value": "58c338528eba8abc4b73d8dcd85b42af6cbc0f36",
+      "reason": "Linked commit 58c3385 to task-5-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:35:59.965284Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-5-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:42:51.627715Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": null,
+      "new_value": "05397a6689b8bc69aa7dbe0b5ac9e76da49589fa",
+      "reason": "Linked commit 05397a6 to task-1-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:42:51.653908Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:57:11.509165Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": null,
+      "new_value": "15258a428eb2667be28c31286bf2e44cb7fdf04b",
+      "reason": "Linked commit 15258a4 to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:59:44.217979Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": "15258a428eb2667be28c31286bf2e44cb7fdf04b",
+      "new_value": "15258a428eb2667be28c31286bf2e44cb7fdf04b",
+      "reason": "Linked commit 15258a4 to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T21:59:44.242988Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T22:13:12.763211Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": null,
+      "new_value": "29dd619cf0701b2cac28b850d8f6a9e9c0c1af40",
+      "reason": "Linked commit 29dd619 to task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T22:13:12.794952Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T22:31:26.303889Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.commit",
+      "old_value": null,
+      "new_value": "60e1c76fd",
+      "reason": "Linked commit 60e1c76 to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T22:31:26.329868Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T23:25:49.913715Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.notes",
+      "old_value": "",
+      "new_value": "Implemented spec-driven propose-time validation (#3077 slice-3).\n\norchestrator/routes/signals.py:\n- New ``_validate_producer_artifacts(agent_role, phase=None, \u2026)`` is the canonical spec-driven validator: for any CONSENSUS_PROPOSE with a commit_sha, it resolves ``specs_for(phase, agent_role)`` against ``egg_contracts.artifact_spec`` and runs the existing server-side ``git show`` presence check per registered artifact. Phase resolves from explicit kwarg \u2192 ``pipeline_state.current_phase.value`` \u2192 spec-registry inference (each producer role is locked to one phase). #3081 ``branch_verified`` graceful-degradation semantics preserved verbatim \u2014 the validator only raises when it can positively confirm absence at a locally-resolved commit.\n- Early bail-out for roles outside ``{spec.producer_role for spec in all_specs()}`` (coder, tester, documenter, every reviewer) \u2014 keeps these roles out of the state-store load path the original role-specific dispatch never reached for them (fixes test_propose_verification_failure_non_blocking, which mocks a generic Exception in get_state_store).\n- Plan-draft extensions (parseability #3026, role\u2194files alignment #2527/#2528) lifted into ``_validate_plan_extensions(plan_text, plan_rel, \u2026)`` and layered on the plan-draft artifact only \u2014 invoked from the spec-driven loop when ``spec.name == \"plan-draft\"``. Error shapes (\"no plan draft found\u2026\", \"does not parse into any tasks\", \"role\u2194files alignment violations\") preserved byte-identically.\n- ``_validate_plan_proposal`` is now a thin back-compat wrapper delegating to ``_validate_producer_artifacts(agent_role=\"task_planner\", phase=\"plan\")`` \u2014 pre-existing TestPlanProposalValidation tests (11 cases) stay green with no modification.\n- ``_validate_producer_draft_present`` DELETED entirely \u2014 its 9 direct-call unit tests were ported to handler-level integration tests already in TestProducerDraftPresentValidation (kept the 3 e2e tests; equivalent unit coverage moves to test_signals.py via task-3-2).\n- Handler dispatch (``handle_consensus_propose_signal``) collapsed from a 3-arm ``if/elif`` (tester/refiner/task_planner) into a single ``_validate_producer_artifacts`` call. Tester check-coverage path unchanged.\n\norchestrator/routes/pipelines.py:\n- ``_get_draft_path`` re-implemented as a thin spec call: refine/plan now route through ``resolve_artifact_path(\"analysis-draft\"|\"plan-draft\", identifier)``; pr falls back to the legacy ``_draft_filename`` path so the existing test_pr_phase case stays byte-identical; implement still returns ``None``.\n- Prompt path literals re-derived from the spec: ``_architect_output_path``, ``_architect_slices_path``, ``_risk_analyst_output_path`` are resolved once at the top of ``_build_role_section`` via ``resolve_artifact_path``, then interpolated into the architect/task_planner/risk_analyst prose. The raw ``.egg-state/agent-outputs/{_identifier}-\u2026`` f-string literals slice-2 asserted against are gone.\n\nshared/egg_contracts/tests/test_artifact_spec.py:\n- TestConsistencyC_PromptFStringLiterals renamed to TestConsistencyC_PromptDerivesFromSpec with the new invariant: forbid raw ``.egg-state/agent-outputs/{_identifier}-\u2026`` literals in pipelines.py (ratchet against #3016-style drift) AND require every ``agent-outputs/`` spec to appear as a ``resolve_artifact_path(\"<name>\", \u2026)`` call (either quoting style). 32 tests in the suite pass.\n\norchestrator/tests/test_pipeline_prompts.py:\n- Deleted TestProducerDraftPresentValidation's 9 direct-call unit tests (the symbol is gone). Kept the 3 handler-level e2e tests under the same class name; updated their docstrings/comments to reference the spec-driven validator and updated the docstring on TestPlanProposalValidation to note the slice-3 generalization.\n\nVerification:\n- All 850 tests across the changed surface pass: test_signals.py (80), test_pipeline_prompts.py (435), test_read_phase_draft.py (45), test_populate_contract_audit_events.py (70), test_short_flow_contract_population.py (29), test_artifact_spec.py (32), test_sdlc_hitl.py (159).\n- ``ruff check`` and ``ruff format --check`` clean across all four edited files.\n- Broader orchestrator failures (test_cli, test_agent_salvage, etc.) are pre-existing environment-bound failures (network timeouts, git init in /tmp restricted) \u2014 confirmed by isolating a CLI failure that timed out on urllib3 connection unrelated to my changes.\n\nAcceptance criteria:\n- Refine producer without analysis-draft at proposed commit \u2192 400 \u2713 (via spec-driven presence + new error shape \"refiner proposal rejected: no analysis draft found at \u2026\")\n- Plan parseability + role-alignment retained \u2713 (existing TestPlanProposalValidation tests pass unchanged)\n- ``branch_verified`` graceful degradation preserved \u2713 (per-spec ``_commit_object_resolvable`` skip; per-spec subprocess catch)\n- ``no_changes_needed`` skips validation \u2713 (guarded by ``if not no_changes`` in handler)\n- Artifact-less roles validate nothing \u2713 (early bail-out before state load)\n- ``_validate_producer_draft_present`` deleted \u2713; no second copy of path knowledge remains in signals.py or pipelines.py.",
+      "reason": "Updated notes for task-3-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T23:26:23.760400Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.commit",
+      "old_value": null,
+      "new_value": "ef3d7f133c8b5255654e048697523029158cec51",
+      "reason": "Linked commit ef3d7f1 to task-3-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T23:27:25.225166Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.commit",
+      "old_value": "ef3d7f133c8b5255654e048697523029158cec51",
+      "new_value": "7d78db5bf79a7167db9f0bfe1f305aca8fbe731a",
+      "reason": "Linked commit 7d78db5 to task-3-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T23:33:20.169842Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.commit",
+      "old_value": "7d78db5bf79a7167db9f0bfe1f305aca8fbe731a",
+      "new_value": "7d78db5bf79a7167db9f0bfe1f305aca8fbe731a",
+      "reason": "Linked commit 7d78db5 to task-3-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T23:33:20.268596Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T00:15:17.428782Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.commit",
+      "old_value": null,
+      "new_value": "ba6e55de009803c61581e4583bb4bf5569f77a6c",
+      "reason": "Linked commit ba6e55d to task-4-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T00:15:17.466116Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.commit",
+      "old_value": null,
+      "new_value": "ba6e55de009803c61581e4583bb4bf5569f77a6c",
+      "reason": "Linked commit ba6e55d to task-4-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T00:15:17.491476Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.2.commit",
+      "old_value": null,
+      "new_value": "ba6e55de009803c61581e4583bb4bf5569f77a6c",
+      "reason": "Linked commit ba6e55d to task-4-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T00:18:13.206878Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.commit",
+      "old_value": "ba6e55de009803c61581e4583bb4bf5569f77a6c",
+      "new_value": "ba6e55de009803c61581e4583bb4bf5569f77a6c",
+      "reason": "Linked commit ba6e55d to task-4-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T00:18:13.232127Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T00:18:13.435864Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.commit",
+      "old_value": "ba6e55de009803c61581e4583bb4bf5569f77a6c",
+      "new_value": "ba6e55de009803c61581e4583bb4bf5569f77a6c",
+      "reason": "Linked commit ba6e55d to task-4-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T00:18:13.465493Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T00:18:13.500223Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.2.commit",
+      "old_value": "ba6e55de009803c61581e4583bb4bf5569f77a6c",
+      "new_value": "ba6e55de009803c61581e4583bb4bf5569f77a6c",
+      "reason": "Linked commit ba6e55d to task-4-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T00:18:13.518814Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T02:23:14.421639Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.3.commit",
+      "old_value": null,
+      "new_value": "629ae7dedfea2b151f19db6cc0e353c192e07ee7",
+      "reason": "Linked commit 629ae7d to task-4-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T02:23:14.442941Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.3.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T03:03:56.683452Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.commit",
+      "old_value": null,
+      "new_value": "945e5edb9a41dc1e673f3ff3987eb51664fb4a70",
+      "reason": "Linked commit 945e5ed to task-6-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T03:03:56.715920Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-6-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T03:18:07.249376Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.commit",
+      "old_value": null,
+      "new_value": "5f0f67287",
+      "reason": "Linked commit 5f0f672 to task-6-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T03:18:07.271270Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-6-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T03:21:17.832625Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.commit",
+      "old_value": "5f0f67287",
+      "new_value": "11a196409",
+      "reason": "Linked commit 11a1964 to task-6-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T04:57:59.484094Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.commit",
+      "old_value": null,
+      "new_value": "db79e6024ba862ae075ff2a08905278863b5710e",
+      "reason": "Linked commit db79e60 to task-5-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T04:57:59.504309Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-5-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T05:00:04.663572Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.3.commit",
+      "old_value": null,
+      "new_value": "9fbeb6cba",
+      "reason": "Linked commit 9fbeb6c to task-5-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T05:00:04.684530Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.3.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-5-4 as complete",
+      "checkpoint_id": null
+    }
+  ],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Serve coordination state: artifact spec + gateway reads (#3077)",
+    "description": "Issue #3077 identifies a recurring failure class: pipeline coordination\nstate has one logical home but N physical replicas (orchestrator/gateway/\nper-agent worktrees, origin, per-role branches), synchronized by ad-hoc git\nchoreography and prompt prose. Eleven-plus incidents trace to this; served\nchannels (contract API, consensus signals) have produced zero. Phase 1\n(PRs #3078/#3083) landed served BRC transcript reads and wrapper-performed\nsync. This change lands the HITL-approved remaining scope (Option C) on\nthe architect's six-slice DAG (slices 1-5 serialized, slice 6 parallel):\n\n1. **R1 non-silent sync.** `sync_to_proposals()` records per-SHA outcomes\n   and the wrapper prepends a \"worktree NOT synced\" banner to the fetched\n   event prompt on any failure, so a reviewer whose worktree silently\n   failed to sync can no longer trust a stale local diff.\n2. **Artifact spec.** A declarative registry\n   (`shared/egg_contracts/artifact_spec.py`) becomes the single source of\n   truth for artifact name \u2192 path template \u2192 phase \u2192 producer \u2192 consumers,\n   with mandatory consistency tests pinning every existing hardcoding\n   (gateway phase gates, `_get_draft_path`, prompt literals) to it.\n3. **Spec-derived validation.** Propose-time draft validation generalizes\n   from plan-only to every refine/plan producer with a registered\n   artifact, subsuming `_validate_producer_draft_present` and reusing the\n   #3081 graceful-degradation git-show helper; plan keeps its parseability\n   and role-alignment extensions.\n4. **Gateway artifact reads.** `POST /api/v1/artifact/get` serves\n   committed artifact content by spec-registered name + hex-validated ref\n   via `git show` against the authoritative repo \u2014 strict, no raw-path\n   escape hatch (HITL) \u2014 removing the shared-object-store assumption and\n   unblocking #3002. A sandbox `egg-artifact` helper gives agents one\n   verb.\n5. **Prose retirement + ratchet.** REVIEWER-SYNC fetch prose and the\n   event-prompt self-fetch fallback are deleted now that served reads\n   cover them; `docs/architecture` gains the three-clause invariant entry;\n   a ratchet test keeps sync mechanics out of agent-facing prompts.\n6. **Bounded durability.** `auto`\u2192memory fallback fails loud (error log +\n   degraded health flag; explicit memory stays a warning) and a Redis\n   restart-semantics test distinguishes accidental mid-phase loss from the\n   designed `_clear_concurrent_state()` phase-boundary wipe. Per HITL,\n   `auto` selection semantics are unchanged; deeper work stays in #3070.",
+    "test_plan": "Automated:\n- `make test` from the repo root narrows to the reachable suites per\n  slice; `make test-all` before phase exit.\n- Slice 1: extensions to `orchestrator/tests/test_consensus_wrapper.py`\n  (outcome recording; conflicting merge \u21d2 banner in the agent-visible\n  prompt; success \u21d2 no banner) and\n  `orchestrator/tests/test_compose_event_prompt.py` (empty-delta caution\n  cross-reference).\n- Slice 2: new `shared/egg_contracts/tests/test_artifact_spec.py`\n  (resolution and reverse lookup; consistency with\n  `gateway/phase_filter.py` gates, `phase_patterns.py` mirror,\n  `_get_draft_path` for both identifier shapes, and\n  `orchestrator/routes/pipelines.py` prompt literals).\n- Slice 3: extensions to `orchestrator/tests/test_signals.py`\n  (per-producer presence rejection, plan extensions retained,\n  `branch_verified` graceful degradation preserved, `no_changes_needed`\n  and artifact-less roles pass through).\n- Slice 4: new `gateway/tests/test_artifact_api.py` and\n  `orchestrator/tests/test_artifact_routes.py` (happy path byte-equality,\n  unregistered-name 400 listing registered names, non-hex ref rejection,\n  path-absent-at-ref handling, output caps + truncated flag).\n- Slice 5: new `orchestrator/tests/test_prompt_sync_ratchet.py` (template\n  scan with justified allowlist; `git show` references exempt).\n- Slice 6: extensions to `orchestrator/tests/test_message_store.py`\n  (auto\u2192memory error + degraded flag; explicit memory warning) and\n  `orchestrator/tests/test_redis_message_store.py` (mid-phase restart\n  survival vs designed `_clear_concurrent_state` wipe).\n\nManual (reviewer):\n- `make test` and `make lint` green.\n- Confirm the agent-visible prompt contains the NOT-synced banner when\n  `sync_to_proposals` is forced to fail (unit-level fixture acceptable).\n- Confirm `POST /api/v1/artifact/get` rejects an unregistered name with a\n  400 listing registered names and serves a registered name at a\n  committed ref.",
+    "manual_steps": "Pre-merge: none.\n\nPost-merge: none required \u2014 all changes are server/harness-side and no-op\nfor running pipelines. Optional operator spot-check: trigger a sync\nfailure on a live pipeline and confirm the event prompt carries the\n\"worktree NOT synced\" banner; confirm the orchestrator health surface\nflags BRC-on-memory-backend in a dev environment without Redis.",
+    "context_pr_number": 3139,
+    "deferred_actions": []
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
