@@ -296,6 +296,23 @@ contract_api = _load_module_with_replaced_imports(
     },
 )
 
+# artifact_api (#3077 slice-4) — the gateway forwarder for the new
+# /api/v1/artifact/get endpoint.  Loaded only if the file exists so this
+# conftest stays runnable on branches where the slice-4 producer is still
+# in flight (BRC parallel mode: the tester proposes test_artifact_api.py
+# from this same slice, and consensus_wrapper.sync_to_proposals merges the
+# coder's branch before reviewers run the suite).
+_artifact_api_path = GATEWAY_DIR / "artifact_api.py"
+if _artifact_api_path.exists():
+    artifact_api = _load_module_with_replaced_imports(
+        "artifact_api",
+        _artifact_api_path,
+        import_replacements={
+            "from .auth import": "from auth import",
+            "from .contract_api import": "from contract_api import",
+        },
+    )
+
 # agent_restrictions has no relative imports to other gateway modules
 agent_restrictions = _load_module_with_replaced_imports(
     "agent_restrictions",
@@ -348,6 +365,7 @@ gateway = _load_module_with_replaced_imports(
         "from ._module_loader import": "from _module_loader import",
         "from .agent_restrictions import": "from agent_restrictions import",
         "from .anthropic_credentials import": "from anthropic_credentials import",
+        "from .artifact_api import": "from artifact_api import",
         "from .auth import": "from auth import",
         "from .contract_api import": "from contract_api import",
         "from .git_client import": "from git_client import",
