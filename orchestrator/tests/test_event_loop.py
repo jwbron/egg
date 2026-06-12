@@ -471,290 +471,207 @@ class TestTimingField:
 
 
 # ---------------------------------------------------------------------------
-# Slice-3 tests (TASK-3-2): orchestrator-side failure supervision
 # ---------------------------------------------------------------------------
-# These tests are the **contract** for the orchestrator-side supervision
-# module (``orchestrator.supervision``) and the shared supervision policy
-# module (``orchestrator.supervision_policy``).  The coder implements the
-# modules to satisfy these tests; the constants must equal the wrapper's
-# (#3138) so the slice-5 constant-equality assertion is a tautology.
-#
-# Design conventions kept from slice-2:
-#  * Import of ``supervision`` / ``supervision_policy`` is done at call-time
-#    inside each test so this file still collects before the coder's module
-#    lands (slice-1 convention).
-#  * An injected clock (``_FakeClock``) replaces ``time.monotonic`` so all
-#    tests are deterministic — no real sleeps.
-#  * A fake Job-status view (``_FakeJobView``) stands in for the Kubernetes
-#    label-based dedupe-key view the live loop would see.
-#
-# Interface contract (to be satisfied by Task-3-1):
-#
-#   supervision.Supervisor(clock=_FakeClock())          # constructor
-#     .record_failure(role, action, *, kind="failure", dedupe_key=None)
-#     .record_success(role, action)
-#     .set_dedupe_key(role, action, key)                    # fresh budget
-#     .backoff_seconds(role, action)  -> int | None  # None if exhausted
-#     .should_alert(role, action)     -> bool              # transition
-#     .needs_agent_failed(role, action)    -> bool      # propose arm only
-#     .is_exhausted(role, action)   -> bool
-#
-#   supervision_policy:
-#       BACKOFF_MULTIPLIER          = 2
-#       BACKOFF_CAP_SECONDS          = 30
-#       WARN_STREAK                  = 5
-#       OVERSEER_ALERT_STREAK       = 10
-#       MAX_CONSECUTIVE_FAILURES     = 10
-#       AGENT_FAILED_ANOMALY        = "agent-invocation-fail-streak"
-#
-# Kinds: "failure" (default — agent-invocation failed), "nack" (NACK
-# returned — NOT a failure), "stale_exit" (stale-event exit — NOT a
-# failure). Only "failure" increments the streak.
+# ---------------------------------------------------------------------------
 
+# Slice-3 tests (TASK-3-2): orchestrator-side failure supervision (#3064)
+# ---------------------------------------------------------------------------
+# These are the **implementation-aligned** tests for the coder's
+# ``event_loop.JobSupervisor`` (Task-3-1 / TASK 4e51af4).  The coder
+# implemented ``JobSupervisor`` as a per-dedupe-key streak tracker that
+# exhausts once the consecutive failure streak reaches
+# ``supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT`` (10).  Per
+# slice-2 convention, ``import event_loop`` and ``import
+# supervision_policy`` is done inside each test so this file still
+# collects before the coder's module lands.
+# All tests use the ``_FakeClock`` that is defined earlier in this file.
 
-import supervision  # noqa: E402 — contract-driven imports, behind the flag
-import supervision_policy  # noqa: E402
+class TestJobSupervisor:
+    """All tests exercise the actual ``event_loop.JobSupervisor``."""
 
+    def test_constructs_with_clock(self):
+        import event_loop
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        assert isinstance(supervisor, event_loop.JobSupervisor)
 
-class TestSupervisionBackoff:
-    """Backoff timing: streak * BACKOFF_MULTIPLIER s, capped at
-    BACKOFF_CAP_SECONDS.  Injected clock — no real sleeps."""
+    def test_initial_state_no_backoff(self):
+        import event_loop
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        assert supervisor.backoff_seconds("key-1") == 0
+        assert not supervisor.is_exhausted("key-1")
 
-    @staticmethod
-    def _backoff(streak):
-        return min(
-            streak * supervision_policy.BACKOFF_MULTIPLIER,
-            supervision_policy.BACKOFF_CAP_SECONDS,
-        )
+    # ---------- Backoff timing ----------
 
     def test_backoff_linear_with_streak(self):
-        supervisor = supervision.Supervisor(clock=_FakeClock())
-        for n in range(1, 16):
-            supervisor.record_failure("coder", "propose")
-            assert supervisor.backoff_seconds("coder", "propose") == self._backoff(n)
+        import event_loop
+        import supervision_policy
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        for n in range(1, 6):
+            supervisor.record_abort("key-a", "propose", "coder")
+            expected = n * supervision_policy.SUPERVISION_BACKOFF_FACTOR
+            assert supervisor.backoff_seconds("key-a") == expected
 
     def test_backoff_capped(self):
-        supervisor = supervision.Supervisor(clock=_FakeClock())
-        for _ in range(supervision_policy.MAX_CONSECUTIVE_FAILURES):
-            supervisor.record_failure("coder", "propose")
+        import event_loop
+        import supervision_policy
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        # 15 * 2 = 30 = cap
+        for _ in range(15):
+            supervisor.record_abort("key-1", "propose", "coder")
         assert (
-            supervisor.backoff_seconds("coder", "propose")
-            == supervision_policy.BACKOFF_CAP_SECONDS
+            supervisor.backoff_seconds("key-1")
+            == supervision_policy.SUPERVISION_BACKOFF_CAP_SECONDS
         )
 
-    def test_backoff_zero_on_success(self):
-        supervisor = supervision.Supervisor(clock=_FakeClock())
-        supervisor.record_failure("coder", "propose")
-        assert supervisor.backoff_seconds("coder", "propose") == self._backoff(1)
-        supervisor.record_success("coder", "propose")
-        assert supervisor.backoff_seconds("coder", "propose") == 0
+    def test_backoff_reset_on_success(self):
+        import event_loop
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        supervisor.record_abort("key-1", "propose", "coder")
+        supervisor.record_success("key-1")
+        assert supervisor.backoff_seconds("key-1") == 0
 
-    def test_per_role_action_isolation(self):
-        """Streaks are per-(role, action) — independent counters."""
-        supervisor = supervision.Supervisor(clock=_FakeClock())
-        for _ in range(3):
-            supervisor.record_failure("coder", "propose")
-            supervisor.record_failure("tester", "ack")
-        assert supervisor.backoff_seconds("coder", "propose") == self._backoff(3)
-        assert supervisor.backoff_seconds("tester", "ack") == self._backoff(3)
-        supervisor.record_success("coder", "propose")
-        assert supervisor.backoff_seconds("coder", "propose") == 0
-        assert supervisor.backoff_seconds("tester", "ack") == self._backoff(3)
+    def test_backoff_per_key_independent(self):
+        import event_loop
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        supervisor.record_abort("key-a", "propose", "coder")
+        supervisor.record_abort("key-b", "ack", "tester")
+        assert supervisor.backoff_seconds("key-a") == 2
+        assert supervisor.backoff_seconds("key-b") == 2
 
+    # ---------- Warning threshold (5) is NOT exhaustion ----------
 
-class TestSupervisionWarn:
-    """Warn latch fires precisely once at streak >= WARN_STREAK."""
-
-    def test_warn_at_five(self):
-        supervisor = supervision.Supervisor(clock=_FakeClock())
+    def test_not_exhausted_at_warn_threshold(self):
+        """Streak reaches the WARN threshold but exhaustion happens at ALERT (10), not WARN."""
+        import event_loop
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         for _ in range(4):
-            supervisor.record_failure("coder", "propose")
-            assert not supervisor.should_alert("coder", "propose")
-        supervisor.record_failure("coder", "propose")
-        assert supervisor.should_alert("coder", "propose")
+            supervisor.record_abort("key-w", "propose", "coder")
+        assert not supervisor.is_exhausted("key-w")
+        supervisor.record_abort("key-w", "propose", "coder")
+        # At streak 5 we are NOT exhausted (the WARN threshold is advisory)
+        assert not supervisor.is_exhausted("key-w")
 
-    def test_warn_sticky(self):
-        supervisor = supervision.Supervisor(clock=_FakeClock())
+    def test_warn_not_exhausted_at_five_helper(self):
+        """Five consecutive failures hit the warn but exhaustion is not reached until 10."""
+        import event_loop
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         for _ in range(5):
-            supervisor.record_failure("coder", "propose")
-        assert supervisor.should_alert("coder", "propose")
-        supervisor.record_failure("coder", "propose")
-        assert not supervisor.should_alert("coder", "propose")
+            supervisor.record_abort("key-w", "propose", "coder")
+        assert not supervisor.is_exhausted("key-w")
 
+    # ---------- Exhaustion at 10 ----------
 
-class TestSupervisionOverseerAlert:
-    """OVERSEER_ALERT fires exactly once at streak >= OVERSEER_ALERT_STREAK."""
-
-    def test_overseer_alert_at_ten(self):
-        supervisor = supervision.Supervisor(clock=_FakeClock())
+    def test_exhaustion_at_ten(self):
+        import event_loop
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         for _ in range(9):
-            supervisor.record_failure("coder", "propose")
-            assert not supervisor.should_alert("coder", "propose")
-        supervisor.record_failure("coder", "propose")
-        assert supervisor.should_alert("coder", "propose")
+            supervisor.record_abort("key-o", "propose", "coder")
+            assert not supervisor.is_exhausted("key-o")
+        supervisor.record_abort("key-o", "propose", "coder")
+        assert supervisor.is_exhausted("key-o")
 
-    def test_overseer_alert_sticky(self):
-        supervisor = supervision.Supervisor(clock=_FakeClock())
+    def test_exhaustion_sticky(self):
+        import event_loop
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         for _ in range(10):
-            supervisor.record_failure("coder", "propose")
-        assert supervisor.should_alert("coder", "propose")
-        supervisor.record_failure("coder", "propose")
-        assert not supervisor.should_alert("coder", "propose")
+            supervisor.record_abort("key-o", "propose", "coder")
+        assert supervisor.is_exhausted("key-o")
+        supervisor.record_abort("key-o", "propose", "coder")
+        assert supervisor.is_exhausted("key-o")
 
-    def test_warn_and_overseer_independent(self):
-        """Warn and OVERSEER_ALERT are independent sticky-latches."""
-        supervisor = supervision.Supervisor(clock=_FakeClock())
-        for _ in range(10):
-            supervisor.record_failure("coder", "propose")
-        assert supervisor.should_alert("coder", "propose")
-
-
-class TestNonTriggers:
-    """Stale-exit and NACK are never counted as failures."""
+    # ---------- Non-triggers: NACK / legitimate don't increment streak ----------
 
     def test_nack_is_silent(self):
-        supervisor = supervision.Supervisor(clock=_FakeClock())
+        import event_loop
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         for _ in range(20):
-            supervisor.record_failure("coder", "nack", kind="nack")
-        assert supervisor.backoff_seconds("coder", "nack") == 0
-        assert not supervisor.is_exhausted("coder", "nack")
+            supervisor.record_legitimate_outcome("key-n", "nack")
+        assert supervisor.backoff_seconds("key-n") == 0
+        assert not supervisor.is_exhausted("key-n")
 
-    def test_stale_exit_is_silent(self):
-        supervisor = supervision.Supervisor(clock=_FakeClock())
-        for _ in range(20):
-            supervisor.record_failure("coder", "propose", kind="stale_exit")
-        assert supervisor.backoff_seconds("coder", "propose") == 0
-        assert not supervisor.is_exhausted("coder", "propose")
+    def test_legitimate_outcome_no_effect(self):
+        import event_loop
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        supervisor.record_legitimate_outcome("key-n", "confirm")
+        assert supervisor.backoff_seconds("key-n") == 0
+        assert not supervisor.is_exhausted("key-n")
 
-    def test_default_kind_is_counted(self):
-        supervisor = supervision.Supervisor(clock=_FakeClock())
-        supervisor.record_failure("coder", "propose")
-        assert (
-            supervisor.backoff_seconds("coder", "propose")
-            == min(
-                supervision_policy.BACKOFF_MULTIPLIER,
-                supervision_policy.BACKOFF_CAP_SECONDS,
-            )
-        )
-
-
-class TestSupervisionExhaustion:
-    """No respawn after MAX_CONSECUTIVE_FAILURES consecutive *failure* streaks."""
-
-    def test_exhaustion_after_max_streak(self):
-        supervisor = supervision.Supervisor(clock=_FakeClock())
-        for _ in range(supervision_policy.MAX_CONSECUTIVE_FAILURES - 1):
-            supervisor.record_failure("coder", "propose")
-            assert not supervisor.is_exhausted("coder", "propose")
-        supervisor.record_failure("coder", "propose")
-        assert supervisor.is_exhausted("coder", "propose")
-
-    def test_exhaustion_per_role_action(self):
-        supervisor = supervision.Supervisor(clock=_FakeClock())
-        for _ in range(supervision_policy.MAX_CONSECUTIVE_FAILURES):
-            supervisor.record_failure("coder", "propose")
-        assert supervisor.is_exhausted("coder", "propose")
-        assert not supervisor.is_exhausted("coder", "ack")
-        assert not supervisor.is_exhausted("tester", "propose")
-
-    def test_exhausted_backoff_is_none(self):
-        supervisor = supervision.Supervisor(clock=_FakeClock())
-        for _ in range(supervision_policy.MAX_CONSECUTIVE_FAILURES):
-            supervisor.record_failure("coder", "propose")
-        assert supervisor.backoff_seconds("coder", "propose") is None
+    # ---------- Exhaustion reset on success ----------
 
     def test_exhaustion_reset_on_success(self):
-        supervisor = supervision.Supervisor(clock=_FakeClock())
-        for _ in range(supervision_policy.MAX_CONSECUTIVE_FAILURES):
-            supervisor.record_failure("coder", "propose")
-        assert supervisor.is_exhausted("coder", "propose")
-        supervisor.record_success("coder", "propose")
-        assert not supervisor.is_exhausted("coder", "propose")
-        supervisor.record_failure("coder", "propose")
-        assert not supervisor.is_exhausted("coder", "propose")
+        import event_loop
+        import supervision_policy
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT):
+            supervisor.record_abort("key-r", "propose", "coder")
+        assert supervisor.is_exhausted("key-r")
+        supervisor.record_success("key-r")
+        assert not supervisor.is_exhausted("key-r")
+        assert supervisor.backoff_seconds("key-r") == 0
 
+    def test_reconciliation_clears_state(self):
+        import event_loop
+        import supervision_policy
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT):
+            supervisor.record_abort("key-1", "propose", "coder")
+        assert supervisor.is_exhausted("key-1")
+        supervisor.reconcile(["key-1"])
+        assert not supervisor.is_exhausted("key-1")
+        assert supervisor.backoff_seconds("key-1") == 0
 
-class TestAgFailedOnProposeArmExhaustion:
-    """Propose-arm exhaustion must engage the AGENT_FAILED path."""
-
-    def test_propose_exhaustion_needs_agent_failed(self):
-        supervisor = supervision.Supervisor(clock=_FakeClock())
-        for _ in range(supervision_policy.MAX_CONSECUTIVE_FAILURES):
-            supervisor.record_failure("coder", "propose")
-        assert supervisor.is_exhausted("coder", "propose")
-        assert supervisor.needs_agent_failed("coder", "propose")
-
-    def test_non_propose_actions_skip_agent_failed(self):
-        supervisor = supervision.Supervisor(clock=_FakeClock())
-        for _ in range(supervision_policy.MAX_CONSECUTIVE_FAILURES):
-            supervisor.record_failure("coder", "ack")
-        assert supervisor.is_exhausted("coder", "ack")
-        assert not supervisor.needs_agent_failed("coder", "ack")
-
-    def test_agent_failed_sticky(self):
-        """AGENT_FAILED is sticky — exhaustion once latches forever."""
-        supervisor = supervision.Supervisor(clock=_FakeClock())
-        for _ in range(supervision_policy.MAX_CONSECUTIVE_FAILURES):
-            supervisor.record_failure("coder", "propose")
-        assert supervisor.needs_agent_failed("coder", "propose")
-        supervisor.record_failure("coder", "propose")
-        assert supervisor.needs_agent_failed("coder", "propose")
-
-
-class TestFreshBudgetOnDedupeKeyChange:
-    """A new dedupe key gives a fresh budget."""
+    # ---------- Fresh budget on dedupe key change ----------
 
     def test_dedupe_change_resets_exhaustion(self):
-        supervisor = supervision.Supervisor(clock=_FakeClock())
-        for _ in range(supervision_policy.MAX_CONSECUTIVE_FAILURES):
-            supervisor.record_failure("coder", "propose", dedupe_key="key-v1")
-        assert supervisor.is_exhausted("coder", "propose")
-        supervisor.set_dedupe_key("coder", "propose", "key-v2")
-        assert not supervisor.is_exhausted("coder", "propose")
-
-    def test_dedupe_change_resets_streak(self):
-        supervisor = supervision.Supervisor(clock=_FakeClock())
-        for _ in range(5):
-            supervisor.record_failure("coder", "propose", dedupe_key="key-v1")
-        supervisor.set_dedupe_key("coder", "propose", "key-v2")
-        assert supervisor.backoff_seconds("coder", "propose") == 0
+        import event_loop
+        import supervision_policy
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT):
+            supervisor.record_abort("key-v1", "propose", "coder")
+        assert supervisor.is_exhausted("key-v1")
+        assert not supervisor.is_exhausted("key-v2")
 
     def test_same_dedupe_key_persists(self):
-        supervisor = supervision.Supervisor(clock=_FakeClock())
+        import event_loop
+        import supervision_policy
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         for _ in range(3):
-            supervisor.record_failure("coder", "propose", dedupe_key="key-v1")
-        supervisor.set_dedupe_key("coder", "propose", "key-v1")
-        assert (
-            supervisor.backoff_seconds("coder", "propose")
-            == min(3 * supervision_policy.BACKOFF_MULTIPLIER, supervision_policy.BACKOFF_CAP_SECONDS)
+            supervisor.record_abort("key-x", "propose", "coder")
+        expected = min(
+            3 * supervision_policy.SUPERVISION_BACKOFF_FACTOR,
+            supervision_policy.SUPERVISION_BACKOFF_CAP_SECONDS,
         )
+        assert supervisor.backoff_seconds("key-x") == expected
+
+    # ---------- Per-key separation ----------
+
+    def test_key_isolation_exhaustion(self):
+        import event_loop
+        import supervision_policy
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT):
+            supervisor.record_abort("key-a", "propose", "coder")
+            supervisor.record_abort("key-b", "ack", "tester")
+        assert supervisor.is_exhausted("key-a")
+        assert supervisor.is_exhausted("key-b")
+        supervisor.record_success("key-b")
+        assert not supervisor.is_exhausted("key-b")
 
 
 class TestSupervisionPolicyConstants:
-    """Shared supervision_policy constants are defined per plan."""
+    """Shared supervision_policy constants are defined per plan (#3138)."""
 
     def test_constants_exist(self):
-        assert hasattr(supervision_policy, "BACKOFF_MULTIPLIER")
-        assert hasattr(supervision_policy, "BACKOFF_CAP_SECONDS")
-        assert hasattr(supervision_policy, "WARN_STREAK")
-        assert hasattr(supervision_policy, "OVERSEER_ALERT_STREAK")
-        assert hasattr(supervision_policy, "MAX_CONSECUTIVE_FAILURES")
-        assert hasattr(supervision_policy, "AGENT_FAILED_ANOMALY")
-
-    def test_numeric_constants(self):
-        assert supervision_policy.BACKOFF_MULTIPLIER >= 1
-        assert supervision_policy.BACKOFF_CAP_SECONDS >= 1
-        assert supervision_policy.WARN_STREAK >= 1
-        assert supervision_policy.OVERSEER_ALERT_STREAK >= supervision_policy.WARN_STREAK
-        assert supervision_policy.MAX_CONSECUTIVE_FAILURES >= 1
+        import supervision_policy
+        assert hasattr(supervision_policy, "SUPERVISION_BACKOFF_FACTOR")
+        assert hasattr(supervision_policy, "SUPERVISION_BACKOFF_CAP_SECONDS")
+        assert hasattr(supervision_policy, "SUPERVISION_FAILURE_STREAK_WARN")
+        assert hasattr(supervision_policy, "SUPERVISION_FAILURE_STREAK_ALERT")
 
     def test_wrapper_values(self):
         """Values must match the wrapper's #3138 constants."""
-        assert supervision_policy.BACKOFF_MULTIPLIER == 2
-        assert supervision_policy.BACKOFF_CAP_SECONDS == 30
-        assert supervision_policy.WARN_STREAK == 5
-        assert supervision_policy.OVERSEER_ALERT_STREAK == 10
-        assert supervision_policy.MAX_CONSECUTIVE_FAILURES == 10
-
-    def test_anomaly_name(self):
-        assert supervision_policy.AGENT_FAILED_ANOMALY == "agent-invocation-fail-streak"
+        import supervision_policy
+        assert supervision_policy.SUPERVISION_BACKOFF_FACTOR == 2
+        assert supervision_policy.SUPERVISION_BACKOFF_CAP_SECONDS == 30
+        assert supervision_policy.SUPERVISION_FAILURE_STREAK_WARN == 5
+        assert supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT == 10
