@@ -486,16 +486,19 @@ class TestTimingField:
 # collects before the coder's module lands.
 # All tests use the ``_FakeClock`` that is defined earlier in this file.
 
+
 class TestJobSupervisor:
     """All tests exercise the actual ``event_loop.JobSupervisor``."""
 
     def test_constructs_with_clock(self):
         import event_loop
+
         supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         assert isinstance(supervisor, event_loop.JobSupervisor)
 
     def test_initial_state_no_backoff(self):
         import event_loop
+
         supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         assert supervisor.backoff_seconds("key-1") == 0
         assert not supervisor.is_exhausted("key-1")
@@ -505,6 +508,7 @@ class TestJobSupervisor:
     def test_backoff_linear_with_streak(self):
         import event_loop
         import supervision_policy
+
         supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         for n in range(1, 6):
             supervisor.record_abort("key-a", "propose", "coder")
@@ -514,6 +518,7 @@ class TestJobSupervisor:
     def test_backoff_capped(self):
         import event_loop
         import supervision_policy
+
         supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         # 15 * 2 = 30 = cap
         for _ in range(15):
@@ -525,6 +530,7 @@ class TestJobSupervisor:
 
     def test_backoff_reset_on_success(self):
         import event_loop
+
         supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         supervisor.record_abort("key-1", "propose", "coder")
         supervisor.record_success("key-1")
@@ -532,6 +538,7 @@ class TestJobSupervisor:
 
     def test_backoff_per_key_independent(self):
         import event_loop
+
         supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         supervisor.record_abort("key-a", "propose", "coder")
         supervisor.record_abort("key-b", "ack", "tester")
@@ -543,6 +550,7 @@ class TestJobSupervisor:
     def test_not_exhausted_at_warn_threshold(self):
         """Streak reaches the WARN threshold but exhaustion happens at ALERT (10), not WARN."""
         import event_loop
+
         supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         for _ in range(4):
             supervisor.record_abort("key-w", "propose", "coder")
@@ -554,6 +562,7 @@ class TestJobSupervisor:
     def test_warn_not_exhausted_at_five_helper(self):
         """Five consecutive failures hit the warn but exhaustion is not reached until 10."""
         import event_loop
+
         supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         for _ in range(5):
             supervisor.record_abort("key-w", "propose", "coder")
@@ -563,6 +572,7 @@ class TestJobSupervisor:
 
     def test_exhaustion_at_ten(self):
         import event_loop
+
         supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         for _ in range(9):
             supervisor.record_abort("key-o", "propose", "coder")
@@ -572,6 +582,7 @@ class TestJobSupervisor:
 
     def test_exhaustion_sticky(self):
         import event_loop
+
         supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         for _ in range(10):
             supervisor.record_abort("key-o", "propose", "coder")
@@ -583,6 +594,7 @@ class TestJobSupervisor:
 
     def test_nack_is_silent(self):
         import event_loop
+
         supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         for _ in range(20):
             supervisor.record_legitimate_outcome("key-n", "nack")
@@ -591,6 +603,7 @@ class TestJobSupervisor:
 
     def test_legitimate_outcome_no_effect(self):
         import event_loop
+
         supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         supervisor.record_legitimate_outcome("key-n", "confirm")
         assert supervisor.backoff_seconds("key-n") == 0
@@ -601,6 +614,7 @@ class TestJobSupervisor:
     def test_exhaustion_reset_on_success(self):
         import event_loop
         import supervision_policy
+
         supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT):
             supervisor.record_abort("key-r", "propose", "coder")
@@ -612,6 +626,7 @@ class TestJobSupervisor:
     def test_reconciliation_clears_state(self):
         import event_loop
         import supervision_policy
+
         supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT):
             supervisor.record_abort("key-1", "propose", "coder")
@@ -625,6 +640,7 @@ class TestJobSupervisor:
     def test_dedupe_change_resets_exhaustion(self):
         import event_loop
         import supervision_policy
+
         supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT):
             supervisor.record_abort("key-v1", "propose", "coder")
@@ -634,6 +650,7 @@ class TestJobSupervisor:
     def test_same_dedupe_key_persists(self):
         import event_loop
         import supervision_policy
+
         supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         for _ in range(3):
             supervisor.record_abort("key-x", "propose", "coder")
@@ -648,6 +665,7 @@ class TestJobSupervisor:
     def test_key_isolation_exhaustion(self):
         import event_loop
         import supervision_policy
+
         supervisor = event_loop.JobSupervisor(clock=_FakeClock())
         for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT):
             supervisor.record_abort("key-a", "propose", "coder")
@@ -663,6 +681,7 @@ class TestSupervisionPolicyConstants:
 
     def test_constants_exist(self):
         import supervision_policy
+
         assert hasattr(supervision_policy, "SUPERVISION_BACKOFF_FACTOR")
         assert hasattr(supervision_policy, "SUPERVISION_BACKOFF_CAP_SECONDS")
         assert hasattr(supervision_policy, "SUPERVISION_FAILURE_STREAK_WARN")
@@ -671,6 +690,7 @@ class TestSupervisionPolicyConstants:
     def test_wrapper_values(self):
         """Values must match the wrapper's #3138 constants."""
         import supervision_policy
+
         assert supervision_policy.SUPERVISION_BACKOFF_FACTOR == 2
         assert supervision_policy.SUPERVISION_BACKOFF_CAP_SECONDS == 30
         assert supervision_policy.SUPERVISION_FAILURE_STREAK_WARN == 5
