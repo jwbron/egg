@@ -1154,7 +1154,7 @@ def _validate_plan_extensions(
         )
         return
 
-    # (3) Role↔files alignment (#2527). #2528: pass the pipeline's repo so
+    # (2) Role↔files alignment (#2527). #2528: pass the pipeline's repo so
     # per-repo ``role_patterns`` from repositories.yaml are honoured — plan-time
     # validation must mirror push-time enforcement, which also reads the per-repo
     # overrides (gateway/agent_restrictions.py).

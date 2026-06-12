@@ -1102,17 +1102,22 @@ def test_render_delta_section_shows_proposal_sha_and_cautions_on_head() -> None:
 def test_empty_delta_caution_cross_references_not_synced_banner() -> None:
     """The HEAD-scoped empty-delta caution names the wrapper's
     "NOT-synced" banner and steers the reviewer at the rendered
-    ``git show`` fallback (#3077 slice-1 TASK-1-2).
+    fallback command in the same section (#3077 slice-1 TASK-1-2).
 
     Plan TASK-1-2 acceptance: "Empty-delta caution names the
-    NOT-synced banner and the ``git show`` fallback." The R1 contract
+    NOT-synced banner and the fallback command." The R1 contract
     is end-to-end: the wrapper prepends a "worktree NOT synced ..."
     banner on a sync failure, and the empty-delta caution — which the
     reviewer hits when the delta block is empty and the worktree may
     not contain the producer's commits — must point back at that same
     banner so the reviewer follows a single, coherent decision tree
-    (check the banner → fall back to ``git show``) rather than two
-    disconnected hints.
+    (check the banner → fall back to the rendered ``git log`` /
+    ``git show`` command) rather than two disconnected hints. The
+    re-review path renders a ``git log <sha>..<end_ref>`` command in
+    its "Re-review scope" line; the caution names that command rather
+    than ``git show`` (which is only rendered in the first-review
+    fallback path elsewhere in the prompt) so the reviewer doesn't
+    search for a string that isn't in their section.
 
     Non-empty-delta and proposal-scoped paths are intentionally NOT
     asserted on here — TASK-1-2 acceptance line 2 ("Non-empty-delta
@@ -1151,18 +1156,20 @@ def test_empty_delta_caution_cross_references_not_synced_banner() -> None:
         "reviewer correlates it with the wrapper's prepended banner "
         "rather than guessing what 'NOT synced' refers to."
     )
-    # ``git show`` fallback: the caution still names the served-read
-    # channel (the rendered ``git show`` commands the prompt carries)
-    # as the next step. The pre-slice-1 caution already said this in
-    # different words ("Read the producer's branch directly, e.g.
-    # ``git log ...``"); the new wording moves to ``git show`` to
-    # match the R1 served-read substrate (#3078).
-    assert "git show" in section, (
-        "Empty-delta caution must point at the rendered ``git show`` "
-        "fallback — that is the served-read channel the wrapper "
-        "banner steers reviewers at. Plan TASK-1-2 acceptance: "
+    # Rendered fallback: the caution must name the rendered command in
+    # the same section so the reviewer has a coherent next step. The
+    # re-review path renders ``git log <sha>..<end_ref>`` (the
+    # "Re-review scope" line above the empty delta block); ``git show``
+    # only appears in the first-review fallback elsewhere. The caution
+    # names ``git log`` so it cross-references content that's actually
+    # in the reviewer's section (#3077 slice-1 follow-up to the
+    # initially-decorative ``git show`` cross-reference).
+    assert "git log" in section, (
+        "Empty-delta caution must point at the rendered ``git log`` "
+        "fallback — that is the command actually rendered above the "
+        "empty delta in the re-review path. Plan TASK-1-2 acceptance: "
         "'Empty-delta caution names the NOT-synced banner and the "
-        "``git show`` fallback.'"
+        "fallback command.'"
     )
 
 
