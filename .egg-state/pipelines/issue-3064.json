@@ -193,10 +193,29 @@
       "resolution": "{\"action\": \"approve\", \"context\": \"## Resolved Questions\\n\\n**Scope for #3064 on-demand agent spawning (cq-1):**\\nAnswer: Option B — A + lifecycle re-homing; flip deferred to a gated follow-up. Operator additionally directed that the flip follow-up be filed immediately so the in-pod loop retirement is scheduled work (live BRC proving run with flag on → flip default → delete in-pod wait arm + heartbeat + ownership flag in one cleanup PR), not lingering deprecation. End state must have no dead/deprecated code; the flag window is accepted only as a bounded proving period.\\n\\n**Failure-supervision policy for one-shot agent pods (cq-2):**\\nAnswer: Bounded automatic respawn with backoff, then OVERSEER_ALERT — mirror the wrapper's #3138 streak semantics (transient failures retry silently within a bounded budget; humans only see persistent exhaustion).\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Scope for #3064 on-demand agent spawning: which option? A = spawner + ownership flag (default in-pod) + spawn dedupe + bounded respawn, confirm/complete orchestrator-side. B (recommended) = A + worktree re-attach & session reuse across spawns, idle-budget/stall alerts re-homed orchestrator-side, lifecycle-aware health-monitor thresholds, #2806 failure signaling relocated; default flip stays a follow-up gated on a live BRC cycle. C = B + flip the default and retire the in-pod wait arm in this same pipeline.",
+      "context": "Open contract question cq-1, registered by an agent during the refine phase.",
+      "options": [
+        "Option A — spawner + guard only, flag defaults to in-pod loop",
+        "Option B — A + lifecycle re-homing; flip deferred to a gated follow-up (recommended)",
+        "Option C — B + default flip and in-pod loop retirement in this pipeline",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-06-12T17:22:35.096882Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-06-12T16:37:40.276091Z",
-  "updated_at": "2026-06-12T17:22:32.244922Z",
+  "updated_at": "2026-06-12T17:22:35.107215Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -209,7 +228,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13,
+  "version": 14,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
