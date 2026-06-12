@@ -943,10 +943,14 @@ real behaviour. The current test surface:
   the event-pump six-event wait-filter, conditional `CONSENSUS_CONFIRMED`
   inclusion pre- vs post-confirm, wrapper-side heartbeat cadence +
   `slice_id` wiring, wrapper-side keep-alive cadence, idle-budget
-  overseer alert at threshold, 409 stale_version re-fetch path, and
+  overseer alert at threshold, 409 stale_version re-fetch path,
   the defensive guard that the wrapper does not also call
   `egg-orch progress complete` (the architect-corrected pseudocode
-  typo). Slice-2/-3 snapshot tests that pinned the byte-for-byte
+  typo), and the `propose|ack|nack` arm's capped-linear backoff +
+  streak-escalation path (#3138: sticky log warning at streak 5,
+  `agent-invocation-fail-streak` `OVERSEER_ALERT` at streak 10 with
+  duration-aware configuration-class classification). Slice-2/-3
+  snapshot tests that pinned the byte-for-byte
   `_CONSENSUS_WRAPPER_TEMPLATE` (flag-off) emission were retired in
   slice-4 task-4-3 alongside the legacy template deletion; the
   idle-budget test now serves as the canonical liveness coverage.
