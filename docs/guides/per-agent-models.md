@@ -270,37 +270,47 @@ agent's `--model` flag to `<upstream>[1m]` for the standard ≥1M case
 ``--model``-keyed pathway also routes through the custom-model
 registration.
 
-## Context guardrails on the LiteLLM path (#3175)
+## Context guardrails (#3175)
 
-On the LiteLLM path every SDK turn re-sends the whole conversation and
-cached tokens bill at a discounted-but-nonzero rate, so a single tool
-call that dumps tens of kilotokens (a verbose `pytest -v`, a
-whole-megafile Read, an unbounded MCP result) is re-billed on every
-subsequent turn for the life of the session. `env_vars()` therefore
-injects three size caps on LiteLLM decisions only — Claude-routed
-spawns carry none of them, so the Claude path's tool behavior is
-unchanged:
+Every SDK turn re-sends the whole conversation, and cached tokens bill
+at a discounted-but-nonzero rate on **every** route (~10% of input
+price on Anthropic; a comparable blended rate on LiteLLM upstreams) —
+so a single tool call that dumps tens of kilotokens (a verbose
+`pytest -v`, a whole-megafile Read, an unbounded MCP result) is
+re-billed on every subsequent turn for the life of the session.
+`env_vars()` therefore injects size caps on every decision; the
+LiteLLM path — where turn counts run 3–5× the Claude baseline,
+multiplying the re-bill — additionally gets a tighter Read cap:
 
-| Sandbox env var | Default | Unit | What it bounds |
-|---|---|---|---|
-| `BASH_MAX_OUTPUT_LENGTH` | `20000` | characters | Claude Code's built-in Bash-result truncation; oversized output is saved to a session file and the agent gets the path plus a preview |
-| `EGG_READ_CAP_BYTES` | `65536` | bytes | the predictive whole-file-Read deny in `shared/egg_agent/tool_output_cap.py` — a quarter of the 256 KiB Claude-route default, pushing big files toward `offset`/`limit` paging |
-| `MAX_MCP_OUTPUT_TOKENS` | `15000` | tokens | Claude Code's MCP-result cap (built-in default 25k); excess is persisted to disk and replaced with a file reference |
+| Sandbox env var | Default | Unit | Routes | What it bounds |
+|---|---|---|---|---|
+| `BASH_MAX_OUTPUT_LENGTH` | `20000` | characters | all | Claude Code's built-in Bash-result truncation; oversized output is saved to a session file and the agent gets the path plus a preview |
+| `MAX_MCP_OUTPUT_TOKENS` | `15000` | tokens | all | Claude Code's MCP-result cap (built-in default 25k); excess is persisted to disk and replaced with a file reference |
+| `EGG_READ_CAP_BYTES` | `65536` | bytes | LiteLLM only | the predictive whole-file-Read deny in `shared/egg_agent/tool_output_cap.py` — a quarter of its built-in 256 KiB default (which continues to guard the Claude route), pushing big files toward `offset`/`limit` paging |
 
 These are **guardrails, not constraints**: the thresholds are sized so
-normal work never hits them, and every cap carries its own remedy (the
-spill file for Bash/MCP, the paging remedy in the Read-cap deny
-message), so the agent always has a path to the same information.
+normal work never hits them, and every cap is overridable by the agent
+itself when it deliberately needs more:
 
-Operators override a value by setting the matching
-`EGG_LITELLM_`-prefixed variable on the **orchestrator**
-(`EGG_LITELLM_BASH_MAX_OUTPUT_LENGTH`, `EGG_LITELLM_READ_CAP_BYTES`,
-`EGG_LITELLM_MAX_MCP_OUTPUT_TOKENS`). Setting one to the empty string
+- **Bash / MCP** — the full output is spilled to a file whose path the
+  agent receives, so nothing is ever unreachable; the agent reads,
+  greps, or tails the spill file (or pipes the command to a file
+  itself).
+- **Read** — the deny message names an agent-writable override file
+  (`/tmp/egg-read-cap-bytes`): the agent writes the byte size it needs
+  and retries. The file is pod-local and outside the repo worktree, so
+  the override can never be committed and dies with the pod.
+- **Grep** — the content-mode deny only fires with no `head_limit` at
+  all; a deliberate large `head_limit` passes.
+
+Operators override the injected values on the **orchestrator** via
+`EGG_AGENT_BASH_MAX_OUTPUT_LENGTH`, `EGG_AGENT_MAX_MCP_OUTPUT_TOKENS`,
+and `EGG_LITELLM_READ_CAP_BYTES`. Setting one to the empty string
 omits that guardrail from the injection entirely; an unparseable or
 non-positive value logs a warning and falls back to the default. The
 override names are deliberately distinct from the sandbox-side names so
 a value in the orchestrator's own environment is never forwarded by
-accident. See `litellm_context_guardrail_env()` in
+accident. See `context_guardrail_env()` in
 `orchestrator/agent_model_resolution.py`.
 
 > **Capability env vars (`MAX_THINKING_TOKENS`,

@@ -138,57 +138,71 @@ _CLAUDE_EXACT_ALIASES = frozenset(
 )
 _CLAUDE_VERSIONED_RE = re.compile(r"^claude-")
 
-# Context guardrails for LiteLLM-routed agents (#3175). On the LiteLLM
-# path every SDK turn re-sends the whole conversation and cached tokens
-# bill at a discounted-but-nonzero rate, so one careless tool call that
-# dumps tens of kilotokens (verbose ``pytest -v``, a whole-megafile
-# Read, an unbounded MCP result) is re-billed on every subsequent turn
-# for the life of the session. These caps bound the size a single tool
-# result can park in the conversation. They are guardrails, not
-# constraints: thresholds are sized so normal work never hits them, and
-# every cap carries its own remedy — Claude Code spills oversized Bash
-# and MCP results to a file the agent can Read/grep, and the Read cap's
-# deny message points at ``offset``/``limit`` paging
+# Context guardrails for agent spawns (#3175). Every SDK turn re-sends
+# the whole conversation, and cached tokens bill at a
+# discounted-but-nonzero rate on every route (~10% of the input price
+# on Anthropic; a comparable blended rate on LiteLLM upstreams), so one
+# careless tool call that dumps tens of kilotokens (verbose ``pytest
+# -v``, a whole-megafile Read, an unbounded MCP result) is re-billed on
+# every subsequent turn for the life of the session. These caps bound
+# the size a single tool result can park in the conversation. They are
+# guardrails, not constraints: thresholds are sized so normal work
+# never hits them, and every cap carries its own remedy — Claude Code
+# spills oversized Bash and MCP results to a file the agent can
+# Read/grep, and the Read cap's deny message points at
+# ``offset``/``limit`` paging plus an agent-writable override file
 # (``shared/egg_agent/tool_output_cap.py``).
 #
 # Tuple shape: (sandbox env var, orchestrator-side override env var,
-# default). Operators override a value by setting the
-# ``EGG_LITELLM_``-prefixed variable on the orchestrator; setting it to
-# the empty string omits that guardrail from the injection entirely.
-# The override names are deliberately distinct from the sandbox-side
-# names so a value in the orchestrator's own environment (e.g. a dev
-# running it under Claude Code) is never forwarded by accident.
+# default). Operators override a value by setting the override variable
+# on the orchestrator; setting it to the empty string omits that
+# guardrail from the injection entirely. The override names are
+# deliberately distinct from the sandbox-side names so a value in the
+# orchestrator's own environment (e.g. a dev running it under Claude
+# Code) is never forwarded by accident.
 #
-# Defaults:
+# The Bash and MCP caps apply to EVERY route — the dump arithmetic is
+# route-independent; only the multiplier differs:
 # - ``BASH_MAX_OUTPUT_LENGTH`` (characters): Claude Code's built-in
 #   post-hoc Bash truncation — oversized output is saved to a session
 #   file and the agent gets the path plus a preview. 20k chars ≈ 5k
 #   tokens per result.
-# - ``EGG_READ_CAP_BYTES`` (bytes): predictive whole-file-Read deny in
-#   ``tool_output_cap.py``; 64 KiB ≈ 16k tokens, a quarter of the
-#   256 KiB Claude-route default, pushing big files toward paging.
 # - ``MAX_MCP_OUTPUT_TOKENS`` (tokens): Claude Code's MCP result cap
 #   (built-in default 25k); excess is persisted to disk and replaced
 #   with a file reference.
-_LITELLM_CONTEXT_GUARDRAILS: tuple[tuple[str, str, str], ...] = (
-    ("BASH_MAX_OUTPUT_LENGTH", "EGG_LITELLM_BASH_MAX_OUTPUT_LENGTH", "20000"),
+_CONTEXT_GUARDRAILS: tuple[tuple[str, str, str], ...] = (
+    ("BASH_MAX_OUTPUT_LENGTH", "EGG_AGENT_BASH_MAX_OUTPUT_LENGTH", "20000"),
+    ("MAX_MCP_OUTPUT_TOKENS", "EGG_AGENT_MAX_MCP_OUTPUT_TOKENS", "15000"),
+)
+
+# LiteLLM-only extra: a tighter Read cap. The predictive whole-file-Read
+# deny in ``tool_output_cap.py`` already guards every route at its
+# built-in 256 KiB default; on the LiteLLM path — where turn counts run
+# 3-5x the Claude baseline, multiplying the re-bill — this pushes big
+# files toward paging earlier (64 KiB ≈ 16k tokens). The Claude route
+# deliberately keeps the 256 KiB default rather than getting this var.
+_LITELLM_EXTRA_GUARDRAILS: tuple[tuple[str, str, str], ...] = (
     ("EGG_READ_CAP_BYTES", "EGG_LITELLM_READ_CAP_BYTES", str(64 * 1024)),
-    ("MAX_MCP_OUTPUT_TOKENS", "EGG_LITELLM_MAX_MCP_OUTPUT_TOKENS", "15000"),
 )
 
 
-def litellm_context_guardrail_env() -> dict[str, str]:
-    """Context-guardrail env vars for a LiteLLM-routed agent (#3175).
+def context_guardrail_env(upstream: str) -> dict[str, str]:
+    """Context-guardrail env vars for an agent spawn (#3175).
 
-    Reads the operator overrides from the orchestrator's environment on
-    every call (spawn-frequency, so no caching) and validates each as a
-    positive integer — an unparseable or non-positive override logs a
-    warning and falls back to the built-in default rather than
-    forwarding garbage the sandbox would misread. An empty-string
-    override opts that guardrail out entirely.
+    Returns the route-independent Bash/MCP caps for every *upstream*,
+    plus the tighter Read cap on the LiteLLM path. Reads the operator
+    overrides from the orchestrator's environment on every call
+    (spawn-frequency, so no caching) and validates each as a positive
+    integer — an unparseable or non-positive override logs a warning
+    and falls back to the built-in default rather than forwarding
+    garbage the sandbox would misread. An empty-string override opts
+    that guardrail out entirely.
     """
+    guardrails = _CONTEXT_GUARDRAILS
+    if upstream == UPSTREAM_LITELLM:
+        guardrails = guardrails + _LITELLM_EXTRA_GUARDRAILS
     env: dict[str, str] = {}
-    for target, override, default in _LITELLM_CONTEXT_GUARDRAILS:
+    for target, override, default in guardrails:
         raw = os.environ.get(override)
         if raw is None:
             env[target] = default
@@ -262,8 +276,8 @@ class AgentModelDecision:
         ``ANTHROPIC_CUSTOM_MODEL_OPTION``, not this var. LiteLLM-routed
         agents talk to the gateway, not anthropic.com, and the gateway
         injects its own credentials at proxy time. The Anthropic path
-        returns an empty dict so default-Claude spawns carry no extra
-        env (the existing pre-#2832 wire shape).
+        carries none of these registration vars, so default-Claude
+        spawns keep the pre-#2832 wire shape.
 
         We also redirect the other two resolution paths that would
         otherwise emit a Claude model name the LiteLLM proxy can't
@@ -291,17 +305,19 @@ class AgentModelDecision:
           take a model name and the ``[1m]`` suffix is read per-variable,
           and small/fast helper calls don't need the 1M window.
 
-        LiteLLM-routed agents additionally get the context guardrails
-        from :func:`litellm_context_guardrail_env` (#3175) — per-turn
-        re-billing of the full conversation makes a single oversized
-        tool result disproportionately expensive on this path, so
-        Bash/Read/MCP result sizes are bounded (with built-in remedies;
-        see the guardrail table's comment). Claude-routed spawns are
-        untouched: this method returns an empty dict there, so the
-        Claude wire shape and tool behavior stay identical to today.
+        Every route additionally gets the context guardrails from
+        :func:`context_guardrail_env` (#3175) — per-turn re-billing of
+        the full conversation makes a single oversized tool result
+        disproportionately expensive on any route, so Bash/MCP result
+        sizes are bounded everywhere (with built-in remedies; see the
+        guardrail table's comment), and the LiteLLM path adds a tighter
+        Read cap on top. The Anthropic path therefore no longer returns
+        an empty dict (the pre-#3175 shape): it carries exactly the
+        Bash/MCP guardrails and none of the custom-model registration,
+        so the Claude *wire* shape is unchanged.
         """
         if self.upstream == UPSTREAM_ANTHROPIC or self.upstream_model is None:
-            return {}
+            return context_guardrail_env(self.upstream)
         return {
             "ANTHROPIC_CUSTOM_MODEL_OPTION": self.claude_code_alias,
             "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME": self.upstream_model,
@@ -309,7 +325,7 @@ class AgentModelDecision:
             "CLAUDE_CODE_SUBAGENT_MODEL": self.claude_code_alias,
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": self.upstream_model,
             "ANTHROPIC_SMALL_FAST_MODEL": self.upstream_model,
-            **litellm_context_guardrail_env(),
+            **context_guardrail_env(self.upstream),
         }
 
 
@@ -449,6 +465,6 @@ __all__ = [
     "UPSTREAM_ANTHROPIC",
     "UPSTREAM_LITELLM",
     "classify_model",
-    "litellm_context_guardrail_env",
+    "context_guardrail_env",
     "resolve_agent_model",
 ]

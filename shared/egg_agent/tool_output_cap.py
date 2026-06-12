@@ -66,8 +66,20 @@ _NON_PAGEABLE_BINARY_EXTENSIONS = frozenset(
     {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff", ".tif", ".ico", _NOTEBOOK_EXTENSION}
 )
 
-# Raw EGG_READ_CAP_BYTES values we've already warned about, so a misconfigured
-# knob logs once per distinct value rather than on every Read in the session.
+# Agent-writable override for the Read byte cap (#3175). The predictive cap
+# is a guardrail against *accidental* whole-file dumps, not a hard
+# constraint — an agent that deliberately needs an oversized read in a
+# single result raises its own session's cap by writing the byte size it
+# needs to this file (the deny message says exactly how). It lives in /tmp:
+# pod-local and outside the repo worktree, so the override can never be
+# committed, and it dies with the pod. Re-read on every Read alongside the
+# env knob, so it takes effect on the immediate retry; when both are set
+# the file wins — it is the more deliberate, more recent signal.
+_READ_CAP_OVERRIDE_FILE = Path("/tmp/egg-read-cap-bytes")
+
+# Raw cap values we've already warned about (keyed by source+value), so a
+# misconfigured knob logs once per distinct value rather than on every Read
+# in the session.
 _warned_cap_values: set[str] = set()
 
 
@@ -86,42 +98,60 @@ def is_output_cap_disabled() -> bool:
 
 
 def _read_cap_bytes() -> int:
-    """Resolve the Read byte cap from env, falling back to the default.
+    """Resolve the Read byte cap: agent override file, then env, then default.
 
-    ``EGG_READ_CAP_BYTES`` is an operator tuning knob, so a *set-but-invalid*
-    value is logged loudly before falling back — an operator who typoed the
-    value or used an unsupported suffix (``2mb``, ``0``, a negative) would
-    otherwise silently get the default and a different false-positive rate
-    than they intended. The unset case stays silent (the default is expected).
+    The override file (``_READ_CAP_OVERRIDE_FILE``) is the agent's own
+    deliberate escape hatch and wins when present and valid. The
+    ``EGG_READ_CAP_BYTES`` env var is the operator tuning knob. Both are
+    *set-but-invalid* loudly: a typoed value or unsupported suffix
+    (``2mb``, ``0``, a negative) would otherwise silently fall back and
+    produce a different false-positive rate than intended. The unset
+    cases stay silent (the default is expected).
     """
+    try:
+        raw_override = _READ_CAP_OVERRIDE_FILE.read_text().strip()
+    except OSError:
+        raw_override = ""
+    if raw_override:
+        value = _parse_cap(raw_override, source=str(_READ_CAP_OVERRIDE_FILE))
+        if value is not None:
+            return value
+
     raw = os.environ.get("EGG_READ_CAP_BYTES", "").strip()
     if not raw:
         return _DEFAULT_READ_CAP_BYTES
+    value = _parse_cap(raw, source="EGG_READ_CAP_BYTES")
+    return value if value is not None else _DEFAULT_READ_CAP_BYTES
+
+
+def _parse_cap(raw: str, source: str) -> int | None:
+    """Parse a cap value, warning (once per source+value) when invalid."""
     try:
         value = int(raw)
     except ValueError:
-        _warn_invalid_cap(raw, "is not an integer")
-        return _DEFAULT_READ_CAP_BYTES
+        _warn_invalid_cap(raw, source, "is not an integer")
+        return None
     if value <= 0:
-        _warn_invalid_cap(raw, "must be a positive integer")
-        return _DEFAULT_READ_CAP_BYTES
+        _warn_invalid_cap(raw, source, "must be a positive integer")
+        return None
     return value
 
 
-def _warn_invalid_cap(raw: str, problem: str) -> None:
-    """Warn that an invalid EGG_READ_CAP_BYTES is being ignored, once per value.
+def _warn_invalid_cap(raw: str, source: str, problem: str) -> None:
+    """Warn that an invalid cap value is being ignored, once per source+value.
 
     The cap is resolved on every ``Read``, so warning unconditionally would emit
     hundreds of identical lines for one misconfiguration. Track the raw values
     already warned about so a fixed-then-re-broken knob still warns on the new
     bad value, but a steady bad value warns only once.
     """
-    if raw in _warned_cap_values:
+    key = f"{source}={raw}"
+    if key in _warned_cap_values:
         return
-    _warned_cap_values.add(raw)
+    _warned_cap_values.add(key)
     logger.warning(
-        f"EGG_READ_CAP_BYTES={raw!r} {problem}; ignoring it and using the "
-        f"default {_DEFAULT_READ_CAP_BYTES} bytes"
+        f"{source}={raw!r} {problem}; ignoring it and falling back "
+        f"(default {_DEFAULT_READ_CAP_BYTES} bytes)"
     )
 
 
@@ -226,11 +256,18 @@ def check_read_output_risk(tool_input: dict[str, Any], cwd: str | None) -> str |
     # Source code is roughly ~4 B/token, so this rough KB→token estimate is
     # accurate enough to motivate paging without overstating precision.
     approx_tokens_k = max(1, approx_kb // 4)
+    # Suggest a cap that admits this exact read (next KiB above the file
+    # size), so the deliberate-override path is a single copy-pastable
+    # command rather than arithmetic.
+    override_cap = ((size // 1024) + 1) * 1024
     return (
         f"Read denied: '{file_path}' is ~{approx_kb} KB, large enough that "
         f"reading it whole would dump ~{approx_tokens_k}k tokens to the model "
         f"in a single tool result — wasteful of context budget when the call "
-        f"can be narrowed. {_read_remedy(suffix, cap)}"
+        f"can be narrowed. {_read_remedy(suffix, cap)} If you have weighed the "
+        f"cost and deliberately need this result whole in one call, raise this "
+        f"session's cap and retry (Bash: echo {override_cap} > "
+        f"{_READ_CAP_OVERRIDE_FILE})."
     )
 
 
