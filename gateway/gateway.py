@@ -9315,16 +9315,59 @@ class _HopPrepError(Exception):
         self.response = response
 
 
+def _sanitize_attribution_value(value: str) -> str:
+    """Constrain a session field to a safe HTTP header value.
+
+    The values are orchestrator-authoritative (set via the launcher-secret
+    ``register_session``), so this is belt-and-braces: drop anything outside
+    printable ASCII (CR/LF would otherwise allow header injection) and cap
+    the length so a pathological value cannot bloat every upstream request.
+    """
+    return "".join(ch for ch in value if 32 <= ord(ch) < 127)[:256]
+
+
+def _with_attribution_headers(headers: dict[str, str], session: Any) -> dict[str, str]:
+    """Stamp gateway-authoritative ``x-egg-*`` attribution onto a non-Anthropic hop.
+
+    The egg-litellm ``cost_callback`` keys its per-session cost/cache log
+    lines on ``x-claude-code-session-id``, which maps to a role only by hand
+    cross-referencing agent completion logs (issue #3175). The gateway
+    resolves the full ``Session`` — ``pipeline_id`` / ``agent_role`` /
+    ``phase`` — on every ``/v1/messages`` call anyway, so it stamps them here
+    and the callback logs spend per role directly.
+
+    Any client-supplied ``x-egg-*`` header is dropped first: the sandbox
+    controls its own request headers (e.g. via ``ANTHROPIC_CUSTOM_HEADERS``),
+    so agent-supplied values are untrusted and must never masquerade as
+    attribution. Applied only to non-Anthropic hops — the Claude path stays
+    byte-identical.
+    """
+    headers = {k: v for k, v in headers.items() if not k.lower().startswith("x-egg-")}
+    if session is None:
+        return headers
+    for header, value in (
+        ("x-egg-pipeline-id", session.pipeline_id),
+        ("x-egg-agent-role", session.agent_role),
+        ("x-egg-phase", session.phase),
+    ):
+        if value:
+            headers[header] = _sanitize_attribution_value(str(value))
+    return headers
+
+
 def _prepare_hop(
     hop: RouteHop,
     request_headers: Any,
     request_body: bytes,
+    session: Any = None,
 ) -> _PreparedHop:
     """Build the (client, headers, body) for one hop.
 
     Headers are rebuilt with ``_get_forwarded_headers`` from the *original*
     request headers on every call, then this hop's credential is injected —
     so a fallback hop never inherits the previous upstream's auth header.
+    Non-Anthropic hops additionally carry ``x-egg-*`` attribution headers
+    derived from ``session`` (issue #3175); see ``_with_attribution_headers``.
     Raises ``_HopPrepError`` (carrying the error response) on a credential or
     unknown-upstream failure for this hop; the caller decides whether to
     advance to a fallback or surface it.
@@ -9333,6 +9376,8 @@ def _prepare_hop(
     headers, cred_error = _inject_upstream_credentials(headers, upstream=hop.upstream)
     if cred_error:
         raise _HopPrepError(cred_error)
+    if hop.upstream != "anthropic":
+        headers = _with_attribution_headers(headers, session)
 
     if hop.upstream == "anthropic":
         client = get_anthropic_client()
@@ -9700,7 +9745,7 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
                 is_last_hop = hop_idx == len(chain) - 1
                 serving_upstream = hop.upstream
                 try:
-                    prepared = _prepare_hop(hop, request.headers, request_body)
+                    prepared = _prepare_hop(hop, request.headers, request_body, session=session)
                 except _HopPrepError as prep_err:
                     if is_last_hop:
                         return prep_err.response
@@ -9812,7 +9857,7 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
                 is_last_hop = hop_idx == len(chain) - 1
                 serving_upstream = hop.upstream
                 try:
-                    prepared = _prepare_hop(hop, request.headers, request_body)
+                    prepared = _prepare_hop(hop, request.headers, request_body, session=session)
                 except _HopPrepError as prep_err:
                     if is_last_hop:
                         return prep_err.response
@@ -9911,7 +9956,7 @@ def proxy_count_tokens() -> tuple[Response, int] | Response:
     initial_hop = chain[0]
     serving_upstream = initial_hop.upstream
     try:
-        prepared = _prepare_hop(initial_hop, request.headers, count_tokens_body)
+        prepared = _prepare_hop(initial_hop, request.headers, count_tokens_body, session=session)
     except _HopPrepError as prep_err:
         return prep_err.response
 
