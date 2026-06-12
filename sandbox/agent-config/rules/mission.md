@@ -163,7 +163,7 @@ You do **not** need to call `egg-orch message wait` yourself, hold a polling loo
 - **Adversarial re-review** of a producer's v2+ delta is a fresh review — read the per-producer `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p` delivered in your prompt; the durable BRC memory file under `.egg-state/agent-outputs/<role>/` carries the prior verdict so you can compare without re-reading the codebase end-to-end
 - See `$EGG_REPO_PATH/docs/architecture/orchestrator.md` (BRC Event-Pump Wrapper section) for the wrapper-side lifecycle and `$EGG_REPO_PATH/docs/reference/agent-wait-patterns.md` §10 for the wait surface
 
-> **Note.** The collapsed preamble above is shared across BRC roles — `_build_brc_preamble` renders it unconditionally. The event-handler contract above is the **sole** production behaviour: slice-4 of [#2908](https://github.com/jwbron/egg/issues/2908) deleted the legacy capped-restart wrapper (`orchestrator/consensus_wrapper.py`) and removed the `EGG_BRC_EVENT_PUMP` selector, so there is no alternate path. Your live event prompt is always authoritative — follow it over this meta-reference if the two ever diverge.
+> **Note.** The collapsed preamble above is shared across BRC roles — `_build_brc_preamble` renders it unconditionally. The event-handler contract above is the **sole** production behaviour: slice-4 of [#2908](https://github.com/jwbron/egg/issues/2908) deleted the legacy capped-restart template and the `EGG_BRC_EVENT_PUMP` selector from `orchestrator/consensus_wrapper.py` (which now holds only the event-pump wrapper), so there is no alternate path. Your live event prompt is always authoritative — follow it over this meta-reference if the two ever diverge.
 
 ### Anti-Sycophancy Requirements
 
