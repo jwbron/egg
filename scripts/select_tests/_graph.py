@@ -287,7 +287,7 @@ def build_bare_name_upstream_edges(all_modules: set[str], repo_root: Path) -> di
         try:
             source = source_path.read_text(encoding="utf-8", errors="replace")
             tree = ast.parse(source, filename=str(source_path))
-        except SyntaxError, OSError, ValueError:  # noqa: B014 — PEP 758 form
+        except SyntaxError, OSError, ValueError:
             # ValueError covers null-byte source etc.  PEP 758 (Python
             # 3.14+) makes the unparenthesised tuple form the canonical
             # ``except`` shape and ruff format normalises
@@ -341,10 +341,20 @@ def build_bare_name_upstream_edges(all_modules: set[str], repo_root: Path) -> di
 #
 # Known accepted gap: a consumer that imports the barrel only for a
 # submodule's import-time side effects (no symbol reference) is not
-# selected when that submodule changes.  Pure barrels bind names and
-# import submodules — modules whose import-time behaviour is
-# load-bearing (e.g. gateway's `@app.route` registration, decision-8
-# of #2261) make their barrel impure and stay opaque.
+# selected when that submodule changes.  Note this is *wider* than
+# "the barrel is impure": a perfectly pure re-export barrel
+# (`from ._sub import foo`, `__all__`) can still front a `_sub` whose
+# import is load-bearing (e.g. registering into a global on import),
+# and a consumer that uses only an `_other`-backed symbol while relying
+# on `_sub`'s registration via the barrel import is missed.  The
+# backstop for this gap is not the purity classifier — it is the same
+# one the dynamic-import heuristic leans on: `make test-all` is CI
+# ground truth and re-runs the full suite, so a transparency miss
+# costs a narrowed inner-loop run, never a merge-gating one.
+# Decorator-style registration that runs at the barrel's *own* import
+# time (e.g. gateway's `@app.route`, decision-8 of #2261) is a separate
+# case the classifier *does* catch: that statement makes the
+# `__init__.py` itself impure, so the barrel stays opaque.
 # ----------------------------------------------------------------------
 
 
@@ -780,6 +790,13 @@ def _walk_upstream_with_depth(
             for consumer in _direct_importers(bundle, module):
                 if consumer in full:
                     continue
+                # Deliberate limitation: a consumer that is itself a
+                # barrel re-exporting from `module` is `taint_full`'d
+                # here rather than kept partial with only the symbols it
+                # re-exports.  Transparency therefore stops one level in
+                # — nested/chained barrels (A re-exports B re-exports a
+                # submodule) over-select but stay sound.  Worth
+                # revisiting if #3111's program ever nests barrels.
                 used = _used_symbols(bundle, consumer, module)
                 if used is None or used & tainted_symbols:
                     taint_full(consumer, depth + 1)

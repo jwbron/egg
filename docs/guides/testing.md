@@ -131,9 +131,18 @@ The algorithm is:
    full package-mode blast radius. Known accepted gap: a consumer
    that imports a barrel only for a submodule's import-time side
    effects (referencing no symbol) is not selected when that
-   submodule changes — pure barrels bind names; packages whose
-   import-time behavior is load-bearing (e.g. gateway's `@app.route`
-   registration) are impure by construction and stay opaque.
+   submodule changes. This is *wider* than "the barrel is impure":
+   a perfectly pure re-export barrel can still front a submodule
+   whose import is load-bearing (registering into a global on
+   import), and a consumer relying on that registration while using
+   only an unrelated symbol is missed. The backstop is not the
+   purity classifier but `make test-all` — full-suite CI ground
+   truth — exactly as for the dynamic-import heuristic, so a
+   transparency miss costs a narrowed inner-loop run, never a
+   merge-gating one. Registration that runs at the barrel's *own*
+   import time (e.g. gateway's `@app.route`) is the separate case the
+   classifier *does* catch: it makes the `__init__.py` itself impure,
+   so the barrel stays opaque.
 6. **Map modules → test files.** Intersect the downstream set with
    the pre-collected set of every `test_*.py` / `*_test.py` file
    in the graph. The selector emits the resulting set of test file
