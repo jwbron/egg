@@ -909,7 +909,7 @@ while true; do
                     # The per-failure line above already printed the streak
                     # count this iteration; this escalation line adds the
                     # diagnosis (likely permanent), not the count.
-                    cw_log "agent invocation streak crossed 5 (action=$ACTION) -- this is likely a permanent failure (unknown model alias, auth misconfiguration, prompt-rendering crash), not a transient. Idle budget continues to accrue."
+                    cw_log "agent invocation streak crossed {spvr_failure_streak_warn} (action=$ACTION) -- this is likely a permanent failure (unknown model alias, auth misconfiguration, prompt-rendering crash), not a transient. Idle budget continues to accrue."
                     AGENT_FAIL_ALERTED_5=true
                 fi
                 if [ "$AGENT_FAIL_STREAK" -ge {spvr_failure_streak_alert} ] && [ "$AGENT_FAIL_ALERTED_10" != "true" ]; then
@@ -1116,6 +1116,12 @@ def build_event_pump_wrapped_command(
         spvr_failure_streak_warn=SUPERVISION_FAILURE_STREAK_WARN,
         spvr_failure_streak_alert=SUPERVISION_FAILURE_STREAK_ALERT,
     )
+    # The triple-quoted template opens with a newline (so the source reads
+    # cleanly); strip it so ``#!/bin/bash`` lands on line 1. The script is run
+    # via ``bash -c`` where the shebang is cosmetic, so pod runtime behaviour
+    # is unchanged — but a leading blank line trips shellcheck SC1128 on the
+    # committed golden snapshot, so we drop it at the single rendering source.
+    script = script.lstrip("\n")
     # #3064 slice-1: in orchestrator-ownership mode, splice the dormant
     # one-shot arm in ahead of the main loop. In pod mode (default) the
     # template is returned untouched so the generated wrapper is

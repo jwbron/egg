@@ -2088,3 +2088,69 @@ class TestSpawnEventJobOneShot:
         assert "EGG_EVENT_DEDUPE_KEY" not in env
         # Owner flag is not forced on by the pod-mode path.
         assert env.get("EGG_EVENT_LOOP_OWNER", "pod") in ("pod", None)
+
+
+class TestEventJobStatusView:
+    """The #3064 slice-3 Job-status observer maps k8s status → loop outcomes."""
+
+    _KEY = "f" * 64
+
+    def _info(self, status):
+        return ContainerInfo(
+            container_id="uid-1", container_name="job-1", status=status, job_name="job-1"
+        )
+
+    def test_failed_job_is_abnormal(self, spawner, mock_k8s_client):
+        import event_loop
+
+        mock_k8s_client.list_jobs.return_value = [self._info(ContainerStatus.FAILED)]
+        view = spawner.create_event_job_status_view()
+        assert view.outcome_for(self._KEY) == event_loop.JOB_OUTCOME_ABNORMAL
+
+    def test_exited_job_is_success(self, spawner, mock_k8s_client):
+        import event_loop
+
+        mock_k8s_client.list_jobs.return_value = [self._info(ContainerStatus.EXITED)]
+        view = spawner.create_event_job_status_view()
+        assert view.outcome_for(self._KEY) == event_loop.JOB_OUTCOME_SUCCESS
+
+    def test_active_job_is_running(self, spawner, mock_k8s_client):
+        import event_loop
+
+        mock_k8s_client.list_jobs.return_value = [self._info(ContainerStatus.RUNNING)]
+        view = spawner.create_event_job_status_view()
+        assert view.outcome_for(self._KEY) == event_loop.JOB_OUTCOME_RUNNING
+
+    def test_failed_wins_over_running(self, spawner, mock_k8s_client):
+        """A FAILED Job among the matches classifies as abnormal."""
+        import event_loop
+
+        mock_k8s_client.list_jobs.return_value = [
+            self._info(ContainerStatus.RUNNING),
+            self._info(ContainerStatus.FAILED),
+        ]
+        view = spawner.create_event_job_status_view()
+        assert view.outcome_for(self._KEY) == event_loop.JOB_OUTCOME_ABNORMAL
+
+    def test_missing_job_is_running_not_failure(self, spawner, mock_k8s_client):
+        """No Job found (GC'd / not yet visible) must never be a spurious abort."""
+        import event_loop
+
+        mock_k8s_client.list_jobs.return_value = []
+        view = spawner.create_event_job_status_view()
+        assert view.outcome_for(self._KEY) == event_loop.JOB_OUTCOME_RUNNING
+
+    def test_list_error_is_running_not_failure(self, spawner, mock_k8s_client):
+        """A list error degrades to running (best-effort) — never abnormal."""
+        import event_loop
+
+        mock_k8s_client.list_jobs.side_effect = RuntimeError("API down")
+        view = spawner.create_event_job_status_view()
+        assert view.outcome_for(self._KEY) == event_loop.JOB_OUTCOME_RUNNING
+
+    def test_query_uses_dedupe_label_selector(self, spawner, mock_k8s_client):
+        """The view queries by the label-safe (shortened) dedupe selector."""
+        mock_k8s_client.list_jobs.return_value = []
+        spawner.create_event_job_status_view().outcome_for(self._KEY)
+        _, kwargs = mock_k8s_client.list_jobs.call_args
+        assert kwargs["label_selector"] == f"egg.event.dedupe-key={self._KEY[:63]}"

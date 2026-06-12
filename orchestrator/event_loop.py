@@ -70,6 +70,18 @@ SUPERVISION_FAILURE_STREAK_ALERT = _supervision_policy.SUPERVISION_FAILURE_STREA
 SPAWN_ACTIONS: frozenset[str] = frozenset({"propose", "ack", "nack"})
 AGENT_FREE_ACTIONS: frozenset[str] = frozenset({"confirm", "complete"})
 
+# Job-outcome classification the loop feeds the supervisor (slice-3, #3138).
+# A ``job_status_view`` maps a one-shot Job's termination onto one of these:
+#   * ``running``    — still in flight (or status unreadable); leave it.
+#   * ``success``    — clean rc=0 agent completion; reset the streak.
+#   * ``legitimate`` — a non-abnormal BRC outcome (stale-event exit 0, a cast
+#                      NACK vote); an explicit non-trigger — streak untouched.
+#   * ``abnormal``   — pod died mid-event / non-zero rc; increment the streak.
+JOB_OUTCOME_RUNNING = "running"
+JOB_OUTCOME_SUCCESS = "success"
+JOB_OUTCOME_LEGITIMATE = "legitimate"
+JOB_OUTCOME_ABNORMAL = "abnormal"
+
 # Poll cadence (#3064 slice-2: "poll interval env-tunable (default 5s)").
 DEFAULT_POLL_INTERVAL_SECONDS = 5.0
 
@@ -213,7 +225,13 @@ class JobSupervisor:
     runtime memory into the orchestrator-side process so pod crashes
     (abnormal termination, OOM, etc.) trigger backoff/respawn. NACKs and
     other BRC legitimate outcomes do NOT increment the streak. The wrapper
-    import the SAME constants from ``supervision_policy.py``.
+    imports the SAME constants from ``supervision_policy.py``.
+
+    ``agent_failed`` is the orchestrator-mode relocation of the wrapper's
+    #2806 propose-arm-exhaustion path: when a *producer* propose arm
+    exhausts its retry budget, this callback engages the existing
+    ``AGENT_FAILED`` flow so the cohort and operator learn the producer is
+    stuck. Reviewer arms (ack/nack) do not engage it.
     """
 
     def __init__(
@@ -221,9 +239,11 @@ class JobSupervisor:
         *,
         clock: Callable[[], float] = time.monotonic,
         overseer_alert: Callable[..., Any] | None = None,
+        agent_failed: Callable[..., Any] | None = None,
     ) -> None:
         self.clock = clock
         self._overseer_alert = overseer_alert
+        self._agent_failed = agent_failed
         # Per-dedupe-key streaks — each key gets a fresh budget
         # The counter resets when the dedupe key changes, giving a fresh
         # budget for each distinct event.
@@ -283,19 +303,49 @@ class JobSupervisor:
         self._streaks[dedupe_key] = streak
         self._last_spawn_time[dedupe_key] = self.clock()
         self._last_action[dedupe_key] = (action, role)
-        logger.warning(
+        # Silent retries below the warn threshold (#3138): a one-off transient
+        # is expected to recover on the next respawn, so it stays at debug
+        # rather than spamming warn-level logs on every streak increment.
+        logger.debug(
             "JobSupervisor: abnormal terminate for key=%s (action=%s, role=%s) — streak=%d",
             dedupe_key,
             action,
             role,
             streak,
         )
-        # Threshold guards — fire once per key-lifetime
-        if streak >= SUPERVISION_FAILURE_STREAK_ALERT:
-            if not self._alerted_10.get(dedupe_key, False):
-                self._alerted_10[dedupe_key] = True
-                self._exhausted.add(dedupe_key)
-                self._emit_alert(dedupe_key, streak, action, role)
+        # Threshold guards — each fires exactly once per key-lifetime.
+        # Sticky warn at the WARN threshold: a streak this long is likely a
+        # permanent failure (unknown model alias, auth misconfig, prompt
+        # crash) rather than a transient — mirror the wrapper's warn line.
+        if streak >= SUPERVISION_FAILURE_STREAK_WARN and not self._alerted_warn.get(
+            dedupe_key, False
+        ):
+            self._alerted_warn[dedupe_key] = True
+            logger.warning(
+                "JobSupervisor: agent-invocation failure streak crossed %d for key=%s "
+                "(action=%s, role=%s) — likely a permanent failure, not a transient",
+                SUPERVISION_FAILURE_STREAK_WARN,
+                dedupe_key,
+                action,
+                role,
+            )
+        # Sticky alert + exhaustion at the ALERT threshold.
+        if streak >= SUPERVISION_FAILURE_STREAK_ALERT and not self._alerted_10.get(
+            dedupe_key, False
+        ):
+            self._alerted_10[dedupe_key] = True
+            self._exhausted.add(dedupe_key)
+            self._emit_alert(dedupe_key, streak, action, role)
+            # #2806 relocated for orchestrator mode: a *producer* propose arm
+            # that exhausts its budget engages the existing AGENT_FAILED path.
+            # Reviewer arms (ack/nack) are not producer failures.
+            if action == "propose" and self._agent_failed is not None:
+                self._agent_failed(
+                    role=role,
+                    action=action,
+                    dedupe_key=dedupe_key,
+                    streak=streak,
+                )
 
     @property
     def backoff_factor(self) -> int:
@@ -316,6 +366,23 @@ class JobSupervisor:
         streak = self._streaks.get(dedupe_key, 0)
         return min(streak * SUPERVISION_BACKOFF_FACTOR, SUPERVISION_BACKOFF_CAP_SECONDS)
 
+    def ready_to_respawn(self, dedupe_key: str) -> bool:
+        """Return True iff the backoff window since the last abort has elapsed.
+
+        A key with no recorded abort (fresh, or just reset by
+        :meth:`record_success`) is always ready. After an abort the caller
+        must wait :meth:`backoff_seconds` (``streak*factor`` capped) measured
+        from the abort timestamp before respawning — this is what throttles a
+        deterministic fast-fail loop instead of hammering the orchestrator.
+        """
+        last = self._last_spawn_time.get(dedupe_key)
+        if last is None:
+            return True
+        backoff = self.backoff_seconds(dedupe_key)
+        if backoff <= 0:
+            return True
+        return (self.clock() - last) >= backoff
+
     def is_exhausted(self, dedupe_key: str) -> bool:
         """Return True if the given dedupe-key has exhausted its retry budget."""
         return dedupe_key in self._exhausted
@@ -327,6 +394,12 @@ class JobSupervisor:
         be running. We do NOT persist supervision state; a fresh loop
         starts with empty streaks. This means the first-old-dedupe-key
         starts a fresh budget, which is the intended stateless design.
+
+        NOTE: this clears ``_exhausted`` along with the streaks, so it is the
+        *restart* path only — it is NOT called per-poll. The live driver
+        (``OrchestratorEventLoop.poll_once``) observes Job status and drives
+        ``record_*`` directly; it never calls ``reconcile`` on the steady-state
+        path, so per-poll exhaustion is never wiped.
         """
         self._streaks.clear()
         self._last_spawn_time.clear()
@@ -345,7 +418,7 @@ class JobSupervisor:
     # ------------------------------------------------------------------
 
     def _emit_alert(self, dedupe_key: str, streak: int, action: str, role: str) -> None:
-        """Emit an OVERSEER_ALERT for a exhausted key.
+        """Emit an OVERSEER_ALERT for an exhausted key.
 
         The wrapper's ``raise_agent_fail_alert`` path (``consensus_wrapper.py:690``)
         is the reference for the message payload; we mirror the anomaly
@@ -391,6 +464,7 @@ class OrchestratorEventLoop:
         roles: list[str] | None = None,
         poll_interval: float | None = None,
         job_supervisor: JobSupervisor | None = None,
+        job_status_view: Any | None = None,
     ) -> None:
         self.tracker = tracker
         self.spawner = spawner
@@ -406,9 +480,18 @@ class OrchestratorEventLoop:
         # In-memory live dedupe-key set — process-local; intentionally NOT
         # persisted (restart re-derives + reconciles against live Jobs).
         self._live_keys: set[str] = set()
+        # {dedupe_key: (action, role)} for each spawned key — lets the
+        # supervisor attribute an abnormal-termination abort to the right
+        # producer arm (so a propose exhaustion can engage AGENT_FAILED).
+        self._key_meta: dict[str, tuple[str, str]] = {}
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self.supervisor = job_supervisor or JobSupervisor(clock=self.clock)
+        # Optional Job-status observer (slice-3). Exposes
+        # ``outcome_for(dedupe_key) -> str`` (one of the JOB_OUTCOME_* values).
+        # ``None`` (pure slice-2 mode / most unit tests) ⇒ no observation, so
+        # spawn behavior is byte-identical to slice-2.
+        self._job_status_view = job_status_view
 
     # ------------------------------------------------------------------
     # Dedupe state
@@ -430,13 +513,63 @@ class OrchestratorEventLoop:
     # ------------------------------------------------------------------
     # Single poll iteration
     # ------------------------------------------------------------------
+    def _observe_jobs(self) -> None:
+        """Reconcile live one-shot Jobs against their termination status (slice-3).
+
+        For every live dedupe key, ask the injected ``job_status_view`` how the
+        Job finished and drive the supervisor accordingly:
+
+          * ``success``    → reset the streak; the key leaves the live set.
+          * ``legitimate`` → leave the streak untouched (stale-event exit 0 /
+            a cast NACK vote are explicit non-triggers); key leaves the set.
+          * ``abnormal``   → increment the streak; the key leaves the live set
+            so the next poll re-derives and (after backoff) respawns it.
+          * ``running`` / unknown → still in flight; leave it.
+
+        No view wired ⇒ no observation (slice-2 behavior preserved). Failures
+        of the view are best-effort: a key is left live rather than risk a
+        spurious abort streak from a transient status-read error.
+        """
+        if self._job_status_view is None:
+            return
+        for key in list(self._live_keys):
+            try:
+                outcome = self._job_status_view.outcome_for(key)
+            except Exception as exc:  # noqa: BLE001 — observation is best-effort
+                logger.warning(
+                    "event-loop: job-status observation failed",
+                    pipeline_id=self.pipeline_id,
+                    slice_id=self.slice_id,
+                    dedupe_key=key,
+                    error=str(exc),
+                )
+                continue
+            action, role = self._key_meta.get(key, ("", ""))
+            if outcome == JOB_OUTCOME_SUCCESS:
+                self.supervisor.record_success(key)
+                self._live_keys.discard(key)
+                self._key_meta.pop(key, None)
+            elif outcome == JOB_OUTCOME_LEGITIMATE:
+                self.supervisor.record_legitimate_outcome(key, "legitimate")
+                self._live_keys.discard(key)
+                self._key_meta.pop(key, None)
+            elif outcome == JOB_OUTCOME_ABNORMAL:
+                self.supervisor.record_abort(key, action, role)
+                # Drop from the live set so the next poll re-derives and (once
+                # the backoff window elapses) respawns. Keep ``_key_meta`` so a
+                # respawn re-labels the same arm; the respawn refreshes it.
+                self._live_keys.discard(key)
+            # else: still running (or unknown) — leave the key live.
+
     def poll_once(self, roles: list[str]) -> list[EventDecision]:
         """Run one derivation→action pass over ``roles``.
 
-        Returns a decision per role (role order). Never raises: a per-role
-        failure is logged and recorded as a no-op so one bad role can't wedge
-        the loop.
+        Observes finished Jobs first (slice-3 supervision), then derives the
+        next action per role. Returns a decision per role (role order). Never
+        raises: a per-role failure is logged and recorded as a no-op so one
+        bad role can't wedge the loop.
         """
+        self._observe_jobs()
         decisions: list[EventDecision] = []
         for role in roles:
             try:
@@ -485,10 +618,25 @@ class OrchestratorEventLoop:
         if key in self._live_keys:
             return EventDecision(role=role, action=action, dedupe_key=key, spawned=False)
 
+        # Slice-3: throttle respawn after an abnormal termination until the
+        # backoff window (streak*factor capped) has elapsed. A fresh key (no
+        # recorded abort) is always ready, so the common path is unchanged.
+        if not self.supervisor.ready_to_respawn(key):
+            logger.debug(
+                "event-loop: respawn backing off",
+                pipeline_id=self.pipeline_id,
+                role=role,
+                action=action,
+                dedupe_key=key,
+                backoff_seconds=self.supervisor.backoff_seconds(key),
+            )
+            return EventDecision(role=role, action=action, dedupe_key=key, spawned=False)
+
         requested_at = self.clock()
         self.spawner.spawn_event(role=role, action=action, dedupe_key=key, payload=payload)
         dispatched_at = self.clock()
         self._live_keys.add(key)
+        self._key_meta[key] = (action, role)
         timing = {
             "spawn_requested_at": requested_at,
             "spawn_dispatch_seconds": round(dispatched_at - requested_at, 6),

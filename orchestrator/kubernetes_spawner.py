@@ -55,7 +55,7 @@ from kubernetes_client import (
     PodNotFoundError,
     get_kubernetes_client,
 )
-from models import AgentRole, ContainerInfo
+from models import AgentRole, ContainerInfo, ContainerStatus
 from review_graph import get_review_graph_for_phase
 
 # #2725: senders we always include in EGG_WAIT_PRODUCER_ALLOWLIST so
@@ -251,6 +251,54 @@ def _dedupe_label_value(dedupe_key: str) -> str:
     Idempotent for already-short keys.
     """
     return dedupe_key[:_LABEL_VALUE_MAXLEN]
+
+
+class _EventJobStatusView:
+    """Maps a one-shot event Job's k8s status onto the loop's outcome vocabulary.
+
+    Constructed via :meth:`KubernetesSpawner.create_event_job_status_view` and
+    consumed by ``OrchestratorEventLoop`` (#3064 slice-3). Kept module-level
+    (not a closure) so it is trivially unit-testable with a stub spawner. The
+    outcome strings are sourced from ``event_loop`` so the two sides can never
+    drift; the dual-path import mirrors the rest of this module.
+    """
+
+    def __init__(self, spawner: Any) -> None:
+        # ``spawner`` is the KubernetesSpawner; annotated ``Any`` because this
+        # helper is defined ahead of that class (no future-annotations import
+        # in this module, so a forward ref would NameError at definition time).
+        self._spawner = spawner
+        try:
+            from orchestrator import event_loop as _event_loop
+        except ImportError:
+            import event_loop as _event_loop  # type: ignore[no-redef]
+        self._RUNNING = _event_loop.JOB_OUTCOME_RUNNING
+        self._SUCCESS = _event_loop.JOB_OUTCOME_SUCCESS
+        self._ABNORMAL = _event_loop.JOB_OUTCOME_ABNORMAL
+
+    def outcome_for(self, dedupe_key: str) -> str:
+        selector = f"{LABEL_EVENT_DEDUPE}={_dedupe_label_value(dedupe_key)}"
+        try:
+            jobs = self._spawner.k8s.list_jobs(self._spawner._namespace, label_selector=selector)
+        except Exception as exc:  # noqa: BLE001 — observation is best-effort
+            logger.warning(
+                "Failed to list Jobs for event-loop supervision",
+                dedupe_key=dedupe_key,
+                error=str(exc),
+            )
+            return self._RUNNING
+        if not isinstance(jobs, (list, tuple)) or not jobs:
+            # No Job found (already GC'd, or an unconfigured mock) — never a
+            # failure: treat as still-running so we can't manufacture a streak.
+            return self._RUNNING
+        statuses = [getattr(j, "status", None) for j in jobs]
+        if any(s == ContainerStatus.FAILED for s in statuses):
+            return self._ABNORMAL
+        if any(s in (ContainerStatus.RUNNING, ContainerStatus.PENDING) for s in statuses):
+            return self._RUNNING
+        if any(s == ContainerStatus.EXITED for s in statuses):
+            return self._SUCCESS
+        return self._RUNNING
 
 
 def _fit_k8s_name(name: str, maxlen: int = 63) -> str:
@@ -1167,6 +1215,28 @@ class KubernetesSpawner:
         # sequence as a hit. A non-sequence (e.g. an unconfigured mock) is
         # treated as "no live Job" so the spawn proceeds.
         return isinstance(jobs, (list, tuple)) and len(jobs) > 0
+
+    def create_event_job_status_view(self) -> _EventJobStatusView:
+        """Return the loop's Job-status observer (#3064 slice-3 supervision).
+
+        The orchestrator-owned event loop calls ``outcome_for(dedupe_key)``
+        once per live key per poll to drive ``JobSupervisor``. Classification
+        of a one-shot event Job (located by its dedupe-key label) onto the
+        loop's outcome vocabulary:
+
+          * any matching Job ``FAILED`` (non-zero rc / pod died mid-event)
+            → ``abnormal`` (increment the streak / back off / respawn);
+          * any matching Job still ``RUNNING``/``PENDING`` → ``running``;
+          * all matching Jobs ``EXITED`` (clean rc=0) → ``success``;
+          * no Job found / list error → ``running``.
+
+        A missing or unreadable Job is deliberately treated as still-running
+        rather than a failure: a completed Job that has already been
+        garbage-collected, or a transient list error, must never manufacture
+        a spurious abort streak. Real abnormal terminations leave a FAILED
+        Job behind for at least the TTL window, which this poll observes.
+        """
+        return _EventJobStatusView(self)
 
     def spawn_event_job(
         self,

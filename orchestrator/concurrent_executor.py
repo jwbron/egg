@@ -192,6 +192,7 @@ class ConcurrentPhaseExecutor:
         review_graph: ReviewGraph | None = None,
         roles: list[AgentRole] | None = None,
         slice_id: str | None = None,
+        event_status_view: Any | None = None,
     ) -> None:
         """Initialise the executor.
 
@@ -211,6 +212,12 @@ class ConcurrentPhaseExecutor:
                 ``egg/issue-N/{slice_id}/{role}/work`` so commits across
                 slices stay isolated. ``None`` preserves the pre-slicing
                 pipeline-scoped semantics.
+            event_status_view: Optional Job-status observer (#3064 slice-3)
+                exposing ``outcome_for(dedupe_key) -> str``. In
+                orchestrator-ownership mode it lets the event loop watch
+                one-shot Job termination and drive supervision (backoff,
+                respawn, OVERSEER_ALERT). ``None`` (pod mode / tests without
+                a cluster) leaves supervision observation dormant.
         """
         self.pipeline = pipeline
         self.spawn_fn = spawn_fn
@@ -218,6 +225,7 @@ class ConcurrentPhaseExecutor:
         self._review_graph = review_graph
         self._roles_override = roles
         self._slice_id = slice_id
+        self._event_status_view = event_status_view
         self._failure_times: list[datetime] = []
         self._lock = threading.Lock()
         # #3064 slice-2: set when orchestrator-ownership mode starts the
@@ -460,7 +468,7 @@ class ConcurrentPhaseExecutor:
         runs on a daemon thread (poll-interval cadence) and stops when the
         slice converges.
         """
-        from event_loop import OrchestratorEventLoop, make_role_list
+        from event_loop import JobSupervisor, OrchestratorEventLoop, make_role_list
 
         slice_id = self._slice_id
         pipeline_id = self.pipeline.id
@@ -475,6 +483,16 @@ class ConcurrentPhaseExecutor:
         def _agent_free(*, action: str, role: str, payload: Any = None) -> None:
             self._orchestrator_side_confirm(tracker, role)
 
+        # Supervision (#3064 slice-3): when a producer's propose arm exhausts
+        # its retry budget the supervisor fires a sticky OVERSEER_ALERT and
+        # engages the existing AGENT_FAILED path. Both side effects are wired
+        # to the real surfaces here so the loop's supervision is functional
+        # end-to-end (not just an in-isolation primitive).
+        supervisor = JobSupervisor(
+            overseer_alert=self._emit_supervision_alert,
+            agent_failed=self._handle_propose_arm_exhaustion,
+        )
+
         loop = OrchestratorEventLoop(
             tracker,
             spawner_adapter,
@@ -483,6 +501,8 @@ class ConcurrentPhaseExecutor:
             phase=phase,
             agent_free_handler=_agent_free,
             roles=make_role_list(roles),
+            job_supervisor=supervisor,
+            job_status_view=self._event_status_view,
         )
         self._event_loop = loop
         loop.start()
@@ -813,6 +833,69 @@ class ConcurrentPhaseExecutor:
             "failed_role": role,
             "crash_result": crash_result,
         }
+
+    # ------------------------------------------------------------------
+    # Event-loop supervision side effects (#3064 slice-3)
+    # ------------------------------------------------------------------
+    def _emit_supervision_alert(
+        self, *, anomaly: str, priority: str, summary: str, detail: str
+    ) -> None:
+        """Broadcast a sticky OVERSEER_ALERT for a failure-streak exhaustion.
+
+        Mirrors the overseer monitor's broadcast convention: an
+        ``OVERSEER_ALERT`` message to the ``all`` target with the anomaly name
+        encoded in the subject (so ``/sdlc`` and any listener pick it up).
+        Best-effort — a message-store hiccup must not wedge the loop.
+        """
+        try:
+            get_message_store().add_message(
+                Message(
+                    pipeline_id=self.pipeline.id,
+                    from_role="orchestrator",
+                    to_role="all",
+                    message_type=MessageType.OVERSEER_ALERT,
+                    subject=f"{anomaly}: event-loop [{priority}]",
+                    body=detail or summary,
+                    phase=self.pipeline.current_phase.value,
+                    metadata={
+                        "anomaly": anomaly,
+                        "priority": priority,
+                        "summary": summary,
+                    },
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — alert emission is best-effort
+            logger.warning(
+                "Failed to broadcast supervision OVERSEER_ALERT",
+                pipeline_id=self.pipeline.id,
+                anomaly=anomaly,
+                error=str(exc),
+            )
+
+    def _handle_propose_arm_exhaustion(
+        self, *, role: str, action: str, dedupe_key: str, streak: int
+    ) -> None:
+        """Engage the existing AGENT_FAILED path for a producer propose arm.
+
+        #2806 relocated for orchestrator mode: when a producer's propose arm
+        exhausts its retry budget the producer is effectively stuck, so route
+        it through :meth:`_handle_single_failure` (AGENT_FAILED broadcast +
+        crash handling + HITL decision) — the same path a long-lived pod
+        failure takes in pod mode.
+        """
+        error = (
+            f"producer propose arm exhausted after {streak} consecutive "
+            f"agent-invocation failures (dedupe_key={dedupe_key})"
+        )
+        try:
+            self._handle_single_failure(role, error)
+        except Exception as exc:  # noqa: BLE001 — never wedge the loop on this
+            logger.warning(
+                "Failed to engage AGENT_FAILED for propose-arm exhaustion",
+                pipeline_id=self.pipeline.id,
+                role=role,
+                error=str(exc),
+            )
 
     def _abort_phase(self, error: str, recent_failures: int) -> dict[str, Any]:
         """Abort the phase due to multiple simultaneous failures."""
