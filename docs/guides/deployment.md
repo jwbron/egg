@@ -387,7 +387,6 @@ Normal response:
   "components": {
     "state_store": {"/home/egg/repos/egg": {"status": "ok"}},
     "state_store_summary": "ok",
-    "message_store": {"status": "ok"},
     "docker": "unknown"
   },
   "healthy_since": "2026-04-27T12:00:00+00:00",
@@ -396,8 +395,6 @@ Normal response:
 ```
 
 `components.state_store` is a per-repo map keyed by repo path (#2176), so multi-repo deployments surface every wedged repo in a single response rather than just the first one the probe loop hit. Each value is `{"status": "ok"}` or `{"status": "error", "error": "<git error>"}`. `components.state_store_summary` is the human-readable aggregate (`"ok"`, `"probe-skipped: ..."`, or `"N/M repos wedged: <paths>"`) — useful for log lines and skip cases where the per-repo map is empty.
-
-`components.message_store` (#3077 slice-6) surfaces the message-store backend health. `{"status": "ok"}` in the common case. When `EGG_MESSAGE_STORE_BACKEND` is `auto` (the default) and Redis is unreachable at startup, the orchestrator falls back to in-memory storage and sets `{"status": "degraded", "reason": "MESSAGE_STORE_AUTO_FALLBACK_TO_MEMORY"}`; the top-level `status` also flips to `"degraded"`. An explicit `EGG_MESSAGE_STORE_BACKEND=memory` (dev/test intent) is NOT surfaced as degraded. When degraded, the orchestrator also emits a single error-level structured log with the stable marker `MESSAGE_STORE_AUTO_FALLBACK_TO_MEMORY` — search for that token in your log aggregator to alert on the condition. The in-memory fallback carries the mid-phase-restart message-loss risk described in [#3076](https://github.com/jwbron/egg/issues/3076); fix by ensuring Redis is reachable before the orchestrator starts.
 
 `healthy_since` is the timestamp of the most recent healthy → unhealthy → healthy transition (or process start if the orchestrator has been healthy since boot); use it to distinguish "stable since boot" from "just recovered." Transitions are recorded at BG-thread cadence (every 15s by default, tunable via `EGG_ORCH_STATE_STORE_PROBE_INTERVAL`) via the probe's `on_observation` callback, and `/api/v1/health` request hits also drive the tracker on the staleness-corrected value — so wedge cycles between sporadic operator/dashboard hits are still observed, and a wedged BG thread can surface as an unhealthy transition that the BG itself cannot record. `probe.age_seconds` is how long ago the background probe last ran — values consistently above ~2× the probe interval indicate the BG thread itself has wedged, and `/api/v1/ready` will flip to 503 even if the cached observation was healthy.
 
