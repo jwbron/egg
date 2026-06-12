@@ -150,8 +150,10 @@ def _warn_invalid_cap(raw: str, source: str, problem: str) -> None:
         return
     _warned_cap_values.add(key)
     logger.warning(
-        f"{source}={raw!r} {problem}; ignoring it and falling back "
-        f"(default {_DEFAULT_READ_CAP_BYTES} bytes)"
+        f"{source}={raw!r} {problem}; ignoring it and falling back to the next "
+        f"configured source in precedence order (override file, then the "
+        f"EGG_READ_CAP_BYTES env var, then the {_DEFAULT_READ_CAP_BYTES}-byte "
+        f"default)"
     )
 
 

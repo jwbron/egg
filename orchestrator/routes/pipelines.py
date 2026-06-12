@@ -2974,12 +2974,13 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
         restart_upstream_kwargs["upstream"] = _model_decision.upstream
         restart_upstream_kwargs["upstream_model"] = _model_decision.upstream_model
 
-    # Merge ANTHROPIC_CUSTOM_MODEL_OPTION env vars on the LiteLLM path (#2832)
-    # so the restarted agent registers the custom model exactly like the
-    # initial spawn did. Empty on the Anthropic path.
-    decision_env = _model_decision.env_vars()
-    if decision_env:
-        extra_env = {**extra_env, **decision_env}
+    # Merge the model-decision env vars so the restarted agent matches the
+    # initial spawn. On the LiteLLM path these include the
+    # ANTHROPIC_CUSTOM_MODEL_OPTION vars (#2832) for custom-model registration;
+    # every route also picks up the context-guardrail caps (#3175), so this is
+    # non-empty on the Anthropic path too — restarted Anthropic agents inherit
+    # the same guardrails as the initial spawn (matches concurrent_executor).
+    extra_env = {**extra_env, **_model_decision.env_vars()}
 
     try:
         spawned = spawner.restart_agent_container(
