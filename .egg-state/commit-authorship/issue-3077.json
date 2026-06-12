@@ -128,6 +128,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "7b8530edd9362333cd5fd4fcdde1ca1d631570a0": {
+      "branch": "egg/issue-3077/slice-5",
+      "patch_id": "93a1a5c3369d83e8d211af24859c58f41c4d54a8",
+      "pipeline_id": "issue-3077",
+      "registered_at": "2026-06-12T02:33:42.455220+00:00",
+      "repo": null,
+      "role": "tester"
+    },
     "7d78db5bf79a7167db9f0bfe1f305aca8fbe731a": {
       "branch": "egg/issue-3077/slice-3",
       "patch_id": "c5fcb958ae4524af3cd8d046343c9782a14d93a1",
