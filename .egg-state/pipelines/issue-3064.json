@@ -5,7 +5,7 @@
   "branch": "egg/issue-3064/work",
   "base_branch": "main",
   "prompt": null,
-  "status": "cancelled",
+  "status": "failed",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -329,10 +329,10 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "complete",
+      "status": "failed",
       "started_at": "2026-06-12T22:00:00.846816Z",
       "work_started_at": "2026-06-12T22:00:03.247045Z",
-      "completed_at": "2026-06-12T22:21:01.385026Z",
+      "completed_at": "2026-06-12T22:28:41.108831Z",
       "containers": [
         {
           "container_id": "bb13ab88-1ec0-4dbc-89a1-7eb64b4bf4f5",
@@ -775,12 +775,12 @@
         {
           "cycle": 0,
           "started_at": "2026-06-12T22:00:03.247045Z",
-          "completed_at": "2026-06-12T22:01:08.525751Z",
+          "completed_at": "2026-06-12T22:28:41.108808Z",
           "commit_sha": "cb606cd19a37b6f28b3e2aab0867ab2e0b9be7fa"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- slice slice-3 ---\nConsensus reached; phase complete.\n--- slice slice-4 ---\n--- coder (exit=-1) ---\n\n--- PRODUCER PERMANENT DEATH ---\nProducer 'coder' container exited with code -1 after the consensus-wrapper exhausted its retry budget. Pipeline failing (issue #2806).",
       "operator_directives": [],
       "iteration_history": [],
       "phase_start_sha": "cb606cd19a37b6f28b3e2aab0867ab2e0b9be7fa",
@@ -876,20 +876,20 @@
     }
   ],
   "created_at": "2026-06-12T16:37:40.276091Z",
-  "updated_at": "2026-06-12T22:27:40.995158Z",
+  "updated_at": "2026-06-12T22:28:41.109375Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": 3165,
   "pr_head_sha": null,
   "has_contract": true,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- slice slice-3 ---\nConsensus reached; phase complete.\n--- slice slice-4 ---\n--- coder (exit=-1) ---\n\n--- PRODUCER PERMANENT DEATH ---\nProducer 'coder' container exited with code -1 after the consensus-wrapper exhausted its retry budget. Pipeline failing (issue #2806).",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-12T21:59:44.404145Z",
-  "version": 221,
+  "version": 222,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
