@@ -7,6 +7,7 @@ pipeline cleanup, and error handling.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
@@ -1947,6 +1948,8 @@ class TestSpawnEventJobOneShot:
         assert env["EGG_PHASE"] == "implement"
 
     def test_event_job_carries_dedupe_key_as_label(self, spawner, mock_k8s_client, mock_gateway):
+        from kubernetes_spawner import LABEL_EVENT_DEDUPE, _dedupe_label_value
+
         spawner.spawn_event_job(
             pipeline_id="pipe-1",
             agent_role=AgentRole.REVIEWER_CODE,
@@ -1958,12 +1961,44 @@ class TestSpawnEventJobOneShot:
         )
         labels = mock_k8s_client.create_container.call_args.kwargs["labels"]
         # The dedupe key is selectable as a Job label — the reconciliation
-        # handle the event loop rebuilds its live set from on restart.
-        assert self._KEY in labels.values(), f"dedupe key not present in Job labels: {labels}"
+        # handle the event loop rebuilds its live set from on restart. It is
+        # shortened to the k8s 63-char label-value limit; the full key rides in
+        # env, and the reconcile selector applies the identical shortening.
+        label_value = labels[LABEL_EVENT_DEDUPE]
+        assert label_value == _dedupe_label_value(self._KEY)
+        assert len(label_value) <= 63, (
+            f"dedupe label value exceeds k8s 63-char limit: {label_value!r} "
+            f"({len(label_value)})"
+        )
         # Standard orchestrator labels remain.
         assert labels[LABEL_ORCHESTRATOR] == "true"
         assert labels[LABEL_PIPELINE_ID] == "pipe-1"
         assert labels[LABEL_AGENT_ROLE] == "reviewer_code"
+
+    def test_event_dedupe_label_value_within_k8s_limit(self, spawner, mock_k8s_client):
+        """Regression (#3064): a real 64-char sha256 dedupe key must be
+        shortened to <=63 chars at the actual label path, since k8s rejects any
+        label value longer than 63 chars at the API server.
+        """
+        from kubernetes_spawner import LABEL_EVENT_DEDUPE
+
+        real_key = hashlib.sha256(b"pipe\x00slice\x00implement\x00coder\x00propose\x00v1").hexdigest()
+        assert len(real_key) == 64  # guard: sha256 hexdigest is 64 chars
+        spawner.spawn_event_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            action="propose",
+            dedupe_key=real_key,
+            slice_id="slice-2",
+            phase="implement",
+            repos=["owner/repo"],
+        )
+        labels = mock_k8s_client.create_container.call_args.kwargs["labels"]
+        label_value = labels[LABEL_EVENT_DEDUPE]
+        assert len(label_value) <= 63, (
+            f"dedupe label value exceeds k8s 63-char limit: {label_value!r} "
+            f"({len(label_value)})"
+        )
 
     def test_event_action_must_be_a_spawn_verb(self, spawner, mock_k8s_client):
         """confirm/complete are agent-free and must never reach the spawner;
@@ -2020,7 +2055,10 @@ class TestSpawnEventJobOneShot:
         # Second request for the SAME key: a live Job already carries the
         # dedupe label, so the entry adopts it instead of creating another.
         existing = MagicMock()
-        existing.labels = {"egg.event.dedupe-key": self._KEY}
+        # The live Job carries the label-safe (shortened) dedupe value, exactly
+        # as the spawn side wrote it — never the full 64-char key (k8s would
+        # have rejected that).
+        existing.labels = {"egg.event.dedupe-key": self._KEY[:63]}
         existing.job_name = "egg-agent-pipe-1-slice-2-coder-ev"
         mock_k8s_client.list_jobs.return_value = [existing]
 

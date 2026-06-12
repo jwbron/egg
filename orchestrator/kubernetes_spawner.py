@@ -229,6 +229,29 @@ ENV_EVENT_PAYLOAD_REFS = "EGG_EVENT_PAYLOAD_REFS"
 # already-hashed dedupe key is plenty of separation.
 _EVENT_JOB_NAME_DISCRIMINATOR_LEN = 8
 
+# Kubernetes caps label VALUES (and names) at 63 characters and rejects any
+# overflow at the API server. The dedupe key is a 64-char sha256 hexdigest, so
+# it must be shortened to a label-safe form before it can ride as a Job label
+# or be queried in a label selector. The full key still rides in env
+# (``EGG_EVENT_DEDUPE_KEY``, no length cap) and remains the in-memory dedupe
+# identity; only the label/selector use this shortened form — and they MUST use
+# the IDENTICAL value or restart reconciliation can never match.
+_LABEL_VALUE_MAXLEN = 63
+
+
+def _dedupe_label_value(dedupe_key: str) -> str:
+    """Shorten a dedupe key to a Kubernetes-label-safe value (<=63 chars).
+
+    The dedupe key is a 64-char sha256 hexdigest; k8s rejects label values
+    longer than 63 chars. Deterministic truncation keeps the value stable
+    across restarts so the spawn-side label and the reconcile-side selector
+    always agree on the same string (a 63-hex-char sha256 prefix is 252 bits —
+    collision-free for spawn dedupe). Every char of a hex digest is
+    alphanumeric, so the truncated prefix is always a valid label value.
+    Idempotent for already-short keys.
+    """
+    return dedupe_key[:_LABEL_VALUE_MAXLEN]
+
 
 def _fit_k8s_name(name: str, maxlen: int = 63) -> str:
     """Fit an (unprefixed) k8s name to ``maxlen`` chars, RFC-1123-safe.
@@ -1128,7 +1151,9 @@ class KubernetesSpawner:
         only matching Jobs; best-effort (a list failure ⇒ "not live" ⇒ spawn
         proceeds rather than wedging).
         """
-        selector = f"{LABEL_EVENT_DEDUPE}={dedupe_key}"
+        # The selector value MUST use the same label-safe shortening applied
+        # to the label on the spawn side, or it can never match the live Job.
+        selector = f"{LABEL_EVENT_DEDUPE}={_dedupe_label_value(dedupe_key)}"
         try:
             jobs = self.k8s.list_jobs(self._namespace, label_selector=selector)
         except Exception as exc:  # noqa: BLE001 — adoption is best-effort
@@ -1206,7 +1231,11 @@ class KubernetesSpawner:
         merged_env = {**caller_env, **event_env}
 
         event_labels = {
-            LABEL_EVENT_DEDUPE: dedupe_key,
+            # Shortened to the k8s 63-char label-value limit; the full key
+            # rides in env (ENV_EVENT_DEDUPE_KEY) above. The selector in
+            # _event_dedupe_key_live applies the identical shortening so
+            # restart reconciliation matches.
+            LABEL_EVENT_DEDUPE: _dedupe_label_value(dedupe_key),
             LABEL_EVENT_ACTION: action,
         }
         caller_labels = spawn_kwargs.pop("extra_labels", None) or {}
