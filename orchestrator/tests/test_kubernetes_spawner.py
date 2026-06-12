@@ -1967,8 +1967,7 @@ class TestSpawnEventJobOneShot:
         label_value = labels[LABEL_EVENT_DEDUPE]
         assert label_value == _dedupe_label_value(self._KEY)
         assert len(label_value) <= 63, (
-            f"dedupe label value exceeds k8s 63-char limit: {label_value!r} "
-            f"({len(label_value)})"
+            f"dedupe label value exceeds k8s 63-char limit: {label_value!r} ({len(label_value)})"
         )
         # Standard orchestrator labels remain.
         assert labels[LABEL_ORCHESTRATOR] == "true"
@@ -1982,7 +1981,9 @@ class TestSpawnEventJobOneShot:
         """
         from kubernetes_spawner import LABEL_EVENT_DEDUPE
 
-        real_key = hashlib.sha256(b"pipe\x00slice\x00implement\x00coder\x00propose\x00v1").hexdigest()
+        real_key = hashlib.sha256(
+            b"pipe\x00slice\x00implement\x00coder\x00propose\x00v1"
+        ).hexdigest()
         assert len(real_key) == 64  # guard: sha256 hexdigest is 64 chars
         spawner.spawn_event_job(
             pipeline_id="pipe-1",
@@ -1996,8 +1997,7 @@ class TestSpawnEventJobOneShot:
         labels = mock_k8s_client.create_container.call_args.kwargs["labels"]
         label_value = labels[LABEL_EVENT_DEDUPE]
         assert len(label_value) <= 63, (
-            f"dedupe label value exceeds k8s 63-char limit: {label_value!r} "
-            f"({len(label_value)})"
+            f"dedupe label value exceeds k8s 63-char limit: {label_value!r} ({len(label_value)})"
         )
 
     def test_event_action_must_be_a_spawn_verb(self, spawner, mock_k8s_client):

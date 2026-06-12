@@ -65,7 +65,7 @@ def get_event_loop_poll_interval() -> float:
         return DEFAULT_POLL_INTERVAL_SECONDS
     try:
         val = float(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning(
             "EGG_EVENT_LOOP_POLL_INTERVAL_SECONDS=%r is not a number; falling back to %.1fs",
             raw,
@@ -305,9 +305,7 @@ class OrchestratorEventLoop:
             dedupe_key=key,
             spawn_requested_at=requested_at,
         )
-        return EventDecision(
-            role=role, action=action, dedupe_key=key, spawned=True, timing=timing
-        )
+        return EventDecision(role=role, action=action, dedupe_key=key, spawned=True, timing=timing)
 
     # ------------------------------------------------------------------
     # Background driver (production; not exercised by the unit contract)
