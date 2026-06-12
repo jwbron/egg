@@ -431,6 +431,40 @@ def _render_task_section(task_description: str) -> str:
     )
 
 
+def _issue_anchor_fallback(contract_data: dict[str, Any]) -> str:
+    """Build a minimal task anchor from the contract's ``issue`` info (#3163).
+
+    Contracts written before #3163 carry ``task_description: null`` on
+    GitHub-issue pipelines (the #3042 exclusion), which left the binding
+    task section silently absent for the most common pipeline type —
+    observed live as a refiner adopting the *previous* pipeline's stale
+    draft as its task. New contracts get a composed statement at
+    creation; this fallback covers the contracts already committed to
+    live branches, which no creation-time fix reaches.
+    """
+    issue = contract_data.get("issue")
+    if not isinstance(issue, dict):
+        return ""
+    number = issue.get("number")
+    if not isinstance(number, int):
+        return ""
+    anchor = f"This pipeline's task is GitHub issue #{number}"
+    url = issue.get("url")
+    if isinstance(url, str) and url.strip():
+        anchor += f" — {url.strip()}"
+    title = issue.get("title")
+    if isinstance(title, str) and title.strip() and title.strip() != f"Issue #{number}":
+        anchor += f" ({title.strip()})"
+    anchor += (
+        f". No operator task statement was recorded on this contract; "
+        f"fetch the live issue body (`gh issue view {number}`) before "
+        "acting. Worktree artifacts (drafts, agent outputs) that "
+        "reference any other issue or pipeline are leftovers from "
+        "previous runs — they are NOT your task."
+    )
+    return anchor
+
+
 def _read_task_description(repo_path: Path) -> str:
     """Read ``task_description`` from the worktree contract file (#3123).
 
@@ -443,6 +477,11 @@ def _read_task_description(repo_path: Path) -> str:
     assigned branch before any agent spawns, so a fresh worktree always
     carries it; ``task_description`` is written at contract creation and
     never mutated mid-phase, so the worktree copy cannot go stale.
+
+    When the contract carries no ``task_description`` (pre-#3163
+    GitHub-issue contracts) but does carry ``issue`` identity, a minimal
+    anchor is synthesized so the task section is never silently empty
+    for an issue-backed pipeline.
 
     Fail-soft like the memory reader above: a missing file, malformed
     JSON, or absent field yields ``""`` (section omitted) rather than
@@ -459,6 +498,7 @@ def _read_task_description(repo_path: Path) -> str:
         candidates.append(f"issue-{issue_number}.json")
 
     contracts_dir = repo_path / ".egg-state" / "contracts"
+    fallback = ""
     for name in candidates:
         try:
             raw = (contracts_dir / name).read_text(encoding="utf-8")
@@ -473,7 +513,9 @@ def _read_task_description(repo_path: Path) -> str:
         task_description = data.get("task_description")
         if isinstance(task_description, str) and task_description.strip():
             return task_description.strip()
-    return ""
+        if not fallback:
+            fallback = _issue_anchor_fallback(data)
+    return fallback
 
 
 def compose_event_prompt(
@@ -504,9 +546,10 @@ def compose_event_prompt(
             treated as an empty payload; ``action`` / ``type`` keys
             populate the event banner.
         memory_excerpt: Rendered markdown content of
-            ``.egg-state/agent-outputs/<role>/brc-memory.md`` as read
-            by the wrapper. Pass ``""`` (or anything that strips empty)
-            when ``EGG_BRC_MEMORY!=full`` so the section is omitted.
+            ``.egg-state/agent-outputs/<role>/brc-memory-<pipeline-id>.md``
+            as read by the wrapper. Pass ``""`` (or anything that
+            strips empty) when ``EGG_BRC_MEMORY!=full`` so the section
+            is omitted.
         nacks: List of dicts in the shape of
             ``peer_consensus.py:_open_nacks_barrier_response`` (keys
             ``reviewer``, ``version``, ``reason``, ``artifact_refs``).
@@ -663,6 +706,32 @@ def _parse_per_producer_sha(memory_text: str) -> dict[str, str]:
             # writer produces (one bullet per heading).
             current_producer = None
     return out
+
+
+def _memory_path(repo_path: Path, role: str) -> Path | None:
+    """Resolve the pipeline-scoped BRC memory file path (#3163).
+
+    Mirrors ``sandbox/egg_agent_tools/handlers/brc_memory.py::
+    memory_path_for_role``: the filename carries the pipeline id
+    (``brc-memory-<pipeline-id>.md``) so a fresh pipeline never inlines
+    a previous pipeline's memory — role-only keying let memory files
+    merged to main via context PRs seed later pipelines' prompts with
+    the wrong pipeline's distilled state. The id resolves from
+    ``EGG_PIPELINE_ID`` with an ``issue-<EGG_ISSUE_NUMBER>`` fallback,
+    matching the contract-file resolution above.
+
+    Fail-soft (unlike the sandbox writer, which raises): no resolvable
+    pipeline id or a malformed token yields ``None`` — the composer
+    omits the memory section rather than reading a shared file.
+    """
+    pipeline_id = (os.environ.get("EGG_PIPELINE_ID") or "").strip()
+    if not pipeline_id:
+        issue_number = (os.environ.get("EGG_ISSUE_NUMBER") or "").strip()
+        if issue_number:
+            pipeline_id = f"issue-{issue_number}"
+    if not pipeline_id or not all(ch.isalnum() or ch in "_-" for ch in pipeline_id):
+        return None
+    return repo_path / ".egg-state" / "agent-outputs" / role / f"brc-memory-{pipeline_id}.md"
 
 
 def _read_memory_excerpt(memory_path: Path, mode: str) -> str:
@@ -1162,7 +1231,8 @@ def _cli(argv: list[str] | None = None) -> int:
       (no writes, no reads).
     * ``EGG_PIPELINE_ID`` / ``EGG_ISSUE_NUMBER`` (pod env, inherited —
       not re-exported by the wrapper) — contract identifier for the
-      ``task_description`` section (#3123). Unset → section omitted.
+      ``task_description`` section (#3123) and the pipeline-scoped
+      memory filename (#3163). Unset → both sections omitted.
     """
     parser = argparse.ArgumentParser(
         description="Render the per-event BRC event-pump prompt (slice-3).",
@@ -1208,8 +1278,8 @@ def _cli(argv: list[str] | None = None) -> int:
     else:
         event_payload = {"action": args.action}
 
-    memory_path = repo_path / ".egg-state" / "agent-outputs" / role / "brc-memory.md"
-    memory_text = _read_memory_excerpt(memory_path, memory_mode)
+    memory_path = _memory_path(repo_path, role)
+    memory_text = _read_memory_excerpt(memory_path, memory_mode) if memory_path else ""
     # Even in ``write-only`` mode we still parse per-producer SHAs from
     # the on-disk file so the slice-3 wrapper renders the delta — the
     # mode gates only whether the markdown excerpt itself flows into
@@ -1219,7 +1289,7 @@ def _cli(argv: list[str] | None = None) -> int:
     # omits memory but still emits the git-log delta against … a
     # fallback baseline".
     sha_lookup_text = memory_text
-    if not sha_lookup_text and memory_path.exists():
+    if not sha_lookup_text and memory_path is not None and memory_path.exists():
         try:
             sha_lookup_text = memory_path.read_text(encoding="utf-8")
         except OSError:
@@ -1240,8 +1310,9 @@ def _cli(argv: list[str] | None = None) -> int:
     # prompt so operator directives don't depend on the agent pulling
     # ``task_description`` per the rules file. Identifier comes from
     # ``EGG_PIPELINE_ID`` / ``EGG_ISSUE_NUMBER`` (pod env, inherited by
-    # this subprocess); empty on GitHub-issue pipelines or when the
-    # worktree lacks the contract file (fail-soft).
+    # this subprocess); pre-#3163 issue contracts without a recorded
+    # statement get a synthesized issue anchor; empty only when the
+    # worktree lacks the contract file entirely (fail-soft).
     task_description = _read_task_description(repo_path)
 
     prompt = compose_event_prompt(
