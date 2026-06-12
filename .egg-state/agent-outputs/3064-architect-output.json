@@ -10,25 +10,86 @@
     "cq2_failure_supervision": "Bounded automatic respawn with backoff, then OVERSEER_ALERT — mirroring the wrapper's #3138 streak semantics: transient failures (pod evicted, image pull, agent rc!=0) respawn silently within a bounded budget with linear backoff; a warn marker at streak 5; a sticky OVERSEER_ALERT at streak 10 (anomaly agent-invocation-fail-streak, orchestrator-side variant); the streak resets on a successful event handling for that role+arm, matching the wrapper's arm-cluster reset."
   },
   "evidence": [
-    {"claim": "the orchestrator spawns the full team up front and each pod runs the long-lived in-pod event pump", "ref": "orchestrator/concurrent_executor.py:311-349 (spawn_all, ThreadPoolExecutor), 418-503 (_spawn_agent), 466-468 (build_consensus_wrapped_command)"},
-    {"claim": "per-role actionable events are already derived server-side; the in-pod loop merely pulls them", "ref": "orchestrator/routes/consensus.py:296-422 (_derive_next_action), 688 (next-action route consumption); pending_reviews carries proposal_commit_sha (≈220-221) — the dedupe-key material"},
-    {"claim": "confirm/complete are already handled agent-free by the wrapper — they need no pod at all in orchestrator-owned mode", "ref": "orchestrator/consensus_wrapper.py:791-807 ('Role complete; finalising via egg-orch consensus confirmed' / 'Confirming via egg-orch consensus confirmed' — no invoke_agent_for_event on these arms)"},
-    {"claim": "the #3138 streak semantics to mirror orchestrator-side: linear backoff streak×2s capped 30s, warn at 5, sticky OVERSEER_ALERT at 10", "ref": "orchestrator/consensus_wrapper.py:25-29 (module docstring), 672-698 (alert emission), 867-901 (streak accounting and backoff)"},
-    {"claim": "the in-pod idle budget only alerts, never terminates — it is the alert to re-home, not a termination mechanism", "ref": "orchestrator/consensus_wrapper.py:102, 120 (EGG_BRC_IDLE_BUDGET_MIN default 30 min), 21-24 (docstring: overseer alert only)"},
-    {"claim": "EGG_EVENT_LOOP_OWNER does not exist anywhere in the tree — #3023 is fully reverted and there is no rollback path; the flag must default to the in-pod loop", "ref": "grep -rn EGG_EVENT_LOOP_OWNER orchestrator/ shared/ gateway/ sandbox/ -> no matches (verified 2026-06-12)"},
-    {"claim": "per-Job worktree creation and token-only session registration happen once at spawn and live for the pod lifetime — the slice-4 reuse targets", "ref": "orchestrator/kubernetes_spawner.py:491-940 (spawn_agent_job), 614-722 (create_worktrees with bounded-backoff retry, DEFAULT_SPAWN_RETRY_INITIAL_BACKOFF_SECONDS at 510/654), 761-810 (register_session token-only; failure does not fail the pipeline)"},
-    {"claim": "health tripwires assume long-lived pods: heartbeat timeout 120s default / 600s implement, post-ACK confirm timeouts per phase", "ref": "orchestrator/health_monitor.py:221-248 (_get heartbeat/post-ack thresholds), 106 (class HealthMonitor), 659 (check_heartbeats)"},
-    {"claim": "HeartbeatCoordinator fans out gateway-session refreshes on HEARTBEAT — a side effect that loses its sender when no pod runs between events", "ref": "orchestrator/heartbeat.py:45 (class HeartbeatCoordinator), 135-137 (#2076 NB2 session fan-out throttle)"},
-    {"claim": "the orchestrator already polls consensus completion in a loop — the natural integration point for the event loop", "ref": "orchestrator/concurrent_executor.py:647-763 (is_complete polling with tracker-rebuild tolerance)"},
-    {"claim": "agent-invocation exit-code classification (#2908) and the legacy #2806 restart-cap lineage live in the wrapper today and must be re-homed for orchestrator-owned mode", "ref": "orchestrator/consensus_wrapper.py:134 (exit-code classifiers, #2908 task-4-2), 40 (legacy restart cap constant, issue #2806)"},
-    {"claim": "the tracker is rebuilt from the message store, so a stateless restart re-derivation is sound (#2761)", "ref": "orchestrator/concurrent_executor.py:647-700 (is_complete=False during rebuild is the correct conservative answer)"}
+    {
+      "claim": "the orchestrator spawns the full team up front and each pod runs the long-lived in-pod event pump",
+      "ref": "orchestrator/concurrent_executor.py:311-349 (spawn_all, ThreadPoolExecutor), 418-503 (_spawn_agent), 466-468 (build_consensus_wrapped_command)"
+    },
+    {
+      "claim": "per-role actionable events are already derived server-side; the in-pod loop merely pulls them",
+      "ref": "orchestrator/routes/consensus.py:296-422 (_derive_next_action), 688 (next-action route consumption); pending_reviews carries proposal_commit_sha (≈220-221) — the dedupe-key material"
+    },
+    {
+      "claim": "confirm/complete are already handled agent-free by the wrapper — they need no pod at all in orchestrator-owned mode",
+      "ref": "orchestrator/consensus_wrapper.py:791-807 ('Role complete; finalising via egg-orch consensus confirmed' / 'Confirming via egg-orch consensus confirmed' — no invoke_agent_for_event on these arms)"
+    },
+    {
+      "claim": "the #3138 streak semantics to mirror orchestrator-side: linear backoff streak×2s capped 30s, warn at 5, sticky OVERSEER_ALERT at 10",
+      "ref": "orchestrator/consensus_wrapper.py:25-29 (module docstring), 672-698 (alert emission), 867-901 (streak accounting and backoff)"
+    },
+    {
+      "claim": "the in-pod idle budget only alerts, never terminates — it is the alert to re-home, not a termination mechanism",
+      "ref": "orchestrator/consensus_wrapper.py:102, 120 (EGG_BRC_IDLE_BUDGET_MIN default 30 min), 21-24 (docstring: overseer alert only)"
+    },
+    {
+      "claim": "EGG_EVENT_LOOP_OWNER does not exist anywhere in the tree — #3023 is fully reverted and there is no rollback path; the flag must default to the in-pod loop",
+      "ref": "grep -rn EGG_EVENT_LOOP_OWNER orchestrator/ shared/ gateway/ sandbox/ -> no matches (verified 2026-06-12)"
+    },
+    {
+      "claim": "per-Job worktree creation and token-only session registration happen once at spawn and live for the pod lifetime — the slice-4 reuse targets",
+      "ref": "orchestrator/kubernetes_spawner.py:491-940 (spawn_agent_job), 614-722 (create_worktrees with bounded-backoff retry, DEFAULT_SPAWN_RETRY_INITIAL_BACKOFF_SECONDS at 510/654), 761-810 (register_session token-only; failure does not fail the pipeline)"
+    },
+    {
+      "claim": "health tripwires assume long-lived pods: heartbeat timeout 120s default / 600s implement, post-ACK confirm timeouts per phase",
+      "ref": "orchestrator/health_monitor.py:221-248 (_get heartbeat/post-ack thresholds), 106 (class HealthMonitor), 659 (check_heartbeats)"
+    },
+    {
+      "claim": "HeartbeatCoordinator fans out gateway-session refreshes on HEARTBEAT — a side effect that loses its sender when no pod runs between events",
+      "ref": "orchestrator/heartbeat.py:45 (class HeartbeatCoordinator), 135-137 (#2076 NB2 session fan-out throttle)"
+    },
+    {
+      "claim": "the orchestrator already polls consensus completion in a loop — the natural integration point for the event loop",
+      "ref": "orchestrator/concurrent_executor.py:647-763 (is_complete polling with tracker-rebuild tolerance)"
+    },
+    {
+      "claim": "agent-invocation exit-code classification (#2908) and the legacy #2806 restart-cap lineage live in the wrapper today and must be re-homed for orchestrator-owned mode",
+      "ref": "orchestrator/consensus_wrapper.py:134 (exit-code classifiers, #2908 task-4-2), 40 (legacy restart cap constant, issue #2806)"
+    },
+    {
+      "claim": "the tracker is rebuilt from the message store, so a stateless restart re-derivation is sound (#2761)",
+      "ref": "orchestrator/concurrent_executor.py:647-700 (is_complete=False during rebuild is the correct conservative answer)"
+    }
   ],
   "runtime_primitive_assumptions": [
-    {"primitive": "consensus wrapper one-shot arm (slice 1)", "purpose": "production wrapper code (generated bash, runs in the agent pod)", "execution_context": "in-sandbox-agent pod — reads EGG_EVENT_LOOP_OWNER + injected event identity from Job env; fetches its event prompt over the existing egg-orch HTTP path (compose_event_prompt unchanged); invokes the agent once via the existing invoke_agent_for_event machinery; exits with a classified code the supervisor (slice 3) consumes", "ref": "orchestrator/consensus_wrapper.py:404-480, 847-902"},
-    {"primitive": "orchestrator event loop + spawner (slices 2-3)", "purpose": "deployed-pod production code", "execution_context": "orchestrator pod — consumes _derive_next_action in-process (no HTTP self-call), spawns one-shot Jobs through the existing KubernetesSpawner, executes confirm/complete directly against the tracker; restart-safe because all inputs are tracker state + k8s Job labels", "ref": "orchestrator/routes/consensus.py:296-422; orchestrator/kubernetes_spawner.py:491-940"},
-    {"primitive": "worktree re-attach (slice 4)", "purpose": "deployed-pod production code", "execution_context": "orchestrator pod -> gateway: worktrees are hostPath-persistent and keyed {pipeline_id}[-{slice_id}]-{role} (#3005/#2403); re-attach validates expected branch + non-corrupt state and falls back to recreate on any mismatch", "ref": "orchestrator/kubernetes_spawner.py:614-722"},
-    {"primitive": "lifecycle-aware monitors (slice 5)", "purpose": "deployed-pod production code", "execution_context": "orchestrator pod — HealthMonitor and HeartbeatCoordinator read the ownership mode; in orchestrator-owned mode per-agent heartbeat tripwires apply only while that role has an active Job, and the stall judgment ('actionable event pending N min without a converged outcome') is computed from tracker timestamps", "ref": "orchestrator/health_monitor.py:221-248; orchestrator/heartbeat.py:45-160"},
-    {"primitive": "integration test of the orchestrator-owned path", "purpose": "unit/integration-test-only (CI guard)", "execution_context": "trusted-CI-runner pytest with a mocked spawner — drives a full propose->nack->re-propose->ack->confirm cycle through the event loop without k8s; the live proving run stays a documented manual procedure (slice 6) per the issue's own bar", "ref": "new tests, slices 2-3"}
+    {
+      "primitive": "consensus wrapper one-shot arm (slice 1)",
+      "purpose": "production wrapper code (generated bash, runs in the agent pod)",
+      "execution_context": "in-sandbox-agent pod — reads EGG_EVENT_LOOP_OWNER + injected event identity from Job env; fetches its event prompt over the existing egg-orch HTTP path (compose_event_prompt unchanged); invokes the agent once via the existing invoke_agent_for_event machinery; exits with a classified code the supervisor (slice 3) consumes",
+      "ref": "orchestrator/consensus_wrapper.py:404-480, 847-902"
+    },
+    {
+      "primitive": "orchestrator event loop + spawner (slices 2-3)",
+      "purpose": "deployed-pod production code",
+      "execution_context": "orchestrator pod — consumes _derive_next_action in-process (no HTTP self-call), spawns one-shot Jobs through the existing KubernetesSpawner, executes confirm/complete directly against the tracker; restart-safe because all inputs are tracker state + k8s Job labels",
+      "ref": "orchestrator/routes/consensus.py:296-422; orchestrator/kubernetes_spawner.py:491-940"
+    },
+    {
+      "primitive": "worktree re-attach (slice 4)",
+      "purpose": "deployed-pod production code",
+      "execution_context": "orchestrator pod -> gateway: worktrees are hostPath-persistent and keyed {pipeline_id}[-{slice_id}]-{role} (#3005/#2403); re-attach validates expected branch + non-corrupt state and falls back to recreate on any mismatch",
+      "ref": "orchestrator/kubernetes_spawner.py:614-722"
+    },
+    {
+      "primitive": "lifecycle-aware monitors (slice 5)",
+      "purpose": "deployed-pod production code",
+      "execution_context": "orchestrator pod — HealthMonitor and HeartbeatCoordinator read the ownership mode; in orchestrator-owned mode per-agent heartbeat tripwires apply only while that role has an active Job, and the stall judgment ('actionable event pending N min without a converged outcome') is computed from tracker timestamps",
+      "ref": "orchestrator/health_monitor.py:221-248; orchestrator/heartbeat.py:45-160"
+    },
+    {
+      "primitive": "integration test of the orchestrator-owned path",
+      "purpose": "unit/integration-test-only (CI guard)",
+      "execution_context": "trusted-CI-runner pytest with a mocked spawner — drives a full propose->nack->re-propose->ack->confirm cycle through the event loop without k8s; the live proving run stays a documented manual procedure (slice 6) per the issue's own bar",
+      "ref": "new tests, slices 2-3"
+    }
   ],
   "recommended_approach": {
     "ownership_flag": {
@@ -55,7 +116,7 @@
       "no_disagreement_retry": "A NACK is consensus working, not a failure: supervision keys ONLY on infrastructure/invocation failure (Job status, classified exit codes), never on BRC outcomes. Stated as an explicit non-trigger in tests."
     },
     "worktree_and_session_reuse": {
-      "worktree": "spawn path gains a re-attach-first branch: if the worktree for {pipeline_id}[-{slice_id}]-{role} exists, validate (expected branch checked out, .git intact, no foreign lock); on pass, skip create_worktrees entirely; on any failure, fall back to today's create-with-retry. Staleness/ownership: the dedupe discipline guarantees at most one live pod per role+slice at a time, so no cross-pod worktree contention exists by construction — asserted, not assumed, in tests (two events for one role are serialized by the per-role in-flight check).",
+      "worktree": "spawn path gains a re-attach-first branch: if the worktree for {pipeline_id}[-{slice_id}]-{role} exists, validate (expected branch checked out, .git intact, no foreign lock); on pass, skip create_worktrees entirely; on any failure, fall back to today's create-with-retry. Dirty-state policy (risk R6): validation passing does NOT mean the tree is clean — a predecessor pod killed mid-event leaves uncommitted residue that a successor must never inherit. On every successful re-attach the spawner discards uncommitted changes and untracked staging artifacts (git reset --hard + git clean -fd scoped to the worktree) and hard-syncs to the role branch tip before handing the checkout to the agent. Rationale: committed-and-pushed state is the only durable state in BRC (proposals reference pushed commits), so uncommitted residue is by definition unproposed work from a dead pod — discarding it is correct, and a reset is cheap so the re-attach latency win survives. If the discard step itself fails, that is a validation failure: fall back to recreate. Staleness/ownership: the dedupe discipline guarantees at most one live pod per role+slice at a time, so no cross-pod worktree contention exists by construction — asserted, not assumed, in tests (two events for one role are serialized by the per-role in-flight check); the dirty-state policy covers the orthogonal dead-predecessor case (supervision respawn, slice 3, is the canonical producer of this state).",
       "session": "Per-role session reuse across spawns: the spawner re-registers against the gateway only when no live session exists for the role (or the token aged out); otherwise the existing token is injected into the new Job env. Falls back to full registration on any gateway-side doubt — registration is cheap; the win is skipping the failure-retry choreography on the hot path. Session teardown moves from pod-exit to phase-end (or streak-exhaustion) in orchestrator mode, since the session now outlives any single pod."
     },
     "monitor_rehoming": {
@@ -73,21 +134,73 @@
     "ordering_vs_3023": "The #3023 hard constraint ('guard and spawner land together, or spawner strictly first') is satisfied at PR granularity: all slices land in this single pipeline's PR, the flag defaults to pod, and no code path can activate the guard without the spawner existing (the guard is only ever set on Jobs the spawner itself creates)."
   },
   "acceptance_criteria": [
-    {"id": "ac-1", "slice": 1, "text": "With EGG_EVENT_LOOP_OWNER unset or 'pod', the generated wrapper script is byte-identical to today's (golden-file test). With 'orchestrator' + an injected propose/ack/nack event, the wrapper fetches the event prompt, invokes the agent exactly once, emits a classified exit code, and exits without entering the wait-loop or starting the background heartbeat; a stale injected event (next-action no longer matches) exits 0 with the stale marker and no agent invocation."},
-    {"id": "ac-2", "slice": 2, "text": "In orchestrator mode the event loop spawns one-shot Jobs only for propose|ack|nack, executes confirm/complete orchestrator-side with no pod, and never spawns two Jobs for the same dedupe key (in-memory set + Job-label reconciliation both exercised). A simulated orchestrator restart mid-phase re-derives pending events from the tracker and does not double-spawn against live Jobs. A full propose->nack->re-propose->ack->confirm cycle converges through the loop with a mocked spawner. Pod-mode pipelines are unaffected (spawn_all path untouched when flag is 'pod')."},
-    {"id": "ac-3", "slice": 3, "text": "An induced Job failure respawns the same event key with linear backoff (streak×2s cap 30s, constants shared with the wrapper's), logs warn at streak 5, raises one sticky OVERSEER_ALERT at streak 10, and resets the streak on success; producer propose-arm exhaustion engages the existing AGENT_FAILED/#2806-equivalent phase handling. A NACK outcome never increments any streak."},
-    {"id": "ac-4", "slice": 4, "text": "The second spawn for a role re-attaches the existing worktree (no create_worktrees call) when validation passes and falls back to create-with-retry on induced corruption/branch mismatch; a live gateway session is reused across spawns and torn down at phase end; full registration still happens on first spawn and after teardown. Measured spawn->invoke path with re-attach meets the p50<60s budget in the simulated-clock test."},
-    {"id": "ac-5", "slice": 5, "text": "In orchestrator mode: a role with no pod and no pending event raises no health alert indefinitely; a one-shot pod silent mid-event still trips the heartbeat tripwire; the convergence-stall alert fires from tracker timestamps after EGG_BRC_IDLE_BUDGET_MIN with the same anomaly name as today; HeartbeatCoordinator never declares an orchestrator-mode role stale. Pod-mode monitor behavior is unchanged (existing tests green)."},
-    {"id": "ac-6", "slice": 6, "text": "docs/architecture entry covers both ownership modes, the dedupe-key contract, supervision semantics, and the monitor matrix; the proving-run procedure has a concrete acceptance checklist; the follow-up issue body encodes the operator-mandated sequence (proving run -> flip -> single cleanup PR with no dead code) and is referenced from the PR description as an immediate post-merge filing step."}
+    {
+      "id": "ac-1",
+      "slice": 1,
+      "text": "With EGG_EVENT_LOOP_OWNER unset or 'pod', the generated wrapper script is byte-identical to today's (golden-file test). With 'orchestrator' + an injected propose/ack/nack event, the wrapper fetches the event prompt, invokes the agent exactly once, emits a classified exit code, and exits without entering the wait-loop or starting the background heartbeat; a stale injected event (next-action no longer matches) exits 0 with the stale marker and no agent invocation."
+    },
+    {
+      "id": "ac-2",
+      "slice": 2,
+      "text": "In orchestrator mode the event loop spawns one-shot Jobs only for propose|ack|nack, executes confirm/complete orchestrator-side with no pod, and never spawns two Jobs for the same dedupe key (in-memory set + Job-label reconciliation both exercised). A simulated orchestrator restart mid-phase re-derives pending events from the tracker and does not double-spawn against live Jobs. A full propose->nack->re-propose->ack->confirm cycle converges through the loop with a mocked spawner. Pod-mode pipelines are unaffected (spawn_all path untouched when flag is 'pod')."
+    },
+    {
+      "id": "ac-3",
+      "slice": 3,
+      "text": "An induced Job failure respawns the same event key with linear backoff (streak×2s cap 30s, constants shared with the wrapper's), logs warn at streak 5, raises one sticky OVERSEER_ALERT at streak 10, and resets the streak on success; producer propose-arm exhaustion engages the existing AGENT_FAILED/#2806-equivalent phase handling. A NACK outcome never increments any streak."
+    },
+    {
+      "id": "ac-4",
+      "slice": 4,
+      "text": "The second spawn for a role re-attaches the existing worktree (no create_worktrees call) when validation passes and falls back to create-with-retry on induced corruption/branch mismatch; an induced dirty-worktree case (predecessor pod killed mid-event leaving uncommitted tracked changes and untracked staging files) shows the successor's re-attach discards all residue and hard-syncs to the role branch tip before agent invocation — none of the residue can reach a subsequent commit; a live gateway session is reused across spawns and torn down at phase end; full registration still happens on first spawn and after teardown. Measured spawn->invoke path with re-attach meets the p50<60s budget in the simulated-clock test."
+    },
+    {
+      "id": "ac-5",
+      "slice": 5,
+      "text": "In orchestrator mode: a role with no pod and no pending event raises no health alert indefinitely; a one-shot pod silent mid-event still trips the heartbeat tripwire; the convergence-stall alert fires from tracker timestamps after EGG_BRC_IDLE_BUDGET_MIN with the same anomaly name as today; HeartbeatCoordinator never declares an orchestrator-mode role stale. Pod-mode monitor behavior is unchanged (existing tests green)."
+    },
+    {
+      "id": "ac-6",
+      "slice": 6,
+      "text": "docs/architecture entry covers both ownership modes, the dedupe-key contract, supervision semantics, and the monitor matrix; the proving-run procedure has a concrete acceptance checklist; the follow-up issue body encodes the operator-mandated sequence (proving run -> flip -> single cleanup PR with no dead code) and is referenced from the PR description as an immediate post-merge filing step."
+    }
   ],
   "risks": [
-    {"id": "r-1", "risk": "Spawn-race double work: next-action re-derived during the 10-30s pod startup spawns a second pod or the agent acts on a superseded event.", "mitigation": "Dedupe key in an in-memory set + Job label (one event -> one pod), per-role in-flight serialization, and the one-shot arm's stale-event recheck before agent invocation."},
-    {"id": "r-2", "risk": "Partial landing re-creates the #3023 deadlock (guard live, no spawner).", "mitigation": "Flag defaults to pod; guard env is only ever set by the spawner on Jobs it creates; both ship in one PR; golden-file test pins pod-mode wrapper byte-identity."},
-    {"id": "r-3", "risk": "Orchestrator restart loses spawn bookkeeping and stalls or double-spawns.", "mitigation": "No persisted bookkeeping at all — stateless re-derivation from the tracker (#2761) reconciled against Job labels; idempotency is carried by the dedupe key, not by memory."},
-    {"id": "r-4", "risk": "Supervision misfires: BRC disagreement (NACK churn) treated as failure, or respawn loops burn quota.", "mitigation": "Supervision keys only on Job/exit-code failure, never BRC outcomes (explicit non-trigger test); bounded streak with capped backoff and sticky single alert mirrors the proven #3138 design; constants shared with the wrapper so the two implementations cannot drift."},
-    {"id": "r-5", "risk": "Monitor false positives/negatives during the dual-mode window (long-lived assumptions vs ephemeral pods).", "mitigation": "Mode is explicit per pipeline in HealthMonitor; 'no pod' alerts are gated on mode; the idle-budget alert keeps its anomaly name and default so operator surface is continuous; pod-mode tests stay green untouched."},
-    {"id": "r-6", "risk": "Worktree re-attach hands an agent a stale or foreign-locked checkout.", "mitigation": "Validate-then-fallback (branch, .git integrity, lock check) with recreate as the failure path; at-most-one-live-pod-per-role+slice is enforced by the dedupe discipline and asserted in tests."},
-    {"id": "r-7", "risk": "Per-event cold start makes BRC cycles materially slower with the flag on, discovered only at the proving run.", "mitigation": "Explicit latency budget (p50<60s spawn->invoke with re-attach) asserted in simulated-clock tests and emitted as a structured timing field; slice 4 exists precisely to take worktree+session setup off the hot path."}
+    {
+      "id": "r-1",
+      "risk": "Spawn-race double work: next-action re-derived during the 10-30s pod startup spawns a second pod or the agent acts on a superseded event.",
+      "mitigation": "Dedupe key in an in-memory set + Job label (one event -> one pod), per-role in-flight serialization, and the one-shot arm's stale-event recheck before agent invocation."
+    },
+    {
+      "id": "r-2",
+      "risk": "Partial landing re-creates the #3023 deadlock (guard live, no spawner).",
+      "mitigation": "Flag defaults to pod; guard env is only ever set by the spawner on Jobs it creates; both ship in one PR; golden-file test pins pod-mode wrapper byte-identity."
+    },
+    {
+      "id": "r-3",
+      "risk": "Orchestrator restart loses spawn bookkeeping and stalls or double-spawns.",
+      "mitigation": "No persisted bookkeeping at all — stateless re-derivation from the tracker (#2761) reconciled against Job labels; idempotency is carried by the dedupe key, not by memory."
+    },
+    {
+      "id": "r-4",
+      "risk": "Supervision misfires: BRC disagreement (NACK churn) treated as failure, or respawn loops burn quota.",
+      "mitigation": "Supervision keys only on Job/exit-code failure, never BRC outcomes (explicit non-trigger test); bounded streak with capped backoff and sticky single alert mirrors the proven #3138 design; constants shared with the wrapper so the two implementations cannot drift."
+    },
+    {
+      "id": "r-5",
+      "risk": "Monitor false positives/negatives during the dual-mode window (long-lived assumptions vs ephemeral pods).",
+      "mitigation": "Mode is explicit per pipeline in HealthMonitor; 'no pod' alerts are gated on mode; the idle-budget alert keeps its anomaly name and default so operator surface is continuous; pod-mode tests stay green untouched."
+    },
+    {
+      "id": "r-6",
+      "risk": "Worktree re-attach hands an agent a stale or foreign-locked checkout.",
+      "mitigation": "Validate-then-fallback (branch, .git integrity, lock check) with recreate as the failure path; at-most-one-live-pod-per-role+slice is enforced by the dedupe discipline and asserted in tests. Dead-predecessor residue (uncommitted changes surviving a mid-event pod kill) is handled by the explicit dirty-state policy: discard-on-attach (reset --hard + clean -fd, hard-sync to role branch tip) on every successful re-attach, with recreate as the fallback if the discard fails; asserted by the induced dirty-worktree case in ac-4."
+    },
+    {
+      "id": "r-7",
+      "risk": "Per-event cold start makes BRC cycles materially slower with the flag on, discovered only at the proving run.",
+      "mitigation": "Explicit latency budget (p50<60s spawn->invoke with re-attach) asserted in simulated-clock tests and emitted as a structured timing field; slice 4 exists precisely to take worktree+session setup off the hot path."
+    }
   ],
   "out_of_scope": [
     "Flipping the EGG_EVENT_LOOP_OWNER default or deleting the in-pod wait arm / background heartbeat / wrapper-side #3138-#2806 code — the gated follow-up (slice 6 packages it; operator-mandated sequence).",
