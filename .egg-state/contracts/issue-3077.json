@@ -335,7 +335,7 @@
       "id": "slice-5",
       "name": "Phase-3 prose cleanup, docs invariant entry, and the no-sync-mechanics ratchet",
       "goal": "Delete agent-facing fetch/log sync prose now that every replacement\nmechanism (banner, spec, validation, endpoint) is live; add the\ndocs/architecture invariant entry; add the ratchet test that keeps\nsync mechanics out of agent-facing prompts. Hard file-overlap with\nslice 1 on event_prompt.py (#3046) \u2014 chain is serialized.",
-      "status": "pending",
+      "status": "in_progress",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -436,7 +436,7 @@
         "slice-3",
         "slice-4"
       ],
-      "parent_branch_at_creation": null,
+      "parent_branch_at_creation": "egg/issue-3077/slice-4",
       "integration_base_sha": null,
       "commit": null,
       "pr_number": null,
@@ -447,7 +447,7 @@
       "id": "slice-6",
       "name": "Bounded durability: fail-loud memory-backend signal + Redis restart-semantics test",
       "goal": "auto\u2192memory fallback fails loud (error-level structured log with a\nstable marker + health-visible degraded flag; explicit memory stays a\nwarning); Redis restart semantics verified. Parallel root \u2014 file set\ndisjoint from slices 1-5. Per HITL Q3: no refusal, no change to auto\nselection.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -456,8 +456,8 @@
         {
           "id": "task-6-1",
           "description": "Fail-loud memory-backend signal in\n`orchestrator/message_store.py` `_create_message_store()`\n(backend selection \u2248589-633): when `auto` resolves to the\nin-memory fallback, emit an error-level structured log with a\nstable marker naming the mid-phase-restart loss risk (#3076\ncondition) and set a degraded flag visible on the orchestrator\nhealth surface. Explicit `EGG_MESSAGE_STORE_BACKEND=memory`\n(dev/test intent) emits a warning, not an error, and no degraded\nflag is required. Per HITL Q3: warning/error + health flag only \u2014\ndo NOT refuse to run and do NOT change `auto` selection\nsemantics. Test-harness contexts must not be spammed.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "945e5edb9a41dc1e673f3ff3987eb51664fb4a70",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- `auto`\u2192memory fallback: exactly one error-level log with the\n  stable marker + health-surface degraded field.\n- Explicit memory backend: warning level, no degraded flag.\n- Redis backend: neither.\n- `auto` selection behavior (redis-when-available, memory\n  fallback) is unchanged; unit tests are not spammed.",
@@ -477,8 +477,8 @@
         {
           "id": "task-6-2",
           "description": "Durability tests: extend\n`orchestrator/tests/test_message_store.py` for the fail-loud\nmatrix (auto\u2192memory error + flag; explicit memory warning; redis\nsilent) and extend\n`orchestrator/tests/test_redis_message_store.py` with a\nrestart-semantics test: mid-phase messages survive store\nre-instantiation against the same Redis (simulated orchestrator\nrestart), while the DESIGNED phase-boundary wipe via\n`_clear_concurrent_state()` (`orchestrator/routes/phases.py:113`)\nstill clears state. The two wipe semantics are asserted in the\nsame module with explicit naming so accidental mid-phase loss\n(defect) cannot be conflated with the intentional wipe (required\nbehavior).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "11a196409",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Redis path: mid-phase restart preserves the transcript;\n  `_clear_concurrent_state()` still wipes at the phase boundary.\n- Fail-loud matrix asserted (error/warning/silent \u00d7 flag).\n- Both wipe semantics named explicitly in test ids/docstrings.",
@@ -499,11 +499,11 @@
       ],
       "dependencies": [],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3077/work",
+      "integration_base_sha": "15428256195d626ed7d028bcc24cb5562392dd95",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3144,
+      "pr_url": "https://github.com/jwbron/egg/pull/3144",
       "review_feedback": []
     }
   ],
@@ -595,6 +595,34 @@
       "resolution": "## Resolved Questions\n\n**Q1 \u2014 Scope (Option A / B / C):** Option C \u2014 full remaining scope: R1 non-silent sync residual + artifact spec module + spec-derived propose validation for all producers + gateway artifact-read endpoint (strict) + Phase-3 prose cleanup, docs/architecture invariant entry, and ratchet test + bounded durability.\n\n**Q2 \u2014 Endpoint resolution surface:** Strict \u2014 the gateway artifact-read endpoint accepts only spec-registered artifact names (no raw repo-path escape hatch). Path-guessing is the disease this issue retires; keep the gateway policy surface small.\n\n**Q3 \u2014 Durability bar:** Fail-loud is sufficient for this pipeline \u2014 a prominent startup warning/health signal when BRC consensus runs on the in-memory message-store backend, plus a restart-semantics test for the Redis Streams path (distinguishing the designed _clear_concurrent_state() phase-boundary wipe from accidental mid-phase restart loss). Do NOT change `auto` to refuse BRC without Redis; deeper durability work stays in the #3070 lineage.",
       "resolved_by": "human",
       "resolved_at": "2026-06-11T21:04:25.592314Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-3",
+      "question": "[#2777 slice-4 TASK-4-4 case 5] Slice slice-5 of pipeline issue-3077 has an impossible status enum value or state combination (e.g. status not in PENDING/IN_PROGRESS/COMPLETE/BLOCKED, or PENDING with commits on the integration branch). Bootstrap reconciliation cannot classify the slice safely. How should the orchestrator proceed?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Mark slice complete and continue",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Restart slice from scratch",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Cancel pipeline for manual investigation",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
       "debounce_until": null
     }
   ],
@@ -1091,6 +1119,61 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-4-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T03:03:56.683452Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.commit",
+      "old_value": null,
+      "new_value": "945e5edb9a41dc1e673f3ff3987eb51664fb4a70",
+      "reason": "Linked commit 945e5ed to task-6-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T03:03:56.715920Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-6-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T03:18:07.249376Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.commit",
+      "old_value": null,
+      "new_value": "5f0f67287",
+      "reason": "Linked commit 5f0f672 to task-6-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T03:18:07.271270Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-6-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T03:21:17.832625Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.commit",
+      "old_value": "5f0f67287",
+      "new_value": "11a196409",
+      "reason": "Linked commit 11a1964 to task-6-2",
       "checkpoint_id": null
     }
   ],
