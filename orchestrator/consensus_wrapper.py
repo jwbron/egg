@@ -126,7 +126,8 @@ EVENT_PUMP_WAIT_TIMEOUT_SECS_DEFAULT = 60
 # Placeholders interpolated by ``str.format``:
 #   {agent_command_prefix}   -- ``python3 -m egg_agent --model X --max-turns N``
 #   {idle_budget_min_default}, {hb_interval_default}, {wait_timeout_default}
-_EVENT_PUMP_WRAPPER_TEMPLATE = r"""#!/bin/bash
+_EVENT_PUMP_WRAPPER_TEMPLATE = r"""
+#!/bin/bash
 set -uo pipefail
 
 # Event-pump wrapper (#2908 slice-2). Deterministic loop driven by
