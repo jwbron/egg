@@ -1,0 +1,138 @@
+{
+  "issue": 3064,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "title": "Risk Assessment: Orchestrator-driven on-demand agent spawning (Option B — spawner + lifecycle re-homing, flip deferred)",
+  "summary": "Technical risk assessment for the HITL-approved Option B scope: orchestrator-side event loop and on-demand spawner for propose|ack|nack, confirm/complete bookkeeping moved orchestrator-side, ownership flag defaulting to the in-pod loop, spawn dedupe + bounded respawn supervision, worktree re-attach and session reuse, idle/stall alerts and health-monitor thresholds re-homed lifecycle-aware. The default flip and in-pod loop retirement are an immediately-filed but gated follow-up (live BRC proving run first). Overall risk is MEDIUM. The dominant risks are coordination-liveness risks (partial landing, spawn idempotency, restart durability, supervision gaps), not data-loss risks: all correctness-relevant state is already durable (brc-memory.md, message store, committed .egg-state artifacts, hostPath worktrees). Verdict: PROCEED_WITH_MITIGATIONS.",
+  "overall_risk": "MEDIUM",
+  "verdict": "PROCEED_WITH_MITIGATIONS",
+  "scope_basis": "HITL cq-1: Option B; HITL cq-2: bounded automatic respawn with backoff mirroring #3138 streak semantics, OVERSEER_ALERT only on persistent exhaustion. Operator directive: flip follow-up filed immediately as scheduled work; no dead/deprecated code at end state; flag window is a bounded proving period only.",
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Partial-landing deadlock / no-rollback ownership flag",
+      "impact": "HIGH",
+      "likelihood": "MEDIUM",
+      "detail": "The #3023 first attempt deadlocked BRC by landing the EGG_EVENT_LOOP_OWNER guard without the spawner, and #2908 slice-4 removed the legacy EGG_BRC_EVENT_PUMP flag, so the current wrapper has no rollback path. If the new ownership flag's default is anything other than the in-pod loop, or if the guard merges ahead of a working spawner, a live pipeline stalls with no pod servicing events.",
+      "mitigations": [
+        "Plan must order spawner implementation strictly before (or atomically with) any wrapper-side guard; #3049 now rejects unordered overlapping slices at ingestion.",
+        "Ownership flag must default to the in-pod loop; require an explicit containment test asserting flag-off behavior is unchanged (wrapper still owns wait/heartbeat).",
+        "The flip itself stays out of this pipeline — follow-up gated on a live BRC proving run, filed immediately per operator directive."
+      ]
+    },
+    {
+      "id": "R2",
+      "title": "Spawn-trigger idempotency — duplicate pods for one event",
+      "impact": "HIGH",
+      "likelihood": "HIGH",
+      "detail": "_derive_next_action (orchestrator/routes/consensus.py:296-422) is a derived view; the orchestrator's poll will re-derive the same actionable event for the entire 10-30s pod-startup window. Without a dedupe key, two pods race the same worktree and gateway session and can double-propose or double-ACK. pending_reviews already carries proposal_commit_sha (routes/consensus.py:220) usable for review-verb identity; producer events need an analogous identity (e.g. the NACK version being addressed).",
+      "mitigations": [
+        "Plan must specify the dedupe key per verb: role + event identity (proposal_commit_sha for ack/nack; addressed-NACK version or proposal round for propose).",
+        "One event → at most one live Job; key checked against live Job inventory, not only an in-memory set (ties to R3).",
+        "Idempotency test: re-derive the same event during a simulated startup window and assert no second spawn."
+      ]
+    },
+    {
+      "id": "R3",
+      "title": "Orchestrator-restart durability of spawn bookkeeping",
+      "impact": "HIGH",
+      "likelihood": "MEDIUM",
+      "detail": "In-pod loops survive an orchestrator bounce for free; once the orchestrator owns the loop, an in-memory dedupe/streak table dies with it. On restart the orchestrator re-derives actions from consensus state (tracker is rebuilt from the message store, #2761) and may re-spawn for events already being serviced by a still-running pod, or fail to resume supervision of a pod that died during the outage. Cf. #3070.",
+      "mitigations": [
+        "Prefer stateless re-derivation over persisted bookkeeping: on startup, reconcile derived next-actions against live Kubernetes Job state (Job name encodes pipeline/slice/role) before spawning.",
+        "Dedupe key must be derivable from durable state (message store versions / commit SHAs), never from orchestrator process memory alone.",
+        "Restart test: bounce the orchestrator mid-event with a live pod and assert exactly-once servicing."
+      ]
+    },
+    {
+      "id": "R4",
+      "title": "Supervision gap — silent stall vs runaway respawn",
+      "impact": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "detail": "Today the still-running wrapper loop retries naturally (streak × 2s backoff capped 30s, warn at 5, sticky OVERSEER_ALERT at 10 — #3138, consensus_wrapper.py) and #2806 signals persistent producer failure via exit codes. With one-shot pods, a pod dying mid-event leaves nothing running; an unbounded respawner is the opposite failure (spawn loop burning quota). HITL cq-2 prescribes bounded respawn with backoff mirroring #3138.",
+      "mitigations": [
+        "Per-(role,event) respawn counter with linear backoff, warn threshold, and OVERSEER_ALERT at exhaustion — numerically aligned with #3138 so operator intuition transfers.",
+        "Counter keyed by the R2 dedupe key so a new event resets the streak; counter durability follows the R3 stateless-re-derivation rule (a respawn after orchestrator restart may under-count, which is acceptable; it must not over-spawn).",
+        "Distinguish pod-infrastructure failure (Job failed, image pull) from agent NACK-loop progress: only the former consumes respawn budget."
+      ]
+    },
+    {
+      "id": "R5",
+      "title": "Health-monitor and heartbeat false positives on ephemeral pods",
+      "impact": "MEDIUM",
+      "likelihood": "HIGH",
+      "detail": "HealthMonitor keys tripwires on heartbeat timeouts (120s default, 600s implement — health_monitor.py:224-232) and container exits, both assuming long-lived pods; 'role X has no pod' becomes the normal state. HeartbeatCoordinator's gateway-session refresh fan-out (#2076 NB2, heartbeat.py:128-137) loses its sender when no pod runs. Left unfixed, the flag-on proving run drowns in heartbeat_timeout/progress_stall alerts and sessions silently expire between events — directly undermining the gating bar the flip depends on.",
+      "mitigations": [
+        "Monitor thresholds and exit handling must become lifecycle-owner-aware in the same change that introduces orchestrator ownership (suppress per-pod tripwires when the flag says orchestrator-owned; replace with orchestrator-side 'event pending with no pod > N min' alert).",
+        "Re-home the idle-budget alert (EGG_BRC_IDLE_BUDGET_MIN semantics) orchestrator-side where the global wait state is visible.",
+        "Session-refresh side effect must move to the spawner/orchestrator or become per-spawn registration (see R7)."
+      ]
+    },
+    {
+      "id": "R6",
+      "title": "Worktree re-attach staleness and ownership",
+      "impact": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "detail": "Worktrees persist on hostPath keyed {pipeline_id}[-{slice_id}]-{role} (#3005, #2403), making re-attach the hot-path optimization — but a pod killed mid-event can leave uncommitted staging state, stale index locks, or a HEAD behind origin. A successor pod attaching blindly can commit a predecessor's half-done work or fail on a lock. Concurrent attach by duplicate pods compounds R2.",
+      "mitigations": [
+        "Plan must state the re-attach contract: clean/reset policy on attach (e.g. discard uncommitted state and hard-sync to the role branch tip) or an explicit staleness check with recreate fallback.",
+        "Single-writer guarantee comes from R2 dedupe, not from worktree locking — make that dependency explicit in the plan.",
+        "Keep recreate-on-suspect-state as the safe fallback; latency win must not buy correctness risk."
+      ]
+    },
+    {
+      "id": "R7",
+      "title": "Gateway-session lifecycle churn per-event",
+      "impact": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "detail": "Today spawn_agent_job registers one token-auth session per pod lifetime (kubernetes_spawner.py) and cleanup tears it down. Per-event pods multiply session setup/teardown; session reuse per role across spawns saves latency but risks leaked or expired sessions (the refresh side effect that kept them alive is pod-borne today, see R5) and a mid-event auth failure surfaces as an agent failure consuming R4 respawn budget.",
+      "mitigations": [
+        "Plan must choose explicitly: per-spawn session (simple, more churn) vs per-role reused session with orchestrator-side refresh; document teardown on phase end either way.",
+        "Auth/session failures should be classified as infrastructure for R4 budgeting purposes.",
+        "Leak check: assert session count returns to baseline after a phase completes under the flag-on path."
+      ]
+    },
+    {
+      "id": "R8",
+      "title": "Per-event cold-start latency unbudgeted",
+      "impact": "LOW",
+      "likelihood": "HIGH",
+      "detail": "Pod scheduling + image pull + worktree attach + session registration land on the hot path of every BRC event. Gaps are already minutes-long so tens of seconds is tolerable, but without an explicit budget a regression (e.g. recreate-instead-of-reattach fallback firing every time) is invisible until pipelines feel slow.",
+      "mitigations": [
+        "Plan must state a per-event spawn-latency budget and emit a measurable metric (spawn-request → agent-invocation timestamp delta).",
+        "Worktree re-attach (R6) and session reuse (R7) are the levers; the proving run should record observed latency as part of the flip gate evidence."
+      ]
+    },
+    {
+      "id": "R9",
+      "title": "Flip follow-up decays into lingering deprecation",
+      "impact": "LOW",
+      "likelihood": "MEDIUM",
+      "detail": "Operator directed the end state have no dead code: live proving run → flip default → delete in-pod wait arm + heartbeat + ownership flag in one cleanup PR. If the follow-up is filed loosely, the flag window becomes permanent and the codebase carries two event-loop owners indefinitely — the exact dual-path hazard that bit #3023.",
+      "mitigations": [
+        "Filing the follow-up issue (with the three-step gate sequence in its body) must be an explicit contract task in this pipeline, not a postscript.",
+        "The follow-up should name its deletion targets concretely (wrapper wait arm, heartbeat subprocess, ownership flag) so the cleanup PR is mechanical."
+      ]
+    }
+  ],
+  "grounding": {
+    "verified_against_working_tree": [
+      "orchestrator/routes/consensus.py:296-422 (_derive_next_action), :220 (proposal_commit_sha in pending_reviews)",
+      "orchestrator/consensus_wrapper.py:25-29,63-67,102-120,597-627 (idle budget EGG_BRC_IDLE_BUDGET_MIN default 30, #3138 streak backoff warn-5/alert-10, sticky latches)",
+      "orchestrator/health_monitor.py:224-232,253,298,753 (120s/600s heartbeat timeouts, heartbeat_timeout alert type)",
+      "orchestrator/heartbeat.py:45-59,128-137 (HeartbeatCoordinator gateway-session fan-out, #2076 NB2)",
+      ".egg-state/drafts/3064-analysis.md (refine analysis + HITL resolutions cq-1=Option B, cq-2=bounded respawn)"
+    ]
+  },
+  "reviewer_checklist_for_plan": [
+    "Ownership flag defaults to in-pod loop; spawner ordered before/with guard; containment test for flag-off parity (R1).",
+    "Explicit per-verb dedupe key (proposal_commit_sha for reviews; NACK-version/round for proposes) + idempotency test (R2).",
+    "Stateless restart reconciliation against live Job state; dedupe derivable from durable state (R3).",
+    "Bounded respawn mirroring #3138 (backoff, warn, alert-at-exhaustion); infra-vs-agent failure classification (R4).",
+    "Health-monitor + HeartbeatCoordinator made lifecycle-owner-aware in the same change; idle-budget alert re-homed (R5).",
+    "Worktree re-attach contract with reset/recreate fallback (R6); session strategy chosen explicitly with leak check (R7).",
+    "Per-event spawn-latency budget + metric (R8).",
+    "Flip follow-up issue filed as an explicit contract task with named deletion targets (R9).",
+    "confirm/complete handled orchestrator-side with no pod spawn (analysis design-question 2)."
+  ]
+}
