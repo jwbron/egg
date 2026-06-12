@@ -5,7 +5,7 @@
   "branch": "egg/issue-3064/work",
   "base_branch": "main",
   "prompt": null,
-  "status": "cancelled",
+  "status": "failed",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -329,10 +329,10 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-06-12T22:56:14.379679Z",
       "work_started_at": "2026-06-12T22:56:15.698921Z",
-      "completed_at": null,
+      "completed_at": "2026-06-12T23:04:07.371235Z",
       "containers": [
         {
           "container_id": "87c29c05-b0c7-4f73-95d8-39e620289ac9",
@@ -559,12 +559,12 @@
         {
           "cycle": 0,
           "started_at": "2026-06-12T22:56:15.698921Z",
-          "completed_at": null,
+          "completed_at": "2026-06-12T23:04:07.371220Z",
           "commit_sha": "25d7278a3be26a43f01fda08eb2c3286ec74262c"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- slice slice-5 ---\n--- coder (exit=-1) ---\n\n--- PRODUCER PERMANENT DEATH ---\nProducer 'coder' container exited with code -1 after the consensus-wrapper exhausted its retry budget. Pipeline failing (issue #2806).",
       "operator_directives": [],
       "iteration_history": [],
       "phase_start_sha": "25d7278a3be26a43f01fda08eb2c3286ec74262c",
@@ -667,20 +667,20 @@
     }
   ],
   "created_at": "2026-06-12T16:37:40.276091Z",
-  "updated_at": "2026-06-12T23:03:07.238760Z",
+  "updated_at": "2026-06-12T23:04:07.371406Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": 3165,
   "pr_head_sha": null,
   "has_contract": true,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- slice slice-5 ---\n--- coder (exit=-1) ---\n\n--- PRODUCER PERMANENT DEATH ---\nProducer 'coder' container exited with code -1 after the consensus-wrapper exhausted its retry budget. Pipeline failing (issue #2806).",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-12T22:56:06.164557Z",
-  "version": 231,
+  "version": 232,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
