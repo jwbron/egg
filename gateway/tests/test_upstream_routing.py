@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import types
 from collections.abc import Iterator
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
@@ -544,9 +545,13 @@ class TestAttributionHeaders:
                     "content-type": "application/json",
                     "x-egg-agent-role": "trusted_user",
                     "x-egg-forged": "1",
+                    # Mixed-case forgery: the strip lowercases the key, so an
+                    # X-Egg-... header must be dropped too, not slip through.
+                    "X-Egg-Pipeline-Id": "forged-pipeline",
                 },
             )
         assert litellm.last_headers.get("x-egg-agent-role") == "reviewer_code"
+        assert litellm.last_headers.get("x-egg-pipeline-id") == "pipeline-20260612-abc"
         assert "x-egg-forged" not in litellm.last_headers
 
     def test_anthropic_hop_is_not_stamped(self, client) -> None:
@@ -589,6 +594,14 @@ class TestAttributionHeaders:
         assert gateway._sanitize_attribution_value("a\r\nx-evil: 1") == "ax-evil: 1"
         assert gateway._sanitize_attribution_value("rôle") == "rle"
         assert len(gateway._sanitize_attribution_value("x" * 1000)) == 256
+
+    def test_control_only_value_emits_no_header(self) -> None:
+        # A field of only control chars sanitizes to "" — no empty-valued
+        # header should be stamped at all.
+        session = types.SimpleNamespace(pipeline_id="\r\n", agent_role="coder", phase=None)
+        out = gateway._with_attribution_headers({}, session)
+        assert "x-egg-pipeline-id" not in out
+        assert out["x-egg-agent-role"] == "coder"
 
 
 class TestTransientFivexx:

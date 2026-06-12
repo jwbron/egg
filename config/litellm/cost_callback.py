@@ -269,9 +269,19 @@ def _extract_estimated_cost(mcd):
     It is an estimate, not a bill: the pricing map may lag the provider's
     rates or lack cache-discount entries for a model. Returns None — never
     0.0 — when LiteLLM couldn't price the call (model absent from the map),
-    mirroring the billed-cost "unknown ≠ free" discipline."""
+    mirroring the billed-cost "unknown ≠ free" discipline.
+
+    Reads the top-level ``response_cost`` first, then falls back to
+    ``standard_logging_object.response_cost`` — the latter is LiteLLM's
+    aggregated/finalized metrics object, preferred for streaming, so the
+    fallback hardens against a LiteLLM version where the top-level key is
+    absent on the streaming path."""
     try:
-        rc = (mcd or {}).get("response_cost")
+        mcd = mcd or {}
+        rc = mcd.get("response_cost")
+        if not isinstance(rc, (int, float)):
+            slo = mcd.get("standard_logging_object")
+            rc = slo.get("response_cost") if isinstance(slo, dict) else None
         if isinstance(rc, (int, float)) and rc > 0:
             return float(rc)
         return None

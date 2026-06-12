@@ -9351,7 +9351,11 @@ def _with_attribution_headers(headers: dict[str, str], session: Any) -> dict[str
         ("x-egg-phase", session.phase),
     ):
         if value:
-            headers[header] = _sanitize_attribution_value(str(value))
+            sanitized = _sanitize_attribution_value(str(value))
+            # A value of only control chars sanitizes to "" — don't stamp an
+            # empty-valued header (the callback would coerce it to None anyway).
+            if sanitized:
+                headers[header] = sanitized
     return headers
 
 

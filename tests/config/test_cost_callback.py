@@ -234,6 +234,22 @@ class TestEstimatedCost:
         assert cc._extract_estimated_cost({}) is None
         assert cc._extract_estimated_cost(None) is None
 
+    def test_falls_back_to_standard_logging_object(self):
+        # A LiteLLM version that omits the top-level key but populates the
+        # finalized metrics object must still yield the estimate.
+        assert (
+            cc._extract_estimated_cost({"standard_logging_object": {"response_cost": 0.05}}) == 0.05
+        )
+        # Top-level takes precedence when present.
+        assert (
+            cc._extract_estimated_cost(
+                {"response_cost": 0.02, "standard_logging_object": {"response_cost": 0.05}}
+            )
+            == 0.02
+        )
+        # A non-dict standard_logging_object is ignored, not raised on.
+        assert cc._extract_estimated_cost({"standard_logging_object": "nope"}) is None
+
 
 class TestAttribution:
     """Gateway-stamped ``x-egg-*`` headers land as per-line attribution
