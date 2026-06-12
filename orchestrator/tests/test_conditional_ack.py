@@ -495,12 +495,13 @@ class TestSignalPathIntegration:
         return Flask(__name__).app_context()
 
     def test_signal_ack_propagates_condition_to_pr_body(self):
-        from message_store import MessageStore
+        import fakeredis
+        from redis_message_store import RedisMessageStore
         from routes import pipelines as p
         from routes.signals import handle_consensus_ack_signal
 
         self._register_tracker_with_proposal()
-        live_store = MessageStore()
+        live_store = RedisMessageStore(fakeredis.FakeRedis())
 
         with (
             self._flask_app_context(),
@@ -538,7 +539,8 @@ class TestSignalPathIntegration:
         assert ack_msgs[0].metadata["payload"]["pre_merge_condition"] == self._SUBSTANTIVE_CONDITION
 
     def test_signal_ack_without_condition_renders_no_section(self):
-        from message_store import MessageStore
+        import fakeredis
+        from redis_message_store import RedisMessageStore
         from routes import pipelines as p
         from routes.signals import handle_consensus_ack_signal
 
@@ -546,7 +548,10 @@ class TestSignalPathIntegration:
 
         with (
             self._flask_app_context(),
-            patch("message_store.get_message_store", return_value=MessageStore()),
+            patch(
+                "message_store.get_message_store",
+                return_value=RedisMessageStore(fakeredis.FakeRedis()),
+            ),
             patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
         ):
             response, status_code = handle_consensus_ack_signal(
@@ -1189,10 +1194,11 @@ class TestResolveObligationSignalHandler:
             _trackers.pop("test-pid-signal", None)
 
     def test_resolves_active_obligation(self, app, matrix_graph):
-        from message_store import MessageStore
+        import fakeredis
+        from redis_message_store import RedisMessageStore
 
         tracker = self._set_tracker(matrix_graph)
-        live_store = MessageStore()
+        live_store = RedisMessageStore(fakeredis.FakeRedis())
         try:
             from routes.signals import handle_consensus_resolve_obligation_signal
 
@@ -1247,10 +1253,11 @@ class TestResolveObligationSignalHandler:
         does not persist a CONSENSUS_OBLIGATION_RESOLVED message — both
         properties matter, the latter so a stale rejection cannot leak into
         replay (#2338 blocking-2)."""
-        from message_store import MessageStore
+        import fakeredis
+        from redis_message_store import RedisMessageStore
 
         tracker = self._set_tracker(matrix_graph)
-        live_store = MessageStore()
+        live_store = RedisMessageStore(fakeredis.FakeRedis())
         try:
             from routes.signals import handle_consensus_resolve_obligation_signal
 

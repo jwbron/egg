@@ -42,7 +42,7 @@ a reader cannot mistake the design target for the current state.
 | Gateway `POST /api/v1/artifact/get` + `orchestrator/routes/artifacts.py` | Clause 1 | **Pending** (slice-4) |
 | Sandbox `egg-artifact` verb | Clauses 1, 3 | **Pending** (slice-4) |
 | `orchestrator/tests/test_prompt_sync_ratchet.py` no-sync-mechanics ratchet | Clause 2 | **Pending** (slice-5) |
-| Fail-loud memory-backend signal + Redis restart-semantics test | Wipe-semantics | **Pending** (slice-6) |
+| Redis-only message store (memory backend removed, [#3159](https://github.com/jwbron/egg/issues/3159)) + Redis restart-semantics test | Wipe-semantics | **Shipped** (slice-6 fail-loud signal, superseded by the #3159 removal) |
 
 The clause descriptions below are written in present tense as the **target
 state** the epic is landing. Until a slice ships, treat the corresponding
@@ -170,24 +170,22 @@ points. These MUST NOT be conflated when reasoning about durability:
 | Wipe | Where | When | Status |
 |------|-------|------|--------|
 | **Designed phase-boundary wipe** | `_clear_concurrent_state()` in `orchestrator/routes/phases.py` (called from `phases.py` at the phase transitions and from `routes/pipelines.py`) | At phase transitions, **after** the brc-history persistence has captured the transcript | **Required behaviour.** This wipe must keep happening. The persisted history is the audit trail; the live message store is per-phase scratch space. |
-| **Accidental mid-phase restart loss** | A mid-phase orchestrator restart on the in-memory `MessageStore` backend (`orchestrator/message_store.py` `_create_message_store()`, the `auto` → memory fallback path) | When `EGG_MESSAGE_STORE_BACKEND` is `auto` and Redis is unavailable, the in-memory backend is silently picked — and a mid-phase restart loses the running transcript | **Defect surface.** No code intends this loss. |
+| **Accidental mid-phase restart loss** | A mid-phase orchestrator restart on the (removed) in-memory `MessageStore` backend | Could occur whenever backend selection landed on the in-memory store — silently, via the old `EGG_MESSAGE_STORE_BACKEND=auto` → memory fallback | **Retired surface.** [#3159](https://github.com/jwbron/egg/issues/3159) removed the in-memory backend; Redis Streams is the only backend and creation fails loudly rather than degrading. |
 
-The bounded-durability response in slice 6 of #3077 is a **fail-loud
-signal**, not a re-architecture (per HITL Q3). When `auto` resolves to
-the in-memory backend in a context where BRC consensus runs, the
-orchestrator emits an error-level structured log with a stable marker
-and sets a health-visible degraded flag. Explicit
-`EGG_MESSAGE_STORE_BACKEND=memory` (a dev/test choice) stays at warning
-level with no degraded flag. The `auto` selection semantics — Redis
-when available, in-memory fallback — are unchanged; deeper durability
-work stays in the [#3070](https://github.com/jwbron/egg/issues/3070)
-lineage. Since [#2662](https://github.com/jwbron/egg/issues/2662) the
-k8s manifests deploy Redis (`k8s/base/redis-deployment.yaml`) and pin
-the orchestrator to `EGG_MESSAGE_STORE_BACKEND=redis`, so the
-accidental-loss row above cannot occur in-cluster: explicit `redis`
-mode raises on an unreachable Redis instead of falling back. The
-fallback path (and its fail-loud signal) remains for `auto`-configured
-local/dev contexts. The Redis path's restart semantics are pinned by
+The history of this distinction: slice 6 of #3077 added a **fail-loud
+signal** (error-level marker log + health-visible degraded flag) for
+the `auto` → memory fallback, per HITL Q3 deliberately without changing
+the selection semantics. [#2662](https://github.com/jwbron/egg/issues/2662)
+then deployed Redis in-cluster (`k8s/base/redis-deployment.yaml`) and
+pinned the orchestrator to `EGG_MESSAGE_STORE_BACKEND=redis`, making
+the fallback unreachable in production.
+[#3159](https://github.com/jwbron/egg/issues/3159) completed the arc by
+removing the in-memory backend (and the now-purposeless fail-loud
+machinery) entirely: `redis` / unset selects Redis, the removed
+`auto` / `memory` values raise at creation, and an unreachable Redis
+raises instead of falling back. Deeper durability work stays in the
+[#3070](https://github.com/jwbron/egg/issues/3070) lineage. The Redis
+path's restart semantics are pinned by
 `orchestrator/tests/test_redis_message_store.py`: mid-phase messages
 survive a store re-instantiation against the same Redis (simulated
 orchestrator restart), while the designed `_clear_concurrent_state()`
@@ -208,7 +206,7 @@ quietly trade one for the other.
 | Gateway artifact-read endpoint `POST /api/v1/artifact/get` (strict, name-only) | `gateway/artifact_api.py` (forwarding) + `orchestrator/routes/artifacts.py` (`git show` against the authoritative repo) | Clauses 1, 3 |
 | Sandbox `egg-artifact` verb | `sandbox/scripts/egg-artifact` | Clauses 1, 3 |
 | No-sync-mechanics ratchet | `orchestrator/tests/test_prompt_sync_ratchet.py` | Clause 2 |
-| Fail-loud memory-backend signal + Redis restart-semantics test | `orchestrator/message_store.py`, `orchestrator/tests/test_message_store.py`, `orchestrator/tests/test_redis_message_store.py` | Wipe-semantics distinction (clause-1 prerequisite) |
+| Redis-only message store (fail-loud creation, #3159) + Redis restart-semantics test | `orchestrator/message_store.py`, `orchestrator/tests/test_message_store.py`, `orchestrator/tests/test_redis_message_store.py` | Wipe-semantics distinction (clause-1 prerequisite) |
 
 ## Cross-references
 
