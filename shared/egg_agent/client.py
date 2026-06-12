@@ -374,13 +374,11 @@ async def run_agent_async(
             existing_servers = getattr(options, "mcp_servers", None) or {}
             options.mcp_servers = {**existing_servers, **mcp_servers}
             # Preserve any caller-supplied system_prompt; append the
-            # nudge.  ``options.system_prompt`` is typed
-            # ``str | SystemPromptPreset | SystemPromptFile | None`` —
-            # we only know how to extend the plain-str case; for preset
-            # / file forms the nudge is set as the full prompt (the
-            # caller's preset/file remains accessible via the SDK's own
-            # plumbing but SystemPromptPreset / SystemPromptFile
-            # append semantics are not defined).
+            # nudge via the shared helper.  It extends the plain-str
+            # case (and None) and, for the preset / file forms whose
+            # append semantics are undefined, returns the caller's
+            # prompt unchanged with ``appended=False`` so we skip the
+            # nudge rather than dropping the caller's prompt.
             existing_prompt = options.system_prompt
             options.system_prompt, appended = _append_system_prompt_addendum(
                 existing_prompt, SYSTEM_PROMPT_NUDGE
