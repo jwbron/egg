@@ -198,3 +198,16 @@ proving run the issue demands.
 (declarative phase model, adjacent), #2958 (producer lifecycle, adjacent),
 #2866 (k3s runtime, adjacent), #3002 (GKE split-object-store, adjacent),
 #3023/#3041 (scrapped first attempt, fully superseded here).
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the refine phase gate:
+
+## Resolved Questions
+
+**Scope for #3064 on-demand agent spawning (cq-1):**
+Answer: Option B — A + lifecycle re-homing; flip deferred to a gated follow-up. Operator additionally directed that the flip follow-up be filed immediately so the in-pod loop retirement is scheduled work (live BRC proving run with flag on → flip default → delete in-pod wait arm + heartbeat + ownership flag in one cleanup PR), not lingering deprecation. End state must have no dead/deprecated code; the flag window is accepted only as a bounded proving period.
+
+**Failure-supervision policy for one-shot agent pods (cq-2):**
+Answer: Bounded automatic respawn with backoff, then OVERSEER_ALERT — mirror the wrapper's #3138 streak semantics (transient failures retry silently within a bounded budget; humans only see persistent exhaustion).
