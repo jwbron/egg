@@ -93,21 +93,41 @@ _SCAN_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 #
 # Each entry pairs a source filename (basename, since prompts share a
 # directory and event_prompt.py is uniquely named) with a (line_number,
-# substring) marker plus a JUSTIFICATION comment. An entry is added only
-# when the matched text is genuinely harness-internal (e.g. a comment
-# referencing the retired mechanic by name to explain why something was
-# removed) and could not be reworded to drop the literal token.
+# substring) marker plus a JUSTIFICATION comment block immediately
+# above the row. An entry is added only when the matched text is
+# genuinely harness-internal (e.g. a Python comment referencing the
+# retired mechanic by name to explain why something was removed) and
+# could not be reworded to drop the literal token without losing the
+# historical pointer reviewers need to navigate the file.
 #
 # Growing this list is the explicit ratchet hop — a reviewer must
-# eyeball every addition. The list starts EMPTY: TASK-5-1 (event-prompt
-# self-fetch fallback removal) and TASK-5-2 (REVIEWER-SYNC.md retire
-# fetch/log prose) brought the scanned surfaces to a clean state.
+# eyeball every addition. TASK-5-1 (event-prompt self-fetch fallback
+# removal) and TASK-5-2 (REVIEWER-SYNC.md retire fetch/log prose)
+# brought the scanned surfaces to a clean state for agent-facing text;
+# the only entries below are Python comments in `event_prompt.py` that
+# cite the retired mechanic to explain WHY the surrounding code drops
+# it.
 #
 # Schema: (source_basename, matched_substring, line_number_1_indexed).
 # The line number is checked against the actual finding so a stale
 # allowlist entry whose line drifts after edits still fails — forcing
 # reviewers to re-verify the justification.
-_ALLOWLIST: tuple[tuple[str, str, int], ...] = ()
+_ALLOWLIST: tuple[tuple[str, str, int], ...] = (
+    # JUSTIFICATION: `git fetch` appears in a Python `#` comment block
+    # inside `_render_producer_delta_section()`'s no-proposal-SHA
+    # degraded-baseline branch, where the slice-5 TASK-5-1 commit
+    # (`b914f027d`) replaced the prior "fetch and read the actual file
+    # diffs yourself" instruction prose. The comment names the
+    # retired mechanism so a future reader of the degraded-baseline
+    # path understands WHY the agent must NOT self-fetch even when
+    # `last_reviewed_commit_sha` is missing (per-role worktrees can't
+    # see producer commits without the wrapper's `sync_to_proposals`
+    # merge). The token sits in a Python source comment, NOT in any
+    # prompt-constructing string — agents never see it. Reworking the
+    # comment to drop the literal token would strip the pointer
+    # reviewers depend on to navigate the deletion.
+    ("event_prompt.py", "git fetch", 890),
+)
 
 
 # ---------------------------------------------------------------------------
