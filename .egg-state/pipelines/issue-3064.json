@@ -212,10 +212,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Failure-supervision policy for one-shot agent pods (replaces the in-pod retry loop): when a spawned pod dies mid-event or the agent invocation fails, should the orchestrator (a) respawn automatically with a bounded retry budget + backoff, escalating to OVERSEER_ALERT when exhausted (recommended — mirrors the wrapper's #3138 streak semantics), or (b) alert-only on first failure with no automatic respawn?",
+      "context": "Open contract question cq-2, registered by an agent during the refine phase.",
+      "options": [
+        "Bounded automatic respawn with backoff, then OVERSEER_ALERT (recommended)",
+        "Alert-only, human decides every respawn",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-06-12T17:22:35.149948Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-06-12T16:37:40.276091Z",
-  "updated_at": "2026-06-12T17:22:35.107215Z",
+  "updated_at": "2026-06-12T17:22:35.158195Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -228,7 +246,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 14,
+  "version": 15,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
