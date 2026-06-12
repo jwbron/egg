@@ -45,10 +45,11 @@ class TestMessageStoreBackend:
     def test_deployed_backend_is_explicit_redis(self, egg_stack: EggStack) -> None:
         """The orchestrator Deployment pins EGG_MESSAGE_STORE_BACKEND=redis.
 
-        Explicit ``redis`` mode cannot silently fall back to in-memory —
-        creation raises instead — so this assertion is what makes the
-        health check below non-vacuous. A manifest regression to ``auto``
-        (or dropping the env var, whose default is ``auto``) fails here.
+        Explicit ``redis`` mode cannot silently fall back to in-memory:
+        creation raises instead. A manifest regression to ``auto`` (or
+        dropping the env var, whose default is ``auto``) fails here. The
+        real end-to-end coverage that the pinned backend actually works
+        lives in ``test_redis_streams_roundtrip_from_orchestrator_pod``.
         """
         result = _kubectl(
             "get",
@@ -65,7 +66,17 @@ class TestMessageStoreBackend:
         )
 
     def test_health_reports_message_store_ok(self, orchestrator_url: str) -> None:
-        """/api/v1/health must not carry the auto→memory fallback marker."""
+        """/api/v1/health must not carry the auto→memory fallback marker.
+
+        Scope caveat: the marker (``is_memory_fallback_degraded()``) is
+        only ever set on the *auto*→memory path, so in the explicit
+        ``redis`` mode this deployment pins it is structurally always
+        absent — a healthy ``{"status": "ok"}`` here does NOT prove Redis
+        is reachable (an unreachable Redis 500s ops without flipping this
+        flag). This is a cheap guard that the orchestrator came up without
+        degrading; the round-trip test below carries the real proof that
+        the orchestrator→Redis path works.
+        """
         resp = requests.get(f"{orchestrator_url}/api/v1/health", timeout=10)
         body = resp.json()
         component = body.get("components", {}).get("message_store")

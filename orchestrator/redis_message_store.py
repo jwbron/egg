@@ -34,20 +34,27 @@ from message_store import GetMessagesMeta, Message, coerce_deprecated_message_ty
 logger = get_logger("orchestrator.redis_message_store")
 
 
+# Connection-pool socket timeout, in seconds. redis-py enforces this on
+# the blocked read itself, so a single XREAD BLOCK >= this dies with
+# "Timeout reading from socket" before the server can answer. Named so
+# ``_MAX_BLOCK_MS`` and its guard test derive from the one real value
+# rather than duplicating the literal.
+_SOCKET_TIMEOUT_SEC = 5
+
 # Upper bound for a single XREAD BLOCK, in milliseconds. MUST stay safely
-# below the connection pool's socket_timeout (5 s, see
-# ``get_redis_message_store``): redis-py enforces socket_timeout on the
-# blocked read itself, so a single BLOCK >= socket_timeout dies with
-# "Timeout reading from socket" before the server can answer — every
-# agent long-poll (25-60 s) 500'd at the 5 s mark. Long waits are
+# below the connection pool's ``socket_timeout`` (``_SOCKET_TIMEOUT_SEC``,
+# applied in ``get_redis_message_store``): a single BLOCK >= socket_timeout
+# dies with "Timeout reading from socket" before the server can answer —
+# every agent long-poll (25-60 s) 500'd at the 5 s mark. Long waits are
 # therefore chunked into BLOCK slices of at most this length; XREAD
 # returns immediately when data arrives, so chunking costs one extra
 # round-trip per idle slice, not delivery latency. Caught live by the
 # first deployed canary pipeline for #2662 — fakeredis has no sockets,
 # so the unit tier structurally cannot regress-test the timeout itself;
 # the slice-cap contract is pinned in test_redis_message_store.py
-# instead.
-_MAX_BLOCK_MS = 4000
+# instead. The 1 s margin below the socket timeout absorbs round-trip
+# and scheduling slack so the slice returns before redis-py trips.
+_MAX_BLOCK_MS = (_SOCKET_TIMEOUT_SEC - 1) * 1000
 
 
 def _stream_key(pipeline_id: str) -> str:
@@ -272,13 +279,23 @@ class RedisMessageStore:
         start_id = "0-0"
         since_id_stale = False
         if from_tip and not since_id and wait > 0:
-            # Redis XREAD treats ``$`` as "only entries with an ID greater
-            # than the greatest ID in the stream at call time" — i.e., a
-            # true event wait. Only safe on the blocking path (XREAD);
-            # XRANGE does not accept ``$``. Inner wait_for_types loop
-            # replaces ``$`` with a concrete ``last_sid`` after the first
-            # read, so subsequent cursor advancement uses real IDs.
-            start_id = "$"
+            # from_tip = "deliver only entries added after this call
+            # begins". Resolve the current tip to a CONCRETE stream id
+            # once, here, rather than passing Redis's ``$`` sentinel into
+            # the (chunked) blocking read below. ``$`` is re-resolved
+            # server-side to the *live* tip on every XREAD re-issue, so
+            # across idle BLOCK slices a message XADDed in the gap between
+            # one slice returning empty and the next being issued would be
+            # skipped — the next ``$`` starts after it — a silent drop in
+            # the consensus path. A fixed concrete id never advances on
+            # its own, so re-blocking from it re-scans that gap and cannot
+            # drop a mid-wait arrival. This mirrors the in-memory backend,
+            # which snapshots the tip once under its lock at call entry
+            # (message_store.py) so from_tip is race-free against
+            # concurrent add_message. An empty/missing stream resolves to
+            # "0-0" (read everything > 0-0), which still catches the first
+            # arrival.
+            start_id = self._resolve_tip_stream_id(pipeline_id)
         elif since_id:
             stream_id = self._resolve_stream_id(pipeline_id, since_id)
             if stream_id:
@@ -482,8 +499,11 @@ class RedisMessageStore:
                 return [], meta
 
             if last_sid is not None:
-                # Advance exclusively past the last sid so we don't re-read
-                # the same rows.
+                # Advance past the last sid so we don't re-read the same
+                # rows. On a pure-idle slice last_sid is None, so
+                # current_start stays the concrete tip id resolved at
+                # entry — re-blocking from it re-scans the gap, so a
+                # mid-wait arrival is never dropped.
                 current_start = last_sid
 
             inner_loops += 1
@@ -495,6 +515,31 @@ class RedisMessageStore:
                     type_filter=list(want_types),
                 )
                 return [], meta
+
+    def _resolve_tip_stream_id(self, pipeline_id: str) -> str:
+        """Snapshot the current stream tip as a concrete id for from_tip waits.
+
+        ``XREVRANGE … COUNT 1`` returns the greatest stream id present
+        *now*; an ``XREAD`` started from it (exclusive) delivers only
+        later arrivals — the from_tip contract — without ever re-resolving
+        Redis's ``$`` sentinel mid-wait (see the call site for why that
+        matters). Returns ``"0-0"`` for an empty/missing stream, which
+        reads everything ``> 0-0`` and so still catches the first arrival.
+        A ``RedisError`` degrades to ``"0-0"`` for the same reason: the
+        caller's deadline loop bounds the read, and starting from the
+        head of a (typically empty) from_tip stream loses nothing.
+        """
+        key = _stream_key(pipeline_id)
+        try:
+            entries = self._redis.xrevrange(key, count=1)
+        except redis.RedisError:
+            return "0-0"
+        if entries:
+            stream_id = entries[0][0]
+            if isinstance(stream_id, bytes):
+                stream_id = stream_id.decode("utf-8")
+            return stream_id
+        return "0-0"
 
     def get_latest_id(self, pipeline_id: str) -> str | None:
         """Return the ID of the most recent message for *pipeline_id*, or ``None``.
@@ -640,8 +685,8 @@ def get_redis_message_store(
                     db=db,
                     decode_responses=False,  # Handle decoding ourselves
                     max_connections=20,
-                    socket_timeout=5,
-                    socket_connect_timeout=5,
+                    socket_timeout=_SOCKET_TIMEOUT_SEC,
+                    socket_connect_timeout=_SOCKET_TIMEOUT_SEC,
                 )
                 client = redis.Redis(connection_pool=pool)
                 # Test connection

@@ -83,8 +83,22 @@ spec:
           # RedisError) instead of silently dropping stream entries —
           # losing messages is the failure mode this deployment exists
           # to remove.
+          #
+          # protected-mode no: stock Redis defaults to protected-mode yes,
+          # which rejects every non-loopback connection from the default
+          # (no-password) user (src/networking.c — there is no
+          # bind-address exemption in Redis 8). The orchestrator connects
+          # from a different pod via the ClusterIP service with no
+          # password (get_redis_message_store passes none), so without
+          # this every message op would be DENIED. The isolation
+          # protected mode would provide is already enforced by
+          # network-policies.yaml: egg-agents is default-deny egress with
+          # no Redis allow rule, and only the orchestrator (in egg-system,
+          # which has no NetworkPolicy) can reach the service.
           args:
             - redis-server
+            - --protected-mode
+            - "no"
             - --appendonly
             - "yes"
             - --dir

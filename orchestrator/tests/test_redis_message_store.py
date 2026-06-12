@@ -774,11 +774,68 @@ class TestWaitForTypes:
 
 
 class TestRedisFromTipSemantics:
-    """``from_tip=True`` uses Redis ``$`` so XREAD only matches entries
-    added after the call starts.
+    """``from_tip=True`` snapshots the stream tip to a concrete id once at
+    call entry, so XREAD only matches entries added after the call starts.
 
-    Backs the ``/messages/wait`` endpoint fix for issue #1925.
+    The concrete id (rather than Redis's ``$`` sentinel) is what keeps the
+    chunked blocking read from dropping a message XADDed between idle
+    slices — ``$`` re-resolves to the live tip on every re-issue, a fixed
+    id does not. Backs the ``/messages/wait`` endpoint fix for issue #1925.
     """
+
+    def test_resolve_tip_stream_id_returns_concrete_id(self, store):
+        """A non-empty stream resolves to its greatest concrete stream id."""
+        store.add_message(
+            Message(
+                pipeline_id="tip-pipeline",
+                from_role="coder",
+                message_type=MessageType.PROGRESS,
+                subject="first",
+            )
+        )
+        tip = store._resolve_tip_stream_id("tip-pipeline")
+        assert tip != "$"
+        assert "-" in tip  # concrete Redis stream id, e.g. "1700000000000-0"
+
+    def test_resolve_tip_stream_id_empty_stream_is_zero(self, store):
+        """An empty/missing stream resolves to ``0-0`` (read everything)."""
+        assert store._resolve_tip_stream_id("never-seen-pipeline") == "0-0"
+
+    def test_from_tip_never_passes_dollar_to_xread(self, redis_client, monkeypatch):
+        """The from_tip blocking read must issue a CONCRETE start id, not ``$``.
+
+        Pins the BLOCKING-2 fix: ``$`` re-resolves server-side on every
+        slice and would skip a message added between idle slices.
+        """
+        redis_client.xadd(
+            _stream_key("tip-pipeline"),
+            {
+                "id": "x",
+                "pipeline_id": "tip-pipeline",
+                "from_role": "coder",
+                "to_role": "all",
+                "message_type": "PROGRESS",
+                "subject": "pre",
+                "body": "",
+                "metadata": "{}",
+                "timestamp": "",
+                "phase": "",
+            },
+        )
+        captured: list[str] = []
+
+        def capturing_xread(streams, count=None, block=None):
+            captured.append(next(iter(streams.values())))
+            raise RuntimeError("stop")
+
+        monkeypatch.setattr(redis_client, "xread", capturing_xread)
+        store = RedisMessageStore(redis_client)
+        with pytest.raises(RuntimeError):
+            store.get_messages("tip-pipeline", wait=1, from_tip=True)
+
+        assert captured, "from_tip never issued an XREAD"
+        assert captured[0] != "$"
+        assert "-" in captured[0]
 
     def test_pre_existing_match_ignored_with_from_tip(self, store):
         """A matching pre-existing entry must NOT satisfy a from_tip wait."""
@@ -1330,9 +1387,11 @@ class TestBlockingChunkCap:
     def test_cap_stays_below_pool_socket_timeout(self):
         import redis_message_store
 
-        # get_redis_message_store pins socket_timeout=5 (5000 ms). The
-        # slice cap must stay below it with margin or the fix is void.
-        assert redis_message_store._MAX_BLOCK_MS < 5000
+        # Derive the bound from the *same* constant the pool applies
+        # (_SOCKET_TIMEOUT_SEC), not a duplicated literal — lowering the
+        # socket timeout then regresses here instead of silently in prod.
+        socket_timeout_ms = redis_message_store._SOCKET_TIMEOUT_SEC * 1000
+        assert redis_message_store._MAX_BLOCK_MS < socket_timeout_ms
 
     def test_fast_path_block_is_capped(self, redis_client, monkeypatch):
         import redis_message_store
