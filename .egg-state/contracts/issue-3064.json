@@ -77,7 +77,7 @@
       "id": "slice-2",
       "name": "Orchestrator event loop + on-demand spawner (dedupe, verb mapping, stateless restart)",
       "goal": "orchestrator/event_loop.py consumes _derive_next_action in-process and\nspawns one-shot Jobs for propose|ack|nack via a new kubernetes_spawner\nentry; confirm/complete execute orchestrator-side; sha256 dedupe with\nJob-label reconciliation and stateless restart re-derivation; spawn_all\nuntouched for pod mode.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -86,8 +86,8 @@
         {
           "id": "task-2-1",
           "description": "Create `orchestrator/event_loop.py` (NEW) and hook it into the\n`orchestrator/concurrent_executor.py` completion-poll site\n(\u2248647-763), gated on EGG_EVENT_LOOP_OWNER=orchestrator: per role,\nconsume the logic backing `_derive_next_action`\n(`orchestrator/routes/consensus.py:296-422`) IN-PROCESS;\npropose|ack|nack \u21d2 request a one-shot spawn (TASK-2-2 entry,\ninjectable for tests); confirm|complete \u21d2 execute\norchestrator-side with no pod (mirror the wrapper's agent-free\nhandling); wait \u21d2 nothing. Dedupe key =\nsha256(pipeline, slice, phase, role, action, event identity)\nwhere event identity is proposal_commit_sha for review verbs and\ntarget version + open NACK set for proposes; maintain an\nin-memory dedupe set reconciled against live Job labels; enforce\nat most one live pod per role+slice. On orchestrator restart,\nre-derive from the tracker (#2761) and reconcile against live\nJobs \u2014 persist NO spawn bookkeeping. Poll interval env-tunable\n(default 5s); emit a structured spawn\u2192invoke timing field per\nspawn. spawn_all()/pod-mode behavior unchanged (existing tests\npass unmodified).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "7c8323009",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Verb mapping: spawn only for propose|ack|nack; agent-free\n  confirm/complete; wait spawns nothing.\n- Same derived event across repeated polls \u21d2 one spawn; restart\n  re-derivation + Job-label reconciliation \u21d2 no duplicate; at\n  most one live pod per role+slice.\n- No spawn state persisted to disk or the contract store.\n- Pod mode: spawn_all behavior and call sequence unchanged.\n- Timing field emitted per spawn; poll interval env-tunable.",
@@ -108,8 +108,8 @@
         {
           "id": "task-2-2",
           "description": "One-shot spawn entry in `orchestrator/kubernetes_spawner.py`:\nspawn a per-event Job that sets\nEGG_EVENT_LOOP_OWNER=orchestrator plus the event identity\n(EGG_EVENT_ACTION, EGG_EVENT_DEDUPE_KEY, payload refs) in the\nJob env and carries the dedupe key as a Job label (the\nreconciliation handle for TASK-2-1); Job name derived from the\nexisting egg-agent-<pipeline_id>-[<slice_id>-]<role> convention\n(\u2248352-383) plus a short event discriminator, respecting the\nexisting 63-char truncation handling; requesting a spawn for an\nalready-live dedupe key adopts the existing Job rather than\nduplicating. The long-lived spawn_agent_job() path is unchanged\nfor pod-mode callers. Worktree/session handling stays today's\ncreate-with-retry + per-spawn registration in this slice\n(slice 4 optimizes it).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "7c8323009",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Spawned Job env carries owner flag + full event identity;\n  dedupe key present as a Job label.\n- Same dedupe key requested twice \u21d2 one Job (adoption).\n- Job names stay within the k8s budget for long\n  pipeline/slice/role combos.\n- spawn_agent_job() pod-mode path unchanged.",
@@ -129,10 +129,10 @@
         {
           "id": "task-2-3",
           "description": "Slice-2 tests: new `orchestrator/tests/test_event_loop.py` with\na fake spawner \u2014 verb\u2192decision mapping (all six verbs), sha256\ndedupe across repeated polls AND across a simulated orchestrator\nrestart (rebuild from consensus fixtures + fake live-Job labels,\nassert no duplicate spawn), at-most-one-live-pod invariant,\nagent-free confirm/complete, timing-field emission. Extend\n`orchestrator/tests/test_kubernetes_spawner.py` (one-shot entry:\nenv + label contents, name budget, existing-key adoption; k8s\nAPI mocked per existing style) and\n`orchestrator/tests/test_concurrent_executor.py` (pod default \u21d2\nspawn_all unchanged, existing tests unmodified; orchestrator \u21d2\nno up-front pods, loop hooked at the poll site).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "a2e0f4c0d",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Test-first (commit a2e0f4c0d). 29 new slice-2 contract tests pinning task-2-1/task-2-2: test_event_loop.py (23 \u2014 compute_dedupe_key sha256, six-verb\u2192decision mapping, dedupe across polls + simulated restart reconcile, at-most-one-live-pod, agent-free confirm/complete, timing field), test_kubernetes_spawner.py TestSpawnEventJobOneShot (5 \u2014 owner+event env, dedupe-key label, spawn-verb guard, 63-char name budget, existing-key adoption), test_concurrent_executor.py TestEventLoopOwnershipSpawnGating (1 \u2014 orchestrator mode spawns no up-front pods). All 29 RED pending coder's task-2-1/task-2-2 modules; 170 existing executor/spawner tests GREEN (no regression). ruff check + format clean. Goes green at convergence; status held pending until coder lands.",
           "acceptance_criteria": "- All six verbs, dedupe-across-restart, and reconciliation\n  covered with no k8s dependency in event-loop tests.\n- Spawner one-shot entry assertions cover env, label, naming,\n  adoption.\n- Existing executor/spawner tests pass unmodified under the\n  default flag.",
           "files_affected": [
             "orchestrator/tests/test_event_loop.py",
@@ -154,11 +154,11 @@
         "slice-1"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3064/slice-1",
+      "integration_base_sha": "bec928f273339f75e0cc1d9da6e2fa81e891b7ab",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3169,
+      "pr_url": "https://github.com/jwbron/egg/pull/3169",
       "review_feedback": []
     },
     {
@@ -659,6 +659,116 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T18:40:27.958203Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.commit",
+      "old_value": null,
+      "new_value": "a2e0f4c0d",
+      "reason": "Linked commit a2e0f4c to task-2-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T18:40:32.047394Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.notes",
+      "old_value": "",
+      "new_value": "Test-first (commit a2e0f4c0d). 29 new slice-2 contract tests pinning task-2-1/task-2-2: test_event_loop.py (23 \u2014 compute_dedupe_key sha256, six-verb\u2192decision mapping, dedupe across polls + simulated restart reconcile, at-most-one-live-pod, agent-free confirm/complete, timing field), test_kubernetes_spawner.py TestSpawnEventJobOneShot (5 \u2014 owner+event env, dedupe-key label, spawn-verb guard, 63-char name budget, existing-key adoption), test_concurrent_executor.py TestEventLoopOwnershipSpawnGating (1 \u2014 orchestrator mode spawns no up-front pods). All 29 RED pending coder's task-2-1/task-2-2 modules; 170 existing executor/spawner tests GREEN (no regression). ruff check + format clean. Goes green at convergence; status held pending until coder lands.",
+      "reason": "Updated notes for task-2-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T18:42:39.103205Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": null,
+      "new_value": "121dd65b2",
+      "reason": "Linked commit 121dd65 to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T18:42:39.119896Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T18:42:39.530985Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": null,
+      "new_value": "121dd65b2",
+      "reason": "Linked commit 121dd65 to task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T18:42:39.638415Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T18:46:00.561110Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.commit",
+      "old_value": "a2e0f4c0d",
+      "new_value": "a2e0f4c0d",
+      "reason": "Linked commit a2e0f4c to task-2-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T18:46:00.578410Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T18:52:12.966170Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": "121dd65b2",
+      "new_value": "7c8323009",
+      "reason": "Linked commit 7c83230 to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T18:52:13.318732Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": "121dd65b2",
+      "new_value": "7c8323009",
+      "reason": "Linked commit 7c83230 to task-2-2",
       "checkpoint_id": null
     }
   ],
