@@ -469,3 +469,464 @@ class TestTimingField:
 
         # Agent-free confirm carries no spawn timing.
         assert decisions["reviewer_code"].timing is None
+
+
+# ===========================================================================
+# Slice-3 (#3064 TASK-3-2) — failure-supervision re-homing (HITL cq-2)
+# ===========================================================================
+#
+# These tests are written **test-first** against the slice-3 contract the
+# coder's parallel work (TASK-3-1) must satisfy. Per the plan
+# (``.egg-state/drafts/3064-plan.md`` slice 3) the orchestrator re-homes the
+# #3138 failure-supervision behavior that used to live in the in-pod wrapper:
+#
+#   * Job-status watching for one-shot pods, with a per-(role, arm) failure
+#     streak mirroring #3138.
+#   * The #3138 streak constants are extracted into a shared module
+#     ``orchestrator/supervision_policy.py`` (NEW) so the event loop and the
+#     wrapper template read ONE set of values — no fork, no drift:
+#         linear backoff ``streak * 2s`` capped at 30s; warn at streak 5;
+#         **sticky** OVERSEER_ALERT (anomaly ``agent-invocation-fail-streak``)
+#         at streak 10; reset on success.
+#   * Only an abnormal Job termination increments the streak. A NACK and a
+#     stale-event exit-0 are legitimate BRC outcomes — explicit NON-triggers.
+#   * A new event identity (dedupe-key change) gets a fresh budget.
+#   * Respawn is bounded: once the streak hits the alert threshold the arm is
+#     exhausted and is NOT respawned again.
+#   * Producer **propose**-arm exhaustion engages the existing AGENT_FAILED
+#     path (#2806); reviewer arms do not.
+#
+# Pinned public surface (the contract — the coder aligns names if they
+# diverge, exactly as slice-1/slice-2's testers re-aligned to the coder's
+# task):
+#
+#     supervision_policy.BACKOFF_FACTOR_SECONDS : int  == 2
+#     supervision_policy.BACKOFF_CAP_SECONDS    : int  == 30
+#     supervision_policy.WARN_STREAK            : int  == 5
+#     supervision_policy.ALERT_STREAK           : int  == 10
+#     supervision_policy.FAIL_STREAK_ANOMALY    : str  == "agent-invocation-fail-streak"
+#     supervision_policy.backoff_seconds(streak) -> int
+#         # min(streak * factor, cap); 0 for streak <= 0
+#
+#     event_loop.JOB_SUCCEEDED / JOB_FAILED / JOB_NACK / JOB_STALE_EXIT : str
+#         # Job-termination outcome tokens fed to the supervisor. Only
+#         # JOB_FAILED (abnormal termination) counts toward the streak.
+#     event_loop.SupervisionDecision : dataclass(role, action, streak,
+#         backoff_seconds, should_respawn, warn, alert, agent_failed,
+#         exhausted, respawn_at)
+#     event_loop.FailureSupervisor(*, clock=..., alert_handler=None,
+#                                  agent_failed_handler=None)
+#         .record_outcome(*, role, action, dedupe_key, outcome,
+#                         last_rc=0, duration=0.0) -> SupervisionDecision
+#
+# Imports of ``event_loop`` / ``supervision_policy`` are done at call-time
+# inside each test so this file still COLLECTS before the coder's slice-3
+# module lands (slice-1/slice-2 convention).
+
+
+class _ManualClock:
+    """Deterministic clock the test advances explicitly (no real sleeps).
+
+    Unlike ``_FakeClock`` (which auto-advances on every read) this returns a
+    fixed value until the test calls :meth:`advance` / :meth:`set`, so the
+    supervisor's ``respawn_at`` is a pure function of the streak under test.
+    """
+
+    def __init__(self, start: float = 1000.0) -> None:
+        self._now = float(start)
+
+    def __call__(self) -> float:
+        return self._now
+
+    def advance(self, dt: float) -> None:
+        self._now += dt
+
+    def set(self, now: float) -> None:
+        self._now = float(now)
+
+
+class _AlertRecorder:
+    """Records each OVERSEER_ALERT the supervisor raises (sticky at streak 10)."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def __call__(self, **kwargs):
+        self.calls.append(kwargs)
+
+    @property
+    def count(self) -> int:
+        return len(self.calls)
+
+
+class _AgentFailedRecorder:
+    """Records AGENT_FAILED engagements (producer propose-arm exhaustion)."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def __call__(self, **kwargs):
+        self.calls.append(kwargs)
+
+    @property
+    def count(self) -> int:
+        return len(self.calls)
+
+
+def _make_supervisor(*, clock=None, alert_handler=None, agent_failed_handler=None):
+    """Construct the FailureSupervisor under test with injected collaborators."""
+    import event_loop
+
+    return event_loop.FailureSupervisor(
+        clock=clock or _ManualClock(),
+        alert_handler=alert_handler,
+        agent_failed_handler=agent_failed_handler,
+    )
+
+
+def _fail(sup, *, role="coder", action="propose", dedupe_key="k1", **over):
+    """Feed one abnormal-termination outcome and return the decision."""
+    import event_loop
+
+    return sup.record_outcome(
+        role=role, action=action, dedupe_key=dedupe_key, outcome=event_loop.JOB_FAILED, **over
+    )
+
+
+# ---------------------------------------------------------------------------
+# supervision_policy — pure backoff/threshold contract
+# ---------------------------------------------------------------------------
+
+
+class TestSupervisionPolicyConstants:
+    def test_constant_values(self):
+        import supervision_policy as sp
+
+        assert sp.BACKOFF_FACTOR_SECONDS == 2
+        assert sp.BACKOFF_CAP_SECONDS == 30
+        assert sp.WARN_STREAK == 5
+        assert sp.ALERT_STREAK == 10
+        assert sp.FAIL_STREAK_ANOMALY == "agent-invocation-fail-streak"
+        # Warn strictly precedes the alert/exhaustion threshold.
+        assert sp.WARN_STREAK < sp.ALERT_STREAK
+
+    @pytest.mark.parametrize(
+        "streak,expected",
+        [
+            (0, 0),
+            (1, 2),
+            (2, 4),
+            (3, 6),
+            (4, 8),
+            (5, 10),
+            (9, 18),
+            (10, 20),
+            (14, 28),
+            (15, 30),  # cap reached
+            (16, 30),  # capped
+            (50, 30),  # capped
+        ],
+    )
+    def test_backoff_sequence_and_cap(self, streak, expected):
+        """``streak * 2s`` capped at 30s; non-positive streak ⇒ 0 (no sleep)."""
+        import supervision_policy as sp
+
+        assert sp.backoff_seconds(streak) == expected
+
+    def test_backoff_never_exceeds_cap(self):
+        import supervision_policy as sp
+
+        for streak in range(0, 60):
+            assert sp.backoff_seconds(streak) <= sp.BACKOFF_CAP_SECONDS
+
+
+# ---------------------------------------------------------------------------
+# Backoff timing — injected clock, no real sleeps
+# ---------------------------------------------------------------------------
+
+
+class TestSupervisionBackoffTiming:
+    def test_respawn_at_follows_backoff_sequence(self):
+        import supervision_policy as sp
+
+        clock = _ManualClock(start=1000.0)
+        sup = _make_supervisor(clock=clock)
+
+        # Streaks 1..9 keep respawning; respawn_at = now + streak*2s (capped).
+        for streak in range(1, sp.ALERT_STREAK):
+            clock.set(1000.0)  # pin "now" so the assertion is exact
+            d = _fail(sup)
+            assert d.streak == streak
+            assert d.backoff_seconds == sp.backoff_seconds(streak)
+            assert d.should_respawn is True
+            assert d.respawn_at == 1000.0 + sp.backoff_seconds(streak)
+
+    def test_no_real_sleep_is_taken(self):
+        """The supervisor must compute backoff, never block: a record_outcome
+        call returns immediately regardless of the streak's nominal backoff.
+        """
+        clock = _ManualClock(start=0.0)
+        sup = _make_supervisor(clock=clock)
+        for _ in range(12):
+            _fail(sup)
+        # The injected clock only moves when the *test* advances it.
+        assert clock() == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Warn-at-5 / silent below threshold
+# ---------------------------------------------------------------------------
+
+
+class TestSupervisionWarn:
+    def test_silent_below_warn_threshold(self):
+        import supervision_policy as sp
+
+        sup = _make_supervisor()
+        for streak in range(1, sp.WARN_STREAK):  # 1..4
+            d = _fail(sup)
+            assert d.warn is False, f"streak {streak} must be silent"
+            assert d.alert is False
+
+    def test_warn_fires_once_at_threshold_then_sticky(self):
+        import supervision_policy as sp
+
+        sup = _make_supervisor()
+        decisions = [_fail(sup) for _ in range(sp.ALERT_STREAK - 1)]  # streaks 1..9
+        warned = [i + 1 for i, d in enumerate(decisions) if d.warn]
+        # Warn fires exactly once, on the streak that first reaches WARN_STREAK.
+        assert warned == [sp.WARN_STREAK]
+        # No alert before the alert threshold.
+        assert all(d.alert is False for d in decisions)
+
+
+# ---------------------------------------------------------------------------
+# Sticky OVERSEER_ALERT at streak 10 (exactly once)
+# ---------------------------------------------------------------------------
+
+
+class TestSupervisionAlert:
+    def test_alert_fires_exactly_once_at_alert_threshold(self):
+        import supervision_policy as sp
+
+        alerts = _AlertRecorder()
+        sup = _make_supervisor(alert_handler=alerts)
+
+        decisions = [_fail(sup) for _ in range(sp.ALERT_STREAK + 3)]  # well past 10
+        alerted = [i + 1 for i, d in enumerate(decisions) if d.alert]
+        assert alerted == [sp.ALERT_STREAK], "alert must fire once, at streak 10"
+
+        # The handler was invoked exactly once with the #3138 anomaly name.
+        assert alerts.count == 1
+        payload = alerts.calls[0]
+        assert payload.get("anomaly") == sp.FAIL_STREAK_ANOMALY
+        assert payload.get("streak") == sp.ALERT_STREAK
+        assert payload.get("role") == "coder"
+
+    def test_alert_is_sticky_no_refire_past_threshold(self):
+        import supervision_policy as sp
+
+        alerts = _AlertRecorder()
+        sup = _make_supervisor(alert_handler=alerts)
+        for _ in range(sp.ALERT_STREAK + 5):
+            _fail(sup)
+        assert alerts.count == 1, "sticky latch must not re-fire above the threshold"
+
+
+# ---------------------------------------------------------------------------
+# Bounded respawn — exhaustion stops further respawns
+# ---------------------------------------------------------------------------
+
+
+class TestSupervisionBoundedRespawn:
+    def test_respawn_stops_at_exhaustion(self):
+        import supervision_policy as sp
+
+        sup = _make_supervisor()
+        decisions = [_fail(sup) for _ in range(sp.ALERT_STREAK + 4)]
+        for i, d in enumerate(decisions):
+            streak = i + 1
+            if streak < sp.ALERT_STREAK:
+                assert d.should_respawn is True
+                assert d.exhausted is False
+                assert d.respawn_at is not None
+            else:
+                assert d.should_respawn is False, f"streak {streak} is exhausted"
+                assert d.exhausted is True
+                assert d.respawn_at is None
+
+
+# ---------------------------------------------------------------------------
+# Streak reset on success
+# ---------------------------------------------------------------------------
+
+
+class TestSupervisionResetOnSuccess:
+    def test_success_resets_streak_and_latches(self):
+        import event_loop
+        import supervision_policy as sp
+
+        alerts = _AlertRecorder()
+        sup = _make_supervisor(alert_handler=alerts)
+
+        # Build a streak past the warn threshold, then succeed.
+        for _ in range(sp.WARN_STREAK + 1):  # streaks 1..6
+            _fail(sup)
+        ok = sup.record_outcome(
+            role="coder", action="propose", dedupe_key="k1", outcome=event_loop.JOB_SUCCEEDED
+        )
+        assert ok.streak == 0
+        assert ok.should_respawn is False
+        assert ok.warn is False and ok.alert is False
+
+        # A subsequent failure starts from a fresh budget AND the warn latch
+        # was cleared (warn can fire again once the threshold is re-reached).
+        d1 = _fail(sup)
+        assert d1.streak == 1
+        assert d1.warn is False
+        rebuild = [d1] + [_fail(sup) for _ in range(sp.WARN_STREAK - 1)]  # up to streak 5
+        assert rebuild[-1].streak == sp.WARN_STREAK
+        assert rebuild[-1].warn is True
+
+
+# ---------------------------------------------------------------------------
+# Non-triggers — NACK and stale-event exit-0 never count
+# ---------------------------------------------------------------------------
+
+
+class TestSupervisionNonTriggers:
+    @pytest.mark.parametrize("outcome_attr", ["JOB_NACK", "JOB_STALE_EXIT"])
+    def test_non_trigger_does_not_increment_or_respawn(self, outcome_attr):
+        import event_loop
+
+        sup = _make_supervisor()
+        outcome = getattr(event_loop, outcome_attr)
+        d = sup.record_outcome(
+            role="reviewer_code", action="nack", dedupe_key="k1", outcome=outcome
+        )
+        assert d.streak == 0
+        assert d.should_respawn is False
+        assert d.warn is False and d.alert is False
+        assert d.agent_failed is False
+
+    @pytest.mark.parametrize("outcome_attr", ["JOB_NACK", "JOB_STALE_EXIT"])
+    def test_non_trigger_leaves_existing_streak_unchanged(self, outcome_attr):
+        """Only abnormal termination counts: a NACK / stale-exit interleaved
+        with failures must neither bump nor reset the accumulated streak.
+        """
+        import event_loop
+
+        sup = _make_supervisor()
+        for _ in range(3):
+            _fail(sup, role="coder", action="propose", dedupe_key="k1")
+        outcome = getattr(event_loop, outcome_attr)
+        nt = sup.record_outcome(role="coder", action="propose", dedupe_key="k1", outcome=outcome)
+        assert nt.streak == 3, "non-trigger must not reset the failure streak"
+        # The next real failure continues from 4, proving the streak persisted.
+        assert _fail(sup, role="coder", action="propose", dedupe_key="k1").streak == 4
+
+    def test_nack_never_raises_alert(self):
+        import event_loop
+        import supervision_policy as sp
+
+        alerts = _AlertRecorder()
+        sup = _make_supervisor(alert_handler=alerts)
+        for _ in range(sp.ALERT_STREAK + 2):
+            sup.record_outcome(
+                role="coder", action="propose", dedupe_key="k1", outcome=event_loop.JOB_NACK
+            )
+        assert alerts.count == 0, "a stream of NACKs must never trip the alert"
+
+
+# ---------------------------------------------------------------------------
+# Fresh budget on dedupe-key change
+# ---------------------------------------------------------------------------
+
+
+class TestSupervisionKeyChange:
+    def test_new_dedupe_key_resets_streak_and_latches(self):
+        import supervision_policy as sp
+
+        alerts = _AlertRecorder()
+        sup = _make_supervisor(alert_handler=alerts)
+
+        # Build past the warn threshold on key k1.
+        for _ in range(sp.WARN_STREAK + 1):  # 1..6
+            _fail(sup, dedupe_key="k1")
+
+        # Consensus moves on → new event identity (k2): fresh budget.
+        d = _fail(sup, dedupe_key="k2")
+        assert d.streak == 1, "a new dedupe key must start a fresh streak"
+        assert d.warn is False, "the warn latch must reset with the new key"
+
+        # The warn latch genuinely reset: warn fires again at the threshold.
+        rebuild = [d] + [_fail(sup, dedupe_key="k2") for _ in range(sp.WARN_STREAK - 1)]
+        assert rebuild[-1].streak == sp.WARN_STREAK
+        assert rebuild[-1].warn is True
+        # No alert ever fired (neither key reached the alert threshold).
+        assert alerts.count == 0
+
+
+# ---------------------------------------------------------------------------
+# AGENT_FAILED engagement on producer propose-arm exhaustion
+# ---------------------------------------------------------------------------
+
+
+class TestSupervisionAgentFailed:
+    def test_producer_propose_exhaustion_engages_agent_failed(self):
+        import supervision_policy as sp
+
+        failed = _AgentFailedRecorder()
+        sup = _make_supervisor(agent_failed_handler=failed)
+
+        decisions = [_fail(sup, role="coder", action="propose") for _ in range(sp.ALERT_STREAK + 2)]
+        engaged = [i + 1 for i, d in enumerate(decisions) if d.agent_failed]
+        assert engaged == [sp.ALERT_STREAK], "AGENT_FAILED engages once, at exhaustion"
+        assert failed.count == 1
+        assert failed.calls[0].get("role") == "coder"
+        assert failed.calls[0].get("action") == "propose"
+
+    def test_reviewer_arm_exhaustion_does_not_engage_agent_failed(self):
+        """Reviewer (ack/nack) arms still alert at exhaustion but must NOT
+        engage the producer-only AGENT_FAILED path.
+        """
+        import supervision_policy as sp
+
+        alerts = _AlertRecorder()
+        failed = _AgentFailedRecorder()
+        sup = _make_supervisor(alert_handler=alerts, agent_failed_handler=failed)
+
+        decisions = [
+            _fail(sup, role="reviewer_code", action="ack") for _ in range(sp.ALERT_STREAK + 2)
+        ]
+        assert all(d.agent_failed is False for d in decisions)
+        assert failed.count == 0
+        # The sticky alert still fires once for the reviewer arm.
+        assert alerts.count == 1
+
+
+# ---------------------------------------------------------------------------
+# Constants single-source — loop and wrapper read identical values
+# ---------------------------------------------------------------------------
+
+
+class TestSupervisionConstantsSingleSource:
+    """The wrapper template and the loop must read ONE set of #3138
+    constants via ``supervision_policy`` — no fork, no drift.
+    """
+
+    def test_wrapper_renders_supervision_policy_constants(self):
+        import supervision_policy as sp
+        from consensus_wrapper import build_event_pump_wrapped_command
+
+        cmd = build_event_pump_wrapped_command("")
+        assert cmd[:2] == ["bash", "-c"]
+        script = cmd[2]
+
+        # The agent-invocation-fail-streak supervision arm in the wrapper
+        # must reference the SAME thresholds/anomaly the loop's policy uses.
+        assert sp.FAIL_STREAK_ANOMALY in script
+        assert f"-ge {sp.WARN_STREAK}" in script
+        assert f"-ge {sp.ALERT_STREAK}" in script
+        assert f"-gt {sp.BACKOFF_CAP_SECONDS}" in script
+        assert f"* {sp.BACKOFF_FACTOR_SECONDS}" in script
