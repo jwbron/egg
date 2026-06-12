@@ -263,6 +263,18 @@ class AgentExecution(BaseModel):
 
     started_at: datetime | None = Field(default=None, description="When started")
     completed_at: datetime | None = Field(default=None, description="When completed")
+    resolved_model: str | None = Field(
+        default=None,
+        description=(
+            "The Claude-Code-facing model alias the agent was spawned "
+            "with (``AgentModelDecision.claude_code_alias``, e.g. "
+            "``opus`` or ``deepseek-v4-pro[1m]``). Recorded at spawn / "
+            "restart time so operators can confirm a live "
+            "``agent_models`` swap took effect from ``get_status`` / "
+            "``list_containers`` instead of grepping pod logs (#3174). "
+            "``None`` on records persisted before the field existed."
+        ),
+    )
     commit: str | None = Field(default=None, description="Commit SHA if changes made")
     outputs: dict[str, Any] = Field(
         default_factory=dict, description="Handoff data for dependent agents"

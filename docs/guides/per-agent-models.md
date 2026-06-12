@@ -170,6 +170,85 @@ path — and `register_session` drops `None` values from the
 session-create request body, so the wire shape stays byte-identical
 to today.
 
+## Changing models on a live pipeline (#3174)
+
+`agent_models` is not submit-time-only: it can be changed on a
+**running** pipeline, and the change is honored at the next agent
+spawn. The operator surface is the `update_pipeline_config` MCP tool;
+the motivating scenario is "the current model is failing or
+rate-limited (e.g. an Anthropic session-limit outage) — swap every
+role to an open model and restart the phase."
+
+### The swap-and-restart procedure
+
+1. **Update the override map.** Per-role merge semantics: roles you
+   don't name keep their current override, a string sets the role's
+   model, an explicit `null` clears it (the role falls back to the
+   repo default / built-in tiers).
+
+   ```json
+   // update_pipeline_config MCP-tool arguments
+   {
+     "task_id": "issue-3064",
+     "agent_models": {
+       "coder": "deepseek-v4-pro",
+       "tester": "deepseek-v4-pro",
+       "reviewer_code": "deepseek-v4-pro"
+     }
+   }
+   ```
+
+   Role keys are validated against `MODEL_OVERRIDE_ROLES` (same
+   validator as submit time). Model *values* are not checked against a
+   registry — any non-Claude string routes to LiteLLM, so a typo
+   surfaces as a model-not-found error at spawn, not at update time.
+
+2. **Restart to apply.** Currently running agents keep the model they
+   were spawned with; the new map only affects future spawns. Use
+   `restart_phase` (whole phase on the new models) or `restart_agent`
+   (surgical: one agent, worktree preserved) to respawn now. Skipping
+   the restart is also valid — the next natural spawn (next review
+   cycle, next slice team) picks the new map up on its own.
+
+3. **Confirm.** Every spawn records the resolved alias on the agent's
+   execution record (`AgentExecution.resolved_model`). Check the
+   `resolved_model` field on `get_status`'s `running_agents` entries or
+   on `list_containers` rows — no need to grep pod logs for the
+   session-init line.
+
+### Why this is honored — the fresh-reload guarantee
+
+Two structural properties make the live swap safe, rather than
+accidental:
+
+- **The run loop never trusts a stale in-memory pipeline.** Both
+  `_run_pipeline`'s per-cycle loop and the `restart_phase` /
+  `restart_agent` handlers reload the pipeline from the state store
+  before resolving models for a spawn, and `resolve_agent_model` is a
+  pure function over that freshly-loaded config. There is no cached
+  decision to invalidate.
+- **Completed slices are not redone.** On a multi-slice implement
+  phase, `restart_phase`'s respawned scheduler bootstraps from the
+  contract's recorded `SliceStatus.COMPLETE` markers, so a mid-phase
+  model swap resumes at the current slice instead of re-running
+  finished ones (this is how the #3064 swap restarted at slice 3 of 6
+  with slices 1–2 skipped).
+
+Under the hood the tool is `PATCH
+/api/v1/pipelines/<id>/config` (lifecycle-secret-authenticated), a
+deliberately narrow wrapper over the state store's nested-update path.
+The generic `PATCH /pipelines/<id>` dotted-key form
+(`{"config.agent_models": {...}}`) still works but replaces the whole
+map instead of merging, validates only via the wrapped Pydantic error,
+and shouldn't be needed now that the scoped surface exists.
+
+> **Scope.** Only `agent_models` is mutable through this endpoint.
+> Most of `PipelineConfig` is consumed at submit time or mid-phase in
+> ways a partial update could corrupt; `agent_models` is safe
+> precisely because of the fresh-reload guarantee above. Widening the
+> allowlist (`_MUTABLE_CONFIG_KEYS` in `orchestrator/routes/pipelines.py`)
+> requires verifying the same guarantee for the new key.
+
 ## Gateway-side body handling
 
 For LiteLLM-bound requests the gateway forwards the body **unchanged**.
