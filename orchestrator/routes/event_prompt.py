@@ -883,13 +883,24 @@ def _build_delta_entries(
                 "artifact does not exist.\n"
             )
         else:
+            # No proposal SHA in the payload AND no recorded
+            # ``last_reviewed_commit_sha`` for this producer — degraded
+            # baseline. #3077 slice-5 task-5-1 deletes the prior
+            # "fetch and read the actual file diffs yourself" prose:
+            # per-role worktrees mean the agent CANNOT recover the
+            # producer's work via its own ``git fetch`` (the producer's
+            # commits live in the host object store, which the wrapper
+            # syncs into the agent worktree before this prompt is
+            # rendered when a proposal SHA is known). With no SHA there
+            # is nothing to render a ``git show`` against, so we surface
+            # the orchestrator's signal-level artifact list and stop —
+            # the agent must NOT self-fetch.
             fallback_delta = (
                 "(No `last_reviewed_commit_sha` recorded yet for this "
-                "producer — falling back to the orchestrator's signal-level "
+                "producer and no proposal SHA in the event payload — "
+                "falling back to the orchestrator's signal-level "
                 "`changed_artifacts` list as a degraded baseline. This is "
-                "NOT the adversarial-re-review path; if your role demands a "
-                "full audit, fetch and read the actual file diffs yourself "
-                "before issuing a verdict.)\n\n"
+                "NOT the adversarial-re-review path.)\n\n"
                 f"Artifacts the orchestrator flagged as changed:\n{refs_text}\n"
             )
         out.append(
