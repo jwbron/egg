@@ -2,9 +2,11 @@
 
 These back the ``egg-orch message wait``, ``egg-orch message wait-loop``,
 and ``egg-orch message heartbeat`` CLI subcommands introduced in
-issue #1897, and the ``mcp__brc__wait_for_event`` /
-``mcp__brc__wait_loop`` / ``mcp__brc__send_heartbeat`` MCP tools that
-expose the same primitives to SDK agents.
+issue #1897, and the ``mcp__brc__send_heartbeat`` MCP tool (the
+blocking-wait MCP tools were removed in #2211). The wait handlers are
+wrapper-internal (#2908/#3157): the consensus wrapper blocks in
+``egg-orch message wait-loop`` between BRC events and invokes the agent
+one-shot per event — agents never wait on the bus.
 
 The handler functions return structured dicts.  The CLI shim in
 ``sandbox/egg_lib/orch_cli.py`` maps responses and exceptions onto the

@@ -40,7 +40,7 @@ if str(_orchestrator_path) not in sys.path:
     sys.path.insert(0, str(_orchestrator_path))
 
 from events import Event, EventBus, EventType  # noqa: E402
-from message_store import Message, MessageStore, MessageType, reset_message_store  # noqa: E402
+from message_store import Message, MessageType, reset_message_store  # noqa: E402
 from models import (  # noqa: E402
     Pipeline,
     PipelineConfig,
@@ -68,19 +68,15 @@ def client(app):
     return app.test_client()
 
 
-@pytest.fixture(params=["in_memory", "redis"], autouse=True)
-def message_backend(request):
-    """Run every test against both in-memory and Redis message store backends.
+@pytest.fixture(autouse=True)
+def message_backend():
+    """Run every test against a fresh fakeredis-backed Redis store.
 
-    AC for TASK-4-1 requires dual-backend parametrization so the wait
-    route's message-bus path is exercised on both storage engines.
+    Originally parametrized over both backends (TASK-4-1 AC); the
+    in-memory arm was dropped when #3159 removed that backend.
     """
     reset_message_store()
-    if request.param == "redis":
-        _redis = fakeredis.FakeRedis()
-        store = RedisMessageStore(_redis)
-    else:
-        store = MessageStore()
+    store = RedisMessageStore(fakeredis.FakeRedis())
 
     with patch("routes.pipelines._get_message_store", return_value=lambda: store):
         yield store

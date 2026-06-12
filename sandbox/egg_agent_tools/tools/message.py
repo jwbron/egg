@@ -7,10 +7,13 @@ of shelling out to Bash.
 The blocking-wait variants (``wait_for_event`` / ``wait_loop``) were
 removed in #2211 — long-poll waits don't fit the MCP transport (the
 in-process SDK caps tool calls at ~60 s and the streamable-HTTP MCP
-caps at ~30 s), and the cap-elapsed return is a full LLM turn.  Use
-``egg-orch message wait`` / ``egg-orch message wait-loop`` via Bash
-instead; the §1 idiom in ``docs/reference/agent-wait-patterns.md``
-covers the canonical STAY ALIVE shape.
+caps at ~30 s), and the cap-elapsed return is a full LLM turn.  No
+replacement exists at the agent tier by design (#2908, #3157): the
+consensus wrapper owns every blocking wait on the bus — it blocks in
+``egg-orch message wait-loop`` between BRC events and invokes the
+agent one-shot per actionable event.  Agents act on the single event
+in their prompt and exit; they never wait.  See §0 of
+``docs/reference/agent-wait-patterns.md`` for the contract.
 
 The remaining tool lives under the ``brc`` namespace; it renders as
 ``mcp__brc__send_heartbeat``.
@@ -61,9 +64,11 @@ _HEARTBEAT_SCHEMA: dict[str, Any] = {
 @tool(
     "send_heartbeat",
     "Emit a structured HEARTBEAT (schema-validated, per-role deduped, "
-    "rate-limited) to the dedicated /heartbeat endpoint. Use "
-    "state=WAITING_ON_ROLE + waiting_on=<peer> while blocking on BRC. "
-    "Prefer this over 'egg-orch message heartbeat'.",
+    "rate-limited) to the dedicated /heartbeat endpoint on a state "
+    "transition (WORKING, WAITING_ON_ROLE + waiting_on=<peer>, PROPOSED, "
+    "IDLE). Prefer this over 'egg-orch message heartbeat'. Do not emit "
+    "WAITING_FOR_EVENT — the consensus wrapper owns bus waits and their "
+    "heartbeats; never block waiting on BRC yourself.",
     _HEARTBEAT_SCHEMA,
 )
 async def brc_send_heartbeat(args: dict[str, Any]) -> dict[str, Any]:

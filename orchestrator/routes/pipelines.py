@@ -5687,19 +5687,20 @@ def _pull_contract_from_source_branch(
     pipeline, and writes it into the worktree so the caller can skip
     ``create_contract()`` and proceed to commit+push the pulled contract.
 
-    ``task_description`` is the NEW submit's prompt. The pulled contract
-    carries the SOURCE pipeline's ``task_description``, but the resubmit's
-    description is authoritative for THIS pipeline and is where operators
-    put binding resume directives (e.g. "adopt prior branch X, do not
-    reimplement" — #3123). When non-empty it replaces the pulled value;
-    the source value stays recoverable from the source branch's git
-    history. When ``None`` AND ``issue_number is not None`` the pulled
-    value is cleared (the live issue body is the authoritative task
-    statement and ``task_description`` should be ``None``, mirroring the
-    ``create_contract()`` shape on the call site's fallback path —
-    without this clear, forking a free-text pipeline into an issue
-    pipeline would leak the source pipeline's description into every
-    per-event prompt). Otherwise the pulled value is preserved.
+    ``task_description`` is the NEW submit's composed task statement
+    (``compose_task_description`` at the call site — identity anchor +
+    resubmit prompt, #3163). The pulled contract carries the SOURCE
+    pipeline's ``task_description``, but the new submit's statement is
+    authoritative for THIS pipeline and is where operators put binding
+    resume directives (e.g. "adopt prior branch X, do not reimplement"
+    — #3123). When non-empty it replaces the pulled value; the source
+    value stays recoverable from the source branch's git history. This
+    replacement is also what keeps a fork from leaking the source
+    pipeline's task into the new pipeline's per-event prompts: issue
+    and JIRA pipelines always compose a non-empty anchor, so the pulled
+    cross-pipeline text never survives. Only a free-text resume with a
+    blank prompt preserves the pulled value (a plain resume of the same
+    task).
 
     Returns True when a contract was successfully pulled, False otherwise.
     Best-effort: missing, invalid, or unreachable source contracts all yield
@@ -5793,32 +5794,19 @@ def _pull_contract_from_source_branch(
     # canonical key when the pipeline was forked with a qualifier
     # (e.g. source=issue-1965, new=issue-1965-v2).
     contract.pipeline_id = pipeline_id
-    # Refresh the task statement from the new submit (#3123): without
-    # this, the resubmit's prompt — including any operator resume
-    # directives — never reaches any agent-visible surface, because the
-    # caller skips create_contract() (the only other writer of
-    # ``task_description``) whenever the pull succeeds.
-    #
-    # Three cases:
-    #   1. Caller passed a non-blank prompt → replace (free-text resubmit
-    #      with the new directives).
-    #   2. Caller passed ``None`` and the pipeline has an ``issue_number``
-    #      → explicit clear. The create_contract() fallback at the call
-    #      site (pipelines.py::_run_pipeline) passes ``task_description=
-    #      None`` for issue pipelines because the live body is fetched
-    #      via ``gh issue view`` instead. Without the explicit clear,
-    #      forking a free-text pipeline into an issue pipeline (source
-    #      branch = egg/free-text-x, new issue_number = 42) would carry
-    #      the SOURCE pipeline's free-text description into the per-event
-    #      prompt of every issue-pipeline agent.
-    #   3. Caller passed ``None`` or blank and no ``issue_number`` (a
-    #      plain resume with no new prompt) → preserve the pulled value
-    #      so the source pipeline's task statement still drives the
-    #      resumed run.
+    # Refresh the task statement from the new submit (#3123/#3163):
+    # without this, the resubmit's composed statement — identity anchor
+    # plus any operator resume directives — never reaches any
+    # agent-visible surface, because the caller skips create_contract()
+    # (the only other writer of ``task_description``) whenever the pull
+    # succeeds. Issue/JIRA pipelines always compose non-blank (the
+    # anchor at minimum), so the replace also prevents a fork from
+    # carrying the SOURCE pipeline's task text into this pipeline's
+    # per-event prompts. A blank/None value (free-text resume with no
+    # new prompt) preserves the pulled value so the source pipeline's
+    # task statement still drives the resumed run.
     if task_description is not None and task_description.strip():
         contract.task_description = task_description
-    elif task_description is None and issue_number is not None:
-        contract.task_description = None
     save_contract(contract, repo_path)
 
     logger.info(
@@ -8404,32 +8392,36 @@ def _ensure_statefiles_on_branch(
     )
 
     try:
+        # Mirror the primary creation site: the composed task statement
+        # (identity anchor + submit description, #3163) lands on the
+        # restored contract too, for every entry path.
+        from egg_contracts.loader import compose_task_description
+
+        issue_url = (
+            f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
+            if pipeline.issue_number is not None
+            else None
+        )
+        task_description = compose_task_description(
+            description=pipeline.prompt,
+            issue_number=pipeline.issue_number,
+            issue_url=issue_url,
+            jira_ticket=pipeline.jira_ticket,
+        )
         if pipeline.issue_number is not None:
-            issue_url = f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
             create_contract(
                 issue_number=pipeline.issue_number,
                 title=f"Issue #{pipeline.issue_number}",
-                url=issue_url,
+                url=issue_url or "",
                 pipeline_id=pipeline.id,
                 repo_root=worktree_repo_path,
+                task_description=task_description,
             )
         else:
-            # ``pipeline.issue_number is None`` covers both free-text
-            # submits (no GitHub issue, no JIRA ticket) and JIRA-driven
-            # pipelines (``pipeline.jira_ticket`` set; ``pipeline.prompt``
-            # carries the description). In both cases the event-pump
-            # never delivers the orchestrator-built spawn prompt to the
-            # agent, so we persist the full ``pipeline.prompt`` as
-            # ``task_description`` on the restored contract — mirroring
-            # the primary creation site. For JIRA pipelines an agent
-            # can still fetch the latest ticket body out-of-band via
-            # ``jira ticket get "$EGG_JIRA_TICKET"``; this field is a
-            # complementary, snapshotted copy of the description as
-            # submitted (#3033).
             create_contract(
                 pipeline_id=pipeline.id,
                 title=(pipeline.prompt or "")[:100],
-                task_description=pipeline.prompt,
+                task_description=task_description,
                 repo_root=worktree_repo_path,
             )
 
@@ -17439,7 +17431,13 @@ def _run_implement_phase_slices(
                 # surface picks up the cascade-block event (TASK-3-4
                 # emission path).
                 try:
-                    from orchestrator.message_store import Message, get_message_store
+                    try:
+                        from message_store import Message, get_message_store
+                    except ImportError:
+                        from ..message_store import (  # type: ignore[no-redef]
+                            Message,
+                            get_message_store,
+                        )
 
                     msg = Message(
                         pipeline_id=pipeline_id,
@@ -22200,7 +22198,25 @@ def _run_pipeline(
         # creation so it doesn't pollute the main repo working directory).
         if not pipeline.contract_synced:
             try:
-                from egg_contracts.loader import create_contract
+                from egg_contracts.loader import compose_task_description, create_contract
+
+                # Every entry path (GitHub issue, JIRA, free-text) anchors
+                # the task the same way (#3163): identity first, then the
+                # operator's submit description. Before #3163 issue
+                # pipelines deliberately got ``None`` here (#3042 "agents
+                # fetch the live body"), which left the #3123 binding
+                # prompt section empty for the most common pipeline type.
+                issue_url = (
+                    f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
+                    if pipeline.issue_number is not None
+                    else None
+                )
+                task_description = compose_task_description(
+                    description=pipeline.prompt,
+                    issue_number=pipeline.issue_number,
+                    issue_url=issue_url,
+                    jira_ticket=pipeline.jira_ticket,
+                )
 
                 # When source_branch is set, try to carry over the contract
                 # (with any resolved HITL decisions) from there instead of
@@ -22215,14 +22231,7 @@ def _run_pipeline(
                             pipeline_id=pipeline.id,
                             spawner=spawner,
                             gateway_mode=gateway_mode,
-                            # Mirror the create_contract() fallback below:
-                            # ``task_description`` is populated only for
-                            # pipelines without a GitHub issue (#3042); for
-                            # issue pipelines agents fetch the live body
-                            # via ``gh issue view`` instead.
-                            task_description=(
-                                pipeline.prompt if pipeline.issue_number is None else None
-                            ),
+                            task_description=task_description,
                         )
                     except Exception:
                         logger.warning(
@@ -22235,38 +22244,30 @@ def _run_pipeline(
 
                 if not pulled_contract:
                     if pipeline.issue_number is not None:
-                        issue_url = (
-                            f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
-                        )
                         create_contract(
                             issue_number=pipeline.issue_number,
                             title=f"Issue #{pipeline.issue_number}",
-                            url=issue_url,
+                            url=issue_url or "",
                             pipeline_id=pipeline.id,
                             repo_root=worktree_repo_path,
+                            task_description=task_description,
                         )
                     else:
                         # ``pipeline.issue_number is None`` covers both
-                        # free-text submits (no GitHub issue, no JIRA ticket)
-                        # and JIRA-driven pipelines (``pipeline.jira_ticket``
-                        # set; ``pipeline.prompt`` carries the description).
-                        # In both cases the event-pump never delivers the
-                        # orchestrator-built spawn prompt to the agent, so
-                        # we persist the full ``pipeline.prompt`` as
-                        # ``task_description``. The contract (read via
-                        # ``egg-contract show``) becomes the reliable
-                        # channel for the complete task; the ``title`` arg
-                        # is only used for the ``IssueInfo`` label and is
-                        # dropped without an ``issue_number``, so it is not
-                        # a substitute. For JIRA pipelines an agent can
-                        # still fetch the latest ticket body out-of-band
-                        # via ``jira ticket get "$EGG_JIRA_TICKET"`` — this
-                        # field is a complementary, snapshotted copy of
-                        # the description as submitted (#3033).
+                        # free-text submits and JIRA-driven pipelines
+                        # (``pipeline.jira_ticket`` set). The event-pump
+                        # never delivers the orchestrator-built spawn
+                        # prompt to the agent, so the contract (read via
+                        # ``egg-contract show`` + the #3123 prompt
+                        # section) is the reliable channel for the
+                        # complete task; the ``title`` arg is only used
+                        # for the ``IssueInfo`` label and is dropped
+                        # without an ``issue_number``, so it is not a
+                        # substitute (#3033).
                         create_contract(
                             pipeline_id=pipeline.id,
                             title=(pipeline.prompt or "")[:100],
-                            task_description=pipeline.prompt,
+                            task_description=task_description,
                             repo_root=worktree_repo_path,
                         )
 

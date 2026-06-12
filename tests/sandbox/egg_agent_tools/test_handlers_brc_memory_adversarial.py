@@ -32,6 +32,8 @@ def memory_env(monkeypatch, tmp_path):
     monkeypatch.setenv("EGG_BRC_MEMORY", "write-only")
     monkeypatch.setenv("EGG_AGENT_ROLE", "tester")
     monkeypatch.setenv("EGG_REPO_PATH", str(tmp_path))
+    monkeypatch.setenv("EGG_PIPELINE_ID", "issue-99")
+    monkeypatch.delenv("EGG_ISSUE_NUMBER", raising=False)
     return tmp_path
 
 
@@ -67,6 +69,45 @@ class TestBrcMemoryRoleResolutionAdversarial:
         path = brc_memory.memory_path_for_role(role="coder")
         assert "coder" in str(path)
         assert "tester" not in str(path)
+
+
+# ---------------------------------------------------------------------------
+# Adversarial probes: pipeline-id resolution (#3163)
+# ---------------------------------------------------------------------------
+
+
+class TestBrcMemoryPipelineIdResolutionAdversarial:
+    def test_path_carries_pipeline_id(self, memory_env):
+        """The filename is pipeline-scoped so a prior pipeline's memory on
+        main never resolves for a new pipeline (#3163)."""
+        path = brc_memory.memory_path_for_role()
+        assert path.name == "brc-memory-issue-99.md"
+
+    def test_missing_pipeline_id_raises_before_fs(self, memory_env, monkeypatch):
+        """No EGG_PIPELINE_ID and no EGG_ISSUE_NUMBER must raise — never
+        fall back to a cross-pipeline shared file."""
+        monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
+        with pytest.raises(ValueError, match="requires EGG_PIPELINE_ID"):
+            brc_memory.memory_path_for_role()
+
+    def test_issue_number_fallback(self, memory_env, monkeypatch):
+        """EGG_ISSUE_NUMBER resolves to ``issue-<N>`` when EGG_PIPELINE_ID
+        is unset (mirrors the orchestrator composer's contract lookup)."""
+        monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
+        monkeypatch.setenv("EGG_ISSUE_NUMBER", "3064")
+        path = brc_memory.memory_path_for_role()
+        assert path.name == "brc-memory-issue-3064.md"
+
+    def test_pipeline_id_with_path_separator_rejected(self, memory_env, monkeypatch):
+        """A pipeline id containing ``/`` or ``..`` must be rejected BEFORE
+        the path constructor touches the filesystem."""
+        monkeypatch.setenv("EGG_PIPELINE_ID", "issue-99/../../etc")
+        with pytest.raises(ValueError, match="rejects pipeline id"):
+            brc_memory.memory_path_for_role()
+
+    def test_explicit_pipeline_id_override_beats_env(self, memory_env):
+        path = brc_memory.memory_path_for_role(pipeline_id="PROJ-1234")
+        assert path.name == "brc-memory-PROJ-1234.md"
 
 
 # ---------------------------------------------------------------------------

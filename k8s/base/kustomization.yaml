@@ -13,4 +13,8 @@ resources:
   - litellm-configmap.yaml
   - litellm-deployment.yaml
   - litellm-service.yaml
+  # Redis Streams message-store backend (issue #2662) — only the
+  # orchestrator talks to it (EGG_MESSAGE_STORE_BACKEND=redis).
+  - redis-deployment.yaml
+  - redis-service.yaml
   - network-policies.yaml

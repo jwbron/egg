@@ -23,3 +23,6 @@ images:
   - name: egg-litellm
     newName: egg-litellm
     newTag: latest
+  - name: egg-redis
+    newName: egg-redis
+    newTag: latest

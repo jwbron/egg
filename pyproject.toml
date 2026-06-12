@@ -15,6 +15,11 @@ dependencies = [
     "httpx>=0.27.0,<1.0.0",
     "pydantic>=2.0.0,<3.0.0",
     "packaging>=21.0",
+    # Redis client for the orchestrator's Streams-backed message store
+    # (#2662). Also a fakeredis dependency, but declared directly so the
+    # production import in redis_message_store.py doesn't ride on a
+    # dev-dep's transitive closure.
+    "redis>=5.0,<7.0",
 ]
 
 [project.optional-dependencies]

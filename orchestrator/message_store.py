@@ -1,19 +1,29 @@
-"""In-memory per-pipeline message storage for inter-agent communication.
+"""Message types and singleton accessor for the inter-agent message bus.
 
-Provides thread-safe storage for messages exchanged between agents during
-concurrent phase execution. Messages are ephemeral within a phase and
-captured in checkpoints at session end for auditability.
+Defines the shared message envelope (:class:`Message`, :class:`MessageType`,
+:class:`GetMessagesMeta`) exchanged between agents during concurrent phase
+execution, and the :func:`get_message_store` singleton accessor for the
+Redis Streams backend (:class:`redis_message_store.RedisMessageStore`).
+
+Redis Streams is the only backend. The in-memory ``MessageStore`` that used
+to live here — along with the ``auto``/``memory`` values of
+``EGG_MESSAGE_STORE_BACKEND`` and the auto→memory fail-loud fallback
+machinery from #3077 slice-6 — was removed in #3159 after #2662 / PR #3153
+pinned every deployment to explicit redis mode. Messages are wiped at phase
+transitions by design (the persisted ``.egg-state/brc-history/`` log is the
+audit trail); see ``docs/architecture/coordination-state.md``.
 """
 
 import logging
 import threading
-import time
 import uuid
-from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from redis_message_store import RedisMessageStore
 
 logger = logging.getLogger("orchestrator.message_store")
 
@@ -119,12 +129,11 @@ _DEPRECATED_TYPE_COERCIONS: dict[str, str] = {
 def coerce_deprecated_message_type(raw_type: str) -> str:
     """Normalise a deprecated message_type to its live replacement.
 
-    Used by the Redis/in-memory deserialization paths so replayed
-    messages whose ``message_type`` no longer exists on this version
-    of the orchestrator still land in the in-memory representation
-    with a valid type. Unknown-but-not-deprecated types pass through
-    unchanged — the rest of the pipeline treats unknown types as
-    opaque.
+    Used by the Redis deserialization path so replayed messages whose
+    ``message_type`` no longer exists on this version of the
+    orchestrator still land in a :class:`Message` with a valid type.
+    Unknown-but-not-deprecated types pass through unchanged — the rest
+    of the pipeline treats unknown types as opaque.
 
     Returns the coerced type (e.g. ``"PROGRESS"``) if ``raw_type`` is
     in the deprecation map, otherwise the original ``raw_type``.
@@ -205,392 +214,18 @@ class Message(BaseModel):
         return result
 
 
-class MessageStore:
-    """Thread-safe in-memory message storage, keyed by pipeline ID.
-
-    Supports add, get-since, status, and clear operations for
-    managing inter-agent messages during concurrent execution.
-
-    When ``wait > 0`` is passed to :meth:`get_messages`, the in-memory
-    backend blocks on a per-pipeline :class:`threading.Condition` until a
-    matching message is appended or the timeout expires. This keeps the
-    in-memory backend behaviorally identical to the Redis backend
-    (XREAD BLOCK), so ``EGG_MESSAGE_STORE_BACKEND=memory`` local-dev
-    runs exhibit the same blocking semantics as production.
-
-    See issue #1897.
-    """
-
-    def __init__(self) -> None:
-        self._messages: dict[str, list[Message]] = {}
-        # Per-pipeline condition variables for blocking reads (issue #1897).
-        # Using per-pipeline (not a global cv) avoids spurious wake-ups across
-        # unrelated pipelines.
-        self._cond: dict[str, threading.Condition] = {}
-        self._lock = threading.RLock()
-
-    def add_message(self, message: Message) -> Message:
-        """Add a message to the store.
-
-        Args:
-            message: The message to store.
-
-        Returns:
-            The stored message (with generated ID if not set).
-        """
-        with self._lock:
-            pid = message.pipeline_id
-            if pid not in self._messages:
-                self._messages[pid] = []
-            self._messages[pid].append(message)
-            # Notify any blocked get_messages() callers waiting on this
-            # pipeline. Per issue #1897 RISK-5 + reviewer_code blocker 2
-            # on v4: we ALSO create a cv if one is absent, so the very
-            # next get_messages(wait=N) caller observes ``self._cond[pid]``
-            # pre-seeded and doesn't race with a later clear(). Without
-            # this, a reader that arrived AFTER an earlier clear() but
-            # BEFORE any add_message landed could end up on a cv that
-            # subsequently gets detached.
-            cv = self._cond.get(pid)
-            if cv is None:
-                cv = threading.Condition(self._lock)
-                self._cond[pid] = cv
-            cv.notify_all()
-        return message
-
-    def get_messages(
-        self,
-        pipeline_id: str,
-        *,
-        role: str | None = None,
-        since_id: str | None = None,
-        limit: int = 100,
-        wait: int = 0,
-        wait_for_types: Sequence[str] | None = None,
-        from_role: str | None = None,
-        from_roles: Sequence[str] | None = None,
-        slice_id: str | None = None,
-        from_tip: bool = False,
-    ) -> list[Message]:
-        """Get messages for a pipeline, optionally filtered.
-
-        Thin wrapper around :meth:`get_messages_with_meta` that drops the
-        meta tuple. Existing callers that don't care about cursor staleness
-        continue to use this signature unchanged.
-
-        Args:
-            pipeline_id: Pipeline ID to query.
-            role: If set, return messages where to_role is this role or 'all'.
-            since_id: If set, return only messages after this message ID. If the
-                cursor is not present in the store (e.g., after a phase-boundary
-                clear or a post-compaction anchor recovery), fall back to
-                returning all messages rather than silently dropping to empty.
-                This matches the Redis backend's behavior and avoids a silent
-                delivery failure that can stall agents. Cursor resolution happens
-                exactly once per call (under the fast-path lock); the blocking
-                branch slices forward from the resolved index rather than
-                re-resolving on every notify (issue #2454).
-            limit: Maximum messages to return.
-            wait: If > 0, block up to this many seconds waiting for matching
-                messages to arrive.  Issue #1897.
-            wait_for_types: If set (and ``wait > 0``), only treat a read as
-                "matched" when at least one message of these types is
-                available after applying role/since_id filters. Unwanted types
-                are left in the store and do not unblock the caller.
-            from_role: If set, further filter to only messages whose
-                ``from_role`` equals this value.  Applied inside the blocking
-                loop so a message from the wrong sender does NOT unblock the
-                wait (prevents spinning — issue #1897 reviewer_code non-blocker).
-            from_roles: If set, the wait only matches messages whose
-                ``from_role`` is in this set. The set form of ``from_role``
-                (#2725) — agents pass their consensus-graph neighbors plus
-                system senders to avoid waking on unrelated producers' BRC
-                chatter. When both ``from_role`` and ``from_roles`` are
-                supplied, ``from_role`` wins (single-sender semantics
-                preserve back-compat).
-            slice_id: If set, only match messages whose ``metadata.slice_id``
-                equals this value OR is ``None`` (#2725). Null on the message
-                is a passthrough — pipeline-level signals (OVERSEER_ALERT,
-                phase-boundary CONSENSUS_CONFIRMED emitted without slice
-                scope) wake every blocked waiter regardless of the requested
-                slice. Applied inside the blocking branch so a wrong-slice
-                message does not unblock the wait.
-            from_tip: If True AND ``since_id`` is not set AND ``wait > 0``, snap
-                the starting cursor to ``len(messages)`` at call entry so only
-                messages added *after* this call starts can unblock the wait.
-                Required by the ``/messages/wait`` endpoint's event-driven
-                contract (issue #1925).
-
-        Returns:
-            List of matching messages, oldest first. Empty list on timeout.
-        """
-        messages, _meta = self.get_messages_with_meta(
-            pipeline_id,
-            role=role,
-            since_id=since_id,
-            limit=limit,
-            wait=wait,
-            wait_for_types=wait_for_types,
-            from_role=from_role,
-            from_roles=from_roles,
-            slice_id=slice_id,
-            from_tip=from_tip,
-        )
-        return messages
-
-    def get_messages_with_meta(
-        self,
-        pipeline_id: str,
-        *,
-        role: str | None = None,
-        since_id: str | None = None,
-        limit: int = 100,
-        wait: int = 0,
-        wait_for_types: Sequence[str] | None = None,
-        from_role: str | None = None,
-        from_roles: Sequence[str] | None = None,
-        slice_id: str | None = None,
-        from_tip: bool = False,
-        _suppress_stale_warning: bool = False,
-    ) -> tuple[list[Message], GetMessagesMeta]:
-        """Same as :meth:`get_messages` but also returns staleness metadata.
-
-        The second return value is a :class:`GetMessagesMeta` whose
-        ``since_id_stale`` field is ``True`` iff the caller supplied a
-        non-None ``since_id`` that did not resolve to any message in the
-        store at call entry. The full-history fallback contract is
-        preserved — the messages returned are exactly what
-        :meth:`get_messages` would return — but consumers now have a
-        structured signal they can use to clear cached cursors instead
-        of re-passing the same dead value forever (issue #2464).
-
-        ``_suppress_stale_warning`` is internal: ``True`` suppresses the
-        ``since_id not found in store`` log line on a stale cursor while
-        still populating ``meta.since_id_stale``. Used by ``/status/wait``
-        to avoid double-logging when its synchronous probe and its
-        long-poll daemon both reach for the same cursor on a single
-        request (the probe call sets it; the daemon's later call still
-        logs once if reached, matching pre-PR cadence).
-        """
-        # Snapshot the tip / since_id index at call entry under the lock
-        # below so from_tip semantics are race-free against concurrent
-        # add_message calls. Resolving the cursor ONCE (issue #2454) — not
-        # on every notify in the blocking branch — keeps the per-iteration
-        # cost O(n_new_messages) instead of O(n_total_history) and ensures
-        # the "since_id not found" warning fires at most once per call
-        # rather than once per notify (which during a 25 s long-poll under
-        # heartbeat fan-in could fan the same warning out 10+ times).
-        use_tip = from_tip and not since_id and wait > 0
-        start_idx = 0
-        since_id_stale = False
-
-        # Pre-resolve the from_roles set once. ``from_role`` (singular) wins
-        # if both are set so single-sender back-compat is preserved.
-        from_roles_set: set[str] | None
-        if from_role:
-            from_roles_set = None  # singular path handled below
-        elif from_roles:
-            from_roles_set = {r for r in from_roles if r}
-            if not from_roles_set:
-                from_roles_set = None
-        else:
-            from_roles_set = None
-
-        def _filter(all_msgs: list[Message]) -> list[Message]:
-            # Slice forward from the resolved start_idx (set under the
-            # lock below). Cheap: O(n_total - start_idx) plus the filter
-            # passes, regardless of how many notifies fire during a wait.
-            msgs = all_msgs[start_idx:]
-
-            # from_role filter — applied here so it participates in the
-            # wait-for-match decision (wrong sender does not unblock).
-            if from_role:
-                msgs = [m for m in msgs if m.from_role == from_role]
-            elif from_roles_set is not None:
-                # Sender allowlist (#2725). Messages whose from_role is not in
-                # the set are dropped inside the blocking branch so wrong
-                # senders do NOT unblock a filtered wait.
-                msgs = [m for m in msgs if m.from_role in from_roles_set]
-
-            # Slice scope (#2725). A message whose metadata.slice_id is None
-            # is treated as a pipeline-level signal and passes through any
-            # slice filter — OVERSEER_ALERT and global phase-boundary signals
-            # continue to fan out. Strict equality otherwise.
-            if slice_id is not None:
-                msgs = [
-                    m
-                    for m in msgs
-                    if (
-                        m.metadata.get("slice_id") is None or m.metadata.get("slice_id") == slice_id
-                    )
-                ]
-
-            # Filter by role (messages targeted to this role or broadcast)
-            if role:
-                msgs = [m for m in msgs if m.to_role == role or m.to_role == "all"]
-
-            return msgs
-
-        # Fast path: check once under the lock.
-        with self._lock:
-            initial_msgs = self._messages.get(pipeline_id, [])
-            if use_tip:
-                start_idx = len(initial_msgs)
-            elif since_id:
-                # Resolve since_id to an index ONCE. If the cursor is
-                # unknown, log a single warning and degrade to "return
-                # all" (start_idx stays 0) instead of returning empty,
-                # so a stale cursor doesn't silently hide new messages
-                # from a polling agent.
-                found_idx = next(
-                    (i for i, m in enumerate(initial_msgs) if m.id == since_id),
-                    None,
-                )
-                if found_idx is not None:
-                    start_idx = found_idx + 1
-                else:
-                    since_id_stale = True
-                    if not _suppress_stale_warning:
-                        logger.warning(
-                            "since_id not found in store; returning full history",
-                            extra={
-                                "pipeline_id": pipeline_id,
-                                "since_id": since_id,
-                            },
-                        )
-
-            meta = GetMessagesMeta(since_id_stale=since_id_stale)
-            matches = _filter(initial_msgs)
-            if wait_for_types:
-                typed = [m for m in matches if m.message_type in set(wait_for_types)]
-                if typed:
-                    out = typed[-limit:] if len(typed) > limit else typed
-                    return out, meta
-                # fall through to blocking branch only if wait > 0
-            else:
-                if matches:
-                    out = matches[-limit:] if len(matches) > limit else matches
-                    return out, meta
-                # fall through to blocking branch only if wait > 0
-
-            if wait <= 0:
-                # Non-blocking: return whatever we have (empty or filtered).
-                if wait_for_types:
-                    return [], meta
-                out = matches[-limit:] if len(matches) > limit else matches
-                return out, meta
-
-            # Blocking branch: wait on the per-pipeline condition variable.
-            # We already hold the lock via `with self._lock:`; the cv shares
-            # the same lock so wait()/notify_all() coordinate correctly.
-            cv = self._cond.get(pipeline_id)
-            if cv is None:
-                cv = threading.Condition(self._lock)
-                self._cond[pipeline_id] = cv
-
-            deadline = time.monotonic() + float(wait)
-            want_types = set(wait_for_types) if wait_for_types else None
-            # Track whether the pipeline was observed at some point.  If a
-            # clear() removes a pipeline we *had* observed we should wake
-            # and return empty (RISK-5). But if the pipeline simply never
-            # existed we keep waiting — add_message() will create the entry
-            # and also notify_all().
-            observed = pipeline_id in self._messages
-            while True:
-                # Orphan-cv detection (#1897 reviewer_code blocker 2 on v4):
-                # if clear(pipeline_id) ran since we grabbed ``cv``, the
-                # canonical cv in ``self._cond`` either disappeared or was
-                # replaced by a fresh instance installed by a subsequent
-                # add_message().  Our local ``cv`` is then detached: future
-                # notifications from add_message go to the new canonical cv
-                # and we would hang on this one until the timeout.
-                # Detect that and return empty so the caller can re-enter
-                # cleanly instead of sleeping out the budget.
-                current_cv = self._cond.get(pipeline_id)
-                if current_cv is not cv:
-                    return [], meta
-
-                if pipeline_id in self._messages:
-                    observed = True
-                elif observed:
-                    # Pipeline existed and was cleared while we were waiting.
-                    return [], meta
-
-                matches = _filter(self._messages.get(pipeline_id, []))
-                if want_types is not None:
-                    typed = [m for m in matches if m.message_type in want_types]
-                    if typed:
-                        out = typed[-limit:] if len(typed) > limit else typed
-                        return out, meta
-                elif matches:
-                    out = matches[-limit:] if len(matches) > limit else matches
-                    return out, meta
-
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return [], meta
-
-                # wait() releases the lock, waits for notify, re-acquires it.
-                cv.wait(timeout=remaining)
-
-    def get_latest_id(self, pipeline_id: str) -> str | None:
-        """Return the ID of the most recent message for *pipeline_id*, or ``None``.
-
-        O(1) — reads the tail of the in-memory list under the lock.
-        """
-        with self._lock:
-            msgs = self._messages.get(pipeline_id)
-            if msgs:
-                return msgs[-1].id
-            return None
-
-    def get_status(self, pipeline_id: str) -> dict[str, Any]:
-        """Get message statistics for a pipeline.
-
-        Returns:
-            Dict with total count and counts by message type.
-        """
-        with self._lock:
-            msgs = self._messages.get(pipeline_id, [])
-            by_type: dict[str, int] = {}
-            for m in msgs:
-                by_type[m.message_type] = by_type.get(m.message_type, 0) + 1
-            return {
-                "total": len(msgs),
-                "by_type": by_type,
-            }
-
-    def clear(self, pipeline_id: str) -> int:
-        """Clear all messages for a pipeline (e.g., on phase transition).
-
-        RISK-5 (issue #1897): after popping the list we notify_all on the
-        per-pipeline condition variable so any threads currently blocked
-        on ``get_messages(..., wait=N)`` wake up, observe the empty/absent
-        pipeline, and return [] — rather than hanging until the timeout.
-        The condition variable is also popped so long-lived orchestrators
-        with many pipelines don't accumulate stale ``_cond`` entries.
-
-        Returns:
-            Number of messages cleared.
-        """
-        with self._lock:
-            msgs = self._messages.pop(pipeline_id, [])
-            cv = self._cond.pop(pipeline_id, None)
-            if cv is not None:
-                cv.notify_all()
-            return len(msgs)
-
-
 # Singleton
-_message_store: MessageStore | None = None
+_message_store: RedisMessageStore | None = None
 _store_lock = threading.Lock()
 
 
-def get_message_store() -> MessageStore:
-    """Get the singleton message store.
+def get_message_store() -> RedisMessageStore:
+    """Get the singleton Redis Streams message store.
 
-    Uses Redis Streams when Redis is available, falling back to
-    in-memory storage for tests or when Redis is not configured.
+    Creation fails loudly on a bad ``EGG_MESSAGE_STORE_BACKEND`` value or
+    an unreachable Redis — there is no fallback backend (#3159). Unit
+    tests run against a fakeredis-backed store installed by the autouse
+    fixture in ``orchestrator/tests/conftest.py``.
     """
     global _message_store
     if _message_store is None:
@@ -600,37 +235,45 @@ def get_message_store() -> MessageStore:
     return _message_store
 
 
-def _create_message_store() -> MessageStore:
-    """Create the appropriate message store backend."""
+def _create_message_store() -> RedisMessageStore:
+    """Create the Redis Streams message store — the only backend.
+
+    The multi-backend selection (``EGG_MESSAGE_STORE_BACKEND`` =
+    ``memory`` / ``redis`` / ``auto`` with auto→memory fallback) was
+    removed in #3159: #2662 / PR #3153 pinned every deployment to
+    explicit redis mode, so the in-memory backend could only ever be
+    reached again by accident — re-introducing the #3076
+    mid-phase-restart message-loss risk. ``redis`` and unset (there is
+    nothing else the variable could mean) select Redis; any other value
+    is stale multi-backend-era configuration and raises rather than
+    silently meaning something different than it used to. A Redis
+    connection failure also raises — no fallback.
+    """
     import os
+
+    backend = os.environ.get("EGG_MESSAGE_STORE_BACKEND", "redis")
+    if backend != "redis":
+        raise RuntimeError(
+            f"Unsupported EGG_MESSAGE_STORE_BACKEND={backend!r}: the in-memory "
+            "message-store backend was removed in #3159; 'redis' is the only "
+            "backend. Unset the variable or set it to 'redis' and point "
+            "REDIS_HOST/REDIS_PORT at a reachable Redis (the k8s manifests "
+            "deploy one — see k8s/base/redis-deployment.yaml; local dev can "
+            "run any redis-server). Unit tests use a fakeredis-backed store "
+            "(see orchestrator/tests/conftest.py)."
+        )
+
+    from redis_message_store import get_redis_message_store
 
     redis_host = os.environ.get("REDIS_HOST", "localhost")
     redis_port = int(os.environ.get("REDIS_PORT", "6379"))
     redis_db = int(os.environ.get("REDIS_MESSAGE_DB", "1"))  # Separate DB from other Redis usage
-    use_redis = os.environ.get("EGG_MESSAGE_STORE_BACKEND", "auto")
-
-    if use_redis == "memory":
-        return MessageStore()
-
-    if use_redis in ("redis", "auto"):
-        try:
-            from redis_message_store import get_redis_message_store
-
-            store = get_redis_message_store(host=redis_host, port=redis_port, db=redis_db)
-            logger.info(
-                "Using Redis Streams message store",
-                extra={"host": redis_host, "port": redis_port, "db": redis_db},
-            )
-            return store  # type: ignore[return-value]
-        except Exception as e:
-            if use_redis == "redis":
-                raise  # Explicit Redis mode — fail hard
-            logger.warning(
-                "Redis unavailable, falling back to in-memory message store",
-                extra={"error": str(e)},
-            )
-
-    return MessageStore()
+    store = get_redis_message_store(host=redis_host, port=redis_port, db=redis_db)
+    logger.info(
+        "Using Redis Streams message store",
+        extra={"host": redis_host, "port": redis_port, "db": redis_db},
+    )
+    return store
 
 
 def reset_message_store() -> None:

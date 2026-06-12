@@ -7,7 +7,7 @@ that runs the full two-tier health check framework (see
 ``health_checks/`` package).
 
 Probe-path contract (locked by ``test_health_routes.py``): ``/live``,
-``/ready`` and ``/health`` MUST NOT invoke ``MessageStore``,
+``/ready`` and ``/health`` MUST NOT invoke the message store,
 ``state_store.get_state_store``, ``subprocess.*`` or any other I/O on
 the request path. The state-store self-heal that ``/api/v1/health``
 used to drive synchronously now runs in a background thread (see
@@ -85,6 +85,11 @@ def health_check() -> tuple[Response, int]:
     the first probe completes); ``components.state_store_summary``
     carries the human-readable aggregate string in those cases.
 
+    The ``components.message_store`` entry from #3077 slice-6 (the
+    auto→memory fallback fail-loud signal) was removed along with the
+    in-memory backend in #3159 — explicit redis mode raises on failure
+    instead of degrading, so there is no fallback state to surface.
+
     Response::
 
         {
@@ -105,6 +110,7 @@ def health_check() -> tuple[Response, int]:
     """
     snap = get_state_store_probe().snapshot()
     healthy = bool(snap["healthy"])
+
     # Dual-write to _health_tracker: the BG probe's on_observation
     # callback records the raw probe result at probe-interval cadence;
     # this request-path record() captures the staleness-corrected value
