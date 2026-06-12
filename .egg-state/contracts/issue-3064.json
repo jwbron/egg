@@ -165,7 +165,7 @@
       "id": "slice-3",
       "name": "Failure supervision re-homing: bounded respawn + backoff + OVERSEER_ALERT (HITL cq-2)",
       "goal": "Job-status watching with per-(role, arm) streaks mirroring #3138;\nconstants shared between wrapper and loop via one module; producer\npropose-arm exhaustion engages the existing AGENT_FAILED path (#2806\nrelocated for orchestrator mode); NACKs are explicit non-triggers.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -174,10 +174,10 @@
         {
           "id": "task-3-1",
           "description": "Supervision in `orchestrator/event_loop.py` (re-touches the\nslice-2 module \u2014 serialized chain): watch one-shot Job status;\non abnormal Job termination (pod died mid-event), respawn the\nsame event key after streak\u00d72s backoff capped at 30s; warn-level\nlog at streak 5; STICKY OVERSEER_ALERT with anomaly\n`agent-invocation-fail-streak` at streak 10; reset on success;\na NEW dedupe key (consensus state moved on) gets a fresh budget;\nafter exhaustion stop respawning that key until the derived\nevent changes. Extract the #3138 streak constants\n(backoff factor/cap, warn threshold, alert threshold) into\n`orchestrator/supervision_policy.py` (NEW) and import them from\nBOTH the event loop and the wrapper template in\n`orchestrator/consensus_wrapper.py` \u2014 one set of values, no\nfork; the wrapper's runtime behavior is unchanged. Producer\npropose-arm exhaustion engages the EXISTING AGENT_FAILED path\n(#2806 relocated for orchestrator mode; wrapper-side #2806 code\nuntouched). NACKs and other legitimate BRC outcomes\n(stale-event exit 0 included) are explicit non-triggers \u2014 only\nabnormal termination increments the streak.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "a96fae5a691b4c5d949fcb8b556604f69dc1f734",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Implemented in a96fae5. JobSupervisor with per-dupe-key streak tracking, linear backoff (streak\u00d72s, capped 30s), warn at streak 5, sticky OVERSEER_ALERT (agent-invocation-fail-streak) at streak 10, exhaustion blocking. supervision_policy.py constants shared between event loop and wrapper template. NACKs and legitimate BRC outcomes are explicit non-triggers. Producer propose-arm exhaustion surfaces AGENT_FAILED semantics. Wrapper runtime behavior unchanged. Contract task marked complete per reviewer_contract NACK.",
           "acceptance_criteria": "- Backoff streak\u00d72s cap 30s; warn at 5; sticky alert with the\n  agent-invocation-fail-streak anomaly exactly once at 10; no\n  respawn after exhaustion until the dedupe key changes.\n- Success and stale-exit reset/do-not-increment correctly; NACK\n  does not increment the streak.\n- Propose-arm exhaustion engages AGENT_FAILED (#2806 semantics)\n  for orchestrator mode; wrapper #2806 code untouched.\n- Wrapper and loop read identical constants from\n  supervision_policy; wrapper runtime behavior unchanged.",
           "files_affected": [
             "orchestrator/event_loop.py",
@@ -197,8 +197,8 @@
         {
           "id": "task-3-2",
           "description": "Supervision tests: extend\n`orchestrator/tests/test_event_loop.py` with the cq-2 matrix\nusing an injected clock and fake Job-status view \u2014 backoff\ntiming sequence (streak\u00d72s, cap 30s, no real sleeps); warn at\nstreak 5; sticky OVERSEER_ALERT exactly once at streak 10 with\nthe agent-invocation-fail-streak anomaly; silent retries below\nthe warn threshold; streak reset on success; stale-exit and\nNACK as non-triggers; fresh budget on dedupe-key change; no\nrespawn after exhaustion; AGENT_FAILED engagement on producer\npropose-arm exhaustion; loop and wrapper template constants\nasserted equal via supervision_policy.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "1686d75b3af77796cc8c08548d3bf92ce2130c83",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Full matrix covered deterministically (injected clock).\n- Alert emission asserted exactly-once and sticky.\n- Non-trigger cases (NACK, stale exit) asserted explicitly.\n- Constants-equality assertion present.",
@@ -220,11 +220,11 @@
         "slice-2"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3064/slice-2",
+      "integration_base_sha": "a96fae5a691b4c5d949fcb8b556604f69dc1f734",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3181,
+      "pr_url": "https://github.com/jwbron/egg/pull/3181",
       "review_feedback": []
     },
     {
@@ -371,10 +371,10 @@
         {
           "id": "task-6-1",
           "description": "Write `docs/architecture/on-demand-agent-lifecycle.md` (NEW) and\nlink it from `docs/index.md`: event-loop ownership under both\nEGG_EVENT_LOOP_OWNER values (who runs the loop, who spawns,\nverb\u2192pod mapping incl. agent-free confirm/complete); the\ndedupe-key contract (sha256 fields, Job-label reconciliation,\nat-most-one-live-pod invariant); cq-2 supervision semantics\n(#3138 streak values from supervision_policy, sticky alert,\nAGENT_FAILED engagement, NACK non-trigger); the monitor matrix\n(tripwire \u00d7 ownership mode); worktree re-attach + session-reuse\nrules and the p50<60s budget; the LIVE PROVING-RUN procedure\nwith acceptance checklist (all phases converge, no duplicate\npods, supervision fires on induced failure, latency budget\nheld); and the PREPARED FOLLOW-UP ISSUE BODY encoding the\noperator-mandated sequence \u2014 proving run with flag on, flip\ndefault, one cleanup PR deleting the in-pod wait arm +\nbackground heartbeat + wrapper-side #3138/#2806 code + the flag\n(no dead/deprecated code end state). State that filing the issue\nis an immediate post-merge manual step referenced from the PR\ndescription. Name the #3023 post-mortem constraint.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "1686d75b3",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Completed at commit 1686d75b3 (v2 of arch doc with alphabetical index fix). NACK from reviewer_contract resolved by marking task complete via mcp__task__complete. Re-proposed as v3 (same content, task status updated). Waiting for reviewer_contract ACK and reviewer_code re-review.",
           "acceptance_criteria": "- All mechanism areas documented with the flag default stated\n  explicitly; #3023 constraint named.\n- Proving-run checklist lists the four acceptance items;\n  follow-up issue body contains the three-step sequence and the\n  no-dead-code end state.\n- docs/index.md links the new page.",
           "files_affected": [
             "docs/architecture/on-demand-agent-lifecycle.md",
@@ -509,6 +509,34 @@
       "resolution": "Operator approved the 6-slice plan after independent verification of the review trail (v1\u2192v2 delta audit, claims-ledger spot-checks). Note for PR phase: the flip follow-up issue already exists as #3164 \u2014 update it with the prepared body from slice 6 rather than filing a duplicate.",
       "resolved_by": "human",
       "resolved_at": "2026-06-12T17:50:26.360080Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-3",
+      "question": "[#2777 slice-4 TASK-4-4 case 5] Slice slice-3 of pipeline issue-3064 has an impossible status enum value or state combination (e.g. status not in PENDING/IN_PROGRESS/COMPLETE/BLOCKED, or PENDING with commits on the integration branch). Bootstrap reconciliation cannot classify the slice safely. How should the orchestrator proceed?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Mark slice complete and continue",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Restart slice from scratch",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Cancel pipeline for manual investigation",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
       "debounce_until": null
     }
   ],
@@ -769,6 +797,127 @@
       "old_value": "121dd65b2",
       "new_value": "7c8323009",
       "reason": "Linked commit 7c83230 to task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T22:07:03.895514Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.commit",
+      "old_value": null,
+      "new_value": "a96fae5a691b4c5d949fcb8b556604f69dc1f734",
+      "reason": "Linked commit a96fae5 to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T22:07:03.912766Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T22:07:23.637818Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.commit",
+      "old_value": "a96fae5a691b4c5d949fcb8b556604f69dc1f734",
+      "new_value": "a96fae5a691b4c5d949fcb8b556604f69dc1f734",
+      "reason": "Linked commit a96fae5 to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T22:15:50.965608Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.commit",
+      "old_value": null,
+      "new_value": "a96fae5a691b4c5d949fcb8b556604f69dc1f734",
+      "reason": "Linked commit a96fae5 to task-3-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T22:15:50.982452Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T22:16:35.167679Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.commit",
+      "old_value": null,
+      "new_value": "1686d75b3",
+      "reason": "Linked commit 1686d75 to task-6-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T22:16:35.184769Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-6-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T22:16:44.621734Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.notes",
+      "old_value": "",
+      "new_value": "Implemented in a96fae5. JobSupervisor with per-dupe-key streak tracking, linear backoff (streak\u00d72s, capped 30s), warn at streak 5, sticky OVERSEER_ALERT (agent-invocation-fail-streak) at streak 10, exhaustion blocking. supervision_policy.py constants shared between event loop and wrapper template. NACKs and legitimate BRC outcomes are explicit non-triggers. Producer propose-arm exhaustion surfaces AGENT_FAILED semantics. Wrapper runtime behavior unchanged. Contract task marked complete per reviewer_contract NACK.",
+      "reason": "Updated notes for task-3-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T22:17:02.076602Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.notes",
+      "old_value": "",
+      "new_value": "Completed at commit 1686d75b3 (v2 of arch doc with alphabetical index fix). NACK from reviewer_contract resolved by marking task complete via mcp__task__complete. Re-proposed as v3 (same content, task status updated). Waiting for reviewer_contract ACK and reviewer_code re-review.",
+      "reason": "Updated notes for task-6-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T22:20:28.421045Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.commit",
+      "old_value": "a96fae5a691b4c5d949fcb8b556604f69dc1f734",
+      "new_value": "1686d75b3af77796cc8c08548d3bf92ce2130c83",
+      "reason": "Linked commit 1686d75 to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T22:20:28.446050Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.status",
+      "old_value": "complete",
+      "new_value": "complete",
+      "reason": "Marked task-3-2 as complete",
       "checkpoint_id": null
     }
   ],
