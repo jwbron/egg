@@ -586,6 +586,73 @@ _message_store: MessageStore | None = None
 _store_lock = threading.Lock()
 
 
+# Issue #3077 slice-6 — fail-loud signal for the auto→memory fallback.
+#
+# When ``EGG_MESSAGE_STORE_BACKEND`` is unset / ``"auto"`` and Redis is
+# unreachable, the backend selection falls back to the in-memory store.
+# That fallback carries the #3076 mid-phase-restart message-loss risk
+# operators didn't opt into: a worker restart between BRC events drops
+# whatever is in the in-process dict. The pipeline keeps running but the
+# event-pump runs blind, and the consensus tracker silently de-syncs.
+#
+# We surface that risk two ways:
+#
+# 1. An error-level structured log with the stable marker constant
+#    below, so log scrapers and the orchestrator's structured-log
+#    consumer can alert on a single pinned token rather than
+#    string-matching prose.
+# 2. A module-level degraded flag exposed via
+#    :func:`is_memory_fallback_degraded` that ``/api/v1/health`` reads
+#    into ``components.message_store`` (without touching ``MessageStore``
+#    itself — see the issue #1897 TASK-4-3 isolation invariant).
+#
+# Explicit ``EGG_MESSAGE_STORE_BACKEND=memory`` (dev / test intent) emits
+# at *warning* level and does NOT set the degraded flag — the operator
+# opted in, so it isn't a degradation.
+#
+# Per HITL Q3 / task-6-1: the orchestrator does NOT refuse to run, and
+# the ``auto`` selection behavior (redis-when-available, memory fallback)
+# is unchanged. To avoid spamming integration-test harnesses that reset
+# the singleton many times per pytest process, each of the two warn /
+# error log emissions is once-per-process; ``reset_message_store`` does
+# NOT clear those once-flags. Tests that exercise the slice-6 signal
+# itself use :func:`_reset_memory_fallback_state_for_test` to re-arm.
+MEMORY_FALLBACK_MARKER = "MESSAGE_STORE_AUTO_FALLBACK_TO_MEMORY"
+_memory_fallback_degraded: bool = False
+_memory_fallback_logged: bool = False
+_memory_explicit_logged: bool = False
+
+
+def is_memory_fallback_degraded() -> bool:
+    """Return ``True`` iff ``auto`` backend selection fell back to in-memory.
+
+    Surfaced by ``/api/v1/health`` under ``components.message_store`` so
+    operators can see the #3076 mid-phase-restart loss risk before it
+    bites. Defaults to ``False``; flipped to ``True`` the first time
+    :func:`_create_message_store` lands on the auto→memory fallback in
+    this process. Cleared by
+    :func:`_reset_memory_fallback_state_for_test` (test-only).
+    """
+    return _memory_fallback_degraded
+
+
+def _reset_memory_fallback_state_for_test() -> None:
+    """Test-only helper for #3077 slice-6.
+
+    Resets the once-per-process fail-loud signal state so a follow-up
+    :func:`_create_message_store` call re-emits the marker log and
+    re-sets the degraded flag. NOT called by :func:`reset_message_store`
+    on purpose: existing integration-test reset cycles would otherwise
+    re-spam the error log every time they re-instantiate the singleton.
+    Production callers must not invoke this.
+    """
+    global _memory_fallback_degraded
+    global _memory_fallback_logged, _memory_explicit_logged
+    _memory_fallback_degraded = False
+    _memory_fallback_logged = False
+    _memory_explicit_logged = False
+
+
 def get_message_store() -> MessageStore:
     """Get the singleton message store.
 
@@ -601,8 +668,20 @@ def get_message_store() -> MessageStore:
 
 
 def _create_message_store() -> MessageStore:
-    """Create the appropriate message store backend."""
+    """Create the appropriate message store backend.
+
+    Selection precedence is unchanged from the issue #1897 design (HITL
+    Q3 of #3077 forbids changing it): ``EGG_MESSAGE_STORE_BACKEND``
+    chooses ``memory`` / ``redis`` / ``auto``, with ``auto`` (the
+    default) probing Redis and falling back to in-memory on any failure.
+    Slice-6 of #3077 layers the fail-loud signal on top of that
+    selection — see the module-level commentary on
+    ``MEMORY_FALLBACK_MARKER``.
+    """
     import os
+
+    global _memory_fallback_degraded
+    global _memory_fallback_logged, _memory_explicit_logged
 
     redis_host = os.environ.get("REDIS_HOST", "localhost")
     redis_port = int(os.environ.get("REDIS_PORT", "6379"))
@@ -610,6 +689,16 @@ def _create_message_store() -> MessageStore:
     use_redis = os.environ.get("EGG_MESSAGE_STORE_BACKEND", "auto")
 
     if use_redis == "memory":
+        # #3077 slice-6: explicit dev/test intent. Warning level, no
+        # degraded flag — the operator opted in. Once-per-process to
+        # avoid log spam from test harnesses that reset the singleton.
+        if not _memory_explicit_logged:
+            _memory_explicit_logged = True
+            logger.warning(
+                "Using in-memory message store "
+                "(explicit EGG_MESSAGE_STORE_BACKEND=memory); "
+                "mid-phase restarts will drop in-flight messages",
+            )
         return MessageStore()
 
     if use_redis in ("redis", "auto"):
@@ -625,15 +714,37 @@ def _create_message_store() -> MessageStore:
         except Exception as e:
             if use_redis == "redis":
                 raise  # Explicit Redis mode — fail hard
-            logger.warning(
-                "Redis unavailable, falling back to in-memory message store",
-                extra={"error": str(e)},
-            )
+            # #3077 slice-6: auto→memory is the #3076 mid-phase-restart
+            # loss risk operators didn't opt into. Flip the health-
+            # surface degraded flag (the /api/v1/health route reads it
+            # without touching MessageStore — see issue #1897 TASK-4-3)
+            # and emit a single error-level log with the stable marker
+            # token at most once per process.
+            _memory_fallback_degraded = True
+            if not _memory_fallback_logged:
+                _memory_fallback_logged = True
+                logger.error(
+                    "%s: Redis unavailable, falling back to in-memory "
+                    "message store; mid-phase restarts will drop in-flight "
+                    "messages (see issue #3076)",
+                    MEMORY_FALLBACK_MARKER,
+                    extra={
+                        "marker": MEMORY_FALLBACK_MARKER,
+                        "error": str(e),
+                    },
+                )
 
     return MessageStore()
 
 
 def reset_message_store() -> None:
-    """Reset the singleton message store (for testing)."""
+    """Reset the singleton message store (for testing).
+
+    Does NOT reset the slice-6 fail-loud signal state (#3077): the
+    fallback log is once-per-process so integration-test harnesses that
+    reset the singleton many times don't re-spam the error log. Tests
+    that need to observe a fresh emission use
+    :func:`_reset_memory_fallback_state_for_test`.
+    """
     global _message_store
     _message_store = None
