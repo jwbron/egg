@@ -231,7 +231,7 @@
       "id": "slice-4",
       "name": "Worktree re-attach + gateway-session reuse across spawns (hot-path latency)",
       "goal": "Re-attach-first worktree handling with the R6 dirty-state policy\n(discard + hard-sync on every re-attach; discard failure \u21d2 recreate)\nand per-role session reuse in the one-shot spawn path; p50<60s\nspawn\u2192invoke budget held in a simulated-clock test;\nat-most-one-live-pod invariant asserted as the ownership story.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
