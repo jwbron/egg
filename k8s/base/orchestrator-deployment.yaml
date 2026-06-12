@@ -102,6 +102,20 @@ spec:
             # (`egg-sandbox:latest`), and nothing exists at docker.io/egg.
             - name: EGG_SANDBOX_IMAGE
               value: "egg-sandbox:latest"
+            # Redis Streams message store (#2662). Explicitly `redis`, not
+            # `auto`: the silent auto→memory fallback is the #3076
+            # mid-phase-restart message-loss risk that #3077 slice-6's
+            # degraded health flag exists to catch — in-cluster we want a
+            # Redis outage to fail loudly instead. The store singleton is
+            # created lazily and a failed creation leaves it unset, so the
+            # orchestrator naturally retries until Redis is reachable (no
+            # startup-ordering dependency on the redis Deployment).
+            - name: EGG_MESSAGE_STORE_BACKEND
+              value: "redis"
+            - name: REDIS_HOST
+              value: "redis.egg-system.svc.cluster.local"
+            - name: REDIS_PORT
+              value: "6379"
             # #2528: read per-repo role_patterns from the same
             # repositories.yaml the gateway uses so plan-time validation
             # and the planner-prompt boundaries match push-time
