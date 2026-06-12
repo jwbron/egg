@@ -1,4 +1,4 @@
-"""Orchestrator-owned BRC event loop (#3064 slice-2, TASK-2-1).
+"""Orchestrator-owned BRC event loop (#3064 slice-2, TASK-2-1; slice-3, TASK-3-1).
 
 Under ``EGG_EVENT_LOOP_OWNER=orchestrator`` the orchestrator — not a
 long-lived in-pod wait-loop — owns the BRC event loop. For every role it
@@ -20,6 +20,13 @@ set; ``reconcile`` seeds it from live Job labels so a repeated poll AND a
 simulated orchestrator restart never double-spawn. No spawn bookkeeping is
 persisted — the tracker plus live-Job labels are the only sources of truth,
 so a restart is stateless by construction.
+
+**Slice-3 (#3138): supervision, backoff, respawn, and alerting**
+
+The ``JobSupervisor`` watches, per-dupe-key, the health of spawned jobs,
+applies backoff (streak*backoff capped), emits OVERSEER_ALERT on persistent
+streaks, and resets on success. The wrapper template imports the constants
+from the same source (``supervision_policy.py``).
 """
 
 from __future__ import annotations
@@ -29,7 +36,7 @@ import os
 import threading
 import time
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 try:
@@ -42,6 +49,20 @@ except ImportError:  # pragma: no cover - logging shim parity with siblings
 
 
 logger = get_logger("orchestrator.event_loop")
+
+# Import the single source of truth for supervision constants.
+try:
+    from orchestrator import supervision_policy as _supervision_policy
+except ImportError:
+    import supervision_policy as _supervision_policy  # type: ignore[no-redef]
+
+# ---------------------------------------------------------------------------
+# Re-export supervision policy constants (#3138).
+# ---------------------------------------------------------------------------
+SUPERVISION_BACKOFF_FACTOR = _supervision_policy.SUPERVISION_BACKOFF_FACTOR
+SUPERVISION_BACKOFF_CAP_SECONDS = _supervision_policy.SUPERVISION_BACKOFF_CAP_SECONDS
+SUPERVISION_FAILURE_STREAK_WARN = _supervision_policy.SUPERVISION_FAILURE_STREAK_WARN
+SUPERVISION_FAILURE_STREAK_ALERT = _supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT
 
 # Verb partitioning — the single source of truth for the verb→lifecycle
 # mapping the loop enforces. ``confirm``/``complete`` run orchestrator-side
@@ -180,6 +201,188 @@ class EventDecision:
     timing: dict[str, Any] | None = None
 
 
+# ---------------------------------------------------------------------------
+# Supervision state (slice-3, #3138) — tracked per-dedupe-key.
+# ---------------------------------------------------------------------------
+
+class JobSupervisor:
+    """Track per-event failures, enforce backoff, raise OVERSEER_ALERT.
+
+    #3138: extract persistent supervision state out of the bash wrapper's
+    runtime memory into the orchestrator-side process so pod crashes
+    (abnormal termination, OOM, etc.) trigger backoff/respawn. NACKs and
+    other BRC legitimate outcomes do NOT increment the streak. The wrapper
+    import the SAME constants from ``supervision_policy.py``.
+    """
+
+    def __init__(
+        self,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        overseer_alert: Callable[..., Any] | None = None,
+    ) -> None:
+        self.clock = clock
+        self._overseer_alert = overseer_alert
+        # Per-dedupe-key streaks — each key gets a fresh budget
+        # The counter resets when the dedupe key changes, giving a fresh
+        # budget for each distinct event.
+        self._streaks: dict[str, int] = {}
+        # Last spawn timestamp per dedupe key — used to compute backoff
+        # delays between successive spawns.
+        self._last_spawn_time: dict[str, float] = {}
+        # {dedupe_key: (action, role)}
+        self._last_action: dict[str, tuple[str, str]] = {}
+        # Once-per-key sticky latches so alert re-fires don't re-emit.
+        self._alerted_warn: dict[str, bool] = {}
+        self._alerted_10: dict[str, bool] = {}
+        # Set to track keys that have exhausted budget (per #3138).
+        self._exhausted: set[str] = set()
+
+    # ------------------------------------------------------------------
+    #  Public API (used by the orchestrator loop)
+    # ------------------------------------------------------------------
+
+    def record_success(self, dedupe_key: str) -> None:
+        """Reset the streak and latches for a given dedupe key.
+
+        Called when a finished Job with ``dedupe_key`` returns success
+        (rc=0, agent completed the event cleanly).
+        """
+        self._streaks.pop(dedupe_key, None)
+        self._alerted_warn.pop(dedupe_key, None)
+        self._alerted_10.pop(dedupe_key, None)
+        self._exhausted.discard(dedupe_key)
+        logger.debug("JobSupervisor: success for key=%s — streak reset", dedupe_key)
+
+    def record_legitimate_outcome(self, dedupe_key: str, outcome: str) -> None:
+        """Called when a Job finishes with a legitimate BRC outcome.
+
+        ``outcome`` is one of: ``confirmed`` (confirm voted), ``nack``
+        (proposed or review nack — legitimate). This does NOT change the
+        current-dedupe-key budget; a subsequent abnormal termination of the
+        same key continues incrementing the streak.
+
+        The wrapper equivalent is the wrapper arm's own logic —
+        ``egg-orch consensus confirmed`` → exit 0, no counter increment.
+        """
+        logger.debug("JobSupervisor: legitimate outcome (%s) for key=%s — streak untouched", outcome, dedupe_key)
+
+    def record_abort(self, dedupe_key: str, action: str, role: str) -> None:
+        """Called when a Job terminates abnormally (non-zero, non-BRC-legitimate).
+
+        Increments the per-key streak and (the caller applies backoff if the
+        key is not exhausted) for scheduling the respawn. Proposes sending
+        ``sticky OVERSEER_ALERT`` when crossing thresholds.
+        """
+        streak = self._streaks.get(dedupe_key, 0) + 1
+        self._streaks[dedupe_key] = streak
+        self._last_spawn_time[dedupe_key] = self.clock()
+        self._last_action[dedupe_key] = (action, role)
+        logger.warning(
+            "JobSupervisor: abnormal terminate for key=%s (action=%s, role=%s) — streak=%d",
+            dedupe_key,
+            action,
+            role,
+            streak,
+        )
+        # Threshold guards — fire once per key-lifetime
+        if streak >= SUPERVISION_FAILURE_STREAK_ALERT:
+            if not self._alerted_10.get(dedupe_key, False):
+                self._alerted_10[dedupe_key] = True
+                self._exhausted.add(dedupe_key)
+                self._emit_alert(dedupe_key, streak, action, role)
+
+    @property
+    def backoff_factor(self) -> int:
+        """Backoff multiplication factor. ``streak * fac`` → seconds."""
+        return SUPERVISION_BACKOFF_FACTOR
+
+    @property
+    def backoff_cap(self) -> int:
+        """Maximum backoff seconds (caps the linear growth)."""
+        return SUPERVISION_BACKOFF_CAP_SECONDS
+
+    def backoff_seconds(self, dedupe_key: str) -> float:
+        """Compute backoff delay for the respawn (streak * factor).
+
+        The caller is expected NOT to spawn when exhausted AND the dedupe key
+        is unchanged — the loop re-reads consensus and only spawns for a new key.
+        """
+        streak = self._streaks.get(dedupe_key, 0)
+        return min(streak * SUPERVISION_BACKOFF_FACTOR, SUPERVISION_BACKOFF_CAP_SECONDS)
+
+    def is_exhausted(self, dedupe_key: str) -> bool:
+        """Return True if the given dedupe-key has exhausted its retry budget."""
+        return dedupe_key in self._exhausted
+
+    def reconcile(self, live_dedupe_keys: Iterable[str]) -> None:
+        """When restarting, reconcile from live Job labels.
+
+        After a simulated orchestrator restart (e.g. crash), live pods may
+        be running. We do NOT persist supervision state; a fresh loop
+        starts with empty streaks. This means the first-old-dedupe-key
+        starts a fresh budget, which is the intended stateless design.
+        """
+        self._streaks.clear()
+        self._last_spawn_time.clear()
+        self._alerted_warn.clear()
+        self._alerted_10.clear()
+        self._exhausted.clear()
+        # Re-initialise live-key set if the caller provides it.
+        # We only need to know which keys exist, not the full history.
+        for key in live_dedupe_keys:
+            if key:
+                self._last_action[key] = ("(reconciled)", "(reconciled)")
+                self._last_spawn_time[key] = self.clock()
+
+    # ------------------------------------------------------------------
+    #  Alert integration
+    # ------------------------------------------------------------------
+
+    def _emit_alert(self, dedupe_key: str, streak: int, action: str, role: str) -> None:
+        """Emit an OVERSEER_ALERT for a exhausted key.
+
+        The wrapper's ``raise_agent_fail_alert`` path (``consensus_wrapper.py:690``)
+        is the reference for the message payload; we mirror the anomaly
+        name and format here.
+        """
+        if self._overseer_alert is not None:
+            self._overseer_alert(
+                anomaly="agent-invocation-fail-streak",
+                priority="high",
+                summary=(
+                    f"agent invocation failing repeatedly (action={action}, "
+                    f"streak={streak})"
+                ),
+                detail=(
+                    f"Event-pump for role={role} has had {streak} consecutive "
+                    f"agent-invocation failures on action={action}. "
+                    f"The orchestrator has exhausted retries for the current "
+                    f"dedupe key ({dedupe_key}). No further pods will be "
+                    f"spawned until the BRC state changes (new dedupe key). "
+                    f"Threshold: streak >= {SUPERVISION_FAILURE_STREAK_ALERT}."
+                ),
+            )
+
+
+@dataclass
+class EventDecision:
+    """Structured per-role outcome of one :meth:`OrchestratorEventLoop.poll_once`.
+
+    ``spawned`` is True only when this poll requested a *new* one-shot Job
+    (a deduped repeat is False). ``agent_free`` is True for confirm/complete.
+    ``timing`` is a structured mapping for the slice-4 latency budget on a
+    fresh spawn, ``None`` otherwise.
+    """
+
+    role: str
+    action: str
+    dedupe_key: str | None = None
+    spawned: bool = False
+    agent_free: bool = False
+    timing: dict[str, Any] | None = None
+
+
 class OrchestratorEventLoop:
     """Drive BRC forward by spawning one-shot pods per derived event.
 
@@ -203,6 +406,7 @@ class OrchestratorEventLoop:
         agent_free_handler: Callable[..., Any] | None = None,
         roles: list[str] | None = None,
         poll_interval: float | None = None,
+        job_supervisor: JobSupervisor | None = None,
     ) -> None:
         self.tracker = tracker
         self.spawner = spawner
@@ -220,6 +424,7 @@ class OrchestratorEventLoop:
         self._live_keys: set[str] = set()
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
+        self.supervisor = job_supervisor or JobSupervisor(clock=self.clock)
 
     # ------------------------------------------------------------------
     # Dedupe state
@@ -232,6 +437,7 @@ class OrchestratorEventLoop:
         a live pod already owns is not duplicated.
         """
         self._live_keys = {k for k in live_dedupe_keys if k}
+        self.supervisor.reconcile(live_dedupe_keys)
 
     def live_dedupe_keys(self) -> set[str]:
         """Return a snapshot of the tracked live dedupe keys."""
@@ -279,6 +485,17 @@ class OrchestratorEventLoop:
         key = compute_dedupe_key(
             self.pipeline_id, self.slice_id, self.phase, role, action, identity
         )
+
+        # Slice-3: Respect exhaustion — do NOT re-spawn exhausted keys
+        if self.supervisor.is_exhausted(key):
+            logger.info(
+                "event-loop: spawn blocked due to exhausted key",
+                pipeline_id=self.pipeline_id,
+                role=role,
+                action=action,
+                dedupe_key=key,
+            )
+            return EventDecision(role=role, action=action, dedupe_key=key, spawned=False)
 
         # Dedupe: an in-flight (or reconciled) Job already owns this event.
         if key in self._live_keys:
