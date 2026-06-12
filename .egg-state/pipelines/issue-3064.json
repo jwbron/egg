@@ -67,8 +67,6 @@
     "agent_models": {
       "applier": "deepseek-v4-pro",
       "architect": "deepseek-v4-pro",
-      "coder": "deepseek-v4-pro",
-      "documenter": "deepseek-v4-pro",
       "refiner": "deepseek-v4-pro",
       "reviewer_agent_design": "deepseek-v4-pro",
       "reviewer_code": "deepseek-v4-pro",
@@ -80,7 +78,9 @@
       "reviewer_security": "deepseek-v4-pro",
       "risk_analyst": "deepseek-v4-pro",
       "task_planner": "deepseek-v4-pro",
-      "tester": "deepseek-v4-pro"
+      "coder": "deepseek-v4-flash",
+      "tester": "deepseek-v4-flash",
+      "documenter": "deepseek-v4-flash"
     }
   },
   "phases": {
@@ -653,7 +653,7 @@
     }
   ],
   "created_at": "2026-06-12T16:37:40.276091Z",
-  "updated_at": "2026-06-12T21:34:35.848065Z",
+  "updated_at": "2026-06-12T21:34:43.513944Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -666,7 +666,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-12T20:58:06.175039Z",
-  "version": 127,
+  "version": 128,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
