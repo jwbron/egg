@@ -441,6 +441,16 @@ def _issue_anchor_fallback(contract_data: dict[str, Any]) -> str:
     draft as its task. New contracts get a composed statement at
     creation; this fallback covers the contracts already committed to
     live branches, which no creation-time fix reaches.
+
+    Keep the wording in sync with
+    :func:`egg_contracts.loader.compose_task_description`'s GitHub-issue
+    branch — the two are deliberately near-identical (issue identity +
+    ``gh issue view`` directive + "NOT your task" worktree disclaimer).
+    They cannot share a helper because this module is invoked standalone
+    by the wrapper bash (``python3 .../event_prompt.py``) with no package
+    context, so it cannot import ``egg_contracts``. The only intentional
+    divergences are the ``(title)`` clause and the "no operator task
+    statement was recorded" note, both specific to the fallback path.
     """
     issue = contract_data.get("issue")
     if not isinstance(issue, dict):
@@ -458,8 +468,8 @@ def _issue_anchor_fallback(contract_data: dict[str, Any]) -> str:
     anchor += (
         f". No operator task statement was recorded on this contract; "
         f"fetch the live issue body (`gh issue view {number}`) before "
-        "acting. Worktree artifacts (drafts, agent outputs) that "
-        "reference any other issue or pipeline are leftovers from "
+        "structural decisions. Worktree artifacts (drafts, agent outputs) "
+        "that reference any other issue or pipeline are leftovers from "
         "previous runs — they are NOT your task."
     )
     return anchor

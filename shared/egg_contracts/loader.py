@@ -238,6 +238,11 @@ def compose_task_description(
         The composed statement, or ``None`` when there is nothing to
         say (no issue, no ticket, blank description).
     """
+    # NB: the GitHub-issue anchor below is mirrored by
+    # ``orchestrator.routes.event_prompt._issue_anchor_fallback`` for
+    # pre-#3163 contracts that lack ``task_description``. Keep the two in
+    # sync — they cannot share a helper because event_prompt runs
+    # standalone under the wrapper bash and cannot import this package.
     parts: list[str] = []
     if issue_number is not None:
         anchor = f"This pipeline's task is GitHub issue #{issue_number}"
