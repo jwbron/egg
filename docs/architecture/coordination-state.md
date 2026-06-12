@@ -22,12 +22,12 @@
 > has produced zero such incidents. The invariant below is the structural fix
 > that retires the failure class.
 
-## Slice landings (status as of slice-4)
+## Slice landings (status as of slice-6)
 
-This page describes the **final shape** of the #3077 invariant. The epic is
-being landed in six slices; not every enforcing mechanism cited below exists
-on `main` yet. The table tracks what has shipped vs what is still pending so
-a reader cannot mistake the design target for the current state.
+This page describes the **final shape** of the #3077 invariant. The epic was
+landed in six slices, all of which have now shipped to `main`; every enforcing
+mechanism cited below exists. The table records each slice landing so a reader
+can trace which mechanism arrived in which slice.
 
 | Mechanism | Cited under | Status |
 |-----------|-------------|--------|
@@ -41,14 +41,13 @@ a reader cannot mistake the design target for the current state.
 | `handle_consensus_propose_signal` generalisation to every spec-registered artifact | Clause 3 | **Shipped** (slice-3) |
 | Gateway `POST /api/v1/artifact/get` + `orchestrator/routes/artifacts.py` | Clause 1 | **Shipped** (slice-4) |
 | Sandbox `egg-artifact` verb | Clauses 1, 3 | **Shipped** (slice-4) |
-| `orchestrator/tests/test_prompt_sync_ratchet.py` no-sync-mechanics ratchet | Clause 2 | **Pending** (slice-5) |
-| Fail-loud memory-backend signal + Redis restart-semantics test | Wipe-semantics | **Pending** (slice-6) |
+| `orchestrator/tests/test_prompt_sync_ratchet.py` no-sync-mechanics ratchet | Clause 2 | **Shipped** (slice-5) |
+| Fail-loud memory-backend signal + Redis restart-semantics test | Wipe-semantics | **Shipped** (slice-6) |
 
-The clause descriptions below are written in present tense as the **target
-state** the epic is landing. Until a slice ships, treat the corresponding
-"Enforcing mechanisms" bullet as a design specification for that slice, not
-a current-state claim. The shipped column above is the source of truth for
-what exists today.
+The clause descriptions below are written in present tense. With all six
+slices shipped, every "Enforcing mechanisms" bullet now describes a
+current-state claim rather than a design target. The slice column above
+records when each mechanism landed.
 
 ## The Three-Clause Invariant
 
