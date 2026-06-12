@@ -1280,6 +1280,13 @@ class PipelineToolHandler:
             if not args.get("jira_ticket"):
                 return {"error": ("mode is only meaningful with jira_ticket (issue #1557)")}
 
+        # The required ``description`` always flows to the orchestrator as
+        # the pipeline prompt — including for issue-backed submissions
+        # (#3163). It feeds ``contract.task_description``, the channel the
+        # per-event prompt's binding task section reads; dropping it for
+        # issue pipelines left that section empty and agents anchored only
+        # by whatever stale artifacts the worktree happened to carry.
+        data["prompt"] = args["description"]
         if args.get("issue_number"):
             base_id = f"issue-{args['issue_number']}"
             if qualifier:
@@ -1294,9 +1301,6 @@ class PipelineToolHandler:
                 base_id = f"{base_id}-{qualifier}"
             data["pipeline_id"] = base_id
             data["branch"] = args.get("branch") or f"egg/{base_id}"
-            data["prompt"] = args["description"]
-        else:
-            data["prompt"] = args["description"]
         if args.get("repo"):
             data["repo"] = args["repo"]
         if args.get("config"):

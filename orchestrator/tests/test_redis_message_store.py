@@ -1297,7 +1297,7 @@ class TestRedisRestartSemanticsVsPhaseBoundaryWipe:
         # Make _clear_concurrent_state pick up our Redis store via the
         # singleton accessor it imports. Patch the same name the
         # function resolves at call time so the wipe goes to OUR Redis,
-        # not a fresh in-memory MessageStore.
+        # not the conftest session singleton.
         import message_store as ms
 
         monkeypatch.setattr(ms, "get_message_store", lambda: store)
@@ -1469,3 +1469,174 @@ class TestBlockingChunkCap:
         # propagate, not silently return [].
         with pytest.raises(redis.TimeoutError):
             store.get_messages("timeout-pipeline", wait=0)
+
+
+class TestRedisFromRolesFilter:
+    """``from_roles`` allowlist filter on the Redis path (#2725).
+
+    Ported from the in-memory store's unit suite when #3159 removed that
+    backend — this was the only unit-tier pin of the plural form, which
+    ``_passes_filters`` handles on a different branch than singular
+    ``from_role``.
+    """
+
+    def test_fast_path_keeps_allowed_sender(self, store):
+        store.add_message(_slice_message(from_role="coder"))
+        msgs = store.get_messages("test-pipeline", from_roles=["coder", "tester"], wait=0)
+        assert len(msgs) == 1
+
+    def test_fast_path_drops_disallowed_sender(self, store):
+        store.add_message(_slice_message(from_role="documenter"))
+        msgs = store.get_messages("test-pipeline", from_roles=["coder", "tester"], wait=0)
+        assert msgs == []
+
+    def test_wrong_sender_does_not_unblock(self, store):
+        got: list[list[Message]] = []
+
+        def _block() -> None:
+            got.append(
+                store.get_messages(
+                    "test-pipeline",
+                    from_roles=["coder", "tester"],
+                    wait=1,
+                    wait_for_types=[MessageType.CONSENSUS_PROPOSE],
+                )
+            )
+
+        t = threading.Thread(target=_block)
+        t.start()
+        time.sleep(0.1)
+
+        for _ in range(5):
+            store.add_message(_slice_message(from_role="documenter"))
+
+        t.join(timeout=5)
+        assert not t.is_alive()
+        assert got == [[]]
+
+    def test_singular_from_role_wins_over_set(self, store):
+        """When both are supplied, ``from_role`` (singular) wins.
+
+        This preserves single-sender back-compat — a caller that already
+        passes ``from_role="X"`` and adds ``from_roles=["X","Y"]`` for some
+        reason gets exactly the X-only matches the singular form has
+        always returned.
+        """
+        store.add_message(_slice_message(from_role="coder"))
+        store.add_message(_slice_message(from_role="tester"))
+        msgs = store.get_messages(
+            "test-pipeline",
+            from_role="coder",
+            from_roles=["coder", "tester"],
+            wait=0,
+        )
+        assert [m.from_role for m in msgs] == ["coder"]
+
+    def test_empty_set_is_no_filter(self, store):
+        """An empty ``from_roles`` set is treated as no filter at the
+        store layer — the route layer rejects this at request time so an
+        empty list never reaches the store from network callers."""
+        store.add_message(_slice_message(from_role="documenter"))
+        msgs = store.get_messages("test-pipeline", from_roles=[], wait=0)
+        assert len(msgs) == 1
+
+
+class TestRedisSliceAndFromRolesCombined:
+    """Slice + plural-sender filters compose — both must accept (#2725)."""
+
+    def test_both_match(self, store):
+        store.add_message(_slice_message(from_role="coder", slice_id="slice-1"))
+        msgs = store.get_messages(
+            "test-pipeline",
+            slice_id="slice-1",
+            from_roles=["coder", "tester"],
+            wait=0,
+        )
+        assert len(msgs) == 1
+
+    def test_wrong_slice_right_sender_drops(self, store):
+        store.add_message(_slice_message(from_role="coder", slice_id="slice-2"))
+        msgs = store.get_messages(
+            "test-pipeline",
+            slice_id="slice-1",
+            from_roles=["coder", "tester"],
+            wait=0,
+        )
+        assert msgs == []
+
+    def test_right_slice_wrong_sender_drops(self, store):
+        store.add_message(_slice_message(from_role="documenter", slice_id="slice-1"))
+        msgs = store.get_messages(
+            "test-pipeline",
+            slice_id="slice-1",
+            from_roles=["coder", "tester"],
+            wait=0,
+        )
+        assert msgs == []
+
+    def test_overseer_alert_bypasses_slice_filter(self, store):
+        """Combined filter still respects the null-slice passthrough so
+        system senders included in the allowlist (overseer / orchestrator)
+        keep waking slice-filtered waiters."""
+        store.add_message(
+            _slice_message(
+                message_type=MessageType.OVERSEER_ALERT,
+                from_role="overseer",
+                slice_id=None,
+            )
+        )
+        msgs = store.get_messages(
+            "test-pipeline",
+            slice_id="slice-1",
+            from_roles=["coder", "tester", "overseer", "orchestrator"],
+            wait=0,
+        )
+        assert len(msgs) == 1
+
+    def test_orchestrator_re_review_wakes_tightly_filtered_reviewer(self, store):
+        """Negative-conformance pin (#2725): an orchestrator-emitted
+        CONSENSUS_RE_REVIEW targeted at this reviewer must wake even a
+        tight slice + producer-allowlist filter — otherwise the filter
+        silently sleeps the reviewer through a legitimate cross-graph
+        cascade, which is the failure mode worse than the wake-storm.
+
+        Constructed to mirror the orchestrator's signal-handler shape
+        (routes/signals.py): from_role="orchestrator", to_role targeted
+        at the reviewer, metadata.slice_id matching the reviewer's slice.
+        The spawner-built allowlist always includes ``orchestrator`` so
+        this works without rubric edits.
+        """
+        got: list[list[Message]] = []
+
+        def _block() -> None:
+            got.append(
+                store.get_messages(
+                    "test-pipeline",
+                    role="reviewer_code",
+                    slice_id="slice-1",
+                    from_roles=["coder", "tester", "overseer", "orchestrator"],
+                    wait=2,
+                    wait_for_types=[MessageType.CONSENSUS_RE_REVIEW],
+                )
+            )
+
+        t = threading.Thread(target=_block)
+        t.start()
+        time.sleep(0.1)
+
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="orchestrator",
+                to_role="reviewer_code",
+                message_type=MessageType.CONSENSUS_RE_REVIEW,
+                subject="Re-review required: coder submitted new proposal v2",
+                metadata={"slice_id": "slice-1", "producer_role": "coder"},
+            )
+        )
+
+        t.join(timeout=5)
+        assert not t.is_alive()
+        assert len(got[0]) == 1
+        assert got[0][0].from_role == "orchestrator"
+        assert got[0][0].message_type == MessageType.CONSENSUS_RE_REVIEW

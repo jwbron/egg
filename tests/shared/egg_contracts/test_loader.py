@@ -9,6 +9,7 @@ import pytest
 from egg_contracts.loader import (
     ContractNotFoundError,
     ContractValidationError,
+    compose_task_description,
     contract_exists,
     create_contract,
     delete_contract,
@@ -240,6 +241,62 @@ class TestContractExists:
     def test_exists_returns_false(self, tmp_path):
         """Test contract_exists returns False when file is missing."""
         assert contract_exists(999, repo_root=tmp_path) is False
+
+
+class TestComposeTaskDescription:
+    """Tests for compose_task_description (#3163).
+
+    The invariant every entry path relies on: a pipeline with a GitHub
+    issue or JIRA ticket always composes a non-empty statement, anchored
+    on the task's identity, with the operator's description below it.
+    """
+
+    def test_issue_pipeline_without_description_gets_anchor(self):
+        composed = compose_task_description(
+            description=None,
+            issue_number=3064,
+            issue_url="https://github.com/owner/repo/issues/3064",
+        )
+        assert composed is not None
+        assert "GitHub issue #3064" in composed
+        assert "https://github.com/owner/repo/issues/3064" in composed
+        assert "gh issue view 3064" in composed
+        assert "NOT your task" in composed
+
+    def test_issue_pipeline_with_description_appends_it(self):
+        composed = compose_task_description(
+            description="Focus on the retry logic; do not touch the scheduler.",
+            issue_number=3064,
+            issue_url="https://github.com/owner/repo/issues/3064",
+        )
+        assert composed.startswith("This pipeline's task is GitHub issue #3064")
+        assert composed.endswith("Focus on the retry logic; do not touch the scheduler.")
+
+    def test_jira_pipeline_gets_ticket_anchor(self):
+        composed = compose_task_description(
+            description="Snapshot of the ticket body.",
+            jira_ticket="PROJ-1234",
+        )
+        assert "JIRA ticket PROJ-1234" in composed
+        assert "jira ticket get PROJ-1234" in composed
+        assert composed.endswith("Snapshot of the ticket body.")
+
+    def test_issue_number_wins_over_jira_ticket(self):
+        composed = compose_task_description(
+            description=None,
+            issue_number=42,
+            jira_ticket="PROJ-1234",
+        )
+        assert "GitHub issue #42" in composed
+        assert "PROJ-1234" not in composed
+
+    def test_free_text_is_description_verbatim(self):
+        composed = compose_task_description(description="  Just do the thing.  ")
+        assert composed == "Just do the thing."
+
+    def test_nothing_to_say_returns_none(self):
+        for description in (None, "", "   \n"):
+            assert compose_task_description(description=description) is None
 
 
 class TestCreateContract:

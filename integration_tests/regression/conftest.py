@@ -16,14 +16,12 @@ This directory hosts five orthogonal regression tiers:
 
 * **Message store + event bus routing** (issue #2640) — exercises the
   load-bearing seams between the orchestrator's Flask blueprints, the
-  inter-agent message store (in-memory + Redis Streams), and the
-  in-process ``EventBus``. Real ``Flask`` blueprint and real
-  ``EventBus`` so the routing path under test is the same one
-  production runs. Dual-backend parametrization mirrors the AC pattern
-  from ``orchestrator/tests/test_pipelines_status_wait_route.py``:
-  every test that touches the message store runs against both
-  ``MessageStore`` (in-memory) and ``RedisMessageStore`` backed by
-  ``fakeredis.FakeRedis`` so a regression in either backend surfaces.
+  inter-agent message store (Redis Streams), and the in-process
+  ``EventBus``. Real ``Flask`` blueprint and real ``EventBus`` so the
+  routing path under test is the same one production runs. Every test
+  that touches the message store runs against ``RedisMessageStore``
+  backed by ``fakeredis.FakeRedis`` (the in-memory backend and the
+  dual-backend parametrization were removed in #3159).
 
 * **HITL HTTP round-trip helpers** (issues #2474, #2634) — pin the
   ``/api/v1/pipelines/<id>/decisions/...`` HTTP surface against the

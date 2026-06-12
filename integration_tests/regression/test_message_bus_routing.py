@@ -24,8 +24,9 @@ Coverage map (issue #2640 starting points + gap audit):
 7. Malformed-payload rejection — ``POST /messages`` 400s on shell-var
    ``to_role`` / ``from_role`` and on invalid HEARTBEAT metadata.
 9. Blocking ``get_messages(wait=N)`` semantics — wakes on
-   ``add_message``, wakes on ``clear()`` (RISK-5 from #1897), and
-   ``from_tip=True`` ignores pre-existing messages (#1925).
+   ``add_message``, returns empty across a phase-boundary ``clear()``
+   (RISK-5 lineage from #1897), and ``from_tip=True`` ignores
+   pre-existing messages (#1925).
 10. Message store ordering matches EventBus sequence for a single
     agent's stream, end-to-end through ``POST /messages`` — the
     exact invariant the issue's starting point 3 names.
@@ -65,7 +66,6 @@ from events import (  # noqa: E402
 from flask import Flask
 from message_store import (  # noqa: E402
     Message,
-    MessageStore,
     MessageType,
     reset_message_store,
 )
@@ -112,18 +112,17 @@ def client(app: Flask):
     return app.test_client()
 
 
-@pytest.fixture(params=["in_memory", "redis"])
-def message_backend(request, monkeypatch):
-    """Parametrize every test that touches the message store across both
-    backends.
+@pytest.fixture
+def message_backend(monkeypatch):
+    """Fresh fakeredis-backed ``RedisMessageStore`` for every test.
 
-    Mirrors the AC pattern from
-    ``orchestrator/tests/test_pipelines_status_wait_route.py``: the
-    Redis path uses ``fakeredis.FakeRedis()`` so we exercise the real
-    ``RedisMessageStore`` codepath (XADD / XREAD / XRANGE / xinfo
-    counters) without requiring a Redis container. The in-memory path
-    uses the live ``MessageStore`` with its threading.Condition
-    blocking semantics.
+    Originally parametrized across the in-memory and Redis backends
+    (the AC pattern from
+    ``orchestrator/tests/test_pipelines_status_wait_route.py``); the
+    in-memory arm was dropped when #3159 removed that backend.
+    ``fakeredis.FakeRedis()`` exercises the real ``RedisMessageStore``
+    codepath (XADD / XREAD / XRANGE / xinfo counters) without requiring
+    a Redis container.
 
     Patches the singleton on ``message_store._message_store`` so the
     lazy ``from message_store import get_message_store`` inside the
@@ -134,10 +133,7 @@ def message_backend(request, monkeypatch):
     import message_store as _ms
 
     reset_message_store()
-    if request.param == "redis":
-        store = RedisMessageStore(fakeredis.FakeRedis())
-    else:
-        store = MessageStore()
+    store = RedisMessageStore(fakeredis.FakeRedis())
 
     monkeypatch.setattr(_ms, "_message_store", store)
     monkeypatch.setattr(pipelines_mod, "_get_message_store", lambda: lambda: store)
@@ -981,31 +977,27 @@ class TestBlockingGetMessages:
         assert result["msgs"][0].subject == "injected"
 
     def test_blocked_get_wakes_on_clear(self, message_backend):
-        """RISK-5 (issue #1897 docstring of ``MessageStore.clear``): a
-        ``clear()`` must wake a blocked consumer so they observe the
-        phase-boundary clear and re-enter instead of timing out.
+        """A consumer blocked across a phase-boundary ``clear()`` must
+        come back empty (RISK-5 lineage from #1897).
 
-        The Redis backend doesn't expose this signal natively (XREAD
-        doesn't observe ``DEL stream``); accept either ``wake-returns-[]``
-        or ``timeout-returns-[]`` for the Redis backend so we don't
-        false-positive on a backend-specific limitation, but still
-        guard the in-memory contract.
+        The Redis backend doesn't observe ``clear()`` natively (XREAD
+        doesn't see ``DEL stream``), so the contract here is the weaker
+        ``timeout-returns-[]``: the blocked read runs out its budget and
+        returns empty rather than delivering pre-clear messages.
         """
         result: dict[str, list[Message]] = {"msgs": ["sentinel"]}
 
         def _consumer():
-            # Drop wait from 2s → 1s on the timeout (Redis) path so the
-            # contract assertion still holds but the test doesn't burn
-            # the full 2s budget on every Redis run.
+            # wait=1 keeps the timeout path cheap while still proving
+            # the post-clear read returns [].
             result["msgs"] = message_backend.get_messages(
                 _PIPELINE_ID,
                 wait=1,
                 from_tip=True,
             )
 
-        # Prime the backend so the pipeline_id exists (in-memory
-        # backend's ``observed`` guard requires the pipeline to have
-        # been seen at least once before clear() can wake the wait).
+        # Prime the backend so the pipeline_id's stream exists before
+        # the clear.
         primed = message_backend.add_message(
             Message(
                 pipeline_id=_PIPELINE_ID,
