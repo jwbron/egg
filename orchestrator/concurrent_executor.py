@@ -116,14 +116,13 @@ def _event_payload_refs(payload: dict[str, Any] | None) -> str | None:
 
 
 class _ExecutorEventSpawner:
-    """Adapter binding :class:`OrchestratorEventLoop`'s spawn surface to the
-    executor's per-pipeline ``spawn_fn`` closure + the kubernetes spawner.
+    """Adapter exposing :class:`OrchestratorEventLoop`'s ``spawn_event`` surface
+    over the executor's per-pipeline ``spawn_fn`` closure.
 
-    One-shot spawns go through ``spawn_fn`` (which carries repos / mode /
-    phase context and routes event spawns to ``spawn_one_shot_event_job``);
-    reconciliation queries (live-pod-per-role, dedupe-key-live) go to the
-    kubernetes spawner singleton, which only needs pipeline / slice / role /
-    label scope — all available without the closure context.
+    The closure carries repos / mode / phase context and routes event spawns
+    to the kubernetes spawner's ``spawn_event_job`` (which injects the event
+    identity env + dedupe-key label and adopts an already-live key), so the
+    adapter only has to resolve the per-role branch / env / command.
     """
 
     def __init__(
@@ -136,25 +135,17 @@ class _ExecutorEventSpawner:
         self._ex = executor
         self._slice_id = slice_id
         self._role_by_value = {r.value: r for r in roles}
-        self._spawner: Any | None = None
 
     def _agent_role(self, role: str) -> AgentRole:
         return self._role_by_value.get(role) or AgentRole(role)
 
-    def _k8s_spawner(self) -> Any:
-        if self._spawner is None:
-            from kubernetes_spawner import get_kubernetes_spawner
-
-            self._spawner = get_kubernetes_spawner()
-        return self._spawner
-
-    def spawn(
+    def spawn_event(
         self,
         *,
         role: str,
         action: str,
         dedupe_key: str,
-        event_payload: dict[str, Any] | None,
+        payload: dict[str, Any] | None = None,
     ) -> Any:
         agent_role = self._agent_role(role)
         branch = self._ex.get_worktree_branch(agent_role, slice_id=self._slice_id)
@@ -169,19 +160,7 @@ class _ExecutorEventSpawner:
             upstream_model=upstream_model,
             event_action=action,
             event_dedupe_key=dedupe_key,
-            event_payload_refs=_event_payload_refs(event_payload),
-        )
-
-    def has_live_pod_for_role(self, role: str) -> bool:
-        return bool(
-            self._k8s_spawner().has_live_pod_for_role(
-                self._ex.pipeline.id, self._agent_role(role), slice_id=self._slice_id
-            )
-        )
-
-    def is_dedupe_key_live(self, dedupe_key: str) -> bool:
-        return bool(
-            self._k8s_spawner().is_event_dedupe_key_live(self._ex.pipeline.id, dedupe_key)
+            event_payload_refs=_event_payload_refs(payload),
         )
 
 
@@ -473,11 +452,13 @@ class ConcurrentPhaseExecutor:
 
         Wires the production lifecycle surface: one-shot spawns flow through
         the per-pipeline ``spawn_fn`` closure (which carries repos / mode /
-        phase context and routes event spawns to
-        ``spawn_one_shot_event_job``); reconciliation queries go to the
-        kubernetes spawner; ``confirm``/``complete`` are recorded
-        orchestrator-side with no pod. The loop runs on a daemon thread and
-        stops when the slice converges.
+        phase context and routes event spawns to the spawner's
+        ``spawn_event_job`` — env identity + dedupe label + adoption);
+        ``confirm``/``complete`` are recorded orchestrator-side with no pod.
+        Restart reconciliation is backstopped by ``spawn_event_job``'s own
+        dedupe-label adoption, so the loop seeds an empty live set. The loop
+        runs on a daemon thread (poll-interval cadence) and stops when the
+        slice converges.
         """
         from event_loop import OrchestratorEventLoop, make_role_list
 
@@ -491,17 +472,17 @@ class ConcurrentPhaseExecutor:
             slice_id=slice_id,
         )
 
-        def _confirm(role: str) -> None:
+        def _agent_free(*, action: str, role: str, payload: Any = None) -> None:
             self._orchestrator_side_confirm(tracker, role)
 
         loop = OrchestratorEventLoop(
+            tracker,
+            spawner_adapter,
             pipeline_id=pipeline_id,
-            roles=make_role_list(roles),
-            spawner=spawner_adapter,
-            confirm_fn=_confirm,
-            tracker_provider=lambda: get_peer_consensus_tracker(pipeline_id, slice_id),
             slice_id=slice_id,
             phase=phase,
+            agent_free_handler=_agent_free,
+            roles=make_role_list(roles),
         )
         self._event_loop = loop
         loop.start()
