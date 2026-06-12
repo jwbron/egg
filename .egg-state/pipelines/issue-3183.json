@@ -5,7 +5,7 @@
   "branch": "egg/issue-3183/work",
   "base_branch": "main",
   "prompt": null,
-  "status": "cancelled",
+  "status": "failed",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -69,10 +69,10 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-06-12T23:12:36.027238Z",
       "work_started_at": "2026-06-12T23:12:36.938087Z",
-      "completed_at": null,
+      "completed_at": "2026-06-12T23:14:29.346233Z",
       "containers": [
         {
           "container_id": "2d0ce710-7010-4f43-a38b-341932d48f3a",
@@ -164,12 +164,12 @@
         {
           "cycle": 0,
           "started_at": "2026-06-12T23:12:36.938087Z",
-          "completed_at": null,
+          "completed_at": "2026-06-12T23:14:29.346216Z",
           "commit_sha": "71816fd2e6c773aba61c210b6233cf4651bf2e7c"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- reviewer_agent_design (exit=-1) ---\n\n--- refiner (exit=-1) ---\n\n--- PRODUCER PERMANENT DEATH ---\nProducer 'refiner' container exited with code -1 after the consensus-wrapper exhausted its retry budget. Pipeline failing (issue #2806).",
       "operator_directives": [],
       "iteration_history": [],
       "phase_start_sha": "71816fd2e6c773aba61c210b6233cf4651bf2e7c",
@@ -193,20 +193,20 @@
   },
   "decisions": [],
   "created_at": "2026-06-12T23:12:31.375979Z",
-  "updated_at": "2026-06-12T23:14:29.282780Z",
+  "updated_at": "2026-06-12T23:14:29.346291Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
   "pr_head_sha": null,
   "has_contract": true,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- reviewer_agent_design (exit=-1) ---\n\n--- refiner (exit=-1) ---\n\n--- PRODUCER PERMANENT DEATH ---\nProducer 'refiner' container exited with code -1 after the consensus-wrapper exhausted its retry budget. Pipeline failing (issue #2806).",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 11,
+  "version": 12,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
