@@ -57,6 +57,25 @@ Slice-4 history
 
 import shlex
 
+
+def _event_loop_owner() -> str:
+    """Return the BRC event-loop ownership mode (``pod`` | ``orchestrator``).
+
+    Thin lazy wrapper over ``env_config.get_event_loop_owner`` (#3064).
+    The dual-path import mirrors ``concurrent_executor`` /
+    ``global_slice_admit``: the orchestrator process may have the repo
+    root on ``sys.path`` (``orchestrator.env_config``) or only
+    ``orchestrator/`` itself (bare ``env_config``). Reading at
+    composition time keeps the one-shot-arm splice driven entirely by
+    the flag, so slice-1 needs no caller changes (dormant by design).
+    """
+    try:
+        from orchestrator.env_config import get_event_loop_owner
+    except ImportError:
+        from env_config import get_event_loop_owner  # type: ignore[no-redef,import-not-found]
+    return get_event_loop_owner()
+
+
 # Default idle budget for the event-pump template (#2908 task-2-3). The
 # overseer alert fires when ``LAST_PROGRESS`` ages past this many
 # minutes without an actionable BRC event; priority climbs to ``high``
@@ -916,6 +935,116 @@ done
 """
 
 
+# Splice anchor: the one-shot arm (#3064 slice-1) is inserted immediately
+# before this marker in the ORCHESTRATOR-ownership build of the wrapper.
+# Splicing (rather than a ``str.format`` placeholder) is deliberate — a
+# placeholder that expands to empty in pod mode would leave a residual
+# newline and break the "pod build byte-identical to main" golden-file
+# test. In pod mode the template is returned untouched.
+_MAIN_LOOP_MARKER = "# --- main event-pump loop ---"
+
+
+# One-shot event arm (#3064 slice-1). Spliced into the wrapper ONLY when
+# the orchestrator owns the event loop (``EGG_EVENT_LOOP_OWNER=
+# orchestrator``); the pod-ownership build never contains it and is
+# byte-identical to the pre-#3064 template. Dormant by design: nothing
+# sets ``EGG_EVENT_ACTION`` until the slice-2 spawner exists.
+#
+# This block is spliced AFTER ``_EVENT_PUMP_WRAPPER_TEMPLATE.format(...)``
+# runs, so it must use LITERAL braces (no ``{{``/``}}`` doubling) and must
+# NOT be passed through ``str.format``. It relies only on helper functions
+# defined above the marker (``fetch_next_action``, ``next_action_field``,
+# ``sync_to_proposals``, ``invoke_agent_for_event``, ``emit_heartbeat``,
+# ``cw_log``) and on the ``trap cleanup EXIT TERM INT`` already installed.
+#
+# Behavior (task-1-1 acceptance):
+#   * Engages only when owner==orchestrator AND an event is injected
+#     (``EGG_EVENT_ACTION`` non-empty). With no injected event it falls
+#     through to the in-pod loop unchanged (belt-and-suspenders).
+#   * ``confirm``/``complete`` are executed orchestrator-side with no pod
+#     and must NEVER be injected here — loud non-zero rejection if they
+#     are.
+#   * Skips the blocking wait-loop and the background heartbeat entirely.
+#   * Re-checks next-action ONCE as a stale-event backstop: if the derived
+#     action no longer matches the injected event, exit 0 WITHOUT invoking
+#     the agent (the dedupe race backstop).
+#   * Otherwise invokes ``invoke_agent_for_event`` exactly once and exits
+#     with the agent's (#2908-classified) rc so the slice-3 supervisor can
+#     tell a clean handoff (0) from an abnormal termination.
+_ONE_SHOT_ARM_TEMPLATE = r"""# --- one-shot event arm (#3064 slice-1, orchestrator ownership) ---------
+#
+# The orchestrator spawns this wrapper ONCE per actionable BRC event,
+# injecting the event identity via env (EGG_EVENT_ACTION in
+# propose|ack|nack, EGG_EVENT_DEDUPE_KEY, payload refs). In that mode we
+# skip the blocking wait-loop and the background heartbeat: re-check
+# next-action once as a stale-event backstop, invoke the agent exactly
+# once, and exit with the agent's (#2908-classified) rc. The
+# orchestrator-side supervisor (slice-3) owns respawn/backoff/alerting.
+ONE_SHOT_OWNER="${EGG_EVENT_LOOP_OWNER:-pod}"
+ONE_SHOT_ACTION="${EGG_EVENT_ACTION:-}"
+if [ "$ONE_SHOT_OWNER" = "orchestrator" ] && [ -n "$ONE_SHOT_ACTION" ]; then
+    cw_log "One-shot arm engaged (action=$ONE_SHOT_ACTION, dedupe=${EGG_EVENT_DEDUPE_KEY:-none}, role=${EGG_AGENT_ROLE:-?}, slice=${EGG_SLICE_ID:-none})."
+
+    case "$ONE_SHOT_ACTION" in
+        confirm|complete)
+            # confirm/complete are agent-free and run orchestrator-side
+            # (no pod is ever spawned for them). Reaching the one-shot arm
+            # with one injected is a caller bug -- reject loudly so the
+            # orchestrator surfaces it rather than silently invoking an
+            # agent for a verb that must never invoke one.
+            cw_log "FATAL: action=$ONE_SHOT_ACTION must run orchestrator-side with no pod and must never be injected into the one-shot arm. Refusing (exit 64)."
+            exit 64
+            ;;
+        propose|ack|nack)
+            : ;;
+        *)
+            cw_log "FATAL: unknown injected EGG_EVENT_ACTION='$ONE_SHOT_ACTION' (expected propose|ack|nack). Refusing (exit 64)."
+            exit 64
+            ;;
+    esac
+
+    # Single foreground liveness ping (NOT the background emitter): the
+    # slice-5 silent-mid-event tripwire keys on heartbeats from an active
+    # one-shot pod. This spawns no background process.
+    emit_heartbeat "WORKING" "one-shot event arm action=$ONE_SHOT_ACTION"
+
+    # Stale-event backstop: re-derive next-action ONCE. If consensus has
+    # moved on (derived action != injected event) this spawn is a
+    # duplicate/stale delivery -- exit 0 WITHOUT invoking the agent. The
+    # slice-2 spawner dedupes on the derived event, but a race can still
+    # deliver a stale one; this is the in-pod backstop for that race.
+    ONE_SHOT_NEXT_JSON=$(fetch_next_action)
+    ONE_SHOT_DERIVED=$(next_action_field "$ONE_SHOT_NEXT_JSON" "action")
+    if [ "$ONE_SHOT_DERIVED" != "$ONE_SHOT_ACTION" ]; then
+        cw_log "Injected event is stale (injected=$ONE_SHOT_ACTION, derived=${ONE_SHOT_DERIVED:-<none>}); exiting 0 without invoking the agent."
+        exit 0
+    fi
+
+    # Use the freshly-derived event_payload (current truth) for the
+    # invocation. Reviewer arms (ack/nack) sync the pending proposal
+    # commits into the worktree first, exactly as the in-pod loop does
+    # (#3076/#3077); the producer ``propose`` arm intentionally does not
+    # (R11a -- a producer's own commits are already on HEAD).
+    ONE_SHOT_PAYLOAD=$(next_action_field "$ONE_SHOT_NEXT_JSON" "event_payload")
+    if [ "$ONE_SHOT_ACTION" = "ack" ] || [ "$ONE_SHOT_ACTION" = "nack" ]; then
+        sync_to_proposals "$ONE_SHOT_PAYLOAD"
+    fi
+
+    one_shot_start=$SECONDS
+    invoke_agent_for_event "$ONE_SHOT_ACTION" "$ONE_SHOT_PAYLOAD"
+    one_shot_rc=$?
+    one_shot_secs=$(( SECONDS - one_shot_start ))
+    cw_log "One-shot invocation done (action=$ONE_SHOT_ACTION, rc=$one_shot_rc, duration=${one_shot_secs}s); exiting with the agent rc."
+    # Exit with the agent's (#2908-classified) rc. The classifiers
+    # (is_buffer_overflow / is_transient_crash / is_startup_failure)
+    # remain defined above for a future revision that wants to remap; the
+    # slice-3 orchestrator-side supervisor reads the Job exit code here.
+    exit "$one_shot_rc"
+fi
+
+"""
+
+
 # ``_event_pump_enabled`` (the read of ``EGG_BRC_EVENT_PUMP``) was
 # deleted in slice-4 task-4-2 along with the legacy template branch in
 # ``build_consensus_wrapped_command``. The env flag is now silently
@@ -970,6 +1099,19 @@ def build_event_pump_wrapped_command(
         hb_interval_default=heartbeat_interval_secs,
         wait_timeout_default=wait_timeout_secs,
     )
+    # #3064 slice-1: in orchestrator-ownership mode, splice the dormant
+    # one-shot arm in ahead of the main loop. In pod mode (default) the
+    # template is returned untouched so the generated wrapper is
+    # byte-identical to pre-#3064 (golden-file test). The arm itself only
+    # engages when an event is injected (EGG_EVENT_ACTION) -- nothing sets
+    # that until slice-2 -- so this is dormant even when orchestrator mode
+    # is selected without the spawner.
+    if _event_loop_owner() == "orchestrator":
+        script = script.replace(
+            _MAIN_LOOP_MARKER,
+            _ONE_SHOT_ARM_TEMPLATE + _MAIN_LOOP_MARKER,
+            1,
+        )
     return ["bash", "-c", script]
 
 
