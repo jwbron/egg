@@ -38,10 +38,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option B \u2014 A + lifecycle re-homing; flip deferred to a gated follow-up (recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-12T17:23:25.332092Z",
       "debounce_until": null
     },
     {
@@ -66,10 +66,33 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Bounded automatic respawn with backoff, then OVERSEER_ALERT (recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-12T17:23:30.362579Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "## Resolved Questions\n\n**Scope for #3064 on-demand agent spawning (cq-1):**\nAnswer: Option B \u2014 A + lifecycle re-homing; flip deferred to a gated follow-up. Operator additionally directed that the flip follow-up be filed immediately so the in-pod loop retirement is scheduled work (live BRC proving run with flag on \u2192 flip default \u2192 delete in-pod wait arm + heartbeat + ownership flag in one cleanup PR), not lingering deprecation. End state must have no dead/deprecated code; the flag window is accepted only as a bounded proving period.\n\n**Failure-supervision policy for one-shot agent pods (cq-2):**\nAnswer: Bounded automatic respawn with backoff, then OVERSEER_ALERT \u2014 mirror the wrapper's #3138 streak semantics (transient failures retry silently within a bounded budget; humans only see persistent exhaustion).",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-12T17:22:32.233657Z",
       "debounce_until": null
     }
   ],
