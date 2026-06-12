@@ -22,7 +22,7 @@
 > has produced zero such incidents. The invariant below is the structural fix
 > that retires the failure class.
 
-## Slice landings (status as of slice-1)
+## Slice landings (status as of slice-2)
 
 This page describes the **final shape** of the #3077 invariant. The epic is
 being landed in six slices; not every enforcing mechanism cited below exists
@@ -36,8 +36,8 @@ a reader cannot mistake the design target for the current state.
 | `mcp__brc__read_peer_artifact` (live store + on-disk merge, `live` flag) | Clause 1 | **Shipped** (predates #3077) |
 | Contract reads via `mcp__sdlc__show_contract` / `mcp__task__*` / `mcp__phase__get_context` | Clause 1 | **Shipped** (predates #3077) |
 | `mcp__progress__query_status` / `mcp__progress__emit` HTTP-backed reads | Clause 1 | **Shipped** (predates #3077) |
-| `shared/egg_contracts/artifact_spec.py` declarative artifact registry | Clause 3 | **Pending** (slice-2) |
-| `shared/egg_contracts/tests/test_artifact_spec.py` spec-consistency tests | Clause 3 | **Pending** (slice-2) |
+| `shared/egg_contracts/artifact_spec.py` declarative artifact registry | Clause 3 | **Shipped** (slice-2) |
+| `shared/egg_contracts/tests/test_artifact_spec.py` spec-consistency tests | Clause 3 | **Shipped** (slice-2) |
 | `handle_consensus_propose_signal` generalisation to every spec-registered artifact | Clause 3 | **Pending** (slice-3) |
 | Gateway `POST /api/v1/artifact/get` + `orchestrator/routes/artifacts.py` | Clause 1 | **Pending** (slice-4) |
 | Sandbox `egg-artifact` verb | Clauses 1, 3 | **Pending** (slice-4) |

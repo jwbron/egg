@@ -310,6 +310,7 @@ shared/
 │   ├── orchestration.py    # Agent execution state management
 │   ├── dependency_graph.py # Generic dependency graph (PEP-695 typed): used for agent-role DAGs and for the implement-phase slice DAG (#2137 generification)
 │   ├── plan_parser.py      # Plan document parsing with task extraction and phase dependency normalization
+│   ├── artifact_spec.py    # Declarative artifact registry (ArtifactSpec): single source of truth for per-phase coordination artifact paths, producers, and consumers (#3077 slice-2)
 │   ├── agent_recovery.py   # Failed agent recovery logic
 │   ├── markdown.py         # Markdown soft-break unwrapper for pipeline-generated PR bodies (unwrap_soft_breaks, #3122)
 │   └── redactor.py         # Sensitive data redaction (env vars, secrets, sensitive file paths)
