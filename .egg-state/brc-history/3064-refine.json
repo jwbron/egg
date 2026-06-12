@@ -1,0 +1,987 @@
+[
+  {
+    "id": "46ecbfcd-2110-46",
+    "pipeline_id": "issue-3064",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump start (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-12T16:37:50.748736+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "be2331fc-7dbe-4c",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump start (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-12T16:37:50.758931+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "f1e29de3-c29c-45",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump start (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-12T16:37:50.776589+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "38a8fec5-ec45-4d",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_agent_design (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:37:51.536369+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "f4c3b699-201e-4b",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_refine (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:37:51.551452+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "69569a18-966a-48",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_refine (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:38:21.603072+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "5f7299fb-2635-44",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_agent_design (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:38:21.648971+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "25d6c226-d498-41",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_refine (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:38:52.107399+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "87931668-2f15-4b",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_agent_design (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:38:52.134397+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "3dc753a8-dac2-41",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-12T16:38:52.641030+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "4fcbc15f-6d1d-40",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-12T16:38:52.665763+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c4a5c934-9826-4f",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_refine (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:38:53.421043+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "0dbcc413-931f-41",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_agent_design (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:38:53.439563+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "7a825f56-320a-40",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_refine (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:39:23.515747+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "9b89fe94-400c-43",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_agent_design (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:39:23.533845+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "b3ad6733-68dd-47",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_refine (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:39:54.097698+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "9b19613a-8d78-41",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_agent_design (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:39:54.105674+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "9302f833-aca9-45",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-12T16:39:54.598343+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c019c61e-6c65-49",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-12T16:39:54.612632+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "d0583d59-178b-45",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_refine (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:39:55.379792+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "26e3db1e-8654-4a",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_agent_design (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:39:55.394453+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "5bfd985f-1d86-41",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_refine (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:40:25.485081+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "b0c4574e-8889-4b",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_agent_design (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:40:25.495827+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "455710b0-b51d-48",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_refine (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:40:56.027124+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "5e05ef46-23e8-41",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_agent_design (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:40:56.034400+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "71ad6058-202c-4c",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-12T16:40:56.586542+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "3e712934-4631-41",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-12T16:40:56.603224+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "a28e5145-4f30-40",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_agent_design (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:40:57.345716+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "8dae7789-7caa-49",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_refine (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:40:57.370753+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "92311875-bc81-4f",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_refine (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:41:27.404704+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "5a61d1d6-a116-41",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_agent_design (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:41:27.411944+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "25c5da56-26bb-4a",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_refine (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:41:58.044871+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "73f1ab17-234d-46",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_agent_design (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:41:58.074731+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "1c7245b4-60d0-40",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-12T16:41:58.517836+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "98b479a5-e998-40",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-12T16:41:58.547860+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "1a786c8b-9bf8-42",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_refine (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:41:59.297136+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "463bfc90-f8ba-4b",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_agent_design (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:41:59.313236+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e3713f88-fe1b-4e",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_refine (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:42:29.401919+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "be1631e0-a047-4a",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_agent_design (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:42:29.414401+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "f938d5e6-1e9a-41",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_refine (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:43:00.012170+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "b5be1e74-44a7-4e",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_agent_design (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:43:00.016752+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "36820646-8372-41",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-12T16:43:00.509311+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "7d31a487-b3e7-45",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-12T16:43:00.526763+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "4b5fe71a-9895-48",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_refine (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:43:01.344271+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "5268f83a-c921-47",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_agent_design (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:43:01.372052+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "1f561965-cefb-4d",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_refine (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:43:31.394158+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e48b4266-32bc-42",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_agent_design (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:43:31.412041+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "776ebec6-10fe-40",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_refine (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:44:01.947218+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "0d2e1725-51c9-4e",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_agent_design (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:44:01.979018+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "f2291b37-32cb-47",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-12T16:44:02.453212+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "ef4dce93-0362-49",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-12T16:44:02.495605+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "71615f3f-4aec-40",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_refine (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:44:03.202096+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "f729cc35-5a31-4e",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_agent_design (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:44:03.245041+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "d96d9754-650a-4a",
+    "pipeline_id": "issue-3064",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from refiner",
+    "body": "Refine analysis for #3064 (orchestrator-driven on-demand agent spawning) at .egg-state/drafts/3064-analysis.md. Verified current lifecycle against the tree: spawn-up-front (concurrent_executor.py:311-349 \u2192 kubernetes_spawner.py:491-940) feeding a long-lived in-pod event-pump (consensus_wrapper.py:110-916; wait-loop, 30s heartbeat, alert-only 30-min idle budget) while _derive_next_action (routes/consensus.py:296-422) already computes per-role actionability. Documents the already-landed #2908 foundation (stateless per-event prompts, durable brc-memory, server-side cache, persistent worktrees), the #3023 hard constraint (coexistence guard and spawner land together or spawner-first; no rollback flag remains), and six grounded design questions for plan (spawn dedupe keyed on proposal_commit_sha, verb\u2192pod mapping with confirm/complete orchestrator-side, supervision re-homing, orchestrator-restart durability via stateless re-derivation, worktree/session reuse, health-monitor semantics). Scope options A/B/C registered as HITL cq-1 (recommended B: full mechanism + lifecycle re-homing behind a flag defaulting to in-pod; flip gated on a live BRC cycle); failure-supervision policy as cq-2 (recommended bounded respawn + OVERSEER_ALERT).",
+    "metadata": {
+      "payload": {
+        "summary": "Refine analysis for #3064 (orchestrator-driven on-demand agent spawning) at .egg-state/drafts/3064-analysis.md. Verified current lifecycle against the tree: spawn-up-front (concurrent_executor.py:311-349 \u2192 kubernetes_spawner.py:491-940) feeding a long-lived in-pod event-pump (consensus_wrapper.py:110-916; wait-loop, 30s heartbeat, alert-only 30-min idle budget) while _derive_next_action (routes/consensus.py:296-422) already computes per-role actionability. Documents the already-landed #2908 foundation (stateless per-event prompts, durable brc-memory, server-side cache, persistent worktrees), the #3023 hard constraint (coexistence guard and spawner land together or spawner-first; no rollback flag remains), and six grounded design questions for plan (spawn dedupe keyed on proposal_commit_sha, verb\u2192pod mapping with confirm/complete orchestrator-side, supervision re-homing, orchestrator-restart durability via stateless re-derivation, worktree/session reuse, health-monitor semantics). Scope options A/B/C registered as HITL cq-1 (recommended B: full mechanism + lifecycle re-homing behind a flag defaulting to in-pod; flip gated on a live BRC cycle); failure-supervision policy as cq-2 (recommended bounded respawn + OVERSEER_ALERT).",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/3064-analysis.md"
+        ],
+        "risk_considered": "Deadlock by partial landing (mitigated by spawner-first ordering + flag defaulting to in-pod loop + #3049 slice-ordering ingestion guard); per-event cold-start latency (worktree re-attach is the lever); supervision gaps when one-shot pods replace the in-loop retry (bounded-respawn policy, cq-2); health-monitor false positives on ephemeral pods (lifecycle-aware thresholds in the same change). Prompt-cache impact assessed as ~nil: invocations are already one-shot, cache is server-side.",
+        "commit_sha": "f480264124bd96eacf14425b6ec21edc98266265",
+        "files_changed": [
+          ".egg-state/drafts/3064-analysis.md",
+          ".egg-state/agent-outputs/refiner/brc-memory.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "f480264124bd96eacf14425b6ec21edc98266265"
+    },
+    "timestamp": "2026-06-12T16:44:16.223525+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "2fa8fe06-8934-44",
+    "pipeline_id": "issue-3064",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=refiner (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:44:28.954990+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "b82b95bf-9da4-4a",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=0) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-12T16:44:33.384994+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "98328bf7-194c-45",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=0) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-12T16:44:33.388806+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "497948e2-9291-47",
+    "pipeline_id": "issue-3064",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=refiner (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:44:58.926624+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "afa63c7b-e6cd-4b",
+    "pipeline_id": "issue-3064",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=refiner (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:45:29.486343+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "7c22d74d-1066-40",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_refine for refiner",
+    "body": "Analysis is accurate and complete. All code references spot-verified against the working tree (spawn_all @ concurrent_executor.py:311, _derive_next_action @ routes/consensus.py:296, spawn_agent_job @ kubernetes_spawner.py:491, heartbeat default 30s @ consensus_wrapper.py:76, brc_memory.py atomic-write/EGG_BRC_MEMORY claims, HealthMonitor/HeartbeatCoordinator locations). Faithful to issue #3064: lifecycle inversion, verb\u2192pod mapping (confirm/complete agent-free), hard constraint from scrapped #3023 (spawner-first, flag defaults to in-pod loop, no rollback path post #2908 slice-4), out-of-scope boundaries preserved. HITL decisions cq-1 (scope A/B/C, B recommended) and cq-2 (bounded-respawn supervision) are registered on the contract and match the analysis. Design questions are well-grounded (spawn dedupe key, orchestrator-restart durability via stateless re-derivation per #2761, worktree/session reuse, monitor semantics shift). Risks and recommendation (Option B) are sound.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3064-analysis.md"
+        ],
+        "reason": "Analysis is accurate and complete. All code references spot-verified against the working tree (spawn_all @ concurrent_executor.py:311, _derive_next_action @ routes/consensus.py:296, spawn_agent_job @ kubernetes_spawner.py:491, heartbeat default 30s @ consensus_wrapper.py:76, brc_memory.py atomic-write/EGG_BRC_MEMORY claims, HealthMonitor/HeartbeatCoordinator locations). Faithful to issue #3064: lifecycle inversion, verb\u2192pod mapping (confirm/complete agent-free), hard constraint from scrapped #3023 (spawner-first, flag defaults to in-pod loop, no rollback path post #2908 slice-4), out-of-scope boundaries preserved. HITL decisions cq-1 (scope A/B/C, B recommended) and cq-2 (bounded-respawn supervision) are registered on the contract and match the analysis. Design questions are well-grounded (spawn dedupe key, orchestrator-restart durability via stateless re-derivation per #2761, worktree/session reuse, monitor semantics shift). Risks and recommendation (Option B) are sound.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-06-12T16:45:40.632397+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "eae17462-a7e6-4b",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_refine",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-06-12T16:45:48.750710+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e41aeb4e-c0ec-48",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_refine (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:45:49.573698+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "610f7165-4778-46",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_agent_design for refiner",
+    "body": "ACK v1 of 3064-analysis.md after verifying all load-bearing claims against the working tree. Code references check out: spawn_all (concurrent_executor.py:311), event-pump wrapper template with 30s heartbeat default and alert-only EGG_BRC_IDLE_BUDGET_MIN idle budget (consensus_wrapper.py:67/76/110/702), _derive_next_action (routes/consensus.py:296) carrying proposal_commit_sha in pending_reviews payloads, durable brc_memory.py + compose_event_prompt foundation, health-monitor 120s/600s heartbeat timeouts, HeartbeatCoordinator session fan-out (#2076). The #3023 hard constraint is correctly stated: EGG_EVENT_LOOP_OWNER is absent from main (revert confirmed) and EGG_BRC_EVENT_PUMP was deleted in #2908 slice-4, so the no-rollback-path claim and spawner-first ordering requirement are accurate. From the agent-design lens: the pod-held vs durable state inventory is correct and complete (gateway session + uncommitted worktree state identified as the only correctness-relevant pod-held state); the six design questions cover the right lifecycle concerns (spawn dedupe/idempotency, verb\u2192pod mapping with agent-free confirm/complete, supervision re-homing, orchestrator-restart durability via stateless re-derivation, worktree/session reuse, lifecycle-aware health-monitor thresholds). HITL cq-1 (scope A/B/C) and cq-2 (bounded respawn) are registered on the contract and faithfully mirror the analysis. Scope options are honest about the #3023 failure mode and the proven-first bar; recommendation B is well-justified. No blockers.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3064-analysis.md"
+        ],
+        "reason": "ACK v1 of 3064-analysis.md after verifying all load-bearing claims against the working tree. Code references check out: spawn_all (concurrent_executor.py:311), event-pump wrapper template with 30s heartbeat default and alert-only EGG_BRC_IDLE_BUDGET_MIN idle budget (consensus_wrapper.py:67/76/110/702), _derive_next_action (routes/consensus.py:296) carrying proposal_commit_sha in pending_reviews payloads, durable brc_memory.py + compose_event_prompt foundation, health-monitor 120s/600s heartbeat timeouts, HeartbeatCoordinator session fan-out (#2076). The #3023 hard constraint is correctly stated: EGG_EVENT_LOOP_OWNER is absent from main (revert confirmed) and EGG_BRC_EVENT_PUMP was deleted in #2908 slice-4, so the no-rollback-path claim and spawner-first ordering requirement are accurate. From the agent-design lens: the pod-held vs durable state inventory is correct and complete (gateway session + uncommitted worktree state identified as the only correctness-relevant pod-held state); the six design questions cover the right lifecycle concerns (spawn dedupe/idempotency, verb\u2192pod mapping with agent-free confirm/complete, supervision re-homing, orchestrator-restart durability via stateless re-derivation, worktree/session reuse, lifecycle-aware health-monitor thresholds). HITL cq-1 (scope A/B/C) and cq-2 (bounded respawn) are registered on the contract and faithfully mirror the analysis. Scope options are honest about the #3023 failure mode and the proven-first bar; recommendation B is well-justified. No blockers.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-06-12T16:45:58.266277+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "397a0d5b-ca21-47",
+    "pipeline_id": "issue-3064",
+    "from_role": "orchestrator",
+    "to_role": "refiner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-06-12T16:45:58.268278+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "d2bb6efa-d10e-40",
+    "pipeline_id": "issue-3064",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=1) (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-12T16:46:00.218494+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "06542c7a-7f0e-42",
+    "pipeline_id": "issue-3064",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by refiner",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-06-12T16:46:01.013856+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "ea33d6fb-c022-4e",
+    "pipeline_id": "issue-3064",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=refiner (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-12T16:46:01.868215+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "2bc2ced6-0674-48",
+    "pipeline_id": "issue-3064",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_agent_design",
+    "body": "",
+    "metadata": {
+      "consensus_reached": true
+    },
+    "timestamp": "2026-06-12T16:46:09.111760+00:00",
+    "phase": "refine"
+  }
+]
