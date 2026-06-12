@@ -207,6 +207,14 @@
       "registered_at": "2026-06-12T19:23:51.697530+00:00",
       "repo": null,
       "role": "coder"
+    },
+    "f546a8c0dea7cb65e97417dc1865f04217ef4b65": {
+      "branch": "egg/issue-3064/slice-3",
+      "patch_id": "a15413079231ff57b286795bf0a4fbbf2612e4eb",
+      "pipeline_id": "issue-3064",
+      "registered_at": "2026-06-12T21:26:14.091880+00:00",
+      "repo": null,
+      "role": "tester"
     }
   },
   "version": 2
