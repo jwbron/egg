@@ -545,7 +545,7 @@ complete shell CLI surface.
 
 ## Version pin
 
-`claude-agent-sdk` is pinned to `>=0.1.65,<0.2` in
+`claude-agent-sdk` is pinned to `>=0.2.97,<0.3` in
 `sandbox/pyproject.toml` and the `CLAUDE_AGENT_SDK_VERSION` ARG in
 `sandbox/Dockerfile`. A smoke test at
 `tests/sandbox/egg_agent_tools/test_sdk_surface.py` imports
