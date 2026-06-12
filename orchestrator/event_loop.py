@@ -40,6 +40,17 @@ except ImportError:  # pragma: no cover - logging shim parity with siblings
     def get_logger(name: str, **kwargs: Any) -> logging.Logger:  # type: ignore[misc]
         return logging.getLogger(name)
 
+# Shared #3138 failure-streak policy (backoff factor/cap, warn/alert
+# thresholds, anomaly name). Imported as the SAME source of truth the wrapper
+# template reads (#3064 slice-3, TASK-3-1) so the orchestrator-side supervisor
+# and the in-pod wrapper never fork their backoff/escalation constants. The
+# dual-path import mirrors ``_derive_next_action`` below: the orchestrator may
+# run with the repo root on ``sys.path`` or only ``orchestrator/`` itself.
+try:
+    import supervision_policy
+except ImportError:  # pragma: no cover - import-path parity with siblings
+    from orchestrator import supervision_policy  # type: ignore[no-redef]
+
 
 logger = get_logger("orchestrator.event_loop")
 
@@ -178,6 +189,78 @@ class EventDecision:
     spawned: bool = False
     agent_free: bool = False
     timing: dict[str, Any] | None = None
+    # Set when a spawn that WOULD otherwise fire was suppressed by the
+    # slice-3 supervisor: ``"backoff"`` (still inside the linear-backoff
+    # window after an abnormal termination) or ``"exhausted"`` (the streak
+    # reached the alert threshold; no respawn until the derived event
+    # changes). ``None`` on the normal spawn / dedupe-hit paths.
+    suppressed_reason: str | None = None
+
+
+@dataclass
+class JobTermination:
+    """One observed terminal outcome of a one-shot BRC Job (#3064 slice-3).
+
+    Fed to :meth:`OrchestratorEventLoop.handle_job_termination`. The supervisor
+    classifies the outcome from the pod's exit:
+
+    * ``exit_code == 0`` — a **clean handoff**: the wrapper ran to completion
+      and exited 0. This covers a successful ``propose``/``ack``/``nack``, a
+      ``nack`` *verdict* (the agent ran and decided NACK — still a healthy
+      invocation), and the one-shot arm's stale-event ``exit 0`` (no agent
+      invocation). All are non-triggers — the streak resets, never increments.
+    * anything else — an **abnormal termination** (the pod died mid-event: a
+      non-zero ``#2908``-classified agent rc, a signal/OOM/eviction kill, or a
+      deadline). This is the only outcome that increments the streak.
+
+    ``reason`` is an optional human string (e.g. the k8s pod termination reason
+    ``OOMKilled`` / ``DeadlineExceeded`` / ``Error``) folded into the alert
+    detail; it never affects classification.
+    """
+
+    dedupe_key: str
+    role: str
+    action: str
+    exit_code: int | None = None
+    reason: str | None = None
+
+    @property
+    def abnormal(self) -> bool:
+        """True iff this is an abnormal (pod-died-mid-event) termination.
+
+        A clean ``exit 0`` is normal; everything else (non-zero rc, kill, or a
+        missing exit code paired with a kill ``reason``) is abnormal.
+        """
+        if self.exit_code == 0:
+            return False
+        return True
+
+
+@dataclass
+class SupervisionDecision:
+    """Structured outcome of one :meth:`OrchestratorEventLoop.handle_job_termination`.
+
+    ``streak`` is the post-increment consecutive-abnormal-termination count for
+    the key (``0`` after a clean handoff reset). ``warned`` / ``alerted`` are
+    True only on the single poll that first crossed the respective threshold
+    (the latches are sticky). ``exhausted`` marks the streak having reached the
+    alert threshold — the supervisor stops respawning the key until the derived
+    event (dedupe key) changes. ``failed`` is True when a producer ``propose``
+    arm's exhaustion engaged the existing ``AGENT_FAILED`` path.
+    ``backoff_seconds`` is the linear-backoff delay scheduled before the next
+    respawn of the key (``0`` on a clean handoff or at exhaustion).
+    """
+
+    role: str
+    dedupe_key: str
+    action: str
+    abnormal: bool
+    streak: int = 0
+    backoff_seconds: int = 0
+    warned: bool = False
+    alerted: bool = False
+    exhausted: bool = False
+    failed: bool = False
 
 
 class OrchestratorEventLoop:
@@ -189,6 +272,21 @@ class OrchestratorEventLoop:
     effect as ``handler(action=, role=, payload=)``; ``clock`` is a monotonic
     source the timing field reads. ``reconcile(live_dedupe_keys)`` seeds the
     in-memory live set from live Job labels (the stateless-restart path).
+
+    Slice-3 supervision collaborators (#3064 TASK-3-1), all optional so the
+    slice-2 behavior is unchanged when they are absent:
+
+    * ``job_monitor`` — a zero-arg callable returning an iterable of
+      :class:`JobTermination` observed since the last poll. When present,
+      :meth:`poll_once` drains it BEFORE deriving so abnormal terminations
+      drive respawn/backoff/escalation.
+    * ``failure_handler`` — invoked as ``handler(role=, error=)`` when a
+      producer ``propose`` arm exhausts its respawn budget, engaging the
+      existing ``AGENT_FAILED`` path (#2806 semantics, relocated for
+      orchestrator mode).
+    * ``alert_fn`` — invoked as ``alert_fn(anomaly=, priority=, summary=,
+      detail=, role=)`` to raise the sticky ``OVERSEER_ALERT`` at the alert
+      threshold.
     """
 
     def __init__(
@@ -203,6 +301,9 @@ class OrchestratorEventLoop:
         agent_free_handler: Callable[..., Any] | None = None,
         roles: list[str] | None = None,
         poll_interval: float | None = None,
+        job_monitor: Callable[[], Iterable[JobTermination]] | None = None,
+        failure_handler: Callable[..., Any] | None = None,
+        alert_fn: Callable[..., Any] | None = None,
     ) -> None:
         self.tracker = tracker
         self.spawner = spawner
@@ -215,9 +316,23 @@ class OrchestratorEventLoop:
         self.poll_interval = (
             poll_interval if poll_interval is not None else get_event_loop_poll_interval()
         )
+        self._job_monitor = job_monitor
+        self._failure_handler = failure_handler
+        self._alert_fn = alert_fn
         # In-memory live dedupe-key set — process-local; intentionally NOT
         # persisted (restart re-derives + reconciles against live Jobs).
         self._live_keys: set[str] = set()
+        # ---- Slice-3 supervision state (all keyed by dedupe key, all
+        # process-local: a restart re-derives the event and reconciles the
+        # live set, so a fresh budget after restart is correct by design).
+        # Consecutive ABNORMAL-termination streak per key.
+        self._streaks: dict[str, int] = {}
+        # Earliest monotonic time the key may be respawned (linear backoff).
+        self._respawn_not_before: dict[str, float] = {}
+        # Sticky latches: warn fired / alert fired / budget exhausted.
+        self._warned_keys: set[str] = set()
+        self._alerted_keys: set[str] = set()
+        self._exhausted_keys: set[str] = set()
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
 
@@ -247,6 +362,11 @@ class OrchestratorEventLoop:
         failure is logged and recorded as a no-op so one bad role can't wedge
         the loop.
         """
+        # Slice-3: drain observed one-shot Job terminations FIRST so an
+        # abnormal termination updates streak / backoff / exhaustion state
+        # before this poll's derivation decides whether to respawn the key.
+        # A no-op when no ``job_monitor`` is injected (slice-2 behavior).
+        self._drain_terminations()
         decisions: list[EventDecision] = []
         for role in roles:
             try:
@@ -284,9 +404,36 @@ class OrchestratorEventLoop:
         if key in self._live_keys:
             return EventDecision(role=role, action=action, dedupe_key=key, spawned=False)
 
+        # Supervision gates (slice-3). An exhausted key (its streak reached the
+        # alert threshold) is NOT respawned until the derived event — and thus
+        # the dedupe key — changes; a key still inside its linear-backoff
+        # window after an abnormal termination waits out the backoff. Both
+        # short-circuit before any spawn so a deterministic fast-fail can't
+        # hot-loop the spawner.
+        if key in self._exhausted_keys:
+            return EventDecision(
+                role=role,
+                action=action,
+                dedupe_key=key,
+                spawned=False,
+                suppressed_reason="exhausted",
+            )
+        not_before = self._respawn_not_before.get(key)
+        if not_before is not None and self.clock() < not_before:
+            return EventDecision(
+                role=role,
+                action=action,
+                dedupe_key=key,
+                spawned=False,
+                suppressed_reason="backoff",
+            )
+
         requested_at = self.clock()
         self.spawner.spawn_event(role=role, action=action, dedupe_key=key, payload=payload)
         dispatched_at = self.clock()
+        # The backoff gate (if any) is now consumed — this spawn IS the
+        # respawn it was throttling.
+        self._respawn_not_before.pop(key, None)
         self._live_keys.add(key)
         timing = {
             "spawn_requested_at": requested_at,
@@ -308,6 +455,221 @@ class OrchestratorEventLoop:
         return EventDecision(
             role=role, action=action, dedupe_key=key, spawned=True, timing=timing
         )
+
+    # ------------------------------------------------------------------
+    # Supervision (slice-3, TASK-3-1): respawn + backoff + escalation on
+    # abnormal one-shot Job termination.
+    # ------------------------------------------------------------------
+    def _drain_terminations(self) -> list[SupervisionDecision]:
+        """Drain the injected job monitor and supervise each termination.
+
+        A no-op (empty list) when no ``job_monitor`` was injected. A monitor
+        blip is logged and swallowed — a failure to read Job status must never
+        wedge the event loop (same isolation stance as :meth:`poll_once`).
+        """
+        if self._job_monitor is None:
+            return []
+        try:
+            terminations = list(self._job_monitor() or [])
+        except Exception as exc:  # noqa: BLE001 — a monitor blip can't wedge the loop
+            logger.warning(
+                "event-loop job monitor poll failed",
+                pipeline_id=self.pipeline_id,
+                slice_id=self.slice_id,
+                error=str(exc),
+            )
+            return []
+        return self.observe_terminations(terminations)
+
+    def observe_terminations(
+        self, terminations: Iterable[JobTermination]
+    ) -> list[SupervisionDecision]:
+        """Supervise a batch of one-shot Job terminations (input order preserved)."""
+        return [self.handle_job_termination(t) for t in terminations]
+
+    def handle_job_termination(self, termination: JobTermination) -> SupervisionDecision:
+        """Supervise one terminal one-shot Job outcome.
+
+        Clean handoff (``exit 0`` — success, NACK verdict, or stale-event exit)
+        resets the key's whole supervision budget; it never increments the
+        streak. An abnormal termination (pod died mid-event) advances the
+        consecutive-failure streak and:
+
+        * warns once at :data:`supervision_policy.WARN_STREAK_THRESHOLD`;
+        * at :data:`supervision_policy.ALERT_STREAK_THRESHOLD` exhausts the
+          key — raises the sticky ``agent-invocation-fail-streak`` overseer
+          alert exactly once, stops respawning the key until the derived event
+          changes, and (for a producer ``propose`` arm) engages the existing
+          ``AGENT_FAILED`` path;
+        * otherwise schedules the next respawn after linear backoff
+          (``streak × 2 s``, capped 30 s) — the next poll's derivation re-fires
+          the spawn once the window elapses.
+
+        The Job is removed from the live set either way so the next derivation
+        can act (respawn the same key, or spawn the new one once consensus
+        moves on).
+        """
+        key = termination.dedupe_key
+        role = termination.role
+        action = termination.action
+
+        self._live_keys.discard(key)
+
+        if not termination.abnormal:
+            # Clean handoff (success / NACK verdict / stale exit-0): a
+            # non-trigger by definition — reset the whole budget for the key.
+            self._reset_key(key)
+            return SupervisionDecision(
+                role=role, dedupe_key=key, action=action, abnormal=False, streak=0
+            )
+
+        # Abnormal: the pod died mid-event. Advance the streak.
+        streak = self._streaks.get(key, 0) + 1
+        self._streaks[key] = streak
+        decision = SupervisionDecision(
+            role=role, dedupe_key=key, action=action, abnormal=True, streak=streak
+        )
+
+        if (
+            streak >= supervision_policy.WARN_STREAK_THRESHOLD
+            and key not in self._warned_keys
+        ):
+            self._warned_keys.add(key)
+            decision.warned = True
+            logger.warning(
+                "one-shot event respawn streak crossed warn threshold; likely a "
+                "permanent (configuration-class) failure rather than a transient",
+                pipeline_id=self.pipeline_id,
+                slice_id=self.slice_id,
+                role=role,
+                action=action,
+                dedupe_key=key,
+                streak=streak,
+                reason=termination.reason,
+            )
+
+        if streak >= supervision_policy.ALERT_STREAK_THRESHOLD:
+            # Exhaustion. Stop respawning the key until the derived event
+            # changes; clear any pending backoff gate; fire the sticky alert
+            # (and AGENT_FAILED for a producer propose) exactly once.
+            decision.exhausted = True
+            self._exhausted_keys.add(key)
+            self._respawn_not_before.pop(key, None)
+            if key not in self._alerted_keys:
+                self._alerted_keys.add(key)
+                decision.alerted = True
+                self._raise_streak_alert(termination, streak)
+                if action == "propose":
+                    decision.failed = True
+                    self._engage_agent_failed(termination, streak)
+            return decision
+
+        # Not yet exhausted: schedule the respawn after linear backoff.
+        backoff = supervision_policy.backoff_seconds(streak)
+        decision.backoff_seconds = backoff
+        self._respawn_not_before[key] = self.clock() + backoff
+        logger.info(
+            "one-shot event abnormal termination; scheduling respawn after backoff",
+            event_type="event_loop_respawn",
+            pipeline_id=self.pipeline_id,
+            slice_id=self.slice_id,
+            role=role,
+            action=action,
+            dedupe_key=key,
+            streak=streak,
+            backoff_seconds=backoff,
+            reason=termination.reason,
+        )
+        return decision
+
+    def _reset_key(self, key: str) -> None:
+        """Clear ALL supervision state for a key (clean handoff / event change).
+
+        A fresh dedupe key (consensus moved on) never had state; this is the
+        explicit reset for a key that DID accumulate a streak and then saw a
+        clean handoff, so a later unrelated reuse starts from a fresh budget.
+        """
+        self._streaks.pop(key, None)
+        self._respawn_not_before.pop(key, None)
+        self._warned_keys.discard(key)
+        self._alerted_keys.discard(key)
+        self._exhausted_keys.discard(key)
+
+    def _raise_streak_alert(self, termination: JobTermination, streak: int) -> None:
+        """Raise the sticky ``agent-invocation-fail-streak`` overseer alert."""
+        summary = (
+            f"agent invocation failing repeatedly (role={termination.role}, "
+            f"action={termination.action}, streak={streak})"
+        )
+        detail = (
+            f"Orchestrator event loop observed {streak} consecutive abnormal "
+            f"one-shot Job terminations for role={termination.role} "
+            f"slice={self.slice_id or 'none'} on action={termination.action} "
+            f"(last reason={termination.reason or 'unknown'}). This is a strong "
+            "permanent/configuration-class signal (unknown model alias, auth "
+            "misconfiguration, prompt-rendering crash). The supervisor stopped "
+            "respawning this event key; no respawn resumes until the derived "
+            "BRC event changes. No FAILED transition is forced here."
+        )
+        if self._alert_fn is None:
+            logger.warning(
+                "overseer alert (no alert_fn injected): " + summary,
+                pipeline_id=self.pipeline_id,
+                slice_id=self.slice_id,
+                anomaly=supervision_policy.FAIL_STREAK_ANOMALY,
+                detail=detail,
+            )
+            return
+        try:
+            self._alert_fn(
+                anomaly=supervision_policy.FAIL_STREAK_ANOMALY,
+                priority="high",
+                summary=summary,
+                detail=detail,
+                role=termination.role,
+            )
+        except Exception as exc:  # noqa: BLE001 — alerting is best-effort
+            logger.warning(
+                "failed to raise streak overseer alert",
+                pipeline_id=self.pipeline_id,
+                slice_id=self.slice_id,
+                role=termination.role,
+                error=str(exc),
+            )
+
+    def _engage_agent_failed(self, termination: JobTermination, streak: int) -> None:
+        """Engage the existing AGENT_FAILED path for a producer propose exhaustion.
+
+        Relocates the wrapper-side #2806 producer-failure semantics into
+        orchestrator mode (the wrapper's own #2806 code is untouched). Absent
+        an injected ``failure_handler`` this degrades to a warning — the sticky
+        overseer alert has already surfaced the exhaustion to the operator.
+        """
+        if self._failure_handler is None:
+            logger.warning(
+                "producer propose arm exhausted but no failure_handler injected; "
+                "AGENT_FAILED not engaged (sticky overseer alert already raised)",
+                pipeline_id=self.pipeline_id,
+                slice_id=self.slice_id,
+                role=termination.role,
+                streak=streak,
+            )
+            return
+        error = (
+            f"producer {termination.role} one-shot propose Job terminated "
+            f"abnormally {streak} times (last reason="
+            f"{termination.reason or 'unknown'}); respawn budget exhausted."
+        )
+        try:
+            self._failure_handler(role=termination.role, error=error)
+        except Exception as exc:  # noqa: BLE001 — failure handoff is best-effort
+            logger.warning(
+                "failed to engage AGENT_FAILED path",
+                pipeline_id=self.pipeline_id,
+                slice_id=self.slice_id,
+                role=termination.role,
+                error=str(exc),
+            )
 
     # ------------------------------------------------------------------
     # Background driver (production; not exercised by the unit contract)

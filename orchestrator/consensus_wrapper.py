@@ -57,6 +57,19 @@ Slice-4 history
 
 import shlex
 
+# Shared #3138 failure-streak policy. The wrapper template's
+# ``propose|ack|nack`` arm interpolates these at composition time so the
+# in-pod backoff/escalation and the orchestrator-side event-loop supervisor
+# (#3064 slice-3, ``event_loop.py``) read ONE set of values — no fork. The
+# rendered bash carries the identical literals it always has (2 / 30 / 5 / 10 /
+# ``agent-invocation-fail-streak``), so the wrapper's runtime behavior — and
+# the pod-default golden snapshot — are unchanged. Dual-path import mirrors
+# ``_event_loop_owner`` below (repo root vs ``orchestrator/`` on sys.path).
+try:
+    import supervision_policy
+except ImportError:  # pragma: no cover - import-path parity with siblings
+    from orchestrator import supervision_policy  # type: ignore[no-redef]
+
 
 def _event_loop_owner() -> str:
     """Return the BRC event-loop ownership mode (``pod`` | ``orchestrator``).
@@ -706,12 +719,12 @@ raise_agent_fail_alert() {{
     # measures 1-2s. Do not tighten this to ``< 1`` -- it would misclassify
     # those crashes as transient.
     local classification="repeated agent-invocation failure; attempts are taking ${{last_secs}}s so this may be transient (API/quota/transport)"
-    if [ "$last_secs" -le 2 ]; then
+    if [ "$last_secs" -le {agent_fast_fail_secs} ]; then
         classification="attempts are fast-failing (${{last_secs}}s, before/at SDK init) -- likely a permanent configuration-class failure (unknown model alias, auth misconfiguration, prompt-rendering crash)"
     fi
     timeout 5 egg-orch overseer alert "${{EGG_PIPELINE_ID:-unknown}}" \
         --role "${{EGG_AGENT_ROLE:-agent}}" \
-        --anomaly agent-invocation-fail-streak \
+        --anomaly {agent_fail_anomaly} \
         --priority high \
         --summary "agent invocation failing repeatedly (action=${{action}}, streak=${{streak}})" \
         --detail "Event-pump for role=${{EGG_AGENT_ROLE:-agent}} slice=${{EGG_SLICE_ID:-none}} has had ${{streak}} consecutive agent-invocation failures on action=${{action}} (last rc=${{last_rc}}): ${{classification}}. The loop keeps retrying with linear backoff (capped 30s); no FAILED transition is forced. Idle budget continues to accrue." \
@@ -892,14 +905,14 @@ while true; do
             else
                 AGENT_FAIL_STREAK=$(( AGENT_FAIL_STREAK + 1 ))
                 cw_log "agent invocation failed (action=$ACTION, rc=$agent_rc, streak=$AGENT_FAIL_STREAK, duration=${{agent_invoke_secs}}s). Idle counter continues to accrue."
-                if [ "$AGENT_FAIL_STREAK" -ge 5 ] && [ "$AGENT_FAIL_ALERTED_5" != "true" ]; then
+                if [ "$AGENT_FAIL_STREAK" -ge {agent_warn_streak} ] && [ "$AGENT_FAIL_ALERTED_5" != "true" ]; then
                     # The per-failure line above already printed the streak
                     # count this iteration; this escalation line adds the
                     # diagnosis (likely permanent), not the count.
                     cw_log "agent invocation streak crossed 5 (action=$ACTION) -- this is likely a permanent failure (unknown model alias, auth misconfiguration, prompt-rendering crash), not a transient. Idle budget continues to accrue."
                     AGENT_FAIL_ALERTED_5=true
                 fi
-                if [ "$AGENT_FAIL_STREAK" -ge 10 ] && [ "$AGENT_FAIL_ALERTED_10" != "true" ]; then
+                if [ "$AGENT_FAIL_STREAK" -ge {agent_alert_streak} ] && [ "$AGENT_FAIL_ALERTED_10" != "true" ]; then
                     raise_agent_fail_alert "$AGENT_FAIL_STREAK" "$agent_rc" "$agent_invoke_secs" "$ACTION"
                     AGENT_FAIL_ALERTED_10=true
                 fi
@@ -913,9 +926,9 @@ while true; do
                 # capped at 30 s, so a deterministic fast-fail loop
                 # stops hammering the orchestrator while a one-off
                 # transient still retries promptly.
-                agent_backoff_secs=$(( AGENT_FAIL_STREAK * 2 ))
-                if [ "$agent_backoff_secs" -gt 30 ]; then
-                    agent_backoff_secs=30
+                agent_backoff_secs=$(( AGENT_FAIL_STREAK * {agent_backoff_factor} ))
+                if [ "$agent_backoff_secs" -gt {agent_backoff_cap} ]; then
+                    agent_backoff_secs={agent_backoff_cap}
                 fi
                 sleep "$agent_backoff_secs"
             fi
@@ -1098,6 +1111,17 @@ def build_event_pump_wrapped_command(
         idle_budget_min_default=idle_budget_min,
         hb_interval_default=heartbeat_interval_secs,
         wait_timeout_default=wait_timeout_secs,
+        # #3138 failure-streak policy, read from the shared single source of
+        # truth (``supervision_policy``) so the in-pod wrapper arm and the
+        # orchestrator-side ``event_loop`` supervisor never fork. These render
+        # to the same literals as before (5 / 10 / 2 / 30 /
+        # ``agent-invocation-fail-streak``), so the pod golden is unchanged.
+        agent_warn_streak=supervision_policy.WARN_STREAK_THRESHOLD,
+        agent_alert_streak=supervision_policy.ALERT_STREAK_THRESHOLD,
+        agent_backoff_factor=supervision_policy.BACKOFF_FACTOR_SECONDS,
+        agent_backoff_cap=supervision_policy.BACKOFF_CAP_SECONDS,
+        agent_fast_fail_secs=supervision_policy.FAST_FAIL_SECONDS,
+        agent_fail_anomaly=supervision_policy.FAIL_STREAK_ANOMALY,
     )
     # #3064 slice-1: in orchestrator-ownership mode, splice the dormant
     # one-shot arm in ahead of the main loop. In pod mode (default) the
