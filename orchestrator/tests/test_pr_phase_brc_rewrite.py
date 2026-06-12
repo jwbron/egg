@@ -15,8 +15,9 @@ sys.modules.setdefault("docker", _docker_mock)
 sys.modules.setdefault("docker.errors", _docker_mock.errors)
 sys.modules.setdefault("docker.types", _docker_mock.types)
 
-from message_store import Message, MessageStore, MessageType
+from message_store import Message, MessageType
 from models import PipelineStatus
+from redis_message_store import RedisMessageStore
 
 # Default slice_id stamped on implement-phase messages so the post-#2548
 # hard-switchover writer accepts them.
@@ -91,7 +92,7 @@ class TestPrPhaseBrcRewrite:
         for msgs in messages_by_phase.values():
             all_messages.extend(msgs)
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = all_messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -124,7 +125,7 @@ class TestPrPhaseBrcRewrite:
             _make_brc_message(phase="implement"),
         ]
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -151,7 +152,7 @@ class TestPrPhaseBrcRewrite:
             ),
         ]
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -188,7 +189,7 @@ class TestPrPhaseBrcRewrite:
         """Errors during BRC history write are caught gracefully."""
         from routes.pipelines import _write_brc_history
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.side_effect = Exception("Store unavailable")
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -225,7 +226,7 @@ class TestPrPhaseBrcRewrite:
                 timestamp=datetime(2026, 4, 13, 20, 34, 54, tzinfo=UTC),
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         history_file = (
@@ -259,7 +260,7 @@ class TestPrPhaseBrcRewrite:
                 timestamp=datetime(2026, 4, 13, 20, 30, 0, tzinfo=UTC),
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         history_file = (

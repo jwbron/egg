@@ -1,24 +1,65 @@
 # Agent Wait Patterns
 
-> Canonical reference for how concurrent agents wait for BRC messages — the
-> single one-liner you should copy, the five anti-patterns to avoid, the
-> exit-code contract for `egg-orch message wait`, the `HEARTBEAT` metadata
-> schema, and the operator-facing env vars that couple the client-side wait
-> cap to the gateway and Waitress thread pool.
+> Canonical reference for how blocking waits on the BRC message bus work —
+> who issues them (the consensus wrapper, **never** the agent), the
+> wait-loop idiom the wrapper runs, the five anti-patterns the event-pump
+> model exists to prevent, the exit-code contract for `egg-orch message
+> wait`, the `HEARTBEAT` metadata schema, and the operator-facing env vars
+> that couple the client-side wait cap to the gateway and Waitress thread
+> pool.
 >
-> Audience: agents (for the copy-paste idiom), prompt maintainers (for the
-> Don'ts), and operators (for the env-var couplings).
+> Audience: wrapper and orchestrator maintainers (for the wait mechanics),
+> prompt maintainers (for the agent contract and the Don'ts), and operators
+> (for the env-var couplings).
 
 This document consolidates the wait-behaviour contract introduced by
-[#1897](https://github.com/jwbron/egg/issues/1897). It is the authoritative
-source for the canonical wait idiom — the
+[#1897](https://github.com/jwbron/egg/issues/1897) and moved to the
+wrapper tier by [#2908](https://github.com/jwbron/egg/issues/2908). The
 [Concurrent Execution Guide](../guides/concurrent-execution.md#message-bus)
 links here rather than duplicating the contract.
 
+## 0. The Agent Contract: Agents Never Wait on the Bus
+
+**Agents do not wait. The wrapper does.** Since #2908 the in-pod consensus
+wrapper (`orchestrator/consensus_wrapper.py`) is a deterministic event
+pump: it polls `egg-orch brc next-action`, blocks in `egg-orch message
+wait-loop` between actionable events, and invokes the agent **one-shot per
+event**. The agent handles the single event in its prompt (propose, ACK,
+NACK, or confirm) and exits naturally; the wrapper owns every blocking
+read on the bus and the heartbeats emitted while blocked. The
+authoritative agent-facing wording is the per-event prompt composed in
+`orchestrator/routes/event_prompt.py`:
+
+> "When you have acted (proposed, ACKed, NACKed, or confirmed), exit
+> naturally — the wrapper polls `egg-orch brc next-action` and re-invokes
+> you with the next actionable event. Do NOT block on `egg-orch message
+> wait-loop` yourself: the wrapper owns the wait and the heartbeat
+> (#2908 slice-2)."
+
+Consequences for anyone writing or revising prompts, role contracts, or
+agent rules:
+
+- **Never instruct an agent to run `egg-orch message wait` /
+  `wait-loop`**, an outer poll loop, or a `sleep` — that re-introduces the
+  #1897 pathologies (§2) and double-waits against the wrapper (competing
+  heartbeats, idle-budget misaccounting).
+- An agent that blocks in Bash holds its SDK turn open for the duration;
+  the one-shot model keeps turns bounded, with the
+  [BRC memory file](../architecture/brc-memory.md) as the cross-turn state
+  carrier.
+- Everything below this section documents the **wrapper-tier** mechanics.
+  It is reference material for maintainers of the wrapper and the
+  orchestrator wait routes, not instructions for agents.
+
+[#3064](https://github.com/jwbron/egg/issues/3064) lifts the event loop
+out of the pod entirely (orchestrator-driven on-demand spawning); the
+invariant — agents never block on the bus — holds at every tier.
+
 ## 1. The Canonical Idiom
 
-Every concurrent agent — producer and reviewer — waits for BRC messages by
-running **exactly one command** during its STAY ALIVE step:
+Every blocking BRC wait is issued by the **consensus wrapper** — not by
+the agent (see §0). Between actionable events the wrapper runs exactly one
+command:
 
 ```bash
 egg-orch message wait-loop \
@@ -31,11 +72,15 @@ egg-orch message wait-loop \
 issuing long-poll wait calls **forever**, server-side, until one of the
 listed message types arrives. It exits cleanly only on terminal match or on
 a permanent error — there is no outer timeout, no `for i in 1..N`, no
-`sleep N`. The LLM has zero degrees of freedom in how it waits.
+`sleep N`. The LLM is never in the loop: the deterministic wrapper bash
+decides when to wait and when to invoke the agent (§10.1), and builds the
+`--for` filter set conditionally per BRC state (§10.2). The per-state
+filter tables below document that construction.
 
-### Producer RESPOND TO REVIEWS (pre-confirm, step 4)
+### Pre-confirm filter (producer RESPOND TO REVIEWS)
 
-Before confirming, producers poll for ACK/NACK from reviewers. The allowlist
+Before a producer's confirm succeeds, the wrapper waits for ACK/NACK from
+that producer's reviewers and re-invokes the agent per verdict. The allowlist
 **must not** include `CONSENSUS_CONFIRMED` — the orchestrator rejects that
 pattern with HTTP 400 (exit code 3) because the producer's own confirm is
 part of what generates the global `CONSENSUS_CONFIRMED` signal; including it
@@ -51,7 +96,7 @@ and issues [#2064](https://github.com/jwbron/egg/issues/2064), [#2482](https://g
 | `OVERSEER_ALERT` | Overseer escalation | Print and exit 0; act on the message |
 
 ```bash
-# Producer pre-confirm idiom (RESPOND TO REVIEWS, step 4)
+# Pre-confirm filter (wrapper-issued; see §10.2 for the conditional construction)
 egg-orch message wait-loop \
   --for CONSENSUS_ACK \
   --for CONSENSUS_NACK \
@@ -71,10 +116,10 @@ egg-orch message wait-loop \
 > "Disambiguator" note in [Anti-pattern 5](#anti-pattern-5--producer-waits-on-consensus_confirmed-before-its-own-confirm-has-succeeded-2064)
 > for handling unrelated `STATUS` wakeups (e.g. *Producer X excused*).
 
-### Producer STAY ALIVE (post-confirm, step 6)
+### Post-confirm filter (producer)
 
-After the producer's own confirm succeeds, it enters STAY ALIVE and listens
-for the three terminal signals:
+After the producer's own confirm succeeds, the wrapper keeps blocking and
+listens for the three terminal signals:
 
 | `--for` value | Meaning | Action on exit |
 |---------------|---------|----------------|
@@ -83,16 +128,16 @@ for the three terminal signals:
 | `OVERSEER_ALERT` | Overseer escalation — read the alert body and comply | Print and exit 0 |
 
 ```bash
-# Producer STAY ALIVE idiom (post-confirm, step 6 — paste verbatim from your prompt)
+# Post-confirm filter (wrapper-issued)
 egg-orch message wait-loop \
   --for CONSENSUS_CONFIRMED \
   --for CONSENSUS_RE_REVIEW \
   --for OVERSEER_ALERT
 ```
 
-### Reviewer STAY ALIVE
+### Reviewer filter
 
-Reviewers additionally need to wake when a producer proposes:
+A reviewer's wrapper additionally needs to wake when a producer proposes:
 
 | `--for` value | Meaning | Action on exit |
 |---------------|---------|----------------|
@@ -102,7 +147,7 @@ Reviewers additionally need to wake when a producer proposes:
 | `OVERSEER_ALERT` | Overseer escalation | Print and exit 0 |
 
 ```bash
-# Reviewer idiom (paste verbatim from your prompt)
+# Reviewer filter (wrapper-issued)
 egg-orch message wait-loop \
   --for CONSENSUS_PROPOSE \
   --for CONSENSUS_RE_REVIEW \
@@ -110,13 +155,13 @@ egg-orch message wait-loop \
   --for OVERSEER_ALERT
 ```
 
-### Why a wrapper and not a naked `message wait`?
+### Why `wait-loop` and not a naked `message wait`?
 
 `egg-orch message wait` has a bounded `--timeout` (clamped by
 `EGG_MESSAGE_POLL_MAX_WAIT`, see §6). `wait-loop` stitches those bounded
-calls together into a "block forever server-side" behaviour so the agent
+calls together into a "block forever server-side" behaviour so the caller
 can issue one command and **do nothing else** until the orchestrator
-SIGTERMs it or a terminal event arrives.
+SIGTERMs the pod or a terminal event arrives.
 
 ### Auto-scoping by slice and producer-allowlist (#2725)
 
@@ -138,8 +183,8 @@ set and keep the pre-#2725 wake-on-anything behavior.
 
 Both axes apply **inside the server-side blocking branch** so a
 wrong-slice or wrong-sender message does not unblock the wait — it
-isn't filtered client-side after a wake, it never wakes the agent at
-all. That's where the LLM-round-trip savings come from.
+isn't filtered client-side after a wake, it never wakes the waiter at
+all. That's where the spurious-agent-invocation savings come from.
 
 > **Filter safety.** A blocking filter that's too tight would sleep the
 > agent through a legitimate event. Three guarantees prevent this:
@@ -157,9 +202,9 @@ all. That's where the LLM-round-trip savings come from.
 
 ### Cursor threading is automatic across re-entered waits
 
-Reviewer `POLL` (waiting for proposals from each producer in turn) and
-post-ACK `STAY ALIVE` (waiting for the next BRC event after handling
-one) both re-enter `wait-loop` multiple times in a row. The CLI
+The wrapper re-enters `wait-loop` multiple times in a row — once per
+`WAIT` action from `brc next-action` (waiting for proposals, verdicts,
+or the next BRC event after dispatching one). The CLI
 auto-persists the response cursor under
 `/tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-${EGG_AGENT_ROLE}-<hash>`
 between invocations, so any event that lands in the gap between
@@ -325,8 +370,14 @@ that mitigate it. The full CLI reference for the new flags lives in
 
 ## 2. The Five Anti-Patterns (#1897, #2064)
 
-Each of these was observed in production pipelines before #1897 and
-caused real latency or bus pollution. Do **not** use any of them.
+Each of these was observed in production pipelines back when agents
+owned their own waits, and caused real latency or bus pollution. The
+event-pump model (§0, §10) removes the surface — agents are no longer
+in the wait loop at all — but the anti-patterns remain binding for two
+audiences: prompt maintainers (a prompt that re-teaches any of these
+re-introduces agent-tier waiting) and wrapper/orchestrator maintainers
+(the wrapper's deterministic wait must not regress into them either).
+Do **not** use any of them.
 
 ### Anti-pattern 1 — Self-confirming in a tight loop
 
@@ -426,8 +477,10 @@ with **HTTP 400** when the caller's role is in producer state
 the wrapper surfaces this as exit code 3 (permanent error). Read the
 error: it tells you what to wait for instead.
 
-**Fix:** the post-confirm STAY ALIVE wait is only legitimate **after**
-your own confirm has succeeded (status `confirmed`, not `pending_acks`).
+**Fix:** the post-confirm wait filter is only legitimate **after**
+the producer's own confirm has succeeded (status `confirmed`, not
+`pending_acks`) — which is exactly why the wrapper constructs it
+conditionally on `is_role_confirmed` (§10.2).
 For a `pending_acks` recovery loop, the orchestrator re-arms the
 "ready to confirm" `STATUS` nudge on every producer rejection path ([#2100](https://github.com/jwbron/egg/issues/2100)), so in all cases the producer can wait for `STATUS` — it fires automatically when the blocking condition clears:
 
@@ -622,7 +675,7 @@ without callers having to opt in. The mechanism:
    the `--slice` value (if any — #2725). Same type set + same `--from`
    + same `--from-producer` set + same `--slice` → same file
    (regardless of arg order); any axis differs → distinct file.
-   POLL (`--for CONSENSUS_PROPOSE`) and STAY ALIVE
+   A proposal wait (`--for CONSENSUS_PROPOSE`) and a post-confirm wait
    (`--for ... 4 types ...`) hash to distinct files automatically;
    two pipelines sharing a `/tmp` mount (debug shells, integration
    test reuse) cannot leak cursors into each other; and a scoped wait
@@ -687,7 +740,7 @@ saw `Y` but the type filter dropped it) means a follow-up call
 restarting from that cursor will not see the dropped `Y`. Mitigate
 by including all relevant types in the `--for` list — different
 type sets get different cursor files automatically, so a drifted
-POLL cursor can never affect a STAY ALIVE wait. The same isolation
+proposal-wait cursor can never affect a post-confirm wait. The same isolation
 holds for `--from`, `--from-producer`, and `--slice` filters: a
 wait scoped to one sender / producer set / slice can drop messages
 its filter rejected, but a sibling wait with a different filter
@@ -889,9 +942,10 @@ failure mode cannot regress silently.
 
 ## 7. Host-Side Waits — `egg-orch pipeline wait-status`
 
-The first six sections cover **sandbox-side** waits: an agent inside a
-sandbox container waits for BRC messages via `egg-orch message wait` /
-`wait-loop`. This section covers the **host-side** wait — the SDLC
+The first six sections cover **sandbox-side** waits: the consensus
+wrapper inside an agent pod waits for BRC messages via `egg-orch message
+wait` / `wait-loop` (the agent itself never does — §0). This section
+covers the **host-side** wait — the SDLC
 skill running in a Claude Code session on the operator's host waits
 for pipeline state changes via the `egg-orch pipeline wait-status`
 Bash CLI.
@@ -1339,11 +1393,11 @@ cannot regress at the new emission site:
 | `is_role_confirmed` (from `brc get-state`) | `--for` filters |
 |--------------------------------------------|-----------------|
 | `false` (pre-confirm) | `CONSENSUS_PROPOSE` · `CONSENSUS_ACK` · `CONSENSUS_NACK` · `STATUS` · `CONSENSUS_RE_REVIEW` · `OVERSEER_ALERT` — **omits `CONSENSUS_CONFIRMED`** |
-| `true` (post-confirm STAY ALIVE) | `CONSENSUS_RE_REVIEW` · `CONSENSUS_CONFIRMED` · `OVERSEER_ALERT` |
+| `true` (post-confirm) | `CONSENSUS_RE_REVIEW` · `CONSENSUS_CONFIRMED` · `OVERSEER_ALERT` |
 
-The pre-confirm filter is the same six-event set used by every
-producer's RESPOND-TO-REVIEWS step in §1; the post-confirm filter
-matches the STAY-ALIVE set. A snapshot test in
+The pre-confirm filter is the same six-event set documented in the §1
+pre-confirm table; the post-confirm filter
+matches the §1 post-confirm set. A snapshot test in
 `orchestrator/tests/test_consensus_wrapper.py` pins **both** filter
 sets and the conditional `CONSENSUS_CONFIRMED` inclusion so the
 HTTP 400 rejection at `/messages/wait` (see
@@ -1547,7 +1601,7 @@ assembles the single user prompt the wrapper dispatches at each
 | Middle | Per-reviewer NACK block (`reason` + `artifact_refs`) | `orchestrator/peer_consensus.py` `_open_nacks_barrier_response.nacks[]` (line numbers come from the slice-3 contract spec and are drift-prone — prefer the function-name reference; the function span is around lines 949–1046 in practice) — the same NACK envelope a producer sees in the aggregated-NACK 409 from §10.6 | One block per NACKing reviewer. |
 | Middle | The single expected action | `event_payload.kind` | A few hundred bytes. |
 | Tail | Git-log delta (full, per-producer — see §10.9.2) | `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p` with `last_reviewed_commit_sha` read from the slice-1 [BRC memory file](../architecture/brc-memory.md) | Scaled by change size; **NOT** counted against the 10 KB envelope. |
-| Tail | Memory excerpt (architect od-6 Option B — see §10.9.3) | `.egg-state/agent-outputs/<role>/brc-memory.md` truncated to 2 KB | ≤ 2 KB after truncation. |
+| Tail | Memory excerpt (architect od-6 Option B — see §10.9.3) | `.egg-state/agent-outputs/<role>/brc-memory-<pipeline-id>.md` truncated to 2 KB | ≤ 2 KB after truncation. |
 
 The composer's prose envelope (everything except the git-log delta) is
 **bounded at ≤ 10 KB** per case; the git-log delta is intentionally
@@ -1622,7 +1676,7 @@ appends the bounded memory prose at the prompt tail.
 | `EGG_BRC_MEMORY` | Writer (`brc_ack` / `brc_nack`) | Composer (reader) |
 |------------------|---------------------------------|-------------------|
 | `off` | No file written. | `memory_excerpt = ""`; git-log delta falls back to the orchestrator's signal-level `changed_artifacts` as a baseline. This is a **degraded** baseline, not the adversarial re-review path — used only when no per-producer SHA is available. |
-| `write-only` (slice-1 rollout posture; opt-in regression path after slice-4) | File written under `.egg-state/agent-outputs/<role>/brc-memory.md`. | `memory_excerpt = ""` even though the file exists. Reads are no-ops so the rollout-window posture stays inert despite the writer being hot. |
+| `write-only` (slice-1 rollout posture; opt-in regression path after slice-4) | File written under `.egg-state/agent-outputs/<role>/brc-memory-<pipeline-id>.md`. | `memory_excerpt = ""` even though the file exists. Reads are no-ops so the rollout-window posture stays inert despite the writer being hot. |
 | `full` (**default after slice-4**) | File written. | Composer reads the file, extracts `last_reviewed_commit_sha` per producer, substitutes it into the §10.9.2 delta command, and appends the (≤ 2 KB) truncated excerpt at the prompt tail. |
 
 Operators opted into `full` per pipeline / per pod during the
@@ -1734,7 +1788,7 @@ implementation cites:
 
 | Open decision | Resolution | Code anchor |
 |---------------|------------|-------------|
-| **od-1** — subdirectory layout for the memory artifact + fail-closed path constructor | `.egg-state/agent-outputs/<role>/brc-memory.md` with raise-on-empty-`EGG_AGENT_ROLE` (risk_analyst R14) | slice-1 writer in `sandbox/egg_agent_tools/handlers/brc_memory.py`; see [BRC Memory Artifact — File path](../architecture/brc-memory.md#file-path). |
+| **od-1** — subdirectory layout for the memory artifact + fail-closed path constructor | `.egg-state/agent-outputs/<role>/brc-memory-<pipeline-id>.md` with raise-on-empty-`EGG_AGENT_ROLE` (risk_analyst R14) | slice-1 writer in `sandbox/egg_agent_tools/handlers/brc_memory.py`; see [BRC Memory Artifact — File path](../architecture/brc-memory.md#file-path). |
 | **od-2** — distill-on-write decision-log cap at 20 entries | Writer truncates the log to last 20 on every write (alternative — append-only with prompt-side truncation — ruled out because `claude -p` does not expose the prompt-construction control) | slice-1 writer; see [BRC Memory Artifact — Decision-log cap](../architecture/brc-memory.md#decision-log-cap-distill-on-write). |
 | **od-3** — `egg-orch brc next-action` is a new dedicated endpoint, not a derived view of `consensus status` | Sequencing logic lives in `orchestrator/routes/consensus.py`, testable orchestrator-side Python, HTTP-callable from the wrapper without the MCP server | slice-1 route handler; consumed by the §10.1 deterministic loop. |
 | **od-4** — 30-minute idle / no-progress safety budget replacing the 3-restart FAIL cap | `EGG_BRC_IDLE_BUDGET_MIN` default `30` (above the WS7-observed 10–13 min idle ceiling) | slice-2, §10.5 above. |

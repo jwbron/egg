@@ -146,10 +146,10 @@ to run. Follow those instructions exactly.
 
 ### You are an event handler — the wrapper owns the wait
 
-Under the BRC event-pump wrapper (slice-2 of [#2908](https://github.com/jwbron/egg/issues/2908); default once slice-4 flips `EGG_BRC_EVENT_PUMP`), the **bash wrapper around your invocation owns the BRC wait, not you**. You are invoked one-shot per actionable event:
+Under the BRC event-pump wrapper ([#2908](https://github.com/jwbron/egg/issues/2908), the sole production path since slice-4 deleted the legacy capped-restart wrapper), the **bash wrapper around your invocation owns the BRC wait, not you**. You are invoked one-shot per actionable event:
 
 1. **Act on the single event** named in your prompt — review the proposal, fix the NACKs, confirm consensus, whatever the event called for.
-2. **Update your BRC memory file** at `.egg-state/agent-outputs/<role>/brc-memory.md` so the next invocation can re-enter with continuity (writes happen automatically inside `brc_ack` / `brc_nack`; see `$EGG_REPO_PATH/docs/architecture/brc-memory.md`).
+2. **Update your BRC memory file** at `.egg-state/agent-outputs/<role>/brc-memory-<pipeline-id>.md` so the next invocation can re-enter with continuity (writes happen automatically inside `brc_ack` / `brc_nack`; see `$EGG_REPO_PATH/docs/architecture/brc-memory.md`). A `brc-memory.md` without the pipeline-id suffix is a previous pipeline's leftover — ignore it.
 3. **Exit naturally** when your handling of the event is complete. The wrapper loops back to `egg-orch brc next-action` and invokes you again when the next actionable event arrives, or calls `egg-orch consensus confirmed` and exits 0 once `brc next-action` returns the `complete` action (i.e. the role is marked complete in `consensus status`).
 
 You do **not** need to call `egg-orch message wait` yourself, hold a polling loop between events, thread cursors across re-entries, or guard against early exit — the wrapper-side deterministic bash loop is the single source of truth for sequencing. Clean exit after handling your event is the expected lifecycle, not a failure mode.
@@ -163,7 +163,7 @@ You do **not** need to call `egg-orch message wait` yourself, hold a polling loo
 - **Adversarial re-review** of a producer's v2+ delta is a fresh review — read the per-producer `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p` delivered in your prompt; the durable BRC memory file under `.egg-state/agent-outputs/<role>/` carries the prior verdict so you can compare without re-reading the codebase end-to-end
 - See `$EGG_REPO_PATH/docs/architecture/orchestrator.md` (BRC Event-Pump Wrapper section) for the wrapper-side lifecycle and `$EGG_REPO_PATH/docs/reference/agent-wait-patterns.md` §10 for the wait surface
 
-> **Legacy path note.** The collapsed preamble above is shared by both wrapper paths — `_build_brc_preamble` is collapsed unconditionally in slice-3. The flag that varies is the **wrapper**, not the preamble. With `EGG_BRC_EVENT_PUMP=false` (today's default; slice-4 flips it), the legacy capped-restart wrapper (`orchestrator/consensus_wrapper.py`) re-supplies wait / restart instructions through its built-in recovery system prompt on each agent restart — follow whatever your live prompt says rather than the meta-reference here. With `EGG_BRC_EVENT_PUMP=true`, the event-handler contract above is the production behaviour.
+> **Note.** The collapsed preamble above is shared across BRC roles — `_build_brc_preamble` renders it unconditionally. The event-handler contract above is the **sole** production behaviour: slice-4 of [#2908](https://github.com/jwbron/egg/issues/2908) deleted the legacy capped-restart template and the `EGG_BRC_EVENT_PUMP` selector from `orchestrator/consensus_wrapper.py` (which now holds only the event-pump wrapper), so there is no alternate path. Your live event prompt is always authoritative — follow it over this meta-reference if the two ever diverge.
 
 ### Anti-Sycophancy Requirements
 

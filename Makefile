@@ -49,7 +49,7 @@ EGG_IMAGE_PREFIX := $(if $(EGG_IMAGE_REGISTRY),$(EGG_IMAGE_REGISTRY)/,)
 # registry entirely, remove it from EGG_REGISTRY_IMAGES; excluded images
 # publish through the save+import path instead (slower, but entirely
 # store-to-store on this host, no registry involved).
-EGG_ALL_IMAGES := egg-gateway egg-orchestrator egg-sandbox egg-litellm
+EGG_ALL_IMAGES := egg-gateway egg-orchestrator egg-sandbox egg-litellm egg-redis
 EGG_REGISTRY_IMAGES ?= $(EGG_ALL_IMAGES)
 # Images the registry path does NOT cover (imported via k3s-import instead).
 EGG_IMPORT_IMAGES := $(filter-out $(EGG_REGISTRY_IMAGES),$(EGG_ALL_IMAGES))
@@ -518,7 +518,7 @@ build: sync-venv-if-uv
 	@$(PYTHON) scripts/prepare-sandbox-build-context.py repo-deps
 	@echo "==> Building images with tag $(EGG_IMAGE_TAG) ($(BUILD_JOBS) parallel jobs)..."
 	@$(MAKE) --no-print-directory -j$(BUILD_JOBS) $(BUILD_OUTPUT_SYNC) \
-		build-gateway build-orchestrator build-sandbox build-litellm
+		build-gateway build-orchestrator build-sandbox build-litellm build-redis
 
 # Per-image sub-targets so `build` can run them under -j. They assume the
 # repo-deps/ build context has been prepared (the `build` target does that
@@ -543,6 +543,9 @@ build-sandbox:
 
 build-litellm:
 	DOCKER_BUILDKIT=1 docker build $(call image_tags,egg-litellm) -f config/litellm/Dockerfile config/litellm
+
+build-redis:
+	DOCKER_BUILDKIT=1 docker build $(call image_tags,egg-redis) -f config/redis/Dockerfile config/redis
 
 # ============================================================================
 # Kubernetes (k3s) targets
@@ -702,7 +705,8 @@ deploy: sudo-keepalive check-egg-images-present  ## Deploy egg to k3s
 		sed -e "s|egg-orchestrator:latest|$(call reg_prefix,egg-orchestrator)egg-orchestrator:$(EGG_IMAGE_TAG)|g" \
 		    -e "s|egg-gateway:latest|$(call reg_prefix,egg-gateway)egg-gateway:$(EGG_IMAGE_TAG)|g" \
 		    -e "s|egg-sandbox:latest|$(call reg_prefix,egg-sandbox)egg-sandbox:$(EGG_IMAGE_TAG)|g" \
-		    -e "s|egg-litellm:latest|$(call reg_prefix,egg-litellm)egg-litellm:$(EGG_IMAGE_TAG)|g" | \
+		    -e "s|egg-litellm:latest|$(call reg_prefix,egg-litellm)egg-litellm:$(EGG_IMAGE_TAG)|g" \
+		    -e "s|egg-redis:latest|$(call reg_prefix,egg-redis)egg-redis:$(EGG_IMAGE_TAG)|g" | \
 		kubectl apply -f - && \
 	scripts/clear-stuck-egg-pods.sh && \
 	scripts/await-egg-deploy.sh "$(EGG_IMAGE_TAG)"

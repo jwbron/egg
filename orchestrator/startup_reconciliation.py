@@ -400,8 +400,8 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
             # ``reconstruct_tracker_from_messages`` (peer_consensus.py
             # near line 2003) excludes any message whose metadata
             # ``slice_id`` does not exactly match. The store-level
-            # filter at ``message_store.py:407-418`` (#2725) is
-            # intentionally lenient — it passes through
+            # filter (``_passes_filters`` in redis_message_store.py,
+            # #2725) is intentionally lenient — it passes through
             # ``metadata.slice_id is None`` messages so OVERSEER_ALERTs
             # fan out across slices — so the peer_consensus filter is
             # the actual isolation enforcer for reconstruction.

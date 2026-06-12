@@ -32,8 +32,8 @@ Commands:
     egg-orch container logs <pid> <cid>          Get container logs
     egg-orch message send <pid> --to <role> ...  Send inter-agent message (concurrent mode)
     egg-orch message poll <pid> ...              Poll for messages (concurrent mode)
-    egg-orch message wait <pid> --for TYPE ...   Block until typed event arrives
-    egg-orch message wait-loop <pid> --for TYPE  Loop message wait until match / cap
+    egg-orch message wait <pid> --for TYPE ...   Block until typed event arrives (wrapper-internal)
+    egg-orch message wait-loop <pid> --for TYPE  Loop message wait until match / cap (wrapper-internal)
     egg-orch message heartbeat <pid> --state X   Emit structured HEARTBEAT
     egg-orch message status <pid>                Get message bus status (concurrent mode)
     egg-orch signal readiness <pid> --state ...  Signal readiness state (concurrent mode)
@@ -1894,13 +1894,18 @@ def cmd_message_wait(args: argparse.Namespace) -> int:
 
 
 def cmd_message_wait_loop(args: argparse.Namespace) -> int:
-    """Canonical wait-loop convenience command (issue #1897).
+    """Wrapper-internal wait-loop convenience command (issue #1897).
+
+    Called by the consensus wrapper (the event pump, #2908) between
+    actionable BRC events — never by agents, which are invoked one-shot
+    per event and must exit instead of waiting (#3157; see
+    docs/reference/agent-wait-patterns.md §0).
 
     Loops **forever** until a matching message arrives (exit 0, prints
-    the message) OR a permanent error occurs (exit 1).  The outer
-    timeout is intentional — BRC consensus can legitimately take hours
-    on long phases, and an agent wrapping this in its own outer loop
-    would defeat the purpose.
+    the message) OR a permanent error occurs (exit 1).  The missing
+    outer timeout is intentional — BRC consensus can legitimately take
+    hours on long phases, and a caller wrapping this in its own outer
+    loop would defeat the purpose.
 
     Exit codes (wrapper contract, DIFFERENT from ``message wait``):
 
@@ -1911,7 +1916,7 @@ def cmd_message_wait_loop(args: argparse.Namespace) -> int:
 
     Transient errors (rc=2 from the inner call) are retried with short
     exponential backoff (cap 5s).  Timeouts (rc=1) re-enter the loop
-    with a fresh inner call so the agent keeps blocking on the next
+    with a fresh inner call so the caller keeps blocking on the next
     event.
 
     ``--max-iterations`` is a safety valve only — its default is
@@ -3948,15 +3953,17 @@ def create_parser() -> argparse.ArgumentParser:
     _add_json_flag(msg_wait)
     msg_wait.set_defaults(func=cmd_message_wait)
 
-    # message wait-loop — canonical idiom for BRC stay-alive polling
+    # message wait-loop — the consensus wrapper's blocking wait (#2908)
     msg_wait_loop = msg_sub.add_parser(
         "wait-loop",
-        help="Loop message wait until matched or max iterations reached",
+        help="[wrapper-internal] Loop message wait until matched or max iterations reached",
         description=(
             "Convenience wrapper: call `message wait` in a loop until a "
             "match arrives (exit 0) or max-iterations / permanent error "
-            "occurs (exit 1).  Agents should invoke this "
-            "instead of shelling out their own while-loop."
+            "occurs (exit 1).  Wrapper-internal (#2908/#3157): the "
+            "consensus wrapper issues this between BRC events. Agents "
+            "never wait on the bus — handle the event in your prompt "
+            "and exit; the wrapper re-invokes you on the next event."
         ),
     )
     msg_wait_loop.add_argument("pipeline_id", nargs="?", help="Pipeline ID")

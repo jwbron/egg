@@ -774,11 +774,68 @@ class TestWaitForTypes:
 
 
 class TestRedisFromTipSemantics:
-    """``from_tip=True`` uses Redis ``$`` so XREAD only matches entries
-    added after the call starts.
+    """``from_tip=True`` snapshots the stream tip to a concrete id once at
+    call entry, so XREAD only matches entries added after the call starts.
 
-    Backs the ``/messages/wait`` endpoint fix for issue #1925.
+    The concrete id (rather than Redis's ``$`` sentinel) is what keeps the
+    chunked blocking read from dropping a message XADDed between idle
+    slices — ``$`` re-resolves to the live tip on every re-issue, a fixed
+    id does not. Backs the ``/messages/wait`` endpoint fix for issue #1925.
     """
+
+    def test_resolve_tip_stream_id_returns_concrete_id(self, store):
+        """A non-empty stream resolves to its greatest concrete stream id."""
+        store.add_message(
+            Message(
+                pipeline_id="tip-pipeline",
+                from_role="coder",
+                message_type=MessageType.PROGRESS,
+                subject="first",
+            )
+        )
+        tip = store._resolve_tip_stream_id("tip-pipeline")
+        assert tip != "$"
+        assert "-" in tip  # concrete Redis stream id, e.g. "1700000000000-0"
+
+    def test_resolve_tip_stream_id_empty_stream_is_zero(self, store):
+        """An empty/missing stream resolves to ``0-0`` (read everything)."""
+        assert store._resolve_tip_stream_id("never-seen-pipeline") == "0-0"
+
+    def test_from_tip_never_passes_dollar_to_xread(self, redis_client, monkeypatch):
+        """The from_tip blocking read must issue a CONCRETE start id, not ``$``.
+
+        Pins the BLOCKING-2 fix: ``$`` re-resolves server-side on every
+        slice and would skip a message added between idle slices.
+        """
+        redis_client.xadd(
+            _stream_key("tip-pipeline"),
+            {
+                "id": "x",
+                "pipeline_id": "tip-pipeline",
+                "from_role": "coder",
+                "to_role": "all",
+                "message_type": "PROGRESS",
+                "subject": "pre",
+                "body": "",
+                "metadata": "{}",
+                "timestamp": "",
+                "phase": "",
+            },
+        )
+        captured: list[str] = []
+
+        def capturing_xread(streams, count=None, block=None):
+            captured.append(next(iter(streams.values())))
+            raise RuntimeError("stop")
+
+        monkeypatch.setattr(redis_client, "xread", capturing_xread)
+        store = RedisMessageStore(redis_client)
+        with pytest.raises(RuntimeError):
+            store.get_messages("tip-pipeline", wait=1, from_tip=True)
+
+        assert captured, "from_tip never issued an XREAD"
+        assert captured[0] != "$"
+        assert "-" in captured[0]
 
     def test_pre_existing_match_ignored_with_from_tip(self, store):
         """A matching pre-existing entry must NOT satisfy a from_tip wait."""
@@ -792,10 +849,11 @@ class TestRedisFromTipSemantics:
             )
         )
 
-        # fakeredis's XREAD with $ is a no-op on streams with data — it
-        # returns empty immediately because no "later" entry exists. This
-        # is the correct behaviour contract even though real Redis would
-        # actually block for the timeout.
+        # Production resolves the tip to a concrete id before XREAD (see
+        # _resolve_tip_stream_id), so the read starts from that id
+        # exclusively and returns empty — the pre-existing match is never
+        # delivered. Regressing _resolve_tip_stream_id to always-"0-0"
+        # would surface the pre-existing match and fail this assertion.
         start = time.monotonic()
         messages = store.get_messages(
             "test-pipeline",
@@ -1239,7 +1297,7 @@ class TestRedisRestartSemanticsVsPhaseBoundaryWipe:
         # Make _clear_concurrent_state pick up our Redis store via the
         # singleton accessor it imports. Patch the same name the
         # function resolves at call time so the wipe goes to OUR Redis,
-        # not a fresh in-memory MessageStore.
+        # not the conftest session singleton.
         import message_store as ms
 
         monkeypatch.setattr(ms, "get_message_store", lambda: store)
@@ -1294,3 +1352,291 @@ class TestRedisRestartSemanticsVsPhaseBoundaryWipe:
         post_store = RedisMessageStore(redis_client)
         assert post_store.get_messages(pipeline_id, limit=100) == []
         assert post_store.get_status(pipeline_id) == {"total": 0, "by_type": {}}
+
+
+class TestBlockingChunkCap:
+    """Live-canary regression for #2662: XREAD BLOCK vs client socket_timeout.
+
+    The production connection pool (``get_redis_message_store``) sets
+    ``socket_timeout=5``. redis-py enforces that timeout on the blocked
+    read itself, so a single ``XREAD BLOCK`` longer than the socket
+    timeout dies with ``redis.TimeoutError`` before the server can
+    answer — on the first deployed pipeline every agent long-poll
+    (``wait=25``) errored at the 5 s mark. fakeredis has no sockets, so
+    the timeout itself cannot be reproduced at unit tier; these tests
+    pin the two halves of the fix instead:
+
+    * no single blocking read ever requests more than ``_MAX_BLOCK_MS``;
+    * a ``redis.TimeoutError`` on a blocking slice degrades to an idle
+      slice instead of killing the whole wait (non-blocking reads keep
+      raising).
+    """
+
+    class _BlockCaptured(Exception):
+        """Sentinel to stop the store after the first blocking read."""
+
+    def _capture_first_block(self, redis_client, monkeypatch):
+        captured: list[int | None] = []
+
+        def capturing_xread(streams, count=None, block=None):
+            captured.append(block)
+            raise self._BlockCaptured()
+
+        monkeypatch.setattr(redis_client, "xread", capturing_xread)
+        return captured
+
+    def test_cap_stays_below_pool_socket_timeout(self):
+        import redis_message_store
+
+        # Derive the bound from the *same* constant the pool applies
+        # (_SOCKET_TIMEOUT_SEC), not a duplicated literal — lowering the
+        # socket timeout then regresses here instead of silently in prod.
+        socket_timeout_ms = redis_message_store._SOCKET_TIMEOUT_SEC * 1000
+        assert redis_message_store._MAX_BLOCK_MS < socket_timeout_ms
+
+    def test_fast_path_block_is_capped(self, redis_client, monkeypatch):
+        import redis_message_store
+
+        monkeypatch.setattr(redis_message_store, "_MAX_BLOCK_MS", 50)
+        captured = self._capture_first_block(redis_client, monkeypatch)
+        store = RedisMessageStore(redis_client)
+
+        with pytest.raises(self._BlockCaptured):
+            store.get_messages("cap-pipeline", wait=10)
+
+        # Pre-fix this was wait * 1000 == 10000 in a single XREAD.
+        assert captured == [50]
+
+    def test_wait_for_types_block_is_capped(self, redis_client, monkeypatch):
+        import redis_message_store
+
+        monkeypatch.setattr(redis_message_store, "_MAX_BLOCK_MS", 50)
+        captured = self._capture_first_block(redis_client, monkeypatch)
+        store = RedisMessageStore(redis_client)
+
+        with pytest.raises(self._BlockCaptured):
+            store.get_messages(
+                "cap-pipeline",
+                wait=10,
+                wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
+            )
+
+        assert captured == [50]
+
+    def test_blocking_timeout_degrades_to_idle_slice(self, redis_client, monkeypatch):
+        import redis
+
+        store = RedisMessageStore(redis_client)
+        store.add_message(
+            Message(
+                pipeline_id="timeout-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.PROGRESS,
+                subject="survives the flaky slice",
+            )
+        )
+
+        real_xread = redis_client.xread
+        calls = {"n": 0}
+
+        def flaky_xread(streams, count=None, block=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise redis.TimeoutError("Timeout reading from socket")
+            return real_xread(streams, count=count, block=block)
+
+        monkeypatch.setattr(redis_client, "xread", flaky_xread)
+
+        # Pre-fix the TimeoutError propagated and the route 500'd; now
+        # the first slice is treated as idle and the retry delivers.
+        messages = store.get_messages("timeout-pipeline", wait=2)
+
+        assert calls["n"] >= 2
+        assert [m.subject for m in messages] == ["survives the flaky slice"]
+
+    def test_nonblocking_timeout_still_raises(self, redis_client, monkeypatch):
+        import redis
+
+        def timeout_xrange(*args, **kwargs):
+            raise redis.TimeoutError("Timeout reading from socket")
+
+        monkeypatch.setattr(redis_client, "xrange", timeout_xrange)
+        store = RedisMessageStore(redis_client)
+
+        # The idle-slice degradation is scoped to blocking reads only —
+        # a timeout on a non-blocking read is a real error and must
+        # propagate, not silently return [].
+        with pytest.raises(redis.TimeoutError):
+            store.get_messages("timeout-pipeline", wait=0)
+
+
+class TestRedisFromRolesFilter:
+    """``from_roles`` allowlist filter on the Redis path (#2725).
+
+    Ported from the in-memory store's unit suite when #3159 removed that
+    backend — this was the only unit-tier pin of the plural form, which
+    ``_passes_filters`` handles on a different branch than singular
+    ``from_role``.
+    """
+
+    def test_fast_path_keeps_allowed_sender(self, store):
+        store.add_message(_slice_message(from_role="coder"))
+        msgs = store.get_messages("test-pipeline", from_roles=["coder", "tester"], wait=0)
+        assert len(msgs) == 1
+
+    def test_fast_path_drops_disallowed_sender(self, store):
+        store.add_message(_slice_message(from_role="documenter"))
+        msgs = store.get_messages("test-pipeline", from_roles=["coder", "tester"], wait=0)
+        assert msgs == []
+
+    def test_wrong_sender_does_not_unblock(self, store):
+        got: list[list[Message]] = []
+
+        def _block() -> None:
+            got.append(
+                store.get_messages(
+                    "test-pipeline",
+                    from_roles=["coder", "tester"],
+                    wait=1,
+                    wait_for_types=[MessageType.CONSENSUS_PROPOSE],
+                )
+            )
+
+        t = threading.Thread(target=_block)
+        t.start()
+        time.sleep(0.1)
+
+        for _ in range(5):
+            store.add_message(_slice_message(from_role="documenter"))
+
+        t.join(timeout=5)
+        assert not t.is_alive()
+        assert got == [[]]
+
+    def test_singular_from_role_wins_over_set(self, store):
+        """When both are supplied, ``from_role`` (singular) wins.
+
+        This preserves single-sender back-compat — a caller that already
+        passes ``from_role="X"`` and adds ``from_roles=["X","Y"]`` for some
+        reason gets exactly the X-only matches the singular form has
+        always returned.
+        """
+        store.add_message(_slice_message(from_role="coder"))
+        store.add_message(_slice_message(from_role="tester"))
+        msgs = store.get_messages(
+            "test-pipeline",
+            from_role="coder",
+            from_roles=["coder", "tester"],
+            wait=0,
+        )
+        assert [m.from_role for m in msgs] == ["coder"]
+
+    def test_empty_set_is_no_filter(self, store):
+        """An empty ``from_roles`` set is treated as no filter at the
+        store layer — the route layer rejects this at request time so an
+        empty list never reaches the store from network callers."""
+        store.add_message(_slice_message(from_role="documenter"))
+        msgs = store.get_messages("test-pipeline", from_roles=[], wait=0)
+        assert len(msgs) == 1
+
+
+class TestRedisSliceAndFromRolesCombined:
+    """Slice + plural-sender filters compose — both must accept (#2725)."""
+
+    def test_both_match(self, store):
+        store.add_message(_slice_message(from_role="coder", slice_id="slice-1"))
+        msgs = store.get_messages(
+            "test-pipeline",
+            slice_id="slice-1",
+            from_roles=["coder", "tester"],
+            wait=0,
+        )
+        assert len(msgs) == 1
+
+    def test_wrong_slice_right_sender_drops(self, store):
+        store.add_message(_slice_message(from_role="coder", slice_id="slice-2"))
+        msgs = store.get_messages(
+            "test-pipeline",
+            slice_id="slice-1",
+            from_roles=["coder", "tester"],
+            wait=0,
+        )
+        assert msgs == []
+
+    def test_right_slice_wrong_sender_drops(self, store):
+        store.add_message(_slice_message(from_role="documenter", slice_id="slice-1"))
+        msgs = store.get_messages(
+            "test-pipeline",
+            slice_id="slice-1",
+            from_roles=["coder", "tester"],
+            wait=0,
+        )
+        assert msgs == []
+
+    def test_overseer_alert_bypasses_slice_filter(self, store):
+        """Combined filter still respects the null-slice passthrough so
+        system senders included in the allowlist (overseer / orchestrator)
+        keep waking slice-filtered waiters."""
+        store.add_message(
+            _slice_message(
+                message_type=MessageType.OVERSEER_ALERT,
+                from_role="overseer",
+                slice_id=None,
+            )
+        )
+        msgs = store.get_messages(
+            "test-pipeline",
+            slice_id="slice-1",
+            from_roles=["coder", "tester", "overseer", "orchestrator"],
+            wait=0,
+        )
+        assert len(msgs) == 1
+
+    def test_orchestrator_re_review_wakes_tightly_filtered_reviewer(self, store):
+        """Negative-conformance pin (#2725): an orchestrator-emitted
+        CONSENSUS_RE_REVIEW targeted at this reviewer must wake even a
+        tight slice + producer-allowlist filter — otherwise the filter
+        silently sleeps the reviewer through a legitimate cross-graph
+        cascade, which is the failure mode worse than the wake-storm.
+
+        Constructed to mirror the orchestrator's signal-handler shape
+        (routes/signals.py): from_role="orchestrator", to_role targeted
+        at the reviewer, metadata.slice_id matching the reviewer's slice.
+        The spawner-built allowlist always includes ``orchestrator`` so
+        this works without rubric edits.
+        """
+        got: list[list[Message]] = []
+
+        def _block() -> None:
+            got.append(
+                store.get_messages(
+                    "test-pipeline",
+                    role="reviewer_code",
+                    slice_id="slice-1",
+                    from_roles=["coder", "tester", "overseer", "orchestrator"],
+                    wait=2,
+                    wait_for_types=[MessageType.CONSENSUS_RE_REVIEW],
+                )
+            )
+
+        t = threading.Thread(target=_block)
+        t.start()
+        time.sleep(0.1)
+
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="orchestrator",
+                to_role="reviewer_code",
+                message_type=MessageType.CONSENSUS_RE_REVIEW,
+                subject="Re-review required: coder submitted new proposal v2",
+                metadata={"slice_id": "slice-1", "producer_role": "coder"},
+            )
+        )
+
+        t.join(timeout=5)
+        assert not t.is_alive()
+        assert len(got[0]) == 1
+        assert got[0][0].from_role == "orchestrator"
+        assert got[0][0].message_type == MessageType.CONSENSUS_RE_REVIEW
