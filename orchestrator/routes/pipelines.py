@@ -5254,8 +5254,39 @@ def _get_draft_path(
 ) -> str | None:
     """Return relative path to the draft file for a phase.
 
-    Uses issue_number as prefix when available, otherwise pipeline_id.
+    Spec-driven (#3077 slice-3): the registered ``refine`` and ``plan``
+    phases route through :func:`egg_contracts.artifact_spec.resolve_artifact_path`
+    so the registry is the single source of truth that propose-time
+    validation (:func:`orchestrator.routes.signals._validate_producer_artifacts`)
+    and every draft reader in this module share. Slice-2 of #3077 pins
+    the equality with a mandatory consistency test
+    (``TestConsistencyB_GetDraftPathEquality`` in
+    ``shared/egg_contracts/tests/test_artifact_spec.py``); the slice-3
+    rewrite below makes that equality structural rather than incidental
+    — refine-risk-1's "no second copy of path knowledge" ratchet.
+
+    Phases not yet registered in the spec (currently ``pr``) keep their
+    legacy path via the centralised ``_draft_filename`` mapping, so
+    pre-existing PR-phase callers stay byte-identical. ``implement``
+    has no draft and falls out as ``None`` here.
+
+    Uses ``issue_number`` as prefix when available, otherwise
+    ``pipeline_id``; falls back to ``"unknown"`` when neither is supplied.
     """
+    _SPEC_BY_PHASE = {"refine": "analysis-draft", "plan": "plan-draft"}
+    spec_name = _SPEC_BY_PHASE.get(phase)
+    if spec_name is not None:
+        # Lazy import: the spec module is pure Python and has no
+        # orchestrator/gateway deps, but importing it at module load
+        # time would still pull egg_contracts into pipelines.py's
+        # import graph regardless of whether _get_draft_path is called
+        # — keep the deferral so the import cost only lands on actual
+        # invocations.
+        from egg_contracts.artifact_spec import resolve_artifact_path
+
+        identifier = _pipeline_identifier(issue_number, pipeline_id or "unknown")
+        return resolve_artifact_path(spec_name, identifier)
+
     filename = _draft_filename(phase)
     if not filename:
         return None
@@ -13656,6 +13687,21 @@ def _build_agent_prompt(
     # Derive the pipeline identifier for namespaced output filenames.
     _identifier = _pipeline_identifier(issue_number, pipeline_id)
 
+    # Spec-driven agent-output paths (#3077 slice-3): resolve each path
+    # via the artifact registry so the prompt prose, the propose-time
+    # validator (signals._validate_producer_artifacts), and the gateway
+    # artifact-read endpoint (slice-4) all share one source of truth.
+    # The slice-2 mandatory consistency test
+    # (TestConsistencyC in shared/egg_contracts/tests/test_artifact_spec.py)
+    # pins these call sites to the registry; a future row rename
+    # surfaces here as a missing prompt path instead of as #3016-style
+    # drift between spec and rendered prose.
+    from egg_contracts.artifact_spec import resolve_artifact_path as _resolve_artifact_path
+
+    _architect_output_path = _resolve_artifact_path("architect-output", _identifier)
+    _architect_slices_path = _resolve_artifact_path("architect-slices", _identifier)
+    _risk_analyst_output_path = _resolve_artifact_path("risk-analyst-output", _identifier)
+
     # Role-specific instructions
     lines.append("## Your Task\n")
 
@@ -14018,7 +14064,7 @@ def _build_agent_prompt(
                 "implement-phase NACKs; surfacing them here makes the plan-phase "
                 "audit cheap.",
                 "",
-                f"Write your analysis to `.egg-state/agent-outputs/{_identifier}-architect-output.json`.",
+                f"Write your analysis to `{_architect_output_path}`.",
                 "",
                 # ----------------------------------------------------
                 # #2809 — architect owns slice composition
@@ -14078,7 +14124,7 @@ def _build_agent_prompt(
                 "task_planner re-consumes the new scaffold on the next "
                 "BRC cycle.",
                 "",
-                f"Write the slice scaffold to `.egg-state/agent-outputs/{_identifier}-architect-slices.yaml`:",
+                f"Write the slice scaffold to `{_architect_slices_path}`:",
                 "",
                 "```yaml",
                 "slices:",
@@ -14109,8 +14155,8 @@ def _build_agent_prompt(
                 "### File Restrictions",
                 "",
                 "You MUST only write to:",
-                f"- `.egg-state/agent-outputs/{_identifier}-architect-output.json`",
-                f"- `.egg-state/agent-outputs/{_identifier}-architect-slices.yaml`",
+                f"- `{_architect_output_path}`",
+                f"- `{_architect_slices_path}`",
                 "",
                 "Do NOT create or modify any other files. Specifically:",
                 "- Do NOT modify analysis drafts (`.egg-state/drafts/*-analysis.md`) — "
@@ -14124,7 +14170,9 @@ def _build_agent_prompt(
         )
     elif role_value == "task_planner":
         draft_path = _get_draft_path("plan", issue_number=issue_number, pipeline_id=pipeline_id)
-        architect_slices_path = f".egg-state/agent-outputs/{_identifier}-architect-slices.yaml"
+        # Spec-driven (#3077 slice-3) — reuses the helper-resolved path above
+        # so the task_planner prose and the architect prompt cannot drift.
+        architect_slices_path = _architect_slices_path
         lines.extend(
             [
                 "Decompose the architecture analysis into a slice-DAG implementation "
@@ -14404,7 +14452,7 @@ def _build_agent_prompt(
                 "failure mode (see #2474). Call these out explicitly so the "
                 "plan reviewer can audit them.",
                 "",
-                f"Write your risk assessment to `.egg-state/agent-outputs/{_identifier}-risk_analyst-output.json`.",
+                f"Write your risk assessment to `{_risk_analyst_output_path}`.",
                 "",
                 "## Reviewer role (risk lens on architect + task_planner)",
                 "",
@@ -19444,20 +19492,30 @@ def _synthesize_plan_draft(
     # Derive the pipeline identifier for namespaced output filenames.
     _synth_id = _pipeline_identifier(issue_number, pipeline_id)
 
+    from egg_contracts.artifact_spec import resolve_artifact_path
+
     sections: list[str] = []
-    agent_files = [
-        ("architect-output.json", "Architecture Analysis"),
-        ("architect-slices.yaml", "Slice Scaffold"),
-        ("risk_analyst-output.json", "Risk Assessment"),
+    # Spec *names* — not bare filenames — so the agent-output path knowledge
+    # lives only in egg_contracts.artifact_spec (the slice-2 single-source-of-
+    # truth ratchet covers this reader, not just the prompt builder).
+    # ``resolve_artifact_path("<name>", id)`` yields the namespaced
+    # ``.egg-state/agent-outputs/{id}-<file>`` path; the old un-namespaced
+    # global filename (basename minus the ``{id}-`` prefix) stays the fallback.
+    agent_specs = [
+        ("architect-output", "Architecture Analysis"),
+        ("architect-slices", "Slice Scaffold"),
+        ("risk-analyst-output", "Risk Assessment"),
     ]
 
-    for filename, heading in agent_files:
+    for spec_name, heading in agent_specs:
+        prefixed_rel = resolve_artifact_path(spec_name, _synth_id)
+        global_filename = Path(prefixed_rel).name.removeprefix(f"{_synth_id}-")
         # Try prefixed filename first, fall back to old global filename
-        prefixed_file = outputs_dir / f"{_synth_id}-{filename}"
+        prefixed_file = repo_path / prefixed_rel
         if prefixed_file.exists():
             output_file = prefixed_file
         else:
-            output_file = outputs_dir / filename
+            output_file = outputs_dir / global_filename
         if not output_file.exists():
             continue
         try:
@@ -19473,7 +19531,7 @@ def _synthesize_plan_draft(
             logger.warning(
                 "Failed to read agent output for plan draft",
                 pipeline_id=pipeline_id,
-                file=filename,
+                file=global_filename,
                 error=str(e),
             )
             continue
@@ -19483,7 +19541,7 @@ def _synthesize_plan_draft(
             logger.warning(
                 "Agent output is empty, skipping from plan draft",
                 pipeline_id=pipeline_id,
-                file=filename,
+                file=global_filename,
             )
             continue
 
@@ -19500,7 +19558,7 @@ def _synthesize_plan_draft(
 
     # Guard against a draft that has section headings but no real content.
     stripped = draft_content
-    for _, heading in agent_files:
+    for _, heading in agent_specs:
         stripped = stripped.replace(f"## {heading}", "")
     if len(stripped.strip()) < _MIN_PLAN_DRAFT_CONTENT_LENGTH:
         logger.warning(
