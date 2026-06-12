@@ -270,6 +270,39 @@ agent's `--model` flag to `<upstream>[1m]` for the standard ≥1M case
 ``--model``-keyed pathway also routes through the custom-model
 registration.
 
+## Context guardrails on the LiteLLM path (#3175)
+
+On the LiteLLM path every SDK turn re-sends the whole conversation and
+cached tokens bill at a discounted-but-nonzero rate, so a single tool
+call that dumps tens of kilotokens (a verbose `pytest -v`, a
+whole-megafile Read, an unbounded MCP result) is re-billed on every
+subsequent turn for the life of the session. `env_vars()` therefore
+injects three size caps on LiteLLM decisions only — Claude-routed
+spawns carry none of them, so the Claude path's tool behavior is
+unchanged:
+
+| Sandbox env var | Default | Unit | What it bounds |
+|---|---|---|---|
+| `BASH_MAX_OUTPUT_LENGTH` | `20000` | characters | Claude Code's built-in Bash-result truncation; oversized output is saved to a session file and the agent gets the path plus a preview |
+| `EGG_READ_CAP_BYTES` | `65536` | bytes | the predictive whole-file-Read deny in `shared/egg_agent/tool_output_cap.py` — a quarter of the 256 KiB Claude-route default, pushing big files toward `offset`/`limit` paging |
+| `MAX_MCP_OUTPUT_TOKENS` | `15000` | tokens | Claude Code's MCP-result cap (built-in default 25k); excess is persisted to disk and replaced with a file reference |
+
+These are **guardrails, not constraints**: the thresholds are sized so
+normal work never hits them, and every cap carries its own remedy (the
+spill file for Bash/MCP, the paging remedy in the Read-cap deny
+message), so the agent always has a path to the same information.
+
+Operators override a value by setting the matching
+`EGG_LITELLM_`-prefixed variable on the **orchestrator**
+(`EGG_LITELLM_BASH_MAX_OUTPUT_LENGTH`, `EGG_LITELLM_READ_CAP_BYTES`,
+`EGG_LITELLM_MAX_MCP_OUTPUT_TOKENS`). Setting one to the empty string
+omits that guardrail from the injection entirely; an unparseable or
+non-positive value logs a warning and falls back to the default. The
+override names are deliberately distinct from the sandbox-side names so
+a value in the orchestrator's own environment is never forwarded by
+accident. See `litellm_context_guardrail_env()` in
+`orchestrator/agent_model_resolution.py`.
+
 > **Capability env vars (`MAX_THINKING_TOKENS`,
 > `ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES`).** Not set
 > by default — clamping them to zero/empty maximises cost savings

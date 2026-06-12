@@ -92,6 +92,30 @@ def _pipeline_config(**overrides):
     return PipelineConfig(**overrides)
 
 
+# Built-in defaults of the LiteLLM-path context guardrails (#3175),
+# mirrored from ``_LITELLM_CONTEXT_GUARDRAILS``. Every LiteLLM decision's
+# ``env_vars()`` carries these alongside the custom-model registration.
+_GUARDRAIL_DEFAULTS = {
+    "BASH_MAX_OUTPUT_LENGTH": "20000",
+    "EGG_READ_CAP_BYTES": "65536",
+    "MAX_MCP_OUTPUT_TOKENS": "15000",
+}
+
+# Orchestrator-side override knobs for the guardrails — cleared in tests
+# that assert exact env shapes so a value in the developer's own
+# environment can't skew the expectation.
+_GUARDRAIL_OVERRIDE_VARS = (
+    "EGG_LITELLM_BASH_MAX_OUTPUT_LENGTH",
+    "EGG_LITELLM_READ_CAP_BYTES",
+    "EGG_LITELLM_MAX_MCP_OUTPUT_TOKENS",
+)
+
+
+def _clear_guardrail_overrides(monkeypatch):
+    for var in _GUARDRAIL_OVERRIDE_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+
 # =============================================================================
 # AgentModelDecision dataclass shape
 # =============================================================================
@@ -379,7 +403,7 @@ class TestLiteLLMClassification:
         assert d.upstream_model == "qwen3-coder-30b"
         assert d.claude_code_alias == "qwen3-coder-30b[1m]"
 
-    def test_litellm_env_vars_register_custom_model(self):
+    def test_litellm_env_vars_register_custom_model(self, monkeypatch):
         """``AgentModelDecision.env_vars()`` returns the
         ``ANTHROPIC_CUSTOM_MODEL_OPTION`` pair that Claude Code reads at
         startup to opt the custom model into 1M compaction math (#2832),
@@ -394,7 +418,14 @@ class TestLiteLLMClassification:
         ``[1m]`` alias; the haiku vars carry the bare upstream name
         (the suffix is read per-variable and small/fast calls don't
         need the 1M window).
+
+        Since #3175 the LiteLLM env also carries the context guardrails
+        (``BASH_MAX_OUTPUT_LENGTH`` / ``EGG_READ_CAP_BYTES`` /
+        ``MAX_MCP_OUTPUT_TOKENS``) — per-turn re-billing of the full
+        conversation makes a single oversized tool result
+        disproportionately expensive on this path.
         """
+        _clear_guardrail_overrides(monkeypatch)
         resolve_agent_model = _resolver()
         AgentRole = _agent_role()
         config = _pipeline_config(agent_models={"coder": "qwen3-coder-30b"})
@@ -409,6 +440,7 @@ class TestLiteLLMClassification:
             "CLAUDE_CODE_SUBAGENT_MODEL": "qwen3-coder-30b[1m]",
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": "qwen3-coder-30b",
             "ANTHROPIC_SMALL_FAST_MODEL": "qwen3-coder-30b",
+            **_GUARDRAIL_DEFAULTS,
         }
 
     def test_anthropic_env_vars_empty(self):
@@ -466,7 +498,7 @@ class TestSubOneMContextModels:
         assert d.claude_code_alias == model
 
     @pytest.mark.parametrize("model", ["kimi-k2.7-code", "glm-5.1"])
-    def test_sub_1m_env_vars_carry_bare_name(self, model):
+    def test_sub_1m_env_vars_carry_bare_name(self, model, monkeypatch):
         """Every custom-model env var for a sub-1M model carries the bare
         name — none may leak the ``[1m]`` suffix (which would re-trigger the
         1M profile for the main agent or its Task-tool subagents). Parametrized
@@ -474,6 +506,7 @@ class TestSubOneMContextModels:
         (e.g. a ``.lower()`` or escape that special-cased the hyphen-period in
         ``k2.7``) is caught here, not in the field.
         """
+        _clear_guardrail_overrides(monkeypatch)
         resolve_agent_model = _resolver()
         AgentRole = _agent_role()
         config = _pipeline_config(agent_models={"coder": model})
@@ -488,6 +521,7 @@ class TestSubOneMContextModels:
             "CLAUDE_CODE_SUBAGENT_MODEL": model,
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
             "ANTHROPIC_SMALL_FAST_MODEL": model,
+            **_GUARDRAIL_DEFAULTS,
         }
 
     @pytest.mark.parametrize("model", ["deepseek-v4-flash", "deepseek-v4-pro", "qwen3.7-max"])
@@ -564,6 +598,88 @@ class TestSubOneMContextModels:
 
         assert not caplog.records, (
             f"bare sub-1M model must not warn; got {[r.message for r in caplog.records]!r}"
+        )
+
+
+# =============================================================================
+# LiteLLM-path context guardrails (#3175)
+# =============================================================================
+
+
+class TestLiteLLMContextGuardrails:
+    """Route-aware context guardrails (#3175 PR 2).
+
+    On the LiteLLM path every turn re-bills the whole conversation at
+    the cached rate, so a single oversized tool result (verbose
+    ``pytest -v``, whole-megafile Read, unbounded MCP result) keeps
+    costing for the life of the session. ``env_vars()`` therefore
+    injects ``BASH_MAX_OUTPUT_LENGTH`` / ``EGG_READ_CAP_BYTES`` /
+    ``MAX_MCP_OUTPUT_TOKENS`` on LiteLLM decisions only —
+    Claude-routed spawns must stay byte-identical to today.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clean_overrides(self, monkeypatch):
+        _clear_guardrail_overrides(monkeypatch)
+        self.monkeypatch = monkeypatch
+
+    def _litellm_decision(self):
+        from agent_model_resolution import classify_model
+
+        return classify_model("deepseek-v4-pro")
+
+    def test_litellm_decision_carries_guardrail_defaults(self):
+        env = self._litellm_decision().env_vars()
+        for var, default in _GUARDRAIL_DEFAULTS.items():
+            assert env.get(var) == default
+
+    def test_anthropic_decision_carries_no_guardrails(self):
+        """Claude-route spawns are explicitly out of scope for #3175 —
+        their env must stay empty even with operator overrides set.
+        """
+        from agent_model_resolution import classify_model
+
+        self.monkeypatch.setenv("EGG_LITELLM_READ_CAP_BYTES", "1024")
+        assert classify_model("opus").env_vars() == {}
+
+    def test_operator_override_respected(self):
+        self.monkeypatch.setenv("EGG_LITELLM_READ_CAP_BYTES", "131072")
+        env = self._litellm_decision().env_vars()
+        assert env["EGG_READ_CAP_BYTES"] == "131072"
+        # The other two guardrails keep their defaults.
+        assert env["BASH_MAX_OUTPUT_LENGTH"] == _GUARDRAIL_DEFAULTS["BASH_MAX_OUTPUT_LENGTH"]
+        assert env["MAX_MCP_OUTPUT_TOKENS"] == _GUARDRAIL_DEFAULTS["MAX_MCP_OUTPUT_TOKENS"]
+
+    def test_empty_override_opts_guardrail_out(self):
+        """An empty-string override omits that var entirely, so the
+        sandbox falls back to Claude Code's (or tool_output_cap's) own
+        default — the per-guardrail kill switch.
+        """
+        self.monkeypatch.setenv("EGG_LITELLM_BASH_MAX_OUTPUT_LENGTH", "")
+        env = self._litellm_decision().env_vars()
+        assert "BASH_MAX_OUTPUT_LENGTH" not in env
+        assert env["EGG_READ_CAP_BYTES"] == _GUARDRAIL_DEFAULTS["EGG_READ_CAP_BYTES"]
+        assert env["MAX_MCP_OUTPUT_TOKENS"] == _GUARDRAIL_DEFAULTS["MAX_MCP_OUTPUT_TOKENS"]
+
+    @pytest.mark.parametrize("bad", ["not-a-number", "64kb", "0", "-5"])
+    def test_invalid_override_warns_and_falls_back(self, bad, caplog):
+        """Garbage overrides must not be forwarded into the sandbox —
+        ``tool_output_cap`` would warn-and-default per call and Claude
+        Code's handling is undefined. Warn once at resolution time and
+        inject the built-in default instead.
+        """
+        import logging
+
+        self.monkeypatch.setenv("EGG_LITELLM_MAX_MCP_OUTPUT_TOKENS", bad)
+        with caplog.at_level(logging.WARNING, logger="agent_model_resolution"):
+            env = self._litellm_decision().env_vars()
+
+        assert env["MAX_MCP_OUTPUT_TOKENS"] == _GUARDRAIL_DEFAULTS["MAX_MCP_OUTPUT_TOKENS"]
+        assert any(
+            "EGG_LITELLM_MAX_MCP_OUTPUT_TOKENS" in record.message and repr(bad) in record.message
+            for record in caplog.records
+        ), (
+            f"expected fallback warning naming the override; got {[r.message for r in caplog.records]!r}"
         )
 
 
