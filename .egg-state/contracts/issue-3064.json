@@ -10,9 +10,153 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "Scope for #3064 on-demand agent spawning: which option? A = spawner + ownership flag (default in-pod) + spawn dedupe + bounded respawn, confirm/complete orchestrator-side. B (recommended) = A + worktree re-attach & session reuse across spawns, idle-budget/stall alerts re-homed orchestrator-side, lifecycle-aware health-monitor thresholds, #2806 failure signaling relocated; default flip stays a follow-up gated on a live BRC cycle. C = B + flip the default and retire the in-pod wait arm in this same pipeline.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option A \u2014 spawner + guard only, flag defaults to in-pod loop",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B \u2014 A + lifecycle re-homing; flip deferred to a gated follow-up (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Option C \u2014 B + default flip and in-pod loop retirement in this pipeline",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-2",
+      "question": "Failure-supervision policy for one-shot agent pods (replaces the in-pod retry loop): when a spawned pod dies mid-event or the agent invocation fails, should the orchestrator (a) respawn automatically with a bounded retry budget + backoff, escalating to OVERSEER_ALERT when exhausted (recommended \u2014 mirrors the wrapper's #3138 streak semantics), or (b) alert-only on first failure with no automatic respawn?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Bounded automatic respawn with backoff, then OVERSEER_ALERT (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Alert-only, human decides every respawn",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-06-12T16:43:11.198708Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "Scope for #3064 on-demand agent spawning: which option? A = spawner + ownership flag (default in-pod) + spawn dedupe + bounded respawn, confirm/complete orchestrator-side. B (recommended) = A + worktree re-attach & session reuse across spawns, idle-budget/stall alerts re-homed orchestrator-side, lifecycle-aware health-monitor thresholds, #2806 failure signaling relocated; default flip stays a follow-up gated on a live BRC cycle. C = B + flip the default and retire the in-pod wait arm in this same pipeline.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option A \u2014 spawner + guard only, flag defaults to in-pod loop",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option B \u2014 A + lifecycle re-homing; flip deferred to a gated follow-up (recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Option C \u2014 B + default flip and in-pod loop retirement in this pipeline",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Scope for #3064 on-demand agent spawning: which op...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T16:43:13.716713Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "Failure-supervision policy for one-shot agent pods (replaces the in-pod retry loop): when a spawned pod dies mid-event or the agent invocation fails, should the orchestrator (a) respawn automatically with a bounded retry budget + backoff, escalating to OVERSEER_ALERT when exhausted (recommended \u2014 mirrors the wrapper's #3138 streak semantics), or (b) alert-only on first failure with no automatic respawn?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Bounded automatic respawn with backoff, then OVERSEER_ALERT (recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Alert-only, human decides every respawn",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Failure-supervision policy for one-shot agent pods...",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
