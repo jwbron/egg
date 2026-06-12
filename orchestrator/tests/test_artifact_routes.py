@@ -521,6 +521,45 @@ class TestArtifactGetRejections:
                 "request body 'path' must not trigger a git show"
             )
 
+    @pytest.mark.parametrize(
+        "bad_identifier",
+        [
+            "../../../etc/passwd",  # traversal style
+            "..",  # bare parent ref
+            "issue/../3077",  # embedded traversal
+            "a/b",  # path separator
+            "issue 3077",  # whitespace
+            "issue;rm",  # shell metachar
+            "",  # empty string
+            ".hidden",  # leading dot (no alnum start)
+        ],
+    )
+    def test_unsafe_explicit_identifier_400(self, client, mock_pipeline, bad_identifier):
+        """An explicit ``identifier`` outside the safe slug shape -> 400.
+
+        The identifier is interpolated into the spec path template, so a
+        defense-in-depth shape check rejects ``..``, ``/``, and other
+        unexpected characters at the wire — the strict no-path guarantee
+        should not have to lean on ``git show``'s pathspec semantics.  The
+        rejection must happen before any subprocess runs.
+        """
+        with _ArtifactRouteSeams(pipeline=mock_pipeline) as seams:
+            status, payload = _post(
+                client,
+                {
+                    "name": "plan-draft",
+                    "ref": "e" * 40,
+                    "pipeline_id": "issue-3077",
+                    "identifier": bad_identifier,
+                },
+            )
+
+            assert status == 400, payload
+            assert "identifier" in (payload.get("message") or "").lower()
+            assert not seams.subprocess_mock.called, (
+                "an unsafe 'identifier' must not trigger a git show"
+            )
+
 
 # ---------------------------------------------------------------------------
 # Cap + truncated flag at the boundary

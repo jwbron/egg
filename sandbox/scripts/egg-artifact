@@ -117,17 +117,21 @@ call_artifact_endpoint() {
     # sandbox/scripts/jira convention.
     trap 'rm -f "${tmpfile:-}" "${curl_errfile:-}"' RETURN
 
-    local http_code
+    # Capture curl's exit status with ``|| curl_exit=$?`` so a hard
+    # connection failure (exit 7/28) does not trip ``set -e`` and abort
+    # the script before the diagnostic below runs.  Without the ``||``,
+    # the failing assignment would exit the script silently, losing the
+    # "Failed to connect to gateway" message.
+    local http_code curl_exit=0
     http_code=$(curl -s -w "%{http_code}" \
         -X POST \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer ${EGG_SESSION_TOKEN}" \
         -d "$payload" \
         -o "$tmpfile" \
-        "${GATEWAY_URL}/api/v1/artifact/get" 2>"$curl_errfile")
+        "${GATEWAY_URL}/api/v1/artifact/get" 2>"$curl_errfile") || curl_exit=$?
 
-    local curl_exit=$?
-    if [ $curl_exit -ne 0 ]; then
+    if [ "$curl_exit" -ne 0 ]; then
         echo "ERROR: Failed to connect to gateway (curl exit $curl_exit)" >&2
         cat "$curl_errfile" >&2
         return 1

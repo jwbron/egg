@@ -103,6 +103,17 @@ artifacts_bp = Blueprint("artifacts", __name__, url_prefix="/api/v1/artifacts")
 # 400 — there is no way for a malformed ``ref`` to reach ``git show``.
 _HEX_REF_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
+# Safe shape for an explicitly-passed ``identifier``.  The identifier is
+# interpolated into the spec path template (``resolve_artifact_path``),
+# so constrain it to a slug — letters, digits, ``.``, ``_``, ``-`` — that
+# starts with an alphanumeric and contains no ``..`` substring (the
+# negative lookahead) and no ``/`` (not in the charset).  ``git show``
+# does not normalize ``..``, so this is defense-in-depth rather than a
+# fix for a live traversal; it makes the strict no-path guarantee hold at
+# the wire instead of relying on pathspec semantics.  All-digit issue
+# numbers and ``issue-3077``-style pipeline ids both match.
+_SAFE_IDENTIFIER_RE = re.compile(r"^(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._-]*$")
+
 # Match the propose-time validator's git-show budget
 # (orchestrator/routes/signals.py).  Plan/analysis drafts and architect
 # outputs are well under 100 KiB today; the conservative ceiling protects
@@ -156,12 +167,24 @@ def _resolve_identifier(
     "absent" is the truthful answer.
     """
     if explicit_identifier is not None:
-        # Coerce all-digit strings to ``int`` so callers can pass either
-        # ``3077`` (an issue number) or ``"issue-3077"`` (a qualified
-        # pipeline id) without thinking about the slice-2 registry's
-        # ``str | int`` accepted shape.
-        if isinstance(explicit_identifier, str) and explicit_identifier.isdigit():
-            return int(explicit_identifier), None
+        if isinstance(explicit_identifier, str):
+            # Defense-in-depth: reject any identifier that could influence
+            # the resolved path beyond the spec's intent before it reaches
+            # the path template.  See ``_SAFE_IDENTIFIER_RE`` for why this
+            # is belt-and-suspenders rather than a traversal fix.
+            if not _SAFE_IDENTIFIER_RE.match(explicit_identifier):
+                return None, _error(
+                    f"Invalid 'identifier' {explicit_identifier!r}: must be digits "
+                    "or a safe slug (letters, digits, '.', '_', '-'; no '/' or '..')",
+                    status_code=400,
+                    details={"identifier": explicit_identifier},
+                )
+            # Coerce all-digit strings to ``int`` so callers can pass
+            # either ``3077`` (an issue number) or ``"issue-3077"`` (a
+            # qualified pipeline id) without thinking about the slice-2
+            # registry's ``str | int`` accepted shape.
+            if explicit_identifier.isdigit():
+                return int(explicit_identifier), None
         return explicit_identifier, None
 
     # Lazy imports — same rationale as ``routes.signals``: keep the
@@ -349,6 +372,13 @@ def get_artifact() -> tuple[Response, int]:
     slice-2 spec registry — there is no way for an agent to read an
     arbitrary repo path through this endpoint.
     """
+    # Reads are intentionally NOT role-gated: the gateway forwards the
+    # session role as ``X-Egg-Role`` for audit / future use, but this
+    # route never consults it (unlike contract mutations in
+    # ``routes.contracts``, which role-validate writers).  Any
+    # authenticated session may read any spec-registered artifact; the
+    # strict no-path design — not a per-role allow-list — is the access
+    # boundary here.
     body = request.get_json(silent=True)
     if not isinstance(body, dict):
         return _error("Request body must be a JSON object")
