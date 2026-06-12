@@ -14,7 +14,10 @@ up the same way per pipeline type:
 
 - **GitHub-issue pipelines** — `issue.title` is a short label; the
   body lives on GitHub. Fetch with `gh issue view <n>`.
-  `task_description` is `None`.
+  `task_description` carries an issue identity anchor ("This pipeline's
+  task is GitHub issue #N — <url>. Fetch the live issue body
+  (`gh issue view N`) before structural decisions.") since #3163 —
+  orientation pointing you at the issue, not the baked-in body.
 - **JIRA-driven pipelines** — no `issue` block; `task_description` is a
   snapshot of the submitted description. Read it first; if you need the
   current ticket state (latest comments, status, links), fetch
