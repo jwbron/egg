@@ -8,7 +8,8 @@ the ``update_pipeline_config`` MCP tool). Covers:
 - per-role merge semantics (set / null-clears / absent-keeps),
 - role-key validation against ``MODEL_OVERRIDE_ROLES`` and value
   validation (non-empty strings or null),
-- error mapping (404 unknown pipeline, 400 validation, 401 unauth).
+- error mapping (404 unknown pipeline, 400 validation, 401 unauth,
+  409 terminal-state mutation).
 """
 
 from unittest.mock import MagicMock, patch
@@ -36,13 +37,16 @@ def client(app):
     return app.test_client()
 
 
-def _make_pipeline(agent_models: dict[str, str] | None = None) -> Pipeline:
+def _make_pipeline(
+    agent_models: dict[str, str] | None = None,
+    status: PipelineStatus = PipelineStatus.RUNNING,
+) -> Pipeline:
     return Pipeline(
         id="issue-77",
         repo="test/repo",
         issue_number=77,
         branch="egg/issue-77",
-        status=PipelineStatus.RUNNING,
+        status=status,
         config=PipelineConfig(agent_models=agent_models or {}),
     )
 
@@ -221,3 +225,32 @@ class TestUpdatePipelineConfigErrors:
             _lifecycle_auth=False,
         )
         assert response.status_code == 401, response.data
+
+
+@patch("routes.pipelines.get_repo_path")
+@patch("routes.pipelines._resolve_pipeline")
+class TestUpdatePipelineConfigTerminalState:
+    """Terminal pipelines reject config mutations with 409 (#3174 review).
+
+    Once a pipeline is COMPLETE / FAILED / CANCELLED no future spawn consumes
+    ``agent_models``, so the merge would be a silent no-op. A 409 gives the
+    operator a clear signal instead.
+    """
+
+    @pytest.mark.parametrize(
+        "status",
+        [PipelineStatus.COMPLETE, PipelineStatus.FAILED, PipelineStatus.CANCELLED],
+    )
+    def test_terminal_state_409_and_no_write(self, mock_resolve, mock_repo, client, status):
+        pipeline = _make_pipeline({"coder": "opus"}, status=status)
+        store = _mock_store(pipeline)
+        mock_resolve.return_value = (store, pipeline)
+
+        response = client.patch(
+            "/api/v1/pipelines/issue-77/config",
+            json={"agent_models": {"tester": "deepseek-v4-pro"}},
+        )
+
+        assert response.status_code == 409, response.data
+        assert status.value in response.get_json()["message"]
+        store.update_pipeline.assert_not_called()

@@ -2337,6 +2337,26 @@ def update_pipeline_config(pipeline_id: str) -> tuple[Response, int]:
         # acquisition nests cleanly.
         with get_pipeline_state_lock(pipeline_id):
             current = store.load_pipeline(pipeline_id)
+
+            # Reject mutations on terminal pipelines (#3174 review). No future
+            # spawn consumes ``agent_models`` once a pipeline is COMPLETE /
+            # FAILED / CANCELLED, so the merge would be a silent no-op; a 409
+            # gives the operator a clear signal and matches restart_phase's
+            # terminal-state precondition style. Checked under the lock against
+            # freshly-loaded state so a concurrent terminal transition can't
+            # slip a mutation through.
+            if current.status in (
+                PipelineStatus.COMPLETE,
+                PipelineStatus.FAILED,
+                PipelineStatus.CANCELLED,
+            ):
+                return make_error_response(
+                    f"Pipeline {pipeline_id} is in terminal state "
+                    f"{current.status.value}; agent_models cannot be updated "
+                    "(no future spawn would consume the change).",
+                    status_code=409,
+                )
+
             merged = dict(current.config.agent_models)
             updated_roles: dict[str, str] = {}
             cleared_roles: list[str] = []
@@ -18206,6 +18226,16 @@ def _run_concurrent_phase(
                         container_id=exec_info.container_id,
                         started_at=datetime.now(UTC),
                         slice_id=slice_id,
+                        # Carry the per-agent resolved model through the
+                        # reconstruction (#3174). ``_spawn_agent`` stamps this on
+                        # the in-memory execution, but the persisted record is
+                        # rebuilt from scratch here — without this copy the field
+                        # dead-ends at None and both operator confirmation
+                        # channels (get_status, list_containers), which read from
+                        # persisted state, surface ``resolved_model: null`` for
+                        # every concurrent-phase agent (initial spawn and
+                        # restart_phase respawn alike).
+                        resolved_model=exec_info.resolved_model,
                     )
                     phase_execution.agents.append(agent_state)
                 store.save_pipeline(pip)
@@ -19384,6 +19414,13 @@ def _spawn_and_wait(
     """
     from models import ContainerInfo, ContainerStatus, PipelinePhase
 
+    try:
+        from agent_model_resolution import DEFAULT_AGENT_MODEL
+    except ImportError:
+        from ..agent_model_resolution import (  # type: ignore[import-not-found, no-redef]
+            DEFAULT_AGENT_MODEL,
+        )
+
     retry_kwargs: dict = {}
     if spawn_max_retries is not None:
         retry_kwargs["spawn_max_retries"] = spawn_max_retries
@@ -19445,12 +19482,19 @@ def _spawn_and_wait(
                 # ``slice_id`` through here — otherwise the new
                 # ``(role, slice_id)`` walks added in #2422 will not see
                 # the record. See PR #2435 review thread.
+                # This helper hard-codes the default Anthropic auth path (see
+                # the NOTE above ``spawn_agent_job``), so the resolved model is
+                # always the built-in default alias. Stamp it for parity with
+                # ``_run_concurrent_phase`` / ``restart_agent`` (#3174) — if this
+                # test-only path is ever resurrected for production it will not
+                # silently regress resolved-model visibility.
                 agent_execution = AgentExecution(
                     role=agent_role,
                     status=AgentExecutionStatus.RUNNING,
                     container_id=spawned.container_info.container_id,
                     slice_id=None,
                     started_at=datetime.now(UTC),
+                    resolved_model=DEFAULT_AGENT_MODEL,
                 )
                 phase_execution.agents.append(agent_execution)
 
