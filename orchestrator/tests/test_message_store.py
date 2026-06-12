@@ -1040,3 +1040,287 @@ class TestSliceAndFromRolesCombined:
         assert len(got[0]) == 1
         assert got[0][0].from_role == "orchestrator"
         assert got[0][0].message_type == MessageType.CONSENSUS_RE_REVIEW
+
+
+class TestBackendSelectionFailLoudMatrix:
+    """Bounded-durability fail-loud signal for ``_create_message_store`` (#3077).
+
+    Slice-6 / TASK-6-2 contract per HITL Q3 (fail-loud only, no refusal):
+
+    - ``EGG_MESSAGE_STORE_BACKEND=auto`` with Redis unavailable resolves to
+      the in-memory fallback and MUST emit an **error-level** log carrying
+      a stable, grep-able marker AND flip a module-level degraded flag
+      visible on the orchestrator health surface. This is the only branch
+      where mid-phase orchestrator restart silently loses transcript and
+      consensus state — the loud signal pins the #3076 condition so an
+      operator can see the durability degradation without scraping debug
+      noise.
+    - ``EGG_MESSAGE_STORE_BACKEND=memory`` (explicit dev/test intent) stays
+      at **warning** level and does NOT flip the degraded flag — the
+      operator chose this backend, no surprise.
+    - Redis backend (``auto`` with Redis up, or ``redis`` explicit) emits
+      neither error nor warning AND does NOT flip the degraded flag.
+    - Explicit ``redis`` mode with Redis down still raises (existing
+      contract; unchanged here).
+
+    These tests pin the matrix by patching ``_create_message_store``'s
+    ``get_redis_message_store`` import so each backend path is exercised
+    without a real Redis. The contract symbols the test relies on are:
+
+    - ``MEMORY_FALLBACK_MARKER`` — a module-level constant whose value
+      appears in either the error log's message or its ``extra`` dict.
+    - ``is_message_store_degraded()`` — module-level query function
+      returning ``True`` after an auto→memory fallback, ``False`` after
+      any other backend selection.
+    - ``reset_message_store_degraded_for_tests()`` — internal reset hook
+      so each test starts from a known clean state without leaking module
+      state into the rest of the suite.
+
+    The names above are this test module's contract on the coder's
+    TASK-6-1 implementation; deviations get caught here at proposal time.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_degraded_flag(self) -> None:
+        """Reset the module-level degraded flag before every test so
+        accidental leakage from a previous _create_message_store() call
+        cannot mask a regression."""
+        import message_store as ms
+
+        if hasattr(ms, "reset_message_store_degraded_for_tests"):
+            ms.reset_message_store_degraded_for_tests()
+
+    @pytest.fixture
+    def _clean_env(self, monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
+        """Start with no backend env var set so each test pins the
+        value explicitly. Other Redis-config env vars are cleared so a
+        leaked value from the developer's shell cannot redirect the
+        connection probe."""
+        for key in (
+            "EGG_MESSAGE_STORE_BACKEND",
+            "REDIS_HOST",
+            "REDIS_PORT",
+            "REDIS_MESSAGE_DB",
+        ):
+            monkeypatch.delenv(key, raising=False)
+        return monkeypatch
+
+    def _patch_redis(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        succeed: bool,
+    ) -> None:
+        """Stub the redis_message_store import inside _create_message_store.
+
+        ``succeed=True`` returns a sentinel store object; ``succeed=False``
+        raises a ConnectionError shaped like the production failure
+        (``redis.ConnectionError`` would be the real type, but the
+        ``except Exception`` block treats both identically and a stdlib
+        ConnectionError keeps the test dependency-free).
+        """
+        import sys as _sys
+        import types as _types
+
+        fake_module = _types.ModuleType("redis_message_store")
+
+        if succeed:
+            sentinel = object()
+
+            def _get(*_args, **_kwargs):
+                return sentinel
+
+            fake_module.get_redis_message_store = _get
+            fake_module._sentinel = sentinel  # exposed so tests can identity-check
+        else:
+
+            def _get(*_args, **_kwargs):  # pragma: no cover - exception path
+                raise ConnectionError("simulated redis unavailable")
+
+            fake_module.get_redis_message_store = _get
+
+        monkeypatch.setitem(_sys.modules, "redis_message_store", fake_module)
+
+    def test_auto_to_memory_fallback_errors_and_sets_degraded(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        _clean_env: pytest.MonkeyPatch,
+    ) -> None:
+        """``auto`` backend + Redis unavailable: exactly one ERROR-level
+        log with the stable marker, plus the module-level degraded flag
+        flips to ``True``. This is the #3076 mid-phase-loss signal."""
+        from message_store import (
+            MEMORY_FALLBACK_MARKER,
+            MessageStore,
+            _create_message_store,
+            is_message_store_degraded,
+        )
+
+        # Default for use_redis is "auto" when env var is absent; the
+        # _clean_env fixture deleted EGG_MESSAGE_STORE_BACKEND so we're
+        # on the auto path here.
+        self._patch_redis(_clean_env, succeed=False)
+
+        with caplog.at_level("DEBUG", logger="orchestrator.message_store"):
+            store = _create_message_store()
+
+        # Behavior: the auto branch fell back to the in-memory store.
+        assert isinstance(store, MessageStore)
+
+        errors = [r for r in caplog.records if r.levelname == "ERROR"]
+        assert len(errors) == 1, (
+            f"auto→memory fallback must emit exactly one ERROR log "
+            f"(the #3076 mid-phase-loss signal); got {len(errors)}: "
+            f"{[r.getMessage() for r in errors]}"
+        )
+        rec = errors[0]
+        # The stable marker must be grep-able — either in the rendered
+        # message or in the LogRecord's extra/structured payload. The
+        # coder picks the carrier; either site is fine for an operator
+        # scraping logs.
+        marker_in_message = MEMORY_FALLBACK_MARKER in rec.getMessage()
+        marker_in_extra = MEMORY_FALLBACK_MARKER in {
+            str(v) for v in vars(rec).values() if isinstance(v, str)
+        }
+        assert marker_in_message or marker_in_extra, (
+            f"auto→memory ERROR log must carry the stable marker "
+            f"{MEMORY_FALLBACK_MARKER!r} in either the message or the "
+            f"LogRecord extras so operators can grep for it; got "
+            f"message={rec.getMessage()!r} extras={vars(rec)!r}"
+        )
+
+        # Health-visible degraded flag flipped — operator-facing signal
+        # the health surface attaches to.
+        assert is_message_store_degraded() is True, (
+            "auto→memory fallback must flip the health-visible degraded "
+            "flag (HITL Q3 fail-loud requirement); the orchestrator "
+            "/health surface keys off this flag."
+        )
+
+    def test_explicit_memory_warns_and_keeps_degraded_clear(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        _clean_env: pytest.MonkeyPatch,
+    ) -> None:
+        """``EGG_MESSAGE_STORE_BACKEND=memory`` is an explicit dev/test
+        choice. It MUST log at WARNING level (so the operator still
+        sees in dev logs that durability is bounded) but MUST NOT flip
+        the degraded flag — the explicit choice is not a degradation,
+        it's the configured state. No ERROR log either."""
+        from message_store import (
+            MessageStore,
+            _create_message_store,
+            is_message_store_degraded,
+        )
+
+        _clean_env.setenv("EGG_MESSAGE_STORE_BACKEND", "memory")
+
+        with caplog.at_level("DEBUG", logger="orchestrator.message_store"):
+            store = _create_message_store()
+
+        assert isinstance(store, MessageStore)
+
+        errors = [r for r in caplog.records if r.levelname == "ERROR"]
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert errors == [], (
+            "Explicit memory backend must NOT emit any ERROR log — "
+            "ERROR is reserved for the auto→memory degradation. "
+            f"Got: {[r.getMessage() for r in errors]}"
+        )
+        assert len(warnings) >= 1, (
+            "Explicit memory backend must emit at least one WARNING log "
+            "so dev/test runs surface that durability is bounded."
+        )
+        assert is_message_store_degraded() is False, (
+            "Explicit memory backend is a configured choice, not a "
+            "degradation — the degraded flag must stay False."
+        )
+
+    def test_auto_with_redis_available_silent_no_degraded(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        _clean_env: pytest.MonkeyPatch,
+    ) -> None:
+        """``auto`` with Redis up: no WARNING, no ERROR, degraded=False.
+        This is the production happy path — the matrix must not start
+        warning operators when nothing is wrong (avoiding log noise was
+        an explicit HITL Q3 constraint: 'unit tests are not spammed')."""
+        from message_store import _create_message_store, is_message_store_degraded
+
+        self._patch_redis(_clean_env, succeed=True)
+
+        with caplog.at_level("DEBUG", logger="orchestrator.message_store"):
+            _create_message_store()
+
+        errors = [r for r in caplog.records if r.levelname == "ERROR"]
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert errors == [], (
+            f"Redis backend (auto-resolved) must not emit ERROR; got "
+            f"{[r.getMessage() for r in errors]}"
+        )
+        assert warnings == [], (
+            f"Redis backend (auto-resolved) must not emit WARNING; got "
+            f"{[r.getMessage() for r in warnings]}"
+        )
+        assert is_message_store_degraded() is False
+
+    def test_explicit_redis_failure_still_raises(
+        self,
+        _clean_env: pytest.MonkeyPatch,
+    ) -> None:
+        """``EGG_MESSAGE_STORE_BACKEND=redis`` with Redis down: the
+        existing fail-hard contract is unchanged by the fail-loud work.
+        The exception propagates; we do NOT silently degrade to memory."""
+        from message_store import _create_message_store
+
+        _clean_env.setenv("EGG_MESSAGE_STORE_BACKEND", "redis")
+        self._patch_redis(_clean_env, succeed=False)
+
+        with pytest.raises((ConnectionError, Exception)):
+            _create_message_store()
+
+    def test_auto_fallback_clears_degraded_on_subsequent_redis_success(
+        self,
+        _clean_env: pytest.MonkeyPatch,
+    ) -> None:
+        """Sequencing pin: an earlier auto→memory fallback flips the
+        flag, but a subsequent ``_create_message_store()`` call that
+        successfully selects Redis MUST clear it. Otherwise a transient
+        boot-time Redis blip would leave the orchestrator permanently
+        flagged as degraded even after it healed."""
+        from message_store import _create_message_store, is_message_store_degraded
+
+        # First call: Redis down — degraded flips True.
+        self._patch_redis(_clean_env, succeed=False)
+        _create_message_store()
+        assert is_message_store_degraded() is True
+
+        # Second call: Redis recovers — flag must clear.
+        self._patch_redis(_clean_env, succeed=True)
+        _create_message_store()
+        assert is_message_store_degraded() is False, (
+            "Subsequent successful Redis selection must clear the "
+            "degraded flag — otherwise a startup race leaves the "
+            "orchestrator permanently flagged as durability-degraded."
+        )
+
+    def test_explicit_memory_clears_degraded_if_previously_set(
+        self,
+        _clean_env: pytest.MonkeyPatch,
+    ) -> None:
+        """If a previous auto→memory call set the flag, a follow-up
+        EXPLICIT memory selection (the operator owning the choice) must
+        clear it. The flag tracks the most recent selection's character,
+        not a sticky 'has-ever-been-degraded' bit."""
+        from message_store import _create_message_store, is_message_store_degraded
+
+        # Seed degraded=True via auto-fallback.
+        self._patch_redis(_clean_env, succeed=False)
+        _create_message_store()
+        assert is_message_store_degraded() is True
+
+        # Now the operator explicitly opts into memory — degradation
+        # becomes intent, flag clears.
+        _clean_env.setenv("EGG_MESSAGE_STORE_BACKEND", "memory")
+        _create_message_store()
+        assert is_message_store_degraded() is False

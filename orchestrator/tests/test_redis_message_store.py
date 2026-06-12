@@ -1042,3 +1042,255 @@ class TestRedisSingularFromRoleAndSliceCombined:
         assert len(got[0]) == 1
         assert got[0][0].from_role == "coder"
         assert got[0][0].metadata.get("slice_id") == "slice-1"
+
+
+class TestRedisRestartSemanticsVsPhaseBoundaryWipe:
+    """Bounded-durability restart contract for the Redis backend (#3077 slice-6).
+
+    This class pins the two distinct wipe semantics the orchestrator
+    relies on and that have repeatedly been conflated in incident
+    triage. Both are asserted in this module by design — the explicit
+    test_id naming pattern (``test_mid_phase_restart_*`` vs
+    ``test_phase_boundary_clear_*``) is the readable distinction so a
+    future reader cannot mistake the intentional wipe for the
+    accidental loss this slice is hardening against.
+
+    1. **Mid-phase orchestrator restart — transcript MUST survive.**
+       The orchestrator process can be replaced (kubelet liveness reset,
+       deploy roll, OOM kill) at any moment during a phase. With the
+       Redis backend, transcripts and consensus state live in
+       process-external Redis streams; re-instantiating
+       :class:`RedisMessageStore` against the same Redis MUST observe
+       every previously-added message. This is the #3076 invariant —
+       silent loss here is the failure class slice-6's fail-loud signal
+       names; the Redis path is the answer.
+
+    2. **Phase-boundary wipe — transcript MUST be cleared.**
+       ``orchestrator/routes/phases.py:113::_clear_concurrent_state``
+       calls ``get_message_store().clear(pipeline_id)`` on every phase
+       transition. This is *designed* state reset (the new phase's BRC
+       cycle must start clean), not a defect, and the Redis backend's
+       ``clear()`` MUST honour it.
+
+    The fail mode worse than losing the transcript on restart is
+    quietly relaxing the phase-boundary wipe in pursuit of fixing
+    restart loss — the BRC tracker reconstruction would then replay
+    stale prior-phase signals into the new phase. Both behaviours are
+    pinned together so neither can drift.
+    """
+
+    def _make_progress(
+        self,
+        pipeline_id: str,
+        subject: str,
+        slice_id: str | None = None,
+    ) -> Message:
+        metadata: dict[str, object] = {}
+        if slice_id is not None:
+            metadata["slice_id"] = slice_id
+        return Message(
+            pipeline_id=pipeline_id,
+            from_role="coder",
+            to_role="all",
+            message_type=MessageType.PROGRESS,
+            subject=subject,
+            metadata=metadata,
+        )
+
+    def test_mid_phase_restart_preserves_transcript_via_shared_redis(
+        self, redis_client: fakeredis.FakeRedis
+    ) -> None:
+        """Mid-phase restart: a NEW ``RedisMessageStore`` instantiated
+        against the SAME Redis backend observes every message the
+        previous instance added. ``fakeredis.FakeRedis`` is a faithful
+        substitute here because the contract under test is the
+        store-to-Redis side of the boundary — not Redis-the-process
+        durability. Persistence across instances is the moral
+        equivalent of "the orchestrator restarted while the phase was
+        in flight"."""
+        pipeline_id = "pipeline-restart"
+
+        # Pre-restart store: simulate the in-flight phase's first half.
+        pre_store = RedisMessageStore(redis_client)
+        seeded = [
+            pre_store.add_message(self._make_progress(pipeline_id, "early-1", "slice-6")),
+            pre_store.add_message(self._make_progress(pipeline_id, "early-2", "slice-6")),
+            pre_store.add_message(
+                Message(
+                    pipeline_id=pipeline_id,
+                    from_role="coder",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_PROPOSE,
+                    subject="proposal v1",
+                    metadata={"slice_id": "slice-6", "version": 1},
+                )
+            ),
+        ]
+        # Drop the in-process state to mimic the orchestrator process
+        # exiting (caches, locks, and any per-instance bookkeeping go).
+        del pre_store
+
+        # Post-restart store: NEW instance, SAME Redis. No call to
+        # clear() in between — the restart is mid-phase.
+        post_store = RedisMessageStore(redis_client)
+        recovered = post_store.get_messages(pipeline_id, limit=100)
+
+        assert len(recovered) == len(seeded), (
+            "Mid-phase orchestrator restart silently lost messages — "
+            "this is the #3076 failure mode the Redis backend is "
+            "supposed to prevent. Expected "
+            f"{len(seeded)} messages, observed {len(recovered)}."
+        )
+        # Identity by message id — the Redis path uses the message
+        # UUID as the persistent identity (the stream id may differ
+        # across re-encoded payloads, but the id field is stable).
+        assert [m.id for m in recovered] == [m.id for m in seeded]
+        # Spot-check that the BRC-shaped message survived intact —
+        # consensus state replay specifically requires
+        # CONSENSUS_PROPOSE rows to come back with their metadata.
+        proposes = [m for m in recovered if m.message_type == MessageType.CONSENSUS_PROPOSE]
+        assert len(proposes) == 1
+        assert proposes[0].metadata.get("version") == 1
+        assert proposes[0].metadata.get("slice_id") == "slice-6"
+
+    def test_mid_phase_restart_preserves_type_counters(
+        self, redis_client: fakeredis.FakeRedis
+    ) -> None:
+        """The per-type counter hash (``pipeline:{id}:msg_counts``) is
+        the other half of the store's durable state — used by
+        ``get_status`` to drive health dashboards and BRC progress
+        accounting. Restart MUST preserve it. Without this, the
+        post-restart store would under-report message counts on a
+        phase that was already in flight, which surfaces as bogus
+        zero-progress dashboards even though transcripts are intact."""
+        pipeline_id = "pipeline-counters"
+        pre_store = RedisMessageStore(redis_client)
+        for i in range(3):
+            pre_store.add_message(self._make_progress(pipeline_id, f"p-{i}"))
+        pre_store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                subject="proposal",
+            )
+        )
+        pre_status = pre_store.get_status(pipeline_id)
+        assert pre_status["total"] == 4
+
+        del pre_store
+
+        post_store = RedisMessageStore(redis_client)
+        post_status = post_store.get_status(pipeline_id)
+        assert post_status == pre_status, (
+            "Restart-semantics: get_status (XLEN + counter hash) must "
+            "be byte-identical across instances of the Redis-backed "
+            "store; mismatched counters indicate the pre-restart "
+            "instance owned local state that didn't make it to Redis."
+        )
+
+    def test_mid_phase_restart_preserves_since_id_resolution(
+        self, redis_client: fakeredis.FakeRedis
+    ) -> None:
+        """The since_id cursor protocol must survive a restart.
+        Pre-restart, an agent records a cursor; post-restart the new
+        store instance must resolve that cursor without bouncing the
+        consumer to a full-history replay. The in-memory mapping
+        ``_id_to_stream_id`` is per-instance, so this test pins that
+        the scan-fallback path inside ``_find_stream_id_by_message_id``
+        recovers the mapping from the persistent stream (otherwise
+        every restart silently invalidates every live agent cursor)."""
+        pipeline_id = "pipeline-cursor"
+        pre_store = RedisMessageStore(redis_client)
+        anchor = pre_store.add_message(self._make_progress(pipeline_id, "anchor"))
+        for i in range(3):
+            pre_store.add_message(self._make_progress(pipeline_id, f"after-{i}"))
+
+        del pre_store
+
+        post_store = RedisMessageStore(redis_client)
+        # The fresh instance has an empty ``_id_to_stream_id`` cache;
+        # the resolver MUST fall back to the persistent stream scan.
+        after_anchor = post_store.get_messages(pipeline_id, since_id=anchor.id)
+        assert [m.subject for m in after_anchor] == ["after-0", "after-1", "after-2"], (
+            "since_id must resolve across a mid-phase restart via the "
+            "scan-fallback; if every restart loses cursors, agents "
+            "would replay full history and the BRC reconstruction "
+            "would treat already-handled signals as fresh events."
+        )
+
+    def test_phase_boundary_clear_concurrent_state_still_wipes(
+        self,
+        redis_client: fakeredis.FakeRedis,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The DESIGNED phase-boundary wipe via ``_clear_concurrent_state``
+        (orchestrator/routes/phases.py:113) MUST still drain the Redis
+        stream. This is intentional state reset, not the accidental
+        mid-phase loss the restart-semantics tests above harden against
+        — same module, distinct semantics, distinct test_ids."""
+        pipeline_id = "pipeline-phase-wipe"
+        store = RedisMessageStore(redis_client)
+        for i in range(4):
+            store.add_message(self._make_progress(pipeline_id, f"phase-1-msg-{i}"))
+        assert store.get_status(pipeline_id)["total"] == 4
+
+        # Make _clear_concurrent_state pick up our Redis store via the
+        # singleton accessor it imports. Patch the same name the
+        # function resolves at call time so the wipe goes to OUR Redis,
+        # not a fresh in-memory MessageStore.
+        import message_store as ms
+
+        monkeypatch.setattr(ms, "get_message_store", lambda: store)
+        # peer_consensus.remove_peer_consensus_tracker is best-effort
+        # inside _clear_concurrent_state — stub it so an unrelated
+        # import failure can't be misread as a wipe-semantics failure.
+        try:
+            import peer_consensus
+
+            monkeypatch.setattr(peer_consensus, "remove_peer_consensus_tracker", lambda _pid: None)
+        except ImportError:  # pragma: no cover - module always present in repo
+            pass
+
+        from routes.phases import _clear_concurrent_state
+
+        _clear_concurrent_state(pipeline_id)
+
+        # Phase-boundary wipe: stream gone, status reset.
+        assert store.get_messages(pipeline_id, limit=100) == [], (
+            "_clear_concurrent_state must drain the Redis-backed "
+            "transcript at the phase boundary — without this the new "
+            "phase's BRC cycle reconstructs from stale prior-phase "
+            "signals (the failure mode worse than restart loss)."
+        )
+        assert store.get_status(pipeline_id)["total"] == 0
+
+    def test_restart_after_phase_boundary_wipe_stays_clean(
+        self, redis_client: fakeredis.FakeRedis
+    ) -> None:
+        """Combined invariant: once ``_clear_concurrent_state`` has wiped
+        the stream at a phase boundary, a subsequent orchestrator
+        restart MUST NOT resurrect the wiped messages. The wipe is
+        through Redis itself (XDEL / DEL on the stream key), so a new
+        store instance sees the same empty state — there is no per-
+        instance shadow copy of the cleared transcript."""
+        pipeline_id = "pipeline-wipe-then-restart"
+        pre_store = RedisMessageStore(redis_client)
+        for i in range(3):
+            pre_store.add_message(self._make_progress(pipeline_id, f"phase-1-{i}"))
+
+        # Phase boundary: explicit wipe through the store's clear() —
+        # the same call _clear_concurrent_state makes, exercised
+        # directly here so the test does not depend on importing the
+        # routes layer.
+        cleared = pre_store.clear(pipeline_id)
+        assert cleared == 3
+
+        del pre_store
+
+        # Restart: new store instance, same Redis. No messages must
+        # surface — the wipe is persistent.
+        post_store = RedisMessageStore(redis_client)
+        assert post_store.get_messages(pipeline_id, limit=100) == []
+        assert post_store.get_status(pipeline_id) == {"total": 0, "by_type": {}}
