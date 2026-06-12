@@ -365,23 +365,6 @@ class JobSupervisor:
             )
 
 
-@dataclass
-class EventDecision:
-    """Structured per-role outcome of one :meth:`OrchestratorEventLoop.poll_once`.
-
-    ``spawned`` is True only when this poll requested a *new* one-shot Job
-    (a deduped repeat is False). ``agent_free`` is True for confirm/complete.
-    ``timing`` is a structured mapping for the slice-4 latency budget on a
-    fresh spawn, ``None`` otherwise.
-    """
-
-    role: str
-    action: str
-    dedupe_key: str | None = None
-    spawned: bool = False
-    agent_free: bool = False
-    timing: dict[str, Any] | None = None
-
 
 class OrchestratorEventLoop:
     """Drive BRC forward by spawning one-shot pods per derived event.
