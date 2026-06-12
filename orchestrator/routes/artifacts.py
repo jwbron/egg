@@ -426,7 +426,7 @@ def get_artifact() -> tuple[Response, int]:
         "artifact served",
         extra={
             "pipeline_id": pipeline_id,
-            "name": name,
+            "artifact_name": name,
             "ref": ref,
             "path": rel_path,
             "bytes": len(payload),
