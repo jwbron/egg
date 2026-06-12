@@ -2178,9 +2178,7 @@ class TestSyncOutcomesAndBanner:
 # ===========================================================================
 
 _GOLDEN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden")
-_POD_DEFAULT_GOLDEN_PATH = os.path.join(
-    _GOLDEN_DIR, "event_pump_wrapper_pod_default.sh"
-)
+_POD_DEFAULT_GOLDEN_PATH = os.path.join(_GOLDEN_DIR, "event_pump_wrapper_pod_default.sh")
 
 
 def _read_pod_default_golden() -> str:
@@ -2305,8 +2303,7 @@ class TestEventLoopOwnerAccessor:
             get_event_loop_owner()
         msg = str(excinfo.value)
         assert "EGG_EVENT_LOOP_OWNER" in msg and "kubernetes" in msg, (
-            "the ValueError must name the env var and the offending value. "
-            f"Got: {msg!r}"
+            f"the ValueError must name the env var and the offending value. Got: {msg!r}"
         )
 
 
@@ -2390,8 +2387,7 @@ class TestOneShotArmStructure:
     def test_one_shot_rechecks_next_action_once(self, monkeypatch):
         script = self._one_shot_script(monkeypatch)
         assert "brc next-action" in script, (
-            "one-shot arm must re-check next-action once as the stale/"
-            "dedupe backstop."
+            "one-shot arm must re-check next-action once as the stale/dedupe backstop."
         )
 
     def test_one_shot_retains_agent_invocation_path(self, monkeypatch):
@@ -2498,12 +2494,8 @@ class TestOneShotArmBehavior:
             tmp_path, '{"action":"wait"}', agent_exit=0
         )
         env = self._env(bin_dir, "propose")
-        result = subprocess.run(
-            cmd, env=env, capture_output=True, text=True, timeout=30
-        )
-        assert result.returncode == 0, (
-            "stale one-shot event must exit 0. stderr:\n" + result.stderr
-        )
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, "stale one-shot event must exit 0. stderr:\n" + result.stderr
         assert self._agent_invocation_count(agent_log) == 0, (
             "stale one-shot event must NOT invoke the agent (dedupe "
             "backstop). egg-orch log:\n"
@@ -2519,12 +2511,9 @@ class TestOneShotArmBehavior:
             tmp_path, '{"action":"propose"}', agent_exit=0
         )
         env = self._env(bin_dir, "propose")
-        result = subprocess.run(
-            cmd, env=env, capture_output=True, text=True, timeout=30
-        )
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)
         assert result.returncode == 0, (
-            "fresh one-shot event with a clean agent exit must exit 0. "
-            "stderr:\n" + result.stderr
+            "fresh one-shot event with a clean agent exit must exit 0. stderr:\n" + result.stderr
         )
         count = self._agent_invocation_count(agent_log)
         assert count == 1, (
@@ -2543,16 +2532,13 @@ class TestOneShotArmBehavior:
             tmp_path, '{"action":"propose"}', agent_exit=17
         )
         env = self._env(bin_dir, "propose")
-        result = subprocess.run(
-            cmd, env=env, capture_output=True, text=True, timeout=30
-        )
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)
         assert self._agent_invocation_count(agent_log) == 1, (
             "agent should have been invoked once before the failure."
         )
         assert result.returncode == 17, (
             "one-shot arm must pass the agent's exit code through (not "
-            f"swallow it to 0/1); got {result.returncode}. stderr:\n"
-            + result.stderr
+            f"swallow it to 0/1); got {result.returncode}. stderr:\n" + result.stderr
         )
 
     def test_injected_confirm_is_rejected_loudly(self, tmp_path, monkeypatch):
@@ -2572,9 +2558,7 @@ class TestOneShotArmBehavior:
             tmp_path, f'{{"action":"{action}"}}', agent_exit=0
         )
         env = self._env(bin_dir, action)
-        result = subprocess.run(
-            cmd, env=env, capture_output=True, text=True, timeout=30
-        )
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)
         assert result.returncode != 0, (
             f"one-shot arm must reject an injected {action!r} action with a "
             f"non-zero exit. stderr:\n{result.stderr}"
