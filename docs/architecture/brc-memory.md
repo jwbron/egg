@@ -20,9 +20,9 @@ as ephemeral, regardless of any "durable" framing in older design notes.
 
 ## What problem this solves
 
-A consensus reviewer's lifecycle today is a long-running session that holds
-a blocking `egg-orch message wait-loop` between events. Issue #2908 is
-removing that seam: a wrapper will hold the wait, and an agent will be
+A consensus reviewer's lifecycle before #2908 was a long-running session
+that held a blocking `egg-orch message wait-loop` between events. Issue
+#2908 removed that seam: the wrapper holds the wait, and the agent is
 invoked one-shot per actionable event. A stateless one-shot has no working
 memory across invocations, so something else has to carry the reviewer's
 distilled understanding of the codebase, the change under review, and the
