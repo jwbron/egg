@@ -292,7 +292,7 @@ registration.
 > take Claude Code's 200K default, which auto-compacts safely below
 > their real limit instead of deferring compaction toward 1M and
 > overflowing the upstream mid-turn. The cost is the unused headroom
-> above 200K (e.g. ~56K for Kimi); Claude Code offers no in-between
+> above 200K (e.g. ~62K for Kimi, 262,144 − 200K); Claude Code offers no in-between
 > profile. Add a model to the set when its real window is <1M.
 
 ### Web tool availability on the LiteLLM path (#2856)
