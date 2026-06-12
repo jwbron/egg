@@ -605,9 +605,9 @@ Or via the MCP tool, pass `no_changes_needed=True` and `no_changes_reason="..."`
 1. **ORIENT** — run `egg-contract show` and confirm the role has no tasks in the current slice.
 2. **Propose no-op**: run `egg-orch consensus propose --no-changes-needed --no-changes-reason "..."`.
 3. **Confirm**: run `egg-orch consensus confirmed` (or `mcp__brc__confirm`):
-   - **Success** → proceed to STAY ALIVE.
-   - **`pending_acks` / `global_zero_proposal`** (other producers haven't proposed yet) → wait on `egg-orch message wait-loop --for STATUS --for CONSENSUS_RE_REVIEW --for CONSENSUS_ACK --for CONSENSUS_NACK --for OVERSEER_ALERT`. Retry `confirmed` on STATUS with `ready_to_confirm: true`.
-4. **STAY ALIVE** — follow normal stay-alive and re-review handling.
+   - **Success** → exit; the wrapper re-invokes on `CONSENSUS_CONFIRMED`, `CONSENSUS_RE_REVIEW`, or `OVERSEER_ALERT`.
+   - **`pending_acks` / `global_zero_proposal`** (other producers haven't proposed yet) → exit; the wrapper blocks in `egg-orch message wait-loop` and re-invokes you when a `STATUS`, `CONSENSUS_ACK`, or `CONSENSUS_NACK` event arrives. Retry `mcp__brc__confirm` on re-invocation when `ready_to_confirm: true`.
+4. On re-invocation: handle the event (`CONSENSUS_RE_REVIEW`, `CONSENSUS_CONFIRMED`, or `OVERSEER_ALERT`) and exit normally.
 
 **Source**: `ApprovalMatrix.record_proposal` (`no_changes` flag), `ApprovalMatrix.is_no_changes_proposal`, `ApprovalMatrix.is_fully_acked`, `ApprovalMatrix.get_blocking_edges` in `orchestrator/approval_matrix.py`; `_has_pending_peer_proposals` skip in `orchestrator/routes/consensus.py`.
 
