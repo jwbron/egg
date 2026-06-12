@@ -1040,3 +1040,473 @@ class TestSliceAndFromRolesCombined:
         assert len(got[0]) == 1
         assert got[0][0].from_role == "orchestrator"
         assert got[0][0].message_type == MessageType.CONSENSUS_RE_REVIEW
+
+
+class TestMemoryFallbackFailLoudSignal:
+    """Issue #3077 slice-6 — fail-loud signal for the auto→memory fallback.
+
+    Covers task-6-1 acceptance:
+
+    - ``auto``→memory fallback: exactly one error-level log carrying the
+      stable marker token + ``is_memory_fallback_degraded()`` flag.
+    - Explicit ``EGG_MESSAGE_STORE_BACKEND=memory``: warning level, no
+      degraded flag.
+    - Redis backend: neither (no warn/error from this path, no flag).
+    - ``auto`` selection behavior is unchanged: memory store still
+      returned, no refusal to run.
+    - Once-per-process semantics so integration-test harnesses that
+      reset the singleton aren't spammed; the dedicated test reset
+      helper re-arms the signal.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_state(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Reset the slice-6 fail-loud state + the singleton around each test."""
+        import message_store
+
+        message_store.reset_message_store()
+        message_store._reset_memory_fallback_state_for_test()
+        # Default to a Redis port that nothing is listening on so
+        # ``auto`` lands on the fallback unless a test overrides it.
+        # Tests that want to exercise the success path patch
+        # get_redis_message_store directly.
+        monkeypatch.setenv("REDIS_HOST", "127.0.0.1")
+        monkeypatch.setenv("REDIS_PORT", "1")  # nothing listens here
+        yield
+        message_store.reset_message_store()
+        message_store._reset_memory_fallback_state_for_test()
+
+    def test_auto_fallback_emits_error_and_sets_degraded_flag(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """``auto`` + Redis unreachable → error log w/ marker + degraded flag."""
+        import message_store
+
+        # Force the auto fallback path by raising from the Redis import.
+        # Avoids depending on whether Redis is actually reachable.
+        def _boom(*_a, **_kw):  # type: ignore[no-untyped-def]
+            raise ConnectionError("Cannot connect to Redis at 127.0.0.1:1")
+
+        monkeypatch.setattr("redis_message_store.get_redis_message_store", _boom, raising=False)
+        monkeypatch.delenv("EGG_MESSAGE_STORE_BACKEND", raising=False)  # default == "auto"
+
+        assert message_store.is_memory_fallback_degraded() is False
+        with caplog.at_level("ERROR", logger="orchestrator.message_store"):
+            store = message_store._create_message_store()
+
+        # Selection semantics unchanged: still returns an in-memory store.
+        assert isinstance(store, message_store.MessageStore)
+        # Degraded flag flipped — surfaced by the health route.
+        assert message_store.is_memory_fallback_degraded() is True
+
+        # Exactly one error-level record naming the stable marker token.
+        error_records = [
+            r
+            for r in caplog.records
+            if r.levelname == "ERROR" and message_store.MEMORY_FALLBACK_MARKER in r.getMessage()
+        ]
+        assert len(error_records) == 1, (
+            f"expected exactly one error log with marker "
+            f"{message_store.MEMORY_FALLBACK_MARKER!r}; got {error_records}"
+        )
+        # ``extra={"marker": ...}`` is the structured form scrapers key on.
+        assert getattr(error_records[0], "marker", None) == message_store.MEMORY_FALLBACK_MARKER
+
+    def test_auto_fallback_log_emitted_once_per_process(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Repeated ``_create_message_store`` calls don't re-spam the error."""
+        import message_store
+
+        def _boom(*_a, **_kw):  # type: ignore[no-untyped-def]
+            raise ConnectionError("nope")
+
+        monkeypatch.setattr("redis_message_store.get_redis_message_store", _boom, raising=False)
+        monkeypatch.delenv("EGG_MESSAGE_STORE_BACKEND", raising=False)
+
+        with caplog.at_level("ERROR", logger="orchestrator.message_store"):
+            message_store._create_message_store()
+            # ``reset_message_store`` does NOT clear the once-flag.
+            message_store.reset_message_store()
+            message_store._create_message_store()
+            message_store._create_message_store()
+
+        error_records = [
+            r
+            for r in caplog.records
+            if r.levelname == "ERROR" and message_store.MEMORY_FALLBACK_MARKER in r.getMessage()
+        ]
+        assert len(error_records) == 1, (
+            f"auto→memory fallback log must be once-per-process; got {len(error_records)} emissions"
+        )
+        # The degraded flag remains True across the cycles.
+        assert message_store.is_memory_fallback_degraded() is True
+
+    def test_reset_memory_fallback_state_for_test_rearms_log(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The dedicated test helper clears once-flags + the degraded flag."""
+        import message_store
+
+        def _boom(*_a, **_kw):  # type: ignore[no-untyped-def]
+            raise ConnectionError("nope")
+
+        monkeypatch.setattr("redis_message_store.get_redis_message_store", _boom, raising=False)
+        monkeypatch.delenv("EGG_MESSAGE_STORE_BACKEND", raising=False)
+
+        with caplog.at_level("ERROR", logger="orchestrator.message_store"):
+            message_store._create_message_store()
+            assert message_store.is_memory_fallback_degraded() is True
+            message_store._reset_memory_fallback_state_for_test()
+            # Helper cleared both the once-flag and the degraded flag.
+            assert message_store.is_memory_fallback_degraded() is False
+            message_store._create_message_store()
+
+        error_records = [
+            r
+            for r in caplog.records
+            if r.levelname == "ERROR" and message_store.MEMORY_FALLBACK_MARKER in r.getMessage()
+        ]
+        assert len(error_records) == 2, (
+            "after the dedicated reset helper, the second creation should "
+            f"re-emit the marker log; got {len(error_records)} emissions"
+        )
+
+    def test_explicit_memory_emits_warning_not_error_no_degraded_flag(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """``EGG_MESSAGE_STORE_BACKEND=memory`` is opt-in: warning + no flag."""
+        import message_store
+
+        monkeypatch.setenv("EGG_MESSAGE_STORE_BACKEND", "memory")
+
+        with caplog.at_level("WARNING", logger="orchestrator.message_store"):
+            store = message_store._create_message_store()
+
+        assert isinstance(store, message_store.MessageStore)
+        # The operator opted in: no degraded flag.
+        assert message_store.is_memory_fallback_degraded() is False
+
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING"
+            and "explicit EGG_MESSAGE_STORE_BACKEND=memory" in r.getMessage()
+        ]
+        assert len(warnings) == 1, (
+            f"expected exactly one warning for explicit memory backend; got {warnings}"
+        )
+        # No error-level marker log on the explicit path.
+        errors_with_marker = [
+            r
+            for r in caplog.records
+            if r.levelname == "ERROR" and message_store.MEMORY_FALLBACK_MARKER in r.getMessage()
+        ]
+        assert errors_with_marker == [], (
+            "explicit memory backend must not emit the auto-fallback marker"
+        )
+
+    def test_redis_backend_emits_neither_warn_nor_error(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Successful Redis selection: no warn/error from this path, no flag."""
+        import message_store
+        from message_store import MessageStore
+
+        # Stub out the Redis client so the success path runs without
+        # actually needing a Redis instance.
+        fake_store = MessageStore()
+        monkeypatch.setattr(
+            "redis_message_store.get_redis_message_store",
+            lambda **kw: fake_store,
+            raising=False,
+        )
+        monkeypatch.setenv("EGG_MESSAGE_STORE_BACKEND", "auto")
+
+        with caplog.at_level("WARNING", logger="orchestrator.message_store"):
+            store = message_store._create_message_store()
+
+        assert store is fake_store
+        assert message_store.is_memory_fallback_degraded() is False
+        warn_or_error = [r for r in caplog.records if r.levelname in ("WARNING", "ERROR")]
+        assert warn_or_error == [], (
+            f"Redis success path emitted unexpected warn/error: {warn_or_error}"
+        )
+
+    def test_explicit_redis_raises_on_failure_unchanged(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``EGG_MESSAGE_STORE_BACKEND=redis`` still fails hard (regression lock)."""
+        import message_store
+
+        def _boom(*_a, **_kw):  # type: ignore[no-untyped-def]
+            raise ConnectionError("Cannot connect to Redis")
+
+        monkeypatch.setattr("redis_message_store.get_redis_message_store", _boom, raising=False)
+        monkeypatch.setenv("EGG_MESSAGE_STORE_BACKEND", "redis")
+
+        with pytest.raises(ConnectionError):
+            message_store._create_message_store()
+        # No degraded flag for the explicit-redis-failure path: the
+        # process didn't fall back to memory, it crashed.
+        assert message_store.is_memory_fallback_degraded() is False
+
+
+class TestMemoryFallbackHardening:
+    """Adversarial / operational-contract pins on the slice-6 fail-loud
+    signal (#3077). Complements :class:`TestMemoryFallbackFailLoudSignal`
+    (coder TASK-6-1 coverage) by pinning properties that are visible to
+    operators but easy to silently regress in a future refactor:
+
+    - Sticky-across-recovery: once the auto→memory fallback fires the
+      flag MUST stay set even if Redis later becomes reachable in the
+      same process. The fail-loud signal's job is to make the
+      degradation visible until an operator notices and restarts; a
+      design that auto-cleared on the next Redis-success call would
+      hide the degradation behind a self-healing illusion.
+    - Independent once-per-process flags: the warn (explicit memory)
+      and error (auto fallback) emissions track separate once-flags, so
+      a process that exercises both paths emits exactly one of each
+      regardless of order.
+    - Concurrent backend-selection calls: the once-per-process flags
+      must NOT race. Two threads landing on the auto-fallback path at
+      the same moment must produce exactly one error log, not two.
+      The threading bug here would surface as a duplicate-log spam
+      under restart-storm conditions on a degraded Redis.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_state(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Fresh fail-loud state + singleton for each test."""
+        import message_store
+
+        message_store.reset_message_store()
+        message_store._reset_memory_fallback_state_for_test()
+        monkeypatch.setenv("REDIS_HOST", "127.0.0.1")
+        monkeypatch.setenv("REDIS_PORT", "1")
+        yield
+        message_store.reset_message_store()
+        message_store._reset_memory_fallback_state_for_test()
+
+    def test_degraded_flag_sticky_across_redis_recovery(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Pin the operationally-critical sticky contract: once the
+        auto→memory fallback fires, a SUBSEQUENT successful Redis
+        selection in the same process must NOT clear the degraded flag.
+
+        Why this matters: an orchestrator that starts during a Redis
+        outage falls back to memory, then Redis recovers and the next
+        ``_create_message_store()`` call (e.g. via a fresh singleton
+        re-init in some test or restart path) succeeds against Redis.
+        If that auto-clears the flag, ``/api/v1/health`` would flip back
+        to healthy and the operator would never see the brief
+        durability window. The slice-6 design makes this stickiness
+        explicit — only ``_reset_memory_fallback_state_for_test`` (a
+        test-only hook) clears it. This test pins that contract so a
+        future "self-heal" refactor that resets the flag on Redis
+        success fails CI rather than hiding the degradation."""
+        import message_store
+        from message_store import MessageStore
+
+        # Phase 1: Redis down → auto → memory; flag flips.
+        def _boom(*_a, **_kw):  # type: ignore[no-untyped-def]
+            raise ConnectionError("Redis unreachable")
+
+        monkeypatch.setattr("redis_message_store.get_redis_message_store", _boom, raising=False)
+        monkeypatch.delenv("EGG_MESSAGE_STORE_BACKEND", raising=False)
+        message_store._create_message_store()
+        assert message_store.is_memory_fallback_degraded() is True
+
+        # Phase 2: Redis recovers — singleton re-init lands a Redis
+        # store this time. Flag must stay True.
+        fake_redis_store = MessageStore()  # any non-None sentinel works
+        monkeypatch.setattr(
+            "redis_message_store.get_redis_message_store",
+            lambda **kw: fake_redis_store,
+            raising=False,
+        )
+        message_store.reset_message_store()
+        recovered = message_store._create_message_store()
+
+        assert recovered is fake_redis_store, (
+            "Redis success path must still return the Redis store after "
+            "recovery (sanity check the test setup)"
+        )
+        assert message_store.is_memory_fallback_degraded() is True, (
+            "Degraded flag must stay sticky across Redis recovery — the "
+            "operator-facing /api/v1/health signal exists to surface "
+            "transient durability degradation until an explicit restart "
+            "or test-reset clears it; auto-clearing on the next Redis "
+            "success would hide the very window the slice-6 signal is "
+            "designed to surface."
+        )
+
+    def test_warn_and_error_once_flags_are_independent(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A process that mixes both backend selections in its lifetime
+        (explicit memory and auto-fallback, in either order) emits
+        exactly one WARNING and exactly one ERROR. The two once-flags
+        track distinct emissions: a regression that reused a single
+        once-flag would silence whichever emission ran second."""
+        import message_store
+
+        def _boom(*_a, **_kw):  # type: ignore[no-untyped-def]
+            raise ConnectionError("Redis unreachable")
+
+        monkeypatch.setattr("redis_message_store.get_redis_message_store", _boom, raising=False)
+
+        with caplog.at_level("WARNING", logger="orchestrator.message_store"):
+            # Order 1: explicit memory first, then auto fallback.
+            monkeypatch.setenv("EGG_MESSAGE_STORE_BACKEND", "memory")
+            message_store._create_message_store()
+            monkeypatch.delenv("EGG_MESSAGE_STORE_BACKEND", raising=False)
+            message_store._create_message_store()
+
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING"
+            and "explicit EGG_MESSAGE_STORE_BACKEND=memory" in r.getMessage()
+        ]
+        errors = [
+            r
+            for r in caplog.records
+            if r.levelname == "ERROR" and message_store.MEMORY_FALLBACK_MARKER in r.getMessage()
+        ]
+        assert len(warnings) == 1, (
+            f"explicit-memory once-flag must fire exactly once across "
+            f"the mixed-path process lifetime; got {len(warnings)}"
+        )
+        assert len(errors) == 1, (
+            f"auto-fallback once-flag must fire exactly once across "
+            f"the mixed-path process lifetime; got {len(errors)}"
+        )
+        # And the degraded flag still tracks the auto-fallback (not the
+        # explicit memory call earlier in the sequence).
+        assert message_store.is_memory_fallback_degraded() is True
+
+    def test_warn_then_error_independent_when_explicit_memory_then_auto(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Reverse-order pin to make the independence symmetric: if
+        the auto fallback fires first and an explicit-memory call
+        follows, we still get exactly one of each emission and the
+        degraded flag remains True (explicit memory does NOT clear
+        the prior auto-fallback degradation, only restart / reset does)."""
+        import message_store
+
+        def _boom(*_a, **_kw):  # type: ignore[no-untyped-def]
+            raise ConnectionError("Redis unreachable")
+
+        monkeypatch.setattr("redis_message_store.get_redis_message_store", _boom, raising=False)
+
+        with caplog.at_level("WARNING", logger="orchestrator.message_store"):
+            monkeypatch.delenv("EGG_MESSAGE_STORE_BACKEND", raising=False)
+            message_store._create_message_store()  # auto → fallback
+            monkeypatch.setenv("EGG_MESSAGE_STORE_BACKEND", "memory")
+            message_store._create_message_store()  # explicit memory
+
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING"
+            and "explicit EGG_MESSAGE_STORE_BACKEND=memory" in r.getMessage()
+        ]
+        errors = [
+            r
+            for r in caplog.records
+            if r.levelname == "ERROR" and message_store.MEMORY_FALLBACK_MARKER in r.getMessage()
+        ]
+        assert len(warnings) == 1
+        assert len(errors) == 1
+        # Once the flag has been flipped by an auto fallback, a
+        # subsequent explicit-memory call MUST NOT clear it.
+        assert message_store.is_memory_fallback_degraded() is True, (
+            "Explicit-memory selection after an auto-fallback degradation "
+            "must not clear the degraded flag — the auto-fallback already "
+            "happened in this process and the operator-facing health "
+            "signal must remain set until restart / reset."
+        )
+
+    def test_concurrent_auto_fallback_emits_marker_at_most_once(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Concurrency hardening: two threads each calling
+        ``_create_message_store()`` on the auto-fallback path at the
+        same moment must produce AT MOST one error log carrying the
+        marker. The once-flag is process-global; under a restart-storm
+        on a degraded Redis the orchestrator might exercise this path
+        from concurrent contexts (singleton init race, MCP probe
+        re-init, etc.). A regression where the once-flag is checked
+        without proper synchronization would surface here as duplicate
+        emissions.
+
+        Note: We assert *at most one* rather than *exactly one*. The
+        TASK-6-1 implementation uses simple module-globals without an
+        explicit lock — under heavy interleaving Python's GIL serializes
+        the bytecode but does not guarantee atomicity across the
+        check-then-set pair. If a future refactor adds an explicit
+        threading.Lock the assertion tightens to ==1 trivially; until
+        then ``<=1`` is the conservative pin (zero emissions would
+        indicate a different bug — the test fixture re-armed the flag
+        in the next call). The other half of the contract (flag is
+        True regardless of which thread won) is asserted unconditionally."""
+        import threading
+
+        import message_store
+
+        def _boom(*_a, **_kw):  # type: ignore[no-untyped-def]
+            raise ConnectionError("Redis unreachable")
+
+        monkeypatch.setattr("redis_message_store.get_redis_message_store", _boom, raising=False)
+        monkeypatch.delenv("EGG_MESSAGE_STORE_BACKEND", raising=False)
+
+        barrier = threading.Barrier(4)
+        results: list[Exception | None] = []
+        results_lock = threading.Lock()
+
+        def _race() -> None:
+            try:
+                barrier.wait(timeout=5)
+                message_store._create_message_store()
+                with results_lock:
+                    results.append(None)
+            except Exception as exc:  # pragma: no cover - barrier timeout etc.
+                with results_lock:
+                    results.append(exc)
+
+        with caplog.at_level("ERROR", logger="orchestrator.message_store"):
+            threads = [threading.Thread(target=_race) for _ in range(4)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=10)
+
+        # Every racing call returned without surfacing an exception.
+        assert all(r is None for r in results), (
+            f"Concurrent _create_message_store calls must not raise on "
+            f"the auto-fallback path; got {results}"
+        )
+
+        errors = [
+            r
+            for r in caplog.records
+            if r.levelname == "ERROR" and message_store.MEMORY_FALLBACK_MARKER in r.getMessage()
+        ]
+        assert len(errors) <= 1, (
+            f"Auto-fallback marker log must emit at most once even under "
+            f"concurrent backend-selection calls (process-wide once-flag "
+            f"contract); got {len(errors)} emissions, which indicates "
+            f"the once-flag check-then-set raced across threads."
+        )
+        # And the flag is True regardless of which thread observed the
+        # transition — the value is monotonic.
+        assert message_store.is_memory_fallback_degraded() is True

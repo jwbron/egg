@@ -307,3 +307,90 @@ class TestProbeEndpointsAvoidStateStoreOnRequestPath:
         with patch("state_store.get_state_store", side_effect=err):
             response = client.get("/api/v1/health")
         assert response.status_code == 200
+
+
+class TestMessageStoreFailLoudSurface:
+    """Issue #3077 slice-6 — ``/api/v1/health`` surfaces the message-store
+    fail-loud signal under ``components.message_store``.
+
+    These tests pair with ``test_message_store.py::TestMemoryFallbackFailLoudSignal``
+    — that suite locks the module-side behavior; this one locks the
+    operator-visible surface so a future refactor of either side
+    surfaces here as a clear regression.
+    """
+
+    @pytest.fixture
+    def client(self):
+        from flask import Flask
+        from routes.health import health_bp
+
+        app = Flask(__name__)
+        app.register_blueprint(health_bp)
+        app.config["TESTING"] = True
+        return app.test_client()
+
+    @pytest.fixture(autouse=True)
+    def _reset_state(self):
+        """Each test starts with the slice-6 fail-loud state cleared."""
+        import message_store
+        from state_store_probe import reset_state_store_probe_for_test
+
+        message_store._reset_memory_fallback_state_for_test()
+        reset_state_store_probe_for_test()
+        try:
+            yield
+        finally:
+            message_store._reset_memory_fallback_state_for_test()
+            reset_state_store_probe_for_test()
+
+    def test_health_reports_message_store_ok_by_default(self, client):
+        """No degraded flag → ``components.message_store`` reads ``ok``."""
+        response = client.get("/api/v1/health")
+        assert response.status_code == 200
+        body = response.get_json()
+        assert body["components"]["message_store"] == {"status": "ok"}
+
+    def test_health_surfaces_memory_fallback_degradation(self, client):
+        """auto→memory fallback flag → degraded component + degraded top-level."""
+        import message_store
+
+        # Simulate the auto→memory fallback having tripped earlier in the
+        # process. We flip the module flag directly rather than going
+        # through _create_message_store, because the patched
+        # ``MessageStore`` invariant test in this file forbids touching
+        # ``MessageStore`` from the request path — this test still must
+        # not call it.
+        with patch.object(message_store, "_memory_fallback_degraded", True):
+            response = client.get("/api/v1/health")
+
+        assert response.status_code == 200
+        body = response.get_json()
+        assert body["components"]["message_store"] == {
+            "status": "degraded",
+            "reason": message_store.MEMORY_FALLBACK_MARKER,
+        }
+        # Top-level status MUST reflect the degradation so dashboards
+        # and ``mcp__egg__check_health`` branch on a single field.
+        assert body["status"] == "degraded"
+
+    def test_health_endpoint_message_store_surface_does_not_call_messagestore(self, client):
+        """The slice-6 surface MUST stay on the issue-#1897 TASK-4-3 invariant.
+
+        Patch ``MessageStore`` + ``get_message_store`` to raise on any
+        call; the slice-6 read of the module-level degraded flag must
+        keep ``/health`` returning 200. Regression lock so a future
+        refactor that wires the health route through a ``MessageStore``
+        method on its way to the flag surfaces here.
+        """
+        err = RuntimeError(
+            "MessageStore MUST NOT be called from /api/v1/health (issue #1897 TASK-4-3)"
+        )
+        with (
+            patch("message_store.get_message_store", side_effect=err),
+            patch("message_store.MessageStore", side_effect=err),
+        ):
+            response = client.get("/api/v1/health")
+        assert response.status_code == 200
+        body = response.get_json()
+        # And the slice-6 surface is still rendered.
+        assert "message_store" in body["components"]

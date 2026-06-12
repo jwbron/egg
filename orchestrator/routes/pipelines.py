@@ -17439,7 +17439,13 @@ def _run_implement_phase_slices(
                 # surface picks up the cascade-block event (TASK-3-4
                 # emission path).
                 try:
-                    from orchestrator.message_store import Message, get_message_store
+                    try:
+                        from message_store import Message, get_message_store
+                    except ImportError:
+                        from ..message_store import (  # type: ignore[no-redef]
+                            Message,
+                            get_message_store,
+                        )
 
                     msg = Message(
                         pipeline_id=pipeline_id,

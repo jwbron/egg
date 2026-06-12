@@ -172,6 +172,23 @@ class TestHealthEndpointReflectsStateStoreFailure:
         finally:
             reset_state_store_probe_for_test()
 
+    @pytest.fixture(autouse=True)
+    def _reset_message_store_fallback(self):
+        """``message_store._memory_fallback_degraded`` is a once-per-process
+        global (#3077 slice-6) flipped to ``True`` the first time ``auto``
+        backend selection falls back to in-memory — which happens in CI where
+        Redis is unavailable. ``/api/v1/health`` reads it into
+        ``components.message_store`` and degrades the top-level ``status``, so
+        without this reset this state-store-focused test flakes to
+        ``degraded`` based on sibling-test execution order."""
+        import message_store
+
+        message_store._reset_memory_fallback_state_for_test()
+        try:
+            yield
+        finally:
+            message_store._reset_memory_fallback_state_for_test()
+
     @pytest.fixture
     def client(self):
         from routes.health import health_bp
