@@ -18,10 +18,12 @@ up the same way per pipeline type:
   task is GitHub issue #N — <url>. Fetch the live issue body
   (`gh issue view N`) before structural decisions.") since #3163 —
   orientation pointing you at the issue, not the baked-in body.
-- **JIRA-driven pipelines** — no `issue` block; `task_description` is a
-  snapshot of the submitted description. Read it first; if you need the
-  current ticket state (latest comments, status, links), fetch
-  out-of-band with `jira ticket get "$EGG_JIRA_TICKET"`.
+- **JIRA-driven pipelines** — no `issue` block; `task_description`
+  carries a JIRA ticket anchor ("This pipeline's task is JIRA ticket
+  PROJ-1234. The description below is a snapshot taken at submit time…")
+  plus a snapshot of the submitted description, since #3163. Read it
+  first; if you need the current ticket state (latest comments, status,
+  links), fetch out-of-band with `jira ticket get "$EGG_JIRA_TICKET"`.
 - **Free-text submits** — no `issue` block, nothing to fetch elsewhere;
   the complete, untruncated task/problem statement *only* lives in
   `task_description`.
