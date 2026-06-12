@@ -126,7 +126,7 @@ _ALLOWLIST: tuple[tuple[str, str, int], ...] = (
     # prompt-constructing string — agents never see it. Reworking the
     # comment to drop the literal token would strip the pointer
     # reviewers depend on to navigate the deletion.
-    ("event_prompt.py", "git fetch", 960),
+    ("event_prompt.py", "git fetch", 970),
 )
 
 
