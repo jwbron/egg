@@ -110,6 +110,30 @@ The algorithm is:
      gateway production module importable by bare name), so the AST
      resolver bridges those edges the same way it does for the
      sys.path-injected packages. See §7 for the full rationale.
+
+   **Barrel transparency (#3182).** Packages whose `__init__.py` is a
+   *pure re-export barrel* (the shape mandated by
+   `docs/guides/decomposition-pattern.md`: docstring, imports —
+   including the `try/except ImportError` dual-import idiom — and an
+   `__all__` of string constants, nothing else) are treated
+   transparently by the walk. When a submodule behind such a barrel
+   changes, a consumer of the barrel joins the closure only if its
+   source statically uses a symbol backed by a tainted submodule —
+   via `from pkg import X`, attribute access on a whole-module
+   import (`pkg.X`), or a dotted string literal such as a
+   `unittest.mock.patch("pkg._sub.f")` target. Anything the analysis
+   cannot bound (impure barrel, star import, the module object
+   escaping into non-attribute contexts, unparsable source) falls
+   back to full taint, and a changed module whose transparent
+   closure reaches **zero** tests falls back to its opaque closure
+   (the *never-zero ratchet* — transparency may sharpen a selection,
+   never empty one). Editing a barrel `__init__.py` itself keeps the
+   full package-mode blast radius. Known accepted gap: a consumer
+   that imports a barrel only for a submodule's import-time side
+   effects (referencing no symbol) is not selected when that
+   submodule changes — pure barrels bind names; packages whose
+   import-time behavior is load-bearing (e.g. gateway's `@app.route`
+   registration) are impure by construction and stay opaque.
 6. **Map modules → test files.** Intersect the downstream set with
    the pre-collected set of every `test_*.py` / `*_test.py` file
    in the graph. The selector emits the resulting set of test file
@@ -119,7 +143,12 @@ The algorithm is:
 8. **Run pytest.** The `make test` recipe pipes stdout into
    `pytest $(SELECTED) -v $(PYTEST_ARGS)`. If the selector emits
    zero lines, the recipe skips the pytest invocation and prints
-   `no tests selected`.
+   `no tests selected`. Selected files are emitted **direct
+   importers first** (ordered by import distance from the changed
+   modules, alphabetical within a distance tier; #3182): pytest
+   collects files in the order given, so a wide selection surfaces
+   the most likely failure in the first files run rather than
+   wherever the alphabet put it.
 
 A green narrow run **does not** update the LKG sidecar — only
 `make test-all` writes LKG, because only a full-suite green proves
