@@ -7,7 +7,7 @@ that runs the full two-tier health check framework (see
 ``health_checks/`` package).
 
 Probe-path contract (locked by ``test_health_routes.py``): ``/live``,
-``/ready`` and ``/health`` MUST NOT invoke ``MessageStore``,
+``/ready`` and ``/health`` MUST NOT invoke the message store,
 ``state_store.get_state_store``, ``subprocess.*`` or any other I/O on
 the request path. The state-store self-heal that ``/api/v1/health``
 used to drive synchronously now runs in a background thread (see
@@ -29,16 +29,6 @@ _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
-# Issue #3077 slice-6 — surface the message-store fail-loud degraded
-# signal on the health endpoint. We import the *module* and read
-# ``is_memory_fallback_degraded`` / ``MEMORY_FALLBACK_MARKER`` off it
-# rather than the singleton accessor or ``MessageStore`` class, so the
-# issue #1897 TASK-4-3 isolation invariant (``GET /api/v1/health`` MUST
-# NOT call into ``MessageStore``) is preserved verbatim. The pure
-# module-level getter is not patched by that test's
-# ``message_store.get_message_store`` / ``message_store.MessageStore``
-# mocks.
-import message_store as _message_store_module
 from egg_health import HealthTracker
 from state_store_probe import get_state_store_probe, probe_state_store_at
 
@@ -95,17 +85,10 @@ def health_check() -> tuple[Response, int]:
     the first probe completes); ``components.state_store_summary``
     carries the human-readable aggregate string in those cases.
 
-    ``components.message_store`` (#3077 slice-6) surfaces the
-    fail-loud signal for an unintentional auto→memory message-store
-    fallback. ``{"status": "ok"}`` in the common case; on auto→memory
-    fallback the value becomes ``{"status": "degraded", "reason":
-    "MESSAGE_STORE_AUTO_FALLBACK_TO_MEMORY"}`` and the top-level
-    ``status`` reads ``"degraded"`` regardless of state-store health.
-    Explicit ``EGG_MESSAGE_STORE_BACKEND=memory`` (operator opted in)
-    is NOT surfaced as degradation. The flag is read off the
-    ``message_store`` module's pure getter so the issue #1897 TASK-4-3
-    isolation invariant (no ``MessageStore`` method calls on the
-    request path) holds.
+    The ``components.message_store`` entry from #3077 slice-6 (the
+    auto→memory fallback fail-loud signal) was removed along with the
+    in-memory backend in #3159 — explicit redis mode raises on failure
+    instead of degrading, so there is no fallback state to surface.
 
     Response::
 
@@ -116,8 +99,6 @@ def health_check() -> tuple[Response, int]:
             "components": {
                 "state_store": {"<repo>": {"status": "ok"} | {"status": "error", "error": "..."}},
                 "state_store_summary": "ok" | "<aggregate error>",
-                "message_store": {"status": "ok"}
-                                 | {"status": "degraded", "reason": "MESSAGE_STORE_AUTO_FALLBACK_TO_MEMORY"},
                 "docker": "unknown"
             },
             "process_start_time": "...",
@@ -128,24 +109,7 @@ def health_check() -> tuple[Response, int]:
         }
     """
     snap = get_state_store_probe().snapshot()
-    state_store_healthy = bool(snap["healthy"])
-
-    # #3077 slice-6: message-store fail-loud signal. ``is_memory_fallback_degraded``
-    # is a pure module-level read — it does NOT instantiate or call any
-    # ``MessageStore`` method, so the issue #1897 TASK-4-3 isolation
-    # invariant is preserved.
-    message_store_degraded = _message_store_module.is_memory_fallback_degraded()
-    if message_store_degraded:
-        message_store_component: dict[str, str] = {
-            "status": "degraded",
-            "reason": _message_store_module.MEMORY_FALLBACK_MARKER,
-        }
-    else:
-        message_store_component = {"status": "ok"}
-
-    # Top-level ``status`` is healthy only if every observed subsystem
-    # is healthy. The per-component map carries the detail.
-    healthy = state_store_healthy and not message_store_degraded
+    healthy = bool(snap["healthy"])
 
     # Dual-write to _health_tracker: the BG probe's on_observation
     # callback records the raw probe result at probe-interval cadence;
@@ -163,7 +127,6 @@ def health_check() -> tuple[Response, int]:
         "components": {
             "state_store": snap["repos"],
             "state_store_summary": snap["message"],
-            "message_store": message_store_component,
             "docker": "unknown",
         },
         "process_start_time": tracker_snapshot["process_start_time"],

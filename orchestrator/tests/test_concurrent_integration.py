@@ -853,7 +853,7 @@ class TestAgentsMarkedCompleteAfterConsensus:
 #               loud error rather than silent stalls)
 #
 # These exercise the plumbing end-to-end — not just the unit-level
-# MessageStore blocking tested in test_message_store.py — because the
+# store blocking tested in test_redis_message_store.py — because the
 # failure modes they guard against are all at the integration boundary.
 
 
@@ -868,7 +868,7 @@ class TestEventDrivenConsensusWait:
 
     @pytest.fixture
     def wait_app(self):
-        """Flask app wired to messages_bp + a fresh in-memory MessageStore."""
+        """Flask app wired to messages_bp + a fresh message-store singleton."""
         from flask import Flask
         from message_store import reset_message_store
         from routes.messages import messages_bp
@@ -1146,8 +1146,10 @@ class TestMisconfiguredCap504:
         """
         from unittest.mock import MagicMock
 
+        import fakeredis
         from flask import Flask
-        from message_store import MessageStore, reset_message_store
+        from message_store import reset_message_store
+        from redis_message_store import RedisMessageStore
         from routes.messages import messages_bp
 
         monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "2")
@@ -1157,7 +1159,7 @@ class TestMisconfiguredCap504:
         app.config["TESTING"] = True
         reset_message_store()
 
-        store = MessageStore()
+        store = RedisMessageStore(fakeredis.FakeRedis())
         client = app.test_client()
         import time as _t
 

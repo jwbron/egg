@@ -40,10 +40,10 @@ _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:
     sys.path.insert(0, str(_orchestrator_path))
 
+import fakeredis  # noqa: E402
 from events import Event, EventBus, EventType  # noqa: E402
 from message_store import (  # noqa: E402
     Message,
-    MessageStore,
     MessageType,
     reset_message_store,
 )
@@ -53,6 +53,7 @@ from models import (  # noqa: E402
     PipelinePhase,
     PipelineStatus,
 )
+from redis_message_store import RedisMessageStore  # noqa: E402
 from routes.pipelines import (  # noqa: E402
     _build_status_wait_cursor,
     _parse_status_wait_cursor,
@@ -148,29 +149,38 @@ def _wait_for_route_subscriber(event_bus: EventBus, timeout: float = 2.0) -> Non
     raise RuntimeError(f"/status/wait route did not subscribe a wildcard handler within {timeout}s")
 
 
-def _wait_for_message_store_waiter(
-    store: MessageStore, pipeline_id: str, timeout: float = 2.0
-) -> None:
-    """Block until the route's daemon thread is waiting on the message store.
+def _make_store() -> RedisMessageStore:
+    """Fakeredis-backed store with a from_tip handshake event (#3159).
 
     The route's ``_on_message_store_wake`` daemon calls
-    ``store.get_messages(wait=5, from_tip=True, ...)`` which snapshots
-    ``start_idx = len(initial_msgs)`` under the lock BEFORE registering
-    a per-pipeline ``Condition`` in ``store._cond[pipeline_id]``. A
-    naive ``time.sleep(0.1)`` in the fire thread races that snapshot:
-    if the message lands first, the daemon's ``start_idx`` skips it and
-    the subsequent ``cv.wait()`` blocks until timeout. This handshake
-    polls ``store._cond`` and returns once the cv exists, guaranteeing
-    the daemon has already taken the empty-store snapshot.
+    ``store.get_messages(wait=5, from_tip=True, ...)``, which snapshots
+    the stream tip (``_resolve_tip_stream_id``) before blocking. A naive
+    ``time.sleep(0.1)`` in the fire thread races that snapshot: if the
+    message lands first, the daemon's tip skips it and the blocking read
+    runs out its timeout. The wrapper sets ``_tip_resolved`` once the
+    daemon has taken its snapshot; after that point a fired message is
+    above the snapshot tip and is picked up race-free (the chunked XREAD
+    re-scans from the fixed tip id).
     """
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if store._cond.get(pipeline_id) is not None:  # noqa: SLF001 — test-side handshake
-            return
-        time.sleep(0.005)
-    raise RuntimeError(
-        f"/status/wait message-store daemon did not register a waiter within {timeout}s"
-    )
+    store = RedisMessageStore(fakeredis.FakeRedis())
+    store._tip_resolved = threading.Event()
+    original = store._resolve_tip_stream_id
+
+    def _wrapped(pipeline_id: str) -> str:
+        sid = original(pipeline_id)
+        store._tip_resolved.set()
+        return sid
+
+    store._resolve_tip_stream_id = _wrapped  # type: ignore[method-assign]
+    return store
+
+
+def _wait_for_message_store_waiter(store: RedisMessageStore, timeout: float = 2.0) -> None:
+    """Block until the route's daemon thread has snapshotted the tip."""
+    if not store._tip_resolved.wait(timeout):  # noqa: SLF001 — test-side handshake
+        raise RuntimeError(
+            f"/status/wait message-store daemon did not snapshot the stream tip within {timeout}s"
+        )
 
 
 class TestStatusWaitRoute:
@@ -185,10 +195,10 @@ class TestStatusWaitRoute:
         """An OVERSEER_ALERT on the message bus wakes the route with
         ``changed=true, trigger="message"``.
         """
-        store = MessageStore()
+        store = _make_store()
 
         def _fire() -> None:
-            _wait_for_message_store_waiter(store, "issue-1932-e2e")
+            _wait_for_message_store_waiter(store)
             store.add_message(
                 Message(
                     pipeline_id="issue-1932-e2e",
@@ -390,7 +400,7 @@ class TestStaleSinceIdSignal:
         ``since_id_stale: true``. Pre-fix the route would happily
         re-emit the dead msg id forever as long as the store stayed
         empty."""
-        store = MessageStore()
+        store = _make_store()
         anchor = Message(
             pipeline_id="issue-1932-e2e",
             from_role="coder",
@@ -427,7 +437,7 @@ class TestStaleSinceIdSignal:
         """A request with a still-resolvable ``since`` does NOT carry
         the staleness flag — pins the byte-shape contract so legacy
         consumers see no extra fields in the common case."""
-        store = MessageStore()
+        store = _make_store()
         anchor = Message(
             pipeline_id="issue-1932-e2e",
             from_role="coder",

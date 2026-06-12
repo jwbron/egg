@@ -113,7 +113,7 @@ orchestrator/
 ├── gateway_client.py       # Gateway API client (sessions, worktrees, config)
 ├── handoffs.py             # Agent handoff data management
 ├── health_monitor.py       # Deterministic tripwire health monitor (progress events → auto-nudge/escalate)
-├── message_store.py        # Inter-agent message store (Redis Streams when available, in-memory fallback)
+├── message_store.py        # Inter-agent message types + store singleton accessor (Redis Streams only, #3159)
 ├── progress_store.py       # In-memory structured progress event store with configurable retention
 ├── peer_consensus.py       # BRC (Broadcast-Review-Converge) peer consensus tracker
 ├── pr_obligations.py       # Shared Pre-merge Obligations PR-body renderer (open + resolved sections from DeferredAction; shared by single-PR and slice-DAG context-PR paths — the legacy terminal-slice umbrella treatment was removed in #2777)
