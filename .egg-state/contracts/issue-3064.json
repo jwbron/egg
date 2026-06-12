@@ -14,7 +14,7 @@
       "id": "slice-1",
       "name": "Ownership flag + one-shot wrapper arm (guard, dormant by default)",
       "goal": "EGG_EVENT_LOOP_OWNER (pod | orchestrator, default pod) exists; the\nconsensus wrapper gains a one-shot arm driven by injected event env,\ndormant until slice 2 sets it; pod-default generated wrapper is\nbyte-identical to today, pinned by a golden-file test.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -23,10 +23,10 @@
         {
           "id": "task-1-1",
           "description": "Add the `EGG_EVENT_LOOP_OWNER` accessor to\n`orchestrator/env_config.py` (values `pod`/`orchestrator`,\ndefault `pod`, loud rejection of invalid values, following the\nmodule's existing accessor conventions). In\n`orchestrator/consensus_wrapper.py`, add the one-shot arm to the\ngenerated wrapper: when EGG_EVENT_LOOP_OWNER=orchestrator AND an\ninjected event is present (EGG_EVENT_ACTION in propose|ack|nack,\nEGG_EVENT_DEDUPE_KEY, payload refs), skip the wait-loop (\u2248379)\nand the background heartbeat (\u2248209-230), re-check next-action\nONCE via `egg-orch brc next-action` \u2014 if the derived action no\nlonger matches the injected event (stale), exit 0 WITHOUT\ninvoking the agent \u2014 otherwise fetch the composed event prompt\nvia the existing path and run `invoke_agent_for_event` exactly\nonce, exiting with the #2908-classified code.\nconfirm/complete must never reach the one-shot arm (reject\nloudly if injected). With the flag unset or `pod`, the generated\nwrapper text is byte-identical to today. Dormant by design:\nnothing sets the event env until slice 2.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "758a85612",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Implemented in 758a85612.\n\nenv_config.py: added get_event_loop_owner() (constants EVENT_LOOP_OWNER_POD/_ORCHESTRATOR, VALID_EVENT_LOOP_OWNERS, DEFAULT_EVENT_LOOP_OWNER). Default pod when unset; case-insensitive; INVALID value raises ValueError (loud rejection per #3023 \u2014 no safe silent fallback for an ownership mode).\n\nconsensus_wrapper.py: _EVENT_PUMP_WRAPPER_TEMPLATE left untouched (byte-identical). Added _MAIN_LOOP_MARKER + _ONE_SHOT_ARM_TEMPLATE (literal braces, NOT .format'd). build_event_pump_wrapped_command reads _event_loop_owner() (lazy dual-path import of env_config) and, only in orchestrator mode, splices the arm immediately before the main loop via str.replace(...,1). Pod mode returns the formatted template unchanged.\n\nOne-shot arm behavior: guard owner==orchestrator AND EGG_EVENT_ACTION non-empty; confirm/complete \u21d2 exit 64 (loud); unknown action \u21d2 exit 64; single foreground emit_heartbeat (no background emitter); fetch_next_action once, derived!=injected \u21d2 exit 0 no agent (stale backstop); ack/nack sync_to_proposals first (mirrors loop, R11a producer skips); invoke_agent_for_event once; exit with agent rc.\n\nVerification (sandbox has no venv / git init blocked):\n- pod-mode generated script byte-identical to HEAD for (opus,1000,None) and (sonnet,50,high).\n- orchestrator-mode: arm present, before a single main-loop marker.\n- invalid flag \u21d2 ValueError.\n- `bash -n` clean on both generated scripts.\n- ruff check + ruff format --check clean.\n- test_consensus_wrapper.py: 45 pass; 6 fail ONLY from container `git init` restriction (behavioral sync tests), unrelated to this change.",
           "acceptance_criteria": "- Flag unset/`pod`: generated wrapper byte-identical to main.\n- One-shot arm: stale event \u21d2 exit 0, no agent invocation;\n  fresh event \u21d2 exactly one invoke_agent_for_event, then exit\n  with a #2908-classified code.\n- No wait-loop iteration and no background heartbeat process in\n  one-shot mode.\n- Injected confirm/complete \u21d2 loud rejection, non-zero exit.\n- env_config accessor: default pod; invalid value fails loudly.",
           "files_affected": [
             "orchestrator/consensus_wrapper.py",
@@ -45,8 +45,8 @@
         {
           "id": "task-1-2",
           "description": "Slice-1 tests in `orchestrator/tests/test_consensus_wrapper.py`:\na golden-file (or string-equality snapshot) test pinning the\npod-default generated wrapper byte-identical to the pre-change\nrendering; one-shot arm cases \u2014 stale-event exit 0 with no\ninvocation, exactly-one-invocation on fresh event, #2908\nexit-code classification passthrough, absence of wait-loop and\nbackground-heartbeat constructs in the one-shot path, loud\nrejection of injected confirm/complete; env_config accessor\ndefault/invalid-value behavior.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "a5bc3933d",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Golden-file test fails on ANY drift of the pod-default\n  wrapper rendering.\n- All five one-shot arm behaviors covered.\n- Existing wrapper tests pass unmodified.",
@@ -66,11 +66,11 @@
       ],
       "dependencies": [],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3064/work",
+      "integration_base_sha": "0109f21cb80fa98e387559c5a7098986b3c042e1",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3167,
+      "pr_url": "https://github.com/jwbron/egg/pull/3167",
       "review_feedback": []
     },
     {
@@ -594,6 +594,72 @@
       },
       "reason": "Created HITL decision: Failure-supervision policy for one-shot agent pods...",
       "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T17:58:20.881363Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "758a85612",
+      "reason": "Linked commit 758a856 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T17:58:29.870362Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.notes",
+      "old_value": "",
+      "new_value": "Implemented in 758a85612.\n\nenv_config.py: added get_event_loop_owner() (constants EVENT_LOOP_OWNER_POD/_ORCHESTRATOR, VALID_EVENT_LOOP_OWNERS, DEFAULT_EVENT_LOOP_OWNER). Default pod when unset; case-insensitive; INVALID value raises ValueError (loud rejection per #3023 \u2014 no safe silent fallback for an ownership mode).\n\nconsensus_wrapper.py: _EVENT_PUMP_WRAPPER_TEMPLATE left untouched (byte-identical). Added _MAIN_LOOP_MARKER + _ONE_SHOT_ARM_TEMPLATE (literal braces, NOT .format'd). build_event_pump_wrapped_command reads _event_loop_owner() (lazy dual-path import of env_config) and, only in orchestrator mode, splices the arm immediately before the main loop via str.replace(...,1). Pod mode returns the formatted template unchanged.\n\nOne-shot arm behavior: guard owner==orchestrator AND EGG_EVENT_ACTION non-empty; confirm/complete \u21d2 exit 64 (loud); unknown action \u21d2 exit 64; single foreground emit_heartbeat (no background emitter); fetch_next_action once, derived!=injected \u21d2 exit 0 no agent (stale backstop); ack/nack sync_to_proposals first (mirrors loop, R11a producer skips); invoke_agent_for_event once; exit with agent rc.\n\nVerification (sandbox has no venv / git init blocked):\n- pod-mode generated script byte-identical to HEAD for (opus,1000,None) and (sonnet,50,high).\n- orchestrator-mode: arm present, before a single main-loop marker.\n- invalid flag \u21d2 ValueError.\n- `bash -n` clean on both generated scripts.\n- ruff check + ruff format --check clean.\n- test_consensus_wrapper.py: 45 pass; 6 fail ONLY from container `git init` restriction (behavioral sync tests), unrelated to this change.",
+      "reason": "Updated notes for task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T18:02:41.628550Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": "758a85612",
+      "new_value": "758a85612",
+      "reason": "Linked commit 758a856 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T18:02:41.651694Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T18:14:39.156205Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "a5bc3933d",
+      "reason": "Linked commit a5bc393 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T18:14:39.181839Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
     }
   ],
   "refine_review_cycles": 0,
@@ -605,7 +671,7 @@
     "description": "Issue #3064: the orchestrator spawns the full agent team up front and each\npod runs a long-lived in-pod event-pump loop, staying alive \u2014 idle,\nreserving CPU/memory and a gateway session \u2014 for the whole phase. The\nper-event invocation machinery is already stateless (#2908:\ncompose_event_prompt, durable BRC memory, one-shot agent invocation); only\nthe pod lifecycle is long-lived. This change inverts ownership behind a\nflag that defaults to current behavior (HITL: Option B), on the\narchitect's six-slice serialized DAG:\n\n1. **Flag + dormant one-shot wrapper arm.** `EGG_EVENT_LOOP_OWNER` \u2208\n   {pod (default), orchestrator}. Under orchestrator ownership with an\n   injected event (EGG_EVENT_ACTION, EGG_EVENT_DEDUPE_KEY, payload refs)\n   the consensus wrapper skips the wait-loop and background heartbeat,\n   re-checks next-action once (stale \u21d2 exit 0, no invocation), runs\n   invoke_agent_for_event exactly once, and exits with a #2908-classified\n   code. Pod-default wrapper output is byte-identical (golden-file test).\n   The guard lands before the spawner that drives it \u2014 the #3023\n   post-mortem constraint; there is no rollback flag since #2908 slice-4.\n2. **Orchestrator event loop + spawner** (`orchestrator/event_loop.py`,\n   hooked into the concurrent_executor completion-poll site): consumes\n   _derive_next_action in-process per role; propose|ack|nack spawn a\n   one-shot Job (event identity in Job env, dedupe key as Job label);\n   confirm/complete execute orchestrator-side with no pod; wait spawns\n   nothing. Dedupe = sha256(pipeline, slice, phase, role, action, event\n   identity); in-memory set + Job-label reconciliation; at most one live\n   pod per role+slice; orchestrator restart re-derives statelessly from\n   the tracker (#2761) and reconciles against live Jobs.\n3. **Failure supervision re-homed** (HITL cq-2): Job-status watching with\n   per-(role, arm) streaks mirroring #3138 (backoff streak\u00d72s capped 30s,\n   warn at 5, sticky OVERSEER_ALERT at 10, reset on success), constants\n   shared between loop and wrapper via one module; producer propose-arm\n   exhaustion engages the existing AGENT_FAILED path (#2806 relocated for\n   orchestrator mode). NACKs are explicit non-triggers.\n4. **Hot-path latency**: re-attach-first worktree handling (validate\n   branch/.git/lock, fall back to create-with-retry) and per-role gateway\n   session reuse with phase-end/exhaustion teardown; p50<60s spawn\u2192invoke\n   budget asserted with a simulated clock.\n5. **Lifecycle-aware monitoring**: \"role has no pod\" is normal under\n   orchestrator ownership; tripwires apply only while a Job is active; the\n   idle-budget alert re-homes as an orchestrator-side convergence-stall\n   judgment from tracker timestamps (same knob, same anomaly name);\n   HeartbeatCoordinator gains a mode guard with refresh-at-spawn.\n6. **Docs + flip follow-up package**: architecture entry (both modes,\n   dedupe contract, supervision semantics, monitor matrix), the live\n   proving-run acceptance checklist, and the prepared follow-up issue body\n   encoding the operator-mandated sequence \u2014 proving run \u2192 flip default \u2192\n   one cleanup PR deleting the in-pod wait arm, heartbeat, wrapper-side\n   #3138/#2806 code, and the flag (no dead code end state). Filing it is\n   an immediate post-merge manual step.\n\nNothing changes for production in this PR: the flag defaults to pod and\nevery slice pins default-path behavior.",
     "test_plan": "Automated:\n- `make test` from the repo root narrows to the reachable suites per\n  slice; `make test-all` before phase exit.\n- Slice 1: `orchestrator/tests/test_consensus_wrapper.py` extensions \u2014\n  golden-file byte-identity of the pod-default generated wrapper;\n  one-shot arm (stale event \u21d2 exit 0 / no invocation; exactly one\n  invoke_agent_for_event; #2908 exit-code classification; no wait-loop\n  or background heartbeat); flag accessor default and invalid-value\n  rejection.\n- Slice 2: new `orchestrator/tests/test_event_loop.py` (verb\u2192decision\n  mapping incl. agent-free confirm/complete and wait-no-op; sha256\n  dedupe across repeated polls and across a simulated orchestrator\n  restart; Job-label reconciliation; at-most-one-live-pod invariant)\n  plus `orchestrator/tests/test_kubernetes_spawner.py` extensions\n  (one-shot entry sets owner env + event identity + dedupe label; Job\n  naming within the k8s budget) and\n  `orchestrator/tests/test_concurrent_executor.py` extensions\n  (pod-default spawn_all unchanged; orchestrator mode spawns no\n  up-front pods and starts the loop).\n- Slice 3: `orchestrator/tests/test_event_loop.py` extensions \u2014 cq-2\n  matrix with injected clock: backoff streak\u00d72s cap 30s; warn at 5;\n  sticky OVERSEER_ALERT (agent-invocation-fail-streak) exactly once at\n  10; reset on success; fresh budget on dedupe-key change; AGENT_FAILED\n  engagement on producer propose-arm exhaustion; NACK explicitly does\n  not increment the streak; loop and wrapper read identical constants\n  from the shared module.\n- Slice 4: `orchestrator/tests/test_kubernetes_spawner.py` extensions \u2014\n  re-attach validation matrix (expected branch, .git integrity, foreign\n  lock \u21d2 fallback to create-with-retry); session reuse vs re-register\n  (live/aged-out) and teardown at phase end / streak exhaustion;\n  p50<60s spawn\u2192invoke budget via simulated clock.\n- Slice 5: `orchestrator/tests/test_health_monitor.py` extensions\n  (orchestrator mode: idle role with no pod never alerts; tripwires\n  active only while a Job runs; silent mid-event pod still trips;\n  convergence-stall idle-budget alert reuses EGG_BRC_IDLE_BUDGET_MIN and\n  the existing anomaly name; pod mode unchanged) and\n  `orchestrator/tests/test_heartbeat.py` extensions (mode guard;\n  refresh-at-spawn replaces the background side effect; pod-mode\n  refresh unchanged).\n\nManual (reviewer):\n- `make test` and `make lint` green.\n- Confirm flag absent/`pod` \u21d2 generated wrapper command and spawn_all\n  behavior byte-identical to main (golden file).\n- In a dev environment with EGG_EVENT_LOOP_OWNER=orchestrator on a toy\n  pipeline: observe one-shot pods spawn per derived event and exit; no\n  pod for roles in wait; no duplicate pods for one event.",
     "manual_steps": "Pre-merge: none.\n\nPost-merge (operator, immediate \u2014 refine-gate directive): file the flip\nfollow-up issue using the prepared body from\ndocs/architecture/on-demand-agent-lifecycle.md \u2014 (1) live BRC proving\nrun with EGG_EVENT_LOOP_OWNER=orchestrator against the documented\nacceptance checklist, (2) flip the default, (3) one cleanup PR deleting\nthe in-pod wait arm + background heartbeat + wrapper-side #3138/#2806\ncode + the flag (no dead code end state). The PR description references\nthis step. Optional: dev-environment spot-check of the orchestrator-\nowned path on a toy pipeline.",
-    "context_pr_number": null,
+    "context_pr_number": 3165,
     "deferred_actions": []
   },
   "feedback": null,
