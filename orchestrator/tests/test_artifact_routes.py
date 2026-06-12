@@ -532,6 +532,8 @@ class TestArtifactGetRejections:
             "issue;rm",  # shell metachar
             "",  # empty string
             ".hidden",  # leading dot (no alnum start)
+            "issue-3077\n",  # trailing newline (fullmatch, not $-anchored match)
+            "3077\n",  # all-digit with trailing newline
         ],
     )
     def test_unsafe_explicit_identifier_400(self, client, mock_pipeline, bad_identifier):

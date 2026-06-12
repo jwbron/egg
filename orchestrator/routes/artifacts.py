@@ -172,7 +172,7 @@ def _resolve_identifier(
             # the resolved path beyond the spec's intent before it reaches
             # the path template.  See ``_SAFE_IDENTIFIER_RE`` for why this
             # is belt-and-suspenders rather than a traversal fix.
-            if not _SAFE_IDENTIFIER_RE.match(explicit_identifier):
+            if not _SAFE_IDENTIFIER_RE.fullmatch(explicit_identifier):
                 return None, _error(
                     f"Invalid 'identifier' {explicit_identifier!r}: must be digits "
                     "or a safe slug (letters, digits, '.', '_', '-'; no '/' or '..')",
