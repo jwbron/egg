@@ -683,6 +683,13 @@ def _create_message_store() -> MessageStore:
     global _memory_fallback_degraded
     global _memory_fallback_logged, _memory_explicit_logged
 
+    # The once-flag check-then-set below (``_memory_fallback_logged`` /
+    # ``_memory_explicit_logged``) is unsynchronized, but ``_store_lock``
+    # is the real guard: production only reaches here via
+    # ``get_message_store()``'s double-checked locking, which serializes
+    # creation. The degraded-flag set is monotonic, so even an
+    # unsynchronized direct caller's worst case is a duplicate log line,
+    # never a missed degradation.
     redis_host = os.environ.get("REDIS_HOST", "localhost")
     redis_port = int(os.environ.get("REDIS_PORT", "6379"))
     redis_db = int(os.environ.get("REDIS_MESSAGE_DB", "1"))  # Separate DB from other Redis usage
