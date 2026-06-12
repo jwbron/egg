@@ -492,6 +492,43 @@ async def run_agent_async(
             event_subtype="ddg_mcp_enabled",
         )
 
+    # --- Route-conditional working-style guidance for the LiteLLM path (#3175) ---
+    # On non-Claude routes every turn re-bills the whole conversation at the
+    # cached-token rate, and open models take 3-5x more, smaller steps than the
+    # Claude baseline — turns × context-size dominates cost. Append an advisory
+    # system-prompt addendum steering toward batched tool calls, filtered
+    # output, and subagent-isolated bulk reads. The addendum is a constant
+    # gated only on pod-lifetime env (ANTHROPIC_CUSTOM_MODEL_OPTION, the same
+    # route signal as the DDG fallback above), so the rendered system prompt
+    # stays per-session stable and the cacheable prefix is unaffected. Same
+    # plain-str append semantics as SYSTEM_PROMPT_NUDGE above;
+    # EGG_ROUTE_PROMPT_GUIDANCE=false is the rollback escape hatch.
+    from egg_agent.route_guidance import route_guidance_addendum
+
+    route_addendum = route_guidance_addendum()
+    if route_addendum:
+        existing_prompt = options.system_prompt
+        if isinstance(existing_prompt, str) and existing_prompt:
+            options.system_prompt = existing_prompt.rstrip() + "\n\n" + route_addendum
+        elif existing_prompt:
+            # SystemPromptPreset / SystemPromptFile — append semantics are
+            # not defined for these forms (same constraint as the MCP
+            # nudge above); preserve the caller's prompt and skip.
+            logger.warning(
+                "Cannot append route guidance to non-string system_prompt "
+                f"(type={type(existing_prompt).__name__}); guidance omitted",
+                event_type="system",
+                event_subtype="route_guidance_skipped",
+            )
+        else:
+            options.system_prompt = route_addendum
+        if isinstance(options.system_prompt, str) and route_addendum in options.system_prompt:
+            logger.info(
+                "Appended LiteLLM-route working-style guidance to system prompt",
+                event_type="system",
+                event_subtype="route_guidance_enabled",
+            )
+
     # --- Mid-turn operator message delivery (#3123) ---
     # One propose invocation under the BRC event-pump can run 30+ minutes
     # (a slice coder implements its whole task list in one turn), and the
