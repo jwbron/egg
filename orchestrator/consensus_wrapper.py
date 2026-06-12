@@ -22,6 +22,14 @@ event. A deterministic bash loop drives the lifecycle:
   default 30 min, architect od-4); priority climbs to ``high`` on the
   2× boundary; the loop keeps blocking rather than exiting 1 →
   FAILED.
+* escalate a consecutive agent-invocation failure streak (#3138):
+  linear backoff on the ``propose|ack|nack`` arm (streak × 2 s,
+  capped 30 s, parity with the ``confirm`` arm), a sticky log warning
+  at streak 5, and a sticky ``OVERSEER_ALERT`` (anomaly
+  ``agent-invocation-fail-streak``) at streak 10 whose detail
+  classifies sub-second failures as configuration-class (unknown
+  model alias, auth, prompt-rendering crash). The loop still never
+  self-FAILs.
 
 Slice-4 history
 ~~~~~~~~~~~~~~~
@@ -596,6 +604,18 @@ ALERTED_AT_DOUBLE=false
 # after the role briefly transitioned through ``wait`` / ``propose``.
 CONFIRM_FAIL_STREAK=0
 AGENT_FAIL_STREAK=0
+# Sticky latches for the agent-invocation fail streak (#3138). Like the
+# ``NEXT_ACTION_ALERTED_*`` latches below they are wrapper-lifetime
+# sticky (the streak counter itself resets via the arm-cluster dispatch
+# at the top of the loop, but a re-fired warning after a brief recovery
+# is noise, not signal). The 10-streak latch escalates to a real
+# overseer alert -- a streak of fast-failing invocations is a strong
+# permanent/configuration-class signal (unknown model alias, auth
+# misconfiguration, prompt-rendering crash) that the operator should
+# hear about from the wrapper itself, not minutes later via the
+# overseer's generic heartbeat-silence anomaly.
+AGENT_FAIL_ALERTED_5=false
+AGENT_FAIL_ALERTED_10=false
 # Consecutive failures from ``fetch_next_action`` (reviewer §3): used
 # to surface a distinguishable "many consecutive 5xx/transport failures"
 # log line so an unhealthy orchestrator is differentiable from a benign
@@ -645,6 +665,31 @@ print(f\"role={{role}} producer_phase={{my.get('producer_phase','?')}} reviewer_
         --priority "$priority" \
         --summary "BRC event-pump idle for ${{idle}}s$summary_extra" \
         --detail "Event-pump for role=${{EGG_AGENT_ROLE:-agent}} slice=${{EGG_SLICE_ID:-none}} has seen no actionable BRC event for ${{idle}}s (configured budget ${{IDLE_BUDGET_SECS}}s). The loop continues blocking; no FAILED transition is forced. BRC state: $brc_snapshot" \
+        >/dev/null 2>&1 || true
+}}
+
+raise_agent_fail_alert() {{
+    local streak="$1"
+    local last_rc="$2"
+    local last_secs="$3"
+    local action="$4"
+    # Duration-aware classification (#3138): a sub-second failure means
+    # the invocation died before/at SDK init -- unknown model alias,
+    # auth misconfiguration, prompt-rendering crash -- i.e. a permanent
+    # configuration-class failure, not a transient. Name that in the
+    # alert so the operator doesn't have to infer it from cadence. The
+    # wrapper still never self-FAILs (post-#2908 design): the kill
+    # decision stays with the operator.
+    local classification="repeated agent-invocation failure; attempts are taking ${{last_secs}}s so this may be transient (API/quota/transport)"
+    if [ "$last_secs" -le 2 ]; then
+        classification="attempts are fast-failing (${{last_secs}}s, before/at SDK init) -- likely a permanent configuration-class failure (unknown model alias, auth misconfiguration, prompt-rendering crash)"
+    fi
+    timeout 5 egg-orch overseer alert "${{EGG_PIPELINE_ID:-unknown}}" \
+        --role "${{EGG_AGENT_ROLE:-agent}}" \
+        --anomaly agent-invocation-fail-streak \
+        --priority high \
+        --summary "agent invocation failing repeatedly (action=${{action}}, streak=${{streak}})" \
+        --detail "Event-pump for role=${{EGG_AGENT_ROLE:-agent}} slice=${{EGG_SLICE_ID:-none}} has had ${{streak}} consecutive agent-invocation failures on action=${{action}} (last rc=${{last_rc}}): ${{classification}}. The loop keeps retrying with linear backoff (capped 30s); no FAILED transition is forced. Idle budget continues to accrue." \
         >/dev/null 2>&1 || true
 }}
 
@@ -812,21 +857,39 @@ while true; do
             if [ "$ACTION" = "ack" ] || [ "$ACTION" = "nack" ]; then
                 sync_to_proposals "$EVENT_PAYLOAD"
             fi
+            agent_invoke_start=$SECONDS
             invoke_agent_for_event "$ACTION" "$EVENT_PAYLOAD"
             agent_rc=$?
+            agent_invoke_secs=$(( SECONDS - agent_invoke_start ))
             if [ "$agent_rc" -eq 0 ]; then
                 note_progress
                 AGENT_FAIL_STREAK=0
             else
                 AGENT_FAIL_STREAK=$(( AGENT_FAIL_STREAK + 1 ))
-                cw_log "agent invocation failed (action=$ACTION, rc=$agent_rc, streak=$AGENT_FAIL_STREAK). Idle counter continues to accrue."
-                # Agent startup typically gives a natural floor of
-                # seconds-to-tens-of-seconds, so no explicit backoff is
-                # required here -- but if the failure was sub-second (e.g.
-                # a prompt-rendering crash before SDK init), add a small
-                # floor so the orchestrator's next-action route isn't
-                # hammered.
-                sleep 1
+                cw_log "agent invocation failed (action=$ACTION, rc=$agent_rc, streak=$AGENT_FAIL_STREAK, duration=${{agent_invoke_secs}}s). Idle counter continues to accrue."
+                if [ "$AGENT_FAIL_STREAK" -ge 5 ] && [ "$AGENT_FAIL_ALERTED_5" != "true" ]; then
+                    cw_log "agent invocation has failed ${{AGENT_FAIL_STREAK}} times in a row (action=$ACTION) -- this is likely a permanent failure (unknown model alias, auth misconfiguration, prompt-rendering crash), not a transient. Idle budget continues to accrue."
+                    AGENT_FAIL_ALERTED_5=true
+                fi
+                if [ "$AGENT_FAIL_STREAK" -ge 10 ] && [ "$AGENT_FAIL_ALERTED_10" != "true" ]; then
+                    raise_agent_fail_alert "$AGENT_FAIL_STREAK" "$agent_rc" "$agent_invoke_secs" "$ACTION"
+                    AGENT_FAIL_ALERTED_10=true
+                fi
+                # #3138: the old flat ``sleep 1`` here assumed agent
+                # startup gives a natural seconds-to-tens-of-seconds
+                # floor, but a pre-SDK-init failure (unknown model
+                # alias, prompt-rendering crash) fails in <1 s and was
+                # retried at the floor indefinitely (160+ consecutive
+                # retries on the first issue-3077 run). Backoff parity
+                # with the ``confirm`` arm above: linear in the streak,
+                # capped at 30 s, so a deterministic fast-fail loop
+                # stops hammering the orchestrator while a one-off
+                # transient still retries promptly.
+                agent_backoff_secs=$(( AGENT_FAIL_STREAK * 2 ))
+                if [ "$agent_backoff_secs" -gt 30 ]; then
+                    agent_backoff_secs=30
+                fi
+                sleep "$agent_backoff_secs"
             fi
             ;;
         *)

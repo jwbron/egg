@@ -1178,6 +1178,204 @@ class TestEventPumpConfirmFailureRaisesIdleAlert:
         )
 
 
+class TestEventPumpAgentFailStreakEscalation:
+    """(#3138) The ``propose|ack|nack`` arm must not retry a
+    deterministic fast failure indefinitely at a flat 1 s cadence.
+
+    Pre-fix bug shape (first issue-3077 run, 2026-06-11): the refiner's
+    agent invocation failed pre-SDK-init (unknown model alias, rc=1 in
+    <1 s) and the arm retried it 160+ consecutive times, one every
+    ~2-3 s, with no backoff growth and no escalation. ``AGENT_FAIL_STREAK``
+    was computed and logged but nothing acted on it; the only detection
+    was the overseer's generic heartbeat-silence anomaly ~8 minutes in.
+
+    Post-fix, the arm has parity with its two siblings:
+      - backoff parity with the ``confirm`` arm: linear in the streak
+        (streak x 2 s), capped at 30 s;
+      - escalation parity beyond the ``fetch_next_action`` latches: a
+        sticky log warning at streak 5 and a sticky OVERSEER_ALERT
+        (anomaly ``agent-invocation-fail-streak``) at streak 10 whose
+        detail classifies sub-second failures as configuration-class.
+    The wrapper still never self-FAILs (post-#2908 design).
+    """
+
+    def test_template_has_agent_arm_backoff_and_streak_latches(self, monkeypatch):
+        """Render-level lock-in: the agent arm computes a capped linear
+        backoff from ``AGENT_FAIL_STREAK``, defines both sticky latches,
+        raises the streak alert, and no longer contains the flat
+        ``sleep 1`` retry floor as executable bash."""
+        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+        script = build_consensus_wrapped_command("Prompt")[-1]
+
+        assert "agent_backoff_secs=$(( AGENT_FAIL_STREAK * 2 ))" in script, (
+            "agent arm must grow its retry sleep linearly with the "
+            "fail streak (parity with the confirm arm)"
+        )
+        assert 'sleep "$agent_backoff_secs"' in script
+        assert "AGENT_FAIL_ALERTED_5=false" in script
+        assert "AGENT_FAIL_ALERTED_10=false" in script
+        assert "raise_agent_fail_alert" in script
+        assert "agent-invocation-fail-streak" in script, (
+            "streak escalation must reach the overseer as a distinctly "
+            "named anomaly, not only a cw_log line"
+        )
+        # The pre-#3138 flat retry floor must not survive as executable
+        # bash (a backtick-quoted mention in a comment is fine).
+        executable_lines = [
+            line.strip() for line in script.splitlines() if not line.lstrip().startswith("#")
+        ]
+        assert "sleep 1" not in executable_lines, (
+            "#3138 regression: the agent arm's flat `sleep 1` retry "
+            "floor is back — a pre-SDK-init failure would again retry "
+            "indefinitely at the floor"
+        )
+
+    def test_persistent_agent_failure_backs_off_and_fires_streak_alert(self, tmp_path, monkeypatch):
+        """End-to-end behavioural test of the #3138 fix.
+
+        Drive the rendered event-pump bash against stubbed shims:
+          - ``brc get-state`` → role unconfirmed, consensus incomplete
+          - ``brc next-action`` → ``{"action":"propose"}`` every call
+          - ``python3 -m egg_agent ...`` → exit 1 immediately (the
+            pre-SDK-init fast-fail signature from #3136; inline
+            ``python3 -c`` JSON parsing forwards to the real
+            interpreter)
+          - ``overseer alert`` → record the call to a log file
+          - ``sleep`` → record the requested duration, then sleep a
+            scaled-down 0.05 s so the loop reaches a deep streak
+            within the test timeout without real waiting
+
+        Assertions:
+          - the recorded sleep durations are exactly the expected
+            capped-linear sequence (2, 4, 6, ... capped at 30) — i.e.
+            backoff grows with the streak and respects the cap;
+          - the streak reached at least 10 (so the escalation path ran);
+          - the ``agent-invocation-fail-streak`` overseer alert fired
+            EXACTLY once (sticky latch — pre-fix the signal never
+            fired; an unsticky latch would flood);
+          - the alert detail carries the sub-second
+            configuration-class classification.
+        """
+        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        alert_log = tmp_path / "alert_calls.log"
+        sleep_log = tmp_path / "sleep_calls.log"
+        general_log = tmp_path / "egg_orch.log"
+
+        mock_orch = bin_dir / "egg-orch"
+        mock_orch.write_text(
+            "#!/bin/bash\n"
+            f'echo "$@" >> {shlex.quote(str(general_log))}\n'
+            'sub="$1 $2"\n'
+            'case "$sub" in\n'
+            '    "brc get-state")\n'
+            '        echo \'{"consensus":{"agents":{"coder":{"confirmed":false,'
+            '"producer_phase":"WAITING_FOR_REVIEW"}},"is_complete":false}}\'\n'
+            "        ;;\n"
+            '    "brc next-action")\n'
+            '        echo \'{"action":"propose"}\'\n'
+            "        ;;\n"
+            '    "overseer alert")\n'
+            f'        echo "alert: $*" >> {shlex.quote(str(alert_log))}\n'
+            "        ;;\n"
+            "    *)\n"
+            "        ;;\n"
+            "esac\n"
+            "exit 0\n"
+        )
+        os.chmod(str(mock_orch), 0o755)  # nosec B103
+
+        # Inline ``python3 -c`` / stdin parsing forwards to the real
+        # interpreter; the ``python3 -m egg_agent`` invocation path
+        # fast-fails like an unknown-model session-init crash (#3136).
+        real_python = sys.executable
+        mock_python = bin_dir / "python3"
+        mock_python.write_text(
+            "#!/bin/bash\n"
+            'if [ "$1" = "-c" ] || [ "$1" = "-" ]; then\n'
+            f'    exec {shlex.quote(real_python)} "$@"\n'
+            "fi\n"
+            "exit 1\n"
+        )
+        os.chmod(str(mock_python), 0o755)  # nosec B103
+
+        # Record requested sleep durations, then sleep a scaled-down
+        # constant so backoff growth is observable without real waiting.
+        # ``command -p`` resolves the real sleep from the default PATH
+        # (this stub shadows ``sleep`` on the test PATH, so a bare
+        # ``sleep`` here would recurse).
+        mock_sleep = bin_dir / "sleep"
+        mock_sleep.write_text(
+            "#!/bin/bash\n"
+            f'echo "$1" >> {shlex.quote(str(sleep_log))}\n'
+            "command -p sleep 0.05 2>/dev/null || exit 0\n"
+            "exit 0\n"
+        )
+        os.chmod(str(mock_sleep), 0o755)  # nosec B103
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["EGG_BRC_EVENT_PUMP"] = "true"
+        # Leave the idle budget at its 30-min default: the streak alert
+        # must come from the agent arm, not the idle-budget safety net.
+        env.pop("EGG_BRC_IDLE_BUDGET_MIN", None)
+        env["EGG_AGENT_ROLE"] = "coder"
+        env["EGG_PIPELINE_ID"] = "test-pipeline"
+        env["EGG_CONCURRENT_MODE"] = "true"
+
+        cmd = build_consensus_wrapped_command("Prompt")
+        try:
+            subprocess.run(
+                cmd,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except subprocess.TimeoutExpired:
+            pass  # expected — the wrapper loops; we bound it.
+
+        assert sleep_log.exists(), (
+            "agent arm never slept after a failed invocation -- the "
+            "event-pump loop may not have reached the propose arm. "
+            "egg-orch log:\n" + (general_log.read_text() if general_log.exists() else "(empty)")
+        )
+        observed = [int(line) for line in sleep_log.read_text().split() if line.isdigit()]
+        expected = [min(2 * (i + 1), 30) for i in range(len(observed))]
+        assert observed == expected, (
+            "#3138 regression: agent-arm retry sleeps must follow the "
+            "capped-linear backoff (streak x 2 s, capped 30 s, parity "
+            f"with the confirm arm). Observed {observed[:20]}, expected "
+            f"{expected[:20]}"
+        )
+        assert len(observed) >= 10, (
+            "test did not reach streak 10 within the timeout; the "
+            f"escalation path was not exercised (streak={len(observed)})"
+        )
+
+        assert alert_log.exists(), (
+            "#3138 regression: 10+ consecutive fast agent-invocation "
+            "failures did not raise an overseer alert from the wrapper. "
+            "Pre-fix, AGENT_FAIL_STREAK was computed and discarded; the "
+            "operator only heard about the loop ~8 minutes later via "
+            "the overseer's generic heartbeat-silence anomaly. egg-orch "
+            "log:\n" + general_log.read_text()
+        )
+        alert_text = alert_log.read_text()
+        alert_count = alert_text.count("agent-invocation-fail-streak")
+        assert alert_count == 1, (
+            "streak alert must fire exactly once per wrapper lifetime "
+            f"(sticky AGENT_FAIL_ALERTED_10 latch); got {alert_count}. "
+            f"Alert text:\n{alert_text}"
+        )
+        assert "configuration-class" in alert_text, (
+            "sub-second failures must be classified as configuration-"
+            "class (unknown model alias, auth, prompt-rendering crash) "
+            f"in the alert detail. Alert text:\n{alert_text}"
+        )
+
+
 class TestEventPumpInvokesComposer:
     """Pin the wrapper template's ``invoke_agent_for_event`` invocation
     shape (reviewer_contract NACK v1, plan TASK-3-2 acceptance "Wrapper
