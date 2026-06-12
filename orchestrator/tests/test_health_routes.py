@@ -373,9 +373,7 @@ class TestMessageStoreFailLoudSurface:
         # and ``mcp__egg__check_health`` branch on a single field.
         assert body["status"] == "degraded"
 
-    def test_health_endpoint_message_store_surface_does_not_call_messagestore(
-        self, client
-    ):
+    def test_health_endpoint_message_store_surface_does_not_call_messagestore(self, client):
         """The slice-6 surface MUST stay on the issue-#1897 TASK-4-3 invariant.
 
         Patch ``MessageStore`` + ``get_message_store`` to raise on any
