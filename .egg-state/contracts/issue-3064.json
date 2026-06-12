@@ -487,6 +487,29 @@
       "resolved_by": "human",
       "resolved_at": "2026-06-12T17:22:32.233657Z",
       "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "[Phase gate: plan] The plan phase has completed. Please review the plan and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Operator approved the 6-slice plan after independent verification of the review trail (v1\u2192v2 delta audit, claims-ledger spot-checks). Note for PR phase: the flip follow-up issue already exists as #3164 \u2014 update it with the prepared body from slice 6 rather than filing a duplicate.",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-12T17:50:26.360080Z",
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
