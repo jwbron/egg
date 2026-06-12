@@ -159,6 +159,14 @@
       "registered_at": "2026-06-12T16:43:59.598264+00:00",
       "repo": null,
       "role": "refiner"
+    },
+    "f4a619fed8e45766652e2321c9b08682983bae7c": {
+      "branch": "egg/issue-3064/slice-3",
+      "patch_id": null,
+      "pipeline_id": "issue-3064",
+      "registered_at": "2026-06-12T19:23:51.697530+00:00",
+      "repo": null,
+      "role": "coder"
     }
   },
   "version": 2
