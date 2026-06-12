@@ -2,6 +2,12 @@
 
 This document describes the directory structure conventions for egg.
 
+Per-directory file listings are intended to be exhaustive: every Python module
+in a listed directory should have a one-line entry, unless the listing is
+explicitly truncated with `...`. A module missing from a non-truncated listing
+is drift, not an intentional omission — backfill it (the doc-updater bot adds
+entries for new files going forward).
+
 ## Top-Level Structure
 
 ```
@@ -311,8 +317,30 @@ shared/
 │   ├── dependency_graph.py # Generic dependency graph (PEP-695 typed): used for agent-role DAGs and for the implement-phase slice DAG (#2137 generification)
 │   ├── plan_parser.py      # Plan document parsing with task extraction and phase dependency normalization
 │   ├── agent_recovery.py   # Failed agent recovery logic
+│   ├── artifact_spec.py    # Declarative registry of per-phase coordination artifacts producers commit and consumers read (#3077)
+│   ├── audit.py            # Audit log entries for contract modifications
+│   ├── decisions.py        # Decision.id allocator helpers for the shared decision-N / cq-N namespace
+│   ├── feedback.py         # Feedback comment handling for the SDLC pipeline
+│   ├── hitl.py             # HITL (human-in-the-loop) checkbox handling for the SDLC pipeline
+│   ├── impasse.py          # Typed Impasse primitive — runtime escape hatch for structurally impossible tasks (#2529)
+│   ├── loader.py           # Contract loading, saving, and initialization (persistence layer)
 │   ├── markdown.py         # Markdown soft-break unwrapper for pipeline-generated PR bodies (unwrap_soft_breaks, #3122)
-│   └── redactor.py         # Sensitive data redaction (env vars, secrets, sensitive file paths)
+│   ├── redactor.py         # Sensitive data redaction (env vars, secrets, sensitive file paths)
+│   ├── resilience.py       # Resilience utilities for external failure handling (retries, backoff)
+│   ├── roles.py            # Contract-mutation role definitions and field ownership mapping
+│   ├── validator.py        # Contract mutation validator — enforces role permissions on field writes
+│   └── tests/              # In-package test suite (complements tests/shared/egg_contracts/)
+│       ├── test_agent_roles.py                  # reviewer_security / reviewer_concurrency role tests (#1965)
+│       ├── test_artifact_spec.py                # Artifact-spec consistency suite (#3077)
+│       ├── test_composite_execution.py          # Composite (phase_id, role) execution tracking tests
+│       ├── test_orchestrator.py                 # load_agent_output / save_agent_output identifier-prefixed path tests
+│       ├── test_orchestrator_phase_id.py        # Orchestrator phase_id parameter tests
+│       ├── test_plan_parser_dependencies.py     # Plan-parser dependencies field propagation tests
+│       ├── test_slice_migration.py              # Phase → Slice schema-rename migration shim tests (#2137)
+│       ├── test_validate_forest.py              # Slice-DAG forest validation tests (#2137)
+│       ├── test_validate_slice_file_overlap.py  # Slice file-overlap validation tests (#3046)
+│       ├── test_validate_task_role_alignment.py # Plan task/producer-role alignment validation tests (#2527)
+│       └── test_validator_demote_only.py        # Reviewer demote-only task-status write tests (#3114)
 ├── check-fixers.yml         # Per-check fixer config (non-LLM fixes, retries, model)
 ├── prompts/                # Shared prompt criteria (used by GHA scripts AND orchestrator)
 │   ├── agent-design-criteria.md  # Agent-mode design review criteria
@@ -384,11 +412,24 @@ tests/
 │   ├── test_checks.py             # Check script framework tests
 ├── shared/
 │   └── egg_contracts/
-│       ├── test_models.py         # Contract model tests including check models
-│       ├── test_phase_defaults.py # Phase default configuration tests
 │       ├── test_agent_recovery.py # Agent recovery and circuit breaker tests
+│       ├── test_agent_roles.py    # Multi-agent role definition tests
+│       ├── test_audit.py          # Contract-modification audit log tests
+│       ├── test_decisions.py      # cq-N Decision.id allocator tests
+│       ├── test_feedback.py       # Feedback comment handling tests
+│       ├── test_hitl.py           # HITL checkbox handling tests
+│       ├── test_loader.py         # Contract loader / persistence tests
 │       ├── test_markdown.py       # Markdown soft-break unwrapper tests (unwrap_soft_breaks, #3122)
-│       └── test_redactor.py       # Redactor tests for sensitive data masking
+│       ├── test_models.py         # Contract model tests including check models
+│       ├── test_models_gaps.py    # Task.gaps regression tests (#1917)
+│       ├── test_models_task_description.py # Contract.task_description regression tests (#3033)
+│       ├── test_phase_defaults.py # Phase default configuration tests
+│       ├── test_plan_parser.py    # Plan document parsing tests
+│       ├── test_pr_metadata.py    # PRMetadata legacy context-field removal tests (#2777-replan)
+│       ├── test_redactor.py       # Redactor tests for sensitive data masking
+│       ├── test_resilience.py     # External-failure resilience utility tests
+│       ├── test_roles.py          # Role / field-ownership mapping tests
+│       └── test_validator.py      # Contract mutation validator tests
 └── workflows/                     # Workflow integration tests
     ├── __init__.py
     └── test_hitl_integration.py   # HITL decision format verification
