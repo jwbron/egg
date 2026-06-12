@@ -335,7 +335,7 @@
       "id": "slice-5",
       "name": "Phase-3 prose cleanup, docs invariant entry, and the no-sync-mechanics ratchet",
       "goal": "Delete agent-facing fetch/log sync prose now that every replacement\nmechanism (banner, spec, validation, endpoint) is live; add the\ndocs/architecture invariant entry; add the ratchet test that keeps\nsync mechanics out of agent-facing prompts. Hard file-overlap with\nslice 1 on event_prompt.py (#3046) \u2014 chain is serialized.",
-      "status": "in_progress",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -344,8 +344,8 @@
         {
           "id": "task-5-1",
           "description": "Delete the event-prompt self-fetch fallback prose. Remove the\n\"fetch and read the diffs yourself\" instruction prose in\n`orchestrator/routes/event_prompt.py` (\u2248850-880, around\n`_render_producer_delta_section()` / `_run_git_log()` usage) \u2014\nthe rendered `git show` delta commands and the slice-1 banner\ncross-reference remain; the instruction to self-fetch goes.\nRebases on the slice-1 state of this file (#3046 overlap).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "db79e6024ba862ae075ff2a08905278863b5710e",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- No `git fetch` / `git merge` / `git pull` instruction text\n  remains in event-prompt static prose.\n- Rendered review prompts still carry `git show` delta commands\n  and the banner cross-reference.\n- No rendered prompt references a brc-history disk path.",
@@ -408,8 +408,8 @@
         {
           "id": "task-5-4",
           "description": "Ratchet test `orchestrator/tests/test_prompt_sync_ratchet.py`\n(NEW): scans agent-facing prompt sources \u2014 `shared/prompts/*.md`\nand prompt-constructing template strings in\n`orchestrator/routes/event_prompt.py` \u2014 for sync mechanics:\ninstructional occurrences of `git fetch`, `git merge`,\n`git pull`, and brc-history disk paths. Fails on any match\noutside an explicit, justified allowlist for harness-internal\ncode (the allowlist starts minimal; additions require editing the\ntest \u2014 that is the ratchet). Rendered `git show` delta commands\nare intentionally NOT matched (served-read companions, not sync\nmechanics).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "9fbeb6cba",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Test fails when a `git fetch` imperative is reintroduced into\n  any scanned source (demonstrated via parametrized mutation or\n  tmp-file fixture).\n- Test passes on the post-cleanup tree (after TASK-5-1 and\n  TASK-5-2).\n- `git show` references do not trigger the ratchet; every\n  allowlist entry carries a justification comment.",
@@ -437,10 +437,10 @@
         "slice-4"
       ],
       "parent_branch_at_creation": "egg/issue-3077/slice-4",
-      "integration_base_sha": null,
+      "integration_base_sha": "4418f02f28f08426613fed0104873651c2e5c953",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3145,
+      "pr_url": "https://github.com/jwbron/egg/pull/3145",
       "review_feedback": []
     },
     {
@@ -1174,6 +1174,50 @@
       "old_value": "5f0f67287",
       "new_value": "11a196409",
       "reason": "Linked commit 11a1964 to task-6-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T04:57:59.484094Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.commit",
+      "old_value": null,
+      "new_value": "db79e6024ba862ae075ff2a08905278863b5710e",
+      "reason": "Linked commit db79e60 to task-5-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T04:57:59.504309Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-5-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T05:00:04.663572Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.3.commit",
+      "old_value": null,
+      "new_value": "9fbeb6cba",
+      "reason": "Linked commit 9fbeb6c to task-5-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T05:00:04.684530Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.3.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-5-4 as complete",
       "checkpoint_id": null
     }
   ],
