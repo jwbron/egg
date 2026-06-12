@@ -181,7 +181,13 @@ and sets a health-visible degraded flag. Explicit
 level with no degraded flag. The `auto` selection semantics — Redis
 when available, in-memory fallback — are unchanged; deeper durability
 work stays in the [#3070](https://github.com/jwbron/egg/issues/3070)
-lineage. The Redis path's restart semantics are pinned by
+lineage. Since [#2662](https://github.com/jwbron/egg/issues/2662) the
+k8s manifests deploy Redis (`k8s/base/redis-deployment.yaml`) and pin
+the orchestrator to `EGG_MESSAGE_STORE_BACKEND=redis`, so the
+accidental-loss row above cannot occur in-cluster: explicit `redis`
+mode raises on an unreachable Redis instead of falling back. The
+fallback path (and its fail-loud signal) remains for `auto`-configured
+local/dev contexts. The Redis path's restart semantics are pinned by
 `orchestrator/tests/test_redis_message_store.py`: mid-phase messages
 survive a store re-instantiation against the same Redis (simulated
 orchestrator restart), while the designed `_clear_concurrent_state()`

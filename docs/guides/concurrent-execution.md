@@ -100,7 +100,7 @@ All concurrent agent containers are wrapped with a shell script defined in `orch
 
 ## Message Bus
 
-Agents communicate with each other during concurrent execution via the orchestrator message bus (`orchestrator/message_store.py`). In production, messages are stored in Redis Streams, surviving orchestrator restarts. Messages are cleared at phase transition. In test environments, an in-memory fallback is used when Redis is not available.
+Agents communicate with each other during concurrent execution via the orchestrator message bus (`orchestrator/message_store.py`). In production, messages are stored in Redis Streams, surviving orchestrator restarts — the k8s manifests deploy a dedicated Redis (`k8s/base/redis-deployment.yaml`) and pin the orchestrator to it via `EGG_MESSAGE_STORE_BACKEND=redis` ([#2662](https://github.com/jwbron/egg/issues/2662)). Messages are cleared at phase transition. In test environments, an in-memory fallback is used when Redis is not available.
 
 ### How to Wait
 
@@ -202,7 +202,7 @@ Returns total message count and a breakdown by message type.
 
 ### Message Store Backend
 
-The message store uses Redis Streams when Redis is available, falling back to an in-memory store for tests or unconfigured environments. The backend is selected via the `EGG_MESSAGE_STORE_BACKEND` environment variable (`"auto"` by default, `"redis"` to require Redis, `"memory"` to force in-memory).
+The message store uses Redis Streams when Redis is available, falling back to an in-memory store for tests or unconfigured environments. The backend is selected via the `EGG_MESSAGE_STORE_BACKEND` environment variable (`"auto"` by default, `"redis"` to require Redis, `"memory"` to force in-memory). The k8s deployment sets `"redis"` explicitly ([#2662](https://github.com/jwbron/egg/issues/2662)): in-cluster, a Redis outage fails loudly rather than silently degrading to the in-memory store (the `auto`→memory fallback is the mid-phase-restart loss risk that the [#3077](https://github.com/jwbron/egg/issues/3077) slice-6 health flag exists to catch). `integration_tests/test_message_store_backend.py` pins the deployed backend choice and round-trips a message through the live Redis.
 
 **Long-poll semantics (both backends):** `GET /messages/wait?for=<TYPE>&timeout=<s>` blocks on both backends until a matching message arrives or the timeout elapses. The in-memory store implements blocking via a per-pipeline `threading.Condition`; the Redis backend uses `XREAD BLOCK` with a server-side type-filter loop. The silent non-blocking fallback that previously lived in `routes/messages.py` was removed in [#1897](https://github.com/jwbron/egg/issues/1897) so backend misconfiguration fails loudly in CI instead of returning empty results. See [Agent Wait Patterns](../reference/agent-wait-patterns.md#3-exit-code-contract-for-egg-orch-message-wait) for the full exit-code contract and the `EGG_MESSAGE_POLL_MAX_WAIT` cap.
 

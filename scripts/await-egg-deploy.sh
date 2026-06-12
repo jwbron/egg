@@ -21,7 +21,7 @@ NS="egg-system"
 : "${1:?usage: $0 <egg-image-tag> [timeout-seconds]}"
 TAG="$1"
 TIMEOUT="${2:-180}"
-DEPLOYMENTS=(orchestrator gateway litellm)
+DEPLOYMENTS=(orchestrator gateway litellm redis)
 
 # Keep kubectl stderr off of stdout so the success-path jsonpath value in
 # $out is strictly equal to the queried field. If a future cluster ever
