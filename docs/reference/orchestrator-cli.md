@@ -46,9 +46,9 @@ Run `egg-orch --help` for full usage. All commands support `--json` for machine-
 | `egg-orch overseer file-issue [<id>] --anomaly-type <type> --priority <p0\|p1\|p2\|p3> --agent-role <role> --anomaly-signature <hex16> --issue-title-file <path> --issue-body-file <path> [--parent-alert-message-id <id>] [--dry-run] [--json]` | File a GitHub issue from the overseer role (advisor-gated). Checks `filed-issues.jsonl` + `gh issue list` for deduplication; skips filing if a matching open issue exists. Default stdout is plain text (`Filed issue #N (...)` or `Existing issue #N already covers ...`); with `--json`, prints JSON `{"issue_number": int, "filed": bool, "dedup_match": int\|null}`; with `--dry-run` (no `gh` invocation either way): if a dedup match is found, prints the same `--json` shape (with `issue_number`/`dedup_match` populated); otherwise prints `{"issue_number": null, "filed": false, "dedup_match": null, "dry_run": true, "argv": [...], "title": str, "body_bytes": int}`. Requires `EGG_PIPELINE_REPO` env var. |
 | `egg-orch overseer consult-advisor [<id>] --inputs-file <path> [--output-file <path>] [--recent-log-bytes-cap <n>] [--json]` | Consult the advisor for a structured `AdvisorVerdict` (sandbox-side LLM call). Reads a JSON inputs file with `classification`, `health_alerts`, `progress_events`, and `recent_log_lines`. Returns `decision` (`alert`\|`file_issue`\|`watch`), `priority`, `alert_summary`, `alert_detail`, `issue_title`, `issue_body`, and `reasoning`. Without `--output-file`, the JSON verdict is written to stdout; with `--output-file`, the verdict is written to that path and stdout shows a confirmation message (pass `--json` to additionally echo the verdict to stdout). When `[<id>]` (or `EGG_PIPELINE_ID`) is set, the verb reads `PipelineConfig.overseer_advisor_model` and `PipelineConfig.overseer_advisor_recent_log_bytes_cap` from the orchestrator status endpoint and passes the configured values to `consult_advisor`; falls back to the `opus` model default and 256 KiB byte cap if the pipeline ID is absent or the lookup fails. `--recent-log-bytes-cap` overrides the `PipelineConfig.overseer_advisor_recent_log_bytes_cap` value; oldest lines are dropped first when the block exceeds the cap. `0` disables the cap. |
 | `egg-orch message poll [<id>] [--since <id>] [--limit <n>]` | Poll for messages from other agents (concurrent mode) |
-| `egg-orch message wait [<id>] --for <TYPE>... [--timeout N] [--since <id>] [--from-producer <role>]... [--slice <id>]` | Block until a **new** typed BRC event arrives (cursor-less calls start at stream tip — already-seen events are skipped). Cursor threading across re-entries is automatic when `EGG_AGENT_ROLE` is set (issue #2323). Pass `--since <id>` to resume from a specific anchor when needed. `--from-producer` (repeatable; also accepts comma-separated values, e.g. `--from-producer coder,tester`) restricts wakes to messages from the named senders; defaults to `$EGG_WAIT_PRODUCER_ALLOWLIST`. `--slice` restricts wakes to messages for the named slice (messages with null `slice_id` always pass through); defaults to `$EGG_SLICE_ID`. Exit 0 = matched, 1 = timeout, 2 = transient (retry-safe), 3 = permanent. See [Agent Wait Patterns §3](agent-wait-patterns.md#3-exit-code-contract-for-egg-orch-message-wait) |
-| `egg-orch message wait-loop [<id>] --for <TYPE>... [--since <id>] [--from-producer <role>]... [--slice <id>]` | **Canonical STAY ALIVE idiom** — loops `message wait` server-side until a new matching event arrives (defaults to stream-tip; cursor threading across re-entries is automatic when `EGG_AGENT_ROLE` is set — issue #2323). `--from-producer` and `--slice` auto-apply from `$EGG_WAIT_PRODUCER_ALLOWLIST` / `$EGG_SLICE_ID` when set by the spawner (#2725). Do not wrap in an outer shell loop. See [Agent Wait Patterns §1](agent-wait-patterns.md#1-the-canonical-idiom) |
-| `egg-orch message heartbeat [<id>] --state <WORKING\|WAITING_ON_ROLE\|WAITING_FOR_EVENT\|PROPOSED\|IDLE> [--waiting-on <role>] [--since <ts>]` | Emit a structured `HEARTBEAT` message on state transitions. `WAITING_ON_ROLE` requires `--waiting-on`. `WAITING_FOR_EVENT` is emitted automatically by `egg-orch message wait-loop` while blocked — agents don't need to emit it manually. Rate-limited by `EGG_HEARTBEAT_RATE_LIMIT` (per-role, 429 on exceed). See [Agent Wait Patterns §4](agent-wait-patterns.md#4-heartbeat-message-type) |
+| `egg-orch message wait [<id>] --for <TYPE>... [--timeout N] [--since <id>] [--from-producer <role>]... [--slice <id>]` | **Wrapper-internal** (#2908/#3157; agents never wait on the bus) — block until a **new** typed BRC event arrives (cursor-less calls start at stream tip — already-seen events are skipped). Cursor threading across re-entries is automatic when `EGG_AGENT_ROLE` is set (issue #2323). Pass `--since <id>` to resume from a specific anchor when needed. `--from-producer` (repeatable; also accepts comma-separated values, e.g. `--from-producer coder,tester`) restricts wakes to messages from the named senders; defaults to `$EGG_WAIT_PRODUCER_ALLOWLIST`. `--slice` restricts wakes to messages for the named slice (messages with null `slice_id` always pass through); defaults to `$EGG_SLICE_ID`. Exit 0 = matched, 1 = timeout, 2 = transient (retry-safe), 3 = permanent. See [Agent Wait Patterns §3](agent-wait-patterns.md#3-exit-code-contract-for-egg-orch-message-wait) |
+| `egg-orch message wait-loop [<id>] --for <TYPE>... [--since <id>] [--from-producer <role>]... [--slice <id>]` | **Wrapper-internal** (#2908/#3157): the consensus wrapper's canonical blocking wait — loops `message wait` server-side until a new matching event arrives (defaults to stream-tip; cursor threading across re-entries is automatic when `EGG_AGENT_ROLE` is set — issue #2323). `--from-producer` and `--slice` auto-apply from `$EGG_WAIT_PRODUCER_ALLOWLIST` / `$EGG_SLICE_ID` when set by the spawner (#2725). Agents must never call this — the wrapper owns the wait and invokes the agent one-shot per event. Do not wrap in an outer shell loop. See [Agent Wait Patterns §1](agent-wait-patterns.md#1-the-canonical-idiom) |
+| `egg-orch message heartbeat [<id>] --state <WORKING\|WAITING_ON_ROLE\|WAITING_FOR_EVENT\|PROPOSED\|IDLE> [--waiting-on <role>] [--since <ts>]` | Emit a structured `HEARTBEAT` message on state transitions. `WAITING_ON_ROLE` requires `--waiting-on`. `WAITING_FOR_EVENT` is emitted automatically by `egg-orch message wait-loop` (a wrapper-internal call) while blocked — agents never emit it. Rate-limited by `EGG_HEARTBEAT_RATE_LIMIT` (per-role, 429 on exceed). See [Agent Wait Patterns §4](agent-wait-patterns.md#4-heartbeat-message-type) |
 | `egg-orch message status [<id>]` | Get message bus status (concurrent mode) |
 | `egg-orch signal readiness [<id>] --state <WORKING\|READY\|BLOCKED\|OBJECTING> [--reason "..."]` | Signal readiness state (concurrent mode) |
 | `egg-orch push` | Push current branch via the gateway. The gateway rejects pushes that modify restricted paths (`403 restricted_path_modified`); drop the offending edits and re-propose with `--pre-merge-condition` ([#2039](https://github.com/jwbron/egg/issues/2039)) |
@@ -133,26 +133,32 @@ egg-orch message send --to reviewer_code --type STATUS \
 
 See [Directed Coordination](../guides/concurrent-execution.md#directed-coordination) for detailed usage guidance and worked examples.
 
-**Wait for BRC events (canonical STAY ALIVE idiom):**
+**Wait for BRC events (wrapper-internal — agents never call these):**
+
+Blocking bus waits belong to the consensus wrapper, which invokes the agent one-shot per actionable event (#2908/#3157; see [Agent Wait Patterns §0](agent-wait-patterns.md#0-the-agent-contract-agents-never-wait-on-the-bus)). The wrapper issues:
+
 ```bash
-# Producer STAY ALIVE — wakes on consensus, re-review, or overseer alert
+# Post-confirm filter (wrapper-issued) — wakes on consensus, re-review, or overseer alert
 egg-orch message wait-loop \
   --for CONSENSUS_CONFIRMED \
   --for CONSENSUS_RE_REVIEW \
   --for OVERSEER_ALERT
 
-# Reviewer STAY ALIVE — additionally wakes on new proposals
+# Pre-confirm filter (wrapper-issued) — additionally wakes on proposals and verdicts
 egg-orch message wait-loop \
   --for CONSENSUS_PROPOSE \
+  --for CONSENSUS_ACK \
+  --for CONSENSUS_NACK \
   --for CONSENSUS_RE_REVIEW \
-  --for CONSENSUS_CONFIRMED \
+  --for STATUS \
   --for OVERSEER_ALERT
 
-# One-shot block — used inside scripts that want a single match (exit 0 = matched, 1 = timeout, 2 = transient, 3 = permanent)
+# One-shot block — used inside wrapper/operator scripts that want a single match
+# (exit 0 = matched, 1 = timeout, 2 = transient, 3 = permanent)
 egg-orch message wait --for CONSENSUS_PROPOSE --from coder --timeout 60
 ```
 
-Do not wrap `wait-loop` in an outer shell `for`-loop or `sleep` — it is already the outer loop, server-side. See [Agent Wait Patterns](agent-wait-patterns.md) for the full contract, the five anti-patterns to avoid, and the exit-code table.
+Do not wrap `wait-loop` in an outer shell `for`-loop or `sleep` — it is already the outer loop, server-side. See [Agent Wait Patterns](agent-wait-patterns.md) for the full contract, the five anti-patterns the event pump retired, and the exit-code table.
 
 **Emit a structured heartbeat (state transitions only):**
 ```bash

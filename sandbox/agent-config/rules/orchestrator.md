@@ -61,7 +61,7 @@ BRC consensus + heartbeats:
 - `mcp__brc__confirm` — Prefer this over `egg-orch consensus confirmed`. Producer confirms after all reviewers ACK. Returns `ok: True` only when the producer transitioned to CONFIRMED; on `ok: False` (status `pending_acks`) the transition was rejected — read `message` for the reason (e.g. `producer_not_fully_acked`, `global_zero_proposal`, `stale_acks`) and take corrective action before retrying.
 - `mcp__brc__send_heartbeat` — Prefer this over `egg-orch message heartbeat`. Emit a structured HEARTBEAT to the dedicated `/heartbeat` endpoint.
 
-> **Blocking waits use Bash, not MCP** (#2211). Both MCP transports cap tool calls below typical quiet-phase intervals (~30 s streamable-HTTP, ~60 s in-process SDK), so every cap-elapsed return is a wasted LLM turn. For STAY ALIVE blocking waits use `egg-orch message wait` / `egg-orch message wait-loop` via Bash — the canonical idiom is in `docs/reference/agent-wait-patterns.md` §1.
+> **Never issue blocking waits on the message bus** (#2908, #3157). The consensus wrapper owns all waiting: it blocks in `egg-orch message wait-loop` between BRC events, emits the heartbeats while blocked, and invokes you one-shot per actionable event. When you have acted (proposed, ACKed, NACKed, or confirmed), exit naturally — do NOT run `egg-orch message wait` / `wait-loop`, an outer poll loop, or a `sleep` yourself. The contract is in `docs/reference/agent-wait-patterns.md` §0. (The pre-#2908 MCP blocking-wait tools were removed in #2211 and are not coming back — long polls don't fit the MCP transport caps.)
 
 Progress + overseer (iter-2 added the overseer surface):
 
