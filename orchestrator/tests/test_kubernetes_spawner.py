@@ -2060,6 +2060,10 @@ class TestSpawnEventJobOneShot:
         # have rejected that).
         existing.labels = {"egg.event.dedupe-key": self._KEY[:63]}
         existing.job_name = "egg-agent-pipe-1-slice-2-coder-ev"
+        # Adoption only counts a Job whose pod is still doing work; a RUNNING
+        # status is what makes it adoptable (a terminal Job would not be —
+        # see test_terminal_job_does_not_block_adoption).
+        existing.status = ContainerStatus.RUNNING
         mock_k8s_client.list_jobs.return_value = [existing]
 
         spawner.spawn_event_job(
@@ -2154,3 +2158,198 @@ class TestEventJobStatusView:
         spawner.create_event_job_status_view().outcome_for(self._KEY)
         _, kwargs = mock_k8s_client.list_jobs.call_args
         assert kwargs["label_selector"] == f"egg.event.dedupe-key={self._KEY[:63]}"
+
+    # -- reap_terminated (#3181 re-review) ---------------------------------
+
+    @staticmethod
+    def _named(status, name):
+        return ContainerInfo(
+            container_id=f"uid-{name}", container_name=name, status=status, job_name=name
+        )
+
+    def test_reap_terminated_deletes_only_terminal_jobs(self, spawner, mock_k8s_client):
+        """Reap removes FAILED/EXITED Jobs but leaves a live RUNNING one."""
+        mock_k8s_client.list_jobs.return_value = [
+            self._named(ContainerStatus.RUNNING, "live"),
+            self._named(ContainerStatus.FAILED, "dead"),
+            self._named(ContainerStatus.EXITED, "done"),
+        ]
+        view = spawner.create_event_job_status_view()
+        assert view.reap_terminated(self._KEY) == 2
+        removed = {c.args[0] for c in mock_k8s_client.remove_container.call_args_list}
+        assert removed == {"dead", "done"}
+        assert "live" not in removed
+
+    def test_reap_terminated_swallows_delete_errors(self, spawner, mock_k8s_client):
+        """Reaping is best-effort: a delete failure is logged, never raised,
+        and that Job is not counted as reaped (the live-only adoption filter is
+        the backstop)."""
+        mock_k8s_client.list_jobs.return_value = [self._named(ContainerStatus.FAILED, "dead")]
+        mock_k8s_client.remove_container.side_effect = RuntimeError("API down")
+        view = spawner.create_event_job_status_view()
+        assert view.reap_terminated(self._KEY) == 0
+
+    def test_reap_terminated_no_jobs_is_noop(self, spawner, mock_k8s_client):
+        """No matching Job (already GC'd) reaps nothing and never deletes."""
+        mock_k8s_client.list_jobs.return_value = []
+        view = spawner.create_event_job_status_view()
+        assert view.reap_terminated(self._KEY) == 0
+        mock_k8s_client.remove_container.assert_not_called()
+
+
+class _StatefulEventJobs:
+    """Faithful single-dedupe-key k8s Job store for the crash→respawn path.
+
+    Models the lifecycle the cross-module respawn depends on (#3181 re-review):
+    a created Job is RUNNING and visible under its dedupe label; a crash flips
+    it to FAILED; a terminal Job lingers (the real ``ttlSecondsAfterFinished``
+    window) until reaped. Backing the *real* ``KubernetesSpawner`` with this
+    store exercises ``_event_dedupe_key_live`` adoption, ``_EventJobStatusView``
+    classification, and ``reap_terminated`` against one shared Job set — the
+    interaction the always-spawns fake elided.
+    """
+
+    def __init__(self) -> None:
+        self.jobs: list[ContainerInfo] = []
+        self._seq = 0
+
+    # --- k8s client surface the spawner touches ---------------------------
+    def list_jobs(self, namespace, label_selector=None):
+        # The spawner only ever queries our single key's selector.
+        return list(self.jobs)
+
+    def create_container(self, **kwargs):
+        self._seq += 1
+        name = kwargs.get("name") or f"event-job-{self._seq}"
+        info = ContainerInfo(
+            container_id=f"uid-{self._seq}",
+            container_name=name,
+            job_name=name,
+            namespace="test-ns",
+            status=ContainerStatus.RUNNING,
+        )
+        self.jobs.append(info)
+        return info
+
+    def remove_container(self, name, force=False):
+        self.jobs = [j for j in self.jobs if j.job_name != name]
+
+    def delete_job(self, name, namespace=None, **kwargs):
+        # Idempotent pre-spawn cleanup; our generated names never collide.
+        self.jobs = [j for j in self.jobs if j.job_name != name]
+
+    # --- test helpers -----------------------------------------------------
+    def crash_all(self):
+        self.jobs = [j.model_copy(update={"status": ContainerStatus.FAILED}) for j in self.jobs]
+
+    @property
+    def names(self):
+        return [j.job_name for j in self.jobs]
+
+    @property
+    def statuses(self):
+        return [j.status for j in self.jobs]
+
+
+class TestEventJobCrashRespawn:
+    """Crash → respawn drives the REAL spawner adoption + status view together.
+
+    Regression for the #3181 re-review cross-module silent no-op: a crashed
+    one-shot Job lingers FAILED, and the prior adoption check treated *any*
+    Job carrying the dedupe label (including a terminal one) as live — so the
+    respawn adopted the corpse, created no pod, and the status view kept
+    re-reading the same FAILED Job, climbing the streak to a false AGENT_FAILED
+    without ever retrying. These tests bind the real ``spawn_event_job``
+    adoption, ``_EventJobStatusView``, and ``reap_terminated`` to one stateful
+    Job store so the interaction — not an always-spawns fake — is exercised.
+    """
+
+    _KEY = "c" * 64
+
+    def _spawn(self, spawner):
+        return spawner.spawn_event_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            action="propose",
+            dedupe_key=self._KEY,
+            slice_id="slice-2",
+            phase="implement",
+            repos=["owner/repo"],
+        )
+
+    def _wire(self, store, mock_k8s_client):
+        mock_k8s_client.list_jobs.side_effect = store.list_jobs
+        mock_k8s_client.create_container.side_effect = store.create_container
+        mock_k8s_client.remove_container.side_effect = store.remove_container
+        mock_k8s_client.delete_job.side_effect = store.delete_job
+
+    def test_crash_then_respawn_creates_a_fresh_job(self, spawner, mock_k8s_client, mock_gateway):
+        import event_loop
+
+        store = _StatefulEventJobs()
+        self._wire(store, mock_k8s_client)
+        view = spawner.create_event_job_status_view()
+
+        # 1. First spawn: nothing live → a Job is created and runs.
+        assert self._spawn(spawner) is not None
+        assert len(store.names) == 1
+        assert view.outcome_for(self._KEY) == event_loop.JOB_OUTCOME_RUNNING
+
+        # 2. The pod crashes — the Job goes FAILED and lingers (TTL window).
+        store.crash_all()
+        assert view.outcome_for(self._KEY) == event_loop.JOB_OUTCOME_ABNORMAL
+
+        # 3. The loop's abnormal branch reaps the terminated Job (fix #2)...
+        assert view.reap_terminated(self._KEY) == 1
+        assert store.names == []
+
+        # 4. ...so the respawn actually creates a NEW Job instead of adopting
+        #    the corpse — the cross-module dead-end #3181 flagged.
+        assert self._spawn(spawner) is not None
+        assert store.statuses == [ContainerStatus.RUNNING]
+        # The fresh Job classifies as running: the streak does not re-increment
+        # against a dead Job on the next observation.
+        assert view.outcome_for(self._KEY) == event_loop.JOB_OUTCOME_RUNNING
+        # Two real spawns happened (initial + respawn), not one adopted no-op.
+        assert mock_k8s_client.create_container.call_count == 2
+
+    def test_terminal_job_alone_does_not_block_respawn(self, spawner, mock_k8s_client):
+        """Even if the reap is skipped/fails (best-effort), a lingering terminal
+        Job must not be adopted: the live-only adoption filter (fix #1) lets the
+        respawn create a new Job rather than dead-ending for the TTL window."""
+        store = _StatefulEventJobs()
+        # Seed a lingering FAILED Job under the dedupe label (reap "missed" it).
+        store.jobs = [
+            ContainerInfo(
+                container_id="uid-old",
+                container_name="old",
+                job_name="old",
+                namespace="test-ns",
+                status=ContainerStatus.FAILED,
+            )
+        ]
+        self._wire(store, mock_k8s_client)
+
+        assert self._spawn(spawner) is not None
+        # A new Job was created (not adopted) despite the terminal Job present.
+        assert mock_k8s_client.create_container.call_count == 1
+        assert ContainerStatus.RUNNING in store.statuses
+
+    def test_live_job_still_blocks_respawn(self, spawner, mock_k8s_client):
+        """Regression guard: a genuinely RUNNING Job for the key is still
+        adopted (no duplicate pod) — fix #1 narrows adoption to live Jobs, it
+        does not disable it."""
+        store = _StatefulEventJobs()
+        store.jobs = [
+            ContainerInfo(
+                container_id="uid-live",
+                container_name="live",
+                job_name="live",
+                namespace="test-ns",
+                status=ContainerStatus.RUNNING,
+            )
+        ]
+        self._wire(store, mock_k8s_client)
+
+        assert self._spawn(spawner) is None  # adopted
+        mock_k8s_client.create_container.assert_not_called()

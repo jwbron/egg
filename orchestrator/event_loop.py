@@ -76,6 +76,14 @@ AGENT_FREE_ACTIONS: frozenset[str] = frozenset({"confirm", "complete"})
 #   * ``success``    — clean rc=0 agent completion; reset the streak.
 #   * ``legitimate`` — a non-abnormal BRC outcome (stale-event exit 0, a cast
 #                      NACK vote); an explicit non-trigger — streak untouched.
+#                      RESERVED for a future richer observer: the current k8s
+#                      ``_EventJobStatusView`` cannot distinguish a clean
+#                      exit-0 stale/NACK from a success exit-0 (both are a Job
+#                      ``EXITED``), so it never emits ``legitimate`` — such
+#                      exits classify as ``success`` (also a non-trigger; it
+#                      resets the streak, which is harmless for a clean exit).
+#                      The path and its ``record_legitimate_outcome`` driver
+#                      exist for an observer that can read BRC intent.
 #   * ``abnormal``   — pod died mid-event / non-zero rc; increment the streak.
 JOB_OUTCOME_RUNNING = "running"
 JOB_OUTCOME_SUCCESS = "success"
@@ -97,8 +105,10 @@ def get_event_loop_poll_interval() -> float:
     if not raw:
         return DEFAULT_POLL_INTERVAL_SECONDS
     try:
+        # ``raw`` is always a ``str`` (env get + strip), so a non-numeric
+        # value only ever raises ``ValueError`` — no ``TypeError`` arm needed.
         val = float(raw)
-    except TypeError, ValueError:
+    except ValueError:
         logger.warning(
             "EGG_EVENT_LOOP_POLL_INTERVAL_SECONDS=%r is not a number; falling back to %.1fs",
             raw,
@@ -248,9 +258,10 @@ class JobSupervisor:
         # The counter resets when the dedupe key changes, giving a fresh
         # budget for each distinct event.
         self._streaks: dict[str, int] = {}
-        # Last spawn timestamp per dedupe key — used to compute backoff
-        # delays between successive spawns.
-        self._last_spawn_time: dict[str, float] = {}
+        # Timestamp of the last recorded *abort* per dedupe key — the anchor
+        # the respawn backoff window is measured from (written only by
+        # ``record_abort``). A key with no recorded abort is always ready.
+        self._last_abort_time: dict[str, float] = {}
         # {dedupe_key: (action, role)}
         self._last_action: dict[str, tuple[str, str]] = {}
         # Once-per-key sticky latches so alert re-fires don't re-emit.
@@ -301,7 +312,7 @@ class JobSupervisor:
         """
         streak = self._streaks.get(dedupe_key, 0) + 1
         self._streaks[dedupe_key] = streak
-        self._last_spawn_time[dedupe_key] = self.clock()
+        self._last_abort_time[dedupe_key] = self.clock()
         self._last_action[dedupe_key] = (action, role)
         # Silent retries below the warn threshold (#3138): a one-off transient
         # is expected to recover on the next respawn, so it stays at debug
@@ -375,7 +386,7 @@ class JobSupervisor:
         from the abort timestamp before respawning — this is what throttles a
         deterministic fast-fail loop instead of hammering the orchestrator.
         """
-        last = self._last_spawn_time.get(dedupe_key)
+        last = self._last_abort_time.get(dedupe_key)
         if last is None:
             return True
         backoff = self.backoff_seconds(dedupe_key)
@@ -402,7 +413,7 @@ class JobSupervisor:
         path, so per-poll exhaustion is never wiped.
         """
         self._streaks.clear()
-        self._last_spawn_time.clear()
+        self._last_abort_time.clear()
         self._alerted_warn.clear()
         self._alerted_10.clear()
         self._exhausted.clear()
@@ -411,7 +422,8 @@ class JobSupervisor:
         for key in live_dedupe_keys:
             if key:
                 self._last_action[key] = ("(reconciled)", "(reconciled)")
-                self._last_spawn_time[key] = self.clock()
+                # No abort timestamp: a reconciled key starts a fresh budget
+                # (streak 0 ⇒ zero backoff ⇒ immediately ready to respawn).
 
     # ------------------------------------------------------------------
     #  Alert integration
@@ -555,6 +567,26 @@ class OrchestratorEventLoop:
                 self._key_meta.pop(key, None)
             elif outcome == JOB_OUTCOME_ABNORMAL:
                 self.supervisor.record_abort(key, action, role)
+                # Reap the terminated Job now that the abort is recorded. Its
+                # FAILED status lingers for the ~600s TTL window; left in
+                # place it would (a) be re-read next poll and re-increment the
+                # streak against one dead pod, and (b) be adopted as "live" by
+                # the respawn — both dead-end the bounded respawn and falsely
+                # escalate a transient crash to AGENT_FAILED (#3181 re-review).
+                # Best-effort: the spawner's live-only adoption filter is the
+                # backstop if the delete fails.
+                reaper = getattr(self._job_status_view, "reap_terminated", None)
+                if reaper is not None:
+                    try:
+                        reaper(key)
+                    except Exception as exc:  # noqa: BLE001 — reaping is best-effort
+                        logger.warning(
+                            "event-loop: reap of terminated job failed",
+                            pipeline_id=self.pipeline_id,
+                            slice_id=self.slice_id,
+                            dedupe_key=key,
+                            error=str(exc),
+                        )
                 # Drop from the live set so the next poll re-derives and (once
                 # the backoff window elapses) respawns. Keep ``_key_meta`` so a
                 # respawn re-labels the same arm; the respawn refreshes it.
