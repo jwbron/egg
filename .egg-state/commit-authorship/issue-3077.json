@@ -152,6 +152,14 @@
       "repo": null,
       "role": "documenter"
     },
+    "91fe7953485e999797bbc00b6ffd933b0ddc65cb": {
+      "branch": "egg/issue-3077/slice-5",
+      "patch_id": null,
+      "pipeline_id": "issue-3077",
+      "registered_at": "2026-06-12T02:34:46.926616+00:00",
+      "repo": null,
+      "role": "tester"
+    },
     "9ab2640538e86bfc6a55c529a5e6bccea9b0a1db": {
       "branch": "egg/issue-3077/work",
       "patch_id": "956ca6e3e8ec0b85557f061999f5fe5abecb8440",
