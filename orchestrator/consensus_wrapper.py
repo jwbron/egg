@@ -57,6 +57,19 @@ Slice-4 history
 
 import shlex
 
+try:
+    from orchestrator import supervision_policy as _supervision_policy
+except ImportError:
+    import supervision_policy as _supervision_policy  # type: ignore[no-redef]
+
+# Export the #3138 constants from supervision_policy so the wrapper
+# template can interpolate them via ``str.format`` — one source of truth
+# for backoff / streak thresholds.
+SUPERVISION_BACKOFF_FACTOR = _supervision_policy.SUPERVISION_BACKOFF_FACTOR
+SUPERVISION_BACKOFF_CAP_SECONDS = _supervision_policy.SUPERVISION_BACKOFF_CAP_SECONDS
+SUPERVISION_FAILURE_STREAK_WARN = _supervision_policy.SUPERVISION_FAILURE_STREAK_WARN
+SUPERVISION_FAILURE_STREAK_ALERT = _supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT
+
 
 def _event_loop_owner() -> str:
     """Return the BRC event-loop ownership mode (``pod`` | ``orchestrator``).
@@ -126,8 +139,7 @@ EVENT_PUMP_WAIT_TIMEOUT_SECS_DEFAULT = 60
 # Placeholders interpolated by ``str.format``:
 #   {agent_command_prefix}   -- ``python3 -m egg_agent --model X --max-turns N``
 #   {idle_budget_min_default}, {hb_interval_default}, {wait_timeout_default}
-_EVENT_PUMP_WRAPPER_TEMPLATE = r"""
-#!/bin/bash
+_EVENT_PUMP_WRAPPER_TEMPLATE = r"""#!/bin/bash
 set -uo pipefail
 
 # Event-pump wrapper (#2908 slice-2). Deterministic loop driven by
@@ -779,7 +791,7 @@ while true; do
         # the warning fires the first time the threshold is crossed
         # without re-firing on every iteration past it.
         NEXT_ACTION_FAIL_STREAK=$(( NEXT_ACTION_FAIL_STREAK + 1 ))
-        if [ "$NEXT_ACTION_FAIL_STREAK" -ge 5 ] && [ "$NEXT_ACTION_ALERTED_5" != "true" ]; then
+        if [ "$NEXT_ACTION_FAIL_STREAK" -ge {spvr_failure_streak_warn} ] && [ "$NEXT_ACTION_ALERTED_5" != "true" ]; then
             cw_log "brc next-action has returned non-zero ${{NEXT_ACTION_FAIL_STREAK}} times in a row -- orchestrator may be unhealthy (5xx loop / transport down), not just a benign 409 stale_version. Idle budget continues to accrue."
             NEXT_ACTION_ALERTED_5=true
         fi
@@ -839,9 +851,9 @@ while true; do
                 # NOTE: bash ``case``-branch scope is global, not function-
                 # local. Name reflects scope to avoid the false suggestion
                 # that this could be ``declare local`` (reviewer §4).
-                confirm_backoff_secs=$(( CONFIRM_FAIL_STREAK * 2 ))
-                if [ "$confirm_backoff_secs" -gt 30 ]; then
-                    confirm_backoff_secs=30
+                confirm_backoff_secs=$(( CONFIRM_FAIL_STREAK * {spvr_backoff_factor} ))
+                if [ "$confirm_backoff_secs" -gt {spvr_backoff_cap} ]; then
+                    confirm_backoff_secs={spvr_backoff_cap}
                 fi
                 cw_log "consensus confirmed failed (rc=$confirm_rc, streak=$CONFIRM_FAIL_STREAK); backing off ${{confirm_backoff_secs}}s. Idle counter continues to accrue."
                 sleep "$confirm_backoff_secs"
@@ -892,14 +904,14 @@ while true; do
             else
                 AGENT_FAIL_STREAK=$(( AGENT_FAIL_STREAK + 1 ))
                 cw_log "agent invocation failed (action=$ACTION, rc=$agent_rc, streak=$AGENT_FAIL_STREAK, duration=${{agent_invoke_secs}}s). Idle counter continues to accrue."
-                if [ "$AGENT_FAIL_STREAK" -ge 5 ] && [ "$AGENT_FAIL_ALERTED_5" != "true" ]; then
+                if [ "$AGENT_FAIL_STREAK" -ge {spvr_failure_streak_warn} ] && [ "$AGENT_FAIL_ALERTED_5" != "true" ]; then
                     # The per-failure line above already printed the streak
                     # count this iteration; this escalation line adds the
                     # diagnosis (likely permanent), not the count.
-                    cw_log "agent invocation streak crossed 5 (action=$ACTION) -- this is likely a permanent failure (unknown model alias, auth misconfiguration, prompt-rendering crash), not a transient. Idle budget continues to accrue."
+                    cw_log "agent invocation streak crossed {spvr_failure_streak_warn} (action=$ACTION) -- this is likely a permanent failure (unknown model alias, auth misconfiguration, prompt-rendering crash), not a transient. Idle budget continues to accrue."
                     AGENT_FAIL_ALERTED_5=true
                 fi
-                if [ "$AGENT_FAIL_STREAK" -ge 10 ] && [ "$AGENT_FAIL_ALERTED_10" != "true" ]; then
+                if [ "$AGENT_FAIL_STREAK" -ge {spvr_failure_streak_alert} ] && [ "$AGENT_FAIL_ALERTED_10" != "true" ]; then
                     raise_agent_fail_alert "$AGENT_FAIL_STREAK" "$agent_rc" "$agent_invoke_secs" "$ACTION"
                     AGENT_FAIL_ALERTED_10=true
                 fi
@@ -913,9 +925,9 @@ while true; do
                 # capped at 30 s, so a deterministic fast-fail loop
                 # stops hammering the orchestrator while a one-off
                 # transient still retries promptly.
-                agent_backoff_secs=$(( AGENT_FAIL_STREAK * 2 ))
-                if [ "$agent_backoff_secs" -gt 30 ]; then
-                    agent_backoff_secs=30
+                agent_backoff_secs=$(( AGENT_FAIL_STREAK * {spvr_backoff_factor} ))
+                if [ "$agent_backoff_secs" -gt {spvr_backoff_cap} ]; then
+                    agent_backoff_secs={spvr_backoff_cap}
                 fi
                 sleep "$agent_backoff_secs"
             fi
@@ -1134,7 +1146,17 @@ def build_event_pump_wrapped_command(
         idle_budget_min_default=idle_budget_min,
         hb_interval_default=heartbeat_interval_secs,
         wait_timeout_default=wait_timeout_secs,
+        spvr_backoff_factor=SUPERVISION_BACKOFF_FACTOR,
+        spvr_backoff_cap=SUPERVISION_BACKOFF_CAP_SECONDS,
+        spvr_failure_streak_warn=SUPERVISION_FAILURE_STREAK_WARN,
+        spvr_failure_streak_alert=SUPERVISION_FAILURE_STREAK_ALERT,
     )
+    # The triple-quoted template opens with a newline (so the source reads
+    # cleanly); strip it so ``#!/bin/bash`` lands on line 1. The script is run
+    # via ``bash -c`` where the shebang is cosmetic, so pod runtime behaviour
+    # is unchanged — but a leading blank line trips shellcheck SC1128 on the
+    # committed golden snapshot, so we drop it at the single rendering source.
+    script = script.lstrip("\n")
     # #3064 slice-1: in orchestrator-ownership mode, splice the dormant
     # one-shot arm in ahead of the main loop. In pod mode (default) the
     # template is returned untouched so the generated wrapper is

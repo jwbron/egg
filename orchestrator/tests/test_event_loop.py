@@ -487,6 +487,691 @@ class TestTimingField:
 
 
 # ---------------------------------------------------------------------------
+# Slice-3 tests (TASK-3-2): orchestrator-side failure supervision (#3064)
+# ---------------------------------------------------------------------------
+# These are the **implementation-aligned** tests for the coder's
+# ``event_loop.JobSupervisor`` (Task-3-1 / TASK 4e51af4).  The coder
+# implemented ``JobSupervisor`` as a per-dedupe-key streak tracker that
+# exhausts once the consecutive failure streak reaches
+# ``supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT`` (10).  Per
+# slice-2 convention, ``import event_loop`` and ``import
+# supervision_policy`` is done inside each test so this file still
+# collects before the coder's module lands.
+# All tests use the ``_FakeClock`` that is defined earlier in this file.
+
+
+class TestJobSupervisor:
+    """All tests exercise the actual ``event_loop.JobSupervisor``."""
+
+    def test_constructs_with_clock(self):
+        import event_loop
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        assert isinstance(supervisor, event_loop.JobSupervisor)
+
+    def test_initial_state_no_backoff(self):
+        import event_loop
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        assert supervisor.backoff_seconds("key-1") == 0
+        assert not supervisor.is_exhausted("key-1")
+
+    # ---------- Backoff timing ----------
+
+    def test_backoff_linear_with_streak(self):
+        import event_loop
+        import supervision_policy
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        for n in range(1, 6):
+            supervisor.record_abort("key-a", "propose", "coder")
+            expected = n * supervision_policy.SUPERVISION_BACKOFF_FACTOR
+            assert supervisor.backoff_seconds("key-a") == expected
+
+    def test_backoff_capped(self):
+        import event_loop
+        import supervision_policy
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        # 15 * 2 = 30 = cap
+        for _ in range(15):
+            supervisor.record_abort("key-1", "propose", "coder")
+        assert (
+            supervisor.backoff_seconds("key-1")
+            == supervision_policy.SUPERVISION_BACKOFF_CAP_SECONDS
+        )
+
+    def test_backoff_reset_on_success(self):
+        import event_loop
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        supervisor.record_abort("key-1", "propose", "coder")
+        supervisor.record_success("key-1")
+        assert supervisor.backoff_seconds("key-1") == 0
+
+    def test_backoff_per_key_independent(self):
+        import event_loop
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        supervisor.record_abort("key-a", "propose", "coder")
+        supervisor.record_abort("key-b", "ack", "tester")
+        assert supervisor.backoff_seconds("key-a") == 2
+        assert supervisor.backoff_seconds("key-b") == 2
+
+    # ---------- Warning threshold (5) is NOT exhaustion ----------
+
+    def test_not_exhausted_at_warn_threshold(self):
+        """Streak reaches the WARN threshold but exhaustion happens at ALERT (10), not WARN."""
+        import event_loop
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        for _ in range(4):
+            supervisor.record_abort("key-w", "propose", "coder")
+        assert not supervisor.is_exhausted("key-w")
+        supervisor.record_abort("key-w", "propose", "coder")
+        # At streak 5 we are NOT exhausted (the WARN threshold is advisory)
+        assert not supervisor.is_exhausted("key-w")
+
+    def test_warn_not_exhausted_at_five_helper(self):
+        """Five consecutive failures hit the warn but exhaustion is not reached until 10."""
+        import event_loop
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        for _ in range(5):
+            supervisor.record_abort("key-w", "propose", "coder")
+        assert not supervisor.is_exhausted("key-w")
+
+    # ---------- Exhaustion at 10 ----------
+
+    def test_exhaustion_at_ten(self):
+        import event_loop
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        for _ in range(9):
+            supervisor.record_abort("key-o", "propose", "coder")
+            assert not supervisor.is_exhausted("key-o")
+        supervisor.record_abort("key-o", "propose", "coder")
+        assert supervisor.is_exhausted("key-o")
+
+    def test_exhaustion_sticky(self):
+        import event_loop
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        for _ in range(10):
+            supervisor.record_abort("key-o", "propose", "coder")
+        assert supervisor.is_exhausted("key-o")
+        supervisor.record_abort("key-o", "propose", "coder")
+        assert supervisor.is_exhausted("key-o")
+
+    # ---------- Non-triggers: NACK / legitimate don't increment streak ----------
+
+    def test_nack_is_silent(self):
+        import event_loop
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        for _ in range(20):
+            supervisor.record_legitimate_outcome("key-n", "nack")
+        assert supervisor.backoff_seconds("key-n") == 0
+        assert not supervisor.is_exhausted("key-n")
+
+    def test_legitimate_outcome_no_effect(self):
+        import event_loop
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        supervisor.record_legitimate_outcome("key-n", "confirm")
+        assert supervisor.backoff_seconds("key-n") == 0
+        assert not supervisor.is_exhausted("key-n")
+
+    # ---------- Exhaustion reset on success ----------
+
+    def test_exhaustion_reset_on_success(self):
+        import event_loop
+        import supervision_policy
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT):
+            supervisor.record_abort("key-r", "propose", "coder")
+        assert supervisor.is_exhausted("key-r")
+        supervisor.record_success("key-r")
+        assert not supervisor.is_exhausted("key-r")
+        assert supervisor.backoff_seconds("key-r") == 0
+
+    def test_reconciliation_clears_state(self):
+        import event_loop
+        import supervision_policy
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT):
+            supervisor.record_abort("key-1", "propose", "coder")
+        assert supervisor.is_exhausted("key-1")
+        supervisor.reconcile(["key-1"])
+        assert not supervisor.is_exhausted("key-1")
+        assert supervisor.backoff_seconds("key-1") == 0
+
+    # ---------- Fresh budget on dedupe key change ----------
+
+    def test_dedupe_change_resets_exhaustion(self):
+        import event_loop
+        import supervision_policy
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT):
+            supervisor.record_abort("key-v1", "propose", "coder")
+        assert supervisor.is_exhausted("key-v1")
+        assert not supervisor.is_exhausted("key-v2")
+
+    def test_same_dedupe_key_persists(self):
+        import event_loop
+        import supervision_policy
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        for _ in range(3):
+            supervisor.record_abort("key-x", "propose", "coder")
+        expected = min(
+            3 * supervision_policy.SUPERVISION_BACKOFF_FACTOR,
+            supervision_policy.SUPERVISION_BACKOFF_CAP_SECONDS,
+        )
+        assert supervisor.backoff_seconds("key-x") == expected
+
+    # ---------- Per-key separation ----------
+
+    def test_key_isolation_exhaustion(self):
+        import event_loop
+        import supervision_policy
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT):
+            supervisor.record_abort("key-a", "propose", "coder")
+            supervisor.record_abort("key-b", "ack", "tester")
+        assert supervisor.is_exhausted("key-a")
+        assert supervisor.is_exhausted("key-b")
+        supervisor.record_success("key-b")
+        assert not supervisor.is_exhausted("key-b")
+
+
+class TestSupervisionPolicyConstants:
+    """Shared supervision_policy constants are defined per plan (#3138)."""
+
+    def test_constants_exist(self):
+        import supervision_policy
+
+        assert hasattr(supervision_policy, "SUPERVISION_BACKOFF_FACTOR")
+        assert hasattr(supervision_policy, "SUPERVISION_BACKOFF_CAP_SECONDS")
+        assert hasattr(supervision_policy, "SUPERVISION_FAILURE_STREAK_WARN")
+        assert hasattr(supervision_policy, "SUPERVISION_FAILURE_STREAK_ALERT")
+
+    def test_wrapper_values(self):
+        """Values must match the wrapper's #3138 constants."""
+        import supervision_policy
+
+        assert supervision_policy.SUPERVISION_BACKOFF_FACTOR == 2
+        assert supervision_policy.SUPERVISION_BACKOFF_CAP_SECONDS == 30
+        assert supervision_policy.SUPERVISION_FAILURE_STREAK_WARN == 5
+        assert supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT == 10
+
+    def test_loop_reexports_equal_supervision_policy(self):
+        """The event loop re-exports the SAME values as supervision_policy.
+
+        Slice-3 AC4 ("loop and wrapper template constants asserted equal via
+        supervision_policy"). A fork between the loop's re-exports and the
+        single source breaks this.
+        """
+        import event_loop
+        import supervision_policy
+
+        assert (
+            event_loop.SUPERVISION_BACKOFF_FACTOR == supervision_policy.SUPERVISION_BACKOFF_FACTOR
+        )
+        assert (
+            event_loop.SUPERVISION_BACKOFF_CAP_SECONDS
+            == supervision_policy.SUPERVISION_BACKOFF_CAP_SECONDS
+        )
+        assert (
+            event_loop.SUPERVISION_FAILURE_STREAK_WARN
+            == supervision_policy.SUPERVISION_FAILURE_STREAK_WARN
+        )
+        assert (
+            event_loop.SUPERVISION_FAILURE_STREAK_ALERT
+            == supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT
+        )
+
+    def test_wrapper_template_renders_supervision_policy_values(self):
+        """The rendered pod wrapper embeds the supervision_policy constants.
+
+        Slice-3 AC4: the wrapper template and the loop must read identical
+        constants. ``consensus_wrapper`` re-exports them from
+        ``supervision_policy`` and interpolates them into the bash template,
+        so the rendered guards/backoff must reflect the single-source values.
+        A fork (hardcoded literal that diverges from supervision_policy) makes
+        one of these substrings disappear from the render.
+        """
+        import supervision_policy
+        from consensus_wrapper import (
+            SUPERVISION_BACKOFF_CAP_SECONDS,
+            SUPERVISION_BACKOFF_FACTOR,
+            SUPERVISION_FAILURE_STREAK_ALERT,
+            SUPERVISION_FAILURE_STREAK_WARN,
+            build_consensus_wrapped_command,
+        )
+
+        # The wrapper's re-exports are the same single source as the loop's.
+        assert SUPERVISION_BACKOFF_FACTOR == supervision_policy.SUPERVISION_BACKOFF_FACTOR
+        assert SUPERVISION_BACKOFF_CAP_SECONDS == supervision_policy.SUPERVISION_BACKOFF_CAP_SECONDS
+        assert SUPERVISION_FAILURE_STREAK_WARN == supervision_policy.SUPERVISION_FAILURE_STREAK_WARN
+        assert (
+            SUPERVISION_FAILURE_STREAK_ALERT == supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT
+        )
+
+        script = build_consensus_wrapped_command("x")[2]
+        warn = supervision_policy.SUPERVISION_FAILURE_STREAK_WARN
+        alert = supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT
+        factor = supervision_policy.SUPERVISION_BACKOFF_FACTOR
+        cap = supervision_policy.SUPERVISION_BACKOFF_CAP_SECONDS
+        # Guards interpolate the constants verbatim into the bash template.
+        assert f'-ge {warn} ] && [ "$AGENT_FAIL_ALERTED_5"' in script
+        assert f'-ge {alert} ] && [ "$AGENT_FAIL_ALERTED_10"' in script
+        assert f"AGENT_FAIL_STREAK * {factor}" in script
+        assert f'"$agent_backoff_secs" -gt {cap}' in script
+
+
+# ---------------------------------------------------------------------------
+# Slice-3 supervision DRIVEN THROUGH THE LOOP (TASK-3-2).
+#
+# The tests above exercise ``JobSupervisor`` in isolation; these drive the
+# whole production path — ``OrchestratorEventLoop.poll_once`` observing a
+# (fake) Job-status view and feeding the supervisor — so the wiring itself
+# (not just the primitive) is under test. A regression that stops the loop
+# from observing Job outcomes breaks these.
+# ---------------------------------------------------------------------------
+
+
+class _ManualClock:
+    """Settable monotonic clock — does NOT auto-advance (unlike _FakeClock).
+
+    Backoff timing through the loop needs the test to control elapsed time
+    explicitly, so the clock returns the same value until ``advance`` is
+    called.
+    """
+
+    def __init__(self, start: float = 1000.0) -> None:
+        self.t = start
+
+    def __call__(self) -> float:
+        return self.t
+
+    def advance(self, dt: float) -> None:
+        self.t += dt
+
+
+class _FakeJobStatusView:
+    """Scriptable Job-status observer for loop-driven supervision tests.
+
+    ``outcome_for(key)`` returns the outcome set for that key (default
+    ``running`` — still in flight). The loop calls this once per live key
+    per poll.
+    """
+
+    def __init__(self) -> None:
+        import event_loop
+
+        self._default = event_loop.JOB_OUTCOME_RUNNING
+        self._outcomes: dict[str, str] = {}
+        self.queries: list[str] = []
+        self.reaped: list[str] = []
+
+    def set(self, key: str, outcome: str) -> None:
+        self._outcomes[key] = outcome
+
+    def outcome_for(self, key: str) -> str:
+        self.queries.append(key)
+        return self._outcomes.get(key, self._default)
+
+    def reap_terminated(self, key: str) -> int:
+        # Mirror the spawner view: the loop's abnormal branch calls this to
+        # delete the terminated Job so it is observed exactly once.
+        self.reaped.append(key)
+        return 1
+
+
+def _make_supervised_loop(spawner, *, clock, supervisor, status_view, slice_id="slice-3"):
+    """Construct a loop wired with a supervisor + Job-status view."""
+    import event_loop
+
+    return event_loop.OrchestratorEventLoop(
+        tracker=object(),
+        spawner=spawner,
+        pipeline_id="issue-3064",
+        slice_id=slice_id,
+        phase="implement",
+        clock=clock,
+        agent_free_handler=_AgentFreeRecorder(),
+        roles=["coder"],
+        job_supervisor=supervisor,
+        job_status_view=status_view,
+    )
+
+
+def _propose_key(loop):
+    """The dedupe key the scripted ``coder`` propose resolves to."""
+    import event_loop
+
+    identity = event_loop.event_identity("propose", _PROPOSE_PAYLOAD)
+    return event_loop.compute_dedupe_key(
+        loop.pipeline_id, loop.slice_id, loop.phase, "coder", "propose", identity
+    )
+
+
+class TestSupervisionDrivenThroughLoop:
+    """``poll_once`` observes Job status and drives the supervisor end-to-end."""
+
+    def _abort_cycle(self, loop, view, clock, key):
+        """Drive exactly one abnormal-termination abort through the loop.
+
+        Advances well past the backoff cap so a non-exhausted key respawns
+        (poll #1 → spawn live), then a second poll observes the live Job as
+        abnormal (poll #2 → record_abort). An exhausted key never respawns,
+        so no abort is recorded — which is exactly the "no respawn after
+        exhaustion" behavior.
+        """
+        view.set(key, __import__("event_loop").JOB_OUTCOME_ABNORMAL)
+        clock.advance(loop.supervisor.backoff_cap + 5)
+        loop.poll_once(["coder"])  # respawn (unless exhausted)
+        loop.poll_once(["coder"])  # observe abnormal → record_abort
+
+    def test_backoff_applied_between_respawns(self, monkeypatch):
+        """After an abort the loop refuses to respawn until backoff elapses."""
+        import event_loop
+
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "x")})
+        spawner = _RecordingSpawner()
+        clock = _ManualClock()
+        supervisor = event_loop.JobSupervisor(clock=clock)
+        view = _FakeJobStatusView()
+        loop = _make_supervised_loop(spawner, clock=clock, supervisor=supervisor, status_view=view)
+        key = _propose_key(loop)
+
+        # Initial spawn (fresh key, no abort yet).
+        loop.poll_once(["coder"])
+        assert len(spawner.calls) == 1
+
+        # Job died abnormally — observed on the next poll → streak 1, backoff 2.
+        view.set(key, event_loop.JOB_OUTCOME_ABNORMAL)
+        loop.poll_once(["coder"])
+        assert supervisor.backoff_seconds(key) == 2
+        # Same poll re-derived but backed off — no respawn yet.
+        assert len(spawner.calls) == 1
+
+        # Still inside the backoff window → no respawn.
+        view.set(key, event_loop.JOB_OUTCOME_RUNNING)
+        clock.advance(1)  # < 2s backoff
+        loop.poll_once(["coder"])
+        assert len(spawner.calls) == 1
+
+        # Backoff window elapsed → respawn.
+        clock.advance(2)  # now >= 2s since the abort
+        loop.poll_once(["coder"])
+        assert len(spawner.calls) == 2
+
+    def test_success_resets_streak_through_loop(self, monkeypatch):
+        """A clean rc=0 completion resets the streak via the loop."""
+        import event_loop
+
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "x")})
+        spawner = _RecordingSpawner()
+        clock = _ManualClock()
+        supervisor = event_loop.JobSupervisor(clock=clock)
+        view = _FakeJobStatusView()
+        loop = _make_supervised_loop(spawner, clock=clock, supervisor=supervisor, status_view=view)
+        key = _propose_key(loop)
+
+        self._abort_cycle(loop, view, clock, key)
+        self._abort_cycle(loop, view, clock, key)
+        assert supervisor.backoff_seconds(key) == 4  # streak 2
+
+        # Next observation is a success → streak resets.
+        clock.advance(supervisor.backoff_cap + 5)
+        loop.poll_once(["coder"])  # respawn
+        view.set(key, event_loop.JOB_OUTCOME_SUCCESS)
+        loop.poll_once(["coder"])  # observe success
+        assert supervisor.backoff_seconds(key) == 0
+        assert not supervisor.is_exhausted(key)
+
+    def test_stale_exit_is_a_non_trigger_through_loop(self, monkeypatch):
+        """A legitimate outcome (stale-event exit 0 / NACK) never increments."""
+        import event_loop
+
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "x")})
+        spawner = _RecordingSpawner()
+        clock = _ManualClock()
+        supervisor = event_loop.JobSupervisor(clock=clock)
+        view = _FakeJobStatusView()
+        loop = _make_supervised_loop(spawner, clock=clock, supervisor=supervisor, status_view=view)
+        key = _propose_key(loop)
+
+        # Drive several legitimate outcomes through the loop.
+        for _ in range(5):
+            clock.advance(supervisor.backoff_cap + 5)
+            loop.poll_once(["coder"])  # spawn live
+            view.set(key, event_loop.JOB_OUTCOME_LEGITIMATE)
+            loop.poll_once(["coder"])  # observe legitimate → no increment
+            view.set(key, event_loop.JOB_OUTCOME_RUNNING)
+
+        assert supervisor.backoff_seconds(key) == 0
+        assert not supervisor.is_exhausted(key)
+        # Legitimate outcomes free the key, so it keeps getting respawned.
+        assert len(spawner.calls) >= 5
+
+    def test_abnormal_outcome_reaps_terminated_job(self, monkeypatch):
+        """The abnormal branch reaps the terminated Job so it is observed once
+        (#3181 re-review). Without the reap the FAILED Job lingers and the
+        streak re-increments against one dead pod."""
+        import event_loop
+
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "x")})
+        spawner = _RecordingSpawner()
+        clock = _ManualClock()
+        supervisor = event_loop.JobSupervisor(clock=clock)
+        view = _FakeJobStatusView()
+        loop = _make_supervised_loop(spawner, clock=clock, supervisor=supervisor, status_view=view)
+        key = _propose_key(loop)
+
+        loop.poll_once(["coder"])  # initial spawn
+        view.set(key, event_loop.JOB_OUTCOME_ABNORMAL)
+        loop.poll_once(["coder"])  # observe abnormal → record_abort + reap
+
+        assert view.reaped == [key]
+        assert supervisor.backoff_seconds(key) == 2  # streak 1, counted once
+        # Non-abnormal outcomes never reap.
+        view.set(key, event_loop.JOB_OUTCOME_SUCCESS)
+        clock.advance(supervisor.backoff_cap + 5)
+        loop.poll_once(["coder"])  # respawn
+        loop.poll_once(["coder"])  # observe success → no further reap
+        assert view.reaped == [key]
+
+    def test_warn_latch_fires_at_five_silent_below(self, monkeypatch):
+        """No warn/alert below the WARN threshold; sticky warn exactly at it."""
+        import event_loop
+        import supervision_policy
+
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "x")})
+        spawner = _RecordingSpawner()
+        clock = _ManualClock()
+        alerts: list[dict] = []
+        supervisor = event_loop.JobSupervisor(
+            clock=clock, overseer_alert=lambda **kw: alerts.append(kw)
+        )
+        view = _FakeJobStatusView()
+        loop = _make_supervised_loop(spawner, clock=clock, supervisor=supervisor, status_view=view)
+        key = _propose_key(loop)
+
+        # Four aborts — silent (no warn latch, no alert).
+        for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_WARN - 1):
+            self._abort_cycle(loop, view, clock, key)
+        assert not supervisor._alerted_warn.get(key, False)
+        assert alerts == []
+
+        # Fifth abort — sticky warn latch set, still no alert, not exhausted.
+        self._abort_cycle(loop, view, clock, key)
+        assert supervisor._alerted_warn.get(key) is True
+        assert alerts == []
+        assert not supervisor.is_exhausted(key)
+
+    def test_alert_fires_exactly_once_and_sticky_through_loop(self, monkeypatch):
+        """Sticky OVERSEER_ALERT exactly once at the ALERT threshold."""
+        import event_loop
+        import supervision_policy
+
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "x")})
+        spawner = _RecordingSpawner()
+        clock = _ManualClock()
+        alerts: list[dict] = []
+        supervisor = event_loop.JobSupervisor(
+            clock=clock, overseer_alert=lambda **kw: alerts.append(kw)
+        )
+        view = _FakeJobStatusView()
+        loop = _make_supervised_loop(spawner, clock=clock, supervisor=supervisor, status_view=view)
+        key = _propose_key(loop)
+
+        for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT):
+            self._abort_cycle(loop, view, clock, key)
+
+        assert supervisor.is_exhausted(key)
+        assert len(alerts) == 1
+        assert alerts[0]["anomaly"] == "agent-invocation-fail-streak"
+
+        # Further abort cycles never re-fire the alert (sticky) and never
+        # respawn the exhausted key.
+        spawn_count_at_exhaustion = len(spawner.calls)
+        self._abort_cycle(loop, view, clock, key)
+        assert len(alerts) == 1
+        assert len(spawner.calls) == spawn_count_at_exhaustion
+
+    def test_propose_arm_exhaustion_engages_agent_failed(self, monkeypatch):
+        """Producer propose-arm exhaustion calls the AGENT_FAILED handler once."""
+        import event_loop
+        import supervision_policy
+
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "x")})
+        spawner = _RecordingSpawner()
+        clock = _ManualClock()
+        failures: list[dict] = []
+        supervisor = event_loop.JobSupervisor(
+            clock=clock, agent_failed=lambda **kw: failures.append(kw)
+        )
+        view = _FakeJobStatusView()
+        loop = _make_supervised_loop(spawner, clock=clock, supervisor=supervisor, status_view=view)
+        key = _propose_key(loop)
+
+        for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT):
+            self._abort_cycle(loop, view, clock, key)
+
+        assert len(failures) == 1
+        assert failures[0]["role"] == "coder"
+        assert failures[0]["action"] == "propose"
+
+    def test_review_arm_exhaustion_does_not_engage_agent_failed(self, monkeypatch):
+        """A reviewer (ack) arm exhaustion alerts but is NOT a producer failure."""
+        import event_loop
+        import supervision_policy
+
+        _script(monkeypatch, {"reviewer_code": ("ack", _REVIEW_PAYLOAD_V1, "x")})
+        spawner = _RecordingSpawner()
+        clock = _ManualClock()
+        failures: list[dict] = []
+        alerts: list[dict] = []
+        supervisor = event_loop.JobSupervisor(
+            clock=clock,
+            agent_failed=lambda **kw: failures.append(kw),
+            overseer_alert=lambda **kw: alerts.append(kw),
+        )
+        view = _FakeJobStatusView()
+        loop = event_loop.OrchestratorEventLoop(
+            tracker=object(),
+            spawner=spawner,
+            pipeline_id="issue-3064",
+            slice_id="slice-3",
+            phase="implement",
+            clock=clock,
+            roles=["reviewer_code"],
+            job_supervisor=supervisor,
+            job_status_view=view,
+        )
+        identity = event_loop.event_identity("ack", _REVIEW_PAYLOAD_V1)
+        key = event_loop.compute_dedupe_key(
+            "issue-3064", "slice-3", "implement", "reviewer_code", "ack", identity
+        )
+        view.set(key, event_loop.JOB_OUTCOME_ABNORMAL)
+
+        for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT):
+            clock.advance(supervisor.backoff_cap + 5)
+            loop.poll_once(["reviewer_code"])
+            loop.poll_once(["reviewer_code"])
+
+        # Alert still fires (any arm), but AGENT_FAILED is producer-only.
+        assert len(alerts) == 1
+        assert failures == []
+
+    def test_fresh_budget_on_dedupe_key_change_through_loop(self, monkeypatch):
+        """A new dedupe key spawns despite an exhausted predecessor."""
+        import event_loop
+        import supervision_policy
+
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "x")})
+        spawner = _RecordingSpawner()
+        clock = _ManualClock()
+        supervisor = event_loop.JobSupervisor(clock=clock)
+        view = _FakeJobStatusView()
+        loop = _make_supervised_loop(spawner, clock=clock, supervisor=supervisor, status_view=view)
+        key1 = _propose_key(loop)
+
+        for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT):
+            self._abort_cycle(loop, view, clock, key1)
+        assert supervisor.is_exhausted(key1)
+
+        # Consensus state moves on: the propose now targets a new version, so
+        # the derived event yields a different dedupe key with a fresh budget.
+        new_payload = {"current_version": "2", "producer": "coder"}
+        _script(monkeypatch, {"coder": ("propose", new_payload, "x")})
+        identity2 = event_loop.event_identity("propose", new_payload)
+        key2 = event_loop.compute_dedupe_key(
+            loop.pipeline_id, loop.slice_id, loop.phase, "coder", "propose", identity2
+        )
+        assert key2 != key1
+
+        spawns_before = len(spawner.calls)
+        clock.advance(supervisor.backoff_cap + 5)
+        loop.poll_once(["coder"])
+        assert not supervisor.is_exhausted(key2)
+        assert len(spawner.calls) == spawns_before + 1
+
+    def test_no_observation_without_status_view(self, monkeypatch):
+        """With no status view wired the loop never drives the supervisor."""
+        import event_loop
+
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "x")})
+        spawner = _RecordingSpawner()
+        clock = _ManualClock()
+        supervisor = event_loop.JobSupervisor(clock=clock)
+        loop = event_loop.OrchestratorEventLoop(
+            tracker=object(),
+            spawner=spawner,
+            pipeline_id="issue-3064",
+            slice_id="slice-3",
+            phase="implement",
+            clock=clock,
+            roles=["coder"],
+            job_supervisor=supervisor,
+            # job_status_view omitted → dormant (slice-2 behavior).
+        )
+        key = _propose_key(loop)
+        loop.poll_once(["coder"])
+        loop.poll_once(["coder"])
+        # No observation ⇒ the (deduped) key stays live, streak untouched.
+        assert supervisor.backoff_seconds(key) == 0
+        assert len(spawner.calls) == 1
+
+
+# ---------------------------------------------------------------------------
 # Cross-process adoption — spawner returns None (already-live Job)
 # ---------------------------------------------------------------------------
 

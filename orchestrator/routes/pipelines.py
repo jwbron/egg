@@ -18108,6 +18108,15 @@ def _run_concurrent_phase(
     )
 
     max_concurrent = getattr(pipeline.config, "max_concurrent_agents", 6)
+    # #3064 slice-3: in orchestrator-ownership mode the event loop watches
+    # one-shot Job termination to drive failure supervision (backoff /
+    # respawn / OVERSEER_ALERT). Hand it a Job-status observer when the
+    # spawner can provide one (the kubernetes spawner); spawners without it
+    # leave supervision observation dormant (pod mode is unaffected either way).
+    event_status_view = None
+    _make_status_view = getattr(spawner, "create_event_job_status_view", None)
+    if callable(_make_status_view):
+        event_status_view = _make_status_view()
     executor = ConcurrentPhaseExecutor(
         pipeline=pipeline,
         spawn_fn=spawn_fn,
@@ -18115,6 +18124,7 @@ def _run_concurrent_phase(
         review_graph=filtered_graph,
         roles=roles,
         slice_id=slice_id,
+        event_status_view=event_status_view,
     )
 
     # Spawn all agents with their prompts.
