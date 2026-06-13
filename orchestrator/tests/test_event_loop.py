@@ -805,6 +805,7 @@ class _FakeJobStatusView:
         self._default = event_loop.JOB_OUTCOME_RUNNING
         self._outcomes: dict[str, str] = {}
         self.queries: list[str] = []
+        self.reaped: list[str] = []
 
     def set(self, key: str, outcome: str) -> None:
         self._outcomes[key] = outcome
@@ -812,6 +813,12 @@ class _FakeJobStatusView:
     def outcome_for(self, key: str) -> str:
         self.queries.append(key)
         return self._outcomes.get(key, self._default)
+
+    def reap_terminated(self, key: str) -> int:
+        # Mirror the spawner view: the loop's abnormal branch calls this to
+        # delete the terminated Job so it is observed exactly once.
+        self.reaped.append(key)
+        return 1
 
 
 def _make_supervised_loop(spawner, *, clock, supervisor, status_view, slice_id="slice-3"):
@@ -941,6 +948,33 @@ class TestSupervisionDrivenThroughLoop:
         assert not supervisor.is_exhausted(key)
         # Legitimate outcomes free the key, so it keeps getting respawned.
         assert len(spawner.calls) >= 5
+
+    def test_abnormal_outcome_reaps_terminated_job(self, monkeypatch):
+        """The abnormal branch reaps the terminated Job so it is observed once
+        (#3181 re-review). Without the reap the FAILED Job lingers and the
+        streak re-increments against one dead pod."""
+        import event_loop
+
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "x")})
+        spawner = _RecordingSpawner()
+        clock = _ManualClock()
+        supervisor = event_loop.JobSupervisor(clock=clock)
+        view = _FakeJobStatusView()
+        loop = _make_supervised_loop(spawner, clock=clock, supervisor=supervisor, status_view=view)
+        key = _propose_key(loop)
+
+        loop.poll_once(["coder"])  # initial spawn
+        view.set(key, event_loop.JOB_OUTCOME_ABNORMAL)
+        loop.poll_once(["coder"])  # observe abnormal → record_abort + reap
+
+        assert view.reaped == [key]
+        assert supervisor.backoff_seconds(key) == 2  # streak 1, counted once
+        # Non-abnormal outcomes never reap.
+        view.set(key, event_loop.JOB_OUTCOME_SUCCESS)
+        clock.advance(supervisor.backoff_cap + 5)
+        loop.poll_once(["coder"])  # respawn
+        loop.poll_once(["coder"])  # observe success → no further reap
+        assert view.reaped == [key]
 
     def test_warn_latch_fires_at_five_silent_below(self, monkeypatch):
         """No warn/alert below the WARN threshold; sticky warn exactly at it."""
