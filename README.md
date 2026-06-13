@@ -288,7 +288,7 @@ Start with **[docs/index.md](docs/index.md)**, which has task-specific lookup ta
 | **Slice-DAG implement phase** | [Slice-DAG Implement Phase](docs/architecture/slice-dag.md) |
 | **SDLC pipeline** | [SDLC Pipeline Guide](docs/guides/sdlc-pipeline.md) |
 | **Human-in-the-loop decisions** | [HITL Decisions](docs/hitl-decisions.md) |
-| **Orchestrator & overseer** | [Orchestrator Architecture](docs/architecture/orchestrator.md) |
+| **Orchestrator & overseer** | [Orchestrator Architecture](docs/architecture/orchestrator.md) · [On-Demand Agent Lifecycle](docs/architecture/on-demand-agent-lifecycle.md) |
 | **Health monitoring** | [Pipeline Health Monitoring](docs/guides/pipeline-health-monitoring.md) |
 | **Agent roles & permissions** | [Agent Roles Reference](docs/reference/agent-roles.md) |
 | **Non-Claude model routing** | [Upstream Routing](docs/architecture/upstream-routing.md) · [Per-Agent Models](docs/guides/per-agent-models.md) |
