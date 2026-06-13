@@ -1519,16 +1519,53 @@ class TestExitCodeSurfaceExcludesExTempfail:
     ``egg_agent`` runs the SDK in-process, so its exit-code surface is a
     bounded set of ``AgentResult.returncode`` literals set in ``run_agent`` /
     ``run_agent_async`` -- there is no subprocess rc passthrough. We scan the
-    module source for every ``returncode=<int>`` literal and assert the set
-    excludes 75; a future change that introduced ``returncode=75`` anywhere in
-    the agent path would fail here, flagging the collision before it ships.
+    module source for every integer ``returncode`` literal -- both keyword
+    (``returncode=75``) and positional (``AgentResult(False, "", "", 75)``)
+    construction -- and assert the set excludes 75; a future change that
+    introduced ``returncode=75`` anywhere in the agent path would fail here,
+    flagging the collision before it ships. (A dynamic value such as
+    ``returncode=some_var`` is inherently invisible to a literal scan; the
+    realistic regression -- a hard-coded 75 -- is what this catches.)
     """
 
     # EX_TEMPFAIL from sysexits.h; the value reserved by the one-shot arm.
     _EX_TEMPFAIL = 75
 
+    # Positional index of ``returncode`` in the ``AgentResult`` dataclass
+    # signature (success, stdout, stderr, returncode, ...). Kept in sync with
+    # shared/egg_agent/result.py so the scan catches positional construction.
+    _RETURNCODE_POSITIONAL_INDEX = 3
+
+    @staticmethod
+    def _int_literal(value) -> int | None:
+        """Return the int value of a literal AST node, or None if not a literal.
+
+        Handles ``0``/``1`` (Constant) and ``-1`` (UnaryOp(USub, Constant), since
+        the unary minus is a separate node). Returns None for dynamic values
+        (``returncode=some_var``), which a literal scan inherently cannot resolve.
+        """
+        import ast
+
+        if isinstance(value, ast.Constant) and isinstance(value.value, int):
+            return value.value
+        if (
+            isinstance(value, ast.UnaryOp)
+            and isinstance(value.op, ast.USub)
+            and isinstance(value.operand, ast.Constant)
+            and isinstance(value.operand.value, int)
+        ):
+            return -value.operand.value
+        return None
+
     def _returncode_literals(self) -> set[int]:
-        """All integer ``returncode=`` literals assigned in client.py."""
+        """All integer ``returncode`` literals assigned in client.py.
+
+        Catches both keyword (``returncode=75``) and positional
+        (``AgentResult(False, "", "", 75)``) construction so the exclusion can't
+        be silently defeated by switching call style. Dynamic values
+        (``returncode=some_var``) are inherently invisible to a literal scan and
+        are not the realistic regression this guards against.
+        """
         import ast
         import inspect
 
@@ -1538,20 +1575,21 @@ class TestExitCodeSurfaceExcludesExTempfail:
         tree = ast.parse(source)
         codes: set[int] = set()
         for node in ast.walk(tree):
-            if not isinstance(node, ast.keyword) or node.arg != "returncode":
-                continue
-            value = node.value
-            # ``returncode=0`` / ``returncode=1`` -> Constant; ``returncode=-1``
-            # -> UnaryOp(USub, Constant) since the minus is a separate node.
-            if isinstance(value, ast.Constant) and isinstance(value.value, int):
-                codes.add(value.value)
+            # Keyword form: ``returncode=<int>`` anywhere in the module.
+            if isinstance(node, ast.keyword) and node.arg == "returncode":
+                literal = self._int_literal(node.value)
+                if literal is not None:
+                    codes.add(literal)
+            # Positional form: ``AgentResult(success, stdout, stderr, <int>, ...)``.
             elif (
-                isinstance(value, ast.UnaryOp)
-                and isinstance(value.op, ast.USub)
-                and isinstance(value.operand, ast.Constant)
-                and isinstance(value.operand.value, int)
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "AgentResult"
+                and len(node.args) > self._RETURNCODE_POSITIONAL_INDEX
             ):
-                codes.add(-value.operand.value)
+                literal = self._int_literal(node.args[self._RETURNCODE_POSITIONAL_INDEX])
+                if literal is not None:
+                    codes.add(literal)
         return codes
 
     def test_returncode_literals_exclude_ex_tempfail(self):
