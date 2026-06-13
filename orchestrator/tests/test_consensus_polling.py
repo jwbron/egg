@@ -20,7 +20,7 @@ from models import (
     PipelinePhase,
     PipelineStatus,
 )
-from routes.pipelines import _run_concurrent_phase
+from routes.pipelines import _incomplete_consensus_decision_text, _run_concurrent_phase
 
 
 def _make_concurrent_pipeline(pipeline_id: str = "issue-999") -> Pipeline:
@@ -1582,4 +1582,54 @@ class TestOrchestratorOwnedEventLoopCompletion:
             d for d in disk_decisions if "consensus incomplete" in d.question.lower()
         ]
         assert len(incomplete_decisions) == 1
+        # The operator-facing prefix must reflect the orchestrator-owned-loop
+        # terminal (consensus timeout), not the pod-mode "All containers
+        # exited" wording — no up-front containers ever run in this mode.
+        assert incomplete_decisions[0].question.startswith("Consensus timed out; "), (
+            "orchestrator-mode timeout HITL must use the 'Consensus timed out; ' "
+            f"prefix, got: {incomplete_decisions[0].question!r}"
+        )
         assert mock_executor_instance.stop_event_loop.call_count >= 1
+
+
+class TestIncompleteConsensusDecisionText:
+    """Unit-level coverage of the mode-aware prefix dispatch in
+    ``_incomplete_consensus_decision_text`` — the three terminals must each
+    render the prefix an operator reading ``/sdlc`` would expect.
+    """
+
+    def test_container_failure_prefix_wins(self):
+        """A non-zero container-failure count takes precedence over both the
+        orchestrator-mode and the default pod-mode prefixes.
+        """
+        question, _ = _incomplete_consensus_decision_text(
+            {"blocking_agents": ["coder"]},
+            container_failure_count=2,
+            orchestrator_mode=True,
+        )
+        assert question.startswith("2 container(s) exited with non-zero code; ")
+
+    def test_orchestrator_mode_uses_timeout_prefix(self):
+        """When the orchestrator owns the loop, no up-front containers ever
+        ran, so the terminal is the consensus timeout — not container exit.
+        """
+        question, _ = _incomplete_consensus_decision_text(
+            {"blocking_agents": ["coder"]},
+            container_failure_count=0,
+            orchestrator_mode=True,
+        )
+        assert question.startswith("Consensus timed out; ")
+        assert "All containers exited" not in question
+        # The actionable body is unchanged across modes.
+        assert "consensus incomplete; agents never confirmed: coder" in question
+
+    def test_pod_mode_default_prefix(self):
+        """Default (pod mode, clean exit) keeps the "All containers exited"
+        wording — containers genuinely ran and exited there.
+        """
+        question, _ = _incomplete_consensus_decision_text(
+            {"blocking_agents": ["coder"]},
+            container_failure_count=0,
+        )
+        assert question.startswith("All containers exited; ")
+        assert "Consensus timed out" not in question
