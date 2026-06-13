@@ -767,13 +767,14 @@ class OrchestratorEventLoop:
         treated as legitimately idle in orchestrator mode.
 
         Reconciled keys (restart path) populate ``_live_keys`` without a
-        ``_key_meta`` entry, so a freshly-reconciled role is absent here for
-        exactly one tick — which suppresses (never false-alerts) its tripwires.
-        It self-heals on the next ``_handle_role`` pass: even the dedupe
-        early-return now labels the key via ``_key_meta.setdefault`` (it no
-        longer waits for a fresh spawn), so an adopted/reconciled key is picked
-        up rather than staying unlabeled for the pod's lifetime.  Best-effort:
-        a notifier failure must not wedge the loop.
+        ``_key_meta`` entry.  But ``poll_once`` runs the ``_handle_role`` pass
+        (which labels the key via ``_key_meta.setdefault`` on its dedupe
+        early-return — it no longer waits for a fresh spawn) *before* calling
+        this method, so an adopted/reconciled role is labeled and therefore
+        published on the very first published tick after ``reconcile()``; it is
+        never actually absent from a real publish.  Were the label ever missing
+        it would only suppress (never false-alert) the role's tripwires.
+        Best-effort: a notifier failure must not wedge the loop.
         """
         notifier = self._active_roles_notifier
         if notifier is None:
