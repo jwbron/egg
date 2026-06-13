@@ -68,8 +68,9 @@ PipelineConfig(
 
 Default-constructed `PipelineConfig.agent_models` is `{}` — every
 existing pipeline continues to spawn every role on the built-in
-Claude default with `upstream="anthropic"` (`"fable"` for the
-refine/plan phase roles, `"opus"` for everything else).
+Claude default with `upstream="anthropic"` (`"opus"` for all roles —
+fable is no longer the built-in default, though it remains opt-in
+selectable via `agent_models` / `default_agent_model`).
 
 ### Repository-level default — `default_agent_model`
 
@@ -102,20 +103,11 @@ in `orchestrator/agent_model_resolution.py` walks the chain:
 1. `pipeline_config.agent_models.get(role.value)` — per-pipeline,
    per-role override
 2. `get_default_agent_model(repo)` — repository-level default
-3. Built-in default — `"fable"` for the refine and plan phase roles
-   (producers and reviewers, `_FABLE_DEFAULT_ROLES`), `"opus"` for
-   everything else
-
-> **Minimum sandbox Claude Code version.** The `fable` / `fable[1m]`
-> aliases require Claude Code ≥ 2.1.170. The sandbox's
-> `CLAUDE_CODE_VERSION` build-arg in `sandbox/Dockerfile` defaults to
-> `latest` (#3137 — `stable` lagged the fable launch and crash-looped
-> refine/plan agents per #3136). A build-time gate in the Dockerfile
-> fails the image build if the installed binary doesn't know `fable`
-> or `opus`, so a stale pin surfaces at build time rather than at
-> spawn. If you need to pin to an older `CLAUDE_CODE_VERSION` that
-> predates the alias, also set a repo-level `default_agent_model: opus`
-> AND temporarily drop `fable` from the Dockerfile gate.
+3. Built-in default — `"opus"` for all roles. Fable is no longer the
+   built-in default (it remains opt-in selectable via `agent_models` /
+   `default_agent_model`); the refine/plan branch
+   (`_FABLE_DEFAULT_ROLES`) now resolves to opus alongside everything
+   else.
 
 The result is an `AgentModelDecision` dataclass with fields
 `(claude_code_alias: str, upstream: str, upstream_model: str | None,
@@ -689,8 +681,7 @@ optional `branch` override:
 
 Per-pipeline `agent_models` entries **override** the repo-level
 `default_agent_model`. Both can be unset — the resolver falls back to
-the built-in default (`"fable"` for refine/plan roles, `"opus"`
-otherwise).
+the built-in default (`"opus"` for all roles).
 
 ### 4. Run the pipeline and observe routing
 
@@ -768,8 +759,7 @@ invariant](../architecture/upstream-routing.md#no-op-by-default-invariant)):
 3. **`agent_models` default is empty.** Both
    `PipelineConfig.agent_models` and repo-level
    `default_agent_model` default to nothing — the resolver returns
-   the built-in Anthropic path (`"fable"` for refine/plan roles,
-   `"opus"` otherwise).
+   the built-in Anthropic path (`"opus"` for all roles).
 
 Any single guard suffices. All three are independent; a
 misconfiguration on one does not silently activate the LiteLLM path.
