@@ -231,7 +231,7 @@
       "id": "slice-4",
       "name": "Worktree re-attach + gateway-session reuse across spawns (hot-path latency)",
       "goal": "Re-attach-first worktree handling with the R6 dirty-state policy\n(discard + hard-sync on every re-attach; discard failure \u21d2 recreate)\nand per-role session reuse in the one-shot spawn path; p50<60s\nspawn\u2192invoke budget held in a simulated-clock test;\nat-most-one-live-pod invariant asserted as the ownership story.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -240,8 +240,8 @@
         {
           "id": "task-4-1",
           "description": "In `orchestrator/kubernetes_spawner.py` (re-touches the slice-2\none-shot entry \u2014 serialized chain): make the one-shot spawn path\nRE-ATTACH-FIRST for worktrees \u2014 validate the existing worktree\nkeyed {pipeline_id}[-{slice_id}]-{role} (expected branch checked\nout, .git integrity, no foreign lock) and reuse it; fall back to\ntoday's create-with-retry (\u2248614-722) on ANY validation mismatch.\nDIRTY-STATE POLICY (R6, architect v2): on every successful\nre-attach, discard uncommitted changes and untracked staging\nartifacts (reset --hard + clean -fd) and hard-sync to the role\nbranch tip BEFORE agent invocation \u2014 a predecessor pod killed\nmid-event (slice-3 supervision respawn is the canonical\nproducer) must never leak unproposed residue into a successor's\ncommit; if the discard itself fails, fall back to recreate.\nPer-role gateway-session reuse: re-register only when no live\nsession exists or the token has aged out (reuse the existing\nregistration machinery \u2248760-799); session teardown moves to\nphase end or streak exhaustion in orchestrator mode (pod-mode\nteardown unchanged). The slice-2 at-most-one-live-pod-per-\nrole+slice invariant is the ownership story for safe re-attach \u2014\nno concurrent writers to one worktree.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "0aff2e4",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Valid existing worktree \u21d2 re-attached, no create_worktrees()\n  call; branch/.git/lock mismatch \u21d2 fallback to create-with-\n  retry with today's semantics.\n- Every successful re-attach discards dirty state (reset --hard\n  + clean -fd) and hard-syncs to the role branch tip before the\n  agent runs; residue from a killed predecessor pod never\n  reaches a successor's commit; discard failure \u21d2 recreate.\n- Live un-aged session \u21d2 no re-registration; absent/aged \u21d2\n  re-register; teardown at phase end or streak exhaustion in\n  orchestrator mode; pod-mode lifecycle unchanged.\n- No code path allows two live pods to share a worktree.",
@@ -261,8 +261,8 @@
         {
           "id": "task-4-2",
           "description": "Latency/reuse tests: extend\n`orchestrator/tests/test_kubernetes_spawner.py` \u2014 re-attach\nvalidation matrix (valid \u21d2 reuse; wrong branch / corrupt .git /\nforeign lock \u21d2 create-with-retry fallback), the INDUCED\nDIRTY-WORKTREE case (architect v2 ac-4): seed uncommitted\nchanges + untracked staging artifacts simulating a pod killed\nmid-event, assert re-attach discards them (reset --hard +\nclean -fd) and hard-syncs to the role branch tip before\ninvocation, and assert discard failure falls back to recreate;\nsession reuse vs re-register (live, absent, aged-out) and\nteardown timing (phase end, streak exhaustion, pod-mode\nunchanged), at-most-one-live-pod assertion, and the p50<60s\nspawn\u2192invoke budget computed from the slice-2 structured timing\nfield under a simulated clock (no real sleeps).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "ca8d9fd6d",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Full re-attach and session matrices covered, including the\n  induced dirty-worktree case alongside corruption/branch-\n  mismatch; residue provably absent from the successor's view.\n- Budget test fails if simulated p50 spawn\u2192invoke \u2265 60s.\n- Existing spawner tests pass unmodified.",
@@ -284,11 +284,11 @@
         "slice-3"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3064/slice-3",
+      "integration_base_sha": "9091f7d1df555cccadc3aacd0e8a4acb0bbeca01",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3192,
+      "pr_url": "https://github.com/jwbron/egg/pull/3192",
       "review_feedback": []
     },
     {
@@ -918,6 +918,72 @@
       "old_value": "complete",
       "new_value": "complete",
       "reason": "Marked task-3-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T23:24:41.360805Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.commit",
+      "old_value": null,
+      "new_value": "ca8d9fd6d",
+      "reason": "Linked commit ca8d9fd to task-4-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T23:28:57.178976Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.commit",
+      "old_value": "ca8d9fd6d",
+      "new_value": "ca8d9fd6d",
+      "reason": "Linked commit ca8d9fd to task-4-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T23:28:57.213155Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T23:51:12.716112Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.commit",
+      "old_value": null,
+      "new_value": "0aff2e4",
+      "reason": "Linked commit 0aff2e4 to task-4-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-12T23:51:12.739748Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-13T00:18:51.782490Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.status",
+      "old_value": "complete",
+      "new_value": "complete",
+      "reason": "Marked task-4-2 as complete",
       "checkpoint_id": null
     }
   ],
