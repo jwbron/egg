@@ -1095,9 +1095,14 @@ class KubernetesSpawner:
         cache stays bounded by roster size rather than growing per event.
 
         Best-effort: a gateway error is logged and swallowed (teardown must
-        never wedge the caller). Pod-mode sessions are untouched — they are
-        keyed by the per-Job name and cleaned by the existing stop/remove
-        paths.
+        never wedge the caller). The per-event Job stop/remove paths do not
+        reach this stable-base-keyed session, which is why this explicit
+        teardown exists. Note that :meth:`cleanup_pipeline` applies this
+        primitive across *every* cached entry for the pipeline, including
+        pod-mode entries (keyed by the per-Job name) — those are normally
+        cleaned by the stop/remove paths, but the extra
+        ``delete_session_by_container`` here is idempotent, so the broad sweep
+        is harmless rather than exclusive to event-mode sessions.
         """
         session_id, _ = self._build_k8s_job_names(pipeline_id, agent_role, slice_id=slice_id)
         try:
@@ -1789,6 +1794,8 @@ class KubernetesSpawner:
                 host_path_mounts=host_path_mounts or None,
             )
 
+            spawn_ms = (self._clock() - _spawn_start) * 1000.0
+
             logger.info(
                 "Agent Job created",
                 job_name=job_name,
@@ -1796,6 +1803,10 @@ class KubernetesSpawner:
                 pipeline_id=pipeline_id,
                 role=agent_role.value,
                 has_session=session_info is not None,
+                # Emit the per-spawn latency so the finer ``spawn_agent_job``
+                # sub-metric is observable in logs (the p50 budget itself reads
+                # the coarser slice-2 ``spawn_dispatch_seconds`` timing field).
+                spawn_ms=round(spawn_ms, 3),
             )
 
             return SpawnedContainer(
@@ -1804,12 +1815,19 @@ class KubernetesSpawner:
                 agent_role=agent_role,
                 pipeline_id=pipeline_id,
                 environment=environment,
-                spawn_ms=(self._clock() - _spawn_start) * 1000.0,
+                spawn_ms=spawn_ms,
             )
 
         except KubernetesClientError as e:
-            # Clean up gateway session if we registered one
-            if session_info:
+            # Clean up gateway session only if WE registered one in this call.
+            # On the #3064 slice-4 reuse path (``existing_session_token``
+            # supplied) ``session_info`` is a stub wrapping a token registered
+            # by an earlier event and still cached under the stable base id —
+            # deleting it here would tear down the session the next event would
+            # reuse and leave the ``_session_token_cache`` entry dangling. Skip
+            # the delete on that path; ``_get_or_create_session`` heartbeats and
+            # re-registers on the next event if the gateway has since dropped it.
+            if session_info and not existing_session_token:
                 try:
                     self.gateway.delete_session(session_info.session_token)
                 except GatewayError:

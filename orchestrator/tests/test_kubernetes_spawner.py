@@ -884,6 +884,28 @@ class TestSpawnAgentJob:
             )
         mock_gateway.delete_session.assert_called_once_with("tok-abcdef123456")
 
+    def test_spawn_k8s_error_preserves_reused_session(self, spawner, mock_k8s_client, mock_gateway):
+        """A k8s create failure on the #3064 slice-4 reuse path must NOT delete
+        the supplied session — we did not register it, and the next event still
+        reuses it.
+        """
+        from kubernetes_spawner import KubernetesSpawnError
+
+        mock_k8s_client.create_container.side_effect = KubernetesClientError("API error")
+        with pytest.raises(KubernetesSpawnError, match="Failed to spawn Job"):
+            spawner.spawn_agent_job(
+                pipeline_id="p",
+                agent_role=AgentRole.CODER,
+                slice_id="slice-4",
+                repos=["owner/repo"],
+                reuse_worktree_id="issue-3064-slice-4-coder",
+                repo_volumes={"owner/repo": "/x"},
+                existing_session_token="tok-live",
+                wait_for_gateway=False,
+            )
+        # The supplied (reused) token is left intact; we never registered it.
+        mock_gateway.delete_session.assert_not_called()
+
     def test_spawn_default_branch_from_pipeline(self, spawner):
         """Without branch, defaults to egg/{pipeline_id}/work."""
         result = spawner.spawn_agent_job(
