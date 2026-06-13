@@ -520,8 +520,8 @@ data:
 > where billed cost is unavailable), per-session cache hit rate, and
 > per-role attribution (`pipeline_id`/`agent_role`/`phase` from the
 > gateway's `x-egg-*` headers — so per-role spend is a log query, not a
-> hand cross-reference of agent completion logs) — all as a JSON line per
-> call — to the LiteLLM pod stream, visible via `get_service_logs` / the
+> hand cross-reference of agent completion logs). Each call emits one JSON
+> line to the LiteLLM pod stream, visible via `get_service_logs` / the
 > structured-logging stream.
 
 > **Why the paired `<name>[1m]` row?** Claude Code registers the
