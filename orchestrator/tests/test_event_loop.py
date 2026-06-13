@@ -48,6 +48,7 @@ this file still collects before the coder's module lands (slice-1 convention).
 
 from __future__ import annotations
 
+import statistics
 import sys
 from pathlib import Path
 
@@ -472,6 +473,94 @@ class TestTimingField:
 
 
 # ---------------------------------------------------------------------------
+# p50 < 60s spawn→invoke latency budget (#3064 slice-4)
+# ---------------------------------------------------------------------------
+
+
+class _DeltaClock:
+    """Deterministic monotonic clock yielding a chosen delta per spawn.
+
+    ``poll_once`` reads the clock exactly twice per spawn — ``requested_at``
+    immediately before ``spawner.spawn_event(...)`` and ``dispatched_at``
+    immediately after — so the structured ``spawn_dispatch_seconds`` for spawn
+    *i* equals ``deltas_s[i]`` exactly, with no real sleeps. (Fresh dedupe keys
+    take the no-abort ``ready_to_respawn`` early-return, so the supervisor adds
+    no extra clock reads on this path.)
+    """
+
+    def __init__(self, deltas_s: list[float]) -> None:
+        self._ticks: list[float] = []
+        t = 0.0
+        for d in deltas_s:
+            self._ticks.append(t)
+            self._ticks.append(t + d)
+            t += d + 1.0  # +1s gap so successive spawns never share a tick
+        self._i = 0
+
+    def __call__(self) -> float:
+        v = self._ticks[self._i]
+        self._i += 1
+        return v
+
+
+class TestLatencyBudgetFromTimingField:
+    """The p50<60s spawn→invoke budget is computed from the slice-2 timing field.
+
+    The authoritative budget reads ``EventDecision.timing['spawn_dispatch_seconds']``
+    — measured in ``poll_once`` across the WHOLE ``spawner.spawn_event(...)`` call,
+    which in orchestrator mode fans out through the slice-4 worktree re-attach
+    validation, ``_clean_reused_worktree`` (fetch + hard-sync), and
+    ``_get_or_create_session`` before the k8s Job is created. A regression that
+    slows any of that new code therefore moves this measured interval, so the
+    budget actually guards the slice-4 latency (unlike a sub-segment timer that
+    starts only once ``spawn_agent_job`` begins). Driven under an injected clock
+    — no real sleeps.
+    """
+
+    _ROLES = ["coder", "reviewer_code", "reviewer_security", "documenter", "tester"]
+
+    def _p50_dispatch_seconds(self, monkeypatch, deltas_s):
+        """Drive one ``poll_once`` over N roles; return the p50 of the
+        structured ``spawn_dispatch_seconds`` field each spawn decision carries.
+        """
+        _script(
+            monkeypatch,
+            {r: ("propose", {"producer": r}, "x") for r in self._ROLES},
+        )
+        spawner = _RecordingSpawner()
+        loop = _make_loop(spawner, clock=_DeltaClock(deltas_s), slice_id="slice-4")
+
+        decisions = loop.poll_once(self._ROLES)
+
+        samples = [
+            d.timing["spawn_dispatch_seconds"]
+            for d in decisions
+            if d.spawned and d.timing is not None
+        ]
+        # The measured field matches the simulated clock exactly (full span).
+        assert samples == [round(x, 6) for x in deltas_s]
+        return statistics.median(samples)
+
+    def test_p50_spawn_to_invoke_below_60s(self, monkeypatch):
+        """Realistic per-spawn dispatch latencies keep p50 under the 60s budget."""
+        deltas = [5.0, 9.0, 8.0, 12.0, 7.0]  # seconds
+        p50 = self._p50_dispatch_seconds(monkeypatch, deltas)
+        assert p50 < 60.0, f"p50 {p50}s must be under the 60s budget"
+
+    def test_budget_trips_when_p50_at_or_above_60s(self, monkeypatch):
+        """Negative control: a simulated p50 ≥ 60s makes the budget go red.
+
+        Proves the assertion is load-bearing — the budget reads the real
+        ``spawn_dispatch_seconds`` and fails when the full spawn→dispatch span
+        crosses 60s, rather than being skipped on a missing field.
+        """
+        deltas = [61.0, 65.0, 62.0]  # seconds, all over budget
+        p50 = self._p50_dispatch_seconds(monkeypatch, deltas)
+        assert p50 >= 60.0
+        assert not (p50 < 60.0), "budget predicate must go red at p50 ≥ 60s"
+
+
+# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 
@@ -590,6 +679,50 @@ class TestJobSupervisor:
         assert supervisor.is_exhausted("key-o")
         supervisor.record_abort("key-o", "propose", "coder")
         assert supervisor.is_exhausted("key-o")
+
+    # ---------- on_exhausted teardown hook (#3064 slice-4) ----------
+
+    def test_on_exhausted_fires_once_at_the_exhaustion_transition(self):
+        """The streak-exhaustion teardown hook fires exactly once, with the
+        arm's (role, action, dedupe_key), as the key crosses into exhausted.
+
+        This is the production trigger the orchestrator wires to gateway-session
+        teardown — driven through the real ``record_abort`` exhaustion path, not
+        a direct call to the teardown method.
+        """
+        import event_loop
+        import supervision_policy
+
+        fired: list[dict] = []
+        supervisor = event_loop.JobSupervisor(
+            clock=_FakeClock(),
+            on_exhausted=lambda **kw: fired.append(kw),
+        )
+        for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT - 1):
+            supervisor.record_abort("key-x", "ack", "reviewer_code")
+            assert fired == [], "must not fire before the exhaustion threshold"
+
+        supervisor.record_abort("key-x", "ack", "reviewer_code")
+        assert fired == [{"role": "reviewer_code", "action": "ack", "dedupe_key": "key-x"}]
+
+        # Sticky: further aborts on the already-exhausted key do not re-fire.
+        supervisor.record_abort("key-x", "ack", "reviewer_code")
+        assert len(fired) == 1
+
+    def test_on_exhausted_failure_never_wedges_supervision(self):
+        """A raising teardown hook is swallowed — exhaustion state still advances."""
+        import event_loop
+        import supervision_policy
+
+        def _boom(**_kw):
+            raise RuntimeError("gateway down")
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock(), on_exhausted=_boom)
+        for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT):
+            supervisor.record_abort("key-x", "propose", "coder")
+
+        # The hook raised, but the key is still marked exhausted (best-effort).
+        assert supervisor.is_exhausted("key-x")
 
     # ---------- Non-triggers: NACK / legitimate don't increment streak ----------
 
@@ -805,6 +938,7 @@ class _FakeJobStatusView:
         self._default = event_loop.JOB_OUTCOME_RUNNING
         self._outcomes: dict[str, str] = {}
         self.queries: list[str] = []
+        self.reaped: list[str] = []
 
     def set(self, key: str, outcome: str) -> None:
         self._outcomes[key] = outcome
@@ -812,6 +946,12 @@ class _FakeJobStatusView:
     def outcome_for(self, key: str) -> str:
         self.queries.append(key)
         return self._outcomes.get(key, self._default)
+
+    def reap_terminated(self, key: str) -> int:
+        # Mirror the spawner view: the loop's abnormal branch calls this to
+        # delete the terminated Job so it is observed exactly once.
+        self.reaped.append(key)
+        return 1
 
 
 def _make_supervised_loop(spawner, *, clock, supervisor, status_view, slice_id="slice-3"):
@@ -941,6 +1081,33 @@ class TestSupervisionDrivenThroughLoop:
         assert not supervisor.is_exhausted(key)
         # Legitimate outcomes free the key, so it keeps getting respawned.
         assert len(spawner.calls) >= 5
+
+    def test_abnormal_outcome_reaps_terminated_job(self, monkeypatch):
+        """The abnormal branch reaps the terminated Job so it is observed once
+        (#3181 re-review). Without the reap the FAILED Job lingers and the
+        streak re-increments against one dead pod."""
+        import event_loop
+
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "x")})
+        spawner = _RecordingSpawner()
+        clock = _ManualClock()
+        supervisor = event_loop.JobSupervisor(clock=clock)
+        view = _FakeJobStatusView()
+        loop = _make_supervised_loop(spawner, clock=clock, supervisor=supervisor, status_view=view)
+        key = _propose_key(loop)
+
+        loop.poll_once(["coder"])  # initial spawn
+        view.set(key, event_loop.JOB_OUTCOME_ABNORMAL)
+        loop.poll_once(["coder"])  # observe abnormal → record_abort + reap
+
+        assert view.reaped == [key]
+        assert supervisor.backoff_seconds(key) == 2  # streak 1, counted once
+        # Non-abnormal outcomes never reap.
+        view.set(key, event_loop.JOB_OUTCOME_SUCCESS)
+        clock.advance(supervisor.backoff_cap + 5)
+        loop.poll_once(["coder"])  # respawn
+        loop.poll_once(["coder"])  # observe success → no further reap
+        assert view.reaped == [key]
 
     def test_warn_latch_fires_at_five_silent_below(self, monkeypatch):
         """No warn/alert below the WARN threshold; sticky warn exactly at it."""

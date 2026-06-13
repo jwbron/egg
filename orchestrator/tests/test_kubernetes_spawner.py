@@ -8,8 +8,12 @@ pipeline cleanup, and error handling.
 from __future__ import annotations
 
 import hashlib
+import shutil
+import statistics
+import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -879,6 +883,28 @@ class TestSpawnAgentJob:
                 repos=["owner/repo"],
             )
         mock_gateway.delete_session.assert_called_once_with("tok-abcdef123456")
+
+    def test_spawn_k8s_error_preserves_reused_session(self, spawner, mock_k8s_client, mock_gateway):
+        """A k8s create failure on the #3064 slice-4 reuse path must NOT delete
+        the supplied session — we did not register it, and the next event still
+        reuses it.
+        """
+        from kubernetes_spawner import KubernetesSpawnError
+
+        mock_k8s_client.create_container.side_effect = KubernetesClientError("API error")
+        with pytest.raises(KubernetesSpawnError, match="Failed to spawn Job"):
+            spawner.spawn_agent_job(
+                pipeline_id="p",
+                agent_role=AgentRole.CODER,
+                slice_id="slice-4",
+                repos=["owner/repo"],
+                reuse_worktree_id="issue-3064-slice-4-coder",
+                repo_volumes={"owner/repo": "/x"},
+                existing_session_token="tok-live",
+                wait_for_gateway=False,
+            )
+        # The supplied (reused) token is left intact; we never registered it.
+        mock_gateway.delete_session.assert_not_called()
 
     def test_spawn_default_branch_from_pipeline(self, spawner):
         """Without branch, defaults to egg/{pipeline_id}/work."""
@@ -2060,6 +2086,10 @@ class TestSpawnEventJobOneShot:
         # have rejected that).
         existing.labels = {"egg.event.dedupe-key": self._KEY[:63]}
         existing.job_name = "egg-agent-pipe-1-slice-2-coder-ev"
+        # Adoption only counts a Job whose pod is still doing work; a RUNNING
+        # status is what makes it adoptable (a terminal Job would not be —
+        # see test_terminal_job_does_not_block_adoption).
+        existing.status = ContainerStatus.RUNNING
         mock_k8s_client.list_jobs.return_value = [existing]
 
         spawner.spawn_event_job(
@@ -2155,241 +2185,513 @@ class TestEventJobStatusView:
         _, kwargs = mock_k8s_client.list_jobs.call_args
         assert kwargs["label_selector"] == f"egg.event.dedupe-key={self._KEY[:63]}"
 
+    # -- reap_terminated (#3181 re-review) ---------------------------------
+
+    @staticmethod
+    def _named(status, name):
+        return ContainerInfo(
+            container_id=f"uid-{name}", container_name=name, status=status, job_name=name
+        )
+
+    def test_reap_terminated_deletes_only_terminal_jobs(self, spawner, mock_k8s_client):
+        """Reap removes FAILED/EXITED Jobs but leaves a live RUNNING one."""
+        mock_k8s_client.list_jobs.return_value = [
+            self._named(ContainerStatus.RUNNING, "live"),
+            self._named(ContainerStatus.FAILED, "dead"),
+            self._named(ContainerStatus.EXITED, "done"),
+        ]
+        view = spawner.create_event_job_status_view()
+        assert view.reap_terminated(self._KEY) == 2
+        removed = {c.args[0] for c in mock_k8s_client.remove_container.call_args_list}
+        assert removed == {"dead", "done"}
+        assert "live" not in removed
+
+    def test_reap_terminated_swallows_delete_errors(self, spawner, mock_k8s_client):
+        """Reaping is best-effort: a delete failure is logged, never raised,
+        and that Job is not counted as reaped (the live-only adoption filter is
+        the backstop)."""
+        mock_k8s_client.list_jobs.return_value = [self._named(ContainerStatus.FAILED, "dead")]
+        mock_k8s_client.remove_container.side_effect = RuntimeError("API down")
+        view = spawner.create_event_job_status_view()
+        assert view.reap_terminated(self._KEY) == 0
+
+    def test_reap_terminated_no_jobs_is_noop(self, spawner, mock_k8s_client):
+        """No matching Job (already GC'd) reaps nothing and never deletes."""
+        mock_k8s_client.list_jobs.return_value = []
+        view = spawner.create_event_job_status_view()
+        assert view.reap_terminated(self._KEY) == 0
+        mock_k8s_client.remove_container.assert_not_called()
+
+
+class _StatefulEventJobs:
+    """Faithful single-dedupe-key k8s Job store for the crash→respawn path.
+
+    Models the lifecycle the cross-module respawn depends on (#3181 re-review):
+    a created Job is RUNNING and visible under its dedupe label; a crash flips
+    it to FAILED; a terminal Job lingers (the real ``ttlSecondsAfterFinished``
+    window) until reaped. Backing the *real* ``KubernetesSpawner`` with this
+    store exercises ``_event_dedupe_key_live`` adoption, ``_EventJobStatusView``
+    classification, and ``reap_terminated`` against one shared Job set — the
+    interaction the always-spawns fake elided.
+    """
+
+    def __init__(self) -> None:
+        self.jobs: list[ContainerInfo] = []
+        self._seq = 0
+
+    # --- k8s client surface the spawner touches ---------------------------
+    def list_jobs(self, namespace, label_selector=None):
+        # The spawner only ever queries our single key's selector.
+        return list(self.jobs)
+
+    def create_container(self, **kwargs):
+        self._seq += 1
+        name = kwargs.get("name") or f"event-job-{self._seq}"
+        info = ContainerInfo(
+            container_id=f"uid-{self._seq}",
+            container_name=name,
+            job_name=name,
+            namespace="test-ns",
+            status=ContainerStatus.RUNNING,
+        )
+        self.jobs.append(info)
+        return info
+
+    def remove_container(self, name, force=False):
+        self.jobs = [j for j in self.jobs if j.job_name != name]
+
+    def delete_job(self, name, namespace=None, **kwargs):
+        # Idempotent pre-spawn cleanup; our generated names never collide.
+        self.jobs = [j for j in self.jobs if j.job_name != name]
+
+    # --- test helpers -----------------------------------------------------
+    def crash_all(self):
+        self.jobs = [j.model_copy(update={"status": ContainerStatus.FAILED}) for j in self.jobs]
+
+    @property
+    def names(self):
+        return [j.job_name for j in self.jobs]
+
+    @property
+    def statuses(self):
+        return [j.status for j in self.jobs]
+
+
+class TestEventJobCrashRespawn:
+    """Crash → respawn drives the REAL spawner adoption + status view together.
+
+    Regression for the #3181 re-review cross-module silent no-op: a crashed
+    one-shot Job lingers FAILED, and the prior adoption check treated *any*
+    Job carrying the dedupe label (including a terminal one) as live — so the
+    respawn adopted the corpse, created no pod, and the status view kept
+    re-reading the same FAILED Job, climbing the streak to a false AGENT_FAILED
+    without ever retrying. These tests bind the real ``spawn_event_job``
+    adoption, ``_EventJobStatusView``, and ``reap_terminated`` to one stateful
+    Job store so the interaction — not an always-spawns fake — is exercised.
+    """
+
+    _KEY = "c" * 64
+
+    def _spawn(self, spawner):
+        return spawner.spawn_event_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            action="propose",
+            dedupe_key=self._KEY,
+            slice_id="slice-2",
+            phase="implement",
+            repos=["owner/repo"],
+        )
+
+    def _wire(self, store, mock_k8s_client):
+        mock_k8s_client.list_jobs.side_effect = store.list_jobs
+        mock_k8s_client.create_container.side_effect = store.create_container
+        mock_k8s_client.remove_container.side_effect = store.remove_container
+        mock_k8s_client.delete_job.side_effect = store.delete_job
+
+    def test_crash_then_respawn_creates_a_fresh_job(self, spawner, mock_k8s_client, mock_gateway):
+        import event_loop
+
+        store = _StatefulEventJobs()
+        self._wire(store, mock_k8s_client)
+        view = spawner.create_event_job_status_view()
+
+        # 1. First spawn: nothing live → a Job is created and runs.
+        assert self._spawn(spawner) is not None
+        assert len(store.names) == 1
+        assert view.outcome_for(self._KEY) == event_loop.JOB_OUTCOME_RUNNING
+
+        # 2. The pod crashes — the Job goes FAILED and lingers (TTL window).
+        store.crash_all()
+        assert view.outcome_for(self._KEY) == event_loop.JOB_OUTCOME_ABNORMAL
+
+        # 3. The loop's abnormal branch reaps the terminated Job (fix #2)...
+        assert view.reap_terminated(self._KEY) == 1
+        assert store.names == []
+
+        # 4. ...so the respawn actually creates a NEW Job instead of adopting
+        #    the corpse — the cross-module dead-end #3181 flagged.
+        assert self._spawn(spawner) is not None
+        assert store.statuses == [ContainerStatus.RUNNING]
+        # The fresh Job classifies as running: the streak does not re-increment
+        # against a dead Job on the next observation.
+        assert view.outcome_for(self._KEY) == event_loop.JOB_OUTCOME_RUNNING
+        # Two real spawns happened (initial + respawn), not one adopted no-op.
+        assert mock_k8s_client.create_container.call_count == 2
+
+    def test_terminal_job_alone_does_not_block_respawn(self, spawner, mock_k8s_client):
+        """Even if the reap is skipped/fails (best-effort), a lingering terminal
+        Job must not be adopted: the live-only adoption filter (fix #1) lets the
+        respawn create a new Job rather than dead-ending for the TTL window.
+
+        The corpse is seeded under the *deterministic* Job name the respawn
+        collides with (not an arbitrary one), so this also exercises the
+        production same-name pre-spawn ``delete_job`` cleanup
+        (``spawn_agent_job``): after the spawn the corpse is gone, leaving only
+        the fresh RUNNING Job."""
+        from kubernetes_client import KubernetesClient
+        from kubernetes_spawner import (
+            _EVENT_JOB_NAME_DISCRIMINATOR_LEN,
+            KubernetesSpawner,
+            _fit_k8s_name,
+        )
+
+        # Mirror spawn_event_job → spawn_agent_job's deterministic naming for
+        # this _spawn()'s args so the corpse collides with the respawn's name.
+        base, _ = KubernetesSpawner._build_k8s_job_names(
+            "pipe-1", AgentRole.CODER, slice_id="slice-2"
+        )
+        fitted = _fit_k8s_name(f"{base}-{self._KEY[:_EVENT_JOB_NAME_DISCRIMINATOR_LEN]}")
+        corpse_name = f"{KubernetesClient.JOB_PREFIX}{fitted}"
+
+        store = _StatefulEventJobs()
+        # Seed a lingering FAILED Job under the dedupe label (reap "missed" it).
+        store.jobs = [
+            ContainerInfo(
+                container_id="uid-old",
+                container_name=corpse_name,
+                job_name=corpse_name,
+                namespace="test-ns",
+                status=ContainerStatus.FAILED,
+            )
+        ]
+        self._wire(store, mock_k8s_client)
+
+        assert self._spawn(spawner) is not None
+        # A new Job was created (not adopted) despite the terminal Job present.
+        assert mock_k8s_client.create_container.call_count == 1
+        assert ContainerStatus.RUNNING in store.statuses
+        # The same-name pre-spawn delete_job reaped the corpse: it no longer
+        # lingers alongside the fresh Job.
+        assert corpse_name not in store.names
+        assert store.statuses == [ContainerStatus.RUNNING]
+
+    def test_live_job_still_blocks_respawn(self, spawner, mock_k8s_client):
+        """Regression guard: a genuinely RUNNING Job for the key is still
+        adopted (no duplicate pod) — fix #1 narrows adoption to live Jobs, it
+        does not disable it."""
+        store = _StatefulEventJobs()
+        store.jobs = [
+            ContainerInfo(
+                container_id="uid-live",
+                container_name="live",
+                job_name="live",
+                namespace="test-ns",
+                status=ContainerStatus.RUNNING,
+            )
+        ]
+        self._wire(store, mock_k8s_client)
+
+        assert self._spawn(spawner) is None  # adopted
+        mock_k8s_client.create_container.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
-# Slice-4 (#3064 TASK-4-2): worktree re-attach, dirty-state policy,
-# session reuse, and spawn→invoke latency budget
+# #3064 slice-4 — worktree re-attach + gateway-session reuse
+#
+# These tests drive the REAL helpers against real on-disk git worktrees
+# (re-attach validation / dirty-state clean / hard-sync) and the real
+# production session-reuse path. No patching of the function under test.
 # ---------------------------------------------------------------------------
-#
-# Test-first contract for TASK-4-1's worktree re-attach + session-reuse
-# changes to the one-shot event-spawn path. The coder adds:
-#
-#   * re-attach-first worktree handling: validate the existing per-agent
-#     worktree (expected branch, .git integrity, no foreign lock); reuse
-#     it on success, fall back to create-with-retry on any mismatch;
-#   * dirty-state policy (architect R6): on every successful re-attach,
-#     discard uncommitted changes + untracked (reset --hard + clean -fd)
-#     and hard-sync to the role branch tip before agent invocation; a
-#     predecessor pod killed mid-event must leak no residue;
-#   * session reuse: re-register only when no live session exists or
-#     the token has aged out; teardown at phase end / streak exhaustion;
-#   * the slice-2 at-most-one-live-pod invariant asserted;
-#   * the p50<60s spawn→invoke budget held under a simulated clock.
-#
-# These tests fail until the coder's parallel TASK-4-1 lands; convergence
-# (coder + tester merge) makes them green, mirroring the slice-1/2/3
-# test-first alignment pattern.
+
+_WT_ID = "issue-3064-slice-4-coder"
+_BRANCH = "egg/issue-3064/slice-4"
+_REPOS = ["owner/repo"]
+
+_GIT_IDENT = [
+    "-c",
+    "user.email=t@egg.test",
+    "-c",
+    "user.name=egg-test",
+    "-c",
+    "commit.gpgsign=false",
+    "-c",
+    "safe.directory=*",
+    "-c",
+    "protocol.file.allow=always",
+]
+
+
+def _git(cwd, *args, check=True):
+    """Run a git command in *cwd* with a deterministic identity."""
+    return subprocess.run(
+        ["git", *_GIT_IDENT, *args],
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        check=check,
+    )
+
+
+def _make_worktree(base, worktree_id, repo_name, branch, *, with_origin=False):
+    """Create a real git worktree at ``base/worktree_id/repo_name`` on *branch*.
+
+    When ``with_origin`` is set, also create a bare ``origin`` repo, wire it as
+    the ``origin`` remote, and push *branch* so ``origin/<branch>`` exists (the
+    hard-sync target). Returns ``(repo_path, origin_path_or_None)``.
+    """
+    repo = Path(base) / worktree_id / repo_name
+    repo.mkdir(parents=True)
+    _git(repo, "init", "-b", branch)
+    (repo / "seed.txt").write_text("seed\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "seed")
+    origin = None
+    if with_origin:
+        origin = Path(base) / f"{worktree_id}-{repo_name}-origin.git"
+        subprocess.run(
+            ["git", "init", "--bare", "-b", branch, str(origin)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        _git(repo, "remote", "add", "origin", str(origin))
+        _git(repo, "push", "origin", branch)
+    return repo, origin
+
+
+class _FakeClock:
+    """Deterministic monotonic clock for the spawn-timing tests.
+
+    Yields a (start, end) pair per spawn so the measured ``spawn_ms`` equals the
+    requested per-spawn delta exactly — no real sleeps, fully simulated.
+    """
+
+    def __init__(self, deltas_ms):
+        self._ticks: list[float] = []
+        t = 0.0
+        for d in deltas_ms:
+            self._ticks.append(t)
+            self._ticks.append(t + d / 1000.0)
+            t += d / 1000.0 + 1.0
+        self._i = 0
+
+    def __call__(self) -> float:
+        v = self._ticks[self._i]
+        self._i += 1
+        return v
 
 
 class TestSpawnEventJobWorktreeReattach:
     """Re-attach-first worktree validation matrix (#3064 slice-4).
 
-    The one-shot event-spawn path must re-attach to an existing per-agent
-    worktree when it is healthy (expected branch, .git integrity, no foreign
-    lock) and fall back to create-with-retry (today's semantics) on any
-    mismatch. The worktree id is keyed ``{pipeline_id}[-{slice_id}]-{role}``
-    per the slice-2 convention.
-
-    These test the filesystem-based validation in
-    :func:`_validate_worktree_for_reuse` composed with
-    :meth:`KubernetesSpawner._clean_reused_worktree` via
-    :meth:`KubernetesSpawner._try_reuse_worktree`.
+    Each test stands up a real worktree in the matching state and drives the
+    real :func:`_validate_worktree_for_reuse` — the branch check,
+    ``git rev-parse``, and lock-file scan all execute. A regression in any of
+    them (e.g. an inverted branch comparison) breaks a test.
     """
 
-    def test_reattach_valid_worktree_skips_create(self, spawner):
-        """A valid existing worktree is re-attached; returns volumes."""
-        with (
-            patch("kubernetes_spawner._validate_worktree_for_reuse") as mock_validate,
-            patch.object(spawner, "_clean_reused_worktree", return_value=True),
-        ):
-            mock_validate.return_value = {"owner/repo": "/home/egg/.egg-worktrees/test/repo"}
-            reused = spawner._try_reuse_worktree(
-                agent_worktree_id="issue-3064-slice-4-coder",
-                branch="egg/issue-3064/slice-4",
-                repos=["owner/repo"],
-            )
+    def test_reattach_valid_worktree_returns_volumes(self, tmp_path):
+        """A healthy worktree on the expected branch validates and maps repos."""
+        from kubernetes_spawner import _validate_worktree_for_reuse
 
-        assert reused is not None
-        success, repo_volumes = reused
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH)
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            vols = _validate_worktree_for_reuse(_WT_ID, _REPOS, _BRANCH)
+
+        assert vols is not None
+        assert vols["owner/repo"] == str(repo)
+
+    def test_reattach_wrong_branch_falls_back(self, tmp_path):
+        """A worktree checked out on a different branch ⇒ None (fall back)."""
+        from kubernetes_spawner import _validate_worktree_for_reuse
+
+        _make_worktree(tmp_path, _WT_ID, "repo", "egg/some-other-branch")
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            vols = _validate_worktree_for_reuse(_WT_ID, _REPOS, _BRANCH)
+
+        assert vols is None
+
+    def test_reattach_corrupt_git_falls_back(self, tmp_path):
+        """A directory whose ``.git`` is gone ⇒ rev-parse fails ⇒ None."""
+        from kubernetes_spawner import _validate_worktree_for_reuse
+
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH)
+        shutil.rmtree(repo / ".git")  # corrupt: no longer a git repo
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            vols = _validate_worktree_for_reuse(_WT_ID, _REPOS, _BRANCH)
+
+        assert vols is None
+
+    def test_reattach_foreign_lock_falls_back(self, tmp_path):
+        """An ``index.lock`` in ``.git`` ⇒ None (a writer may be mid-operation)."""
+        from kubernetes_spawner import _validate_worktree_for_reuse
+
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH)
+        (repo / ".git" / "index.lock").write_text("")
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            vols = _validate_worktree_for_reuse(_WT_ID, _REPOS, _BRANCH)
+
+        assert vols is None
+
+    def test_reattach_ref_lock_falls_back(self, tmp_path):
+        """A ``refs/heads/*.lock`` ⇒ None (ref update may be mid-flight)."""
+        from kubernetes_spawner import _validate_worktree_for_reuse
+
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH)
+        heads = repo / ".git" / "refs" / "heads"
+        heads.mkdir(parents=True, exist_ok=True)
+        (heads / "wip.lock").write_text("")
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            vols = _validate_worktree_for_reuse(_WT_ID, _REPOS, _BRANCH)
+
+        assert vols is None
+
+    def test_reattach_missing_worktree_falls_back(self, tmp_path):
+        """No worktree directory at all ⇒ None."""
+        from kubernetes_spawner import _validate_worktree_for_reuse
+
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            vols = _validate_worktree_for_reuse("does-not-exist", _REPOS, _BRANCH)
+
+        assert vols is None
+
+    def test_try_reuse_composes_validate_and_clean(self, spawner, tmp_path):
+        """End-to-end: a healthy worktree with origin validates AND cleans."""
+        _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            result = spawner._try_reuse_worktree(_WT_ID, _BRANCH, _REPOS)
+
+        assert result is not None
+        success, repo_volumes = result
         assert success
         assert "owner/repo" in repo_volumes
-
-    def test_reattach_wrong_branch_falls_back(self, spawner):
-        """Wrong branch on the existing worktree ⇒ fall back to create."""
-        with (
-            patch("kubernetes_spawner._validate_worktree_for_reuse", return_value=None),
-            patch.object(spawner, "_clean_reused_worktree"),
-        ):
-            reused = spawner._try_reuse_worktree(
-                agent_worktree_id="issue-3064-slice-4-coder",
-                branch="egg/issue-3064/slice-4",
-                repos=["owner/repo"],
-            )
-
-        assert reused is None
-
-    def test_reattach_corrupt_git_falls_back(self, spawner):
-        """Missing .git directory ⇒ fall back to create."""
-        with (
-            patch("kubernetes_spawner._validate_worktree_for_reuse", return_value=None),
-            patch.object(spawner, "_clean_reused_worktree"),
-        ):
-            reused = spawner._try_reuse_worktree(
-                agent_worktree_id="issue-3064-slice-4-coder",
-                branch="egg/issue-3064/slice-4",
-                repos=["owner/repo"],
-            )
-
-        assert reused is None
-
-    def test_reattach_foreign_lock_falls_back(self, spawner):
-        """Lock file present ⇒ fall back to create."""
-        with (
-            patch("kubernetes_spawner._validate_worktree_for_reuse", return_value=None),
-            patch.object(spawner, "_clean_reused_worktree"),
-        ):
-            reused = spawner._try_reuse_worktree(
-                agent_worktree_id="issue-3064-slice-4-coder",
-                branch="egg/issue-3064/slice-4",
-                repos=["owner/repo"],
-            )
-
-        assert reused is None
-
-    def test_reattach_missing_worktree_falls_back(self, spawner):
-        """No existing worktree at all ⇒ fall back to create."""
-        with (
-            patch("kubernetes_spawner._validate_worktree_for_reuse", return_value=None),
-            patch.object(spawner, "_clean_reused_worktree"),
-        ):
-            reused = spawner._try_reuse_worktree(
-                agent_worktree_id="issue-3064-slice-4-coder",
-                branch="egg/issue-3064/slice-4",
-                repos=["owner/repo"],
-            )
-
-        assert reused is None
 
 
 class TestSpawnEventJobDirtyWorktree:
     """Dirty-state policy (architect R6) for re-attached worktrees (#3064 slice-4).
 
-    On every successful re-attach, the spawner must discard uncommitted
-    changes and untracked staging artifacts (reset --hard + clean -fd) and
-    hard-sync to the role branch tip BEFORE the agent runs. A predecessor
-    pod killed mid-event must never leak unproposed residue into a
-    successor's commit. If the discard itself fails, fall back to recreate.
+    On every successful re-attach the spawner discards uncommitted changes and
+    untracked artifacts (reset --hard + clean -fd) and hard-syncs to the role
+    branch tip. A predecessor's residue — including a *committed-but-unpushed*
+    commit — must never reach a successor. If discard OR hard-sync fails, the
+    spawner falls back to recreate.
     """
 
-    def test_reattach_discards_uncommitted_changes(
-        self, spawner, mock_k8s_client, mock_gateway, tmp_path
-    ):
-        """A re-attached worktree with dirty state is cleaned before use."""
-        repo_dir = tmp_path / "issue-3064-slice-4-coder" / "repo"
-        repo_dir.mkdir(parents=True)
+    def test_reattach_discards_uncommitted_changes(self, spawner, tmp_path):
+        """A re-attached worktree's dirty/untracked state is discarded."""
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH)
+        (repo / "seed.txt").write_text("DIRTY — uncommitted edit\n")  # modify tracked
+        (repo / "untracked.txt").write_text("staging residue\n")  # untracked
 
-        with (
-            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
-            patch("subprocess.run") as mock_run,
-        ):
-            mock_run.return_value = MagicMock(returncode=0, stdout="")
-            cleaned = spawner._clean_reused_worktree(
-                agent_worktree_id="issue-3064-slice-4-coder",
-                branch="egg/issue-3064/slice-4",
-                repos=["owner/repo"],
-            )
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            # branch=None exercises the discard half in isolation (no hard-sync).
+            cleaned = spawner._clean_reused_worktree(_WT_ID, None, _REPOS)
 
-        # The worktree was successfully cleaned (all subprocess calls
-        # returned successfully).
         assert cleaned is True
-        # reset --hard + clean -fd called, and when branch is set,
-        # fetch origin + reset --hard origin/branch also run.
-        assert mock_run.call_count >= 2
+        assert (repo / "seed.txt").read_text() == "seed\n"  # reverted
+        assert not (repo / "untracked.txt").exists()  # removed
+        assert _git(repo, "status", "--porcelain").stdout.strip() == ""
 
-    def test_reattach_discard_failure_falls_back(
-        self, spawner, mock_k8s_client, mock_gateway, tmp_path
-    ):
-        """When discard fails (e.g. filesystem error), fall back to recreate."""
-        repo_dir = tmp_path / "issue-3064-slice-4-coder" / "repo"
+    def test_reattach_discard_failure_falls_back(self, spawner, tmp_path):
+        """When discard itself fails (filesystem error) ⇒ recreate (False)."""
+        repo_dir = tmp_path / _WT_ID / "repo"
         repo_dir.mkdir(parents=True)
 
         with (
             patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
-            patch("subprocess.run") as mock_run,
+            patch("subprocess.run", side_effect=OSError("Permission denied on reset --hard")),
         ):
-            mock_run.side_effect = OSError("Permission denied on reset --hard")
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS)
 
-            cleaned = spawner._clean_reused_worktree(
-                agent_worktree_id="issue-3064-slice-4-coder",
-                branch="egg/issue-3064/slice-4",
-                repos=["owner/repo"],
-            )
-
-        # Discard failed, so the spawner must fall back to recreate.
         assert cleaned is False
 
-    def test_reattach_residue_not_in_successor_view(
-        self, spawner, mock_k8s_client, mock_gateway, tmp_path
-    ):
-        """subprocess.run is called for discard operations on a valid worktree."""
-        repo_dir = tmp_path / "issue-3064-slice-4-coder" / "repo"
-        repo_dir.mkdir(parents=True)
+    def test_reattach_residue_not_in_successor_view(self, spawner, tmp_path):
+        """A predecessor's unpushed commit + dirty tree is provably gone after clean.
 
-        with (
-            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
-            patch("subprocess.run") as mock_run,
-        ):
-            mock_run.return_value = MagicMock(returncode=0, stdout="")
+        Seeds a real worktree with (a) an uncommitted edit, (b) an untracked
+        file, and (c) a *committed-but-never-pushed* commit ahead of origin —
+        exactly the residue a pod killed mid-event leaves behind. After
+        ``_clean_reused_worktree`` the successor's HEAD is back at the origin
+        tip and none of the residue survives in its working tree.
+        """
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        origin_head = _git(repo, "rev-parse", f"origin/{_BRANCH}").stdout.strip()
 
-            cleaned = spawner._clean_reused_worktree(
-                agent_worktree_id="issue-3064-slice-4-coder",
-                branch="egg/issue-3064/slice-4",
-                repos=["owner/repo"],
-            )
+        # Predecessor leaves an unpushed local commit ...
+        (repo / "residue.txt").write_text("unproposed work\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "predecessor residue (never pushed)")
+        residue_head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        assert residue_head != origin_head
+        # ... and a dirty working tree.
+        (repo / "dirty.txt").write_text("uncommitted\n")
 
-        assert cleaned is True
-        # reset --hard + clean -fd are called.
-        assert mock_run.call_count >= 2
-
-    def test_reattach_clean_worktree_skips_discard(
-        self, spawner, mock_k8s_client, mock_gateway, tmp_path
-    ):
-        """A pristine worktree still runs the subprocess cleanup steps."""
-        repo_dir = tmp_path / "issue-3064-slice-4-coder" / "repo"
-        repo_dir.mkdir(parents=True)
-
-        with (
-            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
-            patch("subprocess.run") as mock_run,
-        ):
-            mock_run.return_value = MagicMock(returncode=0, stdout="")
-            cleaned = spawner._clean_reused_worktree(
-                agent_worktree_id="issue-3064-slice-4-coder",
-                branch="egg/issue-3064/slice-4",
-                repos=["owner/repo"],
-            )
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS)
 
         assert cleaned is True
+        # HEAD is back at the origin tip — the predecessor commit is gone.
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
+        # No residue survives in the successor's view.
+        assert not (repo / "residue.txt").exists()
+        assert not (repo / "dirty.txt").exists()
+        assert _git(repo, "status", "--porcelain").stdout.strip() == ""
+
+    def test_reattach_hard_sync_failure_falls_back(self, spawner, tmp_path):
+        """Hard-sync failure is FATAL to reuse (#3064 review): recreate instead.
+
+        The worktree is clean and on the right branch, but has no reachable
+        ``origin`` remote, so ``git fetch origin <branch>`` fails. Because the
+        hard-sync is the only step that drops a predecessor's unpushed commit,
+        a failure must fall back to recreate rather than continue on the
+        current HEAD (which could still carry residue ahead of origin).
+        """
+        _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=False)
+
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS)
+
+        assert cleaned is False
+
+    def test_reattach_pristine_worktree_succeeds(self, spawner, tmp_path):
+        """A pristine worktree with origin cleans and hard-syncs successfully."""
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        origin_head = _git(repo, "rev-parse", f"origin/{_BRANCH}").stdout.strip()
+
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS)
+
+        assert cleaned is True
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
+        assert _git(repo, "status", "--porcelain").stdout.strip() == ""
 
 
 class TestSpawnEventJobSessionReuse:
     """Per-role gateway-session reuse across one-shot event spawns (#3064 slice-4).
 
-    In orchestrator-owned lifecycle, a session should be re-registered only
-    when no live session exists or the token has aged out. Session teardown
-    moves to phase end or streak exhaustion (orchestrator mode); pod-mode
-    teardown is unchanged.
-
-    These test the in-memory session cache + gateway heartbeat path in
-    :meth:`KubernetesSpawner._get_or_create_session`.
+    A single session is registered under the STABLE per-role+slice base
+    ``container_id`` (not the per-event Job name) so it is reused across the
+    distinct Job names of successive events. Teardown happens at phase end (via
+    :meth:`cleanup_pipeline`) or streak exhaustion. These drive the real
+    production path (:meth:`spawn_event_job` → :meth:`_get_or_create_session`),
+    not a divergent helper.
     """
 
-    def test_reuses_live_session(self, spawner, mock_k8s_client, mock_gateway):
-        """A live, un-aged session is reused — no register_session call."""
-        # Prime the in-memory cache with a live token.
+    def test_reuses_live_session(self, spawner, mock_gateway):
+        """A live, un-aged cached session is reused — no register_session call."""
         cache_key = ("pipe-1", "coder", "slice-4", "egg-agent-pipe-1-slice-4-coder")
         spawner._session_token_cache[cache_key] = "tok-live-abcdef"
-        # Gateway confirms the session is still alive.
         mock_gateway.heartbeat_session_by_container.return_value = True
 
         session = spawner._get_or_create_session(
@@ -2400,14 +2702,12 @@ class TestSpawnEventJobSessionReuse:
             repos=["owner/repo"],
         )
 
-        # Session was found in cache and gateway confirmed it live.
         assert session is not None
         assert session.session_token == "tok-live-abcdef"
         mock_gateway.register_session.assert_not_called()
 
-    def test_aged_out_session_re_registers(self, spawner, mock_k8s_client, mock_gateway):
-        """An aged-out session triggers re-registration."""
-        # Cache has a token but the gateway reports the session is stale.
+    def test_aged_out_session_re_registers(self, spawner, mock_gateway):
+        """An aged-out session triggers re-registration under the base id."""
         cache_key = ("pipe-1", "coder", "slice-4", "egg-agent-pipe-1-slice-4-coder")
         spawner._session_token_cache[cache_key] = "tok-stale"
         mock_gateway.heartbeat_session_by_container.return_value = False
@@ -2427,12 +2727,15 @@ class TestSpawnEventJobSessionReuse:
         assert session is not None
         assert session.session_token == "tok-fresh-ghijkl"
         mock_gateway.register_session.assert_called_once()
+        # The fresh token is cached under the stable base id for next time.
+        assert spawner._session_token_cache[cache_key] == "tok-fresh-ghijkl"
 
-    def test_no_prior_session_registers(self, spawner, mock_k8s_client, mock_gateway):
-        """No prior session at all ⇒ fresh registration."""
+    def test_no_prior_session_registers(self, spawner, mock_gateway):
+        """No prior session at all ⇒ fresh registration under the base id."""
         mock_gateway.heartbeat_session_by_container.return_value = False
         mock_gateway.register_session.return_value = _FakeSessionInfo(
             session_token="tok-first-time",
+            container_id="egg-agent-pipe-1-slice-4-coder",
         )
 
         session = spawner._get_or_create_session(
@@ -2446,45 +2749,146 @@ class TestSpawnEventJobSessionReuse:
         assert session is not None
         assert session.session_token == "tok-first-time"
         mock_gateway.register_session.assert_called_once()
+        # Registered under the STABLE base id, not a per-event Job name.
+        assert (
+            mock_gateway.register_session.call_args.kwargs["container_id"]
+            == "egg-agent-pipe-1-slice-4-coder"
+        )
 
-    def test_teardown_at_phase_end(self, spawner, mock_k8s_client, mock_gateway):
-        """Session teardown happens at phase end (orchestrator mode)."""
-        try:
-            spawner._teardown_session(
-                pipeline_id="pipe-1",
-                agent_role=AgentRole.CODER,
-                slice_id="slice-4",
-            )
-        except AttributeError:
-            return
+    def test_session_reused_across_distinct_events(
+        self, spawner, mock_k8s_client, mock_gateway, tmp_path
+    ):
+        """The core fix: two DISTINCT events for one role register the session once.
 
-        # The session was torn down via delete_session_by_container.
-        mock_gateway.delete_session_by_container.assert_called_once()
-
-    def test_teardown_at_streak_exhaustion(self, spawner, mock_k8s_client, mock_gateway):
-        """Session teardown happens at streak exhaustion (supervision
-        gave up on a failing event key).
+        Before the fix the cache key embedded the per-event Job-name
+        discriminator, so every distinct event (propose, ack, …) missed the
+        cache and re-registered. With the session keyed on the stable base id,
+        the second event's re-attach + cache hit reuses the first event's
+        session — ``register_session`` fires exactly once across both spawns.
         """
-        try:
-            spawner._teardown_session(
-                pipeline_id="pipe-1",
-                agent_role=AgentRole.CODER,
-                slice_id="slice-4",
-            )
-        except AttributeError:
-            return
+        _make_worktree(tmp_path, "pipe-1-slice-4-coder", "repo", _BRANCH, with_origin=True)
+        mock_k8s_client.list_jobs.return_value = []  # no live Job → no adoption
+        mock_gateway.heartbeat_session_by_container.return_value = True
+        mock_gateway.register_session.return_value = _FakeSessionInfo(
+            session_token="tok-shared",
+            container_id="egg-agent-pipe-1-slice-4-coder",
+        )
 
-        mock_gateway.delete_session_by_container.assert_called_once()
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            for key in ("a" * 64, "b" * 64):  # two DISTINCT event dedupe keys
+                spawner.spawn_event_job(
+                    pipeline_id="pipe-1",
+                    agent_role=AgentRole.CODER,
+                    action="propose",
+                    dedupe_key=key,
+                    slice_id="slice-4",
+                    phase="implement",
+                    repos=["owner/repo"],
+                    branch=_BRANCH,
+                    wait_for_gateway=False,
+                )
 
-    def test_pod_mode_teardown_unchanged(self, spawner, mock_k8s_client, mock_gateway):
-        """Pod-mode teardown (the default) is not affected by the session-
-        reuse changes — the existing cleanup_pipeline and stop_agent_job
-        paths still work as before.
+        # Registered once; the second event reused the cached session.
+        mock_gateway.register_session.assert_called_once()
+        assert (
+            mock_gateway.register_session.call_args.kwargs["container_id"]
+            == "egg-agent-pipe-1-slice-4-coder"
+        )
+
+    def test_teardown_session_deletes_by_base_id_and_evicts(self, spawner, mock_gateway):
+        """The teardown primitive deletes the session by base id and evicts the cache.
+
+        This is the shared delete-and-evict unit used by BOTH teardown callers:
+        ``cleanup_pipeline`` (phase end, driven by ``test_teardown_at_phase_end``)
+        and the streak-exhaustion path (the supervisor's ``on_exhausted`` hook →
+        the ``spawn_fn`` teardown closure → here, with the production trigger
+        driven in ``test_event_loop`` / ``test_concurrent_executor``). It is no
+        longer a dead method whose only caller is this test.
         """
-        # This is a behavior assertion: existing pod-mode tests must not
-        # require changes. The test passes by construction when the rest
-        # of the suite is green.
-        assert True
+        base = "egg-agent-pipe-1-slice-4-coder"
+        cache_key = ("pipe-1", "coder", "slice-4", base)
+        spawner._session_token_cache[cache_key] = "tok-x"
+
+        spawner._teardown_session("pipe-1", AgentRole.CODER, slice_id="slice-4")
+
+        mock_gateway.delete_session_by_container.assert_called_once_with(base)
+        assert cache_key not in spawner._session_token_cache
+
+    def test_teardown_event_session_closure_routes_to_teardown(self, spawner, mock_gateway):
+        """``create_concurrent_spawn_fn`` exposes a teardown closure on ``spawn_fn``.
+
+        The executor's streak-exhaustion wiring reaches ``_teardown_session``
+        through this closure (it holds no direct spawner reference), so verify
+        the closure targets the stable per-role+slice base id.
+        """
+        base = "egg-agent-pipe-1-slice-4-coder"
+        cache_key = ("pipe-1", "coder", "slice-4", base)
+        spawner._session_token_cache[cache_key] = "tok-z"
+
+        spawn_fn = spawner.create_concurrent_spawn_fn(
+            pipeline_id="pipe-1",
+            issue_number=1,
+            repo_volumes=None,
+            mode="public",
+            repos=["owner/repo"],
+            phase="implement",
+            slice_id="slice-4",
+        )
+        teardown = getattr(spawn_fn, "teardown_event_session", None)
+        assert teardown is not None, "spawn_fn must expose teardown_event_session"
+
+        teardown(AgentRole.CODER)
+
+        mock_gateway.delete_session_by_container.assert_called_once_with(base)
+        assert cache_key not in spawner._session_token_cache
+
+    def test_teardown_at_phase_end(self, spawner, mock_gateway):
+        """cleanup_pipeline tears down reused event-mode sessions (phase end)."""
+        base = "egg-agent-pipe-1-slice-4-coder"
+        cache_key = ("pipe-1", "coder", "slice-4", base)
+        spawner._session_token_cache[cache_key] = "tok-y"
+        # A session for an unrelated pipeline must survive this cleanup.
+        other_key = ("pipe-2", "coder", None, "egg-agent-pipe-2-coder")
+        spawner._session_token_cache[other_key] = "tok-other"
+
+        with (
+            patch.object(spawner, "list_pipeline_jobs", return_value=[]),
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", Path("/nonexistent-egg-wt")),
+            patch("kubernetes_spawner.agent_salvage.auto_salvage_pipeline"),
+        ):
+            spawner.cleanup_pipeline("pipe-1")
+
+        mock_gateway.delete_session_by_container.assert_any_call(base)
+        assert cache_key not in spawner._session_token_cache
+        assert other_key in spawner._session_token_cache  # untouched
+
+    def test_pod_mode_session_keyed_by_job_name(self, spawner, mock_k8s_client, mock_gateway):
+        """Pod-mode spawn (no session_container_id) registers/caches by Job name.
+
+        The session-reuse changes must not alter pod-mode: with
+        ``session_container_id`` unset, the gateway session is registered under
+        the per-Job name exactly as before, so the existing stop/remove cleanup
+        paths still target the right key.
+        """
+        mock_gateway.register_session.return_value = _FakeSessionInfo(
+            session_token="tok-pod",
+            container_id="egg-agent-pipe-1-coder",
+        )
+        spawner.spawn_agent_job(
+            "pipe-1",
+            AgentRole.CODER,
+            repos=["owner/repo"],
+            reuse_worktree_id="pipe-1-coder",  # skip worktree creation in this unit test
+            repo_volumes={"owner/repo": "/x"},
+            wait_for_gateway=False,
+        )
+
+        assert (
+            mock_gateway.register_session.call_args.kwargs["container_id"]
+            == "egg-agent-pipe-1-coder"
+        )
+        # Cached under the Job name (pod-mode key), not a stable override.
+        assert ("pipe-1", "coder", None, "egg-agent-pipe-1-coder") in spawner._session_token_cache
 
 
 class TestSpawnEventJobAtMostOneLivePod:
@@ -2515,9 +2919,13 @@ class TestSpawnEventJobAtMostOneLivePod:
             repos=["owner/repo"],
         )
         # Second spawn with the same key while Job is live → adoption (None).
+        # The Job must carry a *live* status (PENDING/CREATING/RUNNING) — the
+        # adoption filter (#3181) ignores terminal Jobs lingering in the TTL
+        # window, so a status-less mock would be treated as "not live".
         existing = MagicMock()
         existing.labels = {"egg.event.dedupe-key": _KEY[:63]}
         existing.job_name = "egg-agent-pipe-1-slice-4-coder-ev123456"
+        existing.status = ContainerStatus.RUNNING
         mock_k8s_client.list_jobs.return_value = [existing]
 
         second = spawner.spawn_event_job(
@@ -2533,110 +2941,54 @@ class TestSpawnEventJobAtMostOneLivePod:
         assert second is None
 
 
-class TestSpawnEventJobLatencyBudget:
-    """The p50 < 60s spawn→invoke budget is a contract assertion (#3064 slice-4).
+class TestSpawnAgentJobSpawnMsTiming:
+    """``SpawnedContainer.spawn_ms`` is the finer-grained ``spawn_agent_job``
+    sub-segment timer (#3064 slice-4).
 
-    Computed from the slice-2 structured timing field under a simulated clock
-    (no real sleeps). The test fails if the simulated p50 spawn→invoke latency
-    is 60s or higher.
+    It is telemetry covering only the ``spawn_agent_job`` body — NOT the
+    authoritative spawn→invoke budget. The p50<60s budget must span the whole
+    ``spawn_event`` (re-attach + clean + hard-sync + session resolve) and is
+    asserted against the slice-2 ``EventDecision.timing['spawn_dispatch_seconds']``
+    field in ``test_event_loop.py`` (``TestLatencyBudgetFromTimingField``). These
+    tests only pin that ``spawn_ms`` faithfully reflects an injected clock, so a
+    consumer reading it gets an accurate sub-metric.
     """
 
-    def test_p50_spawn_to_invoke_below_60s_with_reattach(
-        self, spawner, mock_k8s_client, mock_gateway
-    ):
-        """With a successful re-attach (no worktree creation, no session
-        registration), the simulated p50 end-to-end latency stays under 60s.
-        """
-
-        _KEY = "d" * 64
-        _REPO = "owner/repo"
-
-        # Simulate a re-attach hit: existing valid worktree + live session.
-        mock_gateway.reuse_worktrees.return_value = _FakeWorktreeResult(
-            success=True,
-            worktrees={_REPO: "/home/egg/.egg-worktrees/issue-3064-slice-4-coder/repo"},
-        )
-        mock_gateway.find_live_session.return_value = _FakeSessionInfo(
-            session_token="tok-live-abcdef",
-        )
-        mock_k8s_client.create_container.return_value = ContainerInfo(
-            container_id="uid-spawnok",
-            container_name="egg-agent-pipe-1-slice-4-coder-ev12345678",
-            job_name="egg-agent-pipe-1-slice-4-coder-ev12345678",
-            status=ContainerStatus.PENDING,
-        )
-
-        try:
-            result = spawner.spawn_event_job(
-                pipeline_id="pipe-1",
-                agent_role=AgentRole.CODER,
-                action="propose",
-                dedupe_key=_KEY,
+    def _spawn_with_clock(self, spawner, deltas_ms):
+        """Spawn once per delta with an injected clock; return measured spawn_ms."""
+        spawner._clock = _FakeClock(deltas_ms)
+        samples = []
+        for i, _ in enumerate(deltas_ms):
+            sc = spawner.spawn_agent_job(
+                "pipe-1",
+                AgentRole.CODER,
                 slice_id="slice-4",
-                phase="implement",
-                repos=[_REPO],
+                repos=["owner/repo"],
+                # Re-attach + session reuse simulated: no worktree create, no
+                # gateway registration — isolates the spawn timer.
+                reuse_worktree_id="issue-3064-slice-4-coder",
+                repo_volumes={"owner/repo": "/x"},
+                existing_session_token="tok-live",
+                wait_for_gateway=False,
+                job_name_suffix=f"ev{i}",
             )
-        except AttributeError:
-            # Method not yet implemented — test-first (RED).
-            return
+            samples.append(sc.spawn_ms)
+        return samples
 
-        # The spawn returned a Job.  The timing field (spawn_ms on the
-        # SpawnedContainer or logged as a structured event) must assert
-        # the budget.  When the coder's implementation lands, this test
-        # validates via the structured timing field that re-attach + session
-        # reuse + k8s create complete in under 60s under a simulated clock.
-        assert result is not None
-        # The timing field must be present and under the budget.
-        # (Exact field name TBD by coder's implementation.)
-        latency_ms = getattr(result.container_info, "spawn_ms", None)
-        if latency_ms is not None:
-            assert latency_ms < 60_000, f"spawn→invoke latency {latency_ms}ms exceeds 60s budget"
+    def test_spawn_ms_matches_injected_clock(self, spawner, mock_k8s_client):
+        """``spawn_ms`` equals the simulated per-spawn delta exactly (no sleeps)."""
+        deltas = [5_000, 9_000, 8_000, 12_000, 7_000]  # ms per spawn
+        samples = self._spawn_with_clock(spawner, deltas)
 
-    def test_p50_spawn_to_invoke_stays_under_budget_with_fallback(
-        self, spawner, mock_k8s_client, mock_gateway, tmp_path
-    ):
-        """Even with a create-with-retry fallback (re-attach missed), the
-        simulated p50 latency stays under 60s.
+        # The timing field is real and matches the simulated clock exactly.
+        assert all(abs(s - d) < 1.0 for s, d in zip(samples, deltas, strict=True))
+
+    def test_spawn_ms_tracks_large_deltas(self, spawner, mock_k8s_client):
+        """The field stays accurate for large (≥60s) sub-segment latencies too,
+        so a slow ``spawn_agent_job`` body is faithfully reported to a consumer.
         """
-        _KEY = "9" * 64
-        _REPO = "owner/repo"
+        deltas = [61_000, 65_000, 62_000]  # ms per spawn
+        samples = self._spawn_with_clock(spawner, deltas)
 
-        # Simulate a full re-attach miss → create-with-retry path.
-        mock_gateway.reuse_worktrees.return_value = _FakeWorktreeResult(
-            success=False,
-            worktrees={},
-            errors=["no existing worktree"],
-        )
-        mock_gateway.create_worktrees.return_value = _FakeWorktreeResult(
-            success=True,
-            worktrees={_REPO: "/home/egg/.egg-worktrees/issue-3064-slice-4-coder/repo"},
-        )
-        mock_gateway.find_live_session.return_value = None
-        mock_gateway.register_session.return_value = _FakeSessionInfo(
-            session_token="tok-fresh",
-        )
-        mock_k8s_client.create_container.return_value = ContainerInfo(
-            container_id="uid-fallback",
-            container_name="egg-agent-pipe-1-slice-4-coder",
-            job_name="egg-agent-pipe-1-slice-4-coder",
-            status=ContainerStatus.PENDING,
-        )
-
-        try:
-            result = spawner.spawn_event_job(
-                pipeline_id="pipe-1",
-                agent_role=AgentRole.CODER,
-                action="propose",
-                dedupe_key=_KEY,
-                slice_id="slice-4",
-                phase="implement",
-                repos=[_REPO],
-            )
-        except AttributeError:
-            return
-
-        latency_ms = getattr(result, "spawn_ms", None) if result else None
-        if latency_ms is not None:
-            assert latency_ms < 60_000, (
-                f"spawn→invoke latency {latency_ms}ms exceeds 60s budget even with fallback path"
-            )
+        assert all(abs(s - d) < 1.0 for s, d in zip(samples, deltas, strict=True))
+        assert statistics.median(samples) >= 60_000
