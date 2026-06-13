@@ -1067,6 +1067,14 @@ if [ "$ONE_SHOT_OWNER" = "orchestrator" ] && [ -n "$ONE_SHOT_ACTION" ]; then
     # (is_buffer_overflow / is_transient_crash / is_startup_failure)
     # remain defined above for a future revision that wants to remap; the
     # slice-3 orchestrator-side supervisor reads the Job exit code here.
+    #
+    # Exit-code contract for the slice-3 supervisor (reviewer note, PR
+    # #3167): 75/EX_TEMPFAIL is RESERVED for the inconclusive-re-check
+    # outcome above and means "freshness could not be confirmed, re-derive
+    # next-action". The #2908 classification codes the agent passthrough can
+    # emit here do NOT include 75, so the two meanings do not collide today;
+    # the slice-3 supervisor MUST keep 75 reserved for the re-check meaning
+    # and must not map any agent outcome onto it.
     exit "$one_shot_rc"
 fi
 
