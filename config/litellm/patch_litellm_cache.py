@@ -115,23 +115,24 @@ def _apply(path: str, present: str, needle: str, replacement: str, label: str) -
     print(f"{label}: applied")
 
 
-def _patch_root(root: str) -> None:
-    f1 = os.path.join(root, "llms/openrouter/chat/transformation.py")
-    f2 = os.path.join(root, "llms/anthropic/experimental_pass_through/adapters/transformation.py")
-    f3 = os.path.join(
-        root, "llms/anthropic/experimental_pass_through/adapters/streaming_iterator.py"
-    )
-    print(f"== patching {root}")
+F1 = "llms/openrouter/chat/transformation.py"
+F2 = "llms/anthropic/experimental_pass_through/adapters/transformation.py"
+F3 = "llms/anthropic/experimental_pass_through/adapters/streaming_iterator.py"
 
+# Every patch as a self-contained spec: (file, present marker, needle,
+# replacement, label). Module-level so tests can apply them to a checked-in
+# fixture and assert the resulting source without re-declaring the needles
+# (no fixture/needle drift). ``_patch_root`` just walks this list.
+PATCHES: list[dict[str, str]] = [
     # Patch 1 — CacheControlSupportedModels: add QWEN + DEEPSEEK.
     # Idempotency marker is the egg-specific comment, not ``QWEN = "qwen"``:
     # if a future LiteLLM adds QWEN natively but not DEEPSEEK, a generic marker
     # would see it "already applied" and silently ship without DEEPSEEK.
-    _apply(
-        f1,
-        present="# egg cache patch. OpenRouter natively supports cache_control",
-        needle='    ZAI = "z-ai"\n',
-        replacement=(
+    {
+        "file": F1,
+        "present": "# egg cache patch. OpenRouter natively supports cache_control",
+        "needle": '    ZAI = "z-ai"\n',
+        "replacement": (
             '    ZAI = "z-ai"\n'
             "    # egg cache patch. OpenRouter natively supports cache_control\n"
             "    # for these providers — see\n"
@@ -139,18 +140,17 @@ def _patch_root(root: str) -> None:
             '    QWEN = "qwen"\n'
             '    DEEPSEEK = "deepseek"\n'
         ),
-        label="Patch 1/5 (CacheControlSupportedModels)",
-    )
-
+        "label": "Patch 1/5 (CacheControlSupportedModels)",
+    },
     # Patch 2 — broaden ONLY the cache_control gate (not the shared
     # is_anthropic_claude_model predicate, which also gates thinking
     # translation — see module docstring). Touches the single call site in
     # _add_cache_control_to_target.
-    _apply(
-        f2,
-        present="# egg cache patch. Broaden ONLY the cache_control gate",
-        needle="        if cache_control and model and self.is_anthropic_claude_model(model):\n",
-        replacement=(
+    {
+        "file": F2,
+        "present": "# egg cache patch. Broaden ONLY the cache_control gate",
+        "needle": "        if cache_control and model and self.is_anthropic_claude_model(model):\n",
+        "replacement": (
             "        # egg cache patch. Broaden ONLY the cache_control gate to\n"
             "        # cover the OpenRouter qwen/deepseek routes. Do NOT widen\n"
             "        # is_anthropic_claude_model itself: it also gates the\n"
@@ -170,14 +170,13 @@ def _patch_root(root: str) -> None:
             "            )\n"
             "        ):\n"
         ),
-        label="Patch 2/5 (cache_control gate)",
-    )
-
+        "label": "Patch 2/5 (cache_control gate)",
+    },
     # Patch 3 — drop x-anthropic-billing-header during Anthropic->OpenAI translation.
-    _apply(
-        f2,
-        present='"x-anthropic-billing-header:" filter (egg cache patch)',
-        needle=(
+    {
+        "file": F2,
+        "present": '"x-anthropic-billing-header:" filter (egg cache patch)',
+        "needle": (
             "            for block in system_content:\n"
             '                if isinstance(block, dict) and block.get("type") == "text":\n'
             "                    text_block: Dict[str, Any] = {\n"
@@ -185,7 +184,7 @@ def _patch_root(root: str) -> None:
             '                        "text": block.get("text", ""),\n'
             "                    }\n"
         ),
-        replacement=(
+        "replacement": (
             "            for block in system_content:\n"
             '                if isinstance(block, dict) and block.get("type") == "text":\n'
             '                    text = block.get("text", "")\n'
@@ -205,20 +204,29 @@ def _patch_root(root: str) -> None:
             '                        "text": text,\n'
             "                    }\n"
         ),
-        label="Patch 3/5 (x-anthropic-billing-header filter)",
-    )
-
+        "label": "Patch 3/5 (x-anthropic-billing-header filter)",
+    },
     # Patch 4 — OpenRouter-style reasoning_content must open a thinking
-    # content block, not fall through to a text block.
-    _apply(
-        f2,
-        present="# egg reasoning patch: OpenRouter-style reasoning_content",
-        needle=(
+    # content block, not fall through to a text block. The bare
+    # ``thinking_blocks`` elif appears in two sibling functions; we anchor the
+    # needle on the preceding text-block elif (``choice.delta.content is not
+    # None ...``), which is unique to
+    # _translate_streaming_openai_chunk_to_anthropic_content_block — the other
+    # function's preceding branch is the ``tool_calls`` block. Without this
+    # anchor, an upstream reorder could silently retarget the str.replace.
+    {
+        "file": F2,
+        "present": "# egg reasoning patch: OpenRouter-style reasoning_content",
+        "needle": (
+            "            elif choice.delta.content is not None and len(choice.delta.content) > 0:\n"
+            '                return "text", TextBlock(type="text", text="")\n'
             "            elif isinstance(choice, StreamingChoices) and hasattr(\n"
             '                choice.delta, "thinking_blocks"\n'
             "            ):\n"
         ),
-        replacement=(
+        "replacement": (
+            "            elif choice.delta.content is not None and len(choice.delta.content) > 0:\n"
+            '                return "text", TextBlock(type="text", text="")\n'
             "            elif isinstance(choice, StreamingChoices) and getattr(\n"
             '                choice.delta, "reasoning_content", None\n'
             "            ):\n"
@@ -234,15 +242,14 @@ def _patch_root(root: str) -> None:
             '                choice.delta, "thinking_blocks"\n'
             "            ):\n"
         ),
-        label="Patch 4/5 (reasoning_content thinking block)",
-    )
-
+        "label": "Patch 4/5 (reasoning_content thinking block)",
+    },
     # Patch 5a — sync __next__: don't drop the first delta on text or
     # thinking block transitions.
-    _apply(
-        f3,
-        present="# egg reasoning patch (sync first-delta)",
-        needle=(
+    {
+        "file": F3,
+        "present": "# egg reasoning patch (sync first-delta)",
+        "needle": (
             "                    # Queue the sequence: content_block_stop -> content_block_start\n"
             "                    # For text blocks the trigger chunk is not emitted as a separate\n"
             "                    # delta because content_block_start carries the information.\n"
@@ -278,7 +285,7 @@ def _patch_root(root: str) -> None:
             "                    ):\n"
             "                        self.chunk_queue.append(processed_chunk)\n"
         ),
-        replacement=(
+        "replacement": (
             "                    # Queue the sequence: content_block_stop -> content_block_start,\n"
             "                    # then re-queue the trigger chunk's delta when it carries payload\n"
             "                    # the new content_block_start doesn't already include (see step 3).\n"
@@ -335,14 +342,13 @@ def _patch_root(root: str) -> None:
             "                        ):\n"
             "                            self.chunk_queue.append(processed_chunk)\n"
         ),
-        label="Patch 5/5a (sync first-delta requeue)",
-    )
-
+        "label": "Patch 5/5a (sync first-delta requeue)",
+    },
     # Patch 5b — async __anext__: same first-delta preservation.
-    _apply(
-        f3,
-        present="# egg reasoning patch (async first-delta)",
-        needle=(
+    {
+        "file": F3,
+        "present": "# egg reasoning patch (async first-delta)",
+        "needle": (
             "                        # Queue the sequence: content_block_stop -> content_block_start\n"
             "                        # For text blocks the trigger chunk is not emitted as a separate\n"
             "                        # delta because content_block_start carries the information.\n"
@@ -377,7 +383,7 @@ def _patch_root(root: str) -> None:
             "                        ):\n"
             "                            self.chunk_queue.append(processed_chunk)\n"
         ),
-        replacement=(
+        "replacement": (
             "                        # Queue the sequence: content_block_stop -> content_block_start,\n"
             "                        # then re-queue the trigger chunk's delta when it carries payload\n"
             "                        # the new content_block_start doesn't already include (see step 3).\n"
@@ -434,8 +440,21 @@ def _patch_root(root: str) -> None:
             "                            ):\n"
             "                                self.chunk_queue.append(processed_chunk)\n"
         ),
-        label="Patch 5/5b (async first-delta requeue)",
-    )
+        "label": "Patch 5/5b (async first-delta requeue)",
+    },
+]
+
+
+def _patch_root(root: str) -> None:
+    print(f"== patching {root}")
+    for spec in PATCHES:
+        _apply(
+            os.path.join(root, spec["file"]),
+            present=spec["present"],
+            needle=spec["needle"],
+            replacement=spec["replacement"],
+            label=spec["label"],
+        )
 
 
 def main() -> None:
