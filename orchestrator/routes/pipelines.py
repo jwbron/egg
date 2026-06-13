@@ -18412,6 +18412,10 @@ def _run_concurrent_phase(
                     pipeline_id=pipeline_id,
                     has_failures=has_failures[0],
                 )
+            # Orchestrator mode (#3064): tear down the BRC event loop now that
+            # the slice has converged so it stops requesting one-shot spawns.
+            # No-op in pod mode.
+            executor.stop_event_loop()
             return 0, combined_logs
 
         # 3. Handle objections (create HITL decision once).
@@ -18623,8 +18627,17 @@ def _run_concurrent_phase(
                         exit_code=info.exit_code,
                     )
 
-        # 5. All containers exited — fall back to exit-code-based result
-        if len(exited_containers) >= len(active_executions):
+        # 5. All containers exited — fall back to exit-code-based result.
+        #
+        # Guarded on a non-empty ``active_executions`` so an empty set is
+        # never misread as "everything exited" (``0 >= 0``).  In orchestrator
+        # mode (#3064) ``spawn_all`` returns ``[]`` by design — the
+        # orchestrator owns the BRC loop and spawns one-shot pods per event,
+        # so there are no up-front containers to track.  Completion is driven
+        # purely off ``check_consensus()`` (step 2) and the consensus timeout
+        # (step 6); a zero-container fallback here would otherwise fail the
+        # phase on the first poll, before any event-driven pod ran.
+        if active_executions and len(exited_containers) >= len(active_executions):
             combined_logs = "\n".join(all_logs)
             if has_failures[0]:
                 # Final consensus recheck: consensus may have completed between
@@ -18872,6 +18885,13 @@ def _run_concurrent_phase(
                 pipeline_id=pipeline_id,
                 timeout_minutes=consensus_timeout / 60,
             )
+            # Orchestrator mode (#3064): we are giving up on convergence, so
+            # stop the BRC event loop before the fallback wait so it does not
+            # keep spawning one-shot pods past the deadline.  No-op in pod
+            # mode.  (The progress-gate ``continue`` above is taken before
+            # this point, so a deferral never reaches here and the loop keeps
+            # running across the deferral window.)
+            executor.stop_event_loop()
             _handle_brc_consensus_timeout(
                 pipeline,
                 pipeline_id,

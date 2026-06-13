@@ -55,7 +55,7 @@ from kubernetes_client import (
     PodNotFoundError,
     get_kubernetes_client,
 )
-from models import AgentRole, ContainerInfo
+from models import AgentRole, ContainerInfo, ContainerStatus
 from review_graph import get_review_graph_for_phase
 
 # #2725: senders we always include in EGG_WAIT_PRODUCER_ALLOWLIST so
@@ -624,11 +624,18 @@ class KubernetesSpawner:
         # One-shot event spawns (#3064 slice-2) append a deterministic
         # per-event discriminator so distinct events for one role don't
         # collide on a single Job name (which would make the pre-spawn
-        # cleanup below delete a sibling event's in-flight Job). The
-        # discriminated name is fitted to the 63-char RFC-1123 budget here
-        # (54 readable chars + ``-`` + 8-char digest, mirroring the k8s
-        # client's ``_normalize_k8s_job_name``) so the ``egg-agent-`` name
-        # we hand to ``create_container`` is already within budget.
+        # cleanup below delete a sibling event's in-flight Job).
+        #
+        # ``_fit_k8s_name`` bounds the *unprefixed* ``egg-agent-…`` name we
+        # hand to ``create_container``. Note this is NOT the final k8s budget
+        # check: ``create_container`` prepends ``JOB_PREFIX`` (``egg-sandbox-``,
+        # 12 chars) and re-truncates the *prefixed* form via
+        # ``_normalize_k8s_job_name`` (which is what actually enforces the
+        # 63-char RFC-1123 limit, with an 8-char sha1 over the full prefixed
+        # name). So this pre-truncation is belt-and-suspenders — it keeps the
+        # handed name readable and the delete/create call args in step, while
+        # the downstream normalization guarantees budget compliance and
+        # collision-freedom regardless.
         if job_name_suffix:
             job_name = _fit_k8s_name(f"{job_name}-{job_name_suffix}")
             actual_k8s_job_name = f"{KubernetesClient.JOB_PREFIX}{job_name}"
@@ -1150,6 +1157,14 @@ class KubernetesSpawner:
         label IS the state. Queried via a label selector so the API returns
         only matching Jobs; best-effort (a list failure ⇒ "not live" ⇒ spawn
         proceeds rather than wedging).
+
+        Only Jobs in a non-terminal status (``PENDING``/``RUNNING``) count as
+        live. ``list_jobs`` returns *all* label-matching Jobs regardless of
+        status, and one-shot event Jobs linger for ``ttl_seconds_after_finished``
+        (10 min) after completing, so a terminated Job (``EXITED``/``FAILED``)
+        must NOT adopt a re-derived identical event — otherwise an event whose
+        pod failed without advancing the tracker would be silently swallowed
+        for the TTL window instead of respawned.
         """
         # The selector value MUST use the same label-safe shortening applied
         # to the label on the spawn side, or it can never match the live Job.
@@ -1163,10 +1178,14 @@ class KubernetesSpawner:
                 error=str(exc),
             )
             return False
-        # The selector already scopes to matching Jobs; treat any returned
-        # sequence as a hit. A non-sequence (e.g. an unconfigured mock) is
-        # treated as "no live Job" so the spawn proceeds.
-        return isinstance(jobs, (list, tuple)) and len(jobs) > 0
+        # A non-sequence (e.g. an unconfigured mock) is treated as "no live
+        # Job" so the spawn proceeds. The selector already scopes to matching
+        # Jobs; count only those still active (terminal Jobs linger under
+        # the finished-TTL and must not block a respawn).
+        if not isinstance(jobs, (list, tuple)):
+            return False
+        active = (ContainerStatus.PENDING, ContainerStatus.RUNNING)
+        return any(getattr(job, "status", None) in active for job in jobs)
 
     def spawn_event_job(
         self,

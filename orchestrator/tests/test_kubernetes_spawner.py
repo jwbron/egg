@@ -2060,6 +2060,10 @@ class TestSpawnEventJobOneShot:
         # have rejected that).
         existing.labels = {"egg.event.dedupe-key": self._KEY[:63]}
         existing.job_name = "egg-agent-pipe-1-slice-2-coder-ev"
+        # An active (non-terminal) Job — only these count as live for adoption;
+        # a terminated Job lingering under the finished-TTL must NOT block a
+        # respawn (see _event_dedupe_key_live).
+        existing.status = ContainerStatus.RUNNING
         mock_k8s_client.list_jobs.return_value = [existing]
 
         spawner.spawn_event_job(
@@ -2073,6 +2077,33 @@ class TestSpawnEventJobOneShot:
         )
         # create_container was NOT called a second time — the Job was adopted.
         assert mock_k8s_client.create_container.call_count == 1
+
+    def test_terminated_job_does_not_block_respawn(self, spawner, mock_k8s_client):
+        """A label-matching but TERMINATED Job (EXITED/FAILED) lingering under
+        the finished-TTL must NOT be adopted — a re-derived identical event
+        whose prior pod failed without advancing the tracker must respawn.
+        """
+        for terminal_status in (ContainerStatus.EXITED, ContainerStatus.FAILED):
+            mock_k8s_client.create_container.reset_mock()
+            terminated = MagicMock()
+            terminated.labels = {"egg.event.dedupe-key": self._KEY[:63]}
+            terminated.job_name = "egg-agent-pipe-1-slice-2-coder-ev"
+            terminated.status = terminal_status
+            mock_k8s_client.list_jobs.return_value = [terminated]
+
+            spawner.spawn_event_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                action="propose",
+                dedupe_key=self._KEY,
+                slice_id="slice-2",
+                phase="implement",
+                repos=["owner/repo"],
+            )
+            # The terminated Job is not live, so a new Job is created.
+            assert mock_k8s_client.create_container.call_count == 1, (
+                f"terminated Job ({terminal_status}) must not block respawn"
+            )
 
     def test_spawn_agent_job_pod_path_unchanged(self, spawner, mock_k8s_client):
         """The long-lived pod-mode entry never injects the one-shot event

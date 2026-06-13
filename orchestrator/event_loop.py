@@ -120,12 +120,18 @@ def event_identity(action: str, payload: dict[str, Any] | None) -> str:
       review keyed by ``proposal_commit_sha`` (the reviewer-side dedupe
       identity, ``routes/consensus.py``). A re-proposed commit changes the
       sha, which changes the key, which lets a fresh review spawn.
-    * ``propose`` — the producer's target proposal version plus the open
-      NACK set against it (read from the payload's ``current_version`` /
-      ``unresolved_nacks`` / barrier ``nacks``). The first WORKING propose
-      has no version and no NACKs; after a NACK→re-propose cycle the version
-      and/or NACK set move, yielding a distinct key for the corrective
-      propose.
+    * ``propose`` — the open NACK set against the producer's proposal, plus
+      the target version *when the payload carries one*. In practice only the
+      2+-reviewer barrier ``_derive_next_action`` payload carries
+      ``current_version``; the WORKING first-propose (``{"producer": role}``)
+      and the single-NACK PROPOSED payload (``{"unresolved_nacks": […],
+      "producer": role}``) do not, so ``v{version}`` collapses to ``"v"`` in
+      those common cases. Cross-cycle distinctness therefore rides on the
+      NACK entries' own ``version`` field, NOT on ``current_version``: the
+      first WORKING propose has no version and no NACKs (key ``"v|"``), and
+      after a NACK→re-propose cycle the NACK set (and its per-entry versions)
+      move, yielding a distinct key for the corrective propose. ``current_version``
+      only sharpens the key in the barrier case.
     """
     payload = payload or {}
     if action in ("ack", "nack"):

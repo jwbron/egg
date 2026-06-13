@@ -1433,3 +1433,138 @@ class TestUpdateAgentsCompleteContainerCleanup:
             )
             assert ci.exit_code == 0
             assert ci.exited_at is not None
+
+
+class TestOrchestratorOwnedEventLoopCompletion:
+    """#3064 slice-2: when the orchestrator owns the BRC event loop,
+    ``spawn_all`` returns ``[]`` by design (one-shot pods are spawned
+    per-event off the loop, not up front).  The completion-poll loop must
+    therefore drive completion purely off ``check_consensus()`` + the
+    consensus timeout, and must NOT misread the empty ``active_executions``
+    set as "all containers exited" — which would otherwise escalate an
+    incomplete-consensus HITL and fail the phase on the very first poll,
+    before any event-driven pod ran.
+    """
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_zero_containers_does_not_terminate_on_first_poll(
+        self, MockExecutor, mock_prompt, mock_lock, mock_emit, mock_monotonic, mock_sleep
+    ):
+        """Empty active set + consensus-incomplete-then-complete ⇒ the loop
+        keeps polling (does not fall through step-5) and returns 0 once
+        consensus completes.  This is the regression guard for the
+        orchestrator-mode cross-module dead-end.
+        """
+        poll_count = [0]
+
+        def _monotonic():
+            return poll_count[0] * 5.0
+
+        mock_monotonic.side_effect = _monotonic
+
+        # Orchestrator mode: no up-front executions.
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks([])
+
+        def _check_consensus():
+            poll_count[0] += 1
+            # Incomplete on the first two polls, complete on the third.
+            if poll_count[0] >= 3:
+                return {"is_complete": True, "has_objections": False, "blocking_agents": []}
+            return {"is_complete": False, "has_objections": False, "blocking_agents": ["coder"]}
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = []
+        mock_executor_instance.owns_event_loop.return_value = True
+        mock_executor_instance.check_consensus.side_effect = _check_consensus
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        exit_code, _logs = _run_concurrent_phase(
+            pipeline_id="issue-999",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
+
+        assert exit_code == 0, (
+            "orchestrator mode must reach consensus, not fail on the empty "
+            "container set at iteration 1"
+        )
+        # Polled past the first iteration rather than short-circuiting.
+        assert poll_count[0] >= 3
+        assert mock_sleep.call_count >= 2
+        # No HITL escalation for "all containers exited cleanly but consensus
+        # not reached" — that would mean step 5 misfired on the empty set.
+        assert mock_store.add_decision.call_count == 0
+        # The event loop is torn down on the consensus-reached exit path.
+        assert mock_executor_instance.stop_event_loop.call_count >= 1
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_zero_containers_stops_loop_on_timeout(
+        self, MockExecutor, mock_prompt, mock_lock, mock_emit, mock_monotonic, mock_sleep
+    ):
+        """If consensus never completes, the consensus timeout fires and the
+        event loop is stopped (so it stops requesting one-shot spawns) rather
+        than the phase hanging or terminating off the empty container set.
+        """
+        # consensus_timeout_minutes=30 ⇒ 1800s.  First monotonic call seeds
+        # ``start_time``; subsequent calls jump past the timeout so ``elapsed``
+        # crosses the deadline on the first poll iteration.
+        _calls = [0]
+
+        def _monotonic():
+            _calls[0] += 1
+            if _calls[0] == 1:
+                return 0.0
+            return float(1801.0 + _calls[0] * 2000.0)
+
+        mock_monotonic.side_effect = _monotonic
+
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks([])
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = []
+        mock_executor_instance.owns_event_loop.return_value = True
+        mock_executor_instance.check_consensus.return_value = {
+            "is_complete": False,
+            "has_objections": False,
+            "blocking_agents": ["coder"],
+        }
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch("routes.pipelines._handle_brc_consensus_timeout"),
+            patch(
+                "routes.pipelines._check_brc_progress_gate",
+                return_value=(False, None),
+            ),
+        ):
+            exit_code, _logs = _run_concurrent_phase(
+                pipeline_id="issue-999",
+                pipeline=pipeline,
+                phase="implement",
+                spawner=mock_spawner,
+                store=mock_store,
+                **_CALL_ARGS,
+            )
+
+        # Timeout path returns (no exit-code fallback off the empty set).
+        assert exit_code in (0, 1)
+        assert mock_executor_instance.stop_event_loop.call_count >= 1

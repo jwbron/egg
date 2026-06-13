@@ -1518,18 +1518,33 @@ class TestEventLoopOwnershipSpawnGating:
     def test_orchestrator_mode_spawns_no_up_front_pods(self, monkeypatch):
         """EGG_EVENT_LOOP_OWNER=orchestrator ⇒ spawn_all spawns no pods up
         front; the event loop drives per-event spawns instead.
+
+        Asserts the loop was actually started (``owns_event_loop()`` /
+        ``_event_loop``) rather than relying on the daemon thread's
+        first-poll sleep to mask premature behavior, and tears the loop down
+        deterministically so the test leaves no live thread behind.
         """
         monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", "orchestrator")
         mock_spawn = MagicMock(return_value=MagicMock(container_id="c"))
         executor = self._executor(mock_spawn)
 
-        with (
-            patch("concurrent_executor.create_peer_consensus_tracker") as mock_tracker,
-            patch("concurrent_executor.emit_event"),
-        ):
-            mock_tracker.return_value = MagicMock()
-            executor.spawn_all()
+        try:
+            with (
+                patch("concurrent_executor.create_peer_consensus_tracker") as mock_tracker,
+                patch("concurrent_executor.emit_event"),
+            ):
+                mock_tracker.return_value = MagicMock()
+                result = executor.spawn_all()
+        finally:
+            # Stop the daemon loop immediately so the assertions below do not
+            # depend on the poll-interval timing window.
+            executor.stop_event_loop()
 
         assert mock_spawn.call_count == 0, (
             "orchestrator mode must not spawn any up-front agent pods"
         )
+        assert result == [], "orchestrator mode spawn_all returns no executions"
+        assert executor.owns_event_loop(), (
+            "orchestrator mode must start the orchestrator-owned event loop"
+        )
+        assert executor._event_loop is not None

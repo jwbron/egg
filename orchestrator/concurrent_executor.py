@@ -495,6 +495,39 @@ class ConcurrentPhaseExecutor:
         )
         return loop
 
+    def owns_event_loop(self) -> bool:
+        """True when the orchestrator-owned BRC event loop drives this phase.
+
+        The completion-poll site (``_run_concurrent_phase``) consults this to
+        know that ``spawn_all`` returned ``[]`` *by design* — there are no
+        up-front containers to wait on, so phase completion must be driven
+        purely off ``check_consensus()`` + the consensus timeout, never off
+        the empty container set. Set only when ``spawn_all`` took the
+        orchestrator-ownership branch and started the loop.
+        """
+        return self._event_loop is not None
+
+    def stop_event_loop(self) -> None:
+        """Stop the orchestrator-owned event loop if one is running (idempotent).
+
+        Called by the completion-poll site on every exit path so the daemon
+        thread does not outlive the phase (and stops requesting one-shot
+        spawns) once consensus is reached, times out, or fails. A no-op in
+        pod mode, where no loop was started.
+        """
+        loop = self._event_loop
+        if loop is None:
+            return
+        try:
+            loop.stop()
+        except Exception:  # noqa: BLE001 — best-effort teardown
+            logger.warning(
+                "Failed to stop orchestrator-owned event loop cleanly",
+                pipeline_id=self.pipeline.id,
+                slice_id=self._slice_id,
+                exc_info=True,
+            )
+
     def _build_event_spawn_params(
         self, role: AgentRole
     ) -> tuple[list[str], str | None, str | None]:
