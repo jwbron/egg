@@ -11,8 +11,10 @@ Precedence (highest first), matching #2769 task-2-3:
    :class:`AgentRole` at construction time.
 2. ``repositories.yaml`` ``default_agent_model`` — repository-level
    default surfaced via :func:`config.repo_config.get_default_agent_model`.
-3. Built-in default — ``"fable"`` for the refine and plan phase roles
-   (:data:`_FABLE_DEFAULT_ROLES`), ``"opus"`` for everything else.
+3. Built-in default — ``"opus"`` for all roles. Fable has been
+   disabled, so ``FABLE_DEFAULT_MODEL`` is now ``"opus"`` and the
+   refine/plan phase roles (:data:`_FABLE_DEFAULT_ROLES`) unify on opus
+   alongside everything else.
 
 Classifier: a model string matching one of the recognised Claude
 aliases (``opus``, ``opus[1m]``, ``sonnet``, ``sonnet[1m]``, ``haiku``,
@@ -346,8 +348,11 @@ def resolve_agent_model(
         if repo_default:
             return classify_model(repo_default)
 
-    # Tier 3: built-in default — refine/plan roles run the
-    # highest-capability tier, everything else stays on opus.
+    # Tier 3: built-in default — opus for all roles. Fable has been
+    # disabled, so FABLE_DEFAULT_MODEL is now "opus" and the refine/plan
+    # branch resolves to the same value as the default branch. The branch
+    # is retained so re-enabling fable for refine/plan is a one-line
+    # change to FABLE_DEFAULT_MODEL.
     if role_value in _FABLE_DEFAULT_ROLES:
         return classify_model(FABLE_DEFAULT_MODEL)
     return classify_model(DEFAULT_AGENT_MODEL)
