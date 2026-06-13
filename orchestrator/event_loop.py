@@ -146,7 +146,7 @@ def get_idle_budget_minutes() -> int:
         return _IDLE_BUDGET_MIN_DEFAULT
     try:
         val = int(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning(
             "EGG_BRC_IDLE_BUDGET_MIN=%r is not an integer; falling back to %d",
             raw,

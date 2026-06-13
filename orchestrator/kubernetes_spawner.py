@@ -444,7 +444,8 @@ def _validate_worktree_for_reuse(
         if not d.exists() or not d.is_dir():
             logger.info(
                 "Worktree re-attach: repo directory missing",
-                agent_worktree_id=agent_worktree_id, repo=n,
+                agent_worktree_id=agent_worktree_id,
+                repo=n,
             )
             return None
 
@@ -452,7 +453,10 @@ def _validate_worktree_for_reuse(
         try:
             gd = _sp.run(
                 ["git", "-C", str(d), "rev-parse", "--git-dir"],
-                capture_output=True, text=True, timeout=15, check=True,
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=True,
             ).stdout.strip()
             gdp = Path(gd)
             if not gdp.is_absolute():
@@ -460,7 +464,9 @@ def _validate_worktree_for_reuse(
         except Exception as e:
             logger.info(
                 "Worktree re-attach: .git check failed",
-                agent_worktree_id=agent_worktree_id, repo=n, error=str(e),
+                agent_worktree_id=agent_worktree_id,
+                repo=n,
+                error=str(e),
             )
             return None
 
@@ -469,7 +475,9 @@ def _validate_worktree_for_reuse(
             if lk.exists():
                 logger.info(
                     "Worktree re-attach: lock file present",
-                    agent_worktree_id=agent_worktree_id, repo=n, lock=str(lk),
+                    agent_worktree_id=agent_worktree_id,
+                    repo=n,
+                    lock=str(lk),
                 )
                 return None
         try:
@@ -477,7 +485,8 @@ def _validate_worktree_for_reuse(
                 if list(gdp.glob(pat)):
                     logger.info(
                         "Worktree re-attach: ref lock file present",
-                        agent_worktree_id=agent_worktree_id, repo=n,
+                        agent_worktree_id=agent_worktree_id,
+                        repo=n,
                     )
                     return None
         except Exception:
@@ -488,19 +497,26 @@ def _validate_worktree_for_reuse(
             try:
                 cb = _sp.run(
                     ["git", "-C", str(d), "rev-parse", "--abbrev-ref", "HEAD"],
-                    capture_output=True, text=True, timeout=10, check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=True,
                 ).stdout.strip()
                 if cb != branch and cb != "HEAD":
                     logger.info(
                         "Worktree re-attach: branch mismatch",
-                        agent_worktree_id=agent_worktree_id, repo=n,
-                        expected=branch, actual=cb,
+                        agent_worktree_id=agent_worktree_id,
+                        repo=n,
+                        expected=branch,
+                        actual=cb,
                     )
                     return None
             except Exception as e:
                 logger.info(
                     "Worktree re-attach: branch check failed",
-                    agent_worktree_id=agent_worktree_id, repo=n, error=str(e),
+                    agent_worktree_id=agent_worktree_id,
+                    repo=n,
+                    error=str(e),
                 )
                 return None
 
@@ -749,27 +765,55 @@ class KubernetesSpawner:
             # reset --hard
             try:
                 _sp.run(
-                    ["git", "-C", str(d), "-c", "core.hooksPath=/dev/null",
-                     "-c", "safe.directory=*", "reset", "--hard"],
-                    capture_output=True, text=True, timeout=30, check=True,
+                    [
+                        "git",
+                        "-C",
+                        str(d),
+                        "-c",
+                        "core.hooksPath=/dev/null",
+                        "-c",
+                        "safe.directory=*",
+                        "reset",
+                        "--hard",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=True,
                 )
             except Exception as e:
                 logger.warning(
                     "Worktree re-attach: reset --hard failed",
-                    agent_worktree_id=agent_worktree_id, repo=n, error=str(e),
+                    agent_worktree_id=agent_worktree_id,
+                    repo=n,
+                    error=str(e),
                 )
                 return False
             # clean -fd
             try:
                 _sp.run(
-                    ["git", "-C", str(d), "-c", "core.hooksPath=/dev/null",
-                     "-c", "safe.directory=*", "clean", "-fd"],
-                    capture_output=True, text=True, timeout=30, check=True,
+                    [
+                        "git",
+                        "-C",
+                        str(d),
+                        "-c",
+                        "core.hooksPath=/dev/null",
+                        "-c",
+                        "safe.directory=*",
+                        "clean",
+                        "-fd",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=True,
                 )
             except Exception as e:
                 logger.warning(
                     "Worktree re-attach: clean -fd failed",
-                    agent_worktree_id=agent_worktree_id, repo=n, error=str(e),
+                    agent_worktree_id=agent_worktree_id,
+                    repo=n,
+                    error=str(e),
                 )
                 return False
             # hard-sync (best-effort in test environments without a remote;
@@ -777,21 +821,48 @@ class KubernetesSpawner:
             if branch:
                 try:
                     _sp.run(
-                        ["git", "-C", str(d), "-c", "core.hooksPath=/dev/null",
-                         "-c", "safe.directory=*", "fetch", "origin", branch],
-                        capture_output=True, text=True, timeout=60, check=True,
+                        [
+                            "git",
+                            "-C",
+                            str(d),
+                            "-c",
+                            "core.hooksPath=/dev/null",
+                            "-c",
+                            "safe.directory=*",
+                            "fetch",
+                            "origin",
+                            branch,
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                        check=True,
                     )
                     _sp.run(
-                        ["git", "-C", str(d), "-c", "core.hooksPath=/dev/null",
-                         "-c", "safe.directory=*", "reset", "--hard",
-                         f"origin/{branch}"],
-                        capture_output=True, text=True, timeout=30, check=True,
+                        [
+                            "git",
+                            "-C",
+                            str(d),
+                            "-c",
+                            "core.hooksPath=/dev/null",
+                            "-c",
+                            "safe.directory=*",
+                            "reset",
+                            "--hard",
+                            f"origin/{branch}",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                        check=True,
                     )
                 except Exception as e:
                     logger.warning(
                         "Worktree re-attach: hard-sync failed — "
                         "worktree still clean, continuing with current HEAD",
-                        agent_worktree_id=agent_worktree_id, repo=n, error=str(e),
+                        agent_worktree_id=agent_worktree_id,
+                        repo=n,
+                        error=str(e),
                     )
                     # The discard steps (reset --hard + clean -fd) already
                     # succeeded, so the worktree is clean. The hard-sync
@@ -836,9 +907,7 @@ class KubernetesSpawner:
         Signature matches the tester's test-first contract:
         ``(pipeline_id, agent_role, slice_id, mode, repos, ...) -> SessionInfo | None``.
         """
-        job_name, _jn2 = self._build_k8s_job_names(
-            pipeline_id, agent_role, slice_id=slice_id
-        )
+        job_name, _jn2 = self._build_k8s_job_names(pipeline_id, agent_role, slice_id=slice_id)
         cache_key = (pipeline_id, agent_role.value, slice_id, job_name)
         cached_token = self._session_token_cache.get(cache_key)
 
@@ -847,7 +916,8 @@ class KubernetesSpawner:
                 if self.gateway.heartbeat_session_by_container(job_name):
                     logger.info(
                         "Reusing live cached session",
-                        job_name=job_name, role=agent_role.value,
+                        job_name=job_name,
+                        role=agent_role.value,
                     )
                     return SessionInfo(
                         session_token=cached_token,
@@ -860,7 +930,8 @@ class KubernetesSpawner:
             except Exception:
                 logger.info(
                     "Session heartbeat failed, will re-register",
-                    job_name=job_name, role=agent_role.value,
+                    job_name=job_name,
+                    role=agent_role.value,
                 )
 
         # Register a fresh session.
@@ -891,7 +962,9 @@ class KubernetesSpawner:
         except Exception as e:
             logger.warning(
                 "Failed to register gateway session",
-                job_name=job_name, role=agent_role.value, error=str(e),
+                job_name=job_name,
+                role=agent_role.value,
+                error=str(e),
             )
             return None
 
@@ -1689,9 +1762,7 @@ class KubernetesSpawner:
         repos = spawn_kwargs.get("repos")
 
         # Build the candidate worktree id matching the existing convention.
-        candidate_id = self._build_agent_worktree_id(
-            pipeline_id, agent_role, slice_id=slice_id
-        )
+        candidate_id = self._build_agent_worktree_id(pipeline_id, agent_role, slice_id=slice_id)
         if repos:
             # Use the composed method that validates AND cleans dirty state
             # (R6 dirty-state policy) so re-attached worktrees are always
@@ -1703,20 +1774,20 @@ class KubernetesSpawner:
                 logger.info(
                     "Event spawn: worktree re-attach succeeded",
                     agent_worktree_id=candidate_id,
-                    pipeline_id=pipeline_id, role=agent_role.value,
+                    pipeline_id=pipeline_id,
+                    role=agent_role.value,
                 )
             else:
                 logger.info(
                     "Event spawn: worktree re-attach failed — falling back to create-with-retry",
                     agent_worktree_id=candidate_id,
-                    pipeline_id=pipeline_id, role=agent_role.value,
+                    pipeline_id=pipeline_id,
+                    role=agent_role.value,
                 )
 
         # Session reuse: check cache for a live session token for this role.
         event_suffix = dedupe_key[:_EVENT_JOB_NAME_DISCRIMINATOR_LEN]
-        job_name, _jn2 = self._build_k8s_job_names(
-            pipeline_id, agent_role, slice_id=slice_id
-        )
+        job_name, _jn2 = self._build_k8s_job_names(pipeline_id, agent_role, slice_id=slice_id)
         if event_suffix:
             job_name = _fit_k8s_name(f"{job_name}-{event_suffix}")
         session_cache_key = (pipeline_id, agent_role.value, slice_id, job_name)
@@ -1726,13 +1797,15 @@ class KubernetesSpawner:
                 reuse_session_token = cached_token
                 logger.info(
                     "Event spawn: reusing cached gateway session",
-                    pipeline_id=pipeline_id, role=agent_role.value,
+                    pipeline_id=pipeline_id,
+                    role=agent_role.value,
                     job_name=job_name,
                 )
             else:
                 logger.info(
                     "Event spawn: cached session stale — will re-register",
-                    pipeline_id=pipeline_id, role=agent_role.value,
+                    pipeline_id=pipeline_id,
+                    role=agent_role.value,
                     job_name=job_name,
                 )
 
@@ -1768,7 +1841,9 @@ class KubernetesSpawner:
         # explicitly so ``spawn_agent_job``'s create-with-retry path
         # produces fresh volumes.
         spawn_repo_volumes = spawn_kwargs.pop("repo_volumes", None)
-        resolved_repo_volumes = reuse_repo_volumes if reuse_repo_volumes is not None else spawn_repo_volumes
+        resolved_repo_volumes = (
+            reuse_repo_volumes if reuse_repo_volumes is not None else spawn_repo_volumes
+        )
 
         return self.spawn_agent_job(
             pipeline_id,
