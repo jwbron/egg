@@ -3655,7 +3655,7 @@ class TestOwnershipModeHeartbeatMatrix:
                 bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE, exit_code=137
             )
 
-            actions = monitor.check_tripwires()
+            monitor.check_tripwires()
 
         # Container exit alerts are not gated by active-role set.
         alerts = [a for a in monitor.get_active_alerts() if a.get("alert_type") == "container_exit"]
@@ -3801,4 +3801,3 @@ class TestOwnershipModeIdleBudgetAnomaly:
         # template constants; the orchestrator-side code (event_loop.py) must
         # use the same literal string for its OVERSEER_ALERT.
         assert anomaly_name == "stuck-phase-transition"
-
