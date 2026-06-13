@@ -14623,16 +14623,24 @@ def _format_nack_summary(nack_details: list[dict]) -> str:
 def _incomplete_consensus_decision_text(
     final_consensus: dict,
     container_failure_count: int,
+    orchestrator_mode: bool = False,
 ) -> tuple[str, str]:
     """Build (question, log_suffix) for incomplete-consensus HITL escalation.
 
     Distinguishes the two failure modes — unresolved NACKs vs. agents that
     never confirmed — so the operator sees actionable detail in `/sdlc`.
+
+    ``orchestrator_mode`` selects a mode-aware prefix: when the orchestrator
+    owns the event loop, no up-front containers ever ran, so the terminal
+    here is the consensus timeout, not container exit — the "All containers
+    exited" prefix would mislead an operator reading `/sdlc`.
     """
     nacks = final_consensus.get("unresolved_nacks", []) or []
     blocking = final_consensus.get("blocking_agents", []) or []
     if container_failure_count:
         prefix = f"{container_failure_count} container(s) exited with non-zero code; "
+    elif orchestrator_mode:
+        prefix = "Consensus timed out; "
     else:
         prefix = "All containers exited; "
     if nacks:
@@ -19210,7 +19218,7 @@ def _run_concurrent_phase(
             # creation past the BRC consensus gate).
             if executor.owns_event_loop() and not _final_consensus.get("is_complete"):
                 question, log_suffix = _incomplete_consensus_decision_text(
-                    _final_consensus, container_failure_count=0
+                    _final_consensus, container_failure_count=0, orchestrator_mode=True
                 )
                 logger.warning(
                     "Consensus timed out and is incomplete (orchestrator-owned loop) — escalating to HITL",

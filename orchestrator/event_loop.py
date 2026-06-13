@@ -65,7 +65,7 @@ def get_event_loop_poll_interval() -> float:
         return DEFAULT_POLL_INTERVAL_SECONDS
     try:
         val = float(raw)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):  # fmt: skip
         logger.warning(
             "EGG_EVENT_LOOP_POLL_INTERVAL_SECONDS=%r is not a number; falling back to %.1fs",
             raw,

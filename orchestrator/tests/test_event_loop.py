@@ -101,6 +101,21 @@ class _RecordingSpawner:
         return [c["action"] for c in self.calls]
 
 
+class _AdoptingSpawner(_RecordingSpawner):
+    """One-shot spawner double whose ``spawn_event`` returns ``None``.
+
+    Models the cross-process adoption path in ``spawn_event_job``: when an
+    already-live Job owns the dedupe key, the real spawner creates no new pod
+    and returns ``None``. The loop must then record ``spawned=False`` with no
+    ``timing`` (so the slice-4 p50 latency budget never counts an adoption as
+    a fresh spawn→invoke sample) while still tracking the key.
+    """
+
+    def spawn_event(self, *, role, action, dedupe_key, payload=None):
+        super().spawn_event(role=role, action=action, dedupe_key=dedupe_key, payload=payload)
+        return None
+
+
 class _AgentFreeRecorder:
     """Records orchestrator-side agent-free handling of confirm/complete."""
 
@@ -469,3 +484,34 @@ class TestTimingField:
 
         # Agent-free confirm carries no spawn timing.
         assert decisions["reviewer_code"].timing is None
+
+
+# ---------------------------------------------------------------------------
+# Cross-process adoption — spawner returns None (already-live Job)
+# ---------------------------------------------------------------------------
+
+
+class TestAdoptionTimingSuppression:
+    def test_adopted_event_records_no_spawn_and_no_timing(self, monkeypatch):
+        """When ``spawn_event`` returns None (a live Job already owns the
+        dedupe key), the loop must record ``spawned=False`` with no ``timing``
+        — an adoption is not a fresh spawn and must not pollute the slice-4
+        latency budget — while still tracking the key for dedupe.
+        """
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "x")})
+        spawner = _AdoptingSpawner()
+        loop = _make_loop(spawner)
+
+        decisions = loop.poll_once(["coder"])
+
+        # The spawner was consulted exactly once (the adoption attempt)...
+        assert spawner.spawn_count == 1
+        d = decisions[0]
+        # ...but the adoption is recorded as not-a-fresh-spawn with no timing.
+        assert d.spawned is False
+        assert d.timing is None
+        assert d.dedupe_key is not None
+        # The key is still tracked, so a repeat poll does not re-attempt.
+        assert d.dedupe_key in list(loop.live_dedupe_keys())
+        loop.poll_once(["coder"])
+        assert spawner.spawn_count == 1, "adopted key must dedupe like a fresh spawn"
