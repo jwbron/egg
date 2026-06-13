@@ -296,7 +296,7 @@ RUN su - egg -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_CO
     for family in fable opus; do \
         if ! grep -aq "claude-${family}-" /home/egg/.local/bin/claude; then \
             echo "ERROR: installed Claude Code ($(cat /home/egg/.local/VERSION 2>/dev/null)) does not know the '${family}' model family."; \
-            echo "agent_model_resolution.py uses '${family}' as a built-in default — agents would crash-loop at spawn (#3136)."; \
+            echo "agent_model_resolution.py can spawn agents on '${family}' — agents would crash-loop at spawn (#3136)."; \
             echo "Pass a newer build: docker build --build-arg CLAUDE_CODE_VERSION=<version|latest> ..."; \
             echo "If pinning to an older CC build is intentional (and every"; \
             echo "agent_models entry has been pinned away from '${family}'),"; \
