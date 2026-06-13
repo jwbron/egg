@@ -32,11 +32,13 @@ from ._constants import (
 from ._graph import (
     GraphBundle,
     _walk_upstream_combined,
+    _walk_upstream_with_depth,
     build_graph,
     is_dynamic_import_touched,
     map_modules_to_test_files,
     pytest_args_have_explicit_path,
     reverse_closure,
+    reverse_closure_with_depth,
 )
 from ._io import (
     RecordGoodValidationError,
@@ -514,13 +516,28 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
     # neither analysis can see (e.g., subprocess invocation, runtime
     # plugin discovery, or a bare-name import we haven't taught the
     # resolver about).
+    rescue_depths: dict[str, int] = {}
     if bundle is not None and trigger is None and module_path_pairs:
         zero_downstream_offenders: list[str] = []
         for module, _path in module_path_pairs:
             if module in bundle.all_test_modules:
                 continue  # editing a test pulls only itself; that's fine
             reachable = _walk_upstream_combined(bundle, [module])
-            if not (reachable & bundle.all_test_modules):
+            if reachable & bundle.all_test_modules:
+                continue
+            # The (barrel-transparent, #3182) walk found no tests for
+            # this module.  Distinguish a true blind spot from
+            # transparency filtering every consumer: the never-zero
+            # ratchet — transparency may sharpen a module's selection
+            # but never zero it out, so when the OPAQUE walk still
+            # reaches tests, select those instead of widening.  Only
+            # when neither walk reaches a test does the pre-#3182
+            # full-suite trigger fire.
+            opaque_depths = _walk_upstream_with_depth(bundle, {module: 0}, barrel_aware=False)
+            if set(opaque_depths) & bundle.all_test_modules:
+                for m, d in opaque_depths.items():
+                    rescue_depths[m] = min(rescue_depths.get(m, d), d)
+            else:
                 zero_downstream_offenders.append(module)
         if zero_downstream_offenders:
             trigger = f"no downstream tests for changed module: {zero_downstream_offenders[0]}"
@@ -556,8 +573,18 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
     # ---- Narrow path ----
     assert bundle is not None  # narrowed above
 
-    closure = reverse_closure(bundle, module_path_pairs)
-    test_files = map_modules_to_test_files(bundle, closure, repo_root)
+    closure_depths = reverse_closure_with_depth(bundle, module_path_pairs)
+    for module, depth in rescue_depths.items():
+        if module not in closure_depths or depth < closure_depths[module]:
+            closure_depths[module] = depth
+    test_files = map_modules_to_test_files(bundle, set(closure_depths), repo_root)
+    # Emit direct-importers-first (#3182): pytest collects files in the
+    # order given on the command line, so sorting by import distance
+    # from the changed modules surfaces the most likely failure early
+    # in a wide selection.  `map_modules_to_test_files` returns the
+    # paths alphabetically; the stable sort keeps that as the
+    # within-depth tiebreak.
+    test_files.sort(key=lambda p: closure_depths.get(path_to_module(p) or "", 1 << 30))
     selected_count = len(test_files)
 
     for path in test_files:

@@ -20,5 +20,11 @@ requests>=2.31.0
 # JSON Schema validation (used by egg_anchor for anchor validation)
 jsonschema>=4.20.0
 
+# Redis client for the Streams-backed message store (redis_message_store.py).
+# Required in the image: the k8s manifests set EGG_MESSAGE_STORE_BACKEND=redis,
+# and without this package the `import redis` inside _create_message_store()
+# would fail before the backend is ever probed (#2662).
+redis>=5.0,<7.0
+
 # MCP SDK for Streamable HTTP transport (pipeline management MCP server)
 mcp[cli]>=1.20.0,<2.0.0

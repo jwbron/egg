@@ -325,7 +325,7 @@ When you detect inter-agent disagreements (conflicting proposals, NACK loops in 
 
 You observe and escalate disputes. You do not adjudicate them.
 
-## Stay-Alive Loop
+## Monitoring Loop
 
 **See "Use the Pre-Built Monitoring Script" above.** You control the outer loop by repeatedly calling the script with `--once`. Each call handles one poll cycle including heartbeats. You do not need to implement polling or heartbeat logic yourself.
 

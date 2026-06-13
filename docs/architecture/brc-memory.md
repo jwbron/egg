@@ -20,9 +20,9 @@ as ephemeral, regardless of any "durable" framing in older design notes.
 
 ## What problem this solves
 
-A consensus reviewer's lifecycle today is a long-running session that holds
-a blocking `egg-orch message wait-loop` between events. Issue #2908 is
-removing that seam: a wrapper will hold the wait, and an agent will be
+A consensus reviewer's lifecycle before #2908 was a long-running session
+that held a blocking `egg-orch message wait-loop` between events. Issue
+#2908 removed that seam: the wrapper holds the wait, and the agent is
 invoked one-shot per actionable event. A stateless one-shot has no working
 memory across invocations, so something else has to carry the reviewer's
 distilled understanding of the codebase, the change under review, and the
@@ -37,42 +37,60 @@ reader are active in production.
 ## File path
 
 ```
-.egg-state/agent-outputs/<role>/brc-memory.md
+.egg-state/agent-outputs/<role>/brc-memory-<pipeline-id>.md
 ```
 
 - `<role>` is the writer's `EGG_AGENT_ROLE` (e.g. `reviewer_code`,
   `reviewer_contract`). The subdirectory layout is per architect od-1 of the
   slice-1 design.
+- `<pipeline-id>` is `EGG_PIPELINE_ID` (fallback: `issue-<EGG_ISSUE_NUMBER>`),
+  added by [#3163](https://github.com/jwbron/egg/issues/3163) — see
+  "Scope key" below.
 - The base directory is resolved against `EGG_REPO_PATH`.
 - The subdirectory is created if absent on first write.
 
 ### Scope key
 
-Memory is scoped per `(role, slice_id, phase)` — a reviewer working on
-slice-1 of the implement phase keeps a separate memory entry from the same
-reviewer working on slice-2 or on a different phase. Scope keys keep
-parallel slice teams from clobbering each other's distilled state.
+Memory is scoped per `(pipeline, role, slice_id, phase)` — a reviewer
+working on slice-1 of the implement phase keeps a separate memory entry
+from the same reviewer working on slice-2 or on a different phase. Scope
+keys keep parallel slice teams from clobbering each other's distilled
+state, and keep one pipeline's distilled state out of the next pipeline's
+prompts.
 
-The path itself only carries `<role>`; the `(slice_id, phase)` half of the
-scope key is supplied by the agent pod's surrounding context. Per-slice
-agents run in per-slice worktrees with slice-scoped `EGG_REPO_PATH` and
-`EGG_SLICE_ID` env vars (see [Slice-DAG Implement Phase](slice-dag.md)),
-so two reviewers working on different slices each resolve
-`.egg-state/agent-outputs/<role>/brc-memory.md` against a different repo
+The path carries `<role>` and `<pipeline-id>`; the `(slice_id, phase)`
+half of the scope key is supplied by the agent pod's surrounding context.
+Per-slice agents run in per-slice worktrees with slice-scoped
+`EGG_REPO_PATH` and `EGG_SLICE_ID` env vars (see
+[Slice-DAG Implement Phase](slice-dag.md)), so two reviewers working on
+different slices each resolve the memory path against a different repo
 root. The schema also embeds `producer` per-assessment subsection so a
 reviewer reading the file can locate the specific producer entry within
-the current pod's scope. The exact encoding of the `phase` dimension within
-the file is finalised by the slice-1 writer (task-1-6) and this doc will
-follow whatever the implementation lands.
+the current pod's scope.
+
+The pipeline dimension cannot ride on worktree isolation the way slices
+do: the memory file is committed to the pipeline branch, merges to main
+with the context PR, and then seeds **every later pipeline's** fresh
+worktree at the same role-keyed path. Observed live in #3163 — a
+task_planner's first event prompt in pipeline `issue-3064` carried BRC
+memory headed `issue-3077` as its authoritative "distilled state"
+section. The pipeline-id filename suffix makes prior-pipeline memory
+files inert (nothing resolves the unsuffixed `brc-memory.md` name
+anymore) without needing a migration of files already on main.
 
 ### Fail-closed path constructor
 
 The path constructor **raises before any directory or file is created** if
-`EGG_AGENT_ROLE` is unset or empty. This is fail-closed by design (architect
-od-1 + risk_analyst R14): the writer must never fall through to a degenerate
-`.egg-state/agent-outputs//brc-memory.md` path where two roles could collide
-on a shared file, and silent-fail-on-write is unacceptable for a primitive
-that other reviewers will eventually consult to make veto-bearing decisions.
+`EGG_AGENT_ROLE` is unset or empty, or if neither `EGG_PIPELINE_ID` nor
+`EGG_ISSUE_NUMBER` resolves a pipeline id. This is fail-closed by design
+(architect od-1 + risk_analyst R14): the writer must never fall through to
+a degenerate `.egg-state/agent-outputs//brc-memory.md` path where two roles
+could collide on a shared file — or to a cross-pipeline shared file — and
+silent-fail-on-write is unacceptable for a primitive that other reviewers
+will eventually consult to make veto-bearing decisions. The orchestrator-side
+reader (`orchestrator/routes/event_prompt.py`) is fail-soft instead: an
+unresolvable pipeline id omits the memory section rather than failing the
+composer.
 
 ## Schema
 
@@ -244,8 +262,8 @@ The acceptance set codified by slice-1 task-1-6:
 - Decision-log entries are capped at 20 via distill-on-write.
 - Atomic-write contract holds — back-to-back handler invocations never see
   a partial state (asserted via fault injection in slice-1 tests).
-- Path constructor raises on empty `EGG_AGENT_ROLE` **before** creating any
-  file or directory.
+- Path constructor raises on empty `EGG_AGENT_ROLE` (or an unresolvable
+  pipeline id) **before** creating any file or directory.
 - `EGG_BRC_MEMORY=off` produces no file (the one-release rollback escape
   hatch; `full` is the production default since slice-4).
 - The `.egg-state/agent-outputs/<role>/` subdirectory is created if absent

@@ -1458,3 +1458,37 @@ class TestResolverMissingRepoConfigDoesNotCrash:
             executor._spawn_agent(AgentRole.CODER, prompt_text="run task")
 
         assert mock_spawn.call_count == 1
+
+
+class TestSpawnRecordsResolvedModel:
+    """#3174: every spawn records the resolved Claude-Code-facing alias
+    on the ``AgentExecution`` so operators can confirm a live
+    ``agent_models`` swap from ``get_status`` / ``list_containers``
+    instead of grepping pod logs for the session-init line."""
+
+    def test_override_recorded_on_execution(self):
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        pipeline.config.agent_models = {"coder": "deepseek-v4-pro"}
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+
+        execution = executor._spawn_agent(AgentRole.CODER)
+
+        # LiteLLM-routed: the recorded alias carries the [1m] suffix,
+        # matching the --model flag and the session-init log line.
+        assert execution.resolved_model == "deepseek-v4-pro[1m]"
+
+    def test_default_recorded_on_execution(self):
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+
+        execution = executor._spawn_agent(AgentRole.CODER)
+
+        assert execution.resolved_model == "opus"

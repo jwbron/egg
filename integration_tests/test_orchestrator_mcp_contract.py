@@ -171,11 +171,12 @@ class TestMCPDiscovery:
     def test_supporting_tools_advertised(self, orchestrator_mcp_url: str) -> None:
         # ``get_status`` and ``validate_config`` round out the contract
         # that the three target verbs depend on (polling + dry-run
-        # config validation).  Asserted separately so a regression in
-        # the supporting surface stays distinguishable from a regression
-        # in the headline tools.
+        # config validation); ``update_pipeline_config`` is the live
+        # agent_models swap surface (#3174).  Asserted separately so a
+        # regression in the supporting surface stays distinguishable
+        # from a regression in the headline tools.
         names = _list_tool_names(orchestrator_mcp_url)
-        for tool in ("get_status", "validate_config"):
+        for tool in ("get_status", "validate_config", "update_pipeline_config"):
             assert tool in names, f"{tool!r} not advertised. Advertised: {sorted(names)}"
 
 

@@ -151,7 +151,7 @@ class TestResolveAlertsEndpoint:
 
 class TestHealthEndpointIsolationFromMessageStore:
     """Issue #1897 TASK-4-3 (regression lock): ``GET /api/v1/health`` MUST
-    NOT import or invoke any ``MessageStore.*`` method.
+    NOT import or invoke any message-store method.
 
     Motivation: the health endpoint is the operator's fast path to detect
     that the orchestrator is up. If it ever starts touching the message
@@ -164,7 +164,7 @@ class TestHealthEndpointIsolationFromMessageStore:
 
     The test patches ``get_message_store`` to raise on ANY call and
     confirms /api/v1/health still returns 200. If the endpoint is
-    refactored to call into MessageStore, the patched exception will
+    refactored to call into the message store, the patched exception will
     propagate and this test will fail — which is exactly the regression
     signal we want.
     """
@@ -181,25 +181,21 @@ class TestHealthEndpointIsolationFromMessageStore:
         return app.test_client()
 
     def test_health_endpoint_does_not_touch_message_store(self, client):
-        """Patch MessageStore.* to raise; /api/v1/health must still 200.
+        """Patch the store accessor to raise; /api/v1/health must still 200.
 
         Uses ``side_effect=RuntimeError`` on the singleton accessor so
-        any attempt to call into the message store (whether via
-        ``get_message_store()`` at module level or a direct
-        ``MessageStore()`` construction) surfaces as a crash.
+        any attempt to call into the message store via
+        ``get_message_store()`` surfaces as a crash.
         """
         err = RuntimeError(
-            "MessageStore MUST NOT be called from /api/v1/health — "
+            "The message store MUST NOT be called from /api/v1/health — "
             "see plan TASK-4-3 and test_health_endpoint_does_not_touch_message_store."
         )
-        with (
-            patch("message_store.get_message_store", side_effect=err),
-            patch("message_store.MessageStore", side_effect=err),
-        ):
+        with patch("message_store.get_message_store", side_effect=err):
             response = client.get("/api/v1/health")
             assert response.status_code == 200, (
                 f"Health endpoint returned {response.status_code}; "
-                "it should not be affected by MessageStore failures."
+                "it should not be affected by message-store failures."
             )
             # Body should be the standard liveness shape.
             data = response.get_json()

@@ -9,13 +9,15 @@ Slice-1 lands the **writer** in ``brc_ack`` / ``brc_nack`` (this
 module) and gates everything behind ``EGG_BRC_MEMORY``. Slice-3 lands
 the **reader** in ``compose_event_prompt``.
 
-**Path layout** — ``.egg-state/agent-outputs/<role>/brc-memory.md``
-(subdirectory layout per architect od-1). Resolved against
+**Path layout** — ``.egg-state/agent-outputs/<role>/brc-memory-<pipeline-id>.md``
+(subdirectory layout per architect od-1; pipeline-id filename suffix
+per #3163 so memory committed to one pipeline's branch never seeds a
+later pipeline's prompt after it merges to main). Resolved against
 ``EGG_REPO_PATH``. The path constructor raises BEFORE creating any
-file or directory when ``EGG_AGENT_ROLE`` is unset/empty (architect
-od-1 + risk_analyst R14 — never fall through to a degenerate
-``.egg-state/agent-outputs//brc-memory.md`` that two roles could
-collide on).
+file or directory when ``EGG_AGENT_ROLE`` or the pipeline id
+(``EGG_PIPELINE_ID`` / ``EGG_ISSUE_NUMBER``) is unset/empty (architect
+od-1 + risk_analyst R14 — never fall through to a degenerate or
+cross-pipeline shared path).
 
 **Modes** — ``EGG_BRC_MEMORY``:
 
@@ -79,6 +81,8 @@ _ASSESSMENT_PROSE_MAX_CHARS: Final[int] = 1000
 ENV_MEMORY_MODE: Final[str] = "EGG_BRC_MEMORY"
 ENV_AGENT_ROLE: Final[str] = "EGG_AGENT_ROLE"
 ENV_REPO_PATH: Final[str] = "EGG_REPO_PATH"
+ENV_PIPELINE_ID: Final[str] = "EGG_PIPELINE_ID"
+ENV_ISSUE_NUMBER: Final[str] = "EGG_ISSUE_NUMBER"
 
 # Valid mode values. The default (``full``) is the production setting
 # post-slice-4 task-4-1: the event-pump wrapper reads the memory file,
@@ -198,6 +202,45 @@ def _resolve_role(role: str | None) -> str:
     return candidate
 
 
+def _resolve_pipeline_id(pipeline_id: str | None) -> str:
+    """Resolve the pipeline id that scopes the memory filename (#3163).
+
+    Same fail-closed contract as :func:`_resolve_role`: memory keyed by
+    role alone leaks across pipelines — the file is committed to the
+    branch, merges to main via the context PR, and seeds the *next*
+    pipeline's fresh worktree with the previous pipeline's distilled
+    state (observed live: a task_planner's first event prompt carried
+    BRC memory headed ``issue-3077`` inside an ``issue-3064`` pipeline).
+    Resolves ``EGG_PIPELINE_ID`` first, then ``issue-<EGG_ISSUE_NUMBER>``
+    (mirroring the orchestrator composer's contract-file resolution),
+    and raises when neither is available rather than falling back to a
+    cross-pipeline shared file.
+    """
+    candidate = pipeline_id if pipeline_id is not None else os.environ.get(ENV_PIPELINE_ID)
+    candidate = (candidate or "").strip()
+    if not candidate:
+        issue_number = (os.environ.get(ENV_ISSUE_NUMBER) or "").strip()
+        if issue_number:
+            candidate = f"issue-{issue_number}"
+    if not candidate:
+        raise ValueError(
+            f"BRC memory writer requires {ENV_PIPELINE_ID} (or "
+            f"{ENV_ISSUE_NUMBER}) to be set (got empty/unset); "
+            f"fail-closed to avoid a cross-pipeline shared memory file"
+        )
+    # Same charset rule as the role token: the id lands in a filename.
+    # Pipeline ids are validated as [a-zA-Z0-9_-]+ orchestrator-side
+    # (PIPELINE_ID_PATTERN), so this only trips on a tampered env.
+    for ch in candidate:
+        if not (ch.isalnum() or ch in "_-"):
+            raise ValueError(
+                f"BRC memory writer rejects pipeline id {candidate!r}: "
+                f"only [a-zA-Z0-9_-] are accepted to keep the filename "
+                f"a single path segment"
+            )
+    return candidate
+
+
 def _resolve_repo_root() -> Path:
     """Return the repo root for memory path resolution.
 
@@ -210,19 +253,30 @@ def _resolve_repo_root() -> Path:
     return Path.cwd()
 
 
-def memory_path_for_role(role: str | None = None) -> Path:
+def memory_path_for_role(role: str | None = None, pipeline_id: str | None = None) -> Path:
     """Return the absolute memory file path for ``role`` (or env role).
 
     Path layout (per ``docs/architecture/brc-memory.md``)::
 
-        <EGG_REPO_PATH>/.egg-state/agent-outputs/<role>/brc-memory.md
+        <EGG_REPO_PATH>/.egg-state/agent-outputs/<role>/brc-memory-<pipeline-id>.md
+
+    The pipeline-id suffix (#3163) keeps memory from leaking across
+    pipelines: committed memory files merge to main with the context PR
+    and would otherwise seed every later pipeline's fresh worktree at
+    the role-keyed path. Prior-pipeline ``brc-memory.md`` files already
+    on main become inert — neither this writer nor the orchestrator
+    composer resolves the unsuffixed name anymore.
 
     Raises ``ValueError`` BEFORE touching the filesystem when the role
-    cannot be resolved (architect od-1 + risk_analyst R14).
+    or pipeline id cannot be resolved (architect od-1 + risk_analyst
+    R14).
     """
     resolved_role = _resolve_role(role)
+    resolved_pipeline = _resolve_pipeline_id(pipeline_id)
     root = _resolve_repo_root()
-    return root / ".egg-state" / "agent-outputs" / resolved_role / "brc-memory.md"
+    return (
+        root / ".egg-state" / "agent-outputs" / resolved_role / f"brc-memory-{resolved_pipeline}.md"
+    )
 
 
 # ---------------------------------------------------------------------------

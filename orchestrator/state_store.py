@@ -1271,12 +1271,7 @@ class StateStore:
         with get_pipeline_state_lock(pipeline_id):
             if self.pipeline_exists(pipeline_id):
                 existing = self.load_pipeline(pipeline_id)
-                terminal = {
-                    PipelineStatus.CANCELLED,
-                    PipelineStatus.FAILED,
-                    PipelineStatus.COMPLETE,
-                }
-                if existing.status in terminal:
+                if existing.status in PipelineStatus.terminal():
                     logger.info(
                         "Replacing terminal pipeline %s (status=%s)",
                         pipeline_id,
@@ -1400,11 +1395,7 @@ class StateStore:
         Returns:
             List of active pipelines
         """
-        terminal_statuses = {
-            PipelineStatus.COMPLETE,
-            PipelineStatus.FAILED,
-            PipelineStatus.CANCELLED,
-        }
+        terminal_statuses = PipelineStatus.terminal()
 
         pipelines = []
         for pipeline_id in self.list_pipelines():
