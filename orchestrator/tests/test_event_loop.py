@@ -1587,3 +1587,31 @@ class TestActiveRolesPublishing:
         # A notifier that raises is swallowed — the poll still returns.
         decisions = loop.poll_once(["coder"])
         assert decisions[0].action == "propose"
+
+    def test_reconciled_role_published_via_dedupe_path(self, monkeypatch):
+        """A key seeded by ``reconcile()`` (``_live_keys`` populated, no
+        ``_key_meta`` entry) hits the dedupe early-return on the next poll
+        rather than a fresh spawn. That path must still label the key so the
+        adopted/reconciled role is published — otherwise its tripwires stay
+        silently suppressed for the pod's lifetime.
+        """
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "x")})
+
+        # Derive the live label exactly as a pre-restart loop would have.
+        # Same slice_id as the publishing loop so the dedupe keys match.
+        spawner1 = _RecordingSpawner()
+        loop1 = _make_loop(spawner1, slice_id="slice-5")
+        loop1.poll_once(["coder"])
+        live_labels = list(loop1.live_dedupe_keys())
+        assert len(live_labels) == 1
+
+        # Restart: fresh publishing loop, reconcile from the live Job label.
+        rec = _ActiveRolesRecorder()
+        loop2 = _make_publishing_loop(monkeypatch, rec)
+        loop2.reconcile(live_labels)
+
+        decisions = loop2.poll_once(["coder"])
+
+        # Dedupe path taken (no re-spawn) but the role is now labeled + published.
+        assert decisions[0].spawned is False
+        assert rec.published[-1] == {"coder"}

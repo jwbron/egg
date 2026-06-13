@@ -767,10 +767,13 @@ class OrchestratorEventLoop:
         treated as legitimately idle in orchestrator mode.
 
         Reconciled keys (restart path) populate ``_live_keys`` without a
-        ``_key_meta`` entry until the loop re-derives them; such a role is
-        briefly absent here, which suppresses (never false-alerts) its
-        tripwires and self-heals on the next derive.  Best-effort: a notifier
-        failure must not wedge the loop.
+        ``_key_meta`` entry, so a freshly-reconciled role is absent here for
+        exactly one tick — which suppresses (never false-alerts) its tripwires.
+        It self-heals on the next ``_handle_role`` pass: even the dedupe
+        early-return now labels the key via ``_key_meta.setdefault`` (it no
+        longer waits for a fresh spawn), so an adopted/reconciled key is picked
+        up rather than staying unlabeled for the pod's lifetime.  Best-effort:
+        a notifier failure must not wedge the loop.
         """
         notifier = self._active_roles_notifier
         if notifier is None:
@@ -817,6 +820,12 @@ class OrchestratorEventLoop:
 
         # Dedupe: an in-flight (or reconciled) Job already owns this event.
         if key in self._live_keys:
+            # Label the key even on the dedupe path so a key first seen via
+            # ``reconcile()`` (which seeds ``_live_keys`` without ``_key_meta``)
+            # is picked up by ``_publish_active_roles`` on this tick rather than
+            # staying silently unlabeled — and thus tripwire-suppressed — for the
+            # pod's lifetime. ``setdefault`` never clobbers an existing label.
+            self._key_meta.setdefault(key, (action, role))
             return EventDecision(role=role, action=action, dedupe_key=key, spawned=False)
 
         # Slice-3: throttle respawn after an abnormal termination until the
