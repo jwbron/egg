@@ -17,6 +17,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -114,6 +115,8 @@ def _resolve_wait_producer_allowlist(phase: str | None, role: str, repo: str | N
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from egg_container import MountSpec
 
 logger = get_logger("orchestrator.kubernetes_spawner")
@@ -383,6 +386,11 @@ class SpawnedContainer:
     agent_role: AgentRole
     pipeline_id: str
     environment: dict[str, str]
+    # #3064 slice-4: wall-clock spawn→invoke latency in milliseconds, measured
+    # across ``spawn_agent_job`` (worktree re-attach/create + session
+    # reuse/register + k8s Job create). Used by the p50<60s budget assertion.
+    # ``None`` only on paths that bypass the spawn timer.
+    spawn_ms: float | None = None
 
 
 # --- spawn-retry policy (#1839) -------------------------------------------
@@ -450,6 +458,152 @@ def _classify_spawn_error(e: BaseException | None) -> str | None:
     if status_code is None:
         return type(e).__name__
     return f"unknown_{status_code}"
+
+
+# ------------------------------------------------------------------
+# #3064 slice-4: worktree re-attach helpers
+# ------------------------------------------------------------------
+
+
+def _validate_worktree_for_reuse(
+    agent_worktree_id: str,
+    repos: list[str],
+    branch: str | None,
+) -> dict[str, str] | None:
+    """Validate an existing worktree for re-attach (#3064 slice-4).
+
+    Checks the filesystem worktree at ``WORKTREE_BASE_DIR / agent_worktree_id / <repo>``
+    for directory existence, ``.git`` integrity (``git rev-parse --git-dir``), lock
+    files (``.git/*.lock`` and ``.git/refs/*/*.lock``), and expected branch (when
+    ``branch`` is supplied — the worktree's ``HEAD`` should be on the role's branch).
+
+    This function performs **validation only** — the caller must also invoke
+    :meth:`KubernetesSpawner._clean_reused_worktree` to discard dirty state
+    and hard-sync to the role branch tip (R6 dirty-state policy) before the
+    agent runs. The separation lets the test-first contract
+    (:meth:`_try_reuse_worktree`) compose validation + cleanup into one call
+    while keeping each concern independently testable.
+
+    Returns a ``{owner/repo: filesystem_path}`` dict on success, or ``None`` on ANY
+    validation mismatch (the caller falls back to create-with-retry). Best-effort logging.
+    """
+    import subprocess as _sp
+
+    if not repos or not WORKTREE_BASE_DIR.exists():
+        return None
+    wt = WORKTREE_BASE_DIR / agent_worktree_id
+    if not wt.exists() or not wt.is_dir():
+        logger.info(
+            "Worktree re-attach: directory missing",
+            agent_worktree_id=agent_worktree_id,
+        )
+        return None
+
+    vols: dict[str, str] = {}
+    for ref in repos:
+        n = ref.split("/")[-1] if "/" in ref else ref
+        d = wt / n
+        if not d.exists() or not d.is_dir():
+            logger.info(
+                "Worktree re-attach: repo directory missing",
+                agent_worktree_id=agent_worktree_id,
+                repo=n,
+            )
+            return None
+
+        # .git integrity
+        try:
+            gd = _sp.run(
+                # ``safe.directory=*`` mirrors ``_clean_reused_worktree`` so a
+                # host_uid worktree owned by a different uid than the
+                # orchestrator process does not trip git's "dubious ownership"
+                # guard — which would fail rev-parse and silently degrade
+                # re-attach to create-with-retry on every event (#3064 review).
+                ["git", "-C", str(d), "-c", "safe.directory=*", "rev-parse", "--git-dir"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=True,
+            ).stdout.strip()
+            gdp = Path(gd)
+            if not gdp.is_absolute():
+                gdp = d / gdp
+        except Exception as e:
+            logger.info(
+                "Worktree re-attach: .git check failed",
+                agent_worktree_id=agent_worktree_id,
+                repo=n,
+                error=str(e),
+            )
+            return None
+
+        # Lock files
+        for lk in (gdp / "index.lock", gdp / "HEAD.lock", gdp / "config.lock"):
+            if lk.exists():
+                logger.info(
+                    "Worktree re-attach: lock file present",
+                    agent_worktree_id=agent_worktree_id,
+                    repo=n,
+                    lock=str(lk),
+                )
+                return None
+        try:
+            for pat in ("refs/heads/*.lock", "refs/remotes/*.lock"):
+                if list(gdp.glob(pat)):
+                    logger.info(
+                        "Worktree re-attach: ref lock file present",
+                        agent_worktree_id=agent_worktree_id,
+                        repo=n,
+                    )
+                    return None
+        except Exception:
+            pass
+
+        # Expected branch
+        if branch:
+            try:
+                cb = _sp.run(
+                    [
+                        "git",
+                        "-C",
+                        str(d),
+                        "-c",
+                        "safe.directory=*",
+                        "rev-parse",
+                        "--abbrev-ref",
+                        "HEAD",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=True,
+                ).stdout.strip()
+                if cb != branch and cb != "HEAD":
+                    logger.info(
+                        "Worktree re-attach: branch mismatch",
+                        agent_worktree_id=agent_worktree_id,
+                        repo=n,
+                        expected=branch,
+                        actual=cb,
+                    )
+                    return None
+            except Exception as e:
+                logger.info(
+                    "Worktree re-attach: branch check failed",
+                    agent_worktree_id=agent_worktree_id,
+                    repo=n,
+                    error=str(e),
+                )
+                return None
+
+        vols[ref] = str(d)
+
+    logger.info(
+        "Worktree re-attach: validation succeeded (cleanup pending)",
+        agent_worktree_id=agent_worktree_id,
+        repos=[r.split("/")[-1] if "/" in r else r for r in repos],
+    )
+    return vols
 
 
 # Roles that can run without a per-agent git worktree.  Reviewers and
@@ -578,6 +732,7 @@ class KubernetesSpawner:
         namespace: str = DEFAULT_NAMESPACE,
         *,
         docker_client: Any | None = None,
+        clock: "Callable[[], float] | None" = None,  # noqa: UP037
     ):
         """Initialize Kubernetes spawner.
 
@@ -605,6 +760,371 @@ class KubernetesSpawner:
         # pattern as state_store.py).
         self._restart_locks: dict[tuple[str, str, str | None], threading.Lock] = {}
         self._restart_locks_lock = threading.Lock()
+        # #3064 slice-4: per-role gateway-session token cache.
+        # Key: (pipeline_id, agent_role_value, slice_id, session_container_id)
+        # where ``session_container_id`` is the STABLE per-role+slice base Job
+        # name (``_build_k8s_job_names``) — NOT the per-event discriminated Job
+        # name. Keying on the stable id is what lets a session be reused across
+        # a role's successive one-shot events (propose, ack, …); keying on the
+        # per-event name (the pre-review behaviour) missed the cache every
+        # distinct event and re-registered. Both the write side (``spawn_agent_
+        # job`` via ``session_container_id``) and the read side (``_get_or_
+        # create_session``) build this element from the same stable base name
+        # and use ``agent_role.value`` (str), never the enum member directly.
+        # ``_teardown_session`` / ``cleanup_pipeline`` evict entries so the
+        # cache stays bounded by roster size.
+        self._session_token_cache: dict[tuple[str, str, str | None, str], str] = {}
+        # #3064 slice-4: monotonic clock for the spawn→invoke latency budget.
+        # Injectable so the p50<60s budget test can drive a simulated clock
+        # (no real sleeps). Defaults to ``time.monotonic``.
+        self._clock: "Callable[[], float]" = clock or time.monotonic  # noqa: UP037
+
+    # ------------------------------------------------------------------
+    # #3064 slice-4: worktree re-attach instance methods (test-first
+    # contract — tests expect these names and signatures)
+    # ------------------------------------------------------------------
+
+    def _try_reuse_worktree(
+        self,
+        agent_worktree_id: str,
+        branch: str | None,
+        repos: list[str] | None,
+    ) -> tuple[bool, dict[str, str]] | None:
+        """Validate an existing worktree and, on success, clean dirty state.
+
+        Composes :func:`_validate_worktree_for_reuse` (filesystem health
+        checks) followed by :meth:`_clean_reused_worktree` (R6 dirty-state
+        discard + hard-sync). Returns ``(success, repo_volumes)`` on
+        success, or ``None`` on any validation or cleanup mismatch (the
+        caller falls back to create-with-retry).
+
+        Signature matches the tester's test-first contract:
+        ``(agent_worktree_id, branch, repos) -> (bool, dict) | None``.
+
+        ``repos`` is a list of ``"owner/repo"`` strings. When ``None`` or
+        empty, the method returns ``None`` immediately — there is nothing
+        to validate.
+        """
+        if not repos:
+            return None
+        vols = _validate_worktree_for_reuse(agent_worktree_id, repos, branch)
+        if vols is None:
+            return None
+        if not self._clean_reused_worktree(agent_worktree_id, branch, repos):
+            return None
+        return True, vols
+
+    def _clean_reused_worktree(
+        self,
+        agent_worktree_id: str,
+        branch: str | None,
+        repos: list[str] | None,
+    ) -> bool:
+        """Discard dirty state and hard-sync a re-attached worktree (R6).
+
+        Applies ``git reset --hard && git clean -fd`` to discard uncommitted
+        changes and untracked staging artifacts, then hard-syncs to the role
+        branch tip via ``git fetch origin {branch} && git reset --hard
+        origin/{branch}``.
+
+        Returns ``True`` on success, ``False`` on any failure (the caller
+        falls back to create-with-retry — never allow a half-cleaned
+        worktree into the agent's commit scope).
+
+        ``repos`` is a list of ``"owner/repo"`` strings. When ``None`` or
+        empty, returns ``True`` (nothing to clean).
+        """
+        import subprocess as _sp
+
+        if not repos or not WORKTREE_BASE_DIR.exists():
+            return True
+        wt = WORKTREE_BASE_DIR / agent_worktree_id
+        if not wt.exists():
+            return True
+
+        for ref in repos:
+            n = ref.split("/")[-1] if "/" in ref else ref
+            d = wt / n
+            if not d.exists():
+                continue
+
+            # reset --hard
+            try:
+                _sp.run(
+                    [
+                        "git",
+                        "-C",
+                        str(d),
+                        "-c",
+                        "core.hooksPath=/dev/null",
+                        "-c",
+                        "safe.directory=*",
+                        "reset",
+                        "--hard",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=True,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Worktree re-attach: reset --hard failed",
+                    agent_worktree_id=agent_worktree_id,
+                    repo=n,
+                    error=str(e),
+                )
+                return False
+            # clean -fd
+            try:
+                _sp.run(
+                    [
+                        "git",
+                        "-C",
+                        str(d),
+                        "-c",
+                        "core.hooksPath=/dev/null",
+                        "-c",
+                        "safe.directory=*",
+                        "clean",
+                        "-fd",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=True,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Worktree re-attach: clean -fd failed",
+                    agent_worktree_id=agent_worktree_id,
+                    repo=n,
+                    error=str(e),
+                )
+                return False
+            # Hard-sync to the role branch tip. This is the ONLY step that
+            # removes a predecessor's *local, unpushed* commit — ``reset
+            # --hard`` (above) only discards the uncommitted working tree, so
+            # a pod killed mid-event after a local commit still carries that
+            # commit through to here. If the hard-sync fails we MUST fall back
+            # to recreate (return False): continuing on the current HEAD would
+            # leak the predecessor's unproposed commit into the successor's
+            # worktree — and its next proposal — which is exactly the residue
+            # leak the R6 dirty-state policy exists to forbid (#3064 slice-4,
+            # review). A transient ``fetch origin`` blip is precisely what this
+            # resilience path must survive, so it is fatal-to-reuse, not
+            # silently swallowed.
+            if branch:
+                try:
+                    _sp.run(
+                        [
+                            "git",
+                            "-C",
+                            str(d),
+                            "-c",
+                            "core.hooksPath=/dev/null",
+                            "-c",
+                            "safe.directory=*",
+                            "fetch",
+                            "origin",
+                            branch,
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                        check=True,
+                    )
+                    _sp.run(
+                        [
+                            "git",
+                            "-C",
+                            str(d),
+                            "-c",
+                            "core.hooksPath=/dev/null",
+                            "-c",
+                            "safe.directory=*",
+                            "reset",
+                            "--hard",
+                            f"origin/{branch}",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                        check=True,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Worktree re-attach: hard-sync failed — falling back "
+                        "to recreate (cannot prove worktree is at origin tip)",
+                        agent_worktree_id=agent_worktree_id,
+                        repo=n,
+                        error=str(e),
+                    )
+                    # Fatal: without a successful hard-sync we cannot guarantee
+                    # the worktree carries no predecessor residue ahead of
+                    # origin/{branch}. Recreate-with-retry is the safe fallback.
+                    return False
+
+        logger.info(
+            "Worktree re-attach: cleaned and hard-synced",
+            agent_worktree_id=agent_worktree_id,
+            repos=[r.split("/")[-1] if "/" in r else r for r in repos],
+        )
+        return True
+
+    def _get_or_create_session(
+        self,
+        pipeline_id: str,
+        agent_role: AgentRole,
+        slice_id: str | None = None,
+        mode: str = "public",
+        repos: list[str] | None = None,
+        branch: str | None = None,
+        base_branch: str | None = None,
+        phase: str | None = None,
+        issue_number: int | None = None,
+        upstream: str | None = None,
+        upstream_model: str | None = None,
+        jira_ticket: str | None = None,
+    ) -> SessionInfo | None:
+        """Return a live session for *agent_role*, or register a new one.
+
+        Checks the in-memory session token cache for this role+slice first.
+        If a cached token exists and the gateway confirms the session is
+        still live (:meth:`GatewayClient.heartbeat_session_by_container`),
+        it is reused without a round-trip. Otherwise a fresh session is
+        registered via the gateway.
+
+        Returns the :class:`SessionInfo` (or a stub with the session token)
+        on success, or ``None`` on registration failure.
+
+        Signature matches the tester's test-first contract:
+        ``(pipeline_id, agent_role, slice_id, mode, repos, ...) -> SessionInfo | None``.
+        """
+        job_name, _jn2 = self._build_k8s_job_names(pipeline_id, agent_role, slice_id=slice_id)
+        cache_key = (pipeline_id, agent_role.value, slice_id, job_name)
+        cached_token = self._session_token_cache.get(cache_key)
+
+        if cached_token is not None:
+            try:
+                if self.gateway.heartbeat_session_by_container(job_name):
+                    # Reuse returns a stub WITHOUT re-registering, so the gateway
+                    # session keeps its original phase/branch/upstream. This is
+                    # safe only because reuse is confined to one role within one
+                    # slice+phase (the propose→ack→confirm arc): those fields are
+                    # stable across that arc. Reuse MUST NOT cross a phase
+                    # boundary — phase end tears the session down (see
+                    # ``cleanup_pipeline`` / ``_teardown_session``), so the next
+                    # phase re-registers fresh rather than inheriting stale
+                    # gateway policy (#3064 slice-4 re-review).
+                    logger.info(
+                        "Reusing live cached session",
+                        job_name=job_name,
+                        role=agent_role.value,
+                    )
+                    return SessionInfo(
+                        session_token=cached_token,
+                        container_id=job_name,
+                        container_ip=None,
+                        mode=mode,
+                        created_at=datetime.now(),
+                        expires_at=datetime.now() + timedelta(hours=24),
+                    )
+            except Exception:
+                logger.info(
+                    "Session heartbeat failed, will re-register",
+                    job_name=job_name,
+                    role=agent_role.value,
+                )
+
+        # Register a fresh session.
+        try:
+            host_uid = int(os.environ.get("HOST_UID", 1000))
+            host_gid = int(os.environ.get("HOST_GID", 1000))
+            agent_anchor_id = f"{agent_role.value}-{job_name[:8]}"
+            session_info = self.gateway.register_session(
+                container_id=job_name,
+                container_ip=None,
+                mode=mode,
+                repos=repos,
+                uid=host_uid,
+                gid=host_gid,
+                phase=phase,
+                pipeline_id=pipeline_id,
+                agent_role=agent_role.value,
+                agent_anchor_id=agent_anchor_id,
+                issue_number=issue_number,
+                claude_code_version=os.environ.get("CLAUDE_CODE_VERSION"),
+                branch=branch,
+                base_branch=base_branch,
+                jira_ticket=jira_ticket,
+                # Per-agent upstream routing (#2769 slice-2) — forward so a
+                # session reused via this path keeps its litellm routing
+                # instead of silently falling back to the Anthropic default.
+                upstream=upstream,
+                upstream_model=upstream_model,
+                retry_transient=True,
+            )
+            self._session_token_cache[cache_key] = session_info.session_token
+            return session_info
+        except Exception as e:
+            logger.warning(
+                "Failed to register gateway session",
+                job_name=job_name,
+                role=agent_role.value,
+                error=str(e),
+            )
+            return None
+
+    def _teardown_session(
+        self,
+        pipeline_id: str,
+        agent_role: AgentRole,
+        slice_id: str | None = None,
+    ) -> None:
+        """Tear down a role's reused gateway session (#3064 slice-4).
+
+        In orchestrator-ownership mode a single gateway session is reused
+        across a role's successive one-shot event spawns (see
+        :meth:`_get_or_create_session`), so the per-event Job stop/remove paths
+        deliberately do NOT delete it. This method is the explicit teardown for
+        that long-lived session — called at phase end (via
+        :meth:`cleanup_pipeline`) or on streak exhaustion, when the role will
+        spawn no further events. It deletes the gateway session keyed by the
+        stable base ``container_id`` and evicts the in-memory cache entry so the
+        cache stays bounded by roster size rather than growing per event.
+
+        Best-effort: a gateway error is logged and swallowed (teardown must
+        never wedge the caller). The per-event Job stop/remove paths do not
+        reach this stable-base-keyed session, which is why this explicit
+        teardown exists. Note that :meth:`cleanup_pipeline` applies this
+        primitive across *every* cached entry for the pipeline, including
+        pod-mode entries (keyed by the per-Job name) — those are normally
+        cleaned by the stop/remove paths, but the extra
+        ``delete_session_by_container`` here is idempotent, so the broad sweep
+        is harmless rather than exclusive to event-mode sessions.
+        """
+        session_id, _ = self._build_k8s_job_names(pipeline_id, agent_role, slice_id=slice_id)
+        try:
+            self.gateway.delete_session_by_container(session_id)
+            logger.info(
+                "Tore down reused gateway session",
+                pipeline_id=pipeline_id,
+                role=agent_role.value,
+                session_container_id=session_id,
+            )
+        except GatewayError as e:
+            logger.warning(
+                "Failed to tear down reused gateway session",
+                pipeline_id=pipeline_id,
+                role=agent_role.value,
+                session_container_id=session_id,
+                error=str(e),
+            )
+        finally:
+            self._session_token_cache.pop(
+                (pipeline_id, agent_role.value, slice_id, session_id), None
+            )
 
     @property
     def k8s(self) -> KubernetesClient:
@@ -684,6 +1204,9 @@ class KubernetesSpawner:
         upstream_model: str | None = None,
         extra_labels: dict[str, str] | None = None,
         job_name_suffix: str | None = None,
+        reuse_worktree_id: str | None = None,
+        existing_session_token: str | None = None,
+        session_container_id: str | None = None,
     ) -> SpawnedContainer:
         """Spawn a Kubernetes Job for an agent.
 
@@ -714,6 +1237,24 @@ class KubernetesSpawner:
                 request body's ``model`` field to (#2769 slice-2).
                 ``None`` on the Anthropic path — the body is forwarded
                 unchanged.
+            reuse_worktree_id: When set, skip ``create_worktrees()`` and use
+                this id as the per-agent worktree identifier (the worktree
+                was validated by the caller via
+                :func:`_validate_worktree_for_reuse`). The caller supplies the
+                resolved ``repo_volumes`` separately. ``None`` preserves the
+                existing create-with-retry path (#3064 slice-4).
+            existing_session_token: When set, skip gateway session
+                registration and use this token directly. ``None`` registers
+                a fresh session. Used together with ``reuse_worktree_id``
+                to avoid redundant gateway round-trips across successive
+                one-shot event spawns (#3064 slice-4).
+            session_container_id: Stable identifier under which the gateway
+                session is registered, heartbeat, cached, and torn down — kept
+                distinct from the per-event k8s Job name so the session
+                survives (and is reused) across a role's successive one-shot
+                event spawns whose Job names each carry a per-event
+                discriminator. ``None`` (the pod-mode default) registers the
+                session under ``job_name`` exactly as before (#3064 slice-4).
 
         Returns:
             SpawnedContainer with Job and session info
@@ -721,6 +1262,9 @@ class KubernetesSpawner:
         Raises:
             KubernetesSpawnError: If spawning fails
         """
+        # #3064 slice-4: spawn→invoke latency timer (p50<60s budget). Uses the
+        # injectable monotonic clock so tests can drive a simulated clock.
+        _spawn_start = self._clock()
         job_name, actual_k8s_job_name = self._build_k8s_job_names(
             pipeline_id, agent_role, slice_id=slice_id
         )
@@ -795,19 +1339,31 @@ class KubernetesSpawner:
         host_uid = int(os.environ.get("HOST_UID", 1000))
         host_gid = int(os.environ.get("HOST_GID", 1000))
 
-        # Per-agent worktree isolation: create a dedicated worktree.
+        # Per-agent worktree isolation: create or reuse a dedicated worktree.
         # Slice scope (#2403): concurrent slices in the same pipeline
         # MUST get distinct worktree ids — otherwise slice-N's coder
         # spawns onto slice-(N-1)'s already-mounted worktree (or
         # races with it during cleanup). The id is also the agent's
         # ``CONTAINER_ID`` env and the gateway worktree key, so the
         # whole gateway / agent / orchestrator triangle agrees on it.
-        agent_worktree_id = self._build_agent_worktree_id(
-            pipeline_id, agent_role, slice_id=slice_id
-        )
-        worktree_created_this_call = False
+        # When ``reuse_worktree_id`` is set (#3064 slice-4), the caller
+        # already validated the worktree via ``_validate_worktree_for_reuse``.
+        if reuse_worktree_id:
+            agent_worktree_id = reuse_worktree_id
+            worktree_created_this_call = False
+            logger.info(
+                "Reusing existing validated worktree",
+                agent_worktree_id=agent_worktree_id,
+                role=agent_role.value,
+                pipeline_id=pipeline_id,
+            )
+        else:
+            agent_worktree_id = self._build_agent_worktree_id(
+                pipeline_id, agent_role, slice_id=slice_id
+            )
+            worktree_created_this_call = False
 
-        if repos:
+        if repos and not reuse_worktree_id:
             max_attempts = max(1, spawn_max_retries + 1)
             for attempt in range(max_attempts):
                 attempt_started = time.monotonic()
@@ -949,13 +1505,35 @@ class KubernetesSpawner:
 
         # Register gateway session (token-only, no container_ip)
         session_info = None
-        session_token = None
+        session_token = existing_session_token  # #3064 slice-4: reuse when supplied
         agent_anchor_id = f"{agent_role.value}-{job_name[:8]}"
+        # #3064 slice-4: the gateway session is keyed by a stable id (per
+        # role+slice) when the event path supplies one, so it persists across
+        # the per-event Job names; pod mode falls back to the Job name.
+        session_id = session_container_id or job_name
 
         try:
-            try:
+            if existing_session_token:
+                # #3064 slice-4: caller provided a validated, live session
+                # token — skip gateway registration. Build a minimal
+                # SessionInfo stub so downstream env injection works.
+                logger.info(
+                    "Reusing existing gateway session",
+                    job_name=job_name,
+                    session_token=session_token[:12] + "..." if session_token else "(none)",
+                )
+                session_info = SessionInfo(
+                    session_token=session_token,
+                    container_id=session_id,
+                    container_ip=None,
+                    mode=mode or "public",
+                    created_at=datetime.now(),
+                    expires_at=datetime.now() + timedelta(hours=24),
+                )
+
+            if session_info is None:
                 session_info = self.gateway.register_session(
-                    container_id=job_name,
+                    container_id=session_id,
                     container_ip=None,  # Token-only auth for k8s
                     mode=mode,
                     repos=repos,
@@ -1001,11 +1579,19 @@ class KubernetesSpawner:
                     session_token=session_token[:12] + "...",
                 )
 
-            except GatewayError as e:
-                raise KubernetesSpawnError(
-                    f"Failed to register gateway session for {job_name}: {e}"
-                ) from e
+                # Cache the session token for potential reuse on the next
+                # one-shot event spawn (#3064 slice-4). Keyed by the stable
+                # ``session_id`` (not the per-event Job name) so a subsequent
+                # event for the same role+slice hits this entry.
+                cache_key = (pipeline_id, agent_role.value, slice_id, session_id)
+                self._session_token_cache[cache_key] = session_token
 
+        except GatewayError as e:
+            raise KubernetesSpawnError(
+                f"Failed to register gateway session for {job_name}: {e}"
+            ) from e
+
+        try:
             # Build environment variables for the agent container.
             # Derive repo name from the first repo in the list (owner/name format).
             repo_base = "/home/egg/repos"
@@ -1215,6 +1801,8 @@ class KubernetesSpawner:
                 host_path_mounts=host_path_mounts or None,
             )
 
+            spawn_ms = (self._clock() - _spawn_start) * 1000.0
+
             logger.info(
                 "Agent Job created",
                 job_name=job_name,
@@ -1222,6 +1810,10 @@ class KubernetesSpawner:
                 pipeline_id=pipeline_id,
                 role=agent_role.value,
                 has_session=session_info is not None,
+                # Emit the per-spawn latency so the finer ``spawn_agent_job``
+                # sub-metric is observable in logs (the p50 budget itself reads
+                # the coarser slice-2 ``spawn_dispatch_seconds`` timing field).
+                spawn_ms=round(spawn_ms, 3),
             )
 
             return SpawnedContainer(
@@ -1230,11 +1822,19 @@ class KubernetesSpawner:
                 agent_role=agent_role,
                 pipeline_id=pipeline_id,
                 environment=environment,
+                spawn_ms=spawn_ms,
             )
 
         except KubernetesClientError as e:
-            # Clean up gateway session if we registered one
-            if session_info:
+            # Clean up gateway session only if WE registered one in this call.
+            # On the #3064 slice-4 reuse path (``existing_session_token``
+            # supplied) ``session_info`` is a stub wrapping a token registered
+            # by an earlier event and still cached under the stable base id —
+            # deleting it here would tear down the session the next event would
+            # reuse and leave the ``_session_token_cache`` entry dangling. Skip
+            # the delete on that path; ``_get_or_create_session`` heartbeats and
+            # re-registers on the next event if the gateway has since dropped it.
+            if session_info and not existing_session_token:
                 try:
                     self.gateway.delete_session(session_info.session_token)
                 except GatewayError:
@@ -1370,6 +1970,77 @@ class KubernetesSpawner:
             )
             return None
 
+        # --- #3064 slice-4: attempt worktree re-attach + session reuse ---
+        reuse_worktree_id: str | None = None
+        reuse_repo_volumes: dict[str, str] | None = None
+        reuse_session_token: str | None = None
+        branch = spawn_kwargs.get("branch")
+        repos = spawn_kwargs.get("repos")
+
+        # Build the candidate worktree id matching the existing convention.
+        candidate_id = self._build_agent_worktree_id(pipeline_id, agent_role, slice_id=slice_id)
+        if repos:
+            # Use the composed method that validates AND cleans dirty state
+            # (R6 dirty-state policy) so re-attached worktrees are always
+            # pristine before the agent runs.
+            result = self._try_reuse_worktree(candidate_id, branch, repos)
+            if result is not None:
+                reuse_worktree_id = candidate_id
+                reuse_repo_volumes = result[1]
+                logger.info(
+                    "Event spawn: worktree re-attach succeeded",
+                    agent_worktree_id=candidate_id,
+                    pipeline_id=pipeline_id,
+                    role=agent_role.value,
+                )
+            else:
+                logger.info(
+                    "Event spawn: worktree re-attach failed — falling back to create-with-retry",
+                    agent_worktree_id=candidate_id,
+                    pipeline_id=pipeline_id,
+                    role=agent_role.value,
+                )
+
+        # Session reuse (#3064 slice-4). The gateway session is keyed by the
+        # STABLE per-role+slice base Job name (no per-event discriminator), so
+        # it survives across the distinct Job names of successive events and
+        # can actually be reused. ``_get_or_create_session`` owns the
+        # cache-lookup → heartbeat → re-register logic in ONE place (the same
+        # path the session-reuse tests drive) — there is no second, divergent
+        # inline lookup. When re-attach succeeded the worktree is already
+        # present, so we resolve the session here and hand the token to
+        # ``spawn_agent_job`` (which then skips its own registration). On a
+        # re-attach miss we leave registration to ``spawn_agent_job``'s
+        # create-with-retry path so the worktree-creation/session linkage
+        # (#1857) stays intact — but still under the stable ``session_base_id``
+        # so the next event reuses it.
+        session_base_id, _jn2 = self._build_k8s_job_names(
+            pipeline_id, agent_role, slice_id=slice_id
+        )
+        if reuse_worktree_id is not None:
+            session_info = self._get_or_create_session(
+                pipeline_id,
+                agent_role,
+                slice_id=slice_id,
+                mode=spawn_kwargs.get("mode", "public"),
+                repos=repos,
+                branch=branch,
+                base_branch=spawn_kwargs.get("base_branch"),
+                phase=spawn_kwargs.get("phase"),
+                issue_number=spawn_kwargs.get("issue_number"),
+                upstream=spawn_kwargs.get("upstream"),
+                upstream_model=spawn_kwargs.get("upstream_model"),
+                jira_ticket=spawn_kwargs.get("jira_ticket"),
+            )
+            if session_info is not None:
+                reuse_session_token = session_info.session_token
+                logger.info(
+                    "Event spawn: resolved gateway session (reuse-or-register)",
+                    pipeline_id=pipeline_id,
+                    role=agent_role.value,
+                    session_container_id=session_base_id,
+                )
+
         event_env: dict[str, str] = {
             ENV_EVENT_LOOP_OWNER: "orchestrator",
             ENV_EVENT_ACTION: action,
@@ -1393,6 +2064,19 @@ class KubernetesSpawner:
         caller_labels = spawn_kwargs.pop("extra_labels", None) or {}
         merged_labels = {**caller_labels, **event_labels}
 
+        # Pop ``repo_volumes`` from ``spawn_kwargs`` to prevent the stale
+        # pre-allocation value (from ``_spawn``'s ``common_kwargs``) from
+        # leaking through ``**spawn_kwargs`` to ``spawn_agent_job`` (#3064
+        # slice-4, v2 NACK items 1 & 4). When re-attach succeeded, the
+        # validated ``reuse_repo_volumes`` replaces it; when re-attach
+        # failed, the original value from ``spawn_kwargs`` is passed
+        # explicitly so ``spawn_agent_job``'s create-with-retry path
+        # produces fresh volumes.
+        spawn_repo_volumes = spawn_kwargs.pop("repo_volumes", None)
+        resolved_repo_volumes = (
+            reuse_repo_volumes if reuse_repo_volumes is not None else spawn_repo_volumes
+        )
+
         return self.spawn_agent_job(
             pipeline_id,
             agent_role,
@@ -1400,6 +2084,13 @@ class KubernetesSpawner:
             extra_env=merged_env,
             extra_labels=merged_labels,
             job_name_suffix=dedupe_key[:_EVENT_JOB_NAME_DISCRIMINATOR_LEN],
+            repo_volumes=resolved_repo_volumes,
+            reuse_worktree_id=reuse_worktree_id,
+            existing_session_token=reuse_session_token,
+            # Register/cache/heartbeat the session under the stable base id so
+            # it is reused across the role's successive event spawns (#3064
+            # slice-4), rather than re-registered under each per-event Job name.
+            session_container_id=session_base_id,
             **spawn_kwargs,
         )
 
@@ -1552,6 +2243,31 @@ class KubernetesSpawner:
                     job_name=job.job_name,
                     error=str(e),
                 )
+
+        # #3064 slice-4: tear down any long-lived event-mode gateway sessions
+        # reused across this pipeline's one-shot event spawns. They are keyed
+        # by a stable base ``container_id`` (not the per-event Job name), so the
+        # per-Job ``remove_agent_job`` calls above do not reach them; this is
+        # the phase/pipeline-end teardown that releases them and bounds the
+        # session-token cache. Delegates to ``_teardown_session`` (the same
+        # delete-by-base-id + cache-eviction primitive used by the
+        # streak-exhaustion path) so the two callers share one implementation.
+        # Snapshot the keys first: ``_teardown_session`` pops from the cache it
+        # is iterated over.
+        for _pid, role_value, slice_id, _session_id in [
+            k for k in self._session_token_cache if k[0] == pipeline_id
+        ]:
+            try:
+                self._teardown_session(pipeline_id, AgentRole(role_value), slice_id=slice_id)
+            except ValueError:
+                # A cache entry whose role string is not a known AgentRole
+                # (should not happen) — drop it directly so cleanup stays bounded.
+                logger.warning(
+                    "Unknown role in session-token cache during cleanup; evicting",
+                    pipeline_id=pipeline_id,
+                    role=role_value,
+                )
+                self._session_token_cache.pop((_pid, role_value, slice_id, _session_id), None)
 
         if preserve_worktrees:
             logger.info(
@@ -2226,6 +2942,22 @@ class KubernetesSpawner:
                 **common_kwargs,
             )
 
+        def _teardown_event_session(role: AgentRole) -> None:
+            """Tear down a role's reused orchestrator-mode gateway session.
+
+            #3064 slice-4: the event loop's supervisor calls this when a role's
+            event arm exhausts its retry budget (the ``_exhausted`` transition).
+            Routes to :meth:`_teardown_session` under this closure's captured
+            ``pipeline_id`` / ``slice_id`` so the delete-by-base-id + cache
+            eviction targets the same stable key the spawn path registered
+            under. Best-effort: ``_teardown_session`` swallows gateway errors.
+            """
+            self._teardown_session(pipeline_id, role, slice_id=slice_id)
+
+        # Expose the teardown alongside the spawn callable so the executor's
+        # event-loop wiring can reach ``_teardown_session`` (which lives on the
+        # spawner) without holding a separate spawner reference.
+        _spawn.teardown_event_session = _teardown_event_session  # type: ignore[attr-defined]
         return _spawn
 
     # ------------------------------------------------------------------
