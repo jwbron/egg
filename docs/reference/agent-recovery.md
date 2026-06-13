@@ -151,12 +151,14 @@ Current heuristics — predictive, so expect some false positives/negatives:
 
 | Tool | Denied when | Deny reason points at |
 |------|-------------|------------------------|
-| `Read` (text) | Target file > `EGG_READ_CAP_BYTES` (default 256 KiB) **and** the read is unbounded — no `limit`, or a `limit` whose estimated payload (`limit` × ~128 B/line) still exceeds the cap | `offset` / `limit` to page through the file (with a suggested `limit` that fits the cap) |
+| `Read` (text) | Target file > `EGG_READ_CAP_BYTES` (default 256 KiB) **and** the read is unbounded — no `limit`, or a `limit` whose estimated payload (`limit` × ~128 B/line) still exceeds the cap | `offset` / `limit` to page through the file; or, if the whole file is genuinely needed, write the required byte size to `/tmp/egg-read-cap-bytes` and retry (the deny message includes the exact `echo` command) |
 | `Read` (PDF) | Target PDF > `EGG_READ_CAP_BYTES` **and** no non-empty `pages` range — a `pages`-scoped read is bounded (the Read tool caps it at 20 pages), mirroring `limit` for text | `pages` to read a bounded page range (e.g. `pages='1-5'`) |
 | `Read` (image/notebook) | Target image/notebook > `EGG_READ_CAP_BYTES` (returned whole; `offset`/`limit`/`pages` don't bound it) | images: avoid reading whole, use Bash (`file`/`stat`) for metadata; notebooks: inspect cells with `jq` (e.g. `jq '.cells[].source'`) |
 | `Grep` | `output_mode=content`, no `head_limit`, **and** no `path`/`glob` scope (whole-repo content dump) | `head_limit`, a `path`/`glob` scope, or `output_mode=files_with_matches` |
 
-The hook is **always-on** (excess model-bound output is wasteful on every route, including first-party Opus). Set `EGG_TOOL_OUTPUT_CAP=false` (or `0`/`no`/`off`) to disable; set `EGG_READ_CAP_BYTES` to tune the `Read` threshold (a set-but-invalid value — non-integer or non-positive — is logged and ignored in favour of the default).
+The hook is **always-on** (excess model-bound output is wasteful on every route, including first-party Opus). Set `EGG_TOOL_OUTPUT_CAP=false` (or `0`/`no`/`off`) to disable.
+
+The `Read` byte threshold resolves in precedence order: (1) the agent-writable override file `/tmp/egg-read-cap-bytes` — the agent writes the byte size it needs (the deny message supplies the exact `echo` command) and retries; the file is pod-local and never committed; (2) the `EGG_READ_CAP_BYTES` env var — the operator tuning knob; (3) the 256 KiB built-in default. A set-but-invalid value at any source — non-integer or non-positive — is logged once and skipped in favour of the next source in the chain. Operators further narrow the threshold on the LiteLLM path via `EGG_LITELLM_READ_CAP_BYTES` (injected at spawn; see the [Context guardrails section in the per-agent-models guide](../guides/per-agent-models.md#context-guardrails-3175)).
 
 ### Transient Exit Codes
 

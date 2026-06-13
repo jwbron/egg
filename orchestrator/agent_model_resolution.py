@@ -11,8 +11,10 @@ Precedence (highest first), matching #2769 task-2-3:
    :class:`AgentRole` at construction time.
 2. ``repositories.yaml`` ``default_agent_model`` — repository-level
    default surfaced via :func:`config.repo_config.get_default_agent_model`.
-3. Built-in default — ``"fable"`` for the refine and plan phase roles
-   (:data:`_FABLE_DEFAULT_ROLES`), ``"opus"`` for everything else.
+3. Built-in default — ``"opus"`` for all roles. Fable has been
+   disabled, so ``FABLE_DEFAULT_MODEL`` is now ``"opus"`` and the
+   refine/plan phase roles (:data:`_FABLE_DEFAULT_ROLES`) unify on opus
+   alongside everything else.
 
 Classifier: a model string matching one of the recognised Claude
 aliases (``opus``, ``opus[1m]``, ``sonnet``, ``sonnet[1m]``, ``haiku``,
@@ -41,6 +43,7 @@ test paths without further plumbing.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass
 
@@ -53,13 +56,12 @@ logger = logging.getLogger(__name__)
 # default in ``orchestrator/consensus_wrapper.py::build_consensus_wrapped_command``.
 DEFAULT_AGENT_MODEL = "opus"
 
-# Built-in default for the refine and plan phases. The drafting-heavy
-# upstream phases (analysis, slice DAG, contract shape) run on the
-# highest-capability tier; implement and downstream phases stay on
-# DEFAULT_AGENT_MODEL. Both pipeline-level ``agent_models`` and the
-# repo-level ``default_agent_model`` still override this (precedence
-# unchanged — this only splits the tier-3 built-in by role).
-FABLE_DEFAULT_MODEL = "fable"
+# Built-in default for the refine and plan phases. Fable has been
+# disabled, so the drafting-heavy upstream phases (analysis, slice DAG,
+# contract shape) now run on opus alongside implement and downstream
+# phases. Both pipeline-level ``agent_models`` and the repo-level
+# ``default_agent_model`` still override this (precedence unchanged).
+FABLE_DEFAULT_MODEL = "opus"
 
 # Effort level pinned on fable-routed agents (threaded to ``--effort``
 # on the ``python3 -m egg_agent`` command). Claude Code's built-in
@@ -137,6 +139,96 @@ _CLAUDE_EXACT_ALIASES = frozenset(
 )
 _CLAUDE_VERSIONED_RE = re.compile(r"^claude-")
 
+# Context guardrails for agent spawns (#3175). Every SDK turn re-sends
+# the whole conversation, and cached tokens bill at a
+# discounted-but-nonzero rate on every route (~10% of the input price
+# on Anthropic; a comparable blended rate on LiteLLM upstreams), so one
+# careless tool call that dumps tens of kilotokens (verbose ``pytest
+# -v``, a whole-megafile Read, an unbounded MCP result) is re-billed on
+# every subsequent turn for the life of the session. These caps bound
+# the size a single tool result can park in the conversation. They are
+# guardrails, not constraints: thresholds are sized so normal work
+# never hits them, and every cap carries its own remedy — Claude Code
+# spills oversized Bash and MCP results to a file the agent can
+# Read/grep, and the Read cap's deny message points at
+# ``offset``/``limit`` paging plus an agent-writable override file
+# (``shared/egg_agent/tool_output_cap.py``).
+#
+# Tuple shape: (sandbox env var, orchestrator-side override env var,
+# default). Operators override a value by setting the override variable
+# on the orchestrator; setting it to the empty string omits that
+# guardrail from the injection entirely. The override names are
+# deliberately distinct from the sandbox-side names so a value in the
+# orchestrator's own environment (e.g. a dev running it under Claude
+# Code) is never forwarded by accident.
+#
+# The Bash and MCP caps apply to EVERY route — the dump arithmetic is
+# route-independent; only the multiplier differs:
+# - ``BASH_MAX_OUTPUT_LENGTH`` (characters): Claude Code's built-in
+#   post-hoc Bash truncation — oversized output is saved to a session
+#   file and the agent gets the path plus a preview. 20k chars ≈ 5k
+#   tokens per result.
+# - ``MAX_MCP_OUTPUT_TOKENS`` (tokens): Claude Code's MCP result cap
+#   (built-in default 25k); excess is persisted to disk and replaced
+#   with a file reference.
+_CONTEXT_GUARDRAILS: tuple[tuple[str, str, str], ...] = (
+    ("BASH_MAX_OUTPUT_LENGTH", "EGG_AGENT_BASH_MAX_OUTPUT_LENGTH", "20000"),
+    ("MAX_MCP_OUTPUT_TOKENS", "EGG_AGENT_MAX_MCP_OUTPUT_TOKENS", "15000"),
+)
+
+# LiteLLM-only extra: a tighter Read cap. The predictive whole-file-Read
+# deny in ``tool_output_cap.py`` already guards every route at its
+# built-in 256 KiB default; on the LiteLLM path — where turn counts run
+# 3-5x the Claude baseline, multiplying the re-bill — this pushes big
+# files toward paging earlier (64 KiB ≈ 16k tokens). The Claude route
+# deliberately keeps the 256 KiB default rather than getting this var.
+_LITELLM_EXTRA_GUARDRAILS: tuple[tuple[str, str, str], ...] = (
+    ("EGG_READ_CAP_BYTES", "EGG_LITELLM_READ_CAP_BYTES", str(64 * 1024)),
+)
+
+
+def context_guardrail_env(upstream: str) -> dict[str, str]:
+    """Context-guardrail env vars for an agent spawn (#3175).
+
+    Returns the route-independent Bash/MCP caps for every *upstream*,
+    plus the tighter Read cap on the LiteLLM path. Reads the operator
+    overrides from the orchestrator's environment on every call
+    (spawn-frequency, so no caching) and validates each as a positive
+    integer — an unparseable or non-positive override logs a warning
+    and falls back to the built-in default rather than forwarding
+    garbage the sandbox would misread. An empty-string override opts
+    that guardrail out entirely.
+    """
+    guardrails = _CONTEXT_GUARDRAILS
+    if upstream == UPSTREAM_LITELLM:
+        guardrails = guardrails + _LITELLM_EXTRA_GUARDRAILS
+    env: dict[str, str] = {}
+    for target, override, default in guardrails:
+        raw = os.environ.get(override)
+        if raw is None:
+            env[target] = default
+            continue
+        value = raw.strip()
+        if not value:
+            # Explicit per-guardrail opt-out: don't inject the var, so the
+            # sandbox keeps Claude Code's (or tool_output_cap's) own default.
+            continue
+        try:
+            if int(value) <= 0:
+                raise ValueError(value)
+        except ValueError:
+            logger.warning(
+                "Ignoring %s=%r: expected a positive integer (or empty to "
+                "opt out); falling back to the default %s=%s. See #3175.",
+                override,
+                raw,
+                target,
+                default,
+            )
+            value = default
+        env[target] = value
+    return env
+
 
 @dataclass(frozen=True)
 class AgentModelDecision:
@@ -185,8 +277,8 @@ class AgentModelDecision:
         ``ANTHROPIC_CUSTOM_MODEL_OPTION``, not this var. LiteLLM-routed
         agents talk to the gateway, not anthropic.com, and the gateway
         injects its own credentials at proxy time. The Anthropic path
-        returns an empty dict so default-Claude spawns carry no extra
-        env (the existing pre-#2832 wire shape).
+        carries none of these registration vars, so default-Claude
+        spawns keep the pre-#2832 wire shape.
 
         We also redirect the other two resolution paths that would
         otherwise emit a Claude model name the LiteLLM proxy can't
@@ -213,9 +305,20 @@ class AgentModelDecision:
           rather than the ``[1m]`` alias: these vars are documented to
           take a model name and the ``[1m]`` suffix is read per-variable,
           and small/fast helper calls don't need the 1M window.
+
+        Every route additionally gets the context guardrails from
+        :func:`context_guardrail_env` (#3175) — per-turn re-billing of
+        the full conversation makes a single oversized tool result
+        disproportionately expensive on any route, so Bash/MCP result
+        sizes are bounded everywhere (with built-in remedies; see the
+        guardrail table's comment), and the LiteLLM path adds a tighter
+        Read cap on top. The Anthropic path therefore no longer returns
+        an empty dict (the pre-#3175 shape): it carries exactly the
+        Bash/MCP guardrails and none of the custom-model registration,
+        so the Claude *wire* shape is unchanged.
         """
         if self.upstream == UPSTREAM_ANTHROPIC or self.upstream_model is None:
-            return {}
+            return context_guardrail_env(self.upstream)
         return {
             "ANTHROPIC_CUSTOM_MODEL_OPTION": self.claude_code_alias,
             "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME": self.upstream_model,
@@ -223,6 +326,7 @@ class AgentModelDecision:
             "CLAUDE_CODE_SUBAGENT_MODEL": self.claude_code_alias,
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": self.upstream_model,
             "ANTHROPIC_SMALL_FAST_MODEL": self.upstream_model,
+            **context_guardrail_env(self.upstream),
         }
 
 
@@ -347,8 +451,11 @@ def resolve_agent_model(
         if repo_default:
             return classify_model(repo_default)
 
-    # Tier 3: built-in default — refine/plan roles run the
-    # highest-capability tier, everything else stays on opus.
+    # Tier 3: built-in default — opus for all roles. Fable has been
+    # disabled, so FABLE_DEFAULT_MODEL is now "opus" and the refine/plan
+    # branch resolves to the same value as the default branch. The branch
+    # is retained so re-enabling fable for refine/plan is a one-line
+    # change to FABLE_DEFAULT_MODEL.
     if role_value in _FABLE_DEFAULT_ROLES:
         return classify_model(FABLE_DEFAULT_MODEL)
     return classify_model(DEFAULT_AGENT_MODEL)
@@ -362,5 +469,6 @@ __all__ = [
     "UPSTREAM_ANTHROPIC",
     "UPSTREAM_LITELLM",
     "classify_model",
+    "context_guardrail_env",
     "resolve_agent_model",
 ]

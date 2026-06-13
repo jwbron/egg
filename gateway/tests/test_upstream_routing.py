@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import types
 from collections.abc import Iterator
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
@@ -359,13 +360,18 @@ def client():
         yield c
 
 
-def _register_session(upstream: str = "anthropic", mode: str = "public") -> str:
-    """Register a session and return the placeholder-wrapped auth value."""
+def _register_session(upstream: str = "anthropic", mode: str = "public", **session_fields) -> str:
+    """Register a session and return the placeholder-wrapped auth value.
+
+    ``session_fields`` passes through to ``register_session`` (e.g.
+    ``pipeline_id`` / ``agent_role`` / ``phase`` for the attribution tests).
+    """
     sm = gateway.get_session_manager()
     token, _session = sm.register_session(
         container_id=f"c-routing-{upstream}-{os.urandom(4).hex()}",
         upstream=upstream,
         mode=mode,
+        **session_fields,
     )
     return to_placeholder(token)
 
@@ -472,6 +478,130 @@ class TestFallbackOnQuota:
         assert litellm.idx == 1
         assert anthropic.idx == 1
         assert "x-api-key" not in anthropic.last_headers
+
+
+class TestAttributionHeaders:
+    """Gateway-authoritative ``x-egg-*`` attribution on non-Anthropic hops (#3175).
+
+    The litellm hop must carry the session's pipeline/role/phase so the
+    egg-litellm cost callback can attribute spend per role; the Anthropic
+    path must stay byte-identical (no stamped headers); and agent-supplied
+    ``x-egg-*`` headers must never survive onto a non-Anthropic hop.
+    """
+
+    _SESSION_FIELDS = {
+        "pipeline_id": "pipeline-20260612-abc",
+        "agent_role": "reviewer_code",
+        "phase": "implement",
+    }
+
+    def test_litellm_hop_carries_attribution(self, client) -> None:
+        auth = _register_session(upstream="litellm", **self._SESSION_FIELDS)
+        with _routed(EMPTY_POLICY) as (_anthropic, litellm):
+            resp = client.post(
+                "/v1/messages",
+                data=_messages_body("deepseek-v4-flash", stream=True),
+                headers={"x-api-key": auth, "content-type": "application/json"},
+            )
+        assert resp.status_code == 200
+        assert litellm.last_headers.get("x-egg-pipeline-id") == "pipeline-20260612-abc"
+        assert litellm.last_headers.get("x-egg-agent-role") == "reviewer_code"
+        assert litellm.last_headers.get("x-egg-phase") == "implement"
+
+    def test_count_tokens_hop_carries_attribution(self, client) -> None:
+        auth = _register_session(upstream="litellm", **self._SESSION_FIELDS)
+        with _routed(EMPTY_POLICY) as (_anthropic, litellm):
+            client.post(
+                "/v1/messages/count_tokens",
+                data=_messages_body("deepseek-v4-flash", stream=False),
+                headers={"x-api-key": auth, "content-type": "application/json"},
+            )
+        assert litellm.last_headers.get("x-egg-agent-role") == "reviewer_code"
+
+    def test_unset_session_fields_emit_no_headers(self, client) -> None:
+        # A session with only a role: no empty-valued pipeline/phase headers.
+        auth = _register_session(upstream="litellm", agent_role="coder")
+        with _routed(EMPTY_POLICY) as (_anthropic, litellm):
+            client.post(
+                "/v1/messages",
+                data=_messages_body("deepseek-v4-flash", stream=True),
+                headers={"x-api-key": auth, "content-type": "application/json"},
+            )
+        assert litellm.last_headers.get("x-egg-agent-role") == "coder"
+        assert "x-egg-pipeline-id" not in litellm.last_headers
+        assert "x-egg-phase" not in litellm.last_headers
+
+    def test_agent_supplied_x_egg_headers_are_stripped(self, client) -> None:
+        # The sandbox controls its own request headers; a forged x-egg-*
+        # value must never masquerade as gateway attribution on the litellm
+        # hop — neither overriding a real field nor smuggling a novel key.
+        auth = _register_session(upstream="litellm", **self._SESSION_FIELDS)
+        with _routed(EMPTY_POLICY) as (_anthropic, litellm):
+            client.post(
+                "/v1/messages",
+                data=_messages_body("deepseek-v4-flash", stream=True),
+                headers={
+                    "x-api-key": auth,
+                    "content-type": "application/json",
+                    "x-egg-agent-role": "trusted_user",
+                    "x-egg-forged": "1",
+                    # Mixed-case forgery: the strip lowercases the key, so an
+                    # X-Egg-... header must be dropped too, not slip through.
+                    "X-Egg-Pipeline-Id": "forged-pipeline",
+                },
+            )
+        assert litellm.last_headers.get("x-egg-agent-role") == "reviewer_code"
+        assert litellm.last_headers.get("x-egg-pipeline-id") == "pipeline-20260612-abc"
+        assert "x-egg-forged" not in litellm.last_headers
+
+    def test_anthropic_hop_is_not_stamped(self, client) -> None:
+        # No-op invariant: the Claude path carries no attribution headers.
+        auth = _register_session(upstream="anthropic", **self._SESSION_FIELDS)
+        with _routed(EMPTY_POLICY) as (anthropic, _litellm):
+            client.post(
+                "/v1/messages",
+                data=_messages_body("claude-opus-4-8", stream=True),
+                headers={"x-api-key": auth, "content-type": "application/json"},
+            )
+        assert not [k for k in anthropic.last_headers if k.lower().startswith("x-egg-")]
+
+    def test_fallback_to_anthropic_drops_attribution(self, client) -> None:
+        # litellm 429 → anthropic fallback: the litellm hop is stamped, the
+        # anthropic hop is not (scoping mirrors the credential-bleed guard).
+        auth = _register_session(upstream="litellm", **self._SESSION_FIELDS)
+        policy = parse_routing_policy(
+            {
+                "fallbacks": {
+                    "deepseek-v4-flash": [{"upstream": "anthropic", "model": "claude-opus-4-8"}],
+                }
+            }
+        )
+        with _routed(
+            policy,
+            anthropic_script=[_FakeStreamResponse(200)],
+            litellm_script=[_FakeStreamResponse(429, chunks=(b'{"error":"rate"}',))],
+        ) as (anthropic, litellm):
+            client.post(
+                "/v1/messages",
+                data=_messages_body("deepseek-v4-flash", stream=True),
+                headers={"x-api-key": auth, "content-type": "application/json"},
+            )
+        assert litellm.last_headers.get("x-egg-agent-role") == "reviewer_code"
+        assert not [k for k in anthropic.last_headers if k.lower().startswith("x-egg-")]
+
+    def test_header_values_are_sanitized(self) -> None:
+        # CR/LF (header injection) and control chars dropped; length capped.
+        assert gateway._sanitize_attribution_value("a\r\nx-evil: 1") == "ax-evil: 1"
+        assert gateway._sanitize_attribution_value("rôle") == "rle"
+        assert len(gateway._sanitize_attribution_value("x" * 1000)) == 256
+
+    def test_control_only_value_emits_no_header(self) -> None:
+        # A field of only control chars sanitizes to "" — no empty-valued
+        # header should be stamped at all.
+        session = types.SimpleNamespace(pipeline_id="\r\n", agent_role="coder", phase=None)
+        out = gateway._with_attribution_headers({}, session)
+        assert "x-egg-pipeline-id" not in out
+        assert out["x-egg-agent-role"] == "coder"
 
 
 class TestTransientFivexx:

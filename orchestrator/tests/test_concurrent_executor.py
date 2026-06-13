@@ -1047,14 +1047,14 @@ class TestSpawnDefaultAgentModelPath:
             f"consensus wrapper; got {captured.get('model')!r}"
         )
 
-    def test_default_config_passes_fable_for_refine_plan_role(self):
-        """``agent_models == {}`` → refiner spawn passes ``model="fable"``
+    def test_default_config_passes_opus_for_refine_plan_role(self):
+        """``agent_models == {}`` → refiner spawn passes ``model="opus"``
         to ``build_consensus_wrapped_command``.
 
         Symmetric to ``test_default_config_passes_opus_to_consensus_wrapper``
         — guards the role→model wiring in ``_spawn_agent`` against a
-        future change that breaks the fable default for the refine/plan
-        roles (post-PR #3062 split of tier-3 built-in by role).
+        future change that breaks the opus default for the refine/plan
+        roles after fable was disabled.
         """
         from concurrent_executor import ConcurrentPhaseExecutor
         from egg_orchestrator.types import AgentRole
@@ -1076,8 +1076,8 @@ class TestSpawnDefaultAgentModelPath:
         ):
             executor._spawn_agent(AgentRole.REFINER, prompt_text="run task")
 
-        assert captured.get("model") == "fable", (
-            f"Default-config refiner spawn MUST pass model='fable' to "
+        assert captured.get("model") == "opus", (
+            f"Default-config refiner spawn MUST pass model='opus' to "
             f"the consensus wrapper; got {captured.get('model')!r}"
         )
 
@@ -1548,3 +1548,37 @@ class TestEventLoopOwnershipSpawnGating:
             "orchestrator mode must start the orchestrator-owned event loop"
         )
         assert executor._event_loop is not None
+
+
+class TestSpawnRecordsResolvedModel:
+    """#3174: every spawn records the resolved Claude-Code-facing alias
+    on the ``AgentExecution`` so operators can confirm a live
+    ``agent_models`` swap from ``get_status`` / ``list_containers``
+    instead of grepping pod logs for the session-init line."""
+
+    def test_override_recorded_on_execution(self):
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        pipeline.config.agent_models = {"coder": "deepseek-v4-pro"}
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+
+        execution = executor._spawn_agent(AgentRole.CODER)
+
+        # LiteLLM-routed: the recorded alias carries the [1m] suffix,
+        # matching the --model flag and the session-init log line.
+        assert execution.resolved_model == "deepseek-v4-pro[1m]"
+
+    def test_default_recorded_on_execution(self):
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+
+        execution = executor._spawn_agent(AgentRole.CODER)
+
+        assert execution.resolved_model == "opus"

@@ -3,8 +3,8 @@
 # egg routes non-Claude agents (the cq-6 OpenRouter/Qwen pilot, #2799)
 # through this proxy: Claude Code -> gateway -> LiteLLM -> OpenRouter. The
 # stock image's Anthropic->OpenAI translation drops prompt-cache hits on
-# Qwen/DeepSeek, billing full input rate every turn. patch_litellm_cache.py
-# closes the three gaps at build time (see that script for the diagnosis);
+# Qwen/DeepSeek and mis-streams reasoning models. patch_litellm_cache.py
+# closes the five gaps at build time (see that script for the diagnosis);
 # cost_callback.py surfaces the resulting cost/cache stats into the pod log
 # stream. Both mirror the host-side dotfiles setup that took Qwen cache hit
 # rate from 0% to ~99.99%.

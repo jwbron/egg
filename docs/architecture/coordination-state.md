@@ -22,12 +22,12 @@
 > has produced zero such incidents. The invariant below is the structural fix
 > that retires the failure class.
 
-## Slice landings (status as of slice-1)
+## Slice landings (status as of slice-6)
 
-This page describes the **final shape** of the #3077 invariant. The epic is
-being landed in six slices; not every enforcing mechanism cited below exists
-on `main` yet. The table tracks what has shipped vs what is still pending so
-a reader cannot mistake the design target for the current state.
+This page describes the **final shape** of the #3077 invariant. The epic was
+landed in six slices, all of which have now shipped to `main`; every enforcing
+mechanism cited below exists. The table records each slice landing so a reader
+can trace which mechanism arrived in which slice.
 
 | Mechanism | Cited under | Status |
 |-----------|-------------|--------|
@@ -36,19 +36,18 @@ a reader cannot mistake the design target for the current state.
 | `mcp__brc__read_peer_artifact` (live store + on-disk merge, `live` flag) | Clause 1 | **Shipped** (predates #3077) |
 | Contract reads via `mcp__sdlc__show_contract` / `mcp__task__*` / `mcp__phase__get_context` | Clause 1 | **Shipped** (predates #3077) |
 | `mcp__progress__query_status` / `mcp__progress__emit` HTTP-backed reads | Clause 1 | **Shipped** (predates #3077) |
-| `shared/egg_contracts/artifact_spec.py` declarative artifact registry | Clause 3 | **Pending** (slice-2) |
-| `shared/egg_contracts/tests/test_artifact_spec.py` spec-consistency tests | Clause 3 | **Pending** (slice-2) |
-| `handle_consensus_propose_signal` generalisation to every spec-registered artifact | Clause 3 | **Pending** (slice-3) |
-| Gateway `POST /api/v1/artifact/get` + `orchestrator/routes/artifacts.py` | Clause 1 | **Pending** (slice-4) |
-| Sandbox `egg-artifact` verb | Clauses 1, 3 | **Pending** (slice-4) |
-| `orchestrator/tests/test_prompt_sync_ratchet.py` no-sync-mechanics ratchet | Clause 2 | **Pending** (slice-5) |
+| `shared/egg_contracts/artifact_spec.py` declarative artifact registry | Clause 3 | **Shipped** (slice-2) |
+| `shared/egg_contracts/tests/test_artifact_spec.py` spec-consistency tests | Clause 3 | **Shipped** (slice-2) |
+| `handle_consensus_propose_signal` generalisation to every spec-registered artifact | Clause 3 | **Shipped** (slice-3) |
+| Gateway `POST /api/v1/artifact/get` + `orchestrator/routes/artifacts.py` | Clause 1 | **Shipped** (slice-4) |
+| Sandbox `egg-artifact` verb | Clauses 1, 3 | **Shipped** (slice-4) |
+| `orchestrator/tests/test_prompt_sync_ratchet.py` no-sync-mechanics ratchet | Clause 2 | **Shipped** (slice-5) |
 | Redis-only message store (memory backend removed, [#3159](https://github.com/jwbron/egg/issues/3159)) + Redis restart-semantics test | Wipe-semantics | **Shipped** (slice-6 fail-loud signal, superseded by the #3159 removal) |
 
-The clause descriptions below are written in present tense as the **target
-state** the epic is landing. Until a slice ships, treat the corresponding
-"Enforcing mechanisms" bullet as a design specification for that slice, not
-a current-state claim. The shipped column above is the source of truth for
-what exists today.
+The clause descriptions below are written in present tense. With all six
+slices shipped, every "Enforcing mechanisms" bullet now describes a
+current-state claim rather than a design target. The slice column above
+records when each mechanism landed.
 
 ## The Three-Clause Invariant
 

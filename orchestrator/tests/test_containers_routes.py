@@ -116,3 +116,94 @@ class TestNonObjectJsonBodyReturns400:
         assert body["success"] is False
         assert "json object" in body["message"].lower(), body
         mock_get_backend.assert_not_called()
+
+
+class TestListContainersResolvedModel:
+    """#3174: ``list_containers`` joins the per-spawn ``resolved_model``
+    from persisted pipeline state onto the live container rows."""
+
+    def _container(self, container_id: str):
+        from models import AgentRole, ContainerInfo, ContainerStatus
+
+        return ContainerInfo(
+            container_id=container_id,
+            container_name=f"egg-test-{container_id}",
+            status=ContainerStatus.RUNNING,
+            agent_role=AgentRole.CODER,
+        )
+
+    def test_resolved_model_joined_onto_rows(self, client):
+        from unittest.mock import MagicMock
+
+        backend = MagicMock()
+        backend.list_containers.return_value = [
+            self._container("container-aaa"),
+            self._container("container-bbb"),
+        ]
+        with (
+            patch("routes.containers._get_backend", return_value=backend),
+            patch(
+                "routes.containers._resolved_models_by_container",
+                return_value={"container-aaa": "deepseek-v4-pro[1m]"},
+            ),
+        ):
+            response = client.get("/api/v1/pipelines/issue-77/containers")
+
+        assert response.status_code == 200, response.data
+        rows = {c["container_id"]: c for c in response.get_json()["data"]["containers"]}
+        assert rows["container-aaa"]["resolved_model"] == "deepseek-v4-pro[1m]"
+        # Pre-#3174 records (no persisted decision) degrade to null.
+        assert rows["container-bbb"]["resolved_model"] is None
+
+    def test_join_helper_reads_pipeline_state(self):
+        from pathlib import Path
+        from unittest.mock import MagicMock, patch
+
+        from models import (
+            AgentExecution,
+            AgentRole,
+            PhaseExecution,
+            Pipeline,
+            PipelinePhase,
+        )
+        from routes.containers import _resolved_models_by_container
+
+        pipeline = Pipeline(
+            id="issue-77",
+            issue_number=77,
+            repo="test/repo",
+            branch="egg/issue-77",
+        )
+        pipeline.phases = {
+            "implement": PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                agents=[
+                    AgentExecution(
+                        role=AgentRole.CODER,
+                        container_id="container-aaa",
+                        resolved_model="qwen3-max[1m]",
+                    ),
+                    # No recorded decision — must be absent from the map,
+                    # not present as None.
+                    AgentExecution(role=AgentRole.TESTER, container_id="container-bbb"),
+                ],
+            ),
+        }
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+
+        with (
+            patch("routes.get_repo_path", return_value=Path("/repos")),
+            patch("state_store.discover_repo_paths", return_value=[Path("/repos/test")]),
+            patch("state_store.get_state_store", return_value=store),
+        ):
+            mapping = _resolved_models_by_container("issue-77")
+
+        assert mapping == {"container-aaa": "qwen3-max[1m]"}
+
+    def test_join_helper_degrades_to_empty_on_failure(self):
+        """Listing containers must not depend on state-store health."""
+        from routes.containers import _resolved_models_by_container
+
+        with patch("routes.get_repo_path", side_effect=RuntimeError("no repo path")):
+            assert _resolved_models_by_container("issue-77") == {}
