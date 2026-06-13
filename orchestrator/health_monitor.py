@@ -145,6 +145,20 @@ class HealthMonitor:
         # BRC progress tracking: first time each fully-ACKed producer was seen
         self._fully_acked_first_seen: dict[str, float] = {}
 
+        # #3064 slice-5: orchestrator-mode awareness. In orchestrator mode:
+        #   * roles with no active Job are normal (never alert on heartbeat
+        #     timeout or container-exit).
+        #   * heartbeat / progress / container-exit tripwires apply only
+        #     when a Job is active for that role.
+        #   * a silent one-shot pod mid-event still trips — the role IS
+        #     active so tripwires fire normally.
+        self._orchestrator_mode: bool = False
+        # Set of roles with an active one-shot Job. Populated externally
+        # (the concurrent executor or event loop sets this from live Job
+        # labels on each poll).  Empty/unset means "unknown — fall through
+        # to pod-mode alerting behavior".
+        self._active_jobs: set[str] = set()
+
         # Subscribe to events
         self._event_bus.subscribe(EventType.PROGRESS_EMITTED, self._on_progress)
         self._event_bus.subscribe(EventType.ERROR, self._on_error)
@@ -184,6 +198,35 @@ class HealthMonitor:
         """Return the phase last set via :meth:`set_current_phase`."""
         with self._lock:
             return self._current_phase
+
+    def set_orchestrator_mode(self, enabled: bool = True) -> None:
+        """Enable or disable orchestrator-mode alert suppression.
+
+        In orchestrator mode (``enabled=True``), roles with no active Job
+        are normal — heartbeat/progress/container-exit tripwires apply only
+        while that role's Job is active.  A silent one-shot pod mid-event
+        still alerts.  Pod mode (``enabled=False``, the default) restores
+        today's behavior where every registered agent's silence can trip
+        alerts.
+
+        Thread-safe.
+        """
+        with self._lock:
+            self._orchestrator_mode = enabled
+
+    def set_active_jobs(self, roles: set[str]) -> None:
+        """Set the set of roles with currently active one-shot Jobs.
+
+        Called by the concurrent executor or event loop on each poll tick
+        from live Job labels.  In orchestrator mode roles NOT in this set
+        are treated as legitimately idle and are skipped from tripwire
+        checks.
+
+        Args:
+            roles: Set of role names with active one-shot Jobs.
+        """
+        with self._lock:
+            self._active_jobs = set(roles)
 
     def reset_agent(self, agent_id: str) -> None:
         """Drop all per-agent tracking state for *agent_id*.
@@ -408,6 +451,25 @@ class HealthMonitor:
 
         return False, None
 
+    def _orchestrator_skip_tripwire(self, agent_id: str) -> bool:
+        """Return True if this agent should be skipped by tripwire checks in orchestrator mode.
+
+        In orchestrator mode, a role with no active one-shot Job is
+        legitimately idle — the orchestrator event loop simply has not
+        derived an actionable event for it yet.  Alerting on such a role
+        would be a false positive.
+
+        When ``_active_jobs`` is empty (never populated), we fall through
+        to pod-mode behavior for safety — an unknown state should never
+        suppress alerts.
+        """
+        if not self._orchestrator_mode:
+            return False
+        # If _active_jobs was never populated, behave like pod mode
+        if not self._active_jobs:
+            return False
+        return agent_id not in self._active_jobs
+
     def _is_brc_idle(self, agent_id: str) -> bool:
         """Check if an agent is idle waiting for BRC upstream producers.
 
@@ -552,6 +614,13 @@ class HealthMonitor:
         agent_id = event.data.get("agent_id")
         exit_code = event.data.get("exit_code", -1)
         if not agent_id:
+            return
+
+        # #3064 slice-5: in orchestrator mode a container exit for a role
+        # with no active Job is a ghost container (a pod that finished its
+        # event and was reaped).  Only escalate when the role has an active
+        # Job — a silent one-shot pod that died mid-event still alerts.
+        if self._orchestrator_mode and self._active_jobs and agent_id not in self._active_jobs:
             return
 
         escalation = {
@@ -699,6 +768,13 @@ class HealthMonitor:
             if self._is_brc_idle(agent_id):
                 continue
 
+            # #3064 slice-5: orchestrator-mode suppression — skip roles
+            # with no active Job. This is a separate gate from BRC-idle
+            # because in orchestrator mode even producer roles have no pod
+            # between events, and that is normal.
+            if self._orchestrator_skip_tripwire(agent_id):
+                continue
+
             # Focal-agent activity gate (#2190) OR alive-signal peer-progress
             # gate (#2242): defer if either fires. The activity gate catches
             # an agent legitimately blocked in a long tool call (e.g. a
@@ -806,6 +882,11 @@ class HealthMonitor:
             # BRC-idle suppression: skip reviewer-only agents waiting for
             # upstream producers to propose
             if self._is_brc_idle(agent_id):
+                continue
+
+            # #3064 slice-5: orchestrator-mode suppression — skip roles
+            # with no active Job.
+            if self._orchestrator_skip_tripwire(agent_id):
                 continue
 
             # Focal-agent activity gate (#2190) OR alive-signal peer-progress

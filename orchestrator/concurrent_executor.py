@@ -493,6 +493,8 @@ class ConcurrentPhaseExecutor:
             agent_failed=self._handle_propose_arm_exhaustion,
         )
 
+        # #3064 slice-5: convergence-stall notifier re-uses the same
+        # OVERSEER_ALERT surface wired for the supervisor.
         loop = OrchestratorEventLoop(
             tracker,
             spawner_adapter,
@@ -503,6 +505,7 @@ class ConcurrentPhaseExecutor:
             roles=make_role_list(roles),
             job_supervisor=supervisor,
             job_status_view=self._event_status_view,
+            convergence_stall_notifier=self._emit_supervision_alert,
         )
         self._event_loop = loop
         loop.start()
@@ -513,7 +516,44 @@ class ConcurrentPhaseExecutor:
             phase=phase,
             roles=[r.value for r in roles],
         )
+
+        # #3064 slice-5: set orchestrator mode on the health monitor and
+        # heartbeat coordinator so their tripwire/refresh behavior reflects
+        # the ownership mode (roles with no active Job are normal in
+        # orchestrator mode; gateway-session refresh via heartbeat fan-out
+        # is suppressed).
+        self._enable_orchestrator_mode_surfaces()
+
         return loop
+
+    def _enable_orchestrator_mode_surfaces(self) -> None:
+        """Propagate orchestrator mode to downstream surfaces.
+
+        In orchestrator mode:
+        - The health monitor suppresses alerts for roles with no active Job.
+        - The heartbeat coordinator suppresses gateway-session fan-out
+          (refresh happens at spawn time from slice-4 worktree re-attach).
+        - Absent-sender heartbeats between events trip nothing.
+
+        Best-effort: a missing health monitor or coordinator is tolerated
+        (unit tests often stand up only the component under test).
+        """
+        try:
+            from health_monitor import get_health_monitor
+
+            hm = get_health_monitor()
+            if hm is not None:
+                hm.set_orchestrator_mode(True)
+        except Exception:  # noqa: BLE001 — best-effort
+            pass
+
+        try:
+            from heartbeat import get_heartbeat_coordinator
+
+            hc = get_heartbeat_coordinator()
+            hc.set_orchestrator_mode(True)
+        except Exception:  # noqa: BLE001 — best-effort
+            pass
 
     def _build_event_spawn_params(
         self, role: AgentRole
