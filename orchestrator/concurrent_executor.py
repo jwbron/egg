@@ -502,8 +502,12 @@ class ConcurrentPhaseExecutor:
         know that ``spawn_all`` returned ``[]`` *by design* — there are no
         up-front containers to wait on, so phase completion must be driven
         purely off ``check_consensus()`` + the consensus timeout, never off
-        the empty container set. Set only when ``spawn_all`` took the
-        orchestrator-ownership branch and started the loop.
+        the empty container set. Concretely, the timeout fallthrough gates the
+        incomplete-consensus HITL escalation (``return 1``) on this method so
+        an orchestrator-owned slice that never converged is treated as the
+        failure it is, rather than falling through to a bare ``return 0``. Set
+        only when ``spawn_all`` took the orchestrator-ownership branch and
+        started the loop.
         """
         return self._event_loop is not None
 

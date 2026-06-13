@@ -19195,6 +19195,39 @@ def _run_concurrent_phase(
                 combined_logs += f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
                 return 1, combined_logs
 
+            # Orchestrator-owned event loop: this timeout fallthrough is the
+            # dominant non-convergence terminal.  spawn_all returns [] by
+            # design, so step 5's "all containers exited" path is guarded off
+            # (it requires a non-empty active set) and a slice that never
+            # converged — producer never proposed, a reviewer pod failed to
+            # ACK, reviews pending with no NACK — lands here with no NACKs.
+            # Unlike pod mode, where a clean all-exited phase already routed
+            # through step 5's is_complete check, nothing upstream has verified
+            # consensus completeness on this path.  Mirror step 5: when the
+            # orchestrator owns the loop and consensus is incomplete, escalate
+            # an HITL and fail rather than reporting a non-converged slice as
+            # success (a bare `return 0` here would advance the phase toward PR
+            # creation past the BRC consensus gate).
+            if executor.owns_event_loop() and not _final_consensus.get("is_complete"):
+                question, log_suffix = _incomplete_consensus_decision_text(
+                    _final_consensus, container_failure_count=0
+                )
+                logger.warning(
+                    "Consensus timed out and is incomplete (orchestrator-owned loop) — escalating to HITL",
+                    pipeline_id=pipeline_id,
+                    blocking_agents=_final_consensus.get("blocking_agents", []),
+                )
+                _persist_hitl_decision(
+                    pipeline_id,
+                    pipeline,
+                    store,
+                    question=question,
+                    options=["Retry phase", "Accept current state", "Abort phase"],
+                    phase=pipeline.current_phase,
+                )
+                combined_logs += log_suffix
+                return 1, combined_logs
+
             return 0, combined_logs
 
         # 7. Sleep before next poll

@@ -291,9 +291,21 @@ class OrchestratorEventLoop:
             return EventDecision(role=role, action=action, dedupe_key=key, spawned=False)
 
         requested_at = self.clock()
-        self.spawner.spawn_event(role=role, action=action, dedupe_key=key, payload=payload)
+        spawn_result = self.spawner.spawn_event(
+            role=role, action=action, dedupe_key=key, payload=payload
+        )
         dispatched_at = self.clock()
         self._live_keys.add(key)
+
+        # Cross-process adoption: the spawner returns None when an already-live
+        # Job owns this dedupe key (the restart/race backstop in
+        # spawn_event_job). The key is now tracked either way, but no *new* pod
+        # was created, so this is not a fresh spawn — record spawned=False and
+        # emit no timing, so the slice-4 p50<60s budget (which reads `timing`)
+        # never counts an adoption as a spawn→invoke latency sample.
+        if spawn_result is None:
+            return EventDecision(role=role, action=action, dedupe_key=key, spawned=False)
+
         timing = {
             "spawn_requested_at": requested_at,
             "spawn_dispatch_seconds": round(dispatched_at - requested_at, 6),

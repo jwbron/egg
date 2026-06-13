@@ -1517,7 +1517,10 @@ class TestOrchestratorOwnedEventLoopCompletion:
     def test_zero_containers_stops_loop_on_timeout(
         self, MockExecutor, mock_prompt, mock_lock, mock_emit, mock_monotonic, mock_sleep
     ):
-        """If consensus never completes, the consensus timeout fires and the
+        """If consensus never completes, the consensus timeout fires, the
+        non-convergence is escalated as an incomplete-consensus HITL and the
+        phase FAILS (rc=1) — not a silent ``return 0`` that would advance a
+        non-converged slice past the BRC gate toward PR creation — and the
         event loop is stopped (so it stops requesting one-shot spawns) rather
         than the phase hanging or terminating off the empty container set.
         """
@@ -1565,6 +1568,18 @@ class TestOrchestratorOwnedEventLoopCompletion:
                 **_CALL_ARGS,
             )
 
-        # Timeout path returns (no exit-code fallback off the empty set).
-        assert exit_code in (0, 1)
+        # Orchestrator-owned loop + consensus incomplete at timeout ⇒ the
+        # phase must FAIL, not silently succeed off the empty container set.
+        assert exit_code == 1, (
+            "orchestrator-mode non-convergence at the consensus timeout must "
+            "fail the phase, not return 0 and advance past the BRC gate"
+        )
+        # The incomplete consensus is escalated to the operator as a persisted
+        # HITL decision (read the round-tripped on-disk state, which is what
+        # /sdlc reads — asserting only call shape would mask the persistence).
+        disk_decisions = mock_store.load_pipeline("issue-999").decisions
+        incomplete_decisions = [
+            d for d in disk_decisions if "consensus incomplete" in d.question.lower()
+        ]
+        assert len(incomplete_decisions) == 1
         assert mock_executor_instance.stop_event_loop.call_count >= 1
