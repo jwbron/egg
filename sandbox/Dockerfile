@@ -301,8 +301,7 @@ RUN su - egg -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_CO
             echo "If pinning to an older CC build is intentional (and every"; \
             echo "agent_models entry has been pinned away from '${family}'),"; \
             echo "drop '${family}' from the 'for family in ...' list above to"; \
-            echo "skip the gate for that family (matches the bypass guidance"; \
-            echo "in docs/guides/per-agent-models.md)."; \
+            echo "skip the gate for that family."; \
             exit 1; \
         fi; \
     done && \
