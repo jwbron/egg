@@ -2,10 +2,10 @@
 #
 # Durability scope: inter-agent messages (the BRC transcript and the
 # consensus tracker's replay source) must survive a mid-phase orchestrator
-# restart (#3076). The orchestrator selects this backend explicitly via
-# EGG_MESSAGE_STORE_BACKEND=redis on orchestrator-deployment.yaml — the
-# silent auto→memory fallback is exactly what #3077 slice-6's degraded
-# health flag exists to catch.
+# restart (#3076). The orchestrator pins this backend explicitly via
+# EGG_MESSAGE_STORE_BACKEND=redis on orchestrator-deployment.yaml; since
+# #3159 Redis Streams is the only backend — store creation fails loudly
+# rather than falling back.
 #
 # Only the orchestrator talks to Redis. Agent pods cannot reach it: the
 # egg-agents namespace is default-deny egress (network-policies.yaml) with

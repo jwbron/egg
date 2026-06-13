@@ -74,6 +74,7 @@ def _make_pipeline(
     branch: str | None = None,
     plan: str | None = None,
     analysis: str | None = None,
+    jira_ticket: str | None = None,
 ) -> MagicMock:
     """Create a mock Pipeline object."""
     pipeline = MagicMock()
@@ -85,6 +86,7 @@ def _make_pipeline(
     pipeline.branch = branch
     pipeline.plan = plan
     pipeline.analysis = analysis
+    pipeline.jira_ticket = jira_ticket
     return pipeline
 
 
@@ -116,12 +118,19 @@ class TestEnsureStatefilesOnBranch:
             result = _ensure_statefiles_on_branch(tmp_path, pipeline)
 
         assert result is True
+        from egg_contracts.loader import compose_task_description
+
         mock_create.assert_called_once_with(
             issue_number=42,
             title="Issue #42",
             url="https://github.com/owner/repo/issues/42",
             pipeline_id="pipe-1",
             repo_root=tmp_path,
+            task_description=compose_task_description(
+                description="test prompt",
+                issue_number=42,
+                issue_url="https://github.com/owner/repo/issues/42",
+            ),
         )
         mock_populate.assert_called_once_with(
             tmp_path,
@@ -154,6 +163,8 @@ class TestEnsureStatefilesOnBranch:
             task_description="test prompt",
             repo_root=tmp_path,
         )
+        # The composed statement for a free-text pipeline is the prompt
+        # verbatim — no identity anchor to prepend.
         mock_populate.assert_called_once_with(
             tmp_path,
             "pipe-abc",

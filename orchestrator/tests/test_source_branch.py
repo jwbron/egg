@@ -1707,21 +1707,28 @@ class TestPullContractFromSourceBranch:
             assert result is True
             assert saved["contract"].task_description == "original description"
 
-    def test_clears_pulled_task_description_when_forking_to_issue_pipeline(self, tmp_path):
-        """Forking a free-text pipeline into an issue pipeline clears the
-        pulled ``task_description`` (#3123 follow-up).
+    def test_replaces_pulled_task_description_when_forking_to_issue_pipeline(self, tmp_path):
+        """Forking a free-text pipeline into an issue pipeline replaces the
+        pulled ``task_description`` with the new pipeline's composed
+        anchor (#3163, formerly an explicit clear per #3123).
 
-        The caller passes ``task_description=None`` for issue-numbered
-        pipelines because agents fetch the live body via ``gh issue
-        view``. Without the explicit clear, the SOURCE pipeline's
-        free-text description survives and the directive-pushing reader
-        in ``compose_event_prompt`` renders it in every per-event prompt
-        of every agent on the new issue pipeline.
+        The call site composes a non-empty identity anchor for issue
+        pipelines (``compose_task_description``), so the SOURCE
+        pipeline's free-text description never survives into the new
+        issue pipeline's per-event prompts — and unlike the old clear,
+        the binding task section stays populated.
         """
+        from egg_contracts.loader import compose_task_description
         from routes.pipelines import _pull_contract_from_source_branch
 
         source_contract = self._make_contract(pipeline_id="run-free-text")
         source_contract.task_description = "free-text description from source pipeline"
+
+        composed = compose_task_description(
+            description=None,
+            issue_number=42,
+            issue_url="https://github.com/owner/repo/issues/42",
+        )
 
         saved = {}
 
@@ -1740,8 +1747,12 @@ class TestPullContractFromSourceBranch:
                 source_branch="egg/run-free-text",
                 issue_number=42,
                 pipeline_id="issue-42",
-                task_description=None,
+                task_description=composed,
             )
 
         assert result is True
-        assert saved["contract"].task_description is None
+        assert saved["contract"].task_description == composed
+        assert "GitHub issue #42" in saved["contract"].task_description
+        assert "free-text description from source pipeline" not in (
+            saved["contract"].task_description
+        )

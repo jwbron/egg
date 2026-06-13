@@ -149,7 +149,7 @@ to run. Follow those instructions exactly.
 Under the BRC event-pump wrapper ([#2908](https://github.com/jwbron/egg/issues/2908), the sole production path since slice-4 deleted the legacy capped-restart wrapper), the **bash wrapper around your invocation owns the BRC wait, not you**. You are invoked one-shot per actionable event:
 
 1. **Act on the single event** named in your prompt — review the proposal, fix the NACKs, confirm consensus, whatever the event called for.
-2. **Update your BRC memory file** at `.egg-state/agent-outputs/<role>/brc-memory.md` so the next invocation can re-enter with continuity (writes happen automatically inside `brc_ack` / `brc_nack`; see `$EGG_REPO_PATH/docs/architecture/brc-memory.md`).
+2. **Update your BRC memory file** at `.egg-state/agent-outputs/<role>/brc-memory-<pipeline-id>.md` so the next invocation can re-enter with continuity (writes happen automatically inside `brc_ack` / `brc_nack`; see `$EGG_REPO_PATH/docs/architecture/brc-memory.md`). A `brc-memory.md` without the pipeline-id suffix is a previous pipeline's leftover — ignore it.
 3. **Exit naturally** when your handling of the event is complete. The wrapper loops back to `egg-orch brc next-action` and invokes you again when the next actionable event arrives, or calls `egg-orch consensus confirmed` and exits 0 once `brc next-action` returns the `complete` action (i.e. the role is marked complete in `consensus status`).
 
 You do **not** need to call `egg-orch message wait` yourself, hold a polling loop between events, thread cursors across re-entries, or guard against early exit — the wrapper-side deterministic bash loop is the single source of truth for sequencing. Clean exit after handling your event is the expected lifecycle, not a failure mode.
