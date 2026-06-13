@@ -524,8 +524,8 @@ endpoint exists has three independent guards:
    `PipelineConfig.agent_models` field defaults to `{}`, and the
    repository-level `default_agent_model` defaults to `None`.
    Without operator action, all spawns resolve to the built-in
-   `"opus"` Claude path (fable is disabled). All use
-   `upstream="anthropic"`.
+   `"opus"` Claude path (fable is no longer the default, though still
+   opt-in selectable). All use `upstream="anthropic"`.
 
 Any one of the three suffices to keep the LiteLLM client cold on a
 given deployment. All three are independent: a misconfiguration on

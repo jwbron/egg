@@ -69,7 +69,8 @@ PipelineConfig(
 Default-constructed `PipelineConfig.agent_models` is `{}` — every
 existing pipeline continues to spawn every role on the built-in
 Claude default with `upstream="anthropic"` (`"opus"` for all roles —
-fable has been disabled).
+fable is no longer the built-in default, though it remains opt-in
+selectable via `agent_models` / `default_agent_model`).
 
 ### Repository-level default — `default_agent_model`
 
@@ -102,9 +103,11 @@ in `orchestrator/agent_model_resolution.py` walks the chain:
 1. `pipeline_config.agent_models.get(role.value)` — per-pipeline,
    per-role override
 2. `get_default_agent_model(repo)` — repository-level default
-3. Built-in default — `"opus"` for all roles. Fable has been
-   disabled; the refine/plan branch (`_FABLE_DEFAULT_ROLES`) now
-   resolves to opus alongside everything else.
+3. Built-in default — `"opus"` for all roles. Fable is no longer the
+   built-in default (it remains opt-in selectable via `agent_models` /
+   `default_agent_model`); the refine/plan branch
+   (`_FABLE_DEFAULT_ROLES`) now resolves to opus alongside everything
+   else.
 
 The result is an `AgentModelDecision` dataclass with fields
 `(claude_code_alias: str, upstream: str, upstream_model: str | None,
