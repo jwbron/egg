@@ -23,16 +23,18 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import fakeredis
 import pytest
 from _helpers import ack_payload, make_tracker, nack_payload, propose_payload
 from events import EventType
-from message_store import Message, MessageStore, MessageType
+from message_store import Message, MessageType
 from models import (
     PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN,
     PipelineConfig,
     resolve_consensus_timeout_minutes,
 )
 from peer_consensus import reconstruct_tracker_from_messages
+from redis_message_store import RedisMessageStore
 from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
 
 pytestmark = pytest.mark.integration
@@ -160,7 +162,7 @@ class TestMidCycleRestartReplay:
 
     def _record_message(
         self,
-        store: MessageStore,
+        store: RedisMessageStore,
         *,
         from_role: str,
         to_role: str,
@@ -185,12 +187,12 @@ class TestMidCycleRestartReplay:
     def test_replay_rebuilds_consensus_state(self) -> None:
         """Persisted PROPOSE+ACK+CONFIRMED messages reconstruct a confirmed tracker.
 
-        Drops a real ``MessageStore`` and ``reconstruct_tracker_from_messages``
+        Drops a real fakeredis-backed store and ``reconstruct_tracker_from_messages``
         with it, then asserts the rebuilt tracker reports consensus reached.
         This is the regression for a pod-cycle that loses the in-memory
         tracker mid-cycle (#2429-style scenarios).
         """
-        store = MessageStore()
+        store = RedisMessageStore(fakeredis.FakeRedis())
         now = datetime.now(UTC)
 
         # Producer proposed at t-30s.
@@ -253,7 +255,7 @@ class TestMidCycleRestartReplay:
 
     def test_replay_with_no_messages_returns_none(self) -> None:
         """An empty message store yields ``None`` rather than a phantom tracker."""
-        store = MessageStore()
+        store = RedisMessageStore(fakeredis.FakeRedis())
         graph = ReviewGraph([ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)])
         tracker = reconstruct_tracker_from_messages(
             self.PIPELINE_ID + "-empty", graph, message_store=store

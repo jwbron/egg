@@ -1,8 +1,11 @@
 """Redis Streams-backed message store for inter-agent communication.
 
-Replaces the in-memory MessageStore with persistent Redis Streams.
-Each pipeline gets a single stream: pipeline:{id}:messages.
-Agents interact via the orchestrator API, not directly with Redis.
+The orchestrator's only message-store backend (#3159 removed the
+in-memory ``MessageStore`` it originally shadowed). Each pipeline gets a
+single stream: pipeline:{id}:messages. Agents interact via the
+orchestrator API, not directly with Redis. Shared message types live in
+``message_store`` (:class:`Message`, :class:`MessageType`); the
+singleton accessor is ``message_store.get_message_store()``.
 """
 
 import json
@@ -130,8 +133,9 @@ def _message_from_redis(stream_id: str, fields: dict[bytes | str, bytes | str]) 
 class RedisMessageStore:
     """Thread-safe Redis Streams-backed message storage.
 
-    Same interface as MessageStore but persists messages in Redis Streams.
-    Each pipeline has its own stream: pipeline:{id}:messages.
+    Each pipeline has its own stream: pipeline:{id}:messages. Messages
+    survive orchestrator restarts; phase transitions wipe them by design
+    via :meth:`clear`.
     """
 
     def __init__(self, redis_client: redis.Redis) -> None:
@@ -212,9 +216,9 @@ class RedisMessageStore:
             from_role: If set, only messages whose ``from_role`` equals this
                 value count as matches and are returned. Applied inside the
                 blocking loop so a wrong-sender message does NOT wake the
-                waiting caller (prevents spin). Matches the in-memory
-                backend's signature for backend-consistency — the
-                ``routes/messages.py`` wait endpoint passes
+                waiting caller (prevents spin). Matched the in-memory
+                backend's signature for backend-consistency while both
+                existed — the ``routes/messages.py`` wait endpoint passes
                 ``from_role=...`` unconditionally, so a Redis backend
                 without this parameter raised ``TypeError`` in production
                 (reviewer_code blocker 1 on #1897 proposal v4).
@@ -268,10 +272,10 @@ class RedisMessageStore:
         ``False`` in that case so a polling consumer doesn't drop a
         live cursor on a momentary connectivity hiccup.
 
-        ``_suppress_stale_warning`` mirrors the in-memory backend's
-        kwarg for API symmetry. The Redis path does not log on stale
-        resolution today, so the flag is a no-op here; it is accepted
-        so callers can pass the same kwargs through both backends.
+        ``_suppress_stale_warning`` mirrored the removed in-memory
+        backend's kwarg for API symmetry. The Redis path does not log on
+        stale resolution, so the flag is a no-op; it is still accepted
+        so existing callers' kwargs keep working.
         """
         key = _stream_key(pipeline_id)
 
@@ -289,9 +293,7 @@ class RedisMessageStore:
             # skipped — the next ``$`` starts after it — a silent drop in
             # the consensus path. A fixed concrete id never advances on
             # its own, so re-blocking from it re-scans that gap and cannot
-            # drop a mid-wait arrival. This mirrors the in-memory backend,
-            # which snapshots the tip once under its lock at call entry
-            # (message_store.py) so from_tip is race-free against
+            # drop a mid-wait arrival — from_tip stays race-free against
             # concurrent add_message. An empty/missing stream resolves to
             # "0-0" (read everything > 0-0), which still catches the first
             # arrival.

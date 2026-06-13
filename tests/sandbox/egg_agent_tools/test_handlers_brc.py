@@ -1495,10 +1495,11 @@ def _memory_env(
         monkeypatch.setenv("EGG_PHASE", phase)
     else:
         monkeypatch.delenv("EGG_PHASE", raising=False)
-    # The plan locates the artifact at
-    # `.egg-state/agent-outputs/<role>/brc-memory.md` (subdirectory
-    # layout per architect od-1).
-    return tmp_path / ".egg-state" / "agent-outputs" / role / "brc-memory.md"
+    # The artifact lives at
+    # `.egg-state/agent-outputs/<role>/brc-memory-<pipeline-id>.md`
+    # (subdirectory layout per architect od-1; pipeline-id filename
+    # suffix per #3163).
+    return tmp_path / ".egg-state" / "agent-outputs" / role / "brc-memory-issue-2908-impl2.md"
 
 
 def _ack_request(**overrides):

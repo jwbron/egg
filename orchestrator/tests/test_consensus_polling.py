@@ -20,7 +20,7 @@ from models import (
     PipelinePhase,
     PipelineStatus,
 )
-from routes.pipelines import _run_concurrent_phase
+from routes.pipelines import _incomplete_consensus_decision_text, _run_concurrent_phase
 
 
 def _make_concurrent_pipeline(pipeline_id: str = "issue-999") -> Pipeline:
@@ -1433,3 +1433,203 @@ class TestUpdateAgentsCompleteContainerCleanup:
             )
             assert ci.exit_code == 0
             assert ci.exited_at is not None
+
+
+class TestOrchestratorOwnedEventLoopCompletion:
+    """#3064 slice-2: when the orchestrator owns the BRC event loop,
+    ``spawn_all`` returns ``[]`` by design (one-shot pods are spawned
+    per-event off the loop, not up front).  The completion-poll loop must
+    therefore drive completion purely off ``check_consensus()`` + the
+    consensus timeout, and must NOT misread the empty ``active_executions``
+    set as "all containers exited" — which would otherwise escalate an
+    incomplete-consensus HITL and fail the phase on the very first poll,
+    before any event-driven pod ran.
+    """
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_zero_containers_does_not_terminate_on_first_poll(
+        self, MockExecutor, mock_prompt, mock_lock, mock_emit, mock_monotonic, mock_sleep
+    ):
+        """Empty active set + consensus-incomplete-then-complete ⇒ the loop
+        keeps polling (does not fall through step-5) and returns 0 once
+        consensus completes.  This is the regression guard for the
+        orchestrator-mode cross-module dead-end.
+        """
+        poll_count = [0]
+
+        def _monotonic():
+            return poll_count[0] * 5.0
+
+        mock_monotonic.side_effect = _monotonic
+
+        # Orchestrator mode: no up-front executions.
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks([])
+
+        def _check_consensus():
+            poll_count[0] += 1
+            # Incomplete on the first two polls, complete on the third.
+            if poll_count[0] >= 3:
+                return {"is_complete": True, "has_objections": False, "blocking_agents": []}
+            return {"is_complete": False, "has_objections": False, "blocking_agents": ["coder"]}
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = []
+        mock_executor_instance.owns_event_loop.return_value = True
+        mock_executor_instance.check_consensus.side_effect = _check_consensus
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        exit_code, _logs = _run_concurrent_phase(
+            pipeline_id="issue-999",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
+
+        assert exit_code == 0, (
+            "orchestrator mode must reach consensus, not fail on the empty "
+            "container set at iteration 1"
+        )
+        # Polled past the first iteration rather than short-circuiting.
+        assert poll_count[0] >= 3
+        assert mock_sleep.call_count >= 2
+        # No HITL escalation for "all containers exited cleanly but consensus
+        # not reached" — that would mean step 5 misfired on the empty set.
+        assert mock_store.add_decision.call_count == 0
+        # The event loop is torn down on the consensus-reached exit path.
+        assert mock_executor_instance.stop_event_loop.call_count >= 1
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_zero_containers_stops_loop_on_timeout(
+        self, MockExecutor, mock_prompt, mock_lock, mock_emit, mock_monotonic, mock_sleep
+    ):
+        """If consensus never completes, the consensus timeout fires, the
+        non-convergence is escalated as an incomplete-consensus HITL and the
+        phase FAILS (rc=1) — not a silent ``return 0`` that would advance a
+        non-converged slice past the BRC gate toward PR creation — and the
+        event loop is stopped (so it stops requesting one-shot spawns) rather
+        than the phase hanging or terminating off the empty container set.
+        """
+        # consensus_timeout_minutes=30 ⇒ 1800s.  First monotonic call seeds
+        # ``start_time``; subsequent calls jump past the timeout so ``elapsed``
+        # crosses the deadline on the first poll iteration.
+        _calls = [0]
+
+        def _monotonic():
+            _calls[0] += 1
+            if _calls[0] == 1:
+                return 0.0
+            return float(1801.0 + _calls[0] * 2000.0)
+
+        mock_monotonic.side_effect = _monotonic
+
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks([])
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = []
+        mock_executor_instance.owns_event_loop.return_value = True
+        mock_executor_instance.check_consensus.return_value = {
+            "is_complete": False,
+            "has_objections": False,
+            "blocking_agents": ["coder"],
+        }
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch("routes.pipelines._handle_brc_consensus_timeout"),
+            patch(
+                "routes.pipelines._check_brc_progress_gate",
+                return_value=(False, None),
+            ),
+        ):
+            exit_code, _logs = _run_concurrent_phase(
+                pipeline_id="issue-999",
+                pipeline=pipeline,
+                phase="implement",
+                spawner=mock_spawner,
+                store=mock_store,
+                **_CALL_ARGS,
+            )
+
+        # Orchestrator-owned loop + consensus incomplete at timeout ⇒ the
+        # phase must FAIL, not silently succeed off the empty container set.
+        assert exit_code == 1, (
+            "orchestrator-mode non-convergence at the consensus timeout must "
+            "fail the phase, not return 0 and advance past the BRC gate"
+        )
+        # The incomplete consensus is escalated to the operator as a persisted
+        # HITL decision (read the round-tripped on-disk state, which is what
+        # /sdlc reads — asserting only call shape would mask the persistence).
+        disk_decisions = mock_store.load_pipeline("issue-999").decisions
+        incomplete_decisions = [
+            d for d in disk_decisions if "consensus incomplete" in d.question.lower()
+        ]
+        assert len(incomplete_decisions) == 1
+        # The operator-facing prefix must reflect the orchestrator-owned-loop
+        # terminal (consensus timeout), not the pod-mode "All containers
+        # exited" wording — no up-front containers ever run in this mode.
+        assert incomplete_decisions[0].question.startswith("Consensus timed out; "), (
+            "orchestrator-mode timeout HITL must use the 'Consensus timed out; ' "
+            f"prefix, got: {incomplete_decisions[0].question!r}"
+        )
+        assert mock_executor_instance.stop_event_loop.call_count >= 1
+
+
+class TestIncompleteConsensusDecisionText:
+    """Unit-level coverage of the mode-aware prefix dispatch in
+    ``_incomplete_consensus_decision_text`` — the three terminals must each
+    render the prefix an operator reading ``/sdlc`` would expect.
+    """
+
+    def test_container_failure_prefix_wins(self):
+        """A non-zero container-failure count takes precedence over both the
+        orchestrator-mode and the default pod-mode prefixes.
+        """
+        question, _ = _incomplete_consensus_decision_text(
+            {"blocking_agents": ["coder"]},
+            container_failure_count=2,
+            orchestrator_mode=True,
+        )
+        assert question.startswith("2 container(s) exited with non-zero code; ")
+
+    def test_orchestrator_mode_uses_timeout_prefix(self):
+        """When the orchestrator owns the loop, no up-front containers ever
+        ran, so the terminal is the consensus timeout — not container exit.
+        """
+        question, _ = _incomplete_consensus_decision_text(
+            {"blocking_agents": ["coder"]},
+            container_failure_count=0,
+            orchestrator_mode=True,
+        )
+        assert question.startswith("Consensus timed out; ")
+        assert "All containers exited" not in question
+        # The actionable body is unchanged across modes.
+        assert "consensus incomplete; agents never confirmed: coder" in question
+
+    def test_pod_mode_default_prefix(self):
+        """Default (pod mode, clean exit) keeps the "All containers exited"
+        wording — containers genuinely ran and exited there.
+        """
+        question, _ = _incomplete_consensus_decision_text(
+            {"blocking_agents": ["coder"]},
+            container_failure_count=0,
+        )
+        assert question.startswith("All containers exited; ")
+        assert "Consensus timed out" not in question

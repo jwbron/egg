@@ -18,9 +18,16 @@ _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:
     sys.path.insert(0, str(_orchestrator_path))
 
-from message_store import Message, MessageStore, MessageType, reset_message_store
+import fakeredis
+from message_store import Message, MessageType, reset_message_store
+from redis_message_store import RedisMessageStore
 from routes.messages import messages_bp
 from state_store import InvalidPipelineIdError, PipelineNotFoundError
+
+
+def _make_store() -> RedisMessageStore:
+    """Fresh fakeredis-backed store (#3159 removed the in-memory backend)."""
+    return RedisMessageStore(fakeredis.FakeRedis())
 
 
 @pytest.fixture
@@ -92,7 +99,7 @@ class TestDelphiFiltering:
         )
 
         # Add PROPOSE message to store with body and rich metadata
-        store = MessageStore()
+        store = _make_store()
         store.add_message(
             Message(
                 pipeline_id="test-pipeline",
@@ -168,7 +175,7 @@ class TestDelphiFiltering:
             },
         )
 
-        store = MessageStore()
+        store = _make_store()
         store.add_message(
             Message(
                 pipeline_id="test-pipeline",
@@ -232,7 +239,7 @@ class TestDelphiFiltering:
             },
         )
 
-        store = MessageStore()
+        store = _make_store()
         store.add_message(
             Message(
                 pipeline_id="test-pipeline",
@@ -283,7 +290,7 @@ class TestDelphiFiltering:
             },
         )
 
-        store = MessageStore()
+        store = _make_store()
         store.add_message(
             Message(
                 pipeline_id="test-pipeline",
@@ -360,7 +367,7 @@ class TestDelphiFiltering:
         )
 
         # Message with no payload in metadata
-        store = MessageStore()
+        store = _make_store()
         store.add_message(
             Message(
                 pipeline_id="test-pipeline",
@@ -429,7 +436,7 @@ class TestDelphiFiltering:
             }
         }
 
-        store = MessageStore()
+        store = _make_store()
         original_msg = Message(
             pipeline_id="test-pipeline",
             from_role="coder",
@@ -477,7 +484,7 @@ class TestDelphiFiltering:
         tracker.register_agent("coder")
         tracker.register_agent("reviewer_code")
 
-        store = MessageStore()
+        store = _make_store()
         store.add_message(
             Message(
                 pipeline_id="test-pipeline",
@@ -534,7 +541,7 @@ class TestDelphiFiltering:
             },
         )
 
-        store = MessageStore()
+        store = _make_store()
         store.add_message(
             Message(
                 pipeline_id="test-pipeline",
@@ -592,7 +599,7 @@ class TestDelphiFiltering:
 
     def test_no_filtering_without_role(self, client, app):
         """Messages without role filter should not be Delphi-filtered."""
-        store = MessageStore()
+        store = _make_store()
         store.add_message(
             Message(
                 pipeline_id="test-pipeline",
@@ -623,7 +630,7 @@ class TestLongPolling:
 
     def test_wait_parameter_parsed(self, client, app):
         """Wait parameter should be accepted and capped at 60."""
-        store = MessageStore()
+        store = _make_store()
 
         with app.test_request_context():
             with (
@@ -640,7 +647,7 @@ class TestLongPolling:
 
     def test_wait_negative_clamped_to_zero(self, client, app):
         """Negative wait should be clamped to 0."""
-        store = MessageStore()
+        store = _make_store()
 
         with app.test_request_context():
             with (
@@ -658,16 +665,16 @@ class TestLongPolling:
         """Wait should be capped by EGG_MESSAGE_POLL_MAX_WAIT.
 
         The route clamps any client-supplied ``wait`` to the configured
-        cap before calling ``MessageStore.get_messages``.  We verify the
+        cap before calling the store's ``get_messages``.  We verify the
         clamp empirically by lowering the cap to 2s and sending
         ``wait=999`` — the request must return in well under 999s.
-        Without the clamp, this test would block on ``cv.wait`` for the
-        full 999-second budget (issue #1928).
+        Without the clamp, this test would block on the store's blocking
+        read for the full 999-second budget (issue #1928).
         """
         import time as _t
 
         monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "2")
-        store = MessageStore()
+        store = _make_store()
 
         with app.test_request_context():
             with (
@@ -687,7 +694,7 @@ class TestLongPolling:
 
     def test_wait_invalid_defaults_to_zero(self, client, app):
         """Invalid wait parameter should default to 0."""
-        store = MessageStore()
+        store = _make_store()
 
         with app.test_request_context():
             with (
@@ -701,9 +708,10 @@ class TestLongPolling:
                 resp = client.get("/api/v1/pipelines/test-pipeline/messages?wait=abc")
                 assert resp.status_code == 200
 
-    def test_in_memory_fallback_without_wait(self, client, app):
-        """In-memory store (no wait support) should fall back gracefully."""
-        store = MessageStore()
+    def test_wait_returns_immediately_when_messages_exist(self, client, app):
+        """``wait=N`` with matching messages already in the store returns
+        them on the fast path instead of blocking."""
+        store = _make_store()
         store.add_message(
             Message(
                 pipeline_id="test-pipeline",
@@ -723,7 +731,6 @@ class TestLongPolling:
             ):
                 mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
 
-                # In-memory store doesn't support wait, should fall back
                 resp = client.get("/api/v1/pipelines/test-pipeline/messages?wait=5")
                 data = json.loads(resp.data)
 
@@ -739,7 +746,7 @@ class TestSinceIdRecovery:
     to end through the HTTP layer."""
 
     def test_stale_since_id_returns_all_messages(self, client, app):
-        store = MessageStore()
+        store = _make_store()
         store.add_message(
             Message(
                 pipeline_id="test-pipeline",
@@ -771,7 +778,7 @@ class TestSinceIdRecovery:
                 assert data["data"]["messages"][0]["to_role"] == "architect"
 
     def test_known_since_id_still_returns_only_newer(self, client, app):
-        store = MessageStore()
+        store = _make_store()
         first = Message(
             pipeline_id="test-pipeline",
             from_role="coder",
@@ -814,7 +821,7 @@ class TestSinceIdStaleSignal:
     """
 
     def test_messages_carries_flag_on_stale_cursor(self, client, app):
-        store = MessageStore()
+        store = _make_store()
         store.add_message(
             Message(
                 pipeline_id="test-pipeline",
@@ -851,7 +858,7 @@ class TestSinceIdStaleSignal:
         """Pin the byte-shape contract: responses with no staleness DO
         NOT carry a ``since_id_stale`` field at all (instead of
         ``false``), so legacy consumers see byte-identical output."""
-        store = MessageStore()
+        store = _make_store()
         first = Message(
             pipeline_id="test-pipeline",
             from_role="coder",
@@ -890,7 +897,7 @@ class TestSinceIdStaleSignal:
 
     def test_messages_omits_flag_when_no_since_id(self, client, app):
         """No cursor passed → the flag is irrelevant and must be absent."""
-        store = MessageStore()
+        store = _make_store()
         store.add_message(
             Message(
                 pipeline_id="test-pipeline",
@@ -923,7 +930,7 @@ class TestSinceIdStaleSignal:
         """``/messages/wait`` mirrors the same flag — agent ``wait_loop``
         relies on it to drop ``inner["since"]`` mid-loop after a phase
         clear."""
-        store = MessageStore()
+        store = _make_store()
         store.add_message(
             Message(
                 pipeline_id="test-pipeline",
@@ -963,7 +970,7 @@ class TestSinceIdStaleSignal:
         (instead of carrying ``false``). A future divergence between
         ``/messages`` and ``/messages/wait`` field handling would
         otherwise slip through — see reviewer note #6 on PR #2485."""
-        store = MessageStore()
+        store = _make_store()
         first = Message(
             pipeline_id="test-pipeline",
             from_role="coder",
@@ -1014,7 +1021,7 @@ class TestSinceIdStaleSignal:
         import threading
         import time as _t
 
-        store = MessageStore()
+        store = _make_store()
 
         def _add_after_delay() -> None:
             _t.sleep(0.15)
@@ -1059,7 +1066,7 @@ class TestMessageStatus:
     """Test message status endpoint."""
 
     def test_status_returns_counts(self, client, app):
-        store = MessageStore()
+        store = _make_store()
         store.add_message(
             Message(
                 pipeline_id="test-pipeline",
@@ -1170,7 +1177,7 @@ class TestHeartbeatValidation:
     def test_valid_heartbeat_accepted(self, client, app):
         with app.test_request_context():
             with (
-                patch("routes.messages.get_message_store", return_value=MessageStore()),
+                patch("routes.messages.get_message_store", return_value=_make_store()),
                 patch(
                     "routes.messages.get_state_store_for_pipeline"
                 ) as mock_get_store_for_pipeline,
@@ -1256,7 +1263,7 @@ class TestHeartbeatValidation:
     def test_heartbeat_waiting_on_role_with_target_accepted(self, client, app):
         with app.test_request_context():
             with (
-                patch("routes.messages.get_message_store", return_value=MessageStore()),
+                patch("routes.messages.get_message_store", return_value=_make_store()),
                 patch(
                     "routes.messages.get_state_store_for_pipeline"
                 ) as mock_get_store_for_pipeline,
@@ -1332,7 +1339,7 @@ class TestWaitEndpoint:
         import threading
         import time as _t
 
-        store = MessageStore()
+        store = _make_store()
 
         def _add_after_delay() -> None:
             _t.sleep(0.15)
@@ -1377,7 +1384,7 @@ class TestWaitEndpoint:
         import threading
         import time as _t
 
-        store = MessageStore()
+        store = _make_store()
 
         def _add_after_delay() -> None:
             _t.sleep(0.15)
@@ -1419,7 +1426,7 @@ class TestWaitEndpoint:
 
     def test_wait_times_out_with_empty_result(self, client, app):
         """No matching message -> 200 with matched=False."""
-        store = MessageStore()
+        store = _make_store()
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
@@ -1446,7 +1453,7 @@ class TestWaitEndpoint:
         import threading
         import time as _t
 
-        store = MessageStore()
+        store = _make_store()
 
         def _add_after_delay() -> None:
             _t.sleep(0.15)
@@ -1505,7 +1512,7 @@ class TestWaitEndpoint:
         scanned from stream tail = 0. After the fix, the wait endpoint
         starts from the stream tip, so pre-existing messages are ignored.
         """
-        store = MessageStore()
+        store = _make_store()
         store.add_message(
             Message(
                 pipeline_id="test-pipeline",
@@ -1542,7 +1549,7 @@ class TestWaitEndpoint:
         This is the race-safety pattern callers use when they've already
         observed an event and want to wait for the NEXT event after it.
         """
-        store = MessageStore()
+        store = _make_store()
         cursor = store.add_message(
             Message(
                 pipeline_id="test-pipeline",
@@ -1600,7 +1607,7 @@ class TestWaitEndpoint:
         import threading
         import time as _t
 
-        store = MessageStore()
+        store = _make_store()
 
         def _add_after_delay() -> None:
             _t.sleep(0.15)
@@ -1645,7 +1652,7 @@ class TestWaitEndpoint:
         """Issue #1995: on timeout with no match the server still returns
         a cursor (current stream tip) so the next wait can pick up
         anything that arrived while the caller was round-tripping."""
-        store = MessageStore()
+        store = _make_store()
         # Seed one non-matching message so the stream has a tip.
         seeded = store.add_message(
             Message(
@@ -1681,7 +1688,7 @@ class TestWaitEndpoint:
         """Stream has never had a message → cursor is null. Next call
         may safely omit ``since_id`` and the server will snap to a fresh
         tip as before."""
-        store = MessageStore()
+        store = _make_store()
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
@@ -1714,7 +1721,7 @@ class TestWaitEndpoint:
           3. Producer threads cursor=ack_a.id as since_id on wait #2;
              ack_b is delivered immediately.
         """
-        store = MessageStore()
+        store = _make_store()
 
         ack_a = store.add_message(
             Message(
@@ -1785,7 +1792,7 @@ class TestWaitEndpoint:
         import time as _t
 
         monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "2")
-        store = MessageStore()
+        store = _make_store()
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
@@ -1814,7 +1821,7 @@ class TestWaitEndpoint:
         import threading
         import time as _t
 
-        store = MessageStore()
+        store = _make_store()
 
         def _add_after_delay() -> None:
             _t.sleep(0.15)
@@ -1863,7 +1870,7 @@ class TestWaitEndpoint:
         import threading
         import time as _t
 
-        store = MessageStore()
+        store = _make_store()
 
         def _add_after_delay() -> None:
             _t.sleep(0.15)
@@ -1923,7 +1930,7 @@ class TestWaitEndpoint:
         import threading
         import time as _t
 
-        store = MessageStore()
+        store = _make_store()
 
         def _add_after_delay() -> None:
             _t.sleep(0.15)
@@ -1966,7 +1973,7 @@ class TestWaitEndpoint:
         import threading
         import time as _t
 
-        store = MessageStore()
+        store = _make_store()
 
         def _add_after_delay() -> None:
             _t.sleep(0.15)
@@ -2077,7 +2084,7 @@ class TestWaitEndpoint:
         that narrows the set (and silently filters legitimate senders)
         is caught — same direction as the negative-conformance
         ``CONSENSUS_RE_REVIEW`` test."""
-        store = MessageStore()
+        store = _make_store()
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
@@ -2151,7 +2158,7 @@ class TestWaitEndpoint:
         symmetric acceptance contract between singular and plural forms
         so a future change to ``_KNOWN_FROM_PRODUCER_VALUES`` covers
         both surfaces at once."""
-        store = MessageStore()
+        store = _make_store()
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
@@ -2316,7 +2323,7 @@ class TestProducerPendingConfirmGuard:
 
         with app.test_request_context():
             with (
-                patch("routes.messages.get_message_store", return_value=MessageStore()),
+                patch("routes.messages.get_message_store", return_value=_make_store()),
                 patch(
                     "routes.messages.get_state_store_for_pipeline"
                 ) as mock_get_store_for_pipeline,
@@ -2378,7 +2385,7 @@ class TestProducerPendingConfirmGuard:
         block consensus on."""
         with app.test_request_context():
             with (
-                patch("routes.messages.get_message_store", return_value=MessageStore()),
+                patch("routes.messages.get_message_store", return_value=_make_store()),
                 patch(
                     "routes.messages.get_state_store_for_pipeline"
                 ) as mock_get_store_for_pipeline,
@@ -2400,7 +2407,7 @@ class TestProducerPendingConfirmGuard:
         CONSENSUS_PROPOSE from peers, OVERSEER_ALERT, etc."""
         with app.test_request_context():
             with (
-                patch("routes.messages.get_message_store", return_value=MessageStore()),
+                patch("routes.messages.get_message_store", return_value=_make_store()),
                 patch(
                     "routes.messages.get_state_store_for_pipeline"
                 ) as mock_get_store_for_pipeline,
@@ -2426,7 +2433,7 @@ class TestProducerPendingConfirmGuard:
         the guard short-circuits rather than wedging the wait endpoint."""
         with app.test_request_context():
             with (
-                patch("routes.messages.get_message_store", return_value=MessageStore()),
+                patch("routes.messages.get_message_store", return_value=_make_store()),
                 patch(
                     "routes.messages.get_state_store_for_pipeline"
                 ) as mock_get_store_for_pipeline,
@@ -2444,7 +2451,7 @@ class TestProducerPendingConfirmGuard:
         be evaluated by the guard and must pass through."""
         with app.test_request_context():
             with (
-                patch("routes.messages.get_message_store", return_value=MessageStore()),
+                patch("routes.messages.get_message_store", return_value=_make_store()),
                 patch(
                     "routes.messages.get_state_store_for_pipeline"
                 ) as mock_get_store_for_pipeline,
@@ -3291,7 +3298,7 @@ class TestWaitTimeoutFloorRegression:
         """
         import time as _t
 
-        store = MessageStore()
+        store = _make_store()
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
@@ -3436,24 +3443,24 @@ class TestBrcTranscript:
         return resp, json.loads(resp.data)
 
     def test_phase_required(self, client, app):
-        store = MessageStore()
+        store = _make_store()
         resp, data = self._get(client, store, "")
         assert resp.status_code == 400
         assert "phase" in data["message"]
 
     def test_invalid_phase_rejected(self, client, app):
-        store = MessageStore()
+        store = _make_store()
         resp, data = self._get(client, store, "phase=bogus")
         assert resp.status_code == 400
 
     def test_invalid_slice_id_rejected(self, client, app):
-        store = MessageStore()
+        store = _make_store()
         resp, data = self._get(client, store, "phase=implement&slice_id=../etc")
         assert resp.status_code == 400
         assert "slice_id" in data["message"]
 
     def test_returns_brc_records_for_requested_phase_only(self, client, app):
-        store = MessageStore()
+        store = _make_store()
         store.add_message(self._msg("CONSENSUS_PROPOSE", phase="plan"))
         store.add_message(self._msg("CONSENSUS_ACK", from_role="risk_analyst", phase="refine"))
         store.add_message(self._msg("PROGRESS", phase="plan"))  # non-BRC type
@@ -3471,7 +3478,7 @@ class TestBrcTranscript:
         """The #3076 regression pin: a producer's CONSENSUS_PROPOSE is
         served the moment it is in the store — no phase completion, no
         file write, no spawn-fork dependency."""
-        store = MessageStore()
+        store = _make_store()
         store.add_message(
             self._msg(
                 "CONSENSUS_PROPOSE",
@@ -3499,7 +3506,7 @@ class TestBrcTranscript:
             {"summary": "Implemented auth", "artifacts": ["src/auth.py"], "commit_sha": "abc1234"},
         )
 
-        store = MessageStore()
+        store = _make_store()
         store.add_message(
             self._msg(
                 "CONSENSUS_PROPOSE",
@@ -3535,7 +3542,7 @@ class TestBrcTranscript:
         records need a matching canonical slice_id (missing one = writer
         contract violation, dropped); non-consensus BRC types without
         slice scope are the unattributed bucket."""
-        store = MessageStore()
+        store = _make_store()
         store.add_message(
             self._msg("CONSENSUS_PROPOSE", phase="implement", metadata={"slice_id": "slice-1"})
         )
@@ -3559,7 +3566,7 @@ class TestBrcTranscript:
         assert "HEARTBEAT" not in types
 
     def test_no_slice_filter_returns_all_implement_records(self, client, app):
-        store = MessageStore()
+        store = _make_store()
         store.add_message(
             self._msg("CONSENSUS_PROPOSE", phase="implement", metadata={"slice_id": "slice-1"})
         )
@@ -3568,7 +3575,7 @@ class TestBrcTranscript:
         assert data["data"]["count"] == 2
 
     def test_limit_keeps_most_recent_in_order(self, client, app):
-        store = MessageStore()
+        store = _make_store()
         for i in range(5):
             store.add_message(self._msg("CONSENSUS_PROPOSE", body=f"v{i}"))
         resp, data = self._get(client, store, "phase=plan&limit=2")
@@ -3577,7 +3584,7 @@ class TestBrcTranscript:
         assert [r["body"] for r in records] == ["v3", "v4"]
 
     def test_invalid_limit_rejected(self, client, app):
-        store = MessageStore()
+        store = _make_store()
         resp, data = self._get(client, store, "phase=plan&limit=abc")
         assert resp.status_code == 400
         resp, data = self._get(client, store, "phase=plan&limit=0")
@@ -3585,7 +3592,7 @@ class TestBrcTranscript:
 
     def test_unknown_pipeline_returns_404(self, client, app):
         with (
-            patch("routes.messages.get_message_store", return_value=MessageStore()),
+            patch("routes.messages.get_message_store", return_value=_make_store()),
             patch(
                 "routes.messages.get_state_store_for_pipeline",
                 side_effect=PipelineNotFoundError("nope"),

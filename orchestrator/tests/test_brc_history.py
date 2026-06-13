@@ -26,8 +26,9 @@ sys.modules.setdefault("docker", _docker_mock)
 sys.modules.setdefault("docker.errors", _docker_mock.errors)
 sys.modules.setdefault("docker.types", _docker_mock.types)
 
-from message_store import Message, MessageStore, MessageType
+from message_store import Message, MessageType
 from models import PipelineStatus
+from redis_message_store import RedisMessageStore
 
 # Default slice_id stamped onto implement-phase BRC messages by the test
 # helpers below. Issue #2548 hard-switchover: ``_write_brc_history`` drops
@@ -171,7 +172,7 @@ class TestWriteBrcHistory:
         from routes.pipelines import _write_brc_history
 
         messages = _make_brc_messages(pipeline_id="issue-42", phase="implement")
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -191,7 +192,7 @@ class TestWriteBrcHistory:
         from routes.pipelines import _write_brc_history
 
         messages = _make_brc_messages(pipeline_id="issue-42", phase="implement")
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -213,7 +214,7 @@ class TestWriteBrcHistory:
         """When no BRC messages, _write_brc_history creates no file (no-op)."""
         from routes.pipelines import _write_brc_history
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = []
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -240,7 +241,7 @@ class TestWriteBrcHistory:
                 phase="implement",
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = non_brc_messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -259,7 +260,7 @@ class TestWriteBrcHistory:
         from routes.pipelines import _write_brc_history
 
         messages = _make_mixed_messages(pipeline_id="issue-42", phase="implement")
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -281,7 +282,7 @@ class TestWriteBrcHistory:
         from routes.pipelines import _write_brc_history
 
         messages = _make_brc_messages(pipeline_id="issue-42", phase="implement")
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         # Ensure no .egg-state directory exists
@@ -297,7 +298,7 @@ class TestWriteBrcHistory:
         from routes.pipelines import _write_brc_history
 
         messages = _make_brc_messages(pipeline_id="custom-pipeline", phase="refine")
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -311,7 +312,7 @@ class TestWriteBrcHistory:
         from routes.pipelines import _write_brc_history
 
         messages = _make_brc_messages(pipeline_id="issue-42", phase="implement")
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -345,7 +346,7 @@ class TestWriteBrcHistory:
                 timestamp=datetime(2026, 4, 8, 12, 5, 0, tzinfo=UTC),
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -388,7 +389,7 @@ class TestWriteBrcHistory:
                 timestamp=datetime(2026, 4, 8, 12, 15, 0, tzinfo=UTC),
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -431,7 +432,7 @@ class TestWriteBrcHistory:
                 timestamp=datetime(2026, 4, 8, 12, 5, 0, tzinfo=UTC),
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -449,7 +450,7 @@ class TestWriteBrcHistory:
         from routes.pipelines import _write_brc_history
 
         messages = _make_brc_messages(pipeline_id="issue-42", phase="plan")
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -467,7 +468,7 @@ class TestWriteBrcHistoryEdgeCases:
         """_write_brc_history handles message store errors gracefully."""
         from routes.pipelines import _write_brc_history
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.side_effect = Exception("Store unavailable")
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -489,7 +490,7 @@ class TestWriteBrcHistoryEdgeCases:
             all_messages.extend(_make_brc_messages(pipeline_id="issue-42", phase=phase))
 
         for phase in ["refine", "plan", "implement"]:
-            mock_store = MagicMock(spec=MessageStore)
+            mock_store = MagicMock(spec=RedisMessageStore)
             mock_store.get_messages.return_value = all_messages
 
             with patch("message_store.get_message_store", return_value=mock_store):
@@ -518,7 +519,7 @@ class TestWriteBrcHistoryEdgeCases:
                 phase="implement",
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -551,7 +552,7 @@ class TestWriteBrcHistoryLossless:
                 },
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -581,7 +582,7 @@ class TestWriteBrcHistoryLossless:
                 },
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -608,7 +609,7 @@ class TestWriteBrcHistoryLossless:
                 metadata={"commit_sha": "abc123def456"},
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -635,7 +636,7 @@ class TestWriteBrcHistoryLossless:
         # Override to_role
         messages[0].to_role = "reviewer_code"
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -659,7 +660,7 @@ class TestWriteBrcHistoryLossless:
             ),
         ]
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -690,7 +691,7 @@ class TestWriteBrcHistoryLossless:
             ),
         ]
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -736,7 +737,7 @@ class TestWriteBrcHistoryLossless:
             ),
         ]
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -761,7 +762,7 @@ class TestWriteBrcHistoryLossless:
             ),
         ]
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -779,7 +780,7 @@ class TestJsonCompanionFile:
         from routes.pipelines import _write_brc_history
 
         messages = _make_brc_messages(pipeline_id="issue-42", phase="implement")
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -793,7 +794,7 @@ class TestJsonCompanionFile:
         from routes.pipelines import _write_brc_history
 
         messages = _make_brc_messages(pipeline_id="issue-42", phase="implement")
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -875,7 +876,7 @@ class TestJsonCompanionFile:
                 phase="implement",
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -911,7 +912,7 @@ class TestJsonCompanionFile:
                 },
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -939,7 +940,7 @@ class TestJsonCompanionFile:
                 phase="implement",
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         # Make json.dumps raise to simulate a JSON write failure
@@ -1037,7 +1038,7 @@ class TestYamlMetadataRoundTrip:
                 },
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -1091,7 +1092,7 @@ class TestYamlMetadataRoundTrip:
                 metadata=nested_metadata,
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -1138,7 +1139,7 @@ class TestMarkdownWriteFailureIsolation:
                 phase="implement",
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         history_dir = tmp_path / ".egg-state" / "brc-history"
@@ -1166,7 +1167,7 @@ class TestJsonCompanionEdgeCases:
         """JSON companion file is NOT created when there are no BRC messages."""
         from routes.pipelines import _write_brc_history
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = []
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -1184,7 +1185,7 @@ class TestJsonCompanionEdgeCases:
             all_messages.extend(_make_brc_messages(pipeline_id="issue-42", phase=phase))
 
         for phase in ["refine", "plan", "implement"]:
-            mock_store = MagicMock(spec=MessageStore)
+            mock_store = MagicMock(spec=RedisMessageStore)
             mock_store.get_messages.return_value = all_messages
 
             with patch("message_store.get_message_store", return_value=mock_store):
@@ -1227,7 +1228,7 @@ class TestJsonCompanionEdgeCases:
         ]
         messages[0].to_role = "reviewer_code"
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -1255,7 +1256,7 @@ class TestHistoryIncludesNonConsensusTypes:
                 phase="implement",
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -1279,7 +1280,7 @@ class TestHistoryIncludesNonConsensusTypes:
                 phase="implement",
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -1310,7 +1311,7 @@ class TestHistoryIncludesNonConsensusTypes:
                 phase="implement",
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -1334,7 +1335,7 @@ class TestHistoryIncludesNonConsensusTypes:
                 phase="implement",
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -1358,7 +1359,7 @@ class TestHistoryIncludesNonConsensusTypes:
                 phase="implement",
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -1536,7 +1537,7 @@ class TestPerSliceImplementBrcHistory:
                 m.timestamp = datetime(2026, 4, 8, 12, i * 30 + j, 0, tzinfo=UTC)
                 messages.append(m)
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -1584,7 +1585,7 @@ class TestPerSliceImplementBrcHistory:
                     m.body = f"{marker} body"
                 messages.append(m)
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -1613,7 +1614,7 @@ class TestPerSliceImplementBrcHistory:
         from routes.pipelines import _write_brc_history
 
         messages = self._make_implement_msgs("slice-1")
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -1632,7 +1633,7 @@ class TestPerSliceImplementBrcHistory:
         from routes.pipelines import _write_brc_history
 
         messages = self._make_implement_msgs("slice-7")
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -1674,7 +1675,7 @@ class TestPerSliceImplementBrcHistory:
         for m in unattributed:
             assert "slice_id" not in m.metadata, "fixture leak — slice_id was stamped"
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = attributed + unattributed
 
         with (
@@ -1736,7 +1737,7 @@ class TestPerSliceImplementBrcHistory:
         for m in unattributed:
             assert "slice_id" not in m.metadata
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = unattributed
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -1778,7 +1779,7 @@ class TestPerSliceImplementBrcHistory:
                 slice_id=None,
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = unattributed
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -1799,7 +1800,7 @@ class TestPerSliceImplementBrcHistory:
         # Refine messages with a slice_id leftover (defensive — should be
         # ignored for non-implement phases).
         messages = _make_brc_messages(pipeline_id="issue-42", phase="refine", slice_id="slice-1")
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -1822,7 +1823,7 @@ class TestPerSliceImplementBrcHistory:
         from routes.pipelines import _write_brc_history
 
         messages = _make_brc_messages(pipeline_id="issue-42", phase="plan", slice_id="slice-1")
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -1840,7 +1841,7 @@ class TestPerSliceImplementBrcHistory:
         from routes.pipelines import _write_brc_history
 
         messages = _make_brc_messages(pipeline_id="issue-42", phase="pr", slice_id="slice-1")
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -1873,7 +1874,7 @@ class TestPerSliceImplementBrcHistory:
         assert "slice_id" not in stray.metadata
         all_messages = slice1_msgs + slice2_msgs + [stray]
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = all_messages
 
         with (
@@ -1939,7 +1940,7 @@ class TestPerSliceImplementBrcHistory:
         for m in unattributed_other:
             assert "slice_id" not in m.metadata, "fixture leak — slice_id stamped"
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = attributed + unattributed_other
 
         with (
@@ -2005,7 +2006,7 @@ class TestPerSliceImplementBrcHistory:
             slice_id=None,
         )
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = attributed + [stray_consensus, stray_alert]
 
         with (
@@ -2076,7 +2077,7 @@ class TestPerSliceImplementBrcHistory:
         # Sanity: the fixture really has empty string slice_id.
         assert empty.metadata.get("slice_id") == ""
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = [canonical, empty]
 
         with (
@@ -2112,7 +2113,7 @@ class TestPerSliceImplementBrcHistory:
         for sid in ["slice-3", "slice-1", "slice-2"]:  # deliberately unordered
             messages.extend(self._make_implement_msgs(sid))
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -2168,7 +2169,7 @@ class TestPerSliceImplementBrcHistory:
             )
         )
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         history_dir = tmp_path / ".egg-state" / "brc-history"
@@ -2282,7 +2283,7 @@ class TestPerSliceImplementBrcHistory:
             for i, payload in enumerate(injection_payloads)
         ]
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = [canonical, *bad_msgs]
 
         with (
@@ -2341,7 +2342,7 @@ class TestPerSliceImplementBrcHistory:
         for sid in sids:
             messages.extend(self._make_implement_msgs(sid))
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         wrote_calls: list[dict] = []
@@ -2395,7 +2396,7 @@ class TestWritePerSliceFlag:
             _make_brc_messages(pipeline_id="issue-42", phase="implement", slice_id="slice-2")
         )
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -2419,7 +2420,7 @@ class TestWritePerSliceFlag:
             _make_brc_messages(pipeline_id="issue-42", phase="implement", slice_id="slice-2")
         )
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -2469,7 +2470,7 @@ class TestWritePerSliceFlag:
             ),
         ]
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -2497,7 +2498,7 @@ class TestWritePerSliceFlag:
         # All messages explicitly lack slice metadata → non-slice pipeline.
         messages = _make_brc_messages(pipeline_id="issue-42", phase="implement", slice_id=None)
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -2517,7 +2518,7 @@ class TestWritePerSliceFlag:
 
         messages = _make_brc_messages(pipeline_id="issue-42", phase="refine")
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -2556,7 +2557,7 @@ class TestPerSliceImplementBrcHistoryRewriteForPr:
             _make_brc_messages(pipeline_id="issue-42", phase="implement", slice_id="slice-2")
         )
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         phases = {
@@ -2596,7 +2597,7 @@ class TestPerSliceImplementBrcHistoryRewriteForPr:
             _make_brc_messages(pipeline_id="issue-42", phase="implement", slice_id="slice-1")
         )
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = all_messages
 
         phases = {

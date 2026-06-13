@@ -5687,19 +5687,20 @@ def _pull_contract_from_source_branch(
     pipeline, and writes it into the worktree so the caller can skip
     ``create_contract()`` and proceed to commit+push the pulled contract.
 
-    ``task_description`` is the NEW submit's prompt. The pulled contract
-    carries the SOURCE pipeline's ``task_description``, but the resubmit's
-    description is authoritative for THIS pipeline and is where operators
-    put binding resume directives (e.g. "adopt prior branch X, do not
-    reimplement" — #3123). When non-empty it replaces the pulled value;
-    the source value stays recoverable from the source branch's git
-    history. When ``None`` AND ``issue_number is not None`` the pulled
-    value is cleared (the live issue body is the authoritative task
-    statement and ``task_description`` should be ``None``, mirroring the
-    ``create_contract()`` shape on the call site's fallback path —
-    without this clear, forking a free-text pipeline into an issue
-    pipeline would leak the source pipeline's description into every
-    per-event prompt). Otherwise the pulled value is preserved.
+    ``task_description`` is the NEW submit's composed task statement
+    (``compose_task_description`` at the call site — identity anchor +
+    resubmit prompt, #3163). The pulled contract carries the SOURCE
+    pipeline's ``task_description``, but the new submit's statement is
+    authoritative for THIS pipeline and is where operators put binding
+    resume directives (e.g. "adopt prior branch X, do not reimplement"
+    — #3123). When non-empty it replaces the pulled value; the source
+    value stays recoverable from the source branch's git history. This
+    replacement is also what keeps a fork from leaking the source
+    pipeline's task into the new pipeline's per-event prompts: issue
+    and JIRA pipelines always compose a non-empty anchor, so the pulled
+    cross-pipeline text never survives. Only a free-text resume with a
+    blank prompt preserves the pulled value (a plain resume of the same
+    task).
 
     Returns True when a contract was successfully pulled, False otherwise.
     Best-effort: missing, invalid, or unreachable source contracts all yield
@@ -5793,32 +5794,19 @@ def _pull_contract_from_source_branch(
     # canonical key when the pipeline was forked with a qualifier
     # (e.g. source=issue-1965, new=issue-1965-v2).
     contract.pipeline_id = pipeline_id
-    # Refresh the task statement from the new submit (#3123): without
-    # this, the resubmit's prompt — including any operator resume
-    # directives — never reaches any agent-visible surface, because the
-    # caller skips create_contract() (the only other writer of
-    # ``task_description``) whenever the pull succeeds.
-    #
-    # Three cases:
-    #   1. Caller passed a non-blank prompt → replace (free-text resubmit
-    #      with the new directives).
-    #   2. Caller passed ``None`` and the pipeline has an ``issue_number``
-    #      → explicit clear. The create_contract() fallback at the call
-    #      site (pipelines.py::_run_pipeline) passes ``task_description=
-    #      None`` for issue pipelines because the live body is fetched
-    #      via ``gh issue view`` instead. Without the explicit clear,
-    #      forking a free-text pipeline into an issue pipeline (source
-    #      branch = egg/free-text-x, new issue_number = 42) would carry
-    #      the SOURCE pipeline's free-text description into the per-event
-    #      prompt of every issue-pipeline agent.
-    #   3. Caller passed ``None`` or blank and no ``issue_number`` (a
-    #      plain resume with no new prompt) → preserve the pulled value
-    #      so the source pipeline's task statement still drives the
-    #      resumed run.
+    # Refresh the task statement from the new submit (#3123/#3163):
+    # without this, the resubmit's composed statement — identity anchor
+    # plus any operator resume directives — never reaches any
+    # agent-visible surface, because the caller skips create_contract()
+    # (the only other writer of ``task_description``) whenever the pull
+    # succeeds. Issue/JIRA pipelines always compose non-blank (the
+    # anchor at minimum), so the replace also prevents a fork from
+    # carrying the SOURCE pipeline's task text into this pipeline's
+    # per-event prompts. A blank/None value (free-text resume with no
+    # new prompt) preserves the pulled value so the source pipeline's
+    # task statement still drives the resumed run.
     if task_description is not None and task_description.strip():
         contract.task_description = task_description
-    elif task_description is None and issue_number is not None:
-        contract.task_description = None
     save_contract(contract, repo_path)
 
     logger.info(
@@ -8404,32 +8392,36 @@ def _ensure_statefiles_on_branch(
     )
 
     try:
+        # Mirror the primary creation site: the composed task statement
+        # (identity anchor + submit description, #3163) lands on the
+        # restored contract too, for every entry path.
+        from egg_contracts.loader import compose_task_description
+
+        issue_url = (
+            f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
+            if pipeline.issue_number is not None
+            else None
+        )
+        task_description = compose_task_description(
+            description=pipeline.prompt,
+            issue_number=pipeline.issue_number,
+            issue_url=issue_url,
+            jira_ticket=pipeline.jira_ticket,
+        )
         if pipeline.issue_number is not None:
-            issue_url = f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
             create_contract(
                 issue_number=pipeline.issue_number,
                 title=f"Issue #{pipeline.issue_number}",
-                url=issue_url,
+                url=issue_url or "",
                 pipeline_id=pipeline.id,
                 repo_root=worktree_repo_path,
+                task_description=task_description,
             )
         else:
-            # ``pipeline.issue_number is None`` covers both free-text
-            # submits (no GitHub issue, no JIRA ticket) and JIRA-driven
-            # pipelines (``pipeline.jira_ticket`` set; ``pipeline.prompt``
-            # carries the description). In both cases the event-pump
-            # never delivers the orchestrator-built spawn prompt to the
-            # agent, so we persist the full ``pipeline.prompt`` as
-            # ``task_description`` on the restored contract — mirroring
-            # the primary creation site. For JIRA pipelines an agent
-            # can still fetch the latest ticket body out-of-band via
-            # ``jira ticket get "$EGG_JIRA_TICKET"``; this field is a
-            # complementary, snapshotted copy of the description as
-            # submitted (#3033).
             create_contract(
                 pipeline_id=pipeline.id,
                 title=(pipeline.prompt or "")[:100],
-                task_description=pipeline.prompt,
+                task_description=task_description,
                 repo_root=worktree_repo_path,
             )
 
@@ -14631,16 +14623,24 @@ def _format_nack_summary(nack_details: list[dict]) -> str:
 def _incomplete_consensus_decision_text(
     final_consensus: dict,
     container_failure_count: int,
+    orchestrator_mode: bool = False,
 ) -> tuple[str, str]:
     """Build (question, log_suffix) for incomplete-consensus HITL escalation.
 
     Distinguishes the two failure modes — unresolved NACKs vs. agents that
     never confirmed — so the operator sees actionable detail in `/sdlc`.
+
+    ``orchestrator_mode`` selects a mode-aware prefix: when the orchestrator
+    owns the event loop, no up-front containers ever ran, so the terminal
+    here is the consensus timeout, not container exit — the "All containers
+    exited" prefix would mislead an operator reading `/sdlc`.
     """
     nacks = final_consensus.get("unresolved_nacks", []) or []
     blocking = final_consensus.get("blocking_agents", []) or []
     if container_failure_count:
         prefix = f"{container_failure_count} container(s) exited with non-zero code; "
+    elif orchestrator_mode:
+        prefix = "Consensus timed out; "
     else:
         prefix = "All containers exited; "
     if nacks:
@@ -18430,6 +18430,10 @@ def _run_concurrent_phase(
                     pipeline_id=pipeline_id,
                     has_failures=has_failures[0],
                 )
+            # Orchestrator mode (#3064): tear down the BRC event loop now that
+            # the slice has converged so it stops requesting one-shot spawns.
+            # No-op in pod mode.
+            executor.stop_event_loop()
             return 0, combined_logs
 
         # 3. Handle objections (create HITL decision once).
@@ -18641,8 +18645,17 @@ def _run_concurrent_phase(
                         exit_code=info.exit_code,
                     )
 
-        # 5. All containers exited — fall back to exit-code-based result
-        if len(exited_containers) >= len(active_executions):
+        # 5. All containers exited — fall back to exit-code-based result.
+        #
+        # Guarded on a non-empty ``active_executions`` so an empty set is
+        # never misread as "everything exited" (``0 >= 0``).  In orchestrator
+        # mode (#3064) ``spawn_all`` returns ``[]`` by design — the
+        # orchestrator owns the BRC loop and spawns one-shot pods per event,
+        # so there are no up-front containers to track.  Completion is driven
+        # purely off ``check_consensus()`` (step 2) and the consensus timeout
+        # (step 6); a zero-container fallback here would otherwise fail the
+        # phase on the first poll, before any event-driven pod ran.
+        if active_executions and len(exited_containers) >= len(active_executions):
             combined_logs = "\n".join(all_logs)
             if has_failures[0]:
                 # Final consensus recheck: consensus may have completed between
@@ -18890,6 +18903,13 @@ def _run_concurrent_phase(
                 pipeline_id=pipeline_id,
                 timeout_minutes=consensus_timeout / 60,
             )
+            # Orchestrator mode (#3064): we are giving up on convergence, so
+            # stop the BRC event loop before the fallback wait so it does not
+            # keep spawning one-shot pods past the deadline.  No-op in pod
+            # mode.  (The progress-gate ``continue`` above is taken before
+            # this point, so a deferral never reaches here and the loop keeps
+            # running across the deferral window.)
+            executor.stop_event_loop()
             _handle_brc_consensus_timeout(
                 pipeline,
                 pipeline_id,
@@ -19191,6 +19211,39 @@ def _run_concurrent_phase(
                     nack_count=len(nack_details),
                 )
                 combined_logs += f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
+                return 1, combined_logs
+
+            # Orchestrator-owned event loop: this timeout fallthrough is the
+            # dominant non-convergence terminal.  spawn_all returns [] by
+            # design, so step 5's "all containers exited" path is guarded off
+            # (it requires a non-empty active set) and a slice that never
+            # converged — producer never proposed, a reviewer pod failed to
+            # ACK, reviews pending with no NACK — lands here with no NACKs.
+            # Unlike pod mode, where a clean all-exited phase already routed
+            # through step 5's is_complete check, nothing upstream has verified
+            # consensus completeness on this path.  Mirror step 5: when the
+            # orchestrator owns the loop and consensus is incomplete, escalate
+            # an HITL and fail rather than reporting a non-converged slice as
+            # success (a bare `return 0` here would advance the phase toward PR
+            # creation past the BRC consensus gate).
+            if executor.owns_event_loop() and not _final_consensus.get("is_complete"):
+                question, log_suffix = _incomplete_consensus_decision_text(
+                    _final_consensus, container_failure_count=0, orchestrator_mode=True
+                )
+                logger.warning(
+                    "Consensus timed out and is incomplete (orchestrator-owned loop) — escalating to HITL",
+                    pipeline_id=pipeline_id,
+                    blocking_agents=_final_consensus.get("blocking_agents", []),
+                )
+                _persist_hitl_decision(
+                    pipeline_id,
+                    pipeline,
+                    store,
+                    question=question,
+                    options=["Retry phase", "Accept current state", "Abort phase"],
+                    phase=pipeline.current_phase,
+                )
+                combined_logs += log_suffix
                 return 1, combined_logs
 
             return 0, combined_logs
@@ -22216,7 +22269,25 @@ def _run_pipeline(
         # creation so it doesn't pollute the main repo working directory).
         if not pipeline.contract_synced:
             try:
-                from egg_contracts.loader import create_contract
+                from egg_contracts.loader import compose_task_description, create_contract
+
+                # Every entry path (GitHub issue, JIRA, free-text) anchors
+                # the task the same way (#3163): identity first, then the
+                # operator's submit description. Before #3163 issue
+                # pipelines deliberately got ``None`` here (#3042 "agents
+                # fetch the live body"), which left the #3123 binding
+                # prompt section empty for the most common pipeline type.
+                issue_url = (
+                    f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
+                    if pipeline.issue_number is not None
+                    else None
+                )
+                task_description = compose_task_description(
+                    description=pipeline.prompt,
+                    issue_number=pipeline.issue_number,
+                    issue_url=issue_url,
+                    jira_ticket=pipeline.jira_ticket,
+                )
 
                 # When source_branch is set, try to carry over the contract
                 # (with any resolved HITL decisions) from there instead of
@@ -22231,14 +22302,7 @@ def _run_pipeline(
                             pipeline_id=pipeline.id,
                             spawner=spawner,
                             gateway_mode=gateway_mode,
-                            # Mirror the create_contract() fallback below:
-                            # ``task_description`` is populated only for
-                            # pipelines without a GitHub issue (#3042); for
-                            # issue pipelines agents fetch the live body
-                            # via ``gh issue view`` instead.
-                            task_description=(
-                                pipeline.prompt if pipeline.issue_number is None else None
-                            ),
+                            task_description=task_description,
                         )
                     except Exception:
                         logger.warning(
@@ -22251,38 +22315,30 @@ def _run_pipeline(
 
                 if not pulled_contract:
                     if pipeline.issue_number is not None:
-                        issue_url = (
-                            f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
-                        )
                         create_contract(
                             issue_number=pipeline.issue_number,
                             title=f"Issue #{pipeline.issue_number}",
-                            url=issue_url,
+                            url=issue_url or "",
                             pipeline_id=pipeline.id,
                             repo_root=worktree_repo_path,
+                            task_description=task_description,
                         )
                     else:
                         # ``pipeline.issue_number is None`` covers both
-                        # free-text submits (no GitHub issue, no JIRA ticket)
-                        # and JIRA-driven pipelines (``pipeline.jira_ticket``
-                        # set; ``pipeline.prompt`` carries the description).
-                        # In both cases the event-pump never delivers the
-                        # orchestrator-built spawn prompt to the agent, so
-                        # we persist the full ``pipeline.prompt`` as
-                        # ``task_description``. The contract (read via
-                        # ``egg-contract show``) becomes the reliable
-                        # channel for the complete task; the ``title`` arg
-                        # is only used for the ``IssueInfo`` label and is
-                        # dropped without an ``issue_number``, so it is not
-                        # a substitute. For JIRA pipelines an agent can
-                        # still fetch the latest ticket body out-of-band
-                        # via ``jira ticket get "$EGG_JIRA_TICKET"`` — this
-                        # field is a complementary, snapshotted copy of
-                        # the description as submitted (#3033).
+                        # free-text submits and JIRA-driven pipelines
+                        # (``pipeline.jira_ticket`` set). The event-pump
+                        # never delivers the orchestrator-built spawn
+                        # prompt to the agent, so the contract (read via
+                        # ``egg-contract show`` + the #3123 prompt
+                        # section) is the reliable channel for the
+                        # complete task; the ``title`` arg is only used
+                        # for the ``IssueInfo`` label and is dropped
+                        # without an ``issue_number``, so it is not a
+                        # substitute (#3033).
                         create_contract(
                             pipeline_id=pipeline.id,
                             title=(pipeline.prompt or "")[:100],
-                            task_description=pipeline.prompt,
+                            task_description=task_description,
                             repo_root=worktree_repo_path,
                         )
 

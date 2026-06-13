@@ -1601,7 +1601,7 @@ assembles the single user prompt the wrapper dispatches at each
 | Middle | Per-reviewer NACK block (`reason` + `artifact_refs`) | `orchestrator/peer_consensus.py` `_open_nacks_barrier_response.nacks[]` (line numbers come from the slice-3 contract spec and are drift-prone — prefer the function-name reference; the function span is around lines 949–1046 in practice) — the same NACK envelope a producer sees in the aggregated-NACK 409 from §10.6 | One block per NACKing reviewer. |
 | Middle | The single expected action | `event_payload.kind` | A few hundred bytes. |
 | Tail | Git-log delta (full, per-producer — see §10.9.2) | `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p` with `last_reviewed_commit_sha` read from the slice-1 [BRC memory file](../architecture/brc-memory.md) | Scaled by change size; **NOT** counted against the 10 KB envelope. |
-| Tail | Memory excerpt (architect od-6 Option B — see §10.9.3) | `.egg-state/agent-outputs/<role>/brc-memory.md` truncated to 2 KB | ≤ 2 KB after truncation. |
+| Tail | Memory excerpt (architect od-6 Option B — see §10.9.3) | `.egg-state/agent-outputs/<role>/brc-memory-<pipeline-id>.md` truncated to 2 KB | ≤ 2 KB after truncation. |
 
 The composer's prose envelope (everything except the git-log delta) is
 **bounded at ≤ 10 KB** per case; the git-log delta is intentionally
@@ -1676,7 +1676,7 @@ appends the bounded memory prose at the prompt tail.
 | `EGG_BRC_MEMORY` | Writer (`brc_ack` / `brc_nack`) | Composer (reader) |
 |------------------|---------------------------------|-------------------|
 | `off` | No file written. | `memory_excerpt = ""`; git-log delta falls back to the orchestrator's signal-level `changed_artifacts` as a baseline. This is a **degraded** baseline, not the adversarial re-review path — used only when no per-producer SHA is available. |
-| `write-only` (slice-1 rollout posture; opt-in regression path after slice-4) | File written under `.egg-state/agent-outputs/<role>/brc-memory.md`. | `memory_excerpt = ""` even though the file exists. Reads are no-ops so the rollout-window posture stays inert despite the writer being hot. |
+| `write-only` (slice-1 rollout posture; opt-in regression path after slice-4) | File written under `.egg-state/agent-outputs/<role>/brc-memory-<pipeline-id>.md`. | `memory_excerpt = ""` even though the file exists. Reads are no-ops so the rollout-window posture stays inert despite the writer being hot. |
 | `full` (**default after slice-4**) | File written. | Composer reads the file, extracts `last_reviewed_commit_sha` per producer, substitutes it into the §10.9.2 delta command, and appends the (≤ 2 KB) truncated excerpt at the prompt tail. |
 
 Operators opted into `full` per pipeline / per pod during the
@@ -1788,7 +1788,7 @@ implementation cites:
 
 | Open decision | Resolution | Code anchor |
 |---------------|------------|-------------|
-| **od-1** — subdirectory layout for the memory artifact + fail-closed path constructor | `.egg-state/agent-outputs/<role>/brc-memory.md` with raise-on-empty-`EGG_AGENT_ROLE` (risk_analyst R14) | slice-1 writer in `sandbox/egg_agent_tools/handlers/brc_memory.py`; see [BRC Memory Artifact — File path](../architecture/brc-memory.md#file-path). |
+| **od-1** — subdirectory layout for the memory artifact + fail-closed path constructor | `.egg-state/agent-outputs/<role>/brc-memory-<pipeline-id>.md` with raise-on-empty-`EGG_AGENT_ROLE` (risk_analyst R14) | slice-1 writer in `sandbox/egg_agent_tools/handlers/brc_memory.py`; see [BRC Memory Artifact — File path](../architecture/brc-memory.md#file-path). |
 | **od-2** — distill-on-write decision-log cap at 20 entries | Writer truncates the log to last 20 on every write (alternative — append-only with prompt-side truncation — ruled out because `claude -p` does not expose the prompt-construction control) | slice-1 writer; see [BRC Memory Artifact — Decision-log cap](../architecture/brc-memory.md#decision-log-cap-distill-on-write). |
 | **od-3** — `egg-orch brc next-action` is a new dedicated endpoint, not a derived view of `consensus status` | Sequencing logic lives in `orchestrator/routes/consensus.py`, testable orchestrator-side Python, HTTP-callable from the wrapper without the MCP server | slice-1 route handler; consumed by the §10.1 deterministic loop. |
 | **od-4** — 30-minute idle / no-progress safety budget replacing the 3-restart FAIL cap | `EGG_BRC_IDLE_BUDGET_MIN` default `30` (above the WS7-observed 10–13 min idle ceiling) | slice-2, §10.5 above. |

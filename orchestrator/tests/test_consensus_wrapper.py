@@ -2162,9 +2162,11 @@ class TestSyncOutcomesAndBanner:
 # Contract pinned here (the plan, "Slice 1 — Ownership flag + one-shot
 # wrapper arm"):
 #   * ``env_config.get_event_loop_owner()`` reads ``EGG_EVENT_LOOP_OWNER``
-#     ∈ {``pod`` (default), ``orchestrator``}; invalid values are rejected
-#     loudly (warn + fall back to ``pod``) per the module's
-#     never-raise/warn-on-malformed convention.
+#     ∈ {``pod`` (default), ``orchestrator``}; an unrecognised value is
+#     rejected loudly by raising ``ValueError`` (the deliberate exception
+#     to the module's usual never-raise/warn-and-default convention —
+#     #3023: a wrong ownership mode deadlocks BRC, so a typo must surface
+#     at read time rather than masquerade as the ``pod`` default).
 #   * ``build_consensus_wrapped_command`` selects the rendering by owner:
 #     ``pod``/unset → today's in-pod event-pump template (byte-identical,
 #     golden-pinned); ``orchestrator`` → the single-event one-shot arm.
@@ -2178,7 +2180,7 @@ class TestSyncOutcomesAndBanner:
 # ===========================================================================
 
 _GOLDEN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden")
-_POD_DEFAULT_GOLDEN_PATH = os.path.join(_GOLDEN_DIR, "event_pump_wrapper_pod_default.sh")
+_POD_DEFAULT_GOLDEN_PATH = os.path.join(_GOLDEN_DIR, "event_pump_wrapper_pod_default.sh.golden")
 
 
 def _read_pod_default_golden() -> str:
@@ -2196,12 +2198,20 @@ class TestPodDefaultWrapperGoldenSnapshot:
     byte-identical to the pre-#3064 event-pump rendering, so the guard can
     never regress the production (pod) path silently.
 
+    The fixture deliberately carries the ``.sh.golden`` suffix (not ``.sh``)
+    so ``make lint-shell`` does not shellcheck it: the rendered pod wrapper
+    begins with a leading blank line before ``#!/bin/bash`` (the template's
+    ``r\"\"\"`` opener), which is inert at runtime — the wrapper runs as
+    ``bash -c \"$script\"`` — but trips SC1128 as a standalone file. Keeping
+    the suffix lets the golden hold main's exact bytes (leading newline and
+    all) rather than a lint-friendly mutation of them.
+
     To regenerate after an INTENTIONAL pod-path change, run from the
     ``orchestrator/`` directory::
 
         python3 -c "from consensus_wrapper import \\
 build_consensus_wrapped_command as b; \\
-open('tests/golden/event_pump_wrapper_pod_default.sh', 'w').write(b('x')[2])"
+open('tests/golden/event_pump_wrapper_pod_default.sh.golden', 'w').write(b('x')[2])"
 
     and review the diff — an unreviewed regeneration defeats the guard.
     """
@@ -2246,9 +2256,12 @@ open('tests/golden/event_pump_wrapper_pod_default.sh', 'w').write(b('x')[2])"
 
 class TestEventLoopOwnerAccessor:
     """``env_config.get_event_loop_owner()`` — the #3064 slice-1 ownership
-    flag accessor. Follows the module's accessor conventions (never raise;
-    fall back to the documented default and warn on a value that looks
-    intentional but malformed — mirrors ``get_recovery_ref_cleanup_enabled``).
+    flag accessor. Unset/blank/whitespace falls back to the ``pod`` default
+    (the module's usual convention), but an unrecognised value is rejected
+    loudly by raising ``ValueError`` — the deliberate exception to the
+    never-raise convention, because there is no safe silent fallback for an
+    ownership mode (#3023: a wrong mode deadlocks BRC, so a typo must surface
+    at read time). See ``test_invalid_value_rejected_loudly``.
     """
 
     def test_unset_defaults_to_pod(self, monkeypatch):
