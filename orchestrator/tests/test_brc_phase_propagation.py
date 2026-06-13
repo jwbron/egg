@@ -21,8 +21,9 @@ sys.modules.setdefault("docker", _docker_mock)
 sys.modules.setdefault("docker.errors", _docker_mock.errors)
 sys.modules.setdefault("docker.types", _docker_mock.types)
 
-from message_store import Message, MessageStore, MessageType
+from message_store import Message, MessageType
 from models import Pipeline, PipelinePhase, PipelineStatus
+from redis_message_store import RedisMessageStore
 
 # ---------------------------------------------------------------------------
 # Fixtures and helpers
@@ -906,7 +907,7 @@ class TestWriteBrcHistoryNonePhase:
                 phase=None,
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -938,7 +939,7 @@ class TestWriteBrcHistoryNonePhase:
                 phase="implement",  # Post-fix message
             ),
         ]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):

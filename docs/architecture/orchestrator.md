@@ -943,10 +943,14 @@ real behaviour. The current test surface:
   the event-pump six-event wait-filter, conditional `CONSENSUS_CONFIRMED`
   inclusion pre- vs post-confirm, wrapper-side heartbeat cadence +
   `slice_id` wiring, wrapper-side keep-alive cadence, idle-budget
-  overseer alert at threshold, 409 stale_version re-fetch path, and
+  overseer alert at threshold, 409 stale_version re-fetch path,
   the defensive guard that the wrapper does not also call
   `egg-orch progress complete` (the architect-corrected pseudocode
-  typo). Slice-2/-3 snapshot tests that pinned the byte-for-byte
+  typo), and the `propose|ack|nack` arm's capped-linear backoff +
+  streak-escalation path (#3138: sticky log warning at streak 5,
+  `agent-invocation-fail-streak` `OVERSEER_ALERT` at streak 10 with
+  duration-aware configuration-class classification). Slice-2/-3
+  snapshot tests that pinned the byte-for-byte
   `_CONSENSUS_WRAPPER_TEMPLATE` (flag-off) emission were retired in
   slice-4 task-4-3 alongside the legacy template deletion; the
   idle-budget test now serves as the canonical liveness coverage.
@@ -1042,7 +1046,7 @@ above). It assembles, in order:
 | Middle | NACK payload (per-reviewer NACK with `reason` + `artifact_refs`) | `orchestrator/peer_consensus.py` `_open_nacks_barrier_response.nacks[]` (line numbers come from the slice-3 contract spec and are drift-prone — prefer the function-name reference; the function span is around lines 949–1046 in practice) — the same envelope the producer sees on the aggregated-NACK 409 (see [§10.6](../reference/agent-wait-patterns.md#106-409-stale_version--aggregated-nack-are-event-pump-signals-not-transient-errors)). | One section per reviewer that NACKed the current version; rendered with reason text + artifact references. |
 | Middle | Single expected action | `event_payload.kind` | A few hundred bytes; states whether the agent should review, fix, confirm, etc. |
 | Tail | Per-producer git-log delta | `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p` ← `last_reviewed_commit_sha` from the [BRC memory file](brc-memory.md) | Scaled by actual change size; **NOT** counted against the 10 KB envelope. |
-| Tail | Memory excerpt | `.egg-state/agent-outputs/<role>/brc-memory.md` (slice-1 writer); truncated when the excerpt exceeds 2 KB | ≤ 2 KB after truncation. |
+| Tail | Memory excerpt | `.egg-state/agent-outputs/<role>/brc-memory-<pipeline-id>.md` (slice-1 writer); truncated when the excerpt exceeds 2 KB | ≤ 2 KB after truncation. |
 
 The composer is invoked per role: producer prompts carry an `INVOKE` ↦
 `address NACKs and re-propose`; reviewer prompts carry an `INVOKE` ↦
@@ -1125,7 +1129,7 @@ reader on so the composer reads the memory file's per-producer
 |------------------|--------------------|
 | `off` | Reader inert; `memory_excerpt = ""`. The composer falls back to the orchestrator's signal-level `changed_artifacts` as a baseline for the git-log delta when no per-producer SHA is available — strictly a degraded baseline, not the adversarial re-review path. |
 | `write-only` (slice-1 rollout default; opt-in regression path after slice-4) | Writes happen; reads are no-ops. `memory_excerpt = ""` even though the file exists, preserving the inert read behaviour from the slice-1 rollout window. |
-| `full` (**default after slice-4**) | Composer reads `.egg-state/agent-outputs/<role>/brc-memory.md`, extracts the per-producer `last_reviewed_commit_sha`, substitutes it into the git-log delta, and includes the truncated memory excerpt at the prompt tail. |
+| `full` (**default after slice-4**) | Composer reads `.egg-state/agent-outputs/<role>/brc-memory-<pipeline-id>.md`, extracts the per-producer `last_reviewed_commit_sha`, substitutes it into the git-log delta, and includes the truncated memory excerpt at the prompt tail. |
 
 The default stayed `write-only` through slice-3 — operators opted into
 `full` per pipeline / per pod during the slice-2/-3 rollout window.
@@ -1141,7 +1145,7 @@ the architect's open decisions for the #2908 redesign. The
 resolutions are cited so a future reviewer touching the surrounding
 subsystem can locate the implementation:
 
-- **od-1 — subdirectory layout (`.egg-state/agent-outputs/<role>/brc-memory.md`)
+- **od-1 — subdirectory layout (`.egg-state/agent-outputs/<role>/brc-memory-<pipeline-id>.md`)
   + fail-closed path constructor.** Resolved by slice-1's writer
   (`sandbox/egg_agent_tools/handlers/brc_memory.py`); the path
   constructor raises on empty `EGG_AGENT_ROLE` per risk_analyst R14.
