@@ -1,4 +1,5 @@
-"""Orchestrator-owned BRC event loop (#3064 slice-2, TASK-2-1; slice-3, TASK-3-1).
+"""Orchestrator-owned BRC event loop (#3064 slice-2, TASK-2-1; slice-3, TASK-3-1;
+slice-5, TASK-5-1).
 
 Under ``EGG_EVENT_LOOP_OWNER=orchestrator`` the orchestrator — not a
 long-lived in-pod wait-loop — owns the BRC event loop. For every role it
@@ -27,6 +28,15 @@ The ``JobSupervisor`` watches, per-dupe-key, the health of spawned jobs,
 applies backoff (streak*backoff capped), emits OVERSEER_ALERT on persistent
 streaks, and resets on success. The wrapper template imports the constants
 from the same source (``supervision_policy.py``).
+
+**Slice-5 (#3064): convergence-stall detection (re-homed idle-budget)**
+
+In orchestrator mode the in-pod ``check_idle_budget`` no longer runs.
+Instead the event loop judges convergence stall from tracker timestamps:
+when a role's derived actionable event (propose|ack|nack) has been pending
+longer than ``EGG_BRC_IDLE_BUDGET_MIN`` with no BRC-bus activity, the loop
+raises the same ``stuck-phase-transition`` anomaly the in-pod alert uses
+today.
 """
 
 from __future__ import annotations
@@ -123,6 +133,66 @@ def get_event_loop_poll_interval() -> float:
         )
         return DEFAULT_POLL_INTERVAL_SECONDS
     return val
+
+
+# Convergence-stall idle budget (#3064 slice-5, re-homed from the in-pod
+# ``check_idle_budget``).  A role whose derived event has been pending
+# longer than this many minutes without tracker-bus movement raises a
+# ``stuck-phase-transition`` anomaly.  Mirrors the wrapper's
+# ``EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT = 30``.
+_IDLE_BUDGET_MIN_DEFAULT = 30
+
+
+def get_idle_budget_minutes() -> int:
+    """Return the idle-budget threshold in minutes (default 30).
+
+    Reads ``EGG_BRC_IDLE_BUDGET_MIN``.  Malformed or non-positive values
+    fall back to the default with a warning.  The wrapper template reads
+    the same env var (``consensus_wrapper.py:151``); this function is the
+    orchestrator-side accessor for the re-homed convergence-stall check.
+    """
+    raw = os.environ.get("EGG_BRC_IDLE_BUDGET_MIN", "").strip()
+    if not raw:
+        return _IDLE_BUDGET_MIN_DEFAULT
+    try:
+        # ``raw`` is always a ``str`` (env get + strip), so a non-integer
+        # value only ever raises ``ValueError`` — no ``TypeError`` arm needed
+        # (mirrors ``get_event_loop_poll_interval`` above).
+        val = int(raw)
+    except ValueError:
+        logger.warning(
+            "EGG_BRC_IDLE_BUDGET_MIN=%r is not an integer; falling back to %d",
+            raw,
+            _IDLE_BUDGET_MIN_DEFAULT,
+        )
+        return _IDLE_BUDGET_MIN_DEFAULT
+    if val <= 0:
+        logger.warning(
+            "EGG_BRC_IDLE_BUDGET_MIN=%d must be > 0; falling back to %d",
+            val,
+            _IDLE_BUDGET_MIN_DEFAULT,
+        )
+        return _IDLE_BUDGET_MIN_DEFAULT
+    return val
+
+
+def _idle_budget_anomaly_name() -> str:
+    """Return the OVERSEER_ALERT anomaly name for an idle-budget breach.
+
+    Single-sourced from the in-pod wrapper
+    (``consensus_wrapper.EVENT_PUMP_IDLE_BUDGET_ANOMALY``) so the
+    orchestrator-side convergence-stall alert and the in-pod
+    ``check_idle_budget`` raise the identical anomaly the overseer
+    classifies on. Lazy import (the wrapper module is import-heavy and not
+    needed at event-loop import time); falls back to the literal if the
+    import is unavailable in a stripped environment.
+    """
+    try:
+        from consensus_wrapper import EVENT_PUMP_IDLE_BUDGET_ANOMALY
+
+        return EVENT_PUMP_IDLE_BUDGET_ANOMALY
+    except Exception:  # noqa: BLE001 — never let alerting fail on an import edge
+        return "stuck-phase-transition"
 
 
 def compute_dedupe_key(
@@ -494,6 +564,11 @@ class OrchestratorEventLoop:
     effect as ``handler(action=, role=, payload=)``; ``clock`` is a monotonic
     source the timing field reads. ``reconcile(live_dedupe_keys)`` seeds the
     in-memory live set from live Job labels (the stateless-restart path).
+
+    Slice-5 (convergence-stall detection): inject ``convergence_stall_notifier``
+    to raise a ``stuck-phase-transition`` anomaly when a role has had a
+    pending actionable event (propose|ack|nack) for longer than
+    ``EGG_BRC_IDLE_BUDGET_MIN`` minutes without BRC-bus activity.
     """
 
     def __init__(
@@ -510,6 +585,8 @@ class OrchestratorEventLoop:
         poll_interval: float | None = None,
         job_supervisor: JobSupervisor | None = None,
         job_status_view: Any | None = None,
+        convergence_stall_notifier: Callable[..., Any] | None = None,
+        active_roles_notifier: Callable[[set[str]], Any] | None = None,
     ) -> None:
         self.tracker = tracker
         self.spawner = spawner
@@ -537,6 +614,28 @@ class OrchestratorEventLoop:
         # ``None`` (pure slice-2 mode / most unit tests) ⇒ no observation, so
         # spawn behavior is byte-identical to slice-2.
         self._job_status_view = job_status_view
+        # #3064 slice-5: convergence-stall notifier (raises the
+        # ``stuck-phase-transition`` anomaly).  When unset, stall detection
+        # is fully dormant — ``_check_convergence_stall`` returns early and
+        # accumulates no per-role state.
+        self._convergence_stall_notifier = convergence_stall_notifier
+        # Per-role first-seen wall-clock timestamp of the current stall
+        # window.  {role: first_seen_wallclock_float} — set when a role is
+        # first observed with a pending actionable event after a period of
+        # tracker bus quiet; cleared when the role's derived action changes
+        # (no longer actionable) or the tracker bus moves.
+        self._stall_first_seen: dict[str, float] = {}
+        # Per-role sticky alert latch so the anomaly fires exactly once per
+        # stall episode (mirrors the in-pod ALERTED_AT_BUDGET flag).
+        self._stall_alerted: dict[str, bool] = {}
+        # #3064 slice-5: callback that publishes the set of roles with a
+        # currently in-flight (live) one-shot Job to the health monitor's
+        # ``set_active_roles``.  Without this the monitor's ``_active_jobs``
+        # stays empty in orchestrator mode and every heartbeat/progress/
+        # container-exit tripwire is suppressed (the active-Job scoping and
+        # silent-mid-event-pod coverage are then dead).  When unset (unit
+        # tests / pod mode) no publishing happens.
+        self._active_roles_notifier = active_roles_notifier
 
     # ------------------------------------------------------------------
     # Dedupe state
@@ -630,11 +729,21 @@ class OrchestratorEventLoop:
         """Run one derivation→action pass over ``roles``.
 
         Observes finished Jobs first (slice-3 supervision), then derives the
-        next action per role. Returns a decision per role (role order). Never
-        raises: a per-role failure is logged and recorded as a no-op so one
-        bad role can't wedge the loop.
+        next action per role. Convergence-stall check runs after observation
+        so the tracker's bus timestamp is up to date. Returns a decision per
+        role (role order). Never raises: a per-role failure is logged and
+        recorded as a no-op so one bad role can't wedge the loop.
         """
         self._observe_jobs()
+        try:
+            self._check_convergence_stall()
+        except Exception as exc:  # noqa: BLE001 — never wedge the loop
+            logger.warning(
+                "event-loop convergence-stall check failed",
+                pipeline_id=self.pipeline_id,
+                slice_id=self.slice_id,
+                error=str(exc),
+            )
         decisions: list[EventDecision] = []
         for role in roles:
             try:
@@ -648,7 +757,44 @@ class OrchestratorEventLoop:
                     error=str(exc),
                 )
                 decisions.append(EventDecision(role=role, action="error"))
+        # Publish the post-spawn live-Job role set to the health monitor so
+        # its orchestrator-mode tripwires scope to roles that actually have a
+        # pod this tick (newly spawned keys above are included).
+        self._publish_active_roles()
         return decisions
+
+    def _publish_active_roles(self) -> None:
+        """Push the set of roles with a live one-shot Job to the monitor.
+
+        Derives the active-role set from ``_live_keys`` (the in-flight
+        dedupe keys) via ``_key_meta`` (``{key: (action, role)}``) and hands
+        it to ``active_roles_notifier`` — wired in production to the health
+        monitor's ``set_active_roles``.  Roles absent from this set are
+        treated as legitimately idle in orchestrator mode.
+
+        Reconciled keys (restart path) populate ``_live_keys`` without a
+        ``_key_meta`` entry.  But ``poll_once`` runs the ``_handle_role`` pass
+        (which labels the key via ``_key_meta.setdefault`` on its dedupe
+        early-return — it no longer waits for a fresh spawn) *before* calling
+        this method, so an adopted/reconciled role is labeled and therefore
+        published on the very first published tick after ``reconcile()``; it is
+        never actually absent from a real publish.  Were the label ever missing
+        it would only suppress (never false-alert) the role's tripwires.
+        Best-effort: a notifier failure must not wedge the loop.
+        """
+        notifier = self._active_roles_notifier
+        if notifier is None:
+            return
+        active_roles = {self._key_meta[key][1] for key in self._live_keys if key in self._key_meta}
+        try:
+            notifier(active_roles)
+        except Exception as exc:  # noqa: BLE001 — publishing must not wedge the loop
+            logger.warning(
+                "event-loop: active-roles publish failed",
+                pipeline_id=self.pipeline_id,
+                slice_id=self.slice_id,
+                error=str(exc),
+            )
 
     def _handle_role(self, role: str) -> EventDecision:
         action, payload, _reason = _derive_next_action(self.tracker, role)
@@ -681,6 +827,12 @@ class OrchestratorEventLoop:
 
         # Dedupe: an in-flight (or reconciled) Job already owns this event.
         if key in self._live_keys:
+            # Label the key even on the dedupe path so a key first seen via
+            # ``reconcile()`` (which seeds ``_live_keys`` without ``_key_meta``)
+            # is picked up by ``_publish_active_roles`` on this tick rather than
+            # staying silently unlabeled — and thus tripwire-suppressed — for the
+            # pod's lifetime. ``setdefault`` never clobbers an existing label.
+            self._key_meta.setdefault(key, (action, role))
             return EventDecision(role=role, action=action, dedupe_key=key, spawned=False)
 
         # Slice-3: throttle respawn after an abnormal termination until the
@@ -735,6 +887,133 @@ class OrchestratorEventLoop:
             spawn_requested_at=requested_at,
         )
         return EventDecision(role=role, action=action, dedupe_key=key, spawned=True, timing=timing)
+
+    # ------------------------------------------------------------------
+    # Convergence-stall detection (#3064 slice-5, TASK-5-1)
+    # ------------------------------------------------------------------
+
+    def _check_convergence_stall(self) -> None:
+        """Judge convergence stall from tracker timestamps.
+
+        Re-homed idle-budget check: for each role whose derived actionable
+        event (propose|ack|nack) has been pending longer than
+        ``EGG_BRC_IDLE_BUDGET_MIN`` without BRC-bus activity, raises the
+        same ``stuck-phase-transition`` anomaly the in-pod
+        ``check_idle_budget`` raises today (``consensus_wrapper.py:660-700``).
+
+        ``confirm``/``complete``/``wait`` roles are never stalled — they're
+        making progress (agent-free side effects) or waiting on nothing.
+        A role with an in-flight Job (key in ``_live_keys``) is also not
+        stalled — the pod is handling the event.
+
+        The anomaly fires exactly once per stall episode per role (sticky
+        latch cleared when the BRC bus moves or the role's action changes).
+        Dormant when ``_convergence_stall_notifier`` is ``None``.
+        """
+        if self._convergence_stall_notifier is None:
+            return
+
+        budget_min = get_idle_budget_minutes()
+        budget_sec = budget_min * 60
+        now = time.time()
+
+        # Latest BRC-bus activity from the tracker (proposals + ACK/NACK
+        # timestamps).  ``None`` means no bus activity ever — in that case
+        # treat as "bus just started" so the first poll doesn't false-alert.
+        bus_ts = self.tracker.get_latest_progress_timestamp()
+        bus_timestamp: float = bus_ts.timestamp() if bus_ts is not None else now
+
+        # If the bus has moved within the budget window, reset ALL per-role
+        # stall state — the pipeline is clearly alive.
+        if now - bus_timestamp < budget_sec:
+            if self._stall_first_seen or self._stall_alerted:
+                logger.debug(
+                    "Convergence-stall: BRC bus active %.0fs ago — resetting stall state",
+                    now - bus_timestamp,
+                    pipeline_id=self.pipeline_id,
+                    slice_id=self.slice_id,
+                )
+            self._stall_first_seen.clear()
+            self._stall_alerted.clear()
+
+        for role in self._roles:
+            try:
+                action, _payload, _reason = _derive_next_action(self.tracker, role)
+            except Exception as exc:  # noqa: BLE001 — per-role isolation
+                logger.debug(
+                    "Convergence-stall: derivation failed for role",
+                    pipeline_id=self.pipeline_id,
+                    slice_id=self.slice_id,
+                    role=role,
+                    error=str(exc),
+                )
+                continue
+
+            # Agent-free (confirm/complete) and wait are never stalled.
+            if action in AGENT_FREE_ACTIONS or action == "wait" or action not in SPAWN_ACTIONS:
+                self._stall_first_seen.pop(role, None)
+                self._stall_alerted.pop(role, None)
+                continue
+
+            # If there's a live (in-flight) Job for this role, the event
+            # IS being handled — not stalled.
+            identity = event_identity(action, _payload)
+            key = compute_dedupe_key(
+                self.pipeline_id, self.slice_id, self.phase, role, action, identity
+            )
+            if key in self._live_keys:
+                self._stall_first_seen.pop(role, None)
+                continue
+
+            # NB: the bus-moved reset is handled by the all-roles clear at the
+            # top of this method (``now - bus_timestamp < budget_sec`` empties
+            # both per-role maps), so no per-role bus-activity check is needed
+            # here — by this point the bus is quiet beyond the budget window.
+
+            # First time we observe this role with a pending actionable
+            # event — seed the stall window from the last BRC-bus movement
+            # (when the event effectively became pending), NOT from when this
+            # loop first observed it. Observation-based seeding would delay
+            # the alert by up to a full budget window on a freshly-started or
+            # restarted loop versus the in-pod ``check_idle_budget``, whose
+            # ``idle = now - LAST_PROGRESS`` is bus-timestamp-relative
+            # (#3064 review NB3). We only reach here when the bus has been
+            # quiet beyond the budget (the all-roles reset above), so
+            # ``bus_timestamp`` is the correct pending-since anchor.
+            if role not in self._stall_first_seen:
+                self._stall_first_seen[role] = bus_timestamp
+
+            elapsed = now - self._stall_first_seen[role]
+            if elapsed > budget_sec and not self._stall_alerted.get(role, False):
+                self._stall_alerted[role] = True
+                logger.warning(
+                    "Convergence-stall detected: role=%s actionable event '%s' "
+                    "pending %ds (budget %d min=%ds); raising stuck-phase-transition anomaly",
+                    role,
+                    action,
+                    int(elapsed),
+                    budget_min,
+                    budget_sec,
+                    pipeline_id=self.pipeline_id,
+                    slice_id=self.slice_id,
+                    phase=self.phase,
+                )
+                self._convergence_stall_notifier(
+                    anomaly=_idle_budget_anomaly_name(),
+                    priority="high",
+                    summary=(
+                        f"orchestrator convergence stall: {role} {action} "
+                        f"pending {int(elapsed)}s (budget {budget_min}m)"
+                    ),
+                    detail=(
+                        f"Event-loop for pipeline={self.pipeline_id} "
+                        f"slice={self.slice_id} phase={self.phase} has "
+                        f"derived action={action} for role={role} but the "
+                        f"actionable event has been pending for {int(elapsed)}s "
+                        f"without BRC-bus progress (budget={budget_min}m). "
+                        f"No in-flight Job exists for this event."
+                    ),
+                )
 
     # ------------------------------------------------------------------
     # Background driver (production; not exercised by the unit contract)

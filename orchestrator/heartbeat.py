@@ -47,6 +47,12 @@ class HeartbeatCoordinator:
 
     Thread-safe.  One instance lives as an orchestrator-process-global
     singleton (``get_heartbeat_coordinator``).
+
+    Mode guard (#3064 slice-5): in orchestrator mode the gateway-session
+    refresh side-effect (``should_fan_out_gateway_session``) is suppressed
+    — session refresh happens at spawn time (slice-4 worktree re-attach),
+    not via heartbeat fan-out. Absent-sender alerts are handled by the
+    health monitor's mode-aware tripwires, not the coordinator.
     """
 
     def __init__(self, window_seconds: int = 60) -> None:
@@ -58,6 +64,9 @@ class HeartbeatCoordinator:
         self._last_state: dict[_Key, tuple[str, str]] = {}
         # (pipeline_id, slice_id, role) -> last gateway-session fan-out epoch-seconds
         self._last_fan_out: dict[_Key, float] = {}
+        # #3064 slice-5: in orchestrator mode the heartbeat path does NOT
+        # refresh the gateway session — that happens at spawn time.
+        self._orchestrator_mode: bool = False
 
     def check_rate_limit(
         self,
@@ -163,12 +172,33 @@ class HeartbeatCoordinator:
             return True
         key: _Key = (pipeline_id, slice_id, role)
         now = time.time()
+        # Single lock acquisition covers both the orchestrator-mode gate and
+        # the cooldown bookkeeping.
         with self._lock:
+            # #3064 slice-5: in orchestrator mode session refresh happens at
+            # spawn (slice-4 worktree re-attach), not from heartbeat fan-out.
+            # Suppress the gateway call to prevent absent-sender alerts from
+            # stale heartbeat fan-out in orchestrator mode.
+            if self._orchestrator_mode:
+                return False
             last = self._last_fan_out.get(key, 0.0)
             if now - last < min_interval_seconds:
                 return False
             self._last_fan_out[key] = now
         return True
+
+    def set_orchestrator_mode(self, enabled: bool = True) -> None:
+        """Enable or disable orchestrator-mode suppression of session fan-out.
+
+        In orchestrator mode (``enabled=True``) the gateway-session refresh
+        side-effect is suppressed — the heartbeat route still validates,
+        dedups, and rate-limits, but ``should_fan_out_gateway_session``
+        returns ``False``. Session refresh happens at spawn (slice-4 worktree
+        re-attach) not from heartbeat fan-out. Pod-mode (``enabled=False``)
+        restores today's fan-out behavior.  Thread-safe.
+        """
+        with self._lock:
+            self._orchestrator_mode = enabled
 
     def clear(self, pipeline_id: str) -> None:
         """Drop all state for a pipeline (on phase transition).
