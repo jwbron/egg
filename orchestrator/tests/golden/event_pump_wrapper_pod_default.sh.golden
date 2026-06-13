@@ -1,132 +1,4 @@
-"""Build consensus-wrapped commands for concurrent agent containers.
 
-EVENT-PUMP MODEL (#2908)
-~~~~~~~~~~~~~~~~~~~~~~~~
-The consensus wrapper invokes the agent one-shot per actionable BRC
-event. A deterministic bash loop drives the lifecycle:
-
-* fetch BRC state via ``egg-orch brc get-state`` (slice-1 task-1-3);
-* ask ``egg-orch brc next-action`` what to do (slice-1 task-1-1);
-* on ``wait`` block on ``egg-orch message wait-loop`` while emitting
-  ``egg-orch message heartbeat`` (heartbeat lineage #2036 + #2451 —
-  the heartbeat carries ``slice_id``, so ``_maybe_attach_slice_id`` in
-  the orchestrator fan-out refreshes the slice-scoped container session
-  as a side effect of every wrapper heartbeat);
-* on ``propose|ack|nack`` invoke the agent one-shot via
-  ``python3 -m egg_agent`` with the per-event prompt composed by
-  ``orchestrator/routes/event_prompt.py:compose_event_prompt``
-  (slice-3 task-3-1);
-* on ``confirm`` / ``complete`` call ``egg-orch consensus confirmed``;
-* trip an ``OVERSEER_ALERT`` (anomaly ``stuck-phase-transition``) on
-  the configured idle budget (env ``EGG_BRC_IDLE_BUDGET_MIN``,
-  default 30 min, architect od-4); priority climbs to ``high`` on the
-  2× boundary; the loop keeps blocking rather than exiting 1 →
-  FAILED.
-* escalate a consecutive agent-invocation failure streak (#3138):
-  linear backoff on the ``propose|ack|nack`` arm (streak × 2 s,
-  capped 30 s, parity with the ``confirm`` arm), a sticky log warning
-  at streak 5, and a sticky ``OVERSEER_ALERT`` (anomaly
-  ``agent-invocation-fail-streak``) at streak 10 whose detail
-  classifies sub-second failures as configuration-class (unknown
-  model alias, auth, prompt-rendering crash). The loop still never
-  self-FAILs.
-
-Slice-4 history
-~~~~~~~~~~~~~~~
-* slice-4 task-4-1 flipped the unset-env defaults: ``EGG_BRC_EVENT_PUMP``
-  from off→on, ``EGG_BRC_MEMORY`` from ``off``→``full``.
-* slice-4 task-4-2 (this PR) deleted the legacy capped-restart
-  template, the recovery system / user prompts, the SSE consensus-
-  reached curl path, the legacy restart cap constant (issue #2806)
-  and its companion tunables (ready-poll cycles, transient-restart
-  backoff initial, startup-failure window seconds), the
-  ``EGG_BRC_EVENT_PUMP`` env flag itself, the legacy-template branch
-  in ``build_consensus_wrapped_command``, and the agent-side
-  heartbeat / gateway-session keep-alive in
-  ``sandbox/egg_agent_tools/handlers/message.py``. The event-pump
-  template is the only production path post-slice-4. Rollback under
-  a regression is a ``git revert`` of slices 1–3 per the PR body;
-  there is no env-flag rollback path.
-* The buffer-overflow / transient-crash / startup-failure shell
-  classifiers survived the deletion and now live inside the
-  event-pump template (kept as named helpers for future use even
-  though the current ``propose|ack|nack`` arm relies on the
-  consecutive-failure counter + idle-budget escalation rather than
-  branching on them directly).
-"""
-
-import shlex
-
-
-def _event_loop_owner() -> str:
-    """Return the BRC event-loop ownership mode (``pod`` | ``orchestrator``).
-
-    Thin lazy wrapper over ``env_config.get_event_loop_owner`` (#3064).
-    The dual-path import mirrors ``concurrent_executor`` /
-    ``global_slice_admit``: the orchestrator process may have the repo
-    root on ``sys.path`` (``orchestrator.env_config``) or only
-    ``orchestrator/`` itself (bare ``env_config``). Reading at
-    composition time keeps the one-shot-arm splice driven entirely by
-    the flag, so slice-1 needs no caller changes (dormant by design).
-    """
-    try:
-        from orchestrator.env_config import get_event_loop_owner
-    except ImportError:
-        from env_config import get_event_loop_owner  # type: ignore[no-redef,import-not-found]
-    return get_event_loop_owner()
-
-
-# Default idle budget for the event-pump template (#2908 task-2-3). The
-# overseer alert fires when ``LAST_PROGRESS`` ages past this many
-# minutes without an actionable BRC event; priority climbs to ``high``
-# on the 2x boundary. The runtime override is the ``EGG_BRC_IDLE_BUDGET_MIN``
-# env var which the bash reads (composition-time formatting only sets the
-# fallback when the env is unset/empty). 30 min is the architect od-4
-# default -- well above the WS7-observed 10-13 min legitimate-idle ceiling.
-EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT = 30
-
-# Heartbeat cadence for the wrapper-owned background heartbeat emitter
-# (#2908 task-2-2). Migrated from
-# ``sandbox/egg_agent_tools/handlers/message.py:_WAIT_LOOP_HEARTBEAT_INTERVAL_SECS``
-# (60 s); 30 s keeps the wrapper well under the overseer's 120 s
-# (default) / 600 s (implement-phase) ``heartbeat_threshold`` even on
-# a one-missed-tick basis. Tests can override via
-# ``EGG_BRC_HEARTBEAT_INTERVAL_SECS``.
-EVENT_PUMP_HEARTBEAT_INTERVAL_SECS_DEFAULT = 30
-
-# Inner wait-loop timeout for the event-pump's blocking call (#2908
-# task-2-1). Short relative to the idle budget so the bash loop returns
-# regularly and can recompute next-action / age the idle counter. The
-# orchestrator long-poll caps at 60 s anyway (see
-# ``sandbox/egg_lib/orch_cli.py`` cmd_message_wait_loop), so matching
-# that here avoids carrying a longer client timeout than the server
-# honors.
-EVENT_PUMP_WAIT_TIMEOUT_SECS_DEFAULT = 60
-
-
-# Event-pump bash template (#2908 task-2-1). Composed by
-# ``build_consensus_wrapped_command`` — the only template path
-# post-slice-4 task-4-2 (the legacy capped-restart template and the
-# ``EGG_BRC_EVENT_PUMP`` env-flag read were deleted in that task).
-# The pump is a deterministic loop that calls ``egg-orch brc get-state``
-# + ``egg-orch brc next-action`` to decide what to do next, blocks on
-# ``egg-orch message wait-loop`` while emitting wrapper-owned heartbeats
-# (#2036 + #2451 migrated out of the agent-side ``message_wait_loop``
-# handler), and invokes the agent one-shot via ``python3 -m egg_agent``
-# when an event needs handling. The wait-filter set is built
-# conditionally with ``CONSENSUS_CONFIRMED`` omitted pre-confirm (the
-# orchestrator rejects that combination with HTTP 400 per #2064 / #2482,
-# risk_analyst R12).
-#
-# The idle budget (env ``EGG_BRC_IDLE_BUDGET_MIN``, default 30 min)
-# replaces the legacy capped-restart cap: no actionable event for
-# the budget duration raises an ``OVERSEER_ALERT``, but the loop
-# keeps blocking instead of exiting 1 -> FAILED.
-#
-# Placeholders interpolated by ``str.format``:
-#   {agent_command_prefix}   -- ``python3 -m egg_agent --model X --max-turns N``
-#   {idle_budget_min_default}, {hb_interval_default}, {wait_timeout_default}
-_EVENT_PUMP_WRAPPER_TEMPLATE = r"""
 #!/bin/bash
 set -uo pipefail
 
@@ -136,19 +8,19 @@ set -uo pipefail
 # blocking wait. Migrated wrapper-owned heartbeats (#2036, #2451)
 # replace the agent-side liveness path.
 
-IDLE_BUDGET_MIN="${{EGG_BRC_IDLE_BUDGET_MIN:-{idle_budget_min_default}}}"
+IDLE_BUDGET_MIN="${EGG_BRC_IDLE_BUDGET_MIN:-30}"
 IDLE_BUDGET_SECS=$(( IDLE_BUDGET_MIN * 60 ))
-HB_INTERVAL_SECS="${{EGG_BRC_HEARTBEAT_INTERVAL_SECS:-{hb_interval_default}}}"
-WAIT_TIMEOUT_SECS="${{EGG_BRC_WAIT_TIMEOUT_SECS:-{wait_timeout_default}}}"
+HB_INTERVAL_SECS="${EGG_BRC_HEARTBEAT_INTERVAL_SECS:-30}"
+WAIT_TIMEOUT_SECS="${EGG_BRC_WAIT_TIMEOUT_SECS:-60}"
 
 # Wrapper-owned background heartbeat PID. ``cleanup`` (installed below)
 # kills it on EXIT so SIGTERM from the orchestrator does not leave a
 # stray background process holding the gateway session open.
 HB_BG_PID=""
 
-cw_log() {{
+cw_log() {
     echo "[event-pump] $*" >&2
-}}
+}
 
 # --- Agent-invocation exit-code classifiers (#2908 task-4-2) -----------
 #
@@ -177,20 +49,20 @@ cw_log() {{
 # no-progress safety budget").
 STARTUP_FAILURE_WINDOW_SECONDS=30
 
-is_buffer_overflow() {{
-    [ -f "${{AGENT_OUTPUT_LOG:-}}" ] || return 1
+is_buffer_overflow() {
+    [ -f "${AGENT_OUTPUT_LOG:-}" ] || return 1
     grep -q "exceeded maximum buffer size" "$AGENT_OUTPUT_LOG" 2>/dev/null
-}}
+}
 
-is_transient_crash() {{
+is_transient_crash() {
     local code="$1"
     case "$code" in
         134|136|137|139|255) return 0 ;;  # SIGABRT, SIGFPE, SIGKILL/OOM, SIGSEGV, Bun segfault
         *) return 1 ;;
     esac
-}}
+}
 
-is_startup_failure() {{
+is_startup_failure() {
     local code="$1"
     local duration="$2"
     if [ "$code" -ne 1 ]; then
@@ -200,7 +72,7 @@ is_startup_failure() {{
         return 0
     fi
     return 1
-}}
+}
 
 # -----------------------------------------------------------------------
 
@@ -212,20 +84,20 @@ is_startup_failure() {{
 # gateway session as a side effect. We also echo the slice tag in the
 # ``--body`` so a snapshot test (#2908 task-2-6 (ii)) can grep for the
 # slice_id propagation without intercepting the HTTP POST.
-emit_heartbeat() {{
+emit_heartbeat() {
     local state="$1"
     local body_text="$2"
-    local slice_tag="${{EGG_SLICE_ID:-none}}"
+    local slice_tag="${EGG_SLICE_ID:-none}"
     timeout 5 egg-orch message heartbeat \
         --state "$state" \
         --body "$body_text (slice=$slice_tag)" \
         >/dev/null 2>&1 || true
-}}
+}
 
 # Start a background heartbeat emitter for the duration of a blocking
 # call. Replaces ``handlers/message.py:_start_wait_loop_heartbeat`` --
 # the wrapper now owns this responsibility (#2908 task-2-2).
-start_background_heartbeat() {{
+start_background_heartbeat() {
     local body_text="$1"
     (
         # Install a TERM trap that exits the subshell cleanly so the
@@ -246,9 +118,9 @@ start_background_heartbeat() {{
         done
     ) &
     HB_BG_PID=$!
-}}
+}
 
-stop_background_heartbeat() {{
+stop_background_heartbeat() {
     if [ -n "$HB_BG_PID" ]; then
         # Use SIGTERM (default ``kill`` signal) so the subshell's
         # ``trap 'exit 0' TERM`` exits the heartbeat loop cleanly,
@@ -258,24 +130,24 @@ stop_background_heartbeat() {{
         wait "$HB_BG_PID" 2>/dev/null || true
         HB_BG_PID=""
     fi
-}}
+}
 
-cleanup() {{
+cleanup() {
     stop_background_heartbeat
-}}
+}
 trap cleanup EXIT TERM INT
 
-# Fetch the BRC consensus state. Returns ``{{}}`` on any failure so
+# Fetch the BRC consensus state. Returns ``{}`` on any failure so
 # downstream parsers can short-circuit without a Python crash.
-fetch_state() {{
-    egg-orch brc get-state --json 2>/dev/null || echo "{{}}"
-}}
+fetch_state() {
+    egg-orch brc get-state --json 2>/dev/null || echo "{}"
+}
 
 # Has the role for this pod already reached CONFIRMED in the BRC
 # matrix? Used to decide whether to include CONSENSUS_CONFIRMED in
 # the wait-filter set (risk_analyst R12, orchestrator HTTP-400 rule
 # from #2064 / #2482).
-role_is_confirmed() {{
+role_is_confirmed() {
     local state_json="$1"
     echo "$state_json" | python3 -c "
 import sys, json, os
@@ -284,15 +156,15 @@ try:
     d = json.load(sys.stdin)
 except Exception:
     print('False'); sys.exit(0)
-agents = (d.get('consensus') or {{}}).get('agents') or {{}}
-print('True' if agents.get(role, {{}}).get('confirmed') else 'False')
+agents = (d.get('consensus') or {}).get('agents') or {}
+print('True' if agents.get(role, {}).get('confirmed') else 'False')
 " 2>/dev/null || echo "False"
-}}
+}
 
 # Has global consensus already completed? Lets the loop short-circuit
 # (e.g. when another role's confirmation flipped is_complete after we
 # CONFIRMED but before SIGTERM landed).
-consensus_is_complete() {{
+consensus_is_complete() {
     local state_json="$1"
     echo "$state_json" | python3 -c "
 import sys, json
@@ -300,9 +172,9 @@ try:
     d = json.load(sys.stdin)
 except Exception:
     print('False'); sys.exit(0)
-print('True' if (d.get('consensus') or {{}}).get('is_complete') else 'False')
+print('True' if (d.get('consensus') or {}).get('is_complete') else 'False')
 " 2>/dev/null || echo "False"
-}}
+}
 
 # Ask the orchestrator route what to do next. Returns a JSON document
 # with ``action`` ('wait'|'propose'|'ack'|'nack'|'confirm'|'complete')
@@ -313,12 +185,12 @@ print('True' if (d.get('consensus') or {{}}).get('is_complete') else 'False')
 # signals (re-fetch state, re-invoke), NOT as transient crashes to
 # retry with backoff."), HTTP 409 from the route is a signal to
 # re-fetch state, not a crash. The CLI surfaces 409 as a non-zero
-# exit code with an empty/invalid JSON; falling back to ``{{"action":"wait"}}``
+# exit code with an empty/invalid JSON; falling back to ``{"action":"wait"}``
 # lets the next loop iteration call ``brc get-state`` again, which
 # observes the new state and emits the correct next action.
-fetch_next_action() {{
+fetch_next_action() {
     local out rc
-    out=$(egg-orch brc next-action --role "${{EGG_AGENT_ROLE:-unknown}}" --json 2>/dev/null)
+    out=$(egg-orch brc next-action --role "${EGG_AGENT_ROLE:-unknown}" --json 2>/dev/null)
     rc=$?
     if [ "$rc" -eq 0 ] && [ -n "$out" ]; then
         echo "$out"
@@ -336,15 +208,15 @@ fetch_next_action() {{
     # the next-action parser doesn't crash; we propagate the original
     # ``rc`` as the function's exit code (caller reads ``$?`` after the
     # ``$(...)`` substitution to count the streak per reviewer §3).
-    cw_log "brc next-action returned rc=$rc / empty body; falling back to {{\"action\":\"wait\"}} and re-deriving state next loop."
-    echo '{{"action":"wait"}}'
+    cw_log "brc next-action returned rc=$rc / empty body; falling back to {\"action\":\"wait\"} and re-deriving state next loop."
+    echo '{"action":"wait"}'
     return "$rc"
-}}
+}
 
 # Extract a top-level scalar field from a next-action JSON document.
 # Nested objects (event_payload) are re-serialised as JSON so the
 # bash caller can pass them downstream verbatim.
-next_action_field() {{
+next_action_field() {
     local action_json="$1"
     local field="$2"
     echo "$action_json" | python3 -c "
@@ -362,14 +234,14 @@ elif v is None:
 else:
     print(v)
 " "$field" 2>/dev/null || echo ""
-}}
+}
 
 # Build the typed wait-filter set. Pre-confirm waits MUST omit
 # CONSENSUS_CONFIRMED -- the orchestrator rejects that filter
 # combination with HTTP 400 (#2064, #2482, risk_analyst R12). The
 # six-event set is the union the architect's
 # ``verification_strategy.slice_2.i`` snapshot test pins.
-build_wait_args() {{
+build_wait_args() {
     local include_confirmed="$1"
     local args=(
         --for CONSENSUS_PROPOSE
@@ -383,30 +255,30 @@ build_wait_args() {{
         args+=( --for CONSENSUS_CONFIRMED )
     fi
     args+=( --timeout "$WAIT_TIMEOUT_SECS" )
-    printf '%s\n' "${{args[@]}}"
-}}
+    printf '%s\n' "${args[@]}"
+}
 
 # Block on the orchestrator message bus for the next BRC event while
 # the wrapper-owned background heartbeat emitter keeps the overseer's
 # liveness tracker and the gateway-session idle timer happy.
-wait_for_event() {{
+wait_for_event() {
     local include_confirmed="$1"
-    local hb_body="event-pump wait role=${{EGG_AGENT_ROLE:-?}}"
+    local hb_body="event-pump wait role=${EGG_AGENT_ROLE:-?}"
     mapfile -t WAIT_ARGS < <(build_wait_args "$include_confirmed")
     start_background_heartbeat "$hb_body"
     emit_heartbeat "WAITING_FOR_EVENT" "$hb_body"
-    egg-orch message wait-loop "${{WAIT_ARGS[@]}}" --max-iterations 1 >/dev/null 2>&1
+    egg-orch message wait-loop "${WAIT_ARGS[@]}" --max-iterations 1 >/dev/null 2>&1
     local rc=$?
     stop_background_heartbeat
     emit_heartbeat "WORKING" "event-pump woke (rc=$rc)"
     return $rc
-}}
+}
 
 # Invoke the agent one-shot with the per-event prompt. Slice-3
 # (TASK-3-1 / TASK-3-2) replaces the slice-2 stub with the full
 # ``compose_event_prompt`` payload: memory excerpt (when
 # ``EGG_BRC_MEMORY=full``) + per-producer
-# ``git log {{sha}}..HEAD --not origin/{{base}} -p`` delta + NACK
+# ``git log {sha}..HEAD --not origin/{base} -p`` delta + NACK
 # payload + the contract's ``task_description`` (#3123, read from the
 # worktree contract file via the pod-inherited ``EGG_PIPELINE_ID`` /
 # ``EGG_ISSUE_NUMBER``). The composer lives at
@@ -420,13 +292,13 @@ wait_for_event() {{
 # event-pump keeps running rather than failing the agent invocation.
 # This is symmetric with the rest of the wrapper's "block, alert,
 # continue" stance under the idle-budget safety net.
-invoke_agent_for_event() {{
+invoke_agent_for_event() {
     local action="$1"
     local event_payload="$2"
-    local role="${{EGG_AGENT_ROLE:-unknown}}"
-    local slice="${{EGG_SLICE_ID:-none}}"
-    local base_branch="${{EGG_BASE_BRANCH:-main}}"
-    local script_path="${{EGG_EVENT_PROMPT_SCRIPT:-/opt/egg-runtime/orchestrator/routes/event_prompt.py}}"
+    local role="${EGG_AGENT_ROLE:-unknown}"
+    local slice="${EGG_SLICE_ID:-none}"
+    local base_branch="${EGG_BASE_BRANCH:-main}"
+    local script_path="${EGG_EVENT_PROMPT_SCRIPT:-/opt/egg-runtime/orchestrator/routes/event_prompt.py}"
     local prompt prompt_rc=1
 
     if [ -r "$script_path" ]; then
@@ -453,8 +325,8 @@ invoke_agent_for_event() {{
         prompt=$(printf '%s' "$event_payload" \
             | EGG_AGENT_ROLE="$role" \
                 EGG_BASE_BRANCH="$base_branch" \
-                EGG_REPO_PATH="${{EGG_REPO_PATH:-$PWD}}" \
-                EGG_BRC_MEMORY="${{EGG_BRC_MEMORY:-full}}" \
+                EGG_REPO_PATH="${EGG_REPO_PATH:-$PWD}" \
+                EGG_BRC_MEMORY="${EGG_BRC_MEMORY:-full}" \
                 python3 "$script_path" "$action" 2>"$err_tmp")
         prompt_rc=$?
     fi
@@ -466,7 +338,7 @@ invoke_agent_for_event() {{
         # The idle-budget safety net catches a wedged event-pump even
         # under a degraded composer; failing here would defeat that.
         local err_head=""
-        if [ -n "${{err_tmp:-}}" ] && [ -r "$err_tmp" ]; then
+        if [ -n "${err_tmp:-}" ] && [ -r "$err_tmp" ]; then
             err_head=$(head -1 "$err_tmp" 2>/dev/null)
         fi
         if [ -n "$err_head" ]; then
@@ -480,7 +352,7 @@ invoke_agent_for_event() {{
     # Best-effort cleanup of the stderr capture file. The trap on the
     # outer wrapper handles SIGTERM cleanup; this cleanup keeps a busy
     # event-pump from accumulating stale per-invocation temp files.
-    if [ -n "${{err_tmp:-}}" ] && [ -e "$err_tmp" ]; then
+    if [ -n "${err_tmp:-}" ] && [ -e "$err_tmp" ]; then
         rm -f "$err_tmp" 2>/dev/null || true
     fi
     # #3077 slice-1 task-1-1: prepend any sync-to-proposal failure
@@ -491,12 +363,12 @@ invoke_agent_for_event() {{
     # agent is byte-identical to the slice-0 prompt. Re-clear after
     # consumption so a subsequent ``propose`` arm (which intentionally
     # skips the sync per R11a) can never inherit stale banners.
-    if [ -n "${{SYNC_FAILURE_BANNERS:-}}" ]; then
-        prompt="${{SYNC_FAILURE_BANNERS}}${{prompt}}"
+    if [ -n "${SYNC_FAILURE_BANNERS:-}" ]; then
+        prompt="${SYNC_FAILURE_BANNERS}${prompt}"
         SYNC_FAILURE_BANNERS=""
     fi
-    {agent_command_prefix} "$prompt"
-}}
+    python3 -m egg_agent --model opus --max-turns 1000 "$prompt"
+}
 
 # Sync-to-proposal (#3076 / #3077 clause 2): before a review invocation
 # (ack/nack), merge each pending producer's proposed commit into this
@@ -534,9 +406,9 @@ invoke_agent_for_event() {{
 # empty.
 SYNC_FAILURE_BANNERS=""
 
-sync_to_proposals() {{
+sync_to_proposals() {
     local event_payload="$1"
-    local repo="${{EGG_REPO_PATH:-$PWD}}"
+    local repo="${EGG_REPO_PATH:-$PWD}"
     local shas sha
     # Reset the per-event failure accumulator at the top of each call
     # so banners from a prior event never leak into the next prompt.
@@ -555,7 +427,7 @@ try:
     d = json.load(sys.stdin)
 except Exception:
     sys.exit(0)
-pat = re.compile(r'[0-9a-fA-F]{{7,64}}')
+pat = re.compile(r'[0-9a-fA-F]{7,64}')
 out = []
 for pr in (d.get('pending_reviews') or []):
     if not isinstance(pr, dict):
@@ -568,13 +440,13 @@ print('\n'.join(out))
     [ -z "$shas" ] && return 0
     while IFS= read -r sha; do
         [ -z "$sha" ] && continue
-        if ! git -C "$repo" cat-file -e "$sha^{{commit}}" 2>/dev/null; then
+        if ! git -C "$repo" cat-file -e "$sha^{commit}" 2>/dev/null; then
             # Per-role worktrees share the host repo's object store, so
             # the SHA normally resolves without network; a best-effort
             # fetch covers split-object-store runtimes.
             git -C "$repo" fetch --quiet origin >/dev/null 2>&1 || true
         fi
-        if ! git -C "$repo" cat-file -e "$sha^{{commit}}" 2>/dev/null; then
+        if ! git -C "$repo" cat-file -e "$sha^{commit}" 2>/dev/null; then
             cw_log "sync-to-proposal: $sha unresolvable in $repo; reviewer falls back to the prompt's git-show reads."
             cw_log "sync-to-proposal: outcome=unresolvable sha=$sha"
             # ``unresolvable`` failure: append a NOT-synced banner so
@@ -602,7 +474,7 @@ print('\n'.join(out))
         fi
     done <<< "$shas"
     return 0
-}}
+}
 
 # Idle / no-progress safety budget (#2908 task-2-3). Replaces the
 # legacy capped-restart cap (deleted by task-4-2): if no actionable
@@ -645,7 +517,7 @@ NEXT_ACTION_FAIL_STREAK=0
 NEXT_ACTION_ALERTED_5=false
 NEXT_ACTION_ALERTED_20=false
 
-raise_idle_alert() {{
+raise_idle_alert() {
     local idle="$1"
     local priority="$2"
     local summary_extra="$3"
@@ -662,9 +534,9 @@ raise_idle_alert() {{
     # corrupting JSON when STATE_JSON is set (tester v2 NACK finding).
     # Use a separate variable and an explicit empty-string check so
     # bash never sees unbalanced braces inside a parameter expansion.
-    snapshot_input="${{STATE_JSON-}}"
+    snapshot_input="${STATE_JSON-}"
     if [ -z "$snapshot_input" ]; then
-        snapshot_input='{{}}'
+        snapshot_input='{}'
     fi
     brc_snapshot=$(printf '%s' "$snapshot_input" | python3 -c "
 import sys, json, os
@@ -673,21 +545,21 @@ try:
     d = json.load(sys.stdin)
 except Exception:
     print('(unavailable)'); sys.exit(0)
-agents = (d.get('consensus') or {{}}).get('agents') or {{}}
-my = agents.get(role) or {{}}
-blocking = (d.get('consensus') or {{}}).get('blocking_agents') or []
-print(f\"role={{role}} producer_phase={{my.get('producer_phase','?')}} reviewer_phase={{my.get('reviewer_phase','?')}} confirmed={{my.get('confirmed','?')}} blocking_agents={{blocking}}\")
+agents = (d.get('consensus') or {}).get('agents') or {}
+my = agents.get(role) or {}
+blocking = (d.get('consensus') or {}).get('blocking_agents') or []
+print(f\"role={role} producer_phase={my.get('producer_phase','?')} reviewer_phase={my.get('reviewer_phase','?')} confirmed={my.get('confirmed','?')} blocking_agents={blocking}\")
 " 2>/dev/null || echo "(snapshot unavailable)")
-    timeout 5 egg-orch overseer alert "${{EGG_PIPELINE_ID:-unknown}}" \
-        --role "${{EGG_AGENT_ROLE:-agent}}" \
+    timeout 5 egg-orch overseer alert "${EGG_PIPELINE_ID:-unknown}" \
+        --role "${EGG_AGENT_ROLE:-agent}" \
         --anomaly stuck-phase-transition \
         --priority "$priority" \
-        --summary "BRC event-pump idle for ${{idle}}s$summary_extra" \
-        --detail "Event-pump for role=${{EGG_AGENT_ROLE:-agent}} slice=${{EGG_SLICE_ID:-none}} has seen no actionable BRC event for ${{idle}}s (configured budget ${{IDLE_BUDGET_SECS}}s). The loop continues blocking; no FAILED transition is forced. BRC state: $brc_snapshot" \
+        --summary "BRC event-pump idle for ${idle}s$summary_extra" \
+        --detail "Event-pump for role=${EGG_AGENT_ROLE:-agent} slice=${EGG_SLICE_ID:-none} has seen no actionable BRC event for ${idle}s (configured budget ${IDLE_BUDGET_SECS}s). The loop continues blocking; no FAILED transition is forced. BRC state: $brc_snapshot" \
         >/dev/null 2>&1 || true
-}}
+}
 
-raise_agent_fail_alert() {{
+raise_agent_fail_alert() {
     local streak="$1"
     local last_rc="$2"
     local last_secs="$3"
@@ -705,24 +577,24 @@ raise_agent_fail_alert() {{
     # prompt-composer overhead, so a genuine pre-SDK-init crash routinely
     # measures 1-2s. Do not tighten this to ``< 1`` -- it would misclassify
     # those crashes as transient.
-    local classification="repeated agent-invocation failure; attempts are taking ${{last_secs}}s so this may be transient (API/quota/transport)"
+    local classification="repeated agent-invocation failure; attempts are taking ${last_secs}s so this may be transient (API/quota/transport)"
     if [ "$last_secs" -le 2 ]; then
-        classification="attempts are fast-failing (${{last_secs}}s, before/at SDK init) -- likely a permanent configuration-class failure (unknown model alias, auth misconfiguration, prompt-rendering crash)"
+        classification="attempts are fast-failing (${last_secs}s, before/at SDK init) -- likely a permanent configuration-class failure (unknown model alias, auth misconfiguration, prompt-rendering crash)"
     fi
-    timeout 5 egg-orch overseer alert "${{EGG_PIPELINE_ID:-unknown}}" \
-        --role "${{EGG_AGENT_ROLE:-agent}}" \
+    timeout 5 egg-orch overseer alert "${EGG_PIPELINE_ID:-unknown}" \
+        --role "${EGG_AGENT_ROLE:-agent}" \
         --anomaly agent-invocation-fail-streak \
         --priority high \
-        --summary "agent invocation failing repeatedly (action=${{action}}, streak=${{streak}})" \
-        --detail "Event-pump for role=${{EGG_AGENT_ROLE:-agent}} slice=${{EGG_SLICE_ID:-none}} has had ${{streak}} consecutive agent-invocation failures on action=${{action}} (last rc=${{last_rc}}): ${{classification}}. The loop keeps retrying with linear backoff (capped 30s); no FAILED transition is forced. Idle budget continues to accrue." \
+        --summary "agent invocation failing repeatedly (action=${action}, streak=${streak})" \
+        --detail "Event-pump for role=${EGG_AGENT_ROLE:-agent} slice=${EGG_SLICE_ID:-none} has had ${streak} consecutive agent-invocation failures on action=${action} (last rc=${last_rc}): ${classification}. The loop keeps retrying with linear backoff (capped 30s); no FAILED transition is forced. Idle budget continues to accrue." \
         >/dev/null 2>&1 || true
-}}
+}
 
-check_idle_budget() {{
+check_idle_budget() {
     local idle=$(( SECONDS - LAST_PROGRESS ))
     local double=$(( 2 * IDLE_BUDGET_SECS ))
     if [ "$idle" -ge "$double" ] && [ "$ALERTED_AT_DOUBLE" != "true" ]; then
-        cw_log "Idle 2x budget exceeded (${{idle}}s >= ${{double}}s); raising HIGH overseer alert."
+        cw_log "Idle 2x budget exceeded (${idle}s >= ${double}s); raising HIGH overseer alert."
         raise_idle_alert "$idle" "high" " (2x budget)"
         ALERTED_AT_DOUBLE=true
         # When the loop jumps straight from idle=0 to >=2x budget (e.g.
@@ -732,23 +604,23 @@ check_idle_budget() {{
         # branch (tester v1 non-blocker #1).
         ALERTED_AT_BUDGET=true
     elif [ "$idle" -ge "$IDLE_BUDGET_SECS" ] && [ "$ALERTED_AT_BUDGET" != "true" ]; then
-        cw_log "Idle budget exceeded (${{idle}}s >= ${{IDLE_BUDGET_SECS}}s); raising overseer alert."
+        cw_log "Idle budget exceeded (${idle}s >= ${IDLE_BUDGET_SECS}s); raising overseer alert."
         raise_idle_alert "$idle" "high" ""
         ALERTED_AT_BUDGET=true
     fi
-}}
+}
 
-note_progress() {{
+note_progress() {
     LAST_PROGRESS=$SECONDS
     ALERTED_AT_BUDGET=false
     # Reviewer §6 nit: ``ALERTED_AT_DOUBLE`` is sticky for the lifetime
     # of the loop. Once the operator has been paged at 2x budget,
     # re-arming a fresh 1x alert later (after a single spurious
     # ``note_progress``) is noise, not signal.
-}}
+}
 
 # --- main event-pump loop ---
-cw_log "Event-pump starting (role=${{EGG_AGENT_ROLE:-?}}, slice=${{EGG_SLICE_ID:-none}}, idle-budget=${{IDLE_BUDGET_MIN}}m)"
+cw_log "Event-pump starting (role=${EGG_AGENT_ROLE:-?}, slice=${EGG_SLICE_ID:-none}, idle-budget=${IDLE_BUDGET_MIN}m)"
 emit_heartbeat "WORKING" "event-pump start"
 
 while true; do
@@ -780,11 +652,11 @@ while true; do
         # without re-firing on every iteration past it.
         NEXT_ACTION_FAIL_STREAK=$(( NEXT_ACTION_FAIL_STREAK + 1 ))
         if [ "$NEXT_ACTION_FAIL_STREAK" -ge 5 ] && [ "$NEXT_ACTION_ALERTED_5" != "true" ]; then
-            cw_log "brc next-action has returned non-zero ${{NEXT_ACTION_FAIL_STREAK}} times in a row -- orchestrator may be unhealthy (5xx loop / transport down), not just a benign 409 stale_version. Idle budget continues to accrue."
+            cw_log "brc next-action has returned non-zero ${NEXT_ACTION_FAIL_STREAK} times in a row -- orchestrator may be unhealthy (5xx loop / transport down), not just a benign 409 stale_version. Idle budget continues to accrue."
             NEXT_ACTION_ALERTED_5=true
         fi
         if [ "$NEXT_ACTION_FAIL_STREAK" -ge 20 ] && [ "$NEXT_ACTION_ALERTED_20" != "true" ]; then
-            cw_log "brc next-action has returned non-zero ${{NEXT_ACTION_FAIL_STREAK}} times in a row -- orchestrator may be unhealthy (5xx loop / transport down), not just a benign 409 stale_version. Idle budget continues to accrue."
+            cw_log "brc next-action has returned non-zero ${NEXT_ACTION_FAIL_STREAK} times in a row -- orchestrator may be unhealthy (5xx loop / transport down), not just a benign 409 stale_version. Idle budget continues to accrue."
             NEXT_ACTION_ALERTED_20=true
         fi
     fi
@@ -843,7 +715,7 @@ while true; do
                 if [ "$confirm_backoff_secs" -gt 30 ]; then
                     confirm_backoff_secs=30
                 fi
-                cw_log "consensus confirmed failed (rc=$confirm_rc, streak=$CONFIRM_FAIL_STREAK); backing off ${{confirm_backoff_secs}}s. Idle counter continues to accrue."
+                cw_log "consensus confirmed failed (rc=$confirm_rc, streak=$CONFIRM_FAIL_STREAK); backing off ${confirm_backoff_secs}s. Idle counter continues to accrue."
                 sleep "$confirm_backoff_secs"
             fi
             ;;
@@ -891,7 +763,7 @@ while true; do
                 AGENT_FAIL_STREAK=0
             else
                 AGENT_FAIL_STREAK=$(( AGENT_FAIL_STREAK + 1 ))
-                cw_log "agent invocation failed (action=$ACTION, rc=$agent_rc, streak=$AGENT_FAIL_STREAK, duration=${{agent_invoke_secs}}s). Idle counter continues to accrue."
+                cw_log "agent invocation failed (action=$ACTION, rc=$agent_rc, streak=$AGENT_FAIL_STREAK, duration=${agent_invoke_secs}s). Idle counter continues to accrue."
                 if [ "$AGENT_FAIL_STREAK" -ge 5 ] && [ "$AGENT_FAIL_ALERTED_5" != "true" ]; then
                     # The per-failure line above already printed the streak
                     # count this iteration; this escalation line adds the
@@ -932,260 +804,3 @@ while true; do
 
     check_idle_budget
 done
-"""
-
-
-# Splice anchor: the one-shot arm (#3064 slice-1) is inserted immediately
-# before this marker in the ORCHESTRATOR-ownership build of the wrapper.
-# Splicing (rather than a ``str.format`` placeholder) is deliberate — a
-# placeholder that expands to empty in pod mode would leave a residual
-# newline and break the "pod build byte-identical to main" golden-file
-# test. In pod mode the template is returned untouched.
-_MAIN_LOOP_MARKER = "# --- main event-pump loop ---"
-
-
-# One-shot event arm (#3064 slice-1). Spliced into the wrapper ONLY when
-# the orchestrator owns the event loop (``EGG_EVENT_LOOP_OWNER=
-# orchestrator``); the pod-ownership build never contains it and is
-# byte-identical to the pre-#3064 template. Dormant by design: nothing
-# sets ``EGG_EVENT_ACTION`` until the slice-2 spawner exists.
-#
-# This block is spliced AFTER ``_EVENT_PUMP_WRAPPER_TEMPLATE.format(...)``
-# runs, so it must use LITERAL braces (no ``{{``/``}}`` doubling) and must
-# NOT be passed through ``str.format``. It relies only on helper functions
-# defined above the marker (``fetch_next_action``, ``next_action_field``,
-# ``sync_to_proposals``, ``invoke_agent_for_event``, ``emit_heartbeat``,
-# ``cw_log``) and on the ``trap cleanup EXIT TERM INT`` already installed.
-#
-# Behavior (task-1-1 acceptance):
-#   * Engages only when owner==orchestrator AND an event is injected
-#     (``EGG_EVENT_ACTION`` non-empty). With no injected event it falls
-#     through to the in-pod loop unchanged (belt-and-suspenders).
-#   * ``confirm``/``complete`` are executed orchestrator-side with no pod
-#     and must NEVER be injected here — loud non-zero rejection if they
-#     are.
-#   * Skips the blocking wait-loop and the background heartbeat entirely.
-#   * Re-checks next-action ONCE as a stale-event backstop. Three outcomes,
-#     three distinct exit codes so the slice-3 supervisor can tell them
-#     apart:
-#       - re-check inconclusive (``fetch_next_action`` rc != 0: 409 /
-#         5xx / transport) -> exit 75 (EX_TEMPFAIL) WITHOUT invoking; the
-#         supervisor must re-derive rather than assume a clean handoff.
-#       - re-check succeeded but the derived action moved on -> exit 0
-#         WITHOUT invoking (confirmed-stale dedupe backstop).
-#       - re-check confirms the event -> invoke ``invoke_agent_for_event``
-#         exactly once and exit with the agent's (#2908-classified) rc.
-_ONE_SHOT_ARM_TEMPLATE = r"""# --- one-shot event arm (#3064 slice-1, orchestrator ownership) ---------
-#
-# The orchestrator spawns this wrapper ONCE per actionable BRC event,
-# injecting the event identity via env (EGG_EVENT_ACTION in
-# propose|ack|nack, EGG_EVENT_DEDUPE_KEY, payload refs). In that mode we
-# skip the blocking wait-loop and the background heartbeat: re-check
-# next-action once as a stale-event backstop, invoke the agent exactly
-# once, and exit with the agent's (#2908-classified) rc. The re-check has
-# a distinct exit code (75/EX_TEMPFAIL) for an inconclusive re-check so a
-# transient blip is never reported as a clean handoff. The
-# orchestrator-side supervisor (slice-3) owns respawn/backoff/alerting.
-ONE_SHOT_OWNER="${EGG_EVENT_LOOP_OWNER:-pod}"
-ONE_SHOT_ACTION="${EGG_EVENT_ACTION:-}"
-if [ "$ONE_SHOT_OWNER" = "orchestrator" ] && [ -n "$ONE_SHOT_ACTION" ]; then
-    cw_log "One-shot arm engaged (action=$ONE_SHOT_ACTION, dedupe=${EGG_EVENT_DEDUPE_KEY:-none}, role=${EGG_AGENT_ROLE:-?}, slice=${EGG_SLICE_ID:-none})."
-
-    case "$ONE_SHOT_ACTION" in
-        confirm|complete)
-            # confirm/complete are agent-free and run orchestrator-side
-            # (no pod is ever spawned for them). Reaching the one-shot arm
-            # with one injected is a caller bug -- reject loudly so the
-            # orchestrator surfaces it rather than silently invoking an
-            # agent for a verb that must never invoke one.
-            cw_log "FATAL: action=$ONE_SHOT_ACTION must run orchestrator-side with no pod and must never be injected into the one-shot arm. Refusing (exit 64)."
-            exit 64
-            ;;
-        propose|ack|nack)
-            : ;;
-        *)
-            cw_log "FATAL: unknown injected EGG_EVENT_ACTION='$ONE_SHOT_ACTION' (expected propose|ack|nack). Refusing (exit 64)."
-            exit 64
-            ;;
-    esac
-
-    # Single foreground liveness ping (NOT the background emitter): the
-    # slice-5 silent-mid-event tripwire keys on heartbeats from an active
-    # one-shot pod. This spawns no background process.
-    emit_heartbeat "WORKING" "one-shot event arm action=$ONE_SHOT_ACTION"
-
-    # Stale-event backstop: re-derive next-action ONCE. If consensus has
-    # moved on (derived action != injected event) this spawn is a
-    # duplicate/stale delivery -- exit 0 WITHOUT invoking the agent. The
-    # slice-2 spawner dedupes on the derived event, but a race can still
-    # deliver a stale one; this is the in-pod backstop for that race.
-    ONE_SHOT_NEXT_JSON=$(fetch_next_action)
-    ONE_SHOT_FETCH_RC=$?
-    ONE_SHOT_DERIVED=$(next_action_field "$ONE_SHOT_NEXT_JSON" "action")
-    if [ "$ONE_SHOT_FETCH_RC" -ne 0 ]; then
-        # The re-check itself did NOT cleanly succeed. ``fetch_next_action``
-        # returns its ``{"action":"wait"}`` fallback (not a positively
-        # derived state) on ANY non-zero ``egg-orch brc next-action`` rc --
-        # 409 stale_version / aggregated-NACK barrier, 5xx, and transport
-        # failure alike -- so we cannot distinguish a genuinely stale event
-        # from a transient orchestrator/transport blip. Exiting 0 here would
-        # report a "clean handoff" and let a transient blip silently DROP a
-        # live event (reviewer non-blocking note, PR #3167). Instead exit 75
-        # (EX_TEMPFAIL): a distinct code that tells the slice-3 supervisor
-        # the freshness re-check was inconclusive, so it must re-derive
-        # next-action itself rather than treat the event as handled. The
-        # 409-vs-5xx refinement (benign-stale vs retryable) is deferred to
-        # the slice-3 supervisor contract, which owns respawn/backoff once
-        # the CLI exposes distinct codes; until then, fail safe.
-        cw_log "One-shot re-check did not cleanly succeed (fetch rc=$ONE_SHOT_FETCH_RC); cannot confirm event freshness. Exiting 75 (EX_TEMPFAIL) so the supervisor re-derives rather than assuming a clean handoff."
-        exit 75
-    fi
-    if [ "$ONE_SHOT_DERIVED" != "$ONE_SHOT_ACTION" ]; then
-        # Re-check succeeded and the live action has positively moved on:
-        # this is a genuinely stale/duplicate delivery. exit 0 here means
-        # "confirmed stale, no agent needed" -- NOT "could not tell".
-        cw_log "Injected event is stale (injected=$ONE_SHOT_ACTION, derived=${ONE_SHOT_DERIVED:-<none>}); exiting 0 without invoking the agent."
-        exit 0
-    fi
-
-    # Use the freshly-derived event_payload (current truth) for the
-    # invocation. Reviewer arms (ack/nack) sync the pending proposal
-    # commits into the worktree first, exactly as the in-pod loop does
-    # (#3076/#3077); the producer ``propose`` arm intentionally does not
-    # (R11a -- a producer's own commits are already on HEAD).
-    ONE_SHOT_PAYLOAD=$(next_action_field "$ONE_SHOT_NEXT_JSON" "event_payload")
-    if [ "$ONE_SHOT_ACTION" = "ack" ] || [ "$ONE_SHOT_ACTION" = "nack" ]; then
-        sync_to_proposals "$ONE_SHOT_PAYLOAD"
-    fi
-
-    one_shot_start=$SECONDS
-    invoke_agent_for_event "$ONE_SHOT_ACTION" "$ONE_SHOT_PAYLOAD"
-    one_shot_rc=$?
-    one_shot_secs=$(( SECONDS - one_shot_start ))
-    cw_log "One-shot invocation done (action=$ONE_SHOT_ACTION, rc=$one_shot_rc, duration=${one_shot_secs}s); exiting with the agent rc."
-    # Exit with the agent's (#2908-classified) rc. The classifiers
-    # (is_buffer_overflow / is_transient_crash / is_startup_failure)
-    # remain defined above for a future revision that wants to remap; the
-    # slice-3 orchestrator-side supervisor reads the Job exit code here.
-    #
-    # Exit-code contract for the slice-3 supervisor (reviewer note, PR
-    # #3167): 75/EX_TEMPFAIL is RESERVED for the inconclusive-re-check
-    # outcome above and means "freshness could not be confirmed, re-derive
-    # next-action". The #2908 classification codes the agent passthrough can
-    # emit here do NOT include 75, so the two meanings do not collide today;
-    # the slice-3 supervisor MUST keep 75 reserved for the re-check meaning
-    # and must not map any agent outcome onto it.
-    exit "$one_shot_rc"
-fi
-
-"""
-
-
-# ``_event_pump_enabled`` (the read of ``EGG_BRC_EVENT_PUMP``) was
-# deleted in slice-4 task-4-2 along with the legacy template branch in
-# ``build_consensus_wrapped_command``. The env flag is now silently
-# inert; operators with it lingering in k8s manifests can remove it
-# without any production impact.
-
-
-def build_event_pump_wrapped_command(
-    prompt_text: str,
-    model: str = "opus",
-    max_turns: int = 1000,
-    idle_budget_min: int = EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT,
-    heartbeat_interval_secs: int = EVENT_PUMP_HEARTBEAT_INTERVAL_SECS_DEFAULT,
-    wait_timeout_secs: int = EVENT_PUMP_WAIT_TIMEOUT_SECS_DEFAULT,
-    effort: str | None = None,
-) -> list[str]:
-    """Compose the event-pump wrapper bash command (#2908 task-2-1).
-
-    Public entry-point retained so tests and
-    ``build_consensus_wrapped_command`` (which now unconditionally
-    delegates here post slice-4 task-4-2) share one composer.
-
-    The ``prompt_text`` argument is kept for signature parity with
-    the legacy capped-restart entry-point that task-4-2 deleted; the
-    event-pump emits its own per-event prompts inside
-    ``invoke_agent_for_event`` from the rendered ``compose_event_prompt``
-    output (slice-3 task-3-1), so the initial prompt is not
-    interpolated into the bash directly. A future revision could
-    choose to pass it through as a bootstrap prompt for the first
-    ``propose`` event without breaking the public signature.
-    """
-    del prompt_text  # interface parity with the deleted legacy entry-point
-
-    agent_prefix_parts = [
-        "python3",
-        "-m",
-        "egg_agent",
-        "--model",
-        model,
-        "--max-turns",
-        str(max_turns),
-    ]
-    if effort is not None:
-        # Pin the reasoning effort instead of inheriting the installed
-        # Claude Code build's per-model default (AgentModelDecision.effort).
-        agent_prefix_parts.extend(["--effort", effort])
-    agent_command_prefix = " ".join(shlex.quote(p) for p in agent_prefix_parts)
-
-    script = _EVENT_PUMP_WRAPPER_TEMPLATE.format(
-        agent_command_prefix=agent_command_prefix,
-        idle_budget_min_default=idle_budget_min,
-        hb_interval_default=heartbeat_interval_secs,
-        wait_timeout_default=wait_timeout_secs,
-    )
-    # #3064 slice-1: in orchestrator-ownership mode, splice the dormant
-    # one-shot arm in ahead of the main loop. In pod mode (default) the
-    # template is returned untouched so the generated wrapper is
-    # byte-identical to pre-#3064 (golden-file test). The arm itself only
-    # engages when an event is injected (EGG_EVENT_ACTION) -- nothing sets
-    # that until slice-2 -- so this is dormant even when orchestrator mode
-    # is selected without the spawner.
-    if _event_loop_owner() == "orchestrator":
-        script = script.replace(
-            _MAIN_LOOP_MARKER,
-            _ONE_SHOT_ARM_TEMPLATE + _MAIN_LOOP_MARKER,
-            1,
-        )
-    return ["bash", "-c", script]
-
-
-def build_consensus_wrapped_command(
-    prompt_text: str,
-    model: str = "opus",
-    max_turns: int = 1000,
-    effort: str | None = None,
-) -> list[str]:
-    """Build a shell command that runs the agent under the BRC event-pump wrapper.
-
-    Slice-4 task-4-2 collapsed this function to a thin alias for
-    :func:`build_event_pump_wrapped_command`. The legacy capped-restart
-    template, recovery system prompt, and ``EGG_BRC_EVENT_PUMP`` env
-    flag were all deleted; the event-pump template is the only
-    production path post-slice-4. The function signature is retained
-    so call sites in ``concurrent_executor.py`` and ``kubernetes_spawner.py``
-    do not have to be renamed in lock-step with this slice.
-
-    Args:
-        prompt_text: Initial prompt (reserved — the event-pump emits
-            its own per-event prompts inside ``invoke_agent_for_event``
-            from the rendered ``compose_event_prompt`` output, so the
-            initial prompt is not interpolated into the bash directly.
-            Accepted for interface parity with the legacy signature).
-        model: Agent model to use.
-        max_turns: Maximum number of tool-call turns per agent
-            invocation.
-        effort: Reasoning effort to pin via ``--effort`` (e.g.
-            ``"high"``), or ``None`` to inherit Claude Code's
-            per-model default.
-
-    Returns:
-        Command list suitable for container spawning (``bash -c "..."``).
-    """
-    return build_event_pump_wrapped_command(
-        prompt_text,
-        model=model,
-        max_turns=max_turns,
-        effort=effort,
-    )

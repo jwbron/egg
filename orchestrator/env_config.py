@@ -468,3 +468,53 @@ def get_recovery_ref_cleanup_interval_seconds() -> float:
         "EGG_ORCH_RECOVERY_REF_CLEANUP_INTERVAL_SECONDS",
         DEFAULT_RECOVERY_REF_CLEANUP_INTERVAL_SECONDS,
     )
+
+
+# -----------------------------------------------------------------
+# EGG_EVENT_LOOP_OWNER — who drives the BRC event loop (#3064).
+#
+#   ``pod`` (default)   — today's behavior: each agent container runs
+#       the in-pod event-pump wait-loop in ``consensus_wrapper.py``.
+#   ``orchestrator``    — the orchestrator owns the loop and spawns a
+#       one-shot pod per actionable BRC event (slice-2+). The wrapper's
+#       dormant one-shot arm (slice-1) only engages in this mode.
+#
+# Unlike the other knobs in this module, an unrecognised value is
+# rejected LOUDLY (``ValueError``) rather than silently falling back to
+# the default. There is no safe silent fallback for an ownership mode:
+# the #3023 post-mortem showed that getting this wrong either deadlocks
+# BRC (loop silenced with nothing replacing it) or spawns duplicate
+# pods, so a typo must surface immediately instead of masquerading as
+# the default. The default-when-unset path stays ``pod`` so the flag is
+# dormant until an operator opts in.
+# -----------------------------------------------------------------
+
+EVENT_LOOP_OWNER_POD = "pod"
+EVENT_LOOP_OWNER_ORCHESTRATOR = "orchestrator"
+DEFAULT_EVENT_LOOP_OWNER = EVENT_LOOP_OWNER_POD
+VALID_EVENT_LOOP_OWNERS = (EVENT_LOOP_OWNER_POD, EVENT_LOOP_OWNER_ORCHESTRATOR)
+
+
+def get_event_loop_owner() -> str:
+    """Return the BRC event-loop ownership mode (default ``pod``).
+
+    Reads ``EGG_EVENT_LOOP_OWNER`` (case-insensitive) ∈
+    {``pod``, ``orchestrator``}. Unset/empty ⇒ ``pod`` (the in-pod
+    wait-loop, today's behavior). Any other value raises ``ValueError``
+    — there is no safe silent default for an ownership mode, so a
+    misconfiguration fails loudly at read time (see the module comment
+    and the #3023 post-mortem).
+    """
+    raw = os.environ.get("EGG_EVENT_LOOP_OWNER", "").strip()
+    if not raw:
+        return DEFAULT_EVENT_LOOP_OWNER
+    normalized = raw.lower()
+    if normalized not in VALID_EVENT_LOOP_OWNERS:
+        msg = (
+            f"EGG_EVENT_LOOP_OWNER={raw!r} is not a recognised ownership "
+            f"mode; valid values are {VALID_EVENT_LOOP_OWNERS} "
+            f"(default {DEFAULT_EVENT_LOOP_OWNER!r})."
+        )
+        logger.error(msg)
+        raise ValueError(msg)
+    return normalized
