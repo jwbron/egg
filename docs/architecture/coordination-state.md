@@ -22,11 +22,12 @@
 > has produced zero such incidents. The invariant below is the structural fix
 > that retires the failure class.
 
-## Slice landings (status as of slice-6: all shipped)
+## Slice landings (status as of slice-6)
 
-This page describes the **final shape** of the #3077 invariant. All six
-slices have landed on `main`. The table records the shipping history for
-reference.
+This page describes the **final shape** of the #3077 invariant. The epic was
+landed in six slices, all of which have now shipped to `main`; every enforcing
+mechanism cited below exists. The table records each slice landing so a reader
+can trace which mechanism arrived in which slice.
 
 | Mechanism | Cited under | Status |
 |-----------|-------------|--------|
@@ -42,6 +43,11 @@ reference.
 | Sandbox `egg-artifact` verb | Clauses 1, 3 | **Shipped** (slice-4) |
 | `orchestrator/tests/test_prompt_sync_ratchet.py` no-sync-mechanics ratchet | Clause 2 | **Shipped** (slice-5) |
 | Redis-only message store (memory backend removed, [#3159](https://github.com/jwbron/egg/issues/3159)) + Redis restart-semantics test | Wipe-semantics | **Shipped** (slice-6 fail-loud signal, superseded by the #3159 removal) |
+
+The clause descriptions below are written in present tense. With all six
+slices shipped, every "Enforcing mechanisms" bullet now describes a
+current-state claim rather than a design target. The slice column above
+records when each mechanism landed.
 
 ## The Three-Clause Invariant
 

@@ -493,6 +493,47 @@ PIPELINE_TOOLS = [
         },
     },
     {
+        "name": "update_pipeline_config",
+        "description": (
+            "Update the safely-mutable subset of a live pipeline's config — "
+            "currently per-role model overrides (agent_models) only. "
+            "Per-role merge semantics: roles absent from the request keep "
+            "their current override, a string value sets the role's model, "
+            "an explicit null clears it (falling back to the repo default / "
+            "built-in model). Takes effect at the next agent spawn; "
+            "currently running agents keep the model they started with, so "
+            "pair with restart_phase / restart_agent to apply the change to "
+            "a running phase (the dominant use: the current model is "
+            "failing or rate-limited, swap and restart — #3174). Confirm "
+            "the swap via the resolved_model field on get_status agents / "
+            "list_containers entries."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Pipeline/task ID",
+                },
+                "agent_models": {
+                    "type": "object",
+                    "description": (
+                        "Role -> model map to merge into the pipeline's "
+                        "agent_models override, e.g. "
+                        '{"coder": "deepseek-v4-pro", "tester": null}. '
+                        "Keys must be SDLC phase producer/reviewer roles "
+                        "(MODEL_OVERRIDE_ROLES). Values: a Claude alias "
+                        "(opus / sonnet / haiku / fable, optionally with "
+                        "[1m]) routes to Anthropic; any other string routes "
+                        "through the in-cluster LiteLLM proxy; null clears "
+                        "the role's override."
+                    ),
+                },
+            },
+            "required": ["task_id", "agent_models"],
+        },
+    },
+    {
         "name": "restart_agent",
         "description": (
             "Restart a single agent in a pipeline. Stops the existing container, "
@@ -1163,6 +1204,7 @@ class PipelineToolHandler:
             "get_pipeline_snapshot": self._handle_get_pipeline_snapshot,
             "get_contract": self._handle_get_contract,
             "validate_config": self._handle_validate_config,
+            "update_pipeline_config": self._handle_update_pipeline_config,
             "restart_agent": self._handle_restart_agent,
             "restart_phase": self._handle_restart_phase,
             "list_agent_local_commits": self._handle_list_agent_local_commits,
@@ -1419,6 +1461,66 @@ class PipelineToolHandler:
                     for err in e.errors()
                 ],
             }
+
+    def _handle_update_pipeline_config(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Update a live pipeline's agent_models override (#3174)."""
+        import json
+        from urllib.error import HTTPError
+
+        task_id = quote(args["task_id"], safe="")
+        agent_models = args.get("agent_models")
+        # Mirror validate_config / submit_task: tolerate a JSON-encoded
+        # string from MCP clients that double-serialize object args.
+        if isinstance(agent_models, str):
+            try:
+                agent_models = json.loads(agent_models)
+            except json.JSONDecodeError as e:
+                return {"error": f"agent_models is not valid JSON: {e}"}
+        if not isinstance(agent_models, dict) or not agent_models:
+            return {
+                "error": (
+                    "agent_models must be a non-empty object mapping role -> "
+                    'model, e.g. {"coder": "deepseek-v4-pro"} (null clears a '
+                    "role's override)"
+                )
+            }
+
+        try:
+            result = self._make_request(
+                f"/api/v1/pipelines/{task_id}/config",
+                method="PATCH",
+                data={"agent_models": agent_models},
+            )
+        except HTTPError as exc:
+            # Surface the orchestrator's structured error body (role-key
+            # validation, unknown pipeline) instead of urllib's bare
+            # "HTTP Error N: <reason>".
+            detail = ""
+            try:
+                raw = exc.read()
+                body = json.loads(raw.decode()) if raw else {}
+                detail = body.get("message") or ""
+            except Exception:
+                detail = ""
+            if detail:
+                return {"error": f"update_pipeline_config failed (HTTP {exc.code}): {detail}"}
+            return {"error": f"update_pipeline_config failed: {exc}"}
+        except Exception as exc:
+            return {"error": f"update_pipeline_config failed: {exc}"}
+
+        data = result.get("data", {})
+        return {
+            "updated": True,
+            "pipeline_id": data.get("pipeline_id", args["task_id"]),
+            "agent_models": data.get("agent_models", {}),
+            "updated_roles": data.get("updated_roles", {}),
+            "cleared_roles": data.get("cleared_roles", []),
+            "note": (
+                "Applies at the next agent spawn. Use restart_phase or "
+                "restart_agent to apply to currently running agents; confirm "
+                "via resolved_model in get_status / list_containers."
+            ),
+        }
 
     def _handle_get_status(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get enriched pipeline status.

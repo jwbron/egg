@@ -952,6 +952,8 @@ class TestToolRouting:
             "get_pipeline_snapshot",
             "get_contract",
             "validate_config",
+            # Live agent_models swap (#3174)
+            "update_pipeline_config",
             "restart_agent",
             "restart_phase",
             "advance_phase",
@@ -3056,3 +3058,100 @@ class TestAnswerFeedback:
         required = tool["inputSchema"]["required"]
         assert "task_id" in required
         assert "answers" in required
+
+
+class TestUpdatePipelineConfig:
+    """The update_pipeline_config tool (#3174) — live agent_models swap."""
+
+    def test_success_patches_config_endpoint(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {
+                    "pipeline_id": "issue-77",
+                    "agent_models": {"coder": "deepseek-v4-pro"},
+                    "updated_roles": {"coder": "deepseek-v4-pro"},
+                    "cleared_roles": [],
+                },
+            }
+            result = handler.handle_tool_call(
+                "update_pipeline_config",
+                {"task_id": "issue-77", "agent_models": {"coder": "deepseek-v4-pro"}},
+            )
+
+        assert mock_req.call_args[0][0] == "/api/v1/pipelines/issue-77/config"
+        assert mock_req.call_args[1]["method"] == "PATCH"
+        assert mock_req.call_args[1]["data"] == {"agent_models": {"coder": "deepseek-v4-pro"}}
+        assert result["updated"] is True
+        assert result["pipeline_id"] == "issue-77"
+        assert result["agent_models"] == {"coder": "deepseek-v4-pro"}
+        assert result["updated_roles"] == {"coder": "deepseek-v4-pro"}
+        # The note steers the operator to the restart + confirmation flow.
+        assert "restart_phase" in result["note"]
+        assert "resolved_model" in result["note"]
+
+    def test_task_id_is_url_encoded(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True, "data": {}}
+            handler.handle_tool_call(
+                "update_pipeline_config",
+                {"task_id": "weird/id", "agent_models": {"coder": "opus"}},
+            )
+
+        assert mock_req.call_args[0][0] == "/api/v1/pipelines/weird%2Fid/config"
+
+    def test_json_string_agent_models_parsed(self, handler):
+        """MCP clients that double-serialize object args still work
+        (mirrors submit_task / validate_config tolerance)."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True, "data": {}}
+            handler.handle_tool_call(
+                "update_pipeline_config",
+                {"task_id": "issue-77", "agent_models": '{"coder": "opus"}'},
+            )
+
+        assert mock_req.call_args[1]["data"] == {"agent_models": {"coder": "opus"}}
+
+    @pytest.mark.parametrize("bad", [None, {}, [], "not json {", 42])
+    def test_invalid_agent_models_rejected_without_request(self, handler, bad):
+        with patch.object(handler, "_make_request") as mock_req:
+            result = handler.handle_tool_call(
+                "update_pipeline_config",
+                {"task_id": "issue-77", "agent_models": bad},
+            )
+
+        assert "error" in result
+        mock_req.assert_not_called()
+
+    def test_http_error_surfaces_route_message(self, handler):
+        """A 400 from the route (e.g. invalid role key) must surface the
+        route's structured message, not urllib's bare reason string."""
+        import io
+
+        body = json.dumps(
+            {"success": False, "message": "Invalid agent_models role keys: ['overseer']"}
+        ).encode()
+        err = HTTPError(
+            url="http://localhost:9849/api/v1/pipelines/issue-77/config",
+            code=400,
+            msg="BAD REQUEST",
+            hdrs=None,
+            fp=io.BytesIO(body),
+        )
+        with patch.object(handler, "_make_request", side_effect=err):
+            result = handler.handle_tool_call(
+                "update_pipeline_config",
+                {"task_id": "issue-77", "agent_models": {"overseer": "opus"}},
+            )
+
+        assert "error" in result
+        assert "HTTP 400" in result["error"]
+        assert "overseer" in result["error"]
+
+    def test_registered_in_pipeline_tools_schema(self):
+        from mcp_tools import PIPELINE_TOOLS
+
+        tool = next(t for t in PIPELINE_TOOLS if t["name"] == "update_pipeline_config")
+        required = tool["inputSchema"]["required"]
+        assert "task_id" in required
+        assert "agent_models" in required

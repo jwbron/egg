@@ -52,13 +52,19 @@ def _make_concurrent_pipeline(pipeline_id: str = "issue-999") -> Pipeline:
     )
 
 
-def _make_execution(role: AgentRole, container_id: str, status=AgentExecutionStatus.RUNNING):
+def _make_execution(
+    role: AgentRole,
+    container_id: str,
+    status=AgentExecutionStatus.RUNNING,
+    resolved_model: str | None = None,
+):
     """Create an AgentExecution with the given role and container."""
     return AgentExecution(
         role=role,
         status=status,
         container_id=container_id,
         started_at=datetime.now(UTC),
+        resolved_model=resolved_model,
     )
 
 
@@ -330,6 +336,62 @@ class TestRunConcurrentPhaseWait:
         # store.save_pipeline called at least twice: once after spawn recording,
         # once after wait/status update
         assert mock_store.save_pipeline.call_count >= 2
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_persisted_agent_carries_resolved_model(
+        self, MockExecutor, mock_build_prompt, mock_state_lock, mock_monotonic, mock_sleep
+    ):
+        """The per-agent resolved_model survives the spawn->persist reconstruction.
+
+        Regression for #3174: ``_spawn_agent`` stamps ``resolved_model`` on the
+        in-memory AgentExecution, but ``_run_concurrent_phase`` rebuilds a fresh
+        StateAgentExecution before saving. The earlier code dropped the field,
+        so the persisted record — the one both operator confirmation channels
+        (get_status, list_containers) read from — reported ``resolved_model:
+        null`` for every concurrent-phase agent. Assert the persisted record (on
+        the phase execution that gets saved) carries it through.
+        """
+        mock_monotonic.return_value = 0.0
+
+        executions = [
+            _make_execution(AgentRole.CODER, "coder-abc", resolved_model="qwen3-max[1m]"),
+            _make_execution(AgentRole.TESTER, "tester-abc", resolved_model="opus"),
+        ]
+
+        pipeline, mock_store, mock_spawner, mock_docker, phase_exec = self._make_mocks(executions)
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = _NO_CONSENSUS
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_state_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_state_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        _run_concurrent_phase(
+            pipeline_id="issue-999",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            repo_volumes={},
+            gateway_mode="public",
+            repos=["owner/repo"],
+            sandbox_env={},
+            store=mock_store,
+            certs_volume=None,
+            worktree_repo_path=Path("/tmp/test-repo"),
+        )
+
+        # The persisted records live on the phase execution that was saved.
+        recorded = {a.role: a.resolved_model for a in phase_exec.agents}
+        assert recorded.get(AgentRole.CODER) == "qwen3-max[1m]"
+        assert recorded.get(AgentRole.TESTER) == "opus"
+        # None of the spawned agents should dead-end at a null model.
+        assert all(model is not None for model in recorded.values())
 
     @patch("routes.pipelines.time.sleep")
     @patch("routes.pipelines.time.monotonic")

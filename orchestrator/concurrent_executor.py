@@ -468,9 +468,10 @@ class ConcurrentPhaseExecutor:
             )
 
         # On the LiteLLM path Claude Code needs the ANTHROPIC_CUSTOM_MODEL_OPTION
-        # env vars to opt into 1M-context compaction math (#2832). The decision's
-        # ``env_vars()`` is empty on the Anthropic path, so default-Claude spawns
-        # carry no extra env — the pre-#2832 wire shape.
+        # env vars to opt into 1M-context compaction math (#2832). Every route
+        # also picks up the context-guardrail caps (#3175); the Anthropic path
+        # carries only those — no custom-model registration — so the Claude
+        # wire shape is unchanged.
         env = {**env, **decision.env_vars()}
 
         # Forward the upstream/upstream_model kwargs to the spawner only
@@ -500,6 +501,7 @@ class ConcurrentPhaseExecutor:
             container_info=result.container_info,
             started_at=datetime.now(UTC),
             slice_id=self._slice_id,
+            resolved_model=decision.claude_code_alias,
         )
 
     def handle_agent_failure(self, role: str, error: str) -> dict[str, Any]:

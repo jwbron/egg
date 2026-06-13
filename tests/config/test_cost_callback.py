@@ -81,15 +81,31 @@ def _nonstreaming_usage() -> dict:
     }
 
 
-def _mcd(session_id: str, *, raw_usage: dict | None = None) -> dict:
+def _mcd(
+    session_id: str,
+    *,
+    raw_usage: dict | None = None,
+    extra_headers: dict | None = None,
+    response_cost: float | None = None,
+) -> dict:
     """Build a ``model_call_details`` dict the callback understands."""
+    headers = {"x-claude-code-session-id": session_id, **(extra_headers or {})}
     mcd: dict = {
         "model": "openrouter/qwen/qwen3-max",
-        "proxy_server_request": {"headers": {"x-claude-code-session-id": session_id}},
+        "proxy_server_request": {"headers": headers},
     }
     if raw_usage is not None:
         mcd["original_response"] = json.dumps({"usage": raw_usage})
+    if response_cost is not None:
+        mcd["response_cost"] = response_cost
     return mcd
+
+
+_ATTRIBUTION_HEADERS = {
+    "x-egg-pipeline-id": "pipeline-20260612-abc",
+    "x-egg-agent-role": "reviewer_code",
+    "x-egg-phase": "implement",
+}
 
 
 class TestExtractCost:
@@ -157,3 +173,120 @@ class TestRecordCostReporting:
         assert session["cost_known_calls"] == 1
         # Only the known cost is summed; the unknown turn contributes nothing.
         assert session["cost"] == 0.0123
+
+
+class TestEstimatedCost:
+    """LiteLLM's pricing-map ``response_cost`` survives streaming and is
+    surfaced as ``cost_estimated``, strictly separate from the billed
+    ``cost`` and under the same null-not-zero discipline (#3175)."""
+
+    def setup_method(self):
+        cc._session_totals.clear()
+
+    def _capture(self, monkeypatch) -> list[dict]:
+        emitted: list[dict] = []
+        monkeypatch.setattr(cc, "_emit", lambda payload: emitted.append(payload))
+        return emitted
+
+    def test_streaming_call_carries_estimate_while_cost_stays_null(self, monkeypatch):
+        emitted = self._capture(monkeypatch)
+        cc.LiteLLMCostLogger()._record(
+            _mcd("e1", response_cost=0.021),
+            types.SimpleNamespace(usage=_streaming_usage()),
+        )
+        payload = emitted[0]
+        # The billed cost is still unrecoverable on streaming — must stay null.
+        assert payload["call"]["cost"] is None
+        assert payload["call"]["cost_estimated"] == 0.021
+        assert payload["session"]["cost"] is None
+        assert payload["session"]["cost_estimated"] == 0.021
+        assert payload["session"]["cost_estimated_known_calls"] == 1
+
+    def test_unpriceable_model_reports_null_estimate(self, monkeypatch):
+        # No response_cost (model absent from LiteLLM's pricing map) must
+        # read as "unknown", never "$0".
+        emitted = self._capture(monkeypatch)
+        cc.LiteLLMCostLogger()._record(_mcd("e2"), types.SimpleNamespace(usage=_streaming_usage()))
+        payload = emitted[0]
+        assert payload["call"]["cost_estimated"] is None
+        assert payload["session"]["cost_estimated"] is None
+        assert payload["session"]["cost_estimated_known_calls"] == 0
+
+    def test_estimate_accumulates_only_known_calls(self, monkeypatch):
+        emitted = self._capture(monkeypatch)
+        logger = cc.LiteLLMCostLogger()
+        logger._record(
+            _mcd("e3", response_cost=0.01), types.SimpleNamespace(usage=_streaming_usage())
+        )
+        logger._record(_mcd("e3"), types.SimpleNamespace(usage=_streaming_usage()))
+        logger._record(
+            _mcd("e3", response_cost=0.02), types.SimpleNamespace(usage=_streaming_usage())
+        )
+        session = emitted[-1]["session"]
+        assert session["calls"] == 3
+        assert session["cost_estimated_known_calls"] == 2
+        assert round(session["cost_estimated"], 6) == 0.03
+
+    def test_non_positive_or_garbage_estimates_are_unknown(self):
+        assert cc._extract_estimated_cost({"response_cost": 0}) is None
+        assert cc._extract_estimated_cost({"response_cost": -0.1}) is None
+        assert cc._extract_estimated_cost({"response_cost": "0.01"}) is None
+        assert cc._extract_estimated_cost({}) is None
+        assert cc._extract_estimated_cost(None) is None
+
+    def test_falls_back_to_standard_logging_object(self):
+        # A LiteLLM version that omits the top-level key but populates the
+        # finalized metrics object must still yield the estimate.
+        assert (
+            cc._extract_estimated_cost({"standard_logging_object": {"response_cost": 0.05}}) == 0.05
+        )
+        # Top-level takes precedence when present.
+        assert (
+            cc._extract_estimated_cost(
+                {"response_cost": 0.02, "standard_logging_object": {"response_cost": 0.05}}
+            )
+            == 0.02
+        )
+        # A non-dict standard_logging_object is ignored, not raised on.
+        assert cc._extract_estimated_cost({"standard_logging_object": "nope"}) is None
+
+
+class TestAttribution:
+    """Gateway-stamped ``x-egg-*`` headers land as per-line attribution
+    fields; absence (pre-#3175 gateway, non-gateway client) reads as None."""
+
+    def setup_method(self):
+        cc._session_totals.clear()
+
+    def _capture(self, monkeypatch) -> list[dict]:
+        emitted: list[dict] = []
+        monkeypatch.setattr(cc, "_emit", lambda payload: emitted.append(payload))
+        return emitted
+
+    def test_attribution_headers_are_emitted(self, monkeypatch):
+        emitted = self._capture(monkeypatch)
+        cc.LiteLLMCostLogger()._record(
+            _mcd("a1", extra_headers=_ATTRIBUTION_HEADERS),
+            types.SimpleNamespace(usage=_streaming_usage()),
+        )
+        payload = emitted[0]
+        assert payload["pipeline_id"] == "pipeline-20260612-abc"
+        assert payload["agent_role"] == "reviewer_code"
+        assert payload["phase"] == "implement"
+
+    def test_missing_attribution_reads_as_none(self, monkeypatch):
+        emitted = self._capture(monkeypatch)
+        cc.LiteLLMCostLogger()._record(_mcd("a2"), types.SimpleNamespace(usage=_streaming_usage()))
+        payload = emitted[0]
+        assert payload["pipeline_id"] is None
+        assert payload["agent_role"] is None
+        assert payload["phase"] is None
+
+    def test_header_casing_is_normalized(self, monkeypatch):
+        # A non-lowercase hop must not blind the attribution lookup.
+        emitted = self._capture(monkeypatch)
+        cc.LiteLLMCostLogger()._record(
+            _mcd("a3", extra_headers={"X-Egg-Agent-Role": "coder"}),
+            types.SimpleNamespace(usage=_streaming_usage()),
+        )
+        assert emitted[0]["agent_role"] == "coder"
