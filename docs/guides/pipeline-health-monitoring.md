@@ -171,6 +171,15 @@ The `HealthMonitor` tracks the current pipeline phase via `set_current_phase()`,
 
 **Why this matters:** In pipelines `issue-1523-v2` and `issue-1527`, the default 120s threshold generated false-positive stall alerts against agents doing legitimate deep implementation work. A 10-minute threshold for the implement phase reduces noise while the Tier 2 overseer LLM classifier provides a secondary detection layer for genuinely stuck agents.
 
+### Orchestrator-Mode Alert Suppression
+
+When the orchestrator owns the BRC event loop (`EGG_EVENT_LOOP_OWNER=orchestrator`, [#3064](https://github.com/jwbron/egg/issues/3064) slice-5), agent pods are short-lived one-shot Jobs rather than long-running containers. Between dispatched events a role has no running pod — and that is normal. The health monitor and heartbeat coordinator are both placed in **orchestrator mode** by the `ConcurrentPhaseExecutor` at event-loop setup:
+
+- **Health monitor (`set_orchestrator_mode(True)`):** Roles with no active one-shot Job are treated as legitimately idle. Heartbeat-timeout, progress-stall, and container-exit tripwires fire only while that role's Job is active. A pod that exits silently **mid-event** (Job active but no heartbeat) still alerts normally. The active-Job set is refreshed every poll tick by the event loop via `set_active_roles(roles)`, so coverage is current.
+- **Heartbeat coordinator (`set_orchestrator_mode(True)`):** The gateway-session refresh side-effect (`should_fan_out_gateway_session`) is suppressed. Session refresh happens at spawn time (slice-4 worktree re-attach), not via heartbeat fan-out.
+
+**Example:** Between BRC events, the `coder` role has no running pod. In pod mode this silence would trip a heartbeat-timeout alert within 120s. In orchestrator mode, because no Job is active for `coder`, the tripwire is suppressed. When the event loop spawns the next Job for `coder`, the role is added to the active-Job set and monitoring resumes immediately.
+
 ### BRC-Idle Suppression
 
 In concurrent execution mode (BRC protocol), reviewer-only agents sit idle until upstream producers send a `CONSENSUS_PROPOSE` message. The health monitor recognizes this as a legitimate waiting state and **suppresses heartbeat and progress stall alerts** for reviewer-only agents whose upstream producers are all still in the `WORKING` phase. Dual-role agents (those that are both producers and reviewers) are **not** suppressed, since they have their own work to complete.
