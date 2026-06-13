@@ -1597,7 +1597,7 @@ assembles the single user prompt the wrapper dispatches at each
 | Position | Section | Where it comes from | Bound |
 |----------|---------|---------------------|-------|
 | Top | Role banner + one-line event description | `role` + `event_payload.kind` | A few hundred bytes per case. |
-| Top | Task & operator directives (#3123) | Contract `task_description` read from the worktree contract file (`EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER`); omitted for GitHub-issue pipelines | ≤ 4 KB, truncated with a `mcp__sdlc__show_contract` pointer. |
+| Top | Task & operator directives (#3123/#3163) | Contract `task_description` read from the worktree contract file (`EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER`); populated for all pipeline types since #3163 (issue anchor + submit description); omitted only when the contract carries no task statement and no issue identity | ≤ 4 KB, truncated with a `mcp__sdlc__show_contract` pointer. |
 | Middle | Per-reviewer NACK block (`reason` + `artifact_refs`) | `orchestrator/peer_consensus.py` `_open_nacks_barrier_response.nacks[]` (line numbers come from the slice-3 contract spec and are drift-prone — prefer the function-name reference; the function span is around lines 949–1046 in practice) — the same NACK envelope a producer sees in the aggregated-NACK 409 from §10.6 | One block per NACKing reviewer. |
 | Middle | The single expected action | `event_payload.kind` | A few hundred bytes. |
 | Tail | Git-log delta (full, per-producer — see §10.9.2) | `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p` with `last_reviewed_commit_sha` read from the slice-1 [BRC memory file](../architecture/brc-memory.md) | Scaled by change size; **NOT** counted against the 10 KB envelope. |

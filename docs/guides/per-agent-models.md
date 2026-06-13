@@ -170,6 +170,85 @@ path — and `register_session` drops `None` values from the
 session-create request body, so the wire shape stays byte-identical
 to today.
 
+## Changing models on a live pipeline (#3174)
+
+`agent_models` is not submit-time-only: it can be changed on a
+**running** pipeline, and the change is honored at the next agent
+spawn. The operator surface is the `update_pipeline_config` MCP tool;
+the motivating scenario is "the current model is failing or
+rate-limited (e.g. an Anthropic session-limit outage) — swap every
+role to an open model and restart the phase."
+
+### The swap-and-restart procedure
+
+1. **Update the override map.** Per-role merge semantics: roles you
+   don't name keep their current override, a string sets the role's
+   model, an explicit `null` clears it (the role falls back to the
+   repo default / built-in tiers).
+
+   ```json
+   // update_pipeline_config MCP-tool arguments
+   {
+     "task_id": "issue-3064",
+     "agent_models": {
+       "coder": "deepseek-v4-pro",
+       "tester": "deepseek-v4-pro",
+       "reviewer_code": "deepseek-v4-pro"
+     }
+   }
+   ```
+
+   Role keys are validated against `MODEL_OVERRIDE_ROLES` (same
+   validator as submit time). Model *values* are not checked against a
+   registry — any non-Claude string routes to LiteLLM, so a typo
+   surfaces as a model-not-found error at spawn, not at update time.
+
+2. **Restart to apply.** Currently running agents keep the model they
+   were spawned with; the new map only affects future spawns. Use
+   `restart_phase` (whole phase on the new models) or `restart_agent`
+   (surgical: one agent, worktree preserved) to respawn now. Skipping
+   the restart is also valid — the next natural spawn (next review
+   cycle, next slice team) picks the new map up on its own.
+
+3. **Confirm.** Every spawn records the resolved alias on the agent's
+   execution record (`AgentExecution.resolved_model`). Check the
+   `resolved_model` field on `get_status`'s `running_agents` entries or
+   on `list_containers` rows — no need to grep pod logs for the
+   session-init line.
+
+### Why this is honored — the fresh-reload guarantee
+
+Two structural properties make the live swap safe, rather than
+accidental:
+
+- **The run loop never trusts a stale in-memory pipeline.** Both
+  `_run_pipeline`'s per-cycle loop and the `restart_phase` /
+  `restart_agent` handlers reload the pipeline from the state store
+  before resolving models for a spawn, and `resolve_agent_model` is a
+  pure function over that freshly-loaded config. There is no cached
+  decision to invalidate.
+- **Completed slices are not redone.** On a multi-slice implement
+  phase, `restart_phase`'s respawned scheduler bootstraps from the
+  contract's recorded `SliceStatus.COMPLETE` markers, so a mid-phase
+  model swap resumes at the current slice instead of re-running
+  finished ones (this is how the #3064 swap restarted at slice 3 of 6
+  with slices 1–2 skipped).
+
+Under the hood the tool is `PATCH
+/api/v1/pipelines/<id>/config` (lifecycle-secret-authenticated), a
+deliberately narrow wrapper over the state store's nested-update path.
+The generic `PATCH /pipelines/<id>` dotted-key form
+(`{"config.agent_models": {...}}`) still works but replaces the whole
+map instead of merging, validates only via the wrapped Pydantic error,
+and shouldn't be needed now that the scoped surface exists.
+
+> **Scope.** Only `agent_models` is mutable through this endpoint.
+> Most of `PipelineConfig` is consumed at submit time or mid-phase in
+> ways a partial update could corrupt; `agent_models` is safe
+> precisely because of the fresh-reload guarantee above. Widening the
+> allowlist (`_MUTABLE_CONFIG_KEYS` in `orchestrator/routes/pipelines.py`)
+> requires verifying the same guarantee for the new key.
+
 ## Gateway-side body handling
 
 For LiteLLM-bound requests the gateway forwards the body **unchanged**.
@@ -270,6 +349,49 @@ agent's `--model` flag to `<upstream>[1m]` for the standard ≥1M case
 ``--model``-keyed pathway also routes through the custom-model
 registration.
 
+## Context guardrails (#3175)
+
+Every SDK turn re-sends the whole conversation, and cached tokens bill
+at a discounted-but-nonzero rate on **every** route (~10% of input
+price on Anthropic; a comparable blended rate on LiteLLM upstreams) —
+so a single tool call that dumps tens of kilotokens (a verbose
+`pytest -v`, a whole-megafile Read, an unbounded MCP result) is
+re-billed on every subsequent turn for the life of the session.
+`env_vars()` therefore injects size caps on every decision; the
+LiteLLM path — where turn counts run 3–5× the Claude baseline,
+multiplying the re-bill — additionally gets a tighter Read cap:
+
+| Sandbox env var | Default | Unit | Routes | What it bounds |
+|---|---|---|---|---|
+| `BASH_MAX_OUTPUT_LENGTH` | `20000` | characters | all | Claude Code's built-in Bash-result truncation; oversized output is saved to a session file and the agent gets the path plus a preview |
+| `MAX_MCP_OUTPUT_TOKENS` | `15000` | tokens | all | Claude Code's MCP-result cap (built-in default 25k); excess is persisted to disk and replaced with a file reference |
+| `EGG_READ_CAP_BYTES` | `65536` | bytes | LiteLLM only | the predictive whole-file-Read deny in `shared/egg_agent/tool_output_cap.py` — a quarter of its built-in 256 KiB default (which continues to guard the Claude route), pushing big files toward `offset`/`limit` paging |
+
+These are **guardrails, not constraints**: the thresholds are sized so
+normal work never hits them, and every cap is overridable by the agent
+itself when it deliberately needs more:
+
+- **Bash / MCP** — the full output is spilled to a file whose path the
+  agent receives, so nothing is ever unreachable; the agent reads,
+  greps, or tails the spill file (or pipes the command to a file
+  itself).
+- **Read** — the deny message names an agent-writable override file
+  (`/tmp/egg-read-cap-bytes`): the agent writes the byte size it needs
+  and retries. The file is pod-local and outside the repo worktree, so
+  the override can never be committed and dies with the pod.
+- **Grep** — the content-mode deny only fires with no `head_limit` at
+  all; a deliberate large `head_limit` passes.
+
+Operators override the injected values on the **orchestrator** via
+`EGG_AGENT_BASH_MAX_OUTPUT_LENGTH`, `EGG_AGENT_MAX_MCP_OUTPUT_TOKENS`,
+and `EGG_LITELLM_READ_CAP_BYTES`. Setting one to the empty string
+omits that guardrail from the injection entirely; an unparseable or
+non-positive value logs a warning and falls back to the default. The
+override names are deliberately distinct from the sandbox-side names so
+a value in the orchestrator's own environment is never forwarded by
+accident. See `context_guardrail_env()` in
+`orchestrator/agent_model_resolution.py`.
+
 > **Capability env vars (`MAX_THINKING_TOKENS`,
 > `ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES`).** Not set
 > by default — clamping them to zero/empty maximises cost savings
@@ -345,6 +467,26 @@ proxy cannot reach `duckduckgo.com`, so neither the hook nor the DDG
 server is installed. Operators do not need to configure anything — the
 hook and the MCP server are wired up automatically whenever an agent
 runs on the public LiteLLM path.
+
+### Working-style guidance on the LiteLLM path (#3175)
+
+Open models on the LiteLLM path take 3–5× more, smaller steps for
+comparable events than the Claude baseline, and cached tokens are
+discounted but not free — so cost scales with turns × context-size.
+`shared/egg_agent/client.py` automatically appends a working-style
+advisory to the system prompt whenever `ANTHROPIC_CUSTOM_MODEL_OPTION`
+is set, steering agents toward batched tool calls, filtered command
+output, and subagent-isolated bulk reads — without skipping verification
+or shortening reviews.
+
+The addendum is a constant string in `shared/egg_agent/route_guidance.py`
+gated solely on the pod-lifetime `ANTHROPIC_CUSTOM_MODEL_OPTION` env var
+(the same signal as the DDG fallback above), so the rendered system
+prompt stays per-session stable and the cacheable prefix is unaffected.
+Claude-route sessions are untouched.
+
+**Escape hatch:** set `EGG_ROUTE_PROMPT_GUIDANCE=false` (or `0` / `no`
+/ `off`) on the sandbox pod env to disable.
 
 ## Operator walkthrough — Qwen for the refiner role
 
@@ -436,9 +578,14 @@ data:
 > the OpenRouter provider (`extra_body.provider.order` + `allow_fallbacks:
 > false`) then gives a stable cache surface — without it OpenRouter routes
 > across a cheapest-available pool whose cache support varies per turn. The
-> bundled `cost_callback` logs the real upstream cost and per-session cache
-> hit rate (a JSON line per call) to the LiteLLM pod stream, visible via
-> `get_service_logs` / the structured-logging stream.
+> bundled `cost_callback` logs the real upstream cost, LiteLLM's own
+> pricing-map estimate (`cost_estimated`, which survives the streaming path
+> where billed cost is unavailable), per-session cache hit rate, and
+> per-role attribution (`pipeline_id`/`agent_role`/`phase` from the
+> gateway's `x-egg-*` headers — so per-role spend is a log query, not a
+> hand cross-reference of agent completion logs). Each call emits one JSON
+> line to the LiteLLM pod stream, visible via `get_service_logs` / the
+> structured-logging stream.
 
 > **Why the paired `<name>[1m]` row?** Claude Code registers the
 > custom model with a `[1m]` context-window-opt-in suffix

@@ -20,6 +20,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from models import PipelineStatus
 from overseer.classifier import (
     check_alignment,
     check_decision_consistency,
@@ -46,6 +47,11 @@ logger = logging.getLogger(__name__)
 # indicating human intervention is needed.
 _HUMAN_WORDS = ("human", "manual", "operator")
 _ACTION_WORDS = ("intervention", "attention", "review", "required", "needed", "escalat")
+
+# Pipeline status string values that indicate a terminal state. Derived from
+# the canonical PipelineStatus.terminal() set so the overseer shares one
+# definition with sse.py / state_store.py / routes (#3174 review).
+_TERMINAL_STATUSES = {status.value for status in PipelineStatus.terminal()}
 
 
 def _accepts_kwarg(func: Any, name: str) -> bool:
@@ -475,7 +481,7 @@ class OverseerMonitor:
                 )
 
             # 8. Check pipeline status for terminal state
-            if status in ("complete", "failed", "cancelled"):
+            if status in _TERMINAL_STATUSES:
                 # NOTE: the legacy ``_check_pr_phase_outcome`` safety-net
                 # was removed in #2777 (cq-4); see the docstring on the
                 # removed helper for why the condition is unreachable
@@ -490,7 +496,7 @@ class OverseerMonitor:
                 self.write_health_summary()
 
             # 9. Cross-phase consistency (LLM-based, only on phase transitions)
-            if status not in ("complete", "failed", "cancelled"):
+            if status not in _TERMINAL_STATUSES:
                 await self._check_cross_phase_consistency(
                     current_phase, decisions, contract_data=None
                 )

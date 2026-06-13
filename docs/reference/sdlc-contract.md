@@ -73,13 +73,17 @@ The contract field for this is `task_description` (added in #3033,
 schema `1.3`):
 
 - **GitHub-issue pipelines** (`pipeline.issue_number is not None`) —
-  `task_description` is `None`. `issue.title` is a short label; the
-  agent fetches the full body out-of-band with `gh issue view <n>`.
+  `task_description` contains an issue identity anchor ("This
+  pipeline's task is GitHub issue #N — <url>. Fetch the live issue
+  body (`gh issue view N`) before structural decisions."). `issue.title`
+  is a short label; fetch the full body out-of-band with
+  `gh issue view <n>`. (#3163 — previously `None`.)
 - **JIRA-driven pipelines** (`pipeline.jira_ticket` set,
-  `pipeline.issue_number is None`) — `task_description` is a snapshot
-  of the submitted description so the agent can recover the task from
-  the contract alone. For the latest ticket state, fetch out-of-band
-  with `jira ticket get "$EGG_JIRA_TICKET"`.
+  `pipeline.issue_number is None`) — `task_description` contains a
+  JIRA ticket anchor plus a snapshot of the submitted description so
+  the agent can recover the task from the contract alone. For the
+  latest ticket state, fetch out-of-band with
+  `jira ticket get "$EGG_JIRA_TICKET"`.
 - **Free-text submits** (no issue, no ticket) — `task_description` is
   the **only** complete copy of the task. The 100-char contract title
   is a label, not a substitute.

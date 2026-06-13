@@ -18,6 +18,7 @@ from egg_agent.client import (
     run_agent,
     run_agent_async,
 )
+from egg_agent.result import AgentResult
 
 # ── Mock SDK types ──────────────────────────────────────────────────────────
 #
@@ -1501,3 +1502,127 @@ class TestMidturnMessageHook:
         result = _run_async(run_agent_async("test prompt"))
         assert result.success is True
         assert self._post_tool_use_hooks(mock_query) == []
+
+
+class TestExitCodeSurfaceExcludesExTempfail:
+    """Back the consensus-wrapper one-shot arm's exit-75 reservation.
+
+    The one-shot event arm in ``orchestrator/consensus_wrapper.py`` reserves
+    exit code 75 (``EX_TEMPFAIL``) for the "freshness re-check inconclusive"
+    outcome and passes the agent's own rc through raw on the fresh path
+    (``exit "$one_shot_rc"``). For the slice-3 supervisor to distinguish
+    "re-derive next-action" (75) from a genuine agent outcome, the agent's
+    exit-code surface must never itself emit 75 -- otherwise the two meanings
+    collide. The wrapper documents this as a comment-level invariant; this
+    test backs it with a real assertion (reviewer note, PR #3167).
+
+    ``egg_agent`` runs the SDK in-process, so its exit-code surface is a
+    bounded set of ``AgentResult.returncode`` literals set in ``run_agent`` /
+    ``run_agent_async`` -- there is no subprocess rc passthrough. We scan the
+    module source for every integer ``returncode`` literal -- both keyword
+    (``returncode=75``) and positional (``AgentResult(False, "", "", 75)``)
+    construction -- and assert the set excludes 75; a future change that
+    introduced ``returncode=75`` anywhere in the agent path would fail here,
+    flagging the collision before it ships. (A dynamic value such as
+    ``returncode=some_var`` is inherently invisible to a literal scan; the
+    realistic regression -- a hard-coded 75 -- is what this catches.)
+    """
+
+    # EX_TEMPFAIL from sysexits.h; the value reserved by the one-shot arm.
+    _EX_TEMPFAIL = 75
+
+    # Positional index of ``returncode`` in the ``AgentResult`` dataclass
+    # signature (success, stdout, stderr, returncode, ...). Kept in sync with
+    # shared/egg_agent/result.py so the scan catches positional construction.
+    _RETURNCODE_POSITIONAL_INDEX = 3
+
+    @staticmethod
+    def _int_literal(value) -> int | None:
+        """Return the int value of a literal AST node, or None if not a literal.
+
+        Handles ``0``/``1`` (Constant) and ``-1`` (UnaryOp(USub, Constant), since
+        the unary minus is a separate node). Returns None for dynamic values
+        (``returncode=some_var``), which a literal scan inherently cannot resolve.
+        """
+        import ast
+
+        if isinstance(value, ast.Constant) and isinstance(value.value, int):
+            return value.value
+        if (
+            isinstance(value, ast.UnaryOp)
+            and isinstance(value.op, ast.USub)
+            and isinstance(value.operand, ast.Constant)
+            and isinstance(value.operand.value, int)
+        ):
+            return -value.operand.value
+        return None
+
+    def _returncode_literals(self) -> set[int]:
+        """All integer ``returncode`` literals assigned in client.py.
+
+        Catches both keyword (``returncode=75``) and positional
+        (``AgentResult(False, "", "", 75)``) construction so the exclusion can't
+        be silently defeated by switching call style. Dynamic values
+        (``returncode=some_var``) are inherently invisible to a literal scan and
+        are not the realistic regression this guards against.
+        """
+        import ast
+        import inspect
+
+        import egg_agent.client as client_mod
+
+        source = inspect.getsource(client_mod)
+        tree = ast.parse(source)
+        codes: set[int] = set()
+        for node in ast.walk(tree):
+            # Keyword form: ``returncode=<int>`` anywhere in the module.
+            if isinstance(node, ast.keyword) and node.arg == "returncode":
+                literal = self._int_literal(node.value)
+                if literal is not None:
+                    codes.add(literal)
+            # Positional form: ``AgentResult(success, stdout, stderr, <int>, ...)``.
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "AgentResult"
+                and len(node.args) > self._RETURNCODE_POSITIONAL_INDEX
+            ):
+                literal = self._int_literal(node.args[self._RETURNCODE_POSITIONAL_INDEX])
+                if literal is not None:
+                    codes.add(literal)
+        return codes
+
+    def test_returncode_literals_exclude_ex_tempfail(self):
+        codes = self._returncode_literals()
+        # Sanity: the scan actually found the known surface, so an empty set
+        # can't make the exclusion pass vacuously.
+        assert codes, "AST scan found no returncode= literals in egg_agent.client"
+        assert self._EX_TEMPFAIL not in codes, (
+            f"egg_agent.client emits returncode={self._EX_TEMPFAIL} (EX_TEMPFAIL), "
+            "which collides with the one-shot arm's reserved freshness-inconclusive "
+            "exit code (consensus_wrapper.py). See PR #3167."
+        )
+
+    def test_main_propagates_returncode_without_remapping_to_ex_tempfail(self):
+        """``main()`` returns ``result.returncode`` verbatim -- no remap to 75.
+
+        ``__main__`` does ``sys.exit(main())``, so whatever ``main()`` returns
+        is the process exit code (negatives wrap, e.g. -1 -> 255). This pins
+        that ``main()`` neither invents 75 nor alters the rc the agent path
+        produced, keeping the wrapper's reservation honest end-to-end.
+        """
+        from unittest.mock import patch as _patch
+
+        from egg_agent.__main__ import main
+
+        for rc in (-1, 0, 1):
+            mock_result = AgentResult(success=rc == 0, stdout="", stderr="", returncode=rc)
+            with (
+                _patch("egg_agent.__main__.run_agent", return_value=mock_result),
+                _patch("sys.argv", ["egg_agent", "test prompt"]),
+            ):
+                returned = main()
+            assert returned == rc, f"main() remapped agent rc {rc} to {returned}"
+            assert returned != self._EX_TEMPFAIL, (
+                f"main() returned EX_TEMPFAIL ({self._EX_TEMPFAIL}) for agent rc {rc}"
+            )

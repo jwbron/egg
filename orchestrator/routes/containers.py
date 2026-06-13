@@ -195,6 +195,46 @@ def spawn_container(pipeline_id: str) -> tuple[Response, int]:
         return make_error_response(f"Backend error: {e}", status_code=500)
 
 
+def _resolved_models_by_container(pipeline_id: str) -> dict[str, str]:
+    """Best-effort map of container_id -> resolved model alias (#3174).
+
+    Containers come from the live backend, but the model an agent was
+    spawned with is recorded on the persisted ``AgentExecution`` at
+    spawn/restart time. Join the two here so ``list_containers`` shows
+    what each agent is actually running — the operator's confirmation
+    channel after a live ``agent_models`` swap, replacing grepping pod
+    logs for the session-init line. Any failure (pipeline state missing,
+    store contention, pre-#3174 records without the field) degrades to
+    an empty/partial map: listing containers must not depend on
+    state-store health.
+    """
+    mapping: dict[str, str] = {}
+    try:
+        from routes import get_repo_path
+        from state_store import discover_repo_paths, get_state_store
+
+        pipeline = None
+        for repo_path in discover_repo_paths(get_repo_path()):
+            try:
+                pipeline = get_state_store(repo_path).load_pipeline(pipeline_id)
+                break
+            except Exception:
+                continue
+        if pipeline is None:
+            return mapping
+        for phase_exec in pipeline.phases.values():
+            for agent in phase_exec.agents:
+                if agent.container_id and agent.resolved_model:
+                    mapping[agent.container_id] = agent.resolved_model
+    except Exception as e:
+        logger.debug(
+            "Could not join resolved models onto container list",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+    return mapping
+
+
 @containers_bp.route("/<pipeline_id>/containers", methods=["GET"])
 def list_pipeline_containers(pipeline_id: str) -> tuple[Response, int]:
     """
@@ -214,7 +254,8 @@ def list_pipeline_containers(pipeline_id: str) -> tuple[Response, int]:
                     {
                         "container_id": "abc123...",
                         "status": "running",
-                        "agent_role": "coder"
+                        "agent_role": "coder",
+                        "resolved_model": "opus"
                     }
                 ]
             }
@@ -229,6 +270,8 @@ def list_pipeline_containers(pipeline_id: str) -> tuple[Response, int]:
             labels={"egg.pipeline.id": pipeline_id},
         )
 
+        resolved_models = _resolved_models_by_container(pipeline_id)
+
         container_data = [
             {
                 "container_id": c.container_id,
@@ -240,6 +283,7 @@ def list_pipeline_containers(pipeline_id: str) -> tuple[Response, int]:
                 "exit_code": c.exit_code,
                 "pod_name": getattr(c, "pod_name", None),
                 "job_name": getattr(c, "job_name", None),
+                "resolved_model": resolved_models.get(c.container_id),
             }
             for c in containers
         ]
