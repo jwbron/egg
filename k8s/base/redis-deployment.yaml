@@ -1,0 +1,154 @@
+# Redis backing the orchestrator's Streams message store (#2662).
+#
+# Durability scope: inter-agent messages (the BRC transcript and the
+# consensus tracker's replay source) must survive a mid-phase orchestrator
+# restart (#3076). The orchestrator pins this backend explicitly via
+# EGG_MESSAGE_STORE_BACKEND=redis on orchestrator-deployment.yaml; since
+# #3159 Redis Streams is the only backend — store creation fails loudly
+# rather than falling back.
+#
+# Only the orchestrator talks to Redis. Agent pods cannot reach it: the
+# egg-agents namespace is default-deny egress (network-policies.yaml) with
+# no allow rule for Redis, and nothing else in egg-system uses it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+  namespace: egg-system
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: redis
+    app.kubernetes.io/part-of: egg
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # Deliberately small: streams are cleared at phase boundaries
+  # (_clear_concurrent_state), so the steady-state footprint is one
+  # phase's transcript per running pipeline. Bounded on purpose — this
+  # cluster has a btrfs chunk-allocation history (#2999); see also the
+  # maxmemory cap on the container args below.
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: egg-system
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: redis
+    app.kubernetes.io/part-of: egg
+spec:
+  # Single replica: the message store is per-pipeline scratch space with
+  # phase-scoped lifetime, not a shared datastore — one instance bounded
+  # by orchestrator request volume is sufficient, and the RWO PVC pins it
+  # to one pod anyway.
+  replicas: 1
+  # Recreate so the replacement pod never deadlocks waiting on the RWO
+  # volume held by its predecessor.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/component: redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/component: redis
+        app.kubernetes.io/part-of: egg
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: redis
+          # egg-redis: stock Redis pinned in config/redis/Dockerfile, built
+          # and published locally with the other egg images (the deploy
+          # target rewrites :latest -> :$(EGG_IMAGE_TAG)). Kept on the
+          # local supply chain rather than referencing a public image —
+          # see the Dockerfile header.
+          image: egg-redis:latest
+          imagePullPolicy: IfNotPresent
+          # args replace the image CMD, so redis-server must be restated.
+          # appendonly: messages must survive a Redis pod restart, not
+          # just an orchestrator restart. noeviction: under memory
+          # pressure, writes fail loudly (orchestrator surfaces a
+          # RedisError) instead of silently dropping stream entries —
+          # losing messages is the failure mode this deployment exists
+          # to remove.
+          #
+          # protected-mode no: stock Redis defaults to protected-mode yes,
+          # which rejects every non-loopback connection from the default
+          # (no-password) user (src/networking.c — there is no
+          # bind-address exemption in Redis 8). The orchestrator connects
+          # from a different pod via the ClusterIP service with no
+          # password (get_redis_message_store passes none), so without
+          # this every message op would be DENIED. The isolation
+          # protected mode would provide is already enforced by
+          # network-policies.yaml: egg-agents is default-deny egress with
+          # no Redis allow rule, and only the orchestrator (in egg-system,
+          # which has no NetworkPolicy) can reach the service.
+          args:
+            - redis-server
+            - --protected-mode
+            - "no"
+            - --appendonly
+            - "yes"
+            - --dir
+            - /data
+            - --maxmemory
+            - 256mb
+            - --maxmemory-policy
+            - noeviction
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          livenessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              # Headroom above the 256mb maxmemory cap: AOF rewrite
+              # forks and stream/jemalloc overhead live outside the
+              # maxmemory accounting.
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: redis-data

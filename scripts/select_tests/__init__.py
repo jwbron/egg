@@ -140,22 +140,31 @@ from ._constants import (
     TEST_ROOT_DIRS,
 )
 
-# Graph + closure + bare-name resolver + PYTEST_ARGS classifier.
+# Graph + closure + bare-name resolver + barrel transparency (#3182)
+# + PYTEST_ARGS classifier.
 from ._graph import (
     _TEST_ROOT_PREFIXES,
     GraphBundle,
+    _barrel_name_forms,
+    _barrel_symbols_backed_by,
+    _direct_importers,
     _enumerate_source_paths,
     _extract_imports,
     _module_to_filesystem_path,
     _scan_dynamic_imports,
+    _used_symbols,
     _walk_upstream_combined,
+    _walk_upstream_with_depth,
     build_bare_name_index,
     build_bare_name_upstream_edges,
+    build_barrel_exports,
     build_graph,
     is_dynamic_import_touched,
     map_modules_to_test_files,
+    parse_barrel_exports,
     pytest_args_have_explicit_path,
     reverse_closure,
+    reverse_closure_with_depth,
 )
 
 # Git, sidecar, baseline, and changed-files helpers.
@@ -230,18 +239,26 @@ __all__ = (
     # Graph helpers (public + private)
     "GraphBundle",
     "_TEST_ROOT_PREFIXES",
+    "_barrel_name_forms",
+    "_barrel_symbols_backed_by",
+    "_direct_importers",
     "_enumerate_source_paths",
     "_extract_imports",
     "_module_to_filesystem_path",
     "_scan_dynamic_imports",
+    "_used_symbols",
     "_walk_upstream_combined",
+    "_walk_upstream_with_depth",
     "build_bare_name_index",
     "build_bare_name_upstream_edges",
+    "build_barrel_exports",
     "build_graph",
     "is_dynamic_import_touched",
     "map_modules_to_test_files",
+    "parse_barrel_exports",
     "pytest_args_have_explicit_path",
     "reverse_closure",
+    "reverse_closure_with_depth",
     # CLI helpers (public + private)
     "_build_arg_parser",
     "_fnmatch",

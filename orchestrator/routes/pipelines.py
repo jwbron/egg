@@ -2224,6 +2224,181 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
         )
 
 
+# Config keys the live config-update route accepts. Deliberately a tight
+# allowlist (#3174): most of PipelineConfig is consumed at submit time or
+# mid-phase in ways a partial update could corrupt, whereas
+# ``agent_models`` is re-resolved from a fresh store load before every
+# spawn (the run loop reloads the pipeline at the top of each cycle, and
+# the restart_agent / restart_phase paths load fresh state), so mutating
+# it on a live pipeline is honored by construction. Widen only after
+# verifying the same fresh-reload guarantee holds for the new key.
+_MUTABLE_CONFIG_KEYS = frozenset({"agent_models"})
+
+
+@pipelines_bp.route("/<pipeline_id>/config", methods=["PATCH"])
+@require_lifecycle_secret
+def update_pipeline_config(pipeline_id: str) -> tuple[Response, int]:
+    """Update the safely-mutable subset of a live pipeline's config (#3174).
+
+    Currently that subset is ``agent_models`` only. Semantics are a
+    per-role merge with the pipeline's existing override map: roles
+    absent from the request keep their current value, a string value
+    sets that role's override, and an explicit ``null`` clears it (the
+    role falls back to the repository default / built-in tiers).
+
+    The updated config takes effect at the next agent spawn — currently
+    running agents keep the model they were started with. Pair with
+    ``restart_phase`` / ``restart_agent`` to apply the change to a
+    running phase. Model *values* are not validated against a registry
+    here (any non-Claude string routes to LiteLLM, mirroring submit-time
+    behavior); a typo surfaces as a model-not-found error at spawn.
+
+    URL params:
+        pipeline_id: Pipeline ID
+
+    Request body:
+        {
+            "agent_models": {
+                "coder": "deepseek-v4-pro",
+                "tester": null
+            }
+        }
+
+    Response:
+        {
+            "success": true,
+            "data": {
+                "pipeline_id": "issue-123",
+                "agent_models": {...},      # effective map after the merge
+                "updated_roles": {...},     # roles set by this request
+                "cleared_roles": [...]      # roles cleared by this request
+            }
+        }
+    """
+    data = request.get_json()
+    if data is None:
+        return make_error_response("Missing request body")
+    if not isinstance(data, dict):
+        return make_error_response("Request body must be a JSON object")
+
+    unsupported = sorted(set(data) - _MUTABLE_CONFIG_KEYS)
+    if unsupported:
+        return make_error_response(
+            f"Unsupported config keys: {unsupported}. This endpoint updates "
+            f"only the safely-mutable config subset: {sorted(_MUTABLE_CONFIG_KEYS)}",
+            status_code=400,
+        )
+
+    agent_models = data.get("agent_models")
+    if not isinstance(agent_models, dict) or not agent_models:
+        return make_error_response(
+            "agent_models must be a non-empty object mapping role -> model "
+            "(use null as the model to clear a role's override)",
+            status_code=400,
+        )
+
+    # Pre-validate role keys against MODEL_OVERRIDE_ROLES so the operator
+    # gets the same actionable message as PipelineConfig's field validator
+    # instead of a wrapped pydantic StateValidationError. Lazy import
+    # mirrors models._validate_agent_models_roles.
+    from egg_contracts.agent_roles import MODEL_OVERRIDE_ROLES
+
+    valid_roles = {role.value for role in MODEL_OVERRIDE_ROLES}
+    invalid_roles = sorted(role for role in agent_models if role not in valid_roles)
+    if invalid_roles:
+        return make_error_response(
+            f"Invalid agent_models role keys: {invalid_roles}. agent_models "
+            f"is honored only for SDLC phase producer and reviewer roles: "
+            f"{sorted(valid_roles)}",
+            status_code=400,
+        )
+    invalid_values = sorted(
+        role
+        for role, model in agent_models.items()
+        if model is not None and (not isinstance(model, str) or not model.strip())
+    )
+    if invalid_values:
+        return make_error_response(
+            f"Invalid agent_models values for roles {invalid_values}: each "
+            f"value must be a non-empty model string, or null to clear the "
+            f"role's override",
+            status_code=400,
+        )
+
+    repo_path = get_repo_path()
+
+    try:
+        store, _pipeline = _resolve_pipeline(pipeline_id, repo_path)
+
+        # Merge under the pipeline state lock so a concurrent writer
+        # (another config update, the run loop persisting state) can't
+        # interleave between our load and the store's load-modify-save.
+        # The per-pipeline lock is an RLock, so update_pipeline's own
+        # acquisition nests cleanly.
+        with get_pipeline_state_lock(pipeline_id):
+            current = store.load_pipeline(pipeline_id)
+
+            # Reject mutations on terminal pipelines (#3174 review). No future
+            # spawn consumes ``agent_models`` once a pipeline is COMPLETE /
+            # FAILED / CANCELLED, so the merge would be a silent no-op; a 409
+            # gives the operator a clear signal and matches restart_phase's
+            # terminal-state precondition style. Checked under the lock against
+            # freshly-loaded state so a concurrent terminal transition can't
+            # slip a mutation through.
+            if current.status in PipelineStatus.terminal():
+                return make_error_response(
+                    f"Pipeline {pipeline_id} is in terminal state "
+                    f"{current.status.value}; agent_models cannot be updated "
+                    "(no future spawn would consume the change).",
+                    status_code=409,
+                )
+
+            merged = dict(current.config.agent_models)
+            updated_roles: dict[str, str] = {}
+            cleared_roles: list[str] = []
+            for role_key, model in agent_models.items():
+                if model is None:
+                    if merged.pop(role_key, None) is not None:
+                        cleared_roles.append(role_key)
+                else:
+                    merged[role_key] = model.strip()
+                    updated_roles[role_key] = model.strip()
+            pipeline = store.update_pipeline(pipeline_id, {"config.agent_models": merged})
+
+        logger.info(
+            "Pipeline agent_models updated",
+            pipeline_id=pipeline_id,
+            updated_roles=updated_roles,
+            cleared_roles=cleared_roles,
+        )
+
+        return make_success_response(
+            "Pipeline config updated",
+            data={
+                "pipeline_id": pipeline.id,
+                "agent_models": pipeline.config.agent_models,
+                "updated_roles": updated_roles,
+                "cleared_roles": cleared_roles,
+            },
+        )
+
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
+    except PipelineNotFoundError:
+        return make_error_response(
+            f"Pipeline {pipeline_id} not found",
+            status_code=404,
+        )
+    except StateValidationError as e:
+        return make_error_response(
+            f"Invalid update: {e}",
+            status_code=400,
+        )
+
+
 def _compute_gateway_mode(
     pipeline: Pipeline,
 ) -> tuple[Literal["public", "private"], str | None]:
@@ -2974,12 +3149,13 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
         restart_upstream_kwargs["upstream"] = _model_decision.upstream
         restart_upstream_kwargs["upstream_model"] = _model_decision.upstream_model
 
-    # Merge ANTHROPIC_CUSTOM_MODEL_OPTION env vars on the LiteLLM path (#2832)
-    # so the restarted agent registers the custom model exactly like the
-    # initial spawn did. Empty on the Anthropic path.
-    decision_env = _model_decision.env_vars()
-    if decision_env:
-        extra_env = {**extra_env, **decision_env}
+    # Merge the model-decision env vars so the restarted agent matches the
+    # initial spawn. On the LiteLLM path these include the
+    # ANTHROPIC_CUSTOM_MODEL_OPTION vars (#2832) for custom-model registration;
+    # every route also picks up the context-guardrail caps (#3175), so this is
+    # non-empty on the Anthropic path too — restarted Anthropic agents inherit
+    # the same guardrails as the initial spawn (matches concurrent_executor).
+    extra_env = {**extra_env, **_model_decision.env_vars()}
 
     try:
         spawned = spawner.restart_agent_container(
@@ -3110,6 +3286,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                     agent.container_id = spawned.container_info.container_id
                     agent.status = AgentExecutionStatus.RUNNING
                     agent.started_at = respawn_started_at
+                    agent.resolved_model = _model_decision.claude_code_alias
                     found = True
                     break
                 if not found:
@@ -3120,6 +3297,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                             status=AgentExecutionStatus.RUNNING,
                             started_at=respawn_started_at,
                             slice_id=slice_id,
+                            resolved_model=_model_decision.claude_code_alias,
                         )
                     )
 
@@ -5687,19 +5865,20 @@ def _pull_contract_from_source_branch(
     pipeline, and writes it into the worktree so the caller can skip
     ``create_contract()`` and proceed to commit+push the pulled contract.
 
-    ``task_description`` is the NEW submit's prompt. The pulled contract
-    carries the SOURCE pipeline's ``task_description``, but the resubmit's
-    description is authoritative for THIS pipeline and is where operators
-    put binding resume directives (e.g. "adopt prior branch X, do not
-    reimplement" — #3123). When non-empty it replaces the pulled value;
-    the source value stays recoverable from the source branch's git
-    history. When ``None`` AND ``issue_number is not None`` the pulled
-    value is cleared (the live issue body is the authoritative task
-    statement and ``task_description`` should be ``None``, mirroring the
-    ``create_contract()`` shape on the call site's fallback path —
-    without this clear, forking a free-text pipeline into an issue
-    pipeline would leak the source pipeline's description into every
-    per-event prompt). Otherwise the pulled value is preserved.
+    ``task_description`` is the NEW submit's composed task statement
+    (``compose_task_description`` at the call site — identity anchor +
+    resubmit prompt, #3163). The pulled contract carries the SOURCE
+    pipeline's ``task_description``, but the new submit's statement is
+    authoritative for THIS pipeline and is where operators put binding
+    resume directives (e.g. "adopt prior branch X, do not reimplement"
+    — #3123). When non-empty it replaces the pulled value; the source
+    value stays recoverable from the source branch's git history. This
+    replacement is also what keeps a fork from leaking the source
+    pipeline's task into the new pipeline's per-event prompts: issue
+    and JIRA pipelines always compose a non-empty anchor, so the pulled
+    cross-pipeline text never survives. Only a free-text resume with a
+    blank prompt preserves the pulled value (a plain resume of the same
+    task).
 
     Returns True when a contract was successfully pulled, False otherwise.
     Best-effort: missing, invalid, or unreachable source contracts all yield
@@ -5793,32 +5972,19 @@ def _pull_contract_from_source_branch(
     # canonical key when the pipeline was forked with a qualifier
     # (e.g. source=issue-1965, new=issue-1965-v2).
     contract.pipeline_id = pipeline_id
-    # Refresh the task statement from the new submit (#3123): without
-    # this, the resubmit's prompt — including any operator resume
-    # directives — never reaches any agent-visible surface, because the
-    # caller skips create_contract() (the only other writer of
-    # ``task_description``) whenever the pull succeeds.
-    #
-    # Three cases:
-    #   1. Caller passed a non-blank prompt → replace (free-text resubmit
-    #      with the new directives).
-    #   2. Caller passed ``None`` and the pipeline has an ``issue_number``
-    #      → explicit clear. The create_contract() fallback at the call
-    #      site (pipelines.py::_run_pipeline) passes ``task_description=
-    #      None`` for issue pipelines because the live body is fetched
-    #      via ``gh issue view`` instead. Without the explicit clear,
-    #      forking a free-text pipeline into an issue pipeline (source
-    #      branch = egg/free-text-x, new issue_number = 42) would carry
-    #      the SOURCE pipeline's free-text description into the per-event
-    #      prompt of every issue-pipeline agent.
-    #   3. Caller passed ``None`` or blank and no ``issue_number`` (a
-    #      plain resume with no new prompt) → preserve the pulled value
-    #      so the source pipeline's task statement still drives the
-    #      resumed run.
+    # Refresh the task statement from the new submit (#3123/#3163):
+    # without this, the resubmit's composed statement — identity anchor
+    # plus any operator resume directives — never reaches any
+    # agent-visible surface, because the caller skips create_contract()
+    # (the only other writer of ``task_description``) whenever the pull
+    # succeeds. Issue/JIRA pipelines always compose non-blank (the
+    # anchor at minimum), so the replace also prevents a fork from
+    # carrying the SOURCE pipeline's task text into this pipeline's
+    # per-event prompts. A blank/None value (free-text resume with no
+    # new prompt) preserves the pulled value so the source pipeline's
+    # task statement still drives the resumed run.
     if task_description is not None and task_description.strip():
         contract.task_description = task_description
-    elif task_description is None and issue_number is not None:
-        contract.task_description = None
     save_contract(contract, repo_path)
 
     logger.info(
@@ -8404,32 +8570,36 @@ def _ensure_statefiles_on_branch(
     )
 
     try:
+        # Mirror the primary creation site: the composed task statement
+        # (identity anchor + submit description, #3163) lands on the
+        # restored contract too, for every entry path.
+        from egg_contracts.loader import compose_task_description
+
+        issue_url = (
+            f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
+            if pipeline.issue_number is not None
+            else None
+        )
+        task_description = compose_task_description(
+            description=pipeline.prompt,
+            issue_number=pipeline.issue_number,
+            issue_url=issue_url,
+            jira_ticket=pipeline.jira_ticket,
+        )
         if pipeline.issue_number is not None:
-            issue_url = f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
             create_contract(
                 issue_number=pipeline.issue_number,
                 title=f"Issue #{pipeline.issue_number}",
-                url=issue_url,
+                url=issue_url or "",
                 pipeline_id=pipeline.id,
                 repo_root=worktree_repo_path,
+                task_description=task_description,
             )
         else:
-            # ``pipeline.issue_number is None`` covers both free-text
-            # submits (no GitHub issue, no JIRA ticket) and JIRA-driven
-            # pipelines (``pipeline.jira_ticket`` set; ``pipeline.prompt``
-            # carries the description). In both cases the event-pump
-            # never delivers the orchestrator-built spawn prompt to the
-            # agent, so we persist the full ``pipeline.prompt`` as
-            # ``task_description`` on the restored contract — mirroring
-            # the primary creation site. For JIRA pipelines an agent
-            # can still fetch the latest ticket body out-of-band via
-            # ``jira ticket get "$EGG_JIRA_TICKET"``; this field is a
-            # complementary, snapshotted copy of the description as
-            # submitted (#3033).
             create_contract(
                 pipeline_id=pipeline.id,
                 title=(pipeline.prompt or "")[:100],
-                task_description=pipeline.prompt,
+                task_description=task_description,
                 repo_root=worktree_repo_path,
             )
 
@@ -17439,7 +17609,13 @@ def _run_implement_phase_slices(
                 # surface picks up the cascade-block event (TASK-3-4
                 # emission path).
                 try:
-                    from orchestrator.message_store import Message, get_message_store
+                    try:
+                        from message_store import Message, get_message_store
+                    except ImportError:
+                        from ..message_store import (  # type: ignore[no-redef]
+                            Message,
+                            get_message_store,
+                        )
 
                     msg = Message(
                         pipeline_id=pipeline_id,
@@ -18047,6 +18223,16 @@ def _run_concurrent_phase(
                         container_id=exec_info.container_id,
                         started_at=datetime.now(UTC),
                         slice_id=slice_id,
+                        # Carry the per-agent resolved model through the
+                        # reconstruction (#3174). ``_spawn_agent`` stamps this on
+                        # the in-memory execution, but the persisted record is
+                        # rebuilt from scratch here — without this copy the field
+                        # dead-ends at None and both operator confirmation
+                        # channels (get_status, list_containers), which read from
+                        # persisted state, surface ``resolved_model: null`` for
+                        # every concurrent-phase agent (initial spawn and
+                        # restart_phase respawn alike).
+                        resolved_model=exec_info.resolved_model,
                     )
                     phase_execution.agents.append(agent_state)
                 store.save_pipeline(pip)
@@ -19225,6 +19411,13 @@ def _spawn_and_wait(
     """
     from models import ContainerInfo, ContainerStatus, PipelinePhase
 
+    try:
+        from agent_model_resolution import DEFAULT_AGENT_MODEL
+    except ImportError:
+        from ..agent_model_resolution import (  # type: ignore[import-not-found, no-redef]
+            DEFAULT_AGENT_MODEL,
+        )
+
     retry_kwargs: dict = {}
     if spawn_max_retries is not None:
         retry_kwargs["spawn_max_retries"] = spawn_max_retries
@@ -19286,12 +19479,19 @@ def _spawn_and_wait(
                 # ``slice_id`` through here — otherwise the new
                 # ``(role, slice_id)`` walks added in #2422 will not see
                 # the record. See PR #2435 review thread.
+                # This helper hard-codes the default Anthropic auth path (see
+                # the NOTE above ``spawn_agent_job``), so the resolved model is
+                # always the built-in default alias. Stamp it for parity with
+                # ``_run_concurrent_phase`` / ``restart_agent`` (#3174) — if this
+                # test-only path is ever resurrected for production it will not
+                # silently regress resolved-model visibility.
                 agent_execution = AgentExecution(
                     role=agent_role,
                     status=AgentExecutionStatus.RUNNING,
                     container_id=spawned.container_info.container_id,
                     slice_id=None,
                     started_at=datetime.now(UTC),
+                    resolved_model=DEFAULT_AGENT_MODEL,
                 )
                 phase_execution.agents.append(agent_execution)
 
@@ -22200,7 +22400,25 @@ def _run_pipeline(
         # creation so it doesn't pollute the main repo working directory).
         if not pipeline.contract_synced:
             try:
-                from egg_contracts.loader import create_contract
+                from egg_contracts.loader import compose_task_description, create_contract
+
+                # Every entry path (GitHub issue, JIRA, free-text) anchors
+                # the task the same way (#3163): identity first, then the
+                # operator's submit description. Before #3163 issue
+                # pipelines deliberately got ``None`` here (#3042 "agents
+                # fetch the live body"), which left the #3123 binding
+                # prompt section empty for the most common pipeline type.
+                issue_url = (
+                    f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
+                    if pipeline.issue_number is not None
+                    else None
+                )
+                task_description = compose_task_description(
+                    description=pipeline.prompt,
+                    issue_number=pipeline.issue_number,
+                    issue_url=issue_url,
+                    jira_ticket=pipeline.jira_ticket,
+                )
 
                 # When source_branch is set, try to carry over the contract
                 # (with any resolved HITL decisions) from there instead of
@@ -22215,14 +22433,7 @@ def _run_pipeline(
                             pipeline_id=pipeline.id,
                             spawner=spawner,
                             gateway_mode=gateway_mode,
-                            # Mirror the create_contract() fallback below:
-                            # ``task_description`` is populated only for
-                            # pipelines without a GitHub issue (#3042); for
-                            # issue pipelines agents fetch the live body
-                            # via ``gh issue view`` instead.
-                            task_description=(
-                                pipeline.prompt if pipeline.issue_number is None else None
-                            ),
+                            task_description=task_description,
                         )
                     except Exception:
                         logger.warning(
@@ -22235,38 +22446,30 @@ def _run_pipeline(
 
                 if not pulled_contract:
                     if pipeline.issue_number is not None:
-                        issue_url = (
-                            f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
-                        )
                         create_contract(
                             issue_number=pipeline.issue_number,
                             title=f"Issue #{pipeline.issue_number}",
-                            url=issue_url,
+                            url=issue_url or "",
                             pipeline_id=pipeline.id,
                             repo_root=worktree_repo_path,
+                            task_description=task_description,
                         )
                     else:
                         # ``pipeline.issue_number is None`` covers both
-                        # free-text submits (no GitHub issue, no JIRA ticket)
-                        # and JIRA-driven pipelines (``pipeline.jira_ticket``
-                        # set; ``pipeline.prompt`` carries the description).
-                        # In both cases the event-pump never delivers the
-                        # orchestrator-built spawn prompt to the agent, so
-                        # we persist the full ``pipeline.prompt`` as
-                        # ``task_description``. The contract (read via
-                        # ``egg-contract show``) becomes the reliable
-                        # channel for the complete task; the ``title`` arg
-                        # is only used for the ``IssueInfo`` label and is
-                        # dropped without an ``issue_number``, so it is not
-                        # a substitute. For JIRA pipelines an agent can
-                        # still fetch the latest ticket body out-of-band
-                        # via ``jira ticket get "$EGG_JIRA_TICKET"`` — this
-                        # field is a complementary, snapshotted copy of
-                        # the description as submitted (#3033).
+                        # free-text submits and JIRA-driven pipelines
+                        # (``pipeline.jira_ticket`` set). The event-pump
+                        # never delivers the orchestrator-built spawn
+                        # prompt to the agent, so the contract (read via
+                        # ``egg-contract show`` + the #3123 prompt
+                        # section) is the reliable channel for the
+                        # complete task; the ``title`` arg is only used
+                        # for the ``IssueInfo`` label and is dropped
+                        # without an ``issue_number``, so it is not a
+                        # substitute (#3033).
                         create_contract(
                             pipeline_id=pipeline.id,
                             title=(pipeline.prompt or "")[:100],
-                            task_description=pipeline.prompt,
+                            task_description=task_description,
                             repo_root=worktree_repo_path,
                         )
 
