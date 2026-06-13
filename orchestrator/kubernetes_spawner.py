@@ -10,6 +10,7 @@ Kubernetes deployments:
 - Cleans up sessions on Job removal
 """
 
+import hashlib
 import os
 import re
 import sys
@@ -54,7 +55,7 @@ from kubernetes_client import (
     PodNotFoundError,
     get_kubernetes_client,
 )
-from models import AgentRole, ContainerInfo
+from models import AgentRole, ContainerInfo, ContainerStatus
 from review_graph import get_review_graph_for_phase
 
 # #2725: senders we always include in EGG_WAIT_PRODUCER_ALLOWLIST so
@@ -199,6 +200,72 @@ _PROTECTED_ENV_KEYS: frozenset[str] = frozenset(
         "CLAUDE_CODE_OAUTH_TOKEN",
     }
 )
+
+
+# --- #3064 slice-2: orchestrator-owned one-shot event spawns ------------
+#
+# When the orchestrator (not the in-pod wait-loop) owns the BRC event loop
+# it spawns a per-event Job that handles exactly one ``propose|ack|nack``
+# and exits (the slice-1 wrapper arm). The Job carries the event identity in
+# env so the wrapper arm engages, and the dedupe key as a *label* so the
+# event loop can reconcile in-flight Jobs after an orchestrator restart
+# without persisting any spawn bookkeeping.
+LABEL_EVENT_DEDUPE = "egg.event.dedupe-key"
+LABEL_EVENT_ACTION = "egg.event.action"
+
+# Env keys read by the consensus wrapper's one-shot arm
+# (``consensus_wrapper.py``). ``EGG_EVENT_LOOP_OWNER=orchestrator`` +
+# ``EGG_EVENT_ACTION`` engage the arm; ``EGG_EVENT_DEDUPE_KEY`` is the
+# stale-event backstop / reconciliation handle. None are in
+# ``_PROTECTED_ENV_KEYS`` — the one-shot entry is their only writer.
+ENV_EVENT_LOOP_OWNER = "EGG_EVENT_LOOP_OWNER"
+ENV_EVENT_ACTION = "EGG_EVENT_ACTION"
+ENV_EVENT_DEDUPE_KEY = "EGG_EVENT_DEDUPE_KEY"
+ENV_EVENT_PAYLOAD_REFS = "EGG_EVENT_PAYLOAD_REFS"
+
+# A short, deterministic Job-name discriminator so distinct events for one
+# role get distinct Job names (the same event always yields the same name,
+# which keeps the pre-spawn cleanup + adoption coherent). 8 hex chars of the
+# already-hashed dedupe key is plenty of separation.
+_EVENT_JOB_NAME_DISCRIMINATOR_LEN = 8
+
+# Kubernetes caps label VALUES (and names) at 63 characters and rejects any
+# overflow at the API server. The dedupe key is a 64-char sha256 hexdigest, so
+# it must be shortened to a label-safe form before it can ride as a Job label
+# or be queried in a label selector. The full key still rides in env
+# (``EGG_EVENT_DEDUPE_KEY``, no length cap) and remains the in-memory dedupe
+# identity; only the label/selector use this shortened form — and they MUST use
+# the IDENTICAL value or restart reconciliation can never match.
+_LABEL_VALUE_MAXLEN = 63
+
+
+def _dedupe_label_value(dedupe_key: str) -> str:
+    """Shorten a dedupe key to a Kubernetes-label-safe value (<=63 chars).
+
+    The dedupe key is a 64-char sha256 hexdigest; k8s rejects label values
+    longer than 63 chars. Deterministic truncation keeps the value stable
+    across restarts so the spawn-side label and the reconcile-side selector
+    always agree on the same string (a 63-hex-char sha256 prefix is 252 bits —
+    collision-free for spawn dedupe). Every char of a hex digest is
+    alphanumeric, so the truncated prefix is always a valid label value.
+    Idempotent for already-short keys.
+    """
+    return dedupe_key[:_LABEL_VALUE_MAXLEN]
+
+
+def _fit_k8s_name(name: str, maxlen: int = 63) -> str:
+    """Fit an (unprefixed) k8s name to ``maxlen`` chars, RFC-1123-safe.
+
+    Mirrors ``KubernetesClient._normalize_k8s_job_name``'s truncation shape —
+    ``readable[:maxlen-9] + '-' + 8-char sha1`` — so a long
+    ``egg-agent-<pipeline>-<slice>-<role>-<event>`` one-shot name stays within
+    the 63-char budget while preserving the ``egg-agent-`` prefix. Idempotent
+    for already-short names.
+    """
+    if len(name) <= maxlen:
+        return name
+    digest = hashlib.sha1(name.encode(), usedforsecurity=False).hexdigest()[:8]
+    return f"{name[: maxlen - 9].rstrip('-')}-{digest}"
 
 
 @dataclass
@@ -512,6 +579,8 @@ class KubernetesSpawner:
         slice_id: str | None = None,
         upstream: str | None = None,
         upstream_model: str | None = None,
+        extra_labels: dict[str, str] | None = None,
+        job_name_suffix: str | None = None,
     ) -> SpawnedContainer:
         """Spawn a Kubernetes Job for an agent.
 
@@ -552,6 +621,24 @@ class KubernetesSpawner:
         job_name, actual_k8s_job_name = self._build_k8s_job_names(
             pipeline_id, agent_role, slice_id=slice_id
         )
+        # One-shot event spawns (#3064 slice-2) append a deterministic
+        # per-event discriminator so distinct events for one role don't
+        # collide on a single Job name (which would make the pre-spawn
+        # cleanup below delete a sibling event's in-flight Job).
+        #
+        # ``_fit_k8s_name`` bounds the *unprefixed* ``egg-agent-…`` name we
+        # hand to ``create_container``. Note this is NOT the final k8s budget
+        # check: ``create_container`` prepends ``JOB_PREFIX`` (``egg-sandbox-``,
+        # 12 chars) and re-truncates the *prefixed* form via
+        # ``_normalize_k8s_job_name`` (which is what actually enforces the
+        # 63-char RFC-1123 limit, with an 8-char sha1 over the full prefixed
+        # name). So this pre-truncation is belt-and-suspenders — it keeps the
+        # handed name readable and the delete/create call args in step, while
+        # the downstream normalization guarantees budget compliance and
+        # collision-freedom regardless.
+        if job_name_suffix:
+            job_name = _fit_k8s_name(f"{job_name}-{job_name_suffix}")
+            actual_k8s_job_name = f"{KubernetesClient.JOB_PREFIX}{job_name}"
 
         # Clean up any existing Job with the same name.
         try:
@@ -594,6 +681,12 @@ class KubernetesSpawner:
         # filter without parsing Job names) — see #2666.
         if slice_id is not None:
             labels[LABEL_SLICE_ID] = slice_id
+        # One-shot event labels (#3064 slice-2): the dedupe-key label is the
+        # reconciliation handle the orchestrator event loop queries to detect
+        # an in-flight Job for a given event after a restart. Applied last so
+        # the caller's event labels are authoritative.
+        if extra_labels:
+            labels.update(extra_labels)
 
         # Host UID/GID for file ownership in worktrees
         host_uid = int(os.environ.get("HOST_UID", 1000))
@@ -1050,6 +1143,132 @@ class KubernetesSpawner:
                 except Exception:
                     pass  # Best effort cleanup
             raise KubernetesSpawnError(f"Failed to spawn Job: {e}") from e
+
+    # ------------------------------------------------------------------
+    # #3064 slice-2 — orchestrator-owned one-shot event spawns
+    # ------------------------------------------------------------------
+    def _event_dedupe_key_live(self, dedupe_key: str) -> bool:
+        """Return True iff a Job already carries this dedupe-key label.
+
+        The reconciliation handle: a fresh orchestrator process re-derives
+        every event and the spawner asks this before creating a Job, so an
+        in-flight Job from a prior process (or a racing duplicate request) is
+        adopted rather than duplicated. No spawn state is persisted — the
+        label IS the state. Queried via a label selector so the API returns
+        only matching Jobs; best-effort (a list failure ⇒ "not live" ⇒ spawn
+        proceeds rather than wedging).
+
+        Only Jobs in a non-terminal status (``PENDING``/``RUNNING``) count as
+        live. ``list_jobs`` returns *all* label-matching Jobs regardless of
+        status, and one-shot event Jobs linger for ``ttl_seconds_after_finished``
+        (10 min) after completing, so a terminated Job (``EXITED``/``FAILED``)
+        must NOT adopt a re-derived identical event — otherwise an event whose
+        pod failed without advancing the tracker would be silently swallowed
+        for the TTL window instead of respawned.
+        """
+        # The selector value MUST use the same label-safe shortening applied
+        # to the label on the spawn side, or it can never match the live Job.
+        selector = f"{LABEL_EVENT_DEDUPE}={_dedupe_label_value(dedupe_key)}"
+        try:
+            jobs = self.k8s.list_jobs(self._namespace, label_selector=selector)
+        except Exception as exc:  # noqa: BLE001 — adoption is best-effort
+            logger.warning(
+                "Failed to list Jobs for dedupe-key reconciliation",
+                dedupe_key=dedupe_key,
+                error=str(exc),
+            )
+            return False
+        # A non-sequence (e.g. an unconfigured mock) is treated as "no live
+        # Job" so the spawn proceeds. The selector already scopes to matching
+        # Jobs; count only those still active (terminal Jobs linger under
+        # the finished-TTL and must not block a respawn).
+        if not isinstance(jobs, (list, tuple)):
+            return False
+        active = (ContainerStatus.PENDING, ContainerStatus.RUNNING)
+        return any(getattr(job, "status", None) in active for job in jobs)
+
+    def spawn_event_job(
+        self,
+        pipeline_id: str,
+        agent_role: AgentRole,
+        *,
+        action: str,
+        dedupe_key: str,
+        event_payload_refs: str | None = None,
+        slice_id: str | None = None,
+        **spawn_kwargs: Any,
+    ) -> SpawnedContainer | None:
+        """Spawn (or adopt) a one-shot Job for a single BRC event (#3064).
+
+        The Job's env carries the full event identity so the consensus
+        wrapper's one-shot arm engages (``EGG_EVENT_LOOP_OWNER=orchestrator``
+        + ``EGG_EVENT_ACTION`` ∈ ``propose|ack|nack`` + ``EGG_EVENT_DEDUPE_KEY``)
+        and the dedupe key rides as a Job *label* — the reconciliation handle
+        the event loop rebuilds its live set from on restart.
+
+        **Adoption**: requesting a spawn for an already-live dedupe key
+        returns ``None`` (the existing Job is adopted) rather than creating a
+        duplicate — the defense-in-depth backstop for the loop's own dedupe
+        set racing a restart.
+
+        Everything else (worktree create-with-retry, gateway-session
+        registration) flows through :meth:`spawn_agent_job` unchanged; this
+        method only adds the event identity (env + labels) and the
+        deterministic per-event Job-name discriminator. ``slice_id``/``phase``
+        ride through ``spawn_kwargs`` to ``spawn_agent_job``, which is the
+        single source of truth for ``EGG_SLICE_ID``/``EGG_PHASE``.
+        """
+        if action not in ("propose", "ack", "nack"):
+            # confirm/complete run orchestrator-side with no pod, and ``wait``
+            # spawns nothing — reaching the spawner with one is a caller bug.
+            raise ValueError(
+                f"spawn_event_job called with non-spawn action {action!r}; "
+                "only propose|ack|nack ever spawn a pod (confirm/complete are "
+                "agent-free, wait is a no-op)."
+            )
+
+        if self._event_dedupe_key_live(dedupe_key):
+            logger.info(
+                "Adopting existing live Job for event (dedupe hit)",
+                pipeline_id=pipeline_id,
+                role=agent_role.value,
+                action=action,
+                dedupe_key=dedupe_key,
+            )
+            return None
+
+        event_env: dict[str, str] = {
+            ENV_EVENT_LOOP_OWNER: "orchestrator",
+            ENV_EVENT_ACTION: action,
+            ENV_EVENT_DEDUPE_KEY: dedupe_key,
+        }
+        if event_payload_refs:
+            event_env[ENV_EVENT_PAYLOAD_REFS] = event_payload_refs
+        # Merge with any caller-supplied extra_env (caller's non-event keys
+        # win for their own keys; event identity keys are set by us).
+        caller_env = spawn_kwargs.pop("extra_env", None) or {}
+        merged_env = {**caller_env, **event_env}
+
+        event_labels = {
+            # Shortened to the k8s 63-char label-value limit; the full key
+            # rides in env (ENV_EVENT_DEDUPE_KEY) above. The selector in
+            # _event_dedupe_key_live applies the identical shortening so
+            # restart reconciliation matches.
+            LABEL_EVENT_DEDUPE: _dedupe_label_value(dedupe_key),
+            LABEL_EVENT_ACTION: action,
+        }
+        caller_labels = spawn_kwargs.pop("extra_labels", None) or {}
+        merged_labels = {**caller_labels, **event_labels}
+
+        return self.spawn_agent_job(
+            pipeline_id,
+            agent_role,
+            slice_id=slice_id,
+            extra_env=merged_env,
+            extra_labels=merged_labels,
+            job_name_suffix=dedupe_key[:_EVENT_JOB_NAME_DISCRIMINATOR_LEN],
+            **spawn_kwargs,
+        )
 
     def stop_agent_job(
         self,
@@ -1831,26 +2050,47 @@ class KubernetesSpawner:
             command: list[str] | None = None,
             upstream: str | None = None,
             upstream_model: str | None = None,
-        ) -> SpawnedContainer:
+            event_action: str | None = None,
+            event_dedupe_key: str | None = None,
+            event_payload_refs: str | None = None,
+        ) -> SpawnedContainer | None:
             merged_env = {**(sandbox_env or {}), **(extra_env or {})}
+            common_kwargs: dict[str, Any] = {
+                "issue_number": issue_number,
+                "repo_volumes": repo_volumes,
+                "mode": mode,
+                "image": image,
+                "extra_env": merged_env,
+                "repos": repos,
+                "phase": phase,
+                "branch": branch,
+                "base_branch": base_branch,
+                "command": command,
+                "spawn_max_retries": spawn_max_retries,
+                "spawn_retry_initial_backoff_seconds": (spawn_retry_initial_backoff_seconds),
+                "upstream": upstream,
+                "upstream_model": upstream_model,
+            }
+            # #3064 slice-2: orchestrator-owned one-shot event spawn. Routes
+            # through ``spawn_one_shot_event_job`` so the Job gets the event
+            # identity (env + labels) and adoption-on-dedupe-hit; the
+            # long-lived ``spawn_agent_job`` pod-mode path is taken otherwise,
+            # byte-identical to before.
+            if event_dedupe_key is not None and event_action is not None:
+                return self.spawn_event_job(
+                    pipeline_id,
+                    role,
+                    action=event_action,
+                    dedupe_key=event_dedupe_key,
+                    event_payload_refs=event_payload_refs,
+                    slice_id=slice_id,
+                    **common_kwargs,
+                )
             return self.spawn_agent_job(
                 pipeline_id=pipeline_id,
                 agent_role=role,
-                issue_number=issue_number,
-                repo_volumes=repo_volumes,
-                mode=mode,
-                image=image,
-                extra_env=merged_env,
-                repos=repos,
-                phase=phase,
-                branch=branch,
-                base_branch=base_branch,
-                command=command,
-                spawn_max_retries=spawn_max_retries,
-                spawn_retry_initial_backoff_seconds=(spawn_retry_initial_backoff_seconds),
                 slice_id=slice_id,
-                upstream=upstream,
-                upstream_model=upstream_model,
+                **common_kwargs,
             )
 
         return _spawn

@@ -1992,8 +1992,15 @@ class TestRunConcurrentPhaseSliceIdPropagation:
 
         instance = MagicMock()
         instance.spawn_all.return_value = []  # no agents — short-circuit
+        # is_complete=True so the consensus polling loop exits at step 2 on
+        # the first iteration. With spawn_all returning [] there are no
+        # containers to track, and the only time-independent exit is the
+        # consensus-complete path; a False here would spin forever because
+        # time.monotonic is pinned to 0.0 and the timeout never fires. The
+        # executor is constructed before the loop, so the slice_id/env
+        # assertions below are unaffected by completion state.
         instance.check_consensus.return_value = {
-            "is_complete": False,
+            "is_complete": True,
             "has_objections": False,
             "blocking_agents": [],
         }
@@ -2041,8 +2048,12 @@ class TestRunConcurrentPhaseSliceIdPropagation:
 
         instance = MagicMock()
         instance.spawn_all.return_value = []
+        # is_complete=True so the consensus polling loop exits at step 2 on
+        # the first iteration (see test_no_slice_id_leaves_env_intact for the
+        # rationale). The executor is constructed before the loop, so the
+        # slice_id/env assertions below hold regardless of completion state.
         instance.check_consensus.return_value = {
-            "is_complete": False,
+            "is_complete": True,
             "has_objections": False,
             "blocking_agents": [],
         }

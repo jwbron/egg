@@ -1460,6 +1460,96 @@ class TestResolverMissingRepoConfigDoesNotCrash:
         assert mock_spawn.call_count == 1
 
 
+class TestEventLoopOwnershipSpawnGating:
+    """Slice-2 (#3064 TASK-2-3): EGG_EVENT_LOOP_OWNER gates up-front spawning.
+
+    Test-first contract for TASK-2-1's hook into the concurrent executor:
+
+      * ``pod`` (default): ``spawn_all`` fans out exactly as today — one
+        ``spawn_fn`` call per agent role. Existing pod-mode tests stay green
+        because this path is untouched.
+      * ``orchestrator``: ``spawn_all`` spawns NO up-front pods (the event
+        loop owns the lifecycle and spawns one-shot Jobs per derived event
+        from the completion-poll site instead).
+
+    The executor is expected to consult ``env_config.get_event_loop_owner()``
+    at ``spawn_all`` time. These tests fail until the coder's parallel hook
+    lands; convergence makes them green.
+    """
+
+    def _executor(self, mock_spawn):
+        from concurrent_executor import ConcurrentPhaseExecutor
+
+        pipeline = _make_pipeline()
+        return ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+
+    def test_pod_default_fans_out_one_spawn_per_role(self, monkeypatch):
+        """Flag unset ⇒ pod mode ⇒ spawn_all fans out every role up front."""
+        monkeypatch.delenv("EGG_EVENT_LOOP_OWNER", raising=False)
+        mock_spawn = MagicMock(return_value=MagicMock(container_id="c"))
+        executor = self._executor(mock_spawn)
+
+        with (
+            patch("concurrent_executor.create_peer_consensus_tracker") as mock_tracker,
+            patch("concurrent_executor.emit_event"),
+        ):
+            mock_tracker.return_value = MagicMock()
+            executor.spawn_all()
+
+        assert mock_spawn.call_count == len(executor.get_agent_roles()), (
+            "pod-default spawn_all must spawn every role up front (unchanged)"
+        )
+
+    def test_pod_explicit_fans_out_one_spawn_per_role(self, monkeypatch):
+        """Explicit EGG_EVENT_LOOP_OWNER=pod behaves identically to unset."""
+        monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", "pod")
+        mock_spawn = MagicMock(return_value=MagicMock(container_id="c"))
+        executor = self._executor(mock_spawn)
+
+        with (
+            patch("concurrent_executor.create_peer_consensus_tracker") as mock_tracker,
+            patch("concurrent_executor.emit_event"),
+        ):
+            mock_tracker.return_value = MagicMock()
+            executor.spawn_all()
+
+        assert mock_spawn.call_count == len(executor.get_agent_roles())
+
+    def test_orchestrator_mode_spawns_no_up_front_pods(self, monkeypatch):
+        """EGG_EVENT_LOOP_OWNER=orchestrator ⇒ spawn_all spawns no pods up
+        front; the event loop drives per-event spawns instead.
+
+        Asserts the loop was actually started (``owns_event_loop()`` /
+        ``_event_loop``) rather than relying on the daemon thread's
+        first-poll sleep to mask premature behavior, and tears the loop down
+        deterministically so the test leaves no live thread behind.
+        """
+        monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", "orchestrator")
+        mock_spawn = MagicMock(return_value=MagicMock(container_id="c"))
+        executor = self._executor(mock_spawn)
+
+        try:
+            with (
+                patch("concurrent_executor.create_peer_consensus_tracker") as mock_tracker,
+                patch("concurrent_executor.emit_event"),
+            ):
+                mock_tracker.return_value = MagicMock()
+                result = executor.spawn_all()
+        finally:
+            # Stop the daemon loop immediately so the assertions below do not
+            # depend on the poll-interval timing window.
+            executor.stop_event_loop()
+
+        assert mock_spawn.call_count == 0, (
+            "orchestrator mode must not spawn any up-front agent pods"
+        )
+        assert result == [], "orchestrator mode spawn_all returns no executions"
+        assert executor.owns_event_loop(), (
+            "orchestrator mode must start the orchestrator-owned event loop"
+        )
+        assert executor._event_loop is not None
+
+
 class TestSpawnRecordsResolvedModel:
     """#3174: every spawn records the resolved Claude-Code-facing alias
     on the ``AgentExecution`` so operators can confirm a live

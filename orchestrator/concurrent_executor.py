@@ -5,13 +5,18 @@ Monitors agent health, collects completion signals, and manages
 consensus-based phase completion.
 """
 
+from __future__ import annotations
+
 import sys
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from event_loop import OrchestratorEventLoop
 
 # Add shared directory to path
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -92,6 +97,73 @@ def _is_transient_agent_error(error: str | None) -> bool:
     return any(frag in lowered for frag in _TRANSIENT_AGENT_ERROR_SUBSTRINGS)
 
 
+def _event_payload_refs(payload: dict[str, Any] | None) -> str | None:
+    """Render a compact, env-safe payload-ref string for the one-shot Job.
+
+    The wrapper arm re-derives the live payload itself (the injected refs are
+    informational), so this is a best-effort breadcrumb: the producers under
+    review for a reviewer event, or the producer for a propose. Returns
+    ``None`` when there is nothing useful to carry.
+    """
+    if not payload:
+        return None
+    reviews = payload.get("pending_reviews")
+    if reviews:
+        refs = ",".join(str(r.get("producer", "")) for r in reviews if r.get("producer"))
+        return refs or None
+    producer = payload.get("producer")
+    return str(producer) if producer else None
+
+
+class _ExecutorEventSpawner:
+    """Adapter exposing :class:`OrchestratorEventLoop`'s ``spawn_event`` surface
+    over the executor's per-pipeline ``spawn_fn`` closure.
+
+    The closure carries repos / mode / phase context and routes event spawns
+    to the kubernetes spawner's ``spawn_event_job`` (which injects the event
+    identity env + dedupe-key label and adopts an already-live key), so the
+    adapter only has to resolve the per-role branch / env / command.
+    """
+
+    def __init__(
+        self,
+        *,
+        executor: ConcurrentPhaseExecutor,
+        roles: list[AgentRole],
+        slice_id: str | None,
+    ) -> None:
+        self._ex = executor
+        self._slice_id = slice_id
+        self._role_by_value = {r.value: r for r in roles}
+
+    def _agent_role(self, role: str) -> AgentRole:
+        return self._role_by_value.get(role) or AgentRole(role)
+
+    def spawn_event(
+        self,
+        *,
+        role: str,
+        action: str,
+        dedupe_key: str,
+        payload: dict[str, Any] | None = None,
+    ) -> Any:
+        agent_role = self._agent_role(role)
+        branch = self._ex.get_worktree_branch(agent_role, slice_id=self._slice_id)
+        env = {**self._ex.get_agent_env(agent_role), "EGG_EVENT_LOOP_OWNER": "orchestrator"}
+        command, upstream, upstream_model = self._ex._build_event_spawn_params(agent_role)
+        return self._ex.spawn_fn(
+            role=agent_role,
+            branch=branch,
+            extra_env=env,
+            command=command,
+            upstream=upstream,
+            upstream_model=upstream_model,
+            event_action=action,
+            event_dedupe_key=dedupe_key,
+            event_payload_refs=_event_payload_refs(payload),
+        )
+
+
 class ConcurrentPhaseExecutor:
     """Executes a pipeline phase with all agents running concurrently.
 
@@ -148,6 +220,9 @@ class ConcurrentPhaseExecutor:
         self._slice_id = slice_id
         self._failure_times: list[datetime] = []
         self._lock = threading.Lock()
+        # #3064 slice-2: set when orchestrator-ownership mode starts the
+        # event loop in ``spawn_all``; ``None`` in pod mode.
+        self._event_loop: Any | None = None
 
     def _get_review_graph(self) -> ReviewGraph:
         """Get the review graph, using the override if provided."""
@@ -339,6 +414,16 @@ class ConcurrentPhaseExecutor:
         for role in roles:
             tracker.register_agent(role.value)
 
+        # #3064 slice-2: in orchestrator-ownership mode the orchestrator owns
+        # the BRC event loop and spawns a one-shot pod per actionable event
+        # — NO agents are spawned up front. The tracker is still registered
+        # above (the event loop derives against it). With the flag unset /
+        # ``pod`` (the default) this branch is skipped and behavior is
+        # byte-identical to before.
+        if self._event_loop_owner() == "orchestrator":
+            self._start_event_loop(roles, tracker)
+            return []
+
         # A producer with no work in this slice (e.g. a documenter on a
         # code-only slice) is no longer pre-seeded here (#3027 retired the
         # #2581 pre-seed). Instead it stays spawned and submits a generic
@@ -347,6 +432,177 @@ class ConcurrentPhaseExecutor:
         # robust to restart / reconstruction in a way the in-memory seed
         # never was.
         return self._spawn_roles(roles, agent_prompts or {})
+
+    @staticmethod
+    def _event_loop_owner() -> str:
+        """Return the BRC event-loop ownership mode (``pod`` | ``orchestrator``).
+
+        Lazy dual-path import (repo root vs ``orchestrator/`` on sys.path),
+        mirroring ``consensus_wrapper._event_loop_owner``. An invalid value
+        raises loudly (the #3023 no-silent-fallback contract).
+        """
+        try:
+            from orchestrator.env_config import get_event_loop_owner
+        except ImportError:
+            from env_config import get_event_loop_owner  # type: ignore[no-redef]
+        return get_event_loop_owner()
+
+    def _start_event_loop(self, roles: list[AgentRole], tracker: Any) -> OrchestratorEventLoop:
+        """Construct and start the orchestrator-owned event loop (#3064 slice-2).
+
+        Wires the production lifecycle surface: one-shot spawns flow through
+        the per-pipeline ``spawn_fn`` closure (which carries repos / mode /
+        phase context and routes event spawns to the spawner's
+        ``spawn_event_job`` — env identity + dedupe label + adoption);
+        ``confirm``/``complete`` are recorded orchestrator-side with no pod.
+        Restart reconciliation is backstopped by ``spawn_event_job``'s own
+        dedupe-label adoption, so the loop seeds an empty live set. The loop
+        runs on a daemon thread (poll-interval cadence) and stops when the
+        slice converges.
+        """
+        from event_loop import OrchestratorEventLoop, make_role_list
+
+        slice_id = self._slice_id
+        pipeline_id = self.pipeline.id
+        phase = self.pipeline.current_phase.value
+
+        spawner_adapter = _ExecutorEventSpawner(
+            executor=self,
+            roles=roles,
+            slice_id=slice_id,
+        )
+
+        def _agent_free(*, action: str, role: str, payload: Any = None) -> None:
+            self._orchestrator_side_confirm(tracker, role)
+
+        loop = OrchestratorEventLoop(
+            tracker,
+            spawner_adapter,
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            phase=phase,
+            agent_free_handler=_agent_free,
+            roles=make_role_list(roles),
+        )
+        self._event_loop = loop
+        loop.start()
+        logger.info(
+            "Started orchestrator-owned BRC event loop",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            phase=phase,
+            roles=[r.value for r in roles],
+        )
+        return loop
+
+    def owns_event_loop(self) -> bool:
+        """True when the orchestrator-owned BRC event loop drives this phase.
+
+        The completion-poll site (``_run_concurrent_phase``) consults this to
+        know that ``spawn_all`` returned ``[]`` *by design* — there are no
+        up-front containers to wait on, so phase completion must be driven
+        purely off ``check_consensus()`` + the consensus timeout, never off
+        the empty container set. Concretely, the timeout fallthrough gates the
+        incomplete-consensus HITL escalation (``return 1``) on this method so
+        an orchestrator-owned slice that never converged is treated as the
+        failure it is, rather than falling through to a bare ``return 0``. Set
+        only when ``spawn_all`` took the orchestrator-ownership branch and
+        started the loop.
+        """
+        return self._event_loop is not None
+
+    def stop_event_loop(self) -> None:
+        """Stop the orchestrator-owned event loop if one is running (idempotent).
+
+        Called by the completion-poll site on every exit path so the daemon
+        thread does not outlive the phase (and stops requesting one-shot
+        spawns) once consensus is reached, times out, or fails. A no-op in
+        pod mode, where no loop was started.
+        """
+        loop = self._event_loop
+        if loop is None:
+            return
+        try:
+            loop.stop()
+        except Exception:  # noqa: BLE001 — best-effort teardown
+            logger.warning(
+                "Failed to stop orchestrator-owned event loop cleanly",
+                pipeline_id=self.pipeline.id,
+                slice_id=self._slice_id,
+                exc_info=True,
+            )
+
+    def _build_event_spawn_params(
+        self, role: AgentRole
+    ) -> tuple[list[str], str | None, str | None]:
+        """Return ``(command, upstream, upstream_model)`` for a role's event pod.
+
+        The event-pump template composes its own per-event prompt at runtime
+        (``invoke_agent_for_event``), so the initial prompt is irrelevant —
+        only model + effort matter, resolved identically to ``_spawn_agent``.
+        ``upstream``/``upstream_model`` are returned only when they differ
+        from the default Anthropic decision (mirroring ``_spawn_agent``'s
+        conditional forwarding) so the default-Claude wire shape is unchanged.
+        """
+        decision = self._resolve_model_decision(role)
+        command = build_consensus_wrapped_command(
+            "", model=decision.claude_code_alias, effort=decision.effort
+        )
+        upstream: str | None = None
+        upstream_model: str | None = None
+        if decision.upstream != UPSTREAM_ANTHROPIC or decision.upstream_model is not None:
+            upstream = decision.upstream
+            upstream_model = decision.upstream_model
+        return command, upstream, upstream_model
+
+    def _orchestrator_side_confirm(self, tracker: Any, role: str) -> None:
+        """Record a ``confirm``/``complete`` orchestrator-side — no pod (#3064).
+
+        Mirrors the wrapper's agent-free ``egg-orch consensus confirmed`` arm:
+        advance the tracker FSM and emit a ``CONSENSUS_CONFIRMED`` message
+        (slice-tagged) so the bus + reconstruction reflect the confirmation.
+        Best-effort and idempotent — a guard rejection (not yet eligible)
+        simply leaves state unchanged for the next poll.
+        """
+        try:
+            result = tracker.handle_confirmed(role)
+        except Exception as exc:  # noqa: BLE001 — never wedge the loop
+            logger.warning(
+                "Orchestrator-side confirm failed",
+                pipeline_id=self.pipeline.id,
+                slice_id=self._slice_id,
+                role=role,
+                error=str(exc),
+            )
+            return
+        status = (result or {}).get("status") if isinstance(result, dict) else None
+        if status in ("pending_acks", "rejected"):
+            # Not yet eligible — re-derived next poll; no message emitted.
+            return
+        try:
+            store = get_message_store()
+            slice_meta: dict[str, Any] = (
+                {"slice_id": self._slice_id} if self._slice_id is not None else {}
+            )
+            store.add_message(
+                Message(
+                    pipeline_id=self.pipeline.id,
+                    from_role=role,
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_CONFIRMED,
+                    subject=f"Consensus confirmed by {role}",
+                    body="orchestrator-side confirm (#3064 event loop)",
+                    phase=self.pipeline.current_phase.value,
+                    metadata=slice_meta,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — message emission is best-effort
+            logger.warning(
+                "Failed to emit CONSENSUS_CONFIRMED for orchestrator-side confirm",
+                pipeline_id=self.pipeline.id,
+                role=role,
+                error=str(exc),
+            )
 
     def spawn_specific_roles(
         self,
@@ -429,34 +685,7 @@ class ConcurrentPhaseExecutor:
         branch = self.get_worktree_branch(role, slice_id=self._slice_id)
         env = self.get_agent_env(role)
 
-        # Per-agent model resolution (#2769 slice-2). The decision is a
-        # pure function over (role, pipeline_config, repo); when no
-        # override is configured the resolver returns a built-in
-        # Anthropic decision — ``opus`` for every role now that fable has
-        # been disabled (refine/plan roles unify on opus) — so the wire
-        # shape stays Anthropic-only.
-        #
-        # Defensive wrap: a future regression in the resolver (e.g. a
-        # broken lazy import for the repo-default tier) would otherwise
-        # bring down agent spawn for every pipeline. Mirror the restart
-        # path's ``classify_model(DEFAULT_AGENT_MODEL)`` fallback at
-        # ``routes/pipelines.py:2683-2699`` so spawn degrades to the
-        # built-in opus / anthropic decision and logs the resolver
-        # failure rather than crashing.
-        try:
-            decision: AgentModelDecision = resolve_agent_model(
-                role=role,
-                pipeline_config=self.pipeline.config,
-                repo=self.pipeline.repo,
-            )
-        except Exception as resolve_err:
-            logger.warning(
-                "Failed to resolve per-agent model decision for spawn, "
-                "falling back to built-in opus / anthropic default",
-                role=role,
-                error=str(resolve_err),
-            )
-            decision = classify_model(DEFAULT_AGENT_MODEL)
+        decision = self._resolve_model_decision(role)
 
         command: list[str] | None = None
         if prompt_text:
@@ -500,6 +729,37 @@ class ConcurrentPhaseExecutor:
             slice_id=self._slice_id,
             resolved_model=decision.claude_code_alias,
         )
+
+    def _resolve_model_decision(self, role: AgentRole) -> AgentModelDecision:
+        """Resolve the per-agent model decision for a role (#2769 slice-2).
+
+        Pure over (role, pipeline_config, repo); when no override is
+        configured the resolver returns a built-in Anthropic decision —
+        ``opus`` for every role now that fable has been disabled (refine/plan
+        roles unify on opus) — so the wire shape stays Anthropic-only.
+
+        Defensive wrap: a future resolver regression must not bring down
+        spawn for every pipeline. Mirror the restart path's
+        ``classify_model(DEFAULT_AGENT_MODEL)`` fallback
+        (``routes/pipelines.py``) — degrade to the built-in opus / anthropic
+        decision and log rather than crash. Shared by the long-lived
+        ``_spawn_agent`` and the orchestrator-owned event-loop command
+        builder so both resolve identically.
+        """
+        try:
+            return resolve_agent_model(
+                role=role,
+                pipeline_config=self.pipeline.config,
+                repo=self.pipeline.repo,
+            )
+        except Exception as resolve_err:  # noqa: BLE001 — degrade, don't crash
+            logger.warning(
+                "Failed to resolve per-agent model decision for spawn, "
+                "falling back to built-in opus / anthropic default",
+                role=role,
+                error=str(resolve_err),
+            )
+            return classify_model(DEFAULT_AGENT_MODEL)
 
     def handle_agent_failure(self, role: str, error: str) -> dict[str, Any]:
         """Handle an agent failure during concurrent execution.

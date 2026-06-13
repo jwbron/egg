@@ -14801,16 +14801,24 @@ def _format_nack_summary(nack_details: list[dict]) -> str:
 def _incomplete_consensus_decision_text(
     final_consensus: dict,
     container_failure_count: int,
+    orchestrator_mode: bool = False,
 ) -> tuple[str, str]:
     """Build (question, log_suffix) for incomplete-consensus HITL escalation.
 
     Distinguishes the two failure modes — unresolved NACKs vs. agents that
     never confirmed — so the operator sees actionable detail in `/sdlc`.
+
+    ``orchestrator_mode`` selects a mode-aware prefix: when the orchestrator
+    owns the event loop, no up-front containers ever ran, so the terminal
+    here is the consensus timeout, not container exit — the "All containers
+    exited" prefix would mislead an operator reading `/sdlc`.
     """
     nacks = final_consensus.get("unresolved_nacks", []) or []
     blocking = final_consensus.get("blocking_agents", []) or []
     if container_failure_count:
         prefix = f"{container_failure_count} container(s) exited with non-zero code; "
+    elif orchestrator_mode:
+        prefix = "Consensus timed out; "
     else:
         prefix = "All containers exited; "
     if nacks:
@@ -18600,6 +18608,10 @@ def _run_concurrent_phase(
                     pipeline_id=pipeline_id,
                     has_failures=has_failures[0],
                 )
+            # Orchestrator mode (#3064): tear down the BRC event loop now that
+            # the slice has converged so it stops requesting one-shot spawns.
+            # No-op in pod mode.
+            executor.stop_event_loop()
             return 0, combined_logs
 
         # 3. Handle objections (create HITL decision once).
@@ -18811,8 +18823,17 @@ def _run_concurrent_phase(
                         exit_code=info.exit_code,
                     )
 
-        # 5. All containers exited — fall back to exit-code-based result
-        if len(exited_containers) >= len(active_executions):
+        # 5. All containers exited — fall back to exit-code-based result.
+        #
+        # Guarded on a non-empty ``active_executions`` so an empty set is
+        # never misread as "everything exited" (``0 >= 0``).  In orchestrator
+        # mode (#3064) ``spawn_all`` returns ``[]`` by design — the
+        # orchestrator owns the BRC loop and spawns one-shot pods per event,
+        # so there are no up-front containers to track.  Completion is driven
+        # purely off ``check_consensus()`` (step 2) and the consensus timeout
+        # (step 6); a zero-container fallback here would otherwise fail the
+        # phase on the first poll, before any event-driven pod ran.
+        if active_executions and len(exited_containers) >= len(active_executions):
             combined_logs = "\n".join(all_logs)
             if has_failures[0]:
                 # Final consensus recheck: consensus may have completed between
@@ -19060,6 +19081,13 @@ def _run_concurrent_phase(
                 pipeline_id=pipeline_id,
                 timeout_minutes=consensus_timeout / 60,
             )
+            # Orchestrator mode (#3064): we are giving up on convergence, so
+            # stop the BRC event loop before the fallback wait so it does not
+            # keep spawning one-shot pods past the deadline.  No-op in pod
+            # mode.  (The progress-gate ``continue`` above is taken before
+            # this point, so a deferral never reaches here and the loop keeps
+            # running across the deferral window.)
+            executor.stop_event_loop()
             _handle_brc_consensus_timeout(
                 pipeline,
                 pipeline_id,
@@ -19361,6 +19389,39 @@ def _run_concurrent_phase(
                     nack_count=len(nack_details),
                 )
                 combined_logs += f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
+                return 1, combined_logs
+
+            # Orchestrator-owned event loop: this timeout fallthrough is the
+            # dominant non-convergence terminal.  spawn_all returns [] by
+            # design, so step 5's "all containers exited" path is guarded off
+            # (it requires a non-empty active set) and a slice that never
+            # converged — producer never proposed, a reviewer pod failed to
+            # ACK, reviews pending with no NACK — lands here with no NACKs.
+            # Unlike pod mode, where a clean all-exited phase already routed
+            # through step 5's is_complete check, nothing upstream has verified
+            # consensus completeness on this path.  Mirror step 5: when the
+            # orchestrator owns the loop and consensus is incomplete, escalate
+            # an HITL and fail rather than reporting a non-converged slice as
+            # success (a bare `return 0` here would advance the phase toward PR
+            # creation past the BRC consensus gate).
+            if executor.owns_event_loop() and not _final_consensus.get("is_complete"):
+                question, log_suffix = _incomplete_consensus_decision_text(
+                    _final_consensus, container_failure_count=0, orchestrator_mode=True
+                )
+                logger.warning(
+                    "Consensus timed out and is incomplete (orchestrator-owned loop) — escalating to HITL",
+                    pipeline_id=pipeline_id,
+                    blocking_agents=_final_consensus.get("blocking_agents", []),
+                )
+                _persist_hitl_decision(
+                    pipeline_id,
+                    pipeline,
+                    store,
+                    question=question,
+                    options=["Retry phase", "Accept current state", "Abort phase"],
+                    phase=pipeline.current_phase,
+                )
+                combined_logs += log_suffix
                 return 1, combined_logs
 
             return 0, combined_logs
