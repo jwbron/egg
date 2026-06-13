@@ -33,6 +33,7 @@ except ImportError:
 
 from dag_visualizer import generate_status_report, render_pipeline_dag
 from events import Event, EventBus, EventType, get_event_bus
+from models import PipelineStatus
 from state_store import PipelineNotFoundError, get_state_store
 
 logger = get_logger("orchestrator.sse")
@@ -53,8 +54,10 @@ TERMINAL_EVENT_TYPES = {
     EventType.PIPELINE_CANCELLED,
 }
 
-# Pipeline status values that indicate a terminal state
-TERMINAL_STATUSES = {"complete", "failed", "cancelled"}
+# Pipeline status values that indicate a terminal state. Derived from the
+# canonical PipelineStatus.terminal() set so the SSE stream and the rest of
+# the orchestrator share one definition (#3174 review).
+TERMINAL_STATUSES = {status.value for status in PipelineStatus.terminal()}
 
 
 def format_sse_event(

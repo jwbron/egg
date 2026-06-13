@@ -201,6 +201,71 @@ def contract_exists(identifier: int | str, repo_root: Path | None = None) -> boo
     return legacy is not None and legacy.exists()
 
 
+def compose_task_description(
+    description: str | None = None,
+    issue_number: int | None = None,
+    issue_url: str | None = None,
+    jira_ticket: str | None = None,
+) -> str | None:
+    """Compose ``contract.task_description`` uniformly for every entry path.
+
+    Every contract writer (initial creation, source-branch carry-over,
+    mid-run restore) goes through this helper so the task-anchoring
+    invariant is structural rather than re-implemented per call site
+    (#3163): a pipeline with a GitHub issue or JIRA ticket always gets
+    a non-empty task statement, with the task's identity stated first
+    and the operator's submit-time description (if any) below it.
+
+    Before #3163, GitHub-issue pipelines deliberately got ``None`` here
+    (the #3042 "agents fetch the live body" rationale), which left the
+    #3123 binding prompt section empty for the most common pipeline
+    type — observed live as a refiner adopting the *previous* pipeline's
+    stale draft as its task. The anchor names the issue explicitly and
+    still directs agents to the live body, so the staleness concern that
+    motivated the exclusion doesn't apply.
+
+    Args:
+        description: The operator's submit-time description
+            (``pipeline.prompt``). For free-text pipelines this is the
+            whole statement; for issue/JIRA pipelines it carries
+            operator directives alongside the identity anchor.
+        issue_number: GitHub issue number, when issue-backed.
+        issue_url: Full URL of the GitHub issue, when known.
+        jira_ticket: JIRA ticket key (e.g. ``PROJ-1234``), when
+            JIRA-driven. Ignored if ``issue_number`` is set.
+
+    Returns:
+        The composed statement, or ``None`` when there is nothing to
+        say (no issue, no ticket, blank description).
+    """
+    # NB: the GitHub-issue anchor below is mirrored by
+    # ``orchestrator.routes.event_prompt._issue_anchor_fallback`` for
+    # pre-#3163 contracts that lack ``task_description``. Keep the two in
+    # sync — they cannot share a helper because event_prompt runs
+    # standalone under the wrapper bash and cannot import this package.
+    parts: list[str] = []
+    if issue_number is not None:
+        anchor = f"This pipeline's task is GitHub issue #{issue_number}"
+        if issue_url:
+            anchor += f" — {issue_url}"
+        anchor += (
+            f". Fetch the live issue body (`gh issue view {issue_number}`) "
+            "before structural decisions. Worktree artifacts (drafts, "
+            "agent outputs) that reference any other issue or pipeline "
+            "are leftovers from previous runs — they are NOT your task."
+        )
+        parts.append(anchor)
+    elif jira_ticket:
+        parts.append(
+            f"This pipeline's task is JIRA ticket {jira_ticket}. The "
+            "description below is a snapshot taken at submit time; the "
+            f"live ticket is available via `jira ticket get {jira_ticket}`."
+        )
+    if description and description.strip():
+        parts.append(description.strip())
+    return "\n\n".join(parts) if parts else None
+
+
 def create_contract(
     issue_number: int | None = None,
     title: str = "",
@@ -222,18 +287,15 @@ def create_contract(
             without an explicit ``pipeline_id``, defaults to ``issue-<N>``.
         repo_root: Optional repository root path
         initial_phase: Initial pipeline phase
-        task_description: Full, untruncated task/problem statement. Pass
-            the pipeline ``prompt`` for free-text **and JIRA-driven**
-            submits (any pipeline where ``issue_number is None``) so
-            producer and reviewer agents can recover the complete task
-            from the contract (``egg-contract show``); the event-pump
-            model does not deliver the orchestrator-built spawn prompt
-            to the agent, and ``issue.title`` is only a 100-char label.
-            For JIRA pipelines this is a complementary snapshot of the
-            description as submitted — the agent can still fetch live
-            ticket state via ``jira ticket get``. ``None`` for
-            GitHub-issue pipelines, where the agent fetches the body
-            out-of-band via ``gh issue view``. See #3033.
+        task_description: Full, untruncated task/problem statement —
+            compose it with :func:`compose_task_description` so every
+            entry path (GitHub issue, JIRA, free-text) anchors the task
+            the same way (#3163). The event-pump model does not deliver
+            the orchestrator-built spawn prompt to the agent, so this
+            field is the reliable channel for the complete task
+            (``egg-contract show`` + the #3123 per-event prompt
+            section); ``issue.title`` is only a 100-char label. See
+            #3033/#3042 for the channel's history.
 
     Returns:
         The newly created Contract

@@ -22,6 +22,16 @@ def _reset_cap_warning_cache():
     tool_output_cap._warned_cap_values.clear()
 
 
+@pytest.fixture(autouse=True)
+def _isolated_override_file(tmp_path, monkeypatch):
+    # Point the agent-writable override file (#3175) into the test's tmp dir so
+    # a stray /tmp/egg-read-cap-bytes on the host can't skew any test, and so
+    # override tests can write it without touching the real path.
+    override = tmp_path / "egg-read-cap-bytes"
+    monkeypatch.setattr(tool_output_cap, "_READ_CAP_OVERRIDE_FILE", override)
+    return override
+
+
 def _write(tmp_path, name, size):
     p = tmp_path / name
     p.write_bytes(b"x" * size)
@@ -179,6 +189,74 @@ class TestReadCap:
         assert (
             check_read_output_risk({"file_path": str(png), "limit": 10}, str(tmp_path)) is not None
         )
+
+
+class TestReadCapOverrideFile:
+    """Agent-side deliberate override of the Read cap (#3175).
+
+    The predictive cap is a guardrail against accidental dumps, not a hard
+    constraint: the deny message tells the agent it can write the byte size
+    it needs to the override file and retry. The file is re-read on every
+    Read and wins over the env knob when present and valid.
+    """
+
+    def test_deny_message_advertises_override_path(self, tmp_path, _isolated_override_file):
+        big = _write(tmp_path, "big.py", 300 * 1024)
+        reason = check_read_output_risk({"file_path": str(big)}, str(tmp_path))
+        assert reason is not None
+        assert str(_isolated_override_file) in reason
+        assert "echo" in reason
+
+    def test_override_file_raises_cap(self, tmp_path, _isolated_override_file):
+        big = _write(tmp_path, "big.py", 300 * 1024)
+        _isolated_override_file.write_text("1048576\n")
+        assert check_read_output_risk({"file_path": str(big)}, str(tmp_path)) is None
+
+    def test_suggested_override_admits_the_denied_read(self, tmp_path, _isolated_override_file):
+        # End-to-end remedy loop: the deny message suggests a concrete value;
+        # writing exactly that value must make the retry succeed.
+        import re
+
+        big = _write(tmp_path, "big.py", 300 * 1024)
+        reason = check_read_output_risk({"file_path": str(big)}, str(tmp_path))
+        match = re.search(r"echo (\d+) >", reason)
+        assert match, f"deny message must carry a copy-pastable override value; got {reason!r}"
+        _isolated_override_file.write_text(match.group(1))
+        assert check_read_output_risk({"file_path": str(big)}, str(tmp_path)) is None
+
+    @patch.dict(os.environ, {"EGG_READ_CAP_BYTES": "1024"})
+    def test_override_file_wins_over_env(self, tmp_path, _isolated_override_file):
+        big = _write(tmp_path, "big.py", 300 * 1024)
+        _isolated_override_file.write_text("1048576")
+        assert check_read_output_risk({"file_path": str(big)}, str(tmp_path)) is None
+
+    def test_override_file_can_tighten(self, tmp_path, _isolated_override_file):
+        # The file is taken as-is, not max()-ed with the default — an agent
+        # (or a test harness) writing a smaller value gets a smaller cap.
+        mid = _write(tmp_path, "mid.py", 2048)
+        _isolated_override_file.write_text("1024")
+        assert check_read_output_risk({"file_path": str(mid)}, str(tmp_path)) is not None
+
+    @patch("egg_agent.tool_output_cap.logger")
+    def test_invalid_override_warns_once_and_falls_back(
+        self, mock_logger, tmp_path, _isolated_override_file
+    ):
+        # Garbage in the override file must be loud (once) and leave the
+        # default cap in force: the small file stays allowed, the big one
+        # stays denied.
+        _isolated_override_file.write_text("all-of-it")
+        small = _write(tmp_path, "small.py", 2048)
+        big = _write(tmp_path, "big.py", 300 * 1024)
+        for _ in range(3):
+            assert check_read_output_risk({"file_path": str(small)}, str(tmp_path)) is None
+        assert check_read_output_risk({"file_path": str(big)}, str(tmp_path)) is not None
+        assert mock_logger.warning.call_count == 1
+
+    @patch("egg_agent.tool_output_cap.logger")
+    def test_absent_override_file_is_silent(self, mock_logger, tmp_path):
+        small = _write(tmp_path, "small.py", 1024)
+        check_read_output_risk({"file_path": str(small)}, str(tmp_path))
+        mock_logger.warning.assert_not_called()
 
 
 class TestGrepCap:

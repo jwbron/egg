@@ -19,8 +19,9 @@ sys.modules.setdefault("docker", _docker_mock)
 sys.modules.setdefault("docker.errors", _docker_mock.errors)
 sys.modules.setdefault("docker.types", _docker_mock.types)
 
-from message_store import Message, MessageStore, MessageType
+from message_store import Message, MessageType
 from models import PipelineStatus
+from redis_message_store import RedisMessageStore
 
 # Default slice_id seeded onto implement-phase BRC messages so the
 # post-#2548 hard-switchover writer accepts them.
@@ -72,7 +73,7 @@ class TestWriteBrcHistoryLogging:
         """Function entry logs pipeline_id, phase, and identifier at INFO level."""
         from routes.pipelines import _write_brc_history
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = []
 
         with (
@@ -115,7 +116,7 @@ class TestWriteBrcHistoryLogging:
         """Early return on message retrieval exception logs at WARNING."""
         from routes.pipelines import _write_brc_history
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.side_effect = Exception("Store error")
 
         with (
@@ -133,7 +134,7 @@ class TestWriteBrcHistoryLogging:
         """Early return when store returns empty list logs at INFO."""
         from routes.pipelines import _write_brc_history
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = []
 
         with (
@@ -165,7 +166,7 @@ class TestWriteBrcHistoryLogging:
             metadata={},
         )
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = [non_brc]
 
         with (
@@ -187,7 +188,7 @@ class TestWriteBrcHistoryLogging:
         from routes.pipelines import _write_brc_history
 
         messages = [_make_brc_message(phase="implement")]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with (
@@ -498,7 +499,7 @@ class TestIntegrationBrcHistory:
             ),
         ]
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = brc_messages
 
         phases = {
@@ -598,7 +599,7 @@ class TestIntegrationBrcHistory:
             ),
         ]
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         phases = {
@@ -631,7 +632,7 @@ class TestIntegrationBrcHistory:
         """No BRC history files created when message store returns empty list."""
         import routes.pipelines as mod
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = []
 
         phases = {
@@ -662,7 +663,7 @@ class TestIntegrationBrcHistory:
             _make_brc_message(phase="implement"),
         ]
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         phases = {
@@ -702,7 +703,7 @@ class TestEdgeCases:
         """New early return for empty messages list doesn't write any file."""
         from routes.pipelines import _write_brc_history
 
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = []
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -717,7 +718,7 @@ class TestEdgeCases:
         from routes.pipelines import _write_brc_history
 
         messages = [_make_brc_message(phase="plan")]  # Phase is "plan"
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
@@ -734,7 +735,7 @@ class TestEdgeCases:
         from routes.pipelines import _write_brc_history
 
         messages = [_make_brc_message(phase="implement")]
-        mock_store = MagicMock(spec=MessageStore)
+        mock_store = MagicMock(spec=RedisMessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):

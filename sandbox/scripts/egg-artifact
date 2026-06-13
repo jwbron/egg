@@ -1,0 +1,276 @@
+#!/bin/bash
+#
+# Egg artifact-read CLI (#3077 slice-4).
+#
+# Thin wrapper around POST /api/v1/artifact/get on the gateway sidecar.
+# Returns the committed content of a spec-registered coordination
+# artifact (analysis-draft, plan-draft, architect-output, ...) at a
+# specific commit SHA.  Unblocks #3002 by replacing the implicit
+# shared-object-store channel with an explicit served read.
+#
+# STRICT: there is no path argument.  The verb resolves the
+# repo-relative path server-side from the spec-registered name.
+#
+# Verbs:
+#   egg-artifact get <name> --ref <sha> [--identifier <id>] [--repo <hint>]
+#   egg-artifact help
+#
+# Output contract:
+#   - content to stdout, exit 0 on success
+#   - structured errors (gateway 4xx) to stderr, non-zero exit
+#   - explicit notice on stderr when ``truncated`` is set
+#
+
+set -euo pipefail
+
+# --- Environment checks (fail closed; same pattern as sandbox/scripts/jira) ---
+
+if [ -z "${GATEWAY_URL:-}" ]; then
+    echo "ERROR: GATEWAY_URL environment variable is not set." >&2
+    echo "This variable must be set by the container launcher." >&2
+    exit 1
+fi
+
+if [ -z "${EGG_SESSION_TOKEN:-}" ]; then
+    echo "ERROR: EGG_SESSION_TOKEN environment variable is not set." >&2
+    echo "Session token is required for gateway access." >&2
+    exit 1
+fi
+
+# --- Gateway health check ---
+
+check_gateway_available() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -s --connect-timeout 2 "${GATEWAY_URL}/api/v1/health" >/dev/null 2>&1
+        return $?
+    fi
+    return 1
+}
+
+show_no_gateway_message() {
+    cat >&2 << 'EOF'
+
+================================================================================
+  GATEWAY SIDECAR NOT AVAILABLE
+================================================================================
+
+Cannot run egg-artifact: the gateway sidecar is required but not reachable.
+
+The gateway forwards the request to the orchestrator's served artifact-read
+endpoint.  Without it, agents have no way to read peer coordination state.
+
+Please ensure:
+  1. Gateway sidecar is running on the host
+  2. The container can reach the gateway:
+     curl \$GATEWAY_URL/api/v1/health
+
+================================================================================
+
+EOF
+    exit 1
+}
+
+if ! check_gateway_available; then
+    show_no_gateway_message
+fi
+
+# --- Usage ---
+
+show_usage() {
+    cat << 'EOF'
+Usage: egg-artifact <command> [options]
+
+Commands:
+  egg-artifact get <name> --ref <sha> [--identifier <id>] [--repo <hint>]
+      Fetch the committed content of a spec-registered artifact
+      (analysis-draft, plan-draft, architect-output, ...) at <sha>.
+
+      <name> is resolved server-side via egg_contracts.artifact_spec;
+      no repo path is accepted on the wire.  --identifier defaults to
+      the session pipeline's identifier; --repo disambiguates when the
+      host runs multiple repositories.
+
+      Content is written to stdout.  When the orchestrator caps the
+      response, a "(notice: artifact truncated)" line is written to
+      stderr so the caller can detect the cut.
+
+  egg-artifact help
+      Show this usage information.
+EOF
+}
+
+# --- Gateway call helper ---
+#
+# Behavioural contract differs from sandbox/scripts/jira: instead of
+# pretty-printing the JSON payload, we extract ``content`` to stdout
+# and pass ``truncated`` to stderr.  Failures still surface the
+# orchestrator's structured ``message`` / ``details``.
+
+call_artifact_endpoint() {
+    local payload="$1"
+
+    local tmpfile curl_errfile
+    tmpfile=$(mktemp)
+    curl_errfile=$(mktemp)
+    # RETURN trap (not EXIT) so a second call from the same shell
+    # invocation doesn't accidentally re-purpose the trap.  Matches the
+    # sandbox/scripts/jira convention.
+    trap 'rm -f "${tmpfile:-}" "${curl_errfile:-}"' RETURN
+
+    # Capture curl's exit status with ``|| curl_exit=$?`` so a hard
+    # connection failure (exit 7/28) does not trip ``set -e`` and abort
+    # the script before the diagnostic below runs.  Without the ``||``,
+    # the failing assignment would exit the script silently, losing the
+    # "Failed to connect to gateway" message.
+    local http_code curl_exit=0
+    http_code=$(curl -s -w "%{http_code}" \
+        -X POST \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${EGG_SESSION_TOKEN}" \
+        -d "$payload" \
+        -o "$tmpfile" \
+        "${GATEWAY_URL}/api/v1/artifact/get" 2>"$curl_errfile") || curl_exit=$?
+
+    if [ "$curl_exit" -ne 0 ]; then
+        echo "ERROR: Failed to connect to gateway (curl exit $curl_exit)" >&2
+        cat "$curl_errfile" >&2
+        return 1
+    fi
+
+    python3 -c "
+import json, sys
+
+try:
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
+except (json.JSONDecodeError, OSError) as e:
+    print(f'ERROR: Failed to parse gateway response: {e}', file=sys.stderr)
+    sys.exit(1)
+
+http_code = sys.argv[2]
+
+if data.get('success'):
+    payload = data.get('data', {})
+    content = payload.get('content', '')
+    truncated = bool(payload.get('truncated'))
+    # Write the served bytes verbatim to stdout. ``end=''`` so a
+    # plan draft whose final newline matters round-trips.
+    sys.stdout.write(content)
+    sys.stdout.flush()
+    if truncated:
+        # Surface the cap explicitly so a downstream consumer doesn't
+        # silently treat a half-read artifact as authoritative.
+        print('(notice: artifact truncated by the orchestrator cap)', file=sys.stderr)
+    sys.exit(0)
+
+message = data.get('message', 'Unknown error')
+details = data.get('details', {})
+print(f'ERROR: {message}', file=sys.stderr)
+if isinstance(details, dict):
+    for k, v in details.items():
+        # 'registered_names' is the most common detail (unknown-name
+        # 400); list it on its own line so it's easy to spot.
+        if k == 'registered_names' and isinstance(v, list):
+            print('  registered names: ' + ', '.join(v), file=sys.stderr)
+        else:
+            print(f'  {k}: {v}', file=sys.stderr)
+if http_code == '401':
+    print('Authentication failed - check session token', file=sys.stderr)
+elif http_code == '403':
+    print('Permission denied - check agent role configuration', file=sys.stderr)
+elif http_code == '404':
+    print('Artifact or pipeline not found at the requested ref', file=sys.stderr)
+elif http_code == '422':
+    print('Ref unresolvable in the authoritative repository', file=sys.stderr)
+sys.exit(1)
+" "$tmpfile" "$http_code"
+
+    return $?
+}
+
+# --- Verb handlers ---
+
+handle_get() {
+    shift  # consume "get"
+    if [ $# -lt 1 ]; then
+        echo "ERROR: artifact name required. Usage: egg-artifact get <name> --ref <sha> [opts]" >&2
+        exit 1
+    fi
+    local name="$1"
+    shift
+
+    local ref="" identifier="" repo=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --ref)
+                shift
+                ref="${1:-}"
+                shift || true
+                ;;
+            --identifier)
+                shift
+                identifier="${1:-}"
+                shift || true
+                ;;
+            --repo)
+                shift
+                repo="${1:-}"
+                shift || true
+                ;;
+            --path|--path=*)
+                # Defensive: the gateway / orchestrator both reject
+                # path-bearing requests at 400, but rejecting here
+                # gives a clearer error before we even fire the
+                # request.  Mirrors the STRICT-per-HITL-Q2 wire
+                # invariant.
+                echo "ERROR: --path is not accepted; pass a spec-registered <name> instead" >&2
+                exit 1
+                ;;
+            *)
+                echo "ERROR: unknown flag for 'egg-artifact get': $1" >&2
+                exit 1
+                ;;
+        esac
+    done
+
+    if [ -z "$ref" ]; then
+        echo "ERROR: --ref is required. Usage: egg-artifact get <name> --ref <sha>" >&2
+        exit 1
+    fi
+
+    local payload
+    payload=$(python3 -c '
+import json, sys
+body = {"name": sys.argv[1], "ref": sys.argv[2]}
+identifier = sys.argv[3]
+repo = sys.argv[4]
+if identifier:
+    body["identifier"] = identifier
+if repo:
+    body["repo"] = repo
+print(json.dumps(body))
+' "$name" "$ref" "$identifier" "$repo")
+
+    call_artifact_endpoint "$payload"
+}
+
+# --- Main dispatch ---
+
+if [ $# -lt 1 ]; then
+    show_usage >&2
+    exit 1
+fi
+
+case "$1" in
+    get)
+        handle_get "$@"
+        ;;
+    help|--help|-h)
+        show_usage
+        exit 0
+        ;;
+    *)
+        echo "ERROR: Unknown command '$1'. Use: get, help" >&2
+        exit 1
+        ;;
+esac

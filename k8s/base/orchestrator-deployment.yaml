@@ -102,6 +102,20 @@ spec:
             # (`egg-sandbox:latest`), and nothing exists at docker.io/egg.
             - name: EGG_SANDBOX_IMAGE
               value: "egg-sandbox:latest"
+            # Redis Streams message store (#2662). Since #3159 this is the
+            # only backend (unset also means redis; the in-memory backend
+            # and the auto→memory fallback were removed), but the explicit
+            # pin stays as deployed documentation of the choice — a Redis
+            # outage fails loudly. The store singleton is created lazily
+            # and a failed creation leaves it unset, so the orchestrator
+            # naturally retries until Redis is reachable (no
+            # startup-ordering dependency on the redis Deployment).
+            - name: EGG_MESSAGE_STORE_BACKEND
+              value: "redis"
+            - name: REDIS_HOST
+              value: "redis.egg-system.svc.cluster.local"
+            - name: REDIS_PORT
+              value: "6379"
             # #2528: read per-repo role_patterns from the same
             # repositories.yaml the gateway uses so plan-time validation
             # and the planner-prompt boundaries match push-time
