@@ -965,12 +965,16 @@ _MAIN_LOOP_MARKER = "# --- main event-pump loop ---"
 #     and must NEVER be injected here — loud non-zero rejection if they
 #     are.
 #   * Skips the blocking wait-loop and the background heartbeat entirely.
-#   * Re-checks next-action ONCE as a stale-event backstop: if the derived
-#     action no longer matches the injected event, exit 0 WITHOUT invoking
-#     the agent (the dedupe race backstop).
-#   * Otherwise invokes ``invoke_agent_for_event`` exactly once and exits
-#     with the agent's (#2908-classified) rc so the slice-3 supervisor can
-#     tell a clean handoff (0) from an abnormal termination.
+#   * Re-checks next-action ONCE as a stale-event backstop. Three outcomes,
+#     three distinct exit codes so the slice-3 supervisor can tell them
+#     apart:
+#       - re-check inconclusive (``fetch_next_action`` rc != 0: 409 /
+#         5xx / transport) -> exit 75 (EX_TEMPFAIL) WITHOUT invoking; the
+#         supervisor must re-derive rather than assume a clean handoff.
+#       - re-check succeeded but the derived action moved on -> exit 0
+#         WITHOUT invoking (confirmed-stale dedupe backstop).
+#       - re-check confirms the event -> invoke ``invoke_agent_for_event``
+#         exactly once and exit with the agent's (#2908-classified) rc.
 _ONE_SHOT_ARM_TEMPLATE = r"""# --- one-shot event arm (#3064 slice-1, orchestrator ownership) ---------
 #
 # The orchestrator spawns this wrapper ONCE per actionable BRC event,
@@ -978,7 +982,9 @@ _ONE_SHOT_ARM_TEMPLATE = r"""# --- one-shot event arm (#3064 slice-1, orchestrat
 # propose|ack|nack, EGG_EVENT_DEDUPE_KEY, payload refs). In that mode we
 # skip the blocking wait-loop and the background heartbeat: re-check
 # next-action once as a stale-event backstop, invoke the agent exactly
-# once, and exit with the agent's (#2908-classified) rc. The
+# once, and exit with the agent's (#2908-classified) rc. The re-check has
+# a distinct exit code (75/EX_TEMPFAIL) for an inconclusive re-check so a
+# transient blip is never reported as a clean handoff. The
 # orchestrator-side supervisor (slice-3) owns respawn/backoff/alerting.
 ONE_SHOT_OWNER="${EGG_EVENT_LOOP_OWNER:-pod}"
 ONE_SHOT_ACTION="${EGG_EVENT_ACTION:-}"
@@ -1014,8 +1020,30 @@ if [ "$ONE_SHOT_OWNER" = "orchestrator" ] && [ -n "$ONE_SHOT_ACTION" ]; then
     # slice-2 spawner dedupes on the derived event, but a race can still
     # deliver a stale one; this is the in-pod backstop for that race.
     ONE_SHOT_NEXT_JSON=$(fetch_next_action)
+    ONE_SHOT_FETCH_RC=$?
     ONE_SHOT_DERIVED=$(next_action_field "$ONE_SHOT_NEXT_JSON" "action")
+    if [ "$ONE_SHOT_FETCH_RC" -ne 0 ]; then
+        # The re-check itself did NOT cleanly succeed. ``fetch_next_action``
+        # returns its ``{"action":"wait"}`` fallback (not a positively
+        # derived state) on ANY non-zero ``egg-orch brc next-action`` rc --
+        # 409 stale_version / aggregated-NACK barrier, 5xx, and transport
+        # failure alike -- so we cannot distinguish a genuinely stale event
+        # from a transient orchestrator/transport blip. Exiting 0 here would
+        # report a "clean handoff" and let a transient blip silently DROP a
+        # live event (reviewer non-blocking note, PR #3167). Instead exit 75
+        # (EX_TEMPFAIL): a distinct code that tells the slice-3 supervisor
+        # the freshness re-check was inconclusive, so it must re-derive
+        # next-action itself rather than treat the event as handled. The
+        # 409-vs-5xx refinement (benign-stale vs retryable) is deferred to
+        # the slice-3 supervisor contract, which owns respawn/backoff once
+        # the CLI exposes distinct codes; until then, fail safe.
+        cw_log "One-shot re-check did not cleanly succeed (fetch rc=$ONE_SHOT_FETCH_RC); cannot confirm event freshness. Exiting 75 (EX_TEMPFAIL) so the supervisor re-derives rather than assuming a clean handoff."
+        exit 75
+    fi
     if [ "$ONE_SHOT_DERIVED" != "$ONE_SHOT_ACTION" ]; then
+        # Re-check succeeded and the live action has positively moved on:
+        # this is a genuinely stale/duplicate delivery. exit 0 here means
+        # "confirmed stale, no agent needed" -- NOT "could not tell".
         cw_log "Injected event is stale (injected=$ONE_SHOT_ACTION, derived=${ONE_SHOT_DERIVED:-<none>}); exiting 0 without invoking the agent."
         exit 0
     fi
