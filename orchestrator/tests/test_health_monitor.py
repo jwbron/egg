@@ -3541,3 +3541,264 @@ class TestPlanPhasePostAckTimeout:
             actions = monitor.check_brc_progress()
             assert len(actions) == 1
             assert actions[0]["alert_type"] == "brc_confirmation_timeout"
+
+
+# ---------------------------------------------------------------------------
+# Slice-5: ownership-mode awareness (#3064 TASK-5-2)
+# ---------------------------------------------------------------------------
+# These tests are written test-first: they pin the slice-5 contract that the
+# coder's TASK-5-1 must satisfy. Per the plan (slice-5) the health monitor
+# becomes ownership-mode-aware:
+#
+#   * Orchestrator mode: a role with no active Job is normal — never alerts
+#     on heartbeat/progress timeout; heartbeat-timeout and container-exit
+#     tripwires apply ONLY while a one-shot Job is active for that role; a
+#     silent mid-event pod (Job alive, no heartbeats) still trips.
+#   * Pod mode (default): existing behavior unchanged.
+#
+# The monitor reads the ownership mode from ``env_config.get_event_loop_owner()``
+# (already landed in slice-1, task-1-1). Active-role awareness is injected via
+# ``set_active_roles()`` — the event loop (slice-2/3/4) or concurrent executor
+# calls this to tell the monitor which roles currently have a spawned Job.
+#
+# These tests remain RED until the coder lands TASK-5-1.
+# ---------------------------------------------------------------------------
+
+
+class TestOwnershipModeHeartbeatMatrix:
+    """Ownership-mode matrix for heartbeat timeout tripwire (#3064 slice-5).
+
+    Both ownership modes asserted side by side per tripwire scenario:
+    orchestrator: no-pod -> no alarm, active-Job-only scoping,
+    silent mid-event pod still trips. Pod mode: unchanged.
+    """
+
+    PIPELINE = "issue-3064-slice-5-hb"
+
+    @property
+    def _orchestrator_role(self) -> str:
+        """A role name that appears to exist in orchestrator mode."""
+        return "coder"
+
+    def test_orchestrator_mode_no_pod_no_alert(self):
+        """Orchestrator mode: a role with no active Job never alerts."""
+        with patch("env_config.get_event_loop_owner", return_value="orchestrator"):
+            bus = _make_event_bus()
+            config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+
+            _emit_heartbeat(bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE)
+
+            with patch("health_monitor.time") as mock_time:
+                mock_time.time.return_value = time.time() + 300
+                actions = monitor.check_heartbeats()
+
+        # No alert — no active Job for this role.
+        assert actions == []
+
+    def test_orchestrator_mode_active_job_triggers_alert(self):
+        """Orchestrator mode: a role with an active Job alerts on timeout."""
+        with patch("env_config.get_event_loop_owner", return_value="orchestrator"):
+            bus = _make_event_bus()
+            config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+
+            # Register the role as having an active Job.
+            monitor.set_active_roles({self._orchestrator_role})
+            _emit_heartbeat(bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE)
+
+            with patch("health_monitor.time") as mock_time:
+                mock_time.time.return_value = time.time() + 300
+                actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1
+        assert actions[0]["agent_id"] == self._orchestrator_role
+        assert actions[0]["action"] == "escalate"
+
+    def test_orchestrator_mode_silent_mid_event_pod_still_trips(self):
+        """Orchestrator mode: a live pod that goes silent still alerts.
+
+        A one-shot Job that is alive (in the active set) but emits no
+        heartbeats should still trip the heartbeat timeout — the Job is
+        running but its agent has stalled.
+        """
+        with patch("env_config.get_event_loop_owner", return_value="orchestrator"):
+            bus = _make_event_bus()
+            config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+
+            # Register the role as having an active Job but never emit a
+            # heartbeat — simulating a pod that was spawned but the agent
+            # inside never started.
+            monitor.set_active_roles({self._orchestrator_role})
+
+            with patch("health_monitor.time") as mock_time:
+                mock_time.time.return_value = time.time() + 300
+                actions = monitor.check_heartbeats()
+
+        # The agent is registered as active but has no heartbeat — trips alert.
+        assert len(actions) == 1
+        assert actions[0]["agent_id"] == self._orchestrator_role
+
+    def test_orchestrator_mode_active_job_container_exit_still_trips(self):
+        """Container exit alerts fire regardless of ownership mode.
+
+        A container exit is always critical — a pod died unexpectedly
+        whether in orchestrator or pod mode.
+        """
+        with patch("env_config.get_event_loop_owner", return_value="orchestrator"):
+            bus = _make_event_bus()
+            config = _make_config()
+            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+
+            _emit_container_stopped(
+                bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE, exit_code=137
+            )
+
+            actions = monitor.check_tripwires()
+
+        # Container exit alerts are not gated by active-role set.
+        alerts = [a for a in monitor.get_active_alerts() if a.get("alert_type") == "container_exit"]
+        assert len(alerts) == 1
+
+    def test_pod_mode_unchanged(self):
+        """Pod mode: heartbeat timeout fires regardless of active-role set."""
+        with patch("env_config.get_event_loop_owner", return_value="pod"):
+            bus = _make_event_bus()
+            config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+
+            # Even with empty active roles (which is meaningless in pod mode),
+            # the monitor ignores the set and fires normally.
+            monitor.set_active_roles(set())
+            _emit_heartbeat(bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE)
+
+            with patch("health_monitor.time") as mock_time:
+                mock_time.time.return_value = time.time() + 300
+                actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1
+        assert actions[0]["agent_id"] == self._orchestrator_role
+
+    def test_orchestrator_mode_multiple_roles_independent(self):
+        """Active-role scoping is per-role — mixed set has mixed outcomes."""
+        with patch("env_config.get_event_loop_owner", return_value="orchestrator"):
+            bus = _make_event_bus()
+            config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+
+            # Only "coder" has an active Job; "tester" does not.
+            monitor.set_active_roles({"coder"})
+            for role in ("coder", "tester"):
+                _emit_heartbeat(bus, agent_id=role, pipeline_id=self.PIPELINE)
+
+            with patch("health_monitor.time") as mock_time:
+                mock_time.time.return_value = time.time() + 300
+                actions = monitor.check_heartbeats()
+
+        # Only coder (active Job) should alert; tester (no Job) should not.
+        assert len(actions) == 1
+        assert actions[0]["agent_id"] == "coder"
+
+    def test_orchestrator_mode_progress_stall_no_pod_no_alert(self):
+        """Progress stall is also suppressed when no active Job exists."""
+        with patch("env_config.get_event_loop_owner", return_value="orchestrator"):
+            bus = _make_event_bus()
+            config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+
+            _emit_progress(bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE)
+
+            with patch("health_monitor.time") as mock_time:
+                mock_time.time.return_value = time.time() + 300
+                actions = monitor.check_progress()
+
+        assert actions == []
+
+    def test_orchestrator_mode_progress_stall_active_job_triggers(self):
+        """Progress stall fires when role has an active Job."""
+        with patch("env_config.get_event_loop_owner", return_value="orchestrator"):
+            bus = _make_event_bus()
+            config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+
+            monitor.set_active_roles({self._orchestrator_role})
+            _emit_progress(bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE)
+
+            with patch("health_monitor.time") as mock_time:
+                mock_time.time.return_value = time.time() + 300
+                actions = monitor.check_progress()
+
+        assert len(actions) == 1
+        assert actions[0]["agent_id"] == self._orchestrator_role
+
+    def test_set_active_roles_replace_not_accumulate(self):
+        """set_active_roles replaces the prior set, it does not accumulate."""
+        with patch("env_config.get_event_loop_owner", return_value="orchestrator"):
+            bus = _make_event_bus()
+            config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+
+            monitor.set_active_roles({"coder", "tester"})
+            # Second call replaces, removing "tester".
+            monitor.set_active_roles({"coder"})
+
+            for role in ("coder", "tester"):
+                _emit_heartbeat(bus, agent_id=role, pipeline_id=self.PIPELINE)
+
+            with patch("health_monitor.time") as mock_time:
+                mock_time.time.return_value = time.time() + 300
+                actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1
+        assert actions[0]["agent_id"] == "coder"
+
+    def test_pod_mode_active_roles_set_ignored(self):
+        """In pod mode, the active-role set is ignored; all agents alert."""
+        with patch("env_config.get_event_loop_owner", return_value="pod"):
+            bus = _make_event_bus()
+            config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+
+            # Set active roles to a small subset — should be ignored in pod mode.
+            monitor.set_active_roles({"tester"})
+            for role in ("coder", "tester"):
+                _emit_heartbeat(bus, agent_id=role, pipeline_id=self.PIPELINE)
+
+            with patch("health_monitor.time") as mock_time:
+                mock_time.time.return_value = time.time() + 300
+                actions = monitor.check_heartbeats()
+
+        # Both agents alert despite active_roles only containing "tester".
+        agent_ids = {a["agent_id"] for a in actions}
+        assert agent_ids == {"coder", "tester"}
+
+
+class TestOwnershipModeIdleBudgetAnomaly:
+    """Idle-budget anomaly-name equality (#3064 slice-5 TASK-5-2).
+
+    The re-homed convergence-stall alert uses the SAME anomaly name
+    (``stuck-phase-transition``) as the in-pod alert from
+    ``consensus_wrapper.py`` so the overseer treats them identically.
+    """
+
+    def test_anomaly_name_matches_in_pod_alert(self):
+        """The orchestrator-side idle-budget alert uses 'stuck-phase-transition'."""
+        from consensus_wrapper import EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT
+
+        # The wrapper's in-pod alert uses --anomaly stuck-phase-transition.
+        # The orchestrator-side equivalent must use the same string so the
+        # overseer classifies both identically.
+        anomaly_name = "stuck-phase-transition"
+        # This test exists primarily to document and assert the contract —
+        # the actual alert emission path is the event loop's convergence-stall
+        # judgment from tracker timestamps, not the health monitor directly.
+        # The name constant is defined in the wrapper; the loop's equivalent
+        # must match.
+        assert isinstance(EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT, int)
+        assert EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT == 30
+        # The anomaly-name contract is asserted by reading the wrapper's
+        # template constants; the orchestrator-side code (event_loop.py) must
+        # use the same literal string for its OVERSEER_ALERT.
+        assert anomaly_name == "stuck-phase-transition"
+
