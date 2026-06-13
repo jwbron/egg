@@ -199,6 +199,26 @@ class HeartbeatCoordinator:
         with self._lock:
             self._orchestrator_mode = enabled
 
+    def refresh_at_spawn(
+        self,
+        pipeline_id: str,
+        slice_id: str | None,
+        role: str,
+    ) -> None:
+        """Reset the fan-out cooldown for a (pipeline, slice, role) at spawn.
+
+        Called when a one-shot pod is spawned (slice-4 worktree re-attach).
+        Resets the ``_last_fan_out`` entry so the first heartbeat from the
+        new pod passes through the gateway-session fan-out gate.
+
+        No-op if the key has never been tracked (no cooldown to clear).
+
+        Thread-safe.
+        """
+        key: _Key = (pipeline_id, slice_id, role)
+        with self._lock:
+            self._last_fan_out.pop(key, None)
+
     def clear(self, pipeline_id: str) -> None:
         """Drop all state for a pipeline (on phase transition).
 
