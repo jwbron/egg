@@ -449,7 +449,7 @@ The local orchestrator handles concurrent contract updates through `orchestrator
     "title": "Add feature X",
     "url": "https://github.com/org/repo/issues/123"
   },
-  "task_description": null,
+  "task_description": "This pipeline's task is GitHub issue #123 — https://github.com/org/repo/issues/123. Fetch the live issue body (`gh issue view 123`) before structural decisions...",
   "current_phase": "implement",
   "slices": [
     {
@@ -502,14 +502,15 @@ The local orchestrator handles concurrent contract updates through `orchestrator
 > [v1.1 → v1.2 migration note](../architecture/sdlc-pipeline.md#schema-v11--v12-migration-note-2777)).
 >
 > **Schema 1.3 (#3033)**: The default `schemaVersion` is now `"1.3"`. An
-> optional `task_description` field was added at the top level. It holds
-> the full, untruncated pipeline prompt for free-text and JIRA-driven
-> submits (any pipeline where `issue_number is None`). Under the BRC
-> event-pump model the orchestrator-built spawn prompt is not delivered
-> to agents, so the contract becomes the authoritative channel for
-> recovering the complete task. `task_description` is `null` for
-> GitHub-issue pipelines, where agents fetch the body via
-> `gh issue view`. The bump is purely additive — pre-1.3 contracts load
+> optional `task_description` field was added at the top level. Under the
+> BRC event-pump model the orchestrator-built spawn prompt is not
+> delivered to agents, so the contract becomes the authoritative channel
+> for recovering the complete task. The field is composed uniformly for
+> every pipeline type (#3163): GitHub-issue pipelines get an issue
+> identity anchor directing agents to `gh issue view <n>`; JIRA-driven
+> pipelines get a ticket anchor plus a description snapshot; free-text
+> submits get the full pipeline prompt. `null` only when there is no
+> issue, no ticket, and a blank prompt. The bump is purely additive — pre-1.3 contracts load
 > cleanly and reach `"1.3"` via the migration chain: pre-1.2 contracts
 > are first promoted to `"1.2"` by the wrap-mode
 > `_migrate_schema_version_to_1_2` validator, and any contract at

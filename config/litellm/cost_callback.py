@@ -35,6 +35,20 @@ cache-hit-rate metric (the primary cq-6 signal) is unaffected. Real cost is
 still captured on the non-streaming path, where ``original_response``
 carries the raw provider JSON with ``usage.cost``.
 
+Because the billed cost is therefore unknown on essentially every agent
+call, each line also carries ``cost_estimated``: LiteLLM's own
+``response_cost``, computed at logging time from the assembled usage and
+its pricing map, which survives streaming (issue #3175). It is kept
+strictly separate from ``cost`` — an estimate from a possibly-stale rate
+card must never be mistaken for a bill — and follows the same null-not-zero
+rule when LiteLLM cannot price the model.
+
+Each line additionally carries ``pipeline_id`` / ``agent_role`` / ``phase``
+read from the gateway-stamped ``x-egg-*`` request headers (issue #3175),
+so per-role spend is a log query instead of a hand cross-reference against
+agent completion logs. The fields are None for traffic that didn't come
+through an attribution-aware gateway hop.
+
 Unlike the host-side ``cost_callback.py`` this is derived from, egg agents
 are headless: there is no statusline to read a per-session JSON file, and
 the container runs read-only. So we log to stdout (captured by egg's log
@@ -192,24 +206,85 @@ def _extract_cache_stats(usage):
     return prompt, cached, cache_write, reasoning
 
 
-def _extract_session_id(mcd):
-    """``x-claude-code-session-id`` is sent by Claude Code on every request.
+def _proxy_request_headers(mcd):
+    """Return the proxy request headers from ``model_call_details``, lowercased.
 
-    In ``model_call_details`` it lands under
+    In ``model_call_details`` the request lands under
     ``litellm_params.proxy_server_request`` (``get_litellm_params`` packs it
     there); check the top level too in case a future path surfaces it there.
     Lowercase header keys defensively — ``clean_headers`` preserves the wire
     casing of header keys, so a non-lowercase hop (gateway, HTTP/1.1 client)
-    would otherwise collapse every call to ``_no_session`` and silently blend
-    the per-session hit rate into a global one."""
+    would otherwise make every header lookup miss silently."""
     try:
         mcd = mcd or {}
         psr = mcd.get("proxy_server_request")
         if not isinstance(psr, dict):
             psr = (mcd.get("litellm_params") or {}).get("proxy_server_request")
         headers = (psr or {}).get("headers") or {}
-        headers = {k.lower(): v for k, v in headers.items() if isinstance(k, str)}
-        return headers.get("x-claude-code-session-id") or None
+        return {k.lower(): v for k, v in headers.items() if isinstance(k, str)}
+    except Exception:
+        return {}
+
+
+def _extract_session_id(mcd):
+    """``x-claude-code-session-id`` is sent by Claude Code on every request.
+
+    A lookup miss would collapse every call to ``_no_session`` and silently
+    blend the per-session hit rate into a global one."""
+    return _proxy_request_headers(mcd).get("x-claude-code-session-id") or None
+
+
+# Gateway-stamped attribution headers (issue #3175). The gateway resolves the
+# agent's Session on every proxied ``/v1/messages`` call and stamps these on
+# non-Anthropic hops (it strips any agent-supplied ``x-egg-*`` first, so the
+# values are gateway-authoritative). They map a session's spend to a pipeline
+# and role directly in the log line — no hand cross-referencing of agent
+# completion logs.
+_ATTRIBUTION_HEADERS = (
+    ("pipeline_id", "x-egg-pipeline-id"),
+    ("agent_role", "x-egg-agent-role"),
+    ("phase", "x-egg-phase"),
+)
+
+
+def _extract_attribution(mcd):
+    """Return ``{pipeline_id, agent_role, phase}`` from the gateway's
+    attribution headers; each value is None when absent (pre-#3175 gateway,
+    non-agent probe, or a direct non-gateway client)."""
+    headers = _proxy_request_headers(mcd)
+    out = {}
+    for field, header in _ATTRIBUTION_HEADERS:
+        value = headers.get(header)
+        out[field] = value if isinstance(value, str) and value else None
+    return out
+
+
+def _extract_estimated_cost(mcd):
+    """LiteLLM's own computed cost for the call, as an *estimate*.
+
+    Unlike the upstream-billed ``cost`` (dropped by stream-chunk reassembly —
+    see the module docstring), ``response_cost`` is computed by LiteLLM's
+    logging layer from the assembled usage and its model pricing map, so it
+    survives the streaming path that carries essentially all agent traffic.
+    It is an estimate, not a bill: the pricing map may lag the provider's
+    rates or lack cache-discount entries for a model. Returns None — never
+    0.0 — when LiteLLM couldn't price the call (model absent from the map),
+    mirroring the billed-cost "unknown ≠ free" discipline.
+
+    Reads the top-level ``response_cost`` first, then falls back to
+    ``standard_logging_object.response_cost`` — the latter is LiteLLM's
+    aggregated/finalized metrics object, preferred for streaming, so the
+    fallback hardens against a LiteLLM version where the top-level key is
+    absent on the streaming path."""
+    try:
+        mcd = mcd or {}
+        rc = mcd.get("response_cost")
+        if not isinstance(rc, (int, float)):
+            slo = mcd.get("standard_logging_object")
+            rc = slo.get("response_cost") if isinstance(slo, dict) else None
+        if isinstance(rc, (int, float)) and rc > 0:
+            return float(rc)
+        return None
     except Exception:
         return None
 
@@ -260,6 +335,7 @@ class LiteLLMCostLogger(CustomLogger):
             # back to the assembled response object's usage.
             usage = _raw_upstream_usage(mcd) or _usage_from_response_obj(response_obj)
             cost = _extract_cost(usage)
+            cost_estimated = _extract_estimated_cost(mcd)
             prompt, cached, cache_write, reasoning = _extract_cache_stats(usage)
             if cost is None and prompt == 0 and cached == 0:
                 return
@@ -267,15 +343,20 @@ class LiteLLMCostLogger(CustomLogger):
             # (the streaming path — see module docstring). We accumulate only
             # known costs and count how many calls contributed one, so a
             # session that never saw a real cost reports ``cost: null`` rather
-            # than a misleading ``0.0``.
+            # than a misleading ``0.0``. ``cost_estimated`` (LiteLLM's own
+            # pricing-map figure, which DOES survive streaming) follows the
+            # same discipline under its own counters.
             sid = _extract_session_id(mcd) or "_no_session"
             model = _extract_model(mcd)
+            attribution = _extract_attribution(mcd)
             with _lock:
                 agg = _session_totals.get(sid)
                 if agg is None:
                     agg = {
                         "cost": 0.0,
                         "cost_known_calls": 0.0,
+                        "cost_estimated": 0.0,
+                        "cost_estimated_known_calls": 0.0,
                         "calls": 0.0,
                         "prompt_tokens": 0.0,
                         "cached_tokens": 0.0,
@@ -285,6 +366,9 @@ class LiteLLMCostLogger(CustomLogger):
                 if cost is not None:
                     agg["cost"] += cost
                     agg["cost_known_calls"] += 1
+                if cost_estimated is not None:
+                    agg["cost_estimated"] += cost_estimated
+                    agg["cost_estimated_known_calls"] += 1
                 agg["calls"] += 1
                 agg["prompt_tokens"] += prompt
                 agg["cached_tokens"] += cached
@@ -316,6 +400,10 @@ class LiteLLMCostLogger(CustomLogger):
             session = {
                 "cost": totals["cost"] if totals["cost_known_calls"] > 0 else None,
                 "cost_known_calls": int(totals["cost_known_calls"]),
+                "cost_estimated": (
+                    totals["cost_estimated"] if totals["cost_estimated_known_calls"] > 0 else None
+                ),
+                "cost_estimated_known_calls": int(totals["cost_estimated_known_calls"]),
                 "calls": int(totals["calls"]),
                 "prompt_tokens": int(totals["prompt_tokens"]),
                 "cached_tokens": int(totals["cached_tokens"]),
@@ -326,8 +414,14 @@ class LiteLLMCostLogger(CustomLogger):
                 {
                     "session_id": sid,
                     "model": model,
+                    # Gateway-stamped attribution (#3175); None values mean the
+                    # request did not come through an attribution-aware gateway
+                    # hop. Session-stable, but emitted per line so every log
+                    # line is independently queryable by role/pipeline.
+                    **attribution,
                     "call": {
                         "cost": cost,
+                        "cost_estimated": cost_estimated,
                         "prompt_tokens": int(prompt),
                         "cached_tokens": int(cached),
                         "cache_write_tokens": int(cache_write),

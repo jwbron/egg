@@ -694,9 +694,10 @@ class ConcurrentPhaseExecutor:
             )
 
         # On the LiteLLM path Claude Code needs the ANTHROPIC_CUSTOM_MODEL_OPTION
-        # env vars to opt into 1M-context compaction math (#2832). The decision's
-        # ``env_vars()`` is empty on the Anthropic path, so default-Claude spawns
-        # carry no extra env — the pre-#2832 wire shape.
+        # env vars to opt into 1M-context compaction math (#2832). Every route
+        # also picks up the context-guardrail caps (#3175); the Anthropic path
+        # carries only those — no custom-model registration — so the Claude
+        # wire shape is unchanged.
         env = {**env, **decision.env_vars()}
 
         # Forward the upstream/upstream_model kwargs to the spawner only
@@ -726,6 +727,7 @@ class ConcurrentPhaseExecutor:
             container_info=result.container_info,
             started_at=datetime.now(UTC),
             slice_id=self._slice_id,
+            resolved_model=decision.claude_code_alias,
         )
 
     def _resolve_model_decision(self, role: AgentRole) -> AgentModelDecision:
@@ -733,8 +735,8 @@ class ConcurrentPhaseExecutor:
 
         Pure over (role, pipeline_config, repo); when no override is
         configured the resolver returns a built-in Anthropic decision —
-        ``fable`` for the refine/plan roles, ``opus`` otherwise — so the wire
-        shape stays Anthropic-only.
+        ``opus`` for every role now that fable has been disabled (refine/plan
+        roles unify on opus) — so the wire shape stays Anthropic-only.
 
         Defensive wrap: a future resolver regression must not bring down
         spawn for every pipeline. Mirror the restart path's

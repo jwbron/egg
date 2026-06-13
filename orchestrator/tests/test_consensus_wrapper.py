@@ -2413,8 +2413,9 @@ class TestOneShotArmStructure:
 class TestOneShotArmBehavior:
     """Behavioural tests of the orchestrator-mode one-shot arm, driving the
     rendered bash against PATH stubs (#3064 slice-1 task-1-2). Covers the
-    five one-shot behaviors: stale-exit, exactly-one-invocation, exit-code
-    passthrough, and loud rejection of injected confirm/complete.
+    one-shot behaviors: confirmed-stale exit 0, inconclusive-recheck exit 75
+    (EX_TEMPFAIL), exactly-one-invocation, agent exit-code passthrough, and
+    loud rejection of injected confirm/complete.
     """
 
     def _render(self, monkeypatch) -> list[str]:
@@ -2422,10 +2423,13 @@ class TestOneShotArmBehavior:
         return build_consensus_wrapped_command("Prompt")
 
     @staticmethod
-    def _stub_bin(tmp_path, next_action_json: str, agent_exit: int = 0):
+    def _stub_bin(tmp_path, next_action_json: str, agent_exit: int = 0, next_action_rc: int = 0):
         """Lay down PATH stubs:
           - ``egg-orch`` — logs every call; ``brc get-state`` → incomplete,
-            ``brc next-action`` → the supplied JSON; everything else 0.
+            ``brc next-action`` → the supplied JSON exiting ``next_action_rc``
+            (default 0; a non-zero value simulates a 409/5xx/transport blip,
+            which ``fetch_next_action`` collapses to its ``wait`` fallback);
+            everything else 0.
           - ``python3`` — forwards inline ``-c``/``-`` JSON parsing to the
             real interpreter; the ``-m egg_agent`` invocation records one
             line per call and exits ``agent_exit``.
@@ -2447,6 +2451,7 @@ class TestOneShotArmBehavior:
             "        ;;\n"
             '    "brc next-action")\n'
             f"        printf '%s' {shlex.quote(next_action_json)}\n"
+            f"        exit {int(next_action_rc)}\n"
             "        ;;\n"
             "    *)\n"
             "        ;;\n"
@@ -2512,6 +2517,31 @@ class TestOneShotArmBehavior:
         assert self._agent_invocation_count(agent_log) == 0, (
             "stale one-shot event must NOT invoke the agent (dedupe "
             "backstop). egg-orch log:\n"
+            + (general_log.read_text() if general_log.exists() else "(empty)")
+        )
+
+    def test_inconclusive_recheck_exits_ex_tempfail_without_invoking(self, tmp_path, monkeypatch):
+        """A transient blip at re-check time (``egg-orch brc next-action``
+        returns non-zero — 409 / 5xx / transport) makes ``fetch_next_action``
+        fall back to ``{"action":"wait"}``. The arm must NOT report a clean
+        handoff (exit 0) — that would let a transient failure silently drop a
+        live event — and must NOT invoke the agent. Instead it exits 75
+        (EX_TEMPFAIL) so the slice-3 supervisor re-derives next-action itself
+        rather than treating the event as definitively handled (reviewer
+        non-blocking note, PR #3167)."""
+        cmd = self._render(monkeypatch)
+        bin_dir, general_log, agent_log = self._stub_bin(
+            tmp_path, '{"action":"propose"}', agent_exit=0, next_action_rc=22
+        )
+        env = self._env(bin_dir, "propose")
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)
+        assert result.returncode == 75, (
+            "an inconclusive re-check (non-zero brc next-action rc) must exit "
+            f"75/EX_TEMPFAIL, not 0 (clean handoff) or the agent rc; got "
+            f"{result.returncode}. stderr:\n" + result.stderr
+        )
+        assert self._agent_invocation_count(agent_log) == 0, (
+            "an inconclusive re-check must NOT invoke the agent. egg-orch log:\n"
             + (general_log.read_text() if general_log.exists() else "(empty)")
         )
 

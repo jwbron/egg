@@ -85,7 +85,7 @@ The contract is a JSON document tracking the complete state of an issue through 
 {
   "schemaVersion": "1.3",
   "issue": { "number": 133, "title": "...", "url": "..." },
-  "task_description": null,
+  "task_description": "This pipeline's task is GitHub issue #133 — https://github.com/org/repo/issues/133. Fetch the live issue body (`gh issue view 133`) before structural decisions...",
   "current_phase": "implement",
   "slices": [{
     "id": "slice-1",
@@ -250,7 +250,7 @@ Operational impact:
 
 | Added field | Purpose |
 |-------------|---------|
-| `task_description` | Full, untruncated pipeline prompt for free-text and JIRA-driven submits. `None` for GitHub-issue pipelines. |
+| `task_description` | Full task statement, composed uniformly for every entry path (#3163): an identity anchor ("This pipeline's task is GitHub issue #N…" or "JIRA ticket PROJ-1234…") prepended to the operator's submit description. `None` only when there is no issue, no ticket, and a blank submit description. |
 
 Operational impact:
 
