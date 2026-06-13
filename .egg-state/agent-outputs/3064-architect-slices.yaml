@@ -1,0 +1,112 @@
+slices:
+  - id: 1
+    name: |-
+      Ownership flag + one-shot wrapper arm (guard, dormant by default)
+    goal: |-
+      Introduce EGG_EVENT_LOOP_OWNER (pod | orchestrator, default
+      pod). With the flag unset/pod the generated consensus
+      wrapper is byte-identical to today (golden-file test). With
+      orchestrator + an injected event (EGG_EVENT_ACTION in
+      propose|ack|nack, EGG_EVENT_DEDUPE_KEY, payload refs), the
+      wrapper skips the wait-loop and background heartbeat,
+      re-checks next-action once (stale event => exit 0, no agent
+      invocation), fetches the composed event prompt via the
+      existing path, runs invoke_agent_for_event exactly once,
+      and exits with a #2908-classified code. confirm/complete
+      never reach the one-shot arm. Files:
+      orchestrator/consensus_wrapper.py + tests.
+    # root slice — head of the serialized chain
+  - id: 2
+    name: |-
+      Orchestrator event loop + on-demand spawner (dedupe, verb mapping, stateless restart)
+    goal: |-
+      New orchestrator/event_loop.py driven from the
+      concurrent_executor completion-poll site (~647-763): consume
+      _derive_next_action in-process per role; propose|ack|nack =>
+      spawn a one-shot Job (kubernetes_spawner one-shot entry sets
+      EGG_EVENT_LOOP_OWNER=orchestrator + event identity in Job
+      env, dedupe key as Job label); confirm|complete => executed
+      orchestrator-side with no pod; wait => nothing. Dedupe:
+      sha256(pipeline, slice, phase, role, action, event identity
+      — proposal_commit_sha for reviews, target version + open
+      NACK set for proposes); in-memory set + Job-label
+      reconciliation; at most one live pod per role+slice. On
+      orchestrator restart, re-derive from the tracker (#2761) and
+      reconcile against live Jobs — no persisted bookkeeping.
+      spawn_all path untouched for pod mode. Latency: poll
+      interval env-tunable (default 5s); structured spawn->invoke
+      timing field.
+    dependencies: slice-1
+  - id: 3
+    name: |-
+      Failure supervision re-homing: bounded respawn + backoff + OVERSEER_ALERT (HITL cq-2)
+    goal: |-
+      Job-status watching for one-shot pods inside the event-loop
+      module. Per-(role, arm) streak mirroring #3138 with
+      constants in a shared module (wrapper imports the same
+      values): respawn same event key after streak×2s backoff
+      capped 30s; warn at streak 5; sticky OVERSEER_ALERT
+      (agent-invocation-fail-streak) at streak 10; reset on
+      success. Producer propose-arm exhaustion engages the
+      existing AGENT_FAILED path (#2806 relocated for
+      orchestrator mode; wrapper-side code untouched). NACKs and
+      other BRC outcomes are explicit non-triggers.
+    dependencies: slice-2
+  - id: 4
+    name: |-
+      Worktree re-attach + gateway-session reuse across spawns (hot-path latency)
+    goal: |-
+      kubernetes_spawner: re-attach-first worktree branch
+      (validate expected branch, .git integrity, no foreign lock;
+      fall back to today's create-with-retry on any mismatch).
+      Dirty-state policy (R6): on every successful re-attach,
+      discard uncommitted changes and untracked staging artifacts
+      (reset --hard + clean -fd) and hard-sync to the role branch
+      tip before agent invocation — a predecessor pod killed
+      mid-event (slice-3 supervision respawn is the canonical
+      producer) must never leak unproposed residue into a
+      successor's commit; discard failure => recreate fallback.
+      Per-role session reuse (re-register only when no live
+      session / token aged out; teardown moves to phase end or
+      streak exhaustion in orchestrator mode). At-most-one-live-
+      pod-per-role+slice (slice-2 dedupe) is the ownership story
+      — asserted in tests; ac-4 adds an induced dirty-worktree
+      case alongside corruption/branch-mismatch. Meets the
+      p50<60s spawn->invoke budget in a simulated-clock test.
+    dependencies: slice-3
+  - id: 5
+    name: |-
+      Lifecycle-aware monitoring: health-monitor mode awareness, idle-budget re-homing, heartbeat coordinator guard
+    goal: |-
+      HealthMonitor learns the ownership mode: in orchestrator
+      mode 'role has no pod' is normal (never alerts); heartbeat/
+      container tripwires apply only while a Job is active; a
+      silent one-shot pod mid-event still trips. The in-pod
+      idle-budget alert re-homes as an orchestrator-side
+      convergence-stall judgment from tracker timestamps (same
+      EGG_BRC_IDLE_BUDGET_MIN knob, same anomaly name).
+      HeartbeatCoordinator (#2076/#2451 session refresh) gains a
+      mode guard; refresh-at-spawn replaces the background
+      heartbeat side effect. Pod-mode behavior unchanged —
+      existing tests stay green. Files:
+      orchestrator/health_monitor.py, orchestrator/heartbeat.py,
+      event-loop module, tests.
+    dependencies: slice-4
+  - id: 6
+    name: |-
+      Docs + flip follow-up package (proving run -> flip -> cleanup PR)
+    goal: |-
+      docs/architecture entry for event-loop ownership (both
+      modes, dedupe-key contract, supervision semantics, monitor
+      matrix); the live proving-run procedure with acceptance
+      checklist (all phases converge, no duplicate pods,
+      supervision fires on induced failure, latency budget held);
+      the prepared follow-up issue body encoding the operator-
+      mandated sequence — proving run with flag on, flip default,
+      one cleanup PR deleting the in-pod wait arm + background
+      heartbeat + wrapper-side #3138/#2806 code + the flag itself
+      (no dead code end state). Filing the issue is an immediate
+      post-merge manual step referenced from the PR description.
+      File-disjoint from code slices; ordered last to document
+      the final shape.
+    dependencies: slice-5
