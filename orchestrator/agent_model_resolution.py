@@ -53,13 +53,12 @@ logger = logging.getLogger(__name__)
 # default in ``orchestrator/consensus_wrapper.py::build_consensus_wrapped_command``.
 DEFAULT_AGENT_MODEL = "opus"
 
-# Built-in default for the refine and plan phases. The drafting-heavy
-# upstream phases (analysis, slice DAG, contract shape) run on the
-# highest-capability tier; implement and downstream phases stay on
-# DEFAULT_AGENT_MODEL. Both pipeline-level ``agent_models`` and the
-# repo-level ``default_agent_model`` still override this (precedence
-# unchanged — this only splits the tier-3 built-in by role).
-FABLE_DEFAULT_MODEL = "fable"
+# Built-in default for the refine and plan phases. Fable has been
+# disabled, so the drafting-heavy upstream phases (analysis, slice DAG,
+# contract shape) now run on opus alongside implement and downstream
+# phases. Both pipeline-level ``agent_models`` and the repo-level
+# ``default_agent_model`` still override this (precedence unchanged).
+FABLE_DEFAULT_MODEL = "opus"
 
 # Effort level pinned on fable-routed agents (threaded to ``--effort``
 # on the ``python3 -m egg_agent`` command). Claude Code's built-in
