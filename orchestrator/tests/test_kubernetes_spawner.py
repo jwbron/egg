@@ -2316,14 +2316,35 @@ class TestEventJobCrashRespawn:
     def test_terminal_job_alone_does_not_block_respawn(self, spawner, mock_k8s_client):
         """Even if the reap is skipped/fails (best-effort), a lingering terminal
         Job must not be adopted: the live-only adoption filter (fix #1) lets the
-        respawn create a new Job rather than dead-ending for the TTL window."""
+        respawn create a new Job rather than dead-ending for the TTL window.
+
+        The corpse is seeded under the *deterministic* Job name the respawn
+        collides with (not an arbitrary one), so this also exercises the
+        production same-name pre-spawn ``delete_job`` cleanup
+        (``spawn_agent_job``): after the spawn the corpse is gone, leaving only
+        the fresh RUNNING Job."""
+        from kubernetes_client import KubernetesClient
+        from kubernetes_spawner import (
+            _EVENT_JOB_NAME_DISCRIMINATOR_LEN,
+            KubernetesSpawner,
+            _fit_k8s_name,
+        )
+
+        # Mirror spawn_event_job → spawn_agent_job's deterministic naming for
+        # this _spawn()'s args so the corpse collides with the respawn's name.
+        base, _ = KubernetesSpawner._build_k8s_job_names(
+            "pipe-1", AgentRole.CODER, slice_id="slice-2"
+        )
+        fitted = _fit_k8s_name(f"{base}-{self._KEY[:_EVENT_JOB_NAME_DISCRIMINATOR_LEN]}")
+        corpse_name = f"{KubernetesClient.JOB_PREFIX}{fitted}"
+
         store = _StatefulEventJobs()
         # Seed a lingering FAILED Job under the dedupe label (reap "missed" it).
         store.jobs = [
             ContainerInfo(
                 container_id="uid-old",
-                container_name="old",
-                job_name="old",
+                container_name=corpse_name,
+                job_name=corpse_name,
                 namespace="test-ns",
                 status=ContainerStatus.FAILED,
             )
@@ -2334,6 +2355,10 @@ class TestEventJobCrashRespawn:
         # A new Job was created (not adopted) despite the terminal Job present.
         assert mock_k8s_client.create_container.call_count == 1
         assert ContainerStatus.RUNNING in store.statuses
+        # The same-name pre-spawn delete_job reaped the corpse: it no longer
+        # lingers alongside the fresh Job.
+        assert corpse_name not in store.names
+        assert store.statuses == [ContainerStatus.RUNNING]
 
     def test_live_job_still_blocks_respawn(self, spawner, mock_k8s_client):
         """Regression guard: a genuinely RUNNING Job for the key is still

@@ -294,7 +294,10 @@ class _EventJobStatusView:
         statuses = [getattr(j, "status", None) for j in jobs]
         if any(s == ContainerStatus.FAILED for s in statuses):
             return self._ABNORMAL
-        if any(s in (ContainerStatus.RUNNING, ContainerStatus.PENDING) for s in statuses):
+        # Live = PENDING/CREATING/RUNNING — the same single-source set the
+        # adoption filter (``_event_dedupe_key_live``) and live-pod accounting
+        # use, so a CREATING Job is classified live here too (#3181 re-review).
+        if any(s in LIVE_POD_STATUSES for s in statuses):
             return self._RUNNING
         if any(s == ContainerStatus.EXITED for s in statuses):
             return self._SUCCESS
