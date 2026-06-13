@@ -2739,9 +2739,13 @@ class TestSpawnEventJobAtMostOneLivePod:
             repos=["owner/repo"],
         )
         # Second spawn with the same key while Job is live → adoption (None).
+        # The Job must carry a *live* status (PENDING/CREATING/RUNNING) — the
+        # adoption filter (#3181) ignores terminal Jobs lingering in the TTL
+        # window, so a status-less mock would be treated as "not live".
         existing = MagicMock()
         existing.labels = {"egg.event.dedupe-key": _KEY[:63]}
         existing.job_name = "egg-agent-pipe-1-slice-4-coder-ev123456"
+        existing.status = ContainerStatus.RUNNING
         mock_k8s_client.list_jobs.return_value = [existing]
 
         second = spawner.spawn_event_job(
