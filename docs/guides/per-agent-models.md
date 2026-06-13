@@ -468,6 +468,26 @@ server is installed. Operators do not need to configure anything — the
 hook and the MCP server are wired up automatically whenever an agent
 runs on the public LiteLLM path.
 
+### Working-style guidance on the LiteLLM path (#3175)
+
+Open models on the LiteLLM path take 3–5× more, smaller steps for
+comparable events than the Claude baseline, and cached tokens are
+discounted but not free — so cost scales with turns × context-size.
+`shared/egg_agent/client.py` automatically appends a working-style
+advisory to the system prompt whenever `ANTHROPIC_CUSTOM_MODEL_OPTION`
+is set, steering agents toward batched tool calls, filtered command
+output, and subagent-isolated bulk reads — without skipping verification
+or shortening reviews.
+
+The addendum is a constant string in `shared/egg_agent/route_guidance.py`
+gated solely on the pod-lifetime `ANTHROPIC_CUSTOM_MODEL_OPTION` env var
+(the same signal as the DDG fallback above), so the rendered system
+prompt stays per-session stable and the cacheable prefix is unaffected.
+Claude-route sessions are untouched.
+
+**Escape hatch:** set `EGG_ROUTE_PROMPT_GUIDANCE=false` (or `0` / `no`
+/ `off`) on the sandbox pod env to disable.
+
 ## Operator walkthrough — Qwen for the refiner role
 
 This walks through enabling hosted Qwen for a single role end-to-end.
