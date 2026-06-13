@@ -372,3 +372,47 @@ class TestModeGuard:
         # confirms that the coordinator can be queried without error for
         # keys that have never sent a heartbeat.
         assert coord.is_duplicate("p1", "slice-5", "coder", "WORKING", None) is False
+
+    def test_orchestrator_mode_suppresses_fan_out(self):
+        """``set_orchestrator_mode(True)`` short-circuits the fan-out gate.
+
+        In orchestrator mode the gateway-session refresh happens at spawn
+        (slice-4 worktree re-attach), not from heartbeat fan-out, so
+        ``should_fan_out_gateway_session`` must return ``False`` regardless
+        of cooldown state — the orchestrator-mode early-return in
+        ``heartbeat.py`` precedes the cooldown bookkeeping.
+        """
+        coord = HeartbeatCoordinator()
+        coord.set_orchestrator_mode(True)
+        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is False
+        # Still suppressed on a second call — the gate never records a
+        # timestamp in orchestrator mode, so there is no cooldown to expire.
+        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is False
+
+    def test_pod_mode_fan_out_unchanged(self):
+        """Default (pod) mode retains the cooldown-gated fan-out behavior.
+
+        Without ``set_orchestrator_mode``, the first call fans out and
+        records a timestamp; the second call within the cooldown is
+        suppressed. This confirms the mode guard leaves pod-mode behavior
+        untouched.
+        """
+        coord = HeartbeatCoordinator()  # default pod mode
+        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is True
+        # Within cooldown — suppressed, exactly as before the mode guard.
+        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is False
+
+    def test_orchestrator_mode_toggle_restores_pod_behavior(self):
+        """Disabling orchestrator mode restores the fan-out path.
+
+        ``set_orchestrator_mode(False)`` must un-gate the fan-out so a
+        coordinator that was flipped into orchestrator mode (e.g. on a
+        misconfigured restart) recovers pod-mode fan-out once corrected.
+        """
+        coord = HeartbeatCoordinator()
+        coord.set_orchestrator_mode(True)
+        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is False
+        coord.set_orchestrator_mode(False)
+        # Back in pod mode the first call fans out and records again.
+        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is True
+        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is False
