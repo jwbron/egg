@@ -1047,14 +1047,14 @@ class TestSpawnDefaultAgentModelPath:
             f"consensus wrapper; got {captured.get('model')!r}"
         )
 
-    def test_default_config_passes_fable_for_refine_plan_role(self):
-        """``agent_models == {}`` → refiner spawn passes ``model="fable"``
+    def test_default_config_passes_opus_for_refine_plan_role(self):
+        """``agent_models == {}`` → refiner spawn passes ``model="opus"``
         to ``build_consensus_wrapped_command``.
 
         Symmetric to ``test_default_config_passes_opus_to_consensus_wrapper``
         — guards the role→model wiring in ``_spawn_agent`` against a
-        future change that breaks the fable default for the refine/plan
-        roles (post-PR #3062 split of tier-3 built-in by role).
+        future change that breaks the opus default for the refine/plan
+        roles after fable was disabled.
         """
         from concurrent_executor import ConcurrentPhaseExecutor
         from egg_orchestrator.types import AgentRole
@@ -1076,8 +1076,8 @@ class TestSpawnDefaultAgentModelPath:
         ):
             executor._spawn_agent(AgentRole.REFINER, prompt_text="run task")
 
-        assert captured.get("model") == "fable", (
-            f"Default-config refiner spawn MUST pass model='fable' to "
+        assert captured.get("model") == "opus", (
+            f"Default-config refiner spawn MUST pass model='opus' to "
             f"the consensus wrapper; got {captured.get('model')!r}"
         )
 
