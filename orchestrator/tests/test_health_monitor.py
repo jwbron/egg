@@ -3641,23 +3641,64 @@ class TestOwnershipModeHeartbeatMatrix:
         assert actions[0]["agent_id"] == self._orchestrator_role
 
     def test_orchestrator_mode_active_job_container_exit_still_trips(self):
-        """Container exit alerts fire regardless of ownership mode.
-
-        A container exit is always critical — a pod died unexpectedly
-        whether in orchestrator or pod mode.
+        """Orchestrator mode: a container exit for a role with an active Job
+        escalates — a live one-shot pod died mid-event.
         """
         with patch("env_config.get_event_loop_owner", return_value="orchestrator"):
             bus = _make_event_bus()
             config = _make_config()
             monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
 
+            # Role has a live Job — its container dying is a real failure.
+            monitor.set_active_roles({self._orchestrator_role})
             _emit_container_stopped(
                 bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE, exit_code=137
             )
 
             monitor.check_tripwires()
 
-        # Container exit alerts are not gated by active-role set.
+        alerts = [a for a in monitor.get_active_alerts() if a.get("alert_type") == "container_exit"]
+        assert len(alerts) == 1
+
+    def test_orchestrator_mode_ghost_container_exit_suppressed(self):
+        """Orchestrator mode: a container exit for a role with NO active Job
+        is a ghost (a one-shot pod that finished its event and was reaped)
+        and must NOT escalate — the criterion scopes container-exit
+        tripwires to roles with a live Job, consistent with the heartbeat
+        path's empty-active-set suppression.
+        """
+        with patch("env_config.get_event_loop_owner", return_value="orchestrator"):
+            bus = _make_event_bus()
+            config = _make_config()
+            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+
+            # No active Job for this role — the exit is an expected reap.
+            _emit_container_stopped(
+                bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE, exit_code=0
+            )
+
+            monitor.check_tripwires()
+
+        alerts = [a for a in monitor.get_active_alerts() if a.get("alert_type") == "container_exit"]
+        assert alerts == []
+
+    def test_pod_mode_container_exit_always_trips(self):
+        """Pod mode: a container exit always escalates, active-role set
+        ignored (no one-shot Jobs in pod mode).
+        """
+        with patch("env_config.get_event_loop_owner", return_value="pod"):
+            bus = _make_event_bus()
+            config = _make_config()
+            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+
+            # Empty active set is meaningless in pod mode — exit still trips.
+            monitor.set_active_roles(set())
+            _emit_container_stopped(
+                bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE, exit_code=137
+            )
+
+            monitor.check_tripwires()
+
         alerts = [a for a in monitor.get_active_alerts() if a.get("alert_type") == "container_exit"]
         assert len(alerts) == 1
 
@@ -3782,22 +3823,20 @@ class TestOwnershipModeIdleBudgetAnomaly:
     ``consensus_wrapper.py`` so the overseer treats them identically.
     """
 
-    def test_anomaly_name_matches_in_pod_alert(self):
-        """The orchestrator-side idle-budget alert uses 'stuck-phase-transition'."""
-        from consensus_wrapper import EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT
+    def test_idle_budget_default_matches_in_pod_wrapper(self):
+        """The orchestrator-side idle-budget default agrees with the wrapper.
 
-        # The wrapper's in-pod alert uses --anomaly stuck-phase-transition.
-        # The orchestrator-side equivalent must use the same string so the
-        # overseer classifies both identically.
-        anomaly_name = "stuck-phase-transition"
-        # This test exists primarily to document and assert the contract —
-        # the actual alert emission path is the event loop's convergence-stall
-        # judgment from tracker timestamps, not the health monitor directly.
-        # The name constant is defined in the wrapper; the loop's equivalent
-        # must match.
+        Cross-module equality: the event loop's ``_IDLE_BUDGET_MIN_DEFAULT``
+        must equal the in-pod wrapper's ``EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT``
+        so the re-homed convergence-stall judgment and the in-pod
+        ``check_idle_budget`` use the same threshold. (The anomaly-name
+        equality and the actual emission from tracker-timestamp fixtures are
+        asserted behaviorally in ``test_event_loop.py`` —
+        ``TestConvergenceStall``.)
+        """
+        from consensus_wrapper import EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT
+        from event_loop import _IDLE_BUDGET_MIN_DEFAULT
+
         assert isinstance(EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT, int)
         assert EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT == 30
-        # The anomaly-name contract is asserted by reading the wrapper's
-        # template constants; the orchestrator-side code (event_loop.py) must
-        # use the same literal string for its OVERSEER_ALERT.
-        assert anomaly_name == "stuck-phase-transition"
+        assert _IDLE_BUDGET_MIN_DEFAULT == EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT

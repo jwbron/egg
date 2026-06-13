@@ -98,6 +98,13 @@ def _event_loop_owner() -> str:
 # default -- well above the WS7-observed 10-13 min legitimate-idle ceiling.
 EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT = 30
 
+# OVERSEER_ALERT anomaly name raised when the idle budget is exceeded. The
+# orchestrator-side re-homed convergence-stall check (``event_loop.py``) must
+# raise the SAME name so the overseer classifies the in-pod and orchestrator
+# variants identically. Single-sourced here and interpolated into the wrapper
+# template below; imported by ``event_loop`` for its OVERSEER_ALERT emission.
+EVENT_PUMP_IDLE_BUDGET_ANOMALY = "stuck-phase-transition"
+
 # Heartbeat cadence for the wrapper-owned background heartbeat emitter
 # (#2908 task-2-2). Migrated from
 # ``sandbox/egg_agent_tools/handlers/message.py:_WAIT_LOOP_HEARTBEAT_INTERVAL_SECS``
@@ -139,6 +146,7 @@ EVENT_PUMP_WAIT_TIMEOUT_SECS_DEFAULT = 60
 # Placeholders interpolated by ``str.format``:
 #   {agent_command_prefix}   -- ``python3 -m egg_agent --model X --max-turns N``
 #   {idle_budget_min_default}, {hb_interval_default}, {wait_timeout_default}
+#   {idle_budget_anomaly}    -- OVERSEER_ALERT anomaly name on budget breach
 _EVENT_PUMP_WRAPPER_TEMPLATE = r"""#!/bin/bash
 set -uo pipefail
 
@@ -692,7 +700,7 @@ print(f\"role={{role}} producer_phase={{my.get('producer_phase','?')}} reviewer_
 " 2>/dev/null || echo "(snapshot unavailable)")
     timeout 5 egg-orch overseer alert "${{EGG_PIPELINE_ID:-unknown}}" \
         --role "${{EGG_AGENT_ROLE:-agent}}" \
-        --anomaly stuck-phase-transition \
+        --anomaly {idle_budget_anomaly} \
         --priority "$priority" \
         --summary "BRC event-pump idle for ${{idle}}s$summary_extra" \
         --detail "Event-pump for role=${{EGG_AGENT_ROLE:-agent}} slice=${{EGG_SLICE_ID:-none}} has seen no actionable BRC event for ${{idle}}s (configured budget ${{IDLE_BUDGET_SECS}}s). The loop continues blocking; no FAILED transition is forced. BRC state: $brc_snapshot" \
@@ -1108,6 +1116,7 @@ def build_event_pump_wrapped_command(
     script = _EVENT_PUMP_WRAPPER_TEMPLATE.format(
         agent_command_prefix=agent_command_prefix,
         idle_budget_min_default=idle_budget_min,
+        idle_budget_anomaly=EVENT_PUMP_IDLE_BUDGET_ANOMALY,
         hb_interval_default=heartbeat_interval_secs,
         wait_timeout_default=wait_timeout_secs,
         spvr_backoff_factor=SUPERVISION_BACKOFF_FACTOR,

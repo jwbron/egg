@@ -1290,3 +1290,300 @@ class TestSupervisionDrivenThroughLoop:
         # No observation ⇒ the (deduped) key stays live, streak untouched.
         assert supervisor.backoff_seconds(key) == 0
         assert len(spawner.calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# Convergence-stall detection (#3064 slice-5, TASK-5-1 / TASK-5-2)
+#
+# Drives ``_check_convergence_stall`` from tracker-timestamp fixtures and a
+# spy notifier so the re-homed idle-budget judgment is asserted behaviorally
+# (not as a literal-vs-itself equality). Covers: no alert before budget, a
+# single ``stuck-phase-transition`` emission after budget, the sticky latch,
+# bus-movement reset, in-flight-Job suppression, and notifier-None dormancy.
+# ---------------------------------------------------------------------------
+
+
+class _NotifierSpy:
+    """Captures convergence-stall notifier invocations."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def __call__(self, *, anomaly, priority, summary, detail) -> None:
+        self.calls.append(
+            {"anomaly": anomaly, "priority": priority, "summary": summary, "detail": detail}
+        )
+
+
+class _StallTracker:
+    """Fake tracker exposing only what ``_check_convergence_stall`` reads.
+
+    ``get_latest_progress_timestamp`` returns the latest BRC-bus activity as
+    a ``datetime`` (or ``None`` for "no bus activity ever").
+    """
+
+    def __init__(self, latest=None) -> None:
+        self.latest = latest
+
+    def get_latest_progress_timestamp(self):
+        return self.latest
+
+
+def _bus_dt(epoch: float):
+    from datetime import UTC, datetime
+
+    return datetime.fromtimestamp(epoch, tz=UTC)
+
+
+def _make_stall_loop(monkeypatch, *, notifier, tracker, roles=("coder",), budget_min=10):
+    """Build a loop wired for convergence-stall tests.
+
+    Sets ``EGG_BRC_IDLE_BUDGET_MIN`` (default 10 ⇒ 600s budget) and scripts
+    ``_derive_next_action`` so each role derives a pending ``propose`` event.
+    """
+    import event_loop
+
+    monkeypatch.setenv("EGG_BRC_IDLE_BUDGET_MIN", str(budget_min))
+    _script(monkeypatch, dict.fromkeys(roles, ("propose", _PROPOSE_PAYLOAD, "x")))
+    return event_loop.OrchestratorEventLoop(
+        tracker=tracker,
+        spawner=_RecordingSpawner(),
+        pipeline_id="issue-3064",
+        slice_id="slice-5",
+        phase="implement",
+        roles=list(roles),
+        convergence_stall_notifier=notifier,
+    )
+
+
+def _patch_now(monkeypatch, holder):
+    """Patch ``event_loop.time.time`` to return ``holder['now']``."""
+    import event_loop
+
+    monkeypatch.setattr(event_loop.time, "time", lambda: holder["now"])
+
+
+class TestConvergenceStall:
+    """Behavioral coverage of ``OrchestratorEventLoop._check_convergence_stall``."""
+
+    BASE = 1_000_000.0
+    BUDGET_SEC = 600  # budget_min=10
+
+    def test_no_alert_before_budget(self, monkeypatch):
+        """No alert while the bus has been quiet for less than the budget."""
+        now = {"now": self.BASE}
+        _patch_now(monkeypatch, now)
+        spy = _NotifierSpy()
+        # Bus last moved 50s ago — well within the budget.
+        tracker = _StallTracker(latest=_bus_dt(self.BASE - 50))
+        loop = _make_stall_loop(monkeypatch, notifier=spy, tracker=tracker)
+
+        loop._check_convergence_stall()  # idle 50s < budget
+        now["now"] = self.BASE + self.BUDGET_SEC - 100  # idle still < budget
+        loop._check_convergence_stall()
+
+        assert spy.calls == []
+
+    def test_alert_fires_once_after_budget(self, monkeypatch):
+        """Once the bus is quiet past the budget the loop emits once.
+
+        Seeding is bus-timestamp-relative (event-based), so the alert fires
+        on the first poll where ``now - last_bus_activity`` exceeds the
+        budget — it does not wait a full budget window after the loop first
+        observes the pending event (#3064 review NB3).
+        """
+        from consensus_wrapper import EVENT_PUMP_IDLE_BUDGET_ANOMALY
+
+        now = {"now": self.BASE}
+        _patch_now(monkeypatch, now)
+        spy = _NotifierSpy()
+        # Bus quiet for longer than the budget already at the first poll.
+        tracker = _StallTracker(latest=_bus_dt(self.BASE - (self.BUDGET_SEC + 10)))
+        loop = _make_stall_loop(monkeypatch, notifier=spy, tracker=tracker)
+
+        loop._check_convergence_stall()  # idle > budget on first observation
+
+        assert len(spy.calls) == 1
+        call = spy.calls[0]
+        # Anomaly name must match the in-pod wrapper's constant exactly.
+        assert call["anomaly"] == EVENT_PUMP_IDLE_BUDGET_ANOMALY
+        assert call["anomaly"] == "stuck-phase-transition"
+        assert call["priority"] == "high"
+        assert "coder" in call["summary"]
+
+    def test_sticky_latch_no_duplicate_emission(self, monkeypatch):
+        """Once alerted, further polls in the same stall episode are silent."""
+        now = {"now": self.BASE}
+        _patch_now(monkeypatch, now)
+        spy = _NotifierSpy()
+        tracker = _StallTracker(latest=_bus_dt(self.BASE - (self.BUDGET_SEC + 10)))
+        loop = _make_stall_loop(monkeypatch, notifier=spy, tracker=tracker)
+
+        loop._check_convergence_stall()  # emits
+        now["now"] = self.BASE + 100
+        loop._check_convergence_stall()  # latched — must not re-emit
+        now["now"] = self.BASE + 1000
+        loop._check_convergence_stall()  # still latched
+
+        assert len(spy.calls) == 1
+
+    def test_reset_when_bus_moves(self, monkeypatch):
+        """Recent bus activity clears the latch; a fresh stall re-alerts."""
+        now = {"now": self.BASE}
+        _patch_now(monkeypatch, now)
+        spy = _NotifierSpy()
+        tracker = _StallTracker(latest=_bus_dt(self.BASE - (self.BUDGET_SEC + 10)))
+        loop = _make_stall_loop(monkeypatch, notifier=spy, tracker=tracker)
+
+        loop._check_convergence_stall()  # first emission
+        assert len(spy.calls) == 1
+
+        # Bus moves (activity within the budget window) → all-roles reset
+        # clears the latch; the still-pending role is re-observed in the same
+        # pass, re-anchoring first-seen to the NEW bus timestamp (a fresh
+        # stall episode) with the latch cleared.
+        bus_ts2 = self.BASE + 645
+        now["now"] = bus_ts2 + 5  # idle 5s < budget
+        tracker.latest = _bus_dt(bus_ts2)
+        loop._check_convergence_stall()
+        assert loop._stall_alerted == {}
+        assert loop._stall_first_seen.get("coder") == bus_ts2
+
+        # Bus stays quiet at bus_ts2; advancing past the budget re-alerts.
+        now["now"] = bus_ts2 + self.BUDGET_SEC + 10
+        loop._check_convergence_stall()
+        assert len(spy.calls) == 2
+
+    def test_in_flight_job_suppresses_alert(self, monkeypatch):
+        """A role whose event has a live Job is being handled — never stalled."""
+        import event_loop
+
+        now = {"now": self.BASE}
+        _patch_now(monkeypatch, now)
+        spy = _NotifierSpy()
+        tracker = _StallTracker(latest=_bus_dt(self.BASE - 10_000))
+        loop = _make_stall_loop(monkeypatch, notifier=spy, tracker=tracker)
+
+        # Mark the coder's propose event as in-flight.
+        identity = event_loop.event_identity("propose", _PROPOSE_PAYLOAD)
+        key = event_loop.compute_dedupe_key(
+            loop.pipeline_id, loop.slice_id, loop.phase, "coder", "propose", identity
+        )
+        loop._live_keys.add(key)
+
+        loop._check_convergence_stall()
+        now["now"] = self.BASE + self.BUDGET_SEC + 10
+        loop._check_convergence_stall()
+
+        assert spy.calls == []
+        assert "coder" not in loop._stall_first_seen
+
+    def test_dormant_when_notifier_none(self, monkeypatch):
+        """With no notifier wired the check is inert — no tracking, no raise."""
+        now = {"now": self.BASE}
+        _patch_now(monkeypatch, now)
+        tracker = _StallTracker(latest=_bus_dt(self.BASE - 10_000))
+        loop = _make_stall_loop(monkeypatch, notifier=None, tracker=tracker)
+
+        loop._check_convergence_stall()
+        now["now"] = self.BASE + self.BUDGET_SEC + 10
+        loop._check_convergence_stall()
+
+        # Returned early both times — no per-role state accumulated.
+        assert loop._stall_first_seen == {}
+        assert loop._stall_alerted == {}
+
+    def test_agent_free_role_never_stalls(self, monkeypatch):
+        """confirm/complete/wait roles make progress agent-free — not stalled."""
+        now = {"now": self.BASE}
+        _patch_now(monkeypatch, now)
+        spy = _NotifierSpy()
+        tracker = _StallTracker(latest=_bus_dt(self.BASE - 10_000))
+        loop = _make_stall_loop(monkeypatch, notifier=spy, tracker=tracker, roles=("reviewer",))
+        # Override the script: reviewer derives a non-spawn (confirm) action.
+        _script(monkeypatch, {"reviewer": ("confirm", None, "x")})
+
+        loop._check_convergence_stall()
+        now["now"] = self.BASE + self.BUDGET_SEC + 10
+        loop._check_convergence_stall()
+
+        assert spy.calls == []
+        assert "reviewer" not in loop._stall_first_seen
+
+
+# ---------------------------------------------------------------------------
+# Active-roles publishing (#3064 slice-5, TASK-5-1)
+#
+# poll_once must publish the set of roles with a live one-shot Job to the
+# health monitor's ``set_active_roles`` (via the ``active_roles_notifier``
+# callback). Without this the monitor's ``_active_jobs`` stays empty in
+# orchestrator mode and every tripwire is suppressed.
+# ---------------------------------------------------------------------------
+
+
+class _ActiveRolesRecorder:
+    """Captures each set published to ``active_roles_notifier``."""
+
+    def __init__(self) -> None:
+        self.published: list[set] = []
+
+    def __call__(self, roles) -> None:
+        self.published.append(set(roles))
+
+
+def _make_publishing_loop(monkeypatch, notifier, *, roles=("coder",)):
+    import event_loop
+
+    return event_loop.OrchestratorEventLoop(
+        tracker=object(),
+        spawner=_RecordingSpawner(),
+        pipeline_id="issue-3064",
+        slice_id="slice-5",
+        phase="implement",
+        roles=list(roles),
+        clock=_FakeClock(),
+        active_roles_notifier=notifier,
+    )
+
+
+class TestActiveRolesPublishing:
+    """poll_once publishes the live-Job role set to the monitor."""
+
+    def test_publishes_live_role_after_spawn(self, monkeypatch):
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "x")})
+        rec = _ActiveRolesRecorder()
+        loop = _make_publishing_loop(monkeypatch, rec)
+
+        loop.poll_once(["coder"])
+
+        # The newly spawned coder Job is live → published this tick.
+        assert rec.published[-1] == {"coder"}
+
+    def test_publishes_empty_when_no_live_jobs(self, monkeypatch):
+        _script(monkeypatch, {"coder": ("wait", {"blocking_agents": []}, "x")})
+        rec = _ActiveRolesRecorder()
+        loop = _make_publishing_loop(monkeypatch, rec)
+
+        loop.poll_once(["coder"])
+
+        # wait derives no spawn → no live Job → empty set published.
+        assert rec.published[-1] == set()
+
+    def test_no_notifier_is_safe(self, monkeypatch):
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "x")})
+        loop = _make_publishing_loop(monkeypatch, None)
+
+        # Must not raise when no notifier is wired (pod mode / unit tests).
+        loop.poll_once(["coder"])
+
+    def test_publish_failure_does_not_wedge_poll(self, monkeypatch):
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "x")})
+
+        def _boom(_roles):
+            raise RuntimeError("monitor unreachable")
+
+        loop = _make_publishing_loop(monkeypatch, _boom)
+
+        # A notifier that raises is swallowed — the poll still returns.
+        decisions = loop.poll_once(["coder"])
+        assert decisions[0].action == "propose"

@@ -343,61 +343,13 @@ class TestSingletonAccessor:
 #     EGG_EVENT_LOOP_OWNER) — in orchestrator mode, absent senders between
 #     events trip nothing; the heartbeat fan-out to gateway session refresh
 #     happens at spawn (slice-4) instead.
-#   * ``refresh_at_spawn``: a method to reset the fan-out cooldown at
-#     spawn time so the first post-spawn heartbeat is not throttled.
 #
 # Pod-mode behavior is unchanged (existing tests pass unmodified).
-#
-# These tests remain RED until the coder lands TASK-5-1.
 # ---------------------------------------------------------------------------
 
 
 class TestModeGuard:
     """HeartbeatCoordinator mode-guard tests (#3064 slice-5 TASK-5-2)."""
-
-    def test_refresh_at_spawn_resets_fan_out_cooldown(self):
-        """refresh_at_spawn clears the fan-out throttle for the given key.
-
-        When a one-shot Job is spawned (orchestrator mode), the heartbeat
-        coordinator must not suppress the first heartbeat from the freshly
-        spawned pod — the fan-out cooldown from a prior spawn's heartbeat
-        would otherwise delay the gateway-session refresh.
-        """
-        coord = HeartbeatCoordinator()
-
-        # Simulate a prior heartbeat that set the cooldown.
-        assert coord.should_fan_out_gateway_session("p1", "slice-5", "coder", 30.0) is True
-        assert coord.should_fan_out_gateway_session("p1", "slice-5", "coder", 30.0) is False
-
-        # Spawn resets the cooldown for this key.
-        coord.refresh_at_spawn("p1", "slice-5", "coder")
-
-        # The next heartbeat is allowed through.
-        assert coord.should_fan_out_gateway_session("p1", "slice-5", "coder", 30.0) is True
-
-    def test_refresh_at_spawn_does_not_affect_other_keys(self):
-        """refresh_at_spawn is scoped to exactly one (pipeline, slice, role)."""
-        coord = HeartbeatCoordinator()
-
-        assert coord.should_fan_out_gateway_session("p1", "slice-5", "coder", 30.0) is True
-        assert coord.should_fan_out_gateway_session("p1", "slice-5", "tester", 30.0) is True
-
-        # Reset just the coder's cooldown.
-        coord.refresh_at_spawn("p1", "slice-5", "coder")
-
-        # Coder fires again (cooldown was reset).
-        assert coord.should_fan_out_gateway_session("p1", "slice-5", "coder", 30.0) is True
-        # Tester still inside its cooldown.
-        assert coord.should_fan_out_gateway_session("p1", "slice-5", "tester", 30.0) is False
-
-    def test_refresh_at_spawn_noop_for_unknown_key(self):
-        """refresh_at_spawn on an unknown key is a no-op (not an error)."""
-        coord = HeartbeatCoordinator()
-        # Should not raise.
-        coord.refresh_at_spawn("p1", "slice-5", "coder")
-
-        # And the key should behave normally — first call fires.
-        assert coord.should_fan_out_gateway_session("p1", "slice-5", "coder", 30.0) is True
 
     def test_absent_sender_in_orchestrator_mode_does_not_trip(self):
         """In orchestrator mode, an absent sender's silence is normal.

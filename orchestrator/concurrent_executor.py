@@ -507,6 +507,7 @@ class ConcurrentPhaseExecutor:
             job_supervisor=supervisor,
             job_status_view=self._event_status_view,
             convergence_stall_notifier=self._emit_supervision_alert,
+            active_roles_notifier=self._publish_active_roles,
         )
         self._event_loop = loop
         loop.start()
@@ -526,6 +527,28 @@ class ConcurrentPhaseExecutor:
         self._enable_orchestrator_mode_surfaces()
 
         return loop
+
+    def _publish_active_roles(self, roles: set[str]) -> None:
+        """Publish the event loop's live-Job role set to the health monitor.
+
+        Wired as the event loop's ``active_roles_notifier`` so the monitor's
+        ``_active_jobs`` reflects which roles currently have an in-flight
+        one-shot Job on every poll tick.  This is what makes orchestrator-mode
+        active-Job scoping (and silent-mid-event-pod coverage) actually take
+        effect in production — without it ``_active_jobs`` stays empty and
+        ``_orchestrator_skip_tripwire`` suppresses every role.
+
+        Best-effort: a missing health monitor (unit tests stand up only the
+        component under test) is tolerated.
+        """
+        try:
+            from health_monitor import get_health_monitor
+
+            hm = get_health_monitor()
+            if hm is not None:
+                hm.set_active_roles(roles)
+        except Exception:  # noqa: BLE001 — best-effort
+            pass
 
     def _enable_orchestrator_mode_surfaces(self) -> None:
         """Propagate orchestrator mode to downstream surfaces.

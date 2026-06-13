@@ -632,8 +632,13 @@ class HealthMonitor:
         # #3064 slice-5: in orchestrator mode a container exit for a role
         # with no active Job is a ghost container (a pod that finished its
         # event and was reaped).  Only escalate when the role has an active
-        # Job — a silent one-shot pod that died mid-event still alerts.
-        if self._orchestrator_mode and self._active_jobs and agent_id not in self._active_jobs:
+        # Job — a silent one-shot pod that died mid-event still alerts.  This
+        # uses the same gate as the heartbeat/progress tripwires so the
+        # criterion "container-exit tripwires apply ONLY while a Job is
+        # active for that role" holds: with ``_active_jobs`` empty (no live
+        # pods) every exit is a ghost and is suppressed, matching the
+        # heartbeat path rather than inverting it.
+        if self._orchestrator_skip_tripwire(agent_id):
             return
 
         escalation = {

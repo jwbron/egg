@@ -170,16 +170,17 @@ class HeartbeatCoordinator:
         """
         if min_interval_seconds <= 0:
             return True
-        # #3064 slice-5: in orchestrator mode session refresh happens at
-        # spawn (slice-4 worktree re-attach), not from heartbeat fan-out.
-        # Suppress the gateway call to prevent absent-sender alerts from
-        # stale heartbeat fan-out in orchestrator mode.
-        with self._lock:
-            if self._orchestrator_mode:
-                return False
         key: _Key = (pipeline_id, slice_id, role)
         now = time.time()
+        # Single lock acquisition covers both the orchestrator-mode gate and
+        # the cooldown bookkeeping.
         with self._lock:
+            # #3064 slice-5: in orchestrator mode session refresh happens at
+            # spawn (slice-4 worktree re-attach), not from heartbeat fan-out.
+            # Suppress the gateway call to prevent absent-sender alerts from
+            # stale heartbeat fan-out in orchestrator mode.
+            if self._orchestrator_mode:
+                return False
             last = self._last_fan_out.get(key, 0.0)
             if now - last < min_interval_seconds:
                 return False
@@ -198,26 +199,6 @@ class HeartbeatCoordinator:
         """
         with self._lock:
             self._orchestrator_mode = enabled
-
-    def refresh_at_spawn(
-        self,
-        pipeline_id: str,
-        slice_id: str | None,
-        role: str,
-    ) -> None:
-        """Reset the fan-out cooldown for a (pipeline, slice, role) at spawn.
-
-        Called when a one-shot pod is spawned (slice-4 worktree re-attach).
-        Resets the ``_last_fan_out`` entry so the first heartbeat from the
-        new pod passes through the gateway-session fan-out gate.
-
-        No-op if the key has never been tracked (no cooldown to clear).
-
-        Thread-safe.
-        """
-        key: _Key = (pipeline_id, slice_id, role)
-        with self._lock:
-            self._last_fan_out.pop(key, None)
 
     def clear(self, pipeline_id: str) -> None:
         """Drop all state for a pipeline (on phase transition).
