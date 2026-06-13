@@ -1533,3 +1533,62 @@ class TestEventLoopOwnershipSpawnGating:
         assert mock_spawn.call_count == 0, (
             "orchestrator mode must not spawn any up-front agent pods"
         )
+
+
+class TestStreakExhaustionSessionTeardown:
+    """Slice-4 (#3064): a role's reused gateway session is torn down when its
+    event arm exhausts its retry budget.
+
+    The supervisor's ``on_exhausted`` hook is wired to
+    ``_teardown_exhausted_session``, which reaches ``_teardown_session`` via the
+    teardown closure attached to ``spawn_fn`` (the executor holds no direct
+    spawner reference).
+    """
+
+    def _executor(self, spawn_fn):
+        from concurrent_executor import ConcurrentPhaseExecutor
+
+        pipeline = _make_pipeline()
+        return ConcurrentPhaseExecutor(pipeline, spawn_fn=spawn_fn)
+
+    def test_teardown_routes_to_spawn_fn_closure(self):
+        """``_teardown_exhausted_session`` calls ``spawn_fn.teardown_event_session``
+        with the resolved AgentRole."""
+        from egg_orchestrator.types import AgentRole
+
+        spawn_fn = MagicMock()
+        spawn_fn.teardown_event_session = MagicMock()
+        executor = self._executor(spawn_fn)
+
+        executor._teardown_exhausted_session(role="coder", action="propose", dedupe_key="key-1")
+
+        spawn_fn.teardown_event_session.assert_called_once_with(AgentRole.CODER)
+
+    def test_teardown_noop_when_spawn_fn_has_no_closure(self):
+        """Pod-mode / plain spawn_fn (no teardown surface) ⇒ no-op, no raise."""
+        spawn_fn = MagicMock(spec=[])  # no teardown_event_session attribute
+        executor = self._executor(spawn_fn)
+
+        # Must not raise even though there is no teardown closure to call.
+        executor._teardown_exhausted_session(role="coder", action="propose", dedupe_key="key-1")
+
+    def test_teardown_swallows_unknown_role(self):
+        """An unrecognised role string is logged and skipped, never raised."""
+        spawn_fn = MagicMock()
+        spawn_fn.teardown_event_session = MagicMock()
+        executor = self._executor(spawn_fn)
+
+        executor._teardown_exhausted_session(
+            role="not-a-real-role", action="propose", dedupe_key="key-1"
+        )
+
+        spawn_fn.teardown_event_session.assert_not_called()
+
+    def test_teardown_swallows_closure_error(self):
+        """A raising teardown closure is swallowed (best-effort)."""
+        spawn_fn = MagicMock()
+        spawn_fn.teardown_event_session = MagicMock(side_effect=RuntimeError("boom"))
+        executor = self._executor(spawn_fn)
+
+        # Must not propagate — supervision must never wedge on teardown.
+        executor._teardown_exhausted_session(role="coder", action="propose", dedupe_key="key-1")

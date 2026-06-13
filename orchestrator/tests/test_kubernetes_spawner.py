@@ -2448,13 +2448,8 @@ def _make_worktree(base, worktree_id, repo_name, branch, *, with_origin=False):
     return repo, origin
 
 
-def _within_budget(latency_ms: float) -> bool:
-    """The p50<60s spawn→invoke budget predicate (#3064 slice-4)."""
-    return latency_ms < 60_000
-
-
 class _FakeClock:
-    """Deterministic monotonic clock for the latency-budget tests.
+    """Deterministic monotonic clock for the spawn-timing tests.
 
     Yields a (start, end) pair per spawn so the measured ``spawn_ms`` equals the
     requested per-spawn delta exactly — no real sleeps, fully simulated.
@@ -2778,13 +2773,49 @@ class TestSpawnEventJobSessionReuse:
             == "egg-agent-pipe-1-slice-4-coder"
         )
 
-    def test_teardown_at_streak_exhaustion(self, spawner, mock_gateway):
-        """``_teardown_session`` deletes the session by base id and evicts the cache."""
+    def test_teardown_session_deletes_by_base_id_and_evicts(self, spawner, mock_gateway):
+        """The teardown primitive deletes the session by base id and evicts the cache.
+
+        This is the shared delete-and-evict unit used by BOTH teardown callers:
+        ``cleanup_pipeline`` (phase end, driven by ``test_teardown_at_phase_end``)
+        and the streak-exhaustion path (the supervisor's ``on_exhausted`` hook →
+        the ``spawn_fn`` teardown closure → here, with the production trigger
+        driven in ``test_event_loop`` / ``test_concurrent_executor``). It is no
+        longer a dead method whose only caller is this test.
+        """
         base = "egg-agent-pipe-1-slice-4-coder"
         cache_key = ("pipe-1", "coder", "slice-4", base)
         spawner._session_token_cache[cache_key] = "tok-x"
 
         spawner._teardown_session("pipe-1", AgentRole.CODER, slice_id="slice-4")
+
+        mock_gateway.delete_session_by_container.assert_called_once_with(base)
+        assert cache_key not in spawner._session_token_cache
+
+    def test_teardown_event_session_closure_routes_to_teardown(self, spawner, mock_gateway):
+        """``create_concurrent_spawn_fn`` exposes a teardown closure on ``spawn_fn``.
+
+        The executor's streak-exhaustion wiring reaches ``_teardown_session``
+        through this closure (it holds no direct spawner reference), so verify
+        the closure targets the stable per-role+slice base id.
+        """
+        base = "egg-agent-pipe-1-slice-4-coder"
+        cache_key = ("pipe-1", "coder", "slice-4", base)
+        spawner._session_token_cache[cache_key] = "tok-z"
+
+        spawn_fn = spawner.create_concurrent_spawn_fn(
+            pipeline_id="pipe-1",
+            issue_number=1,
+            repo_volumes=None,
+            mode="public",
+            repos=["owner/repo"],
+            phase="implement",
+            slice_id="slice-4",
+        )
+        teardown = getattr(spawn_fn, "teardown_event_session", None)
+        assert teardown is not None, "spawn_fn must expose teardown_event_session"
+
+        teardown(AgentRole.CODER)
 
         mock_gateway.delete_session_by_container.assert_called_once_with(base)
         assert cache_key not in spawner._session_token_cache
@@ -2888,12 +2919,17 @@ class TestSpawnEventJobAtMostOneLivePod:
         assert second is None
 
 
-class TestSpawnEventJobLatencyBudget:
-    """The p50<60s spawn→invoke budget is a contract assertion (#3064 slice-4).
+class TestSpawnAgentJobSpawnMsTiming:
+    """``SpawnedContainer.spawn_ms`` is the finer-grained ``spawn_agent_job``
+    sub-segment timer (#3064 slice-4).
 
-    Computed from the structured ``SpawnedContainer.spawn_ms`` timing field
-    under a simulated clock (no real sleeps). The budget predicate
-    (:func:`_within_budget`) goes red the moment the simulated p50 reaches 60s.
+    It is telemetry covering only the ``spawn_agent_job`` body — NOT the
+    authoritative spawn→invoke budget. The p50<60s budget must span the whole
+    ``spawn_event`` (re-attach + clean + hard-sync + session resolve) and is
+    asserted against the slice-2 ``EventDecision.timing['spawn_dispatch_seconds']``
+    field in ``test_event_loop.py`` (``TestLatencyBudgetFromTimingField``). These
+    tests only pin that ``spawn_ms`` faithfully reflects an injected clock, so a
+    consumer reading it gets an accurate sub-metric.
     """
 
     def _spawn_with_clock(self, spawner, deltas_ms):
@@ -2917,25 +2953,20 @@ class TestSpawnEventJobLatencyBudget:
             samples.append(sc.spawn_ms)
         return samples
 
-    def test_p50_spawn_to_invoke_below_60s_with_reattach(self, spawner, mock_k8s_client):
-        """With re-attach + session reuse, simulated p50 stays under 60s."""
+    def test_spawn_ms_matches_injected_clock(self, spawner, mock_k8s_client):
+        """``spawn_ms`` equals the simulated per-spawn delta exactly (no sleeps)."""
         deltas = [5_000, 9_000, 8_000, 12_000, 7_000]  # ms per spawn
         samples = self._spawn_with_clock(spawner, deltas)
 
         # The timing field is real and matches the simulated clock exactly.
         assert all(abs(s - d) < 1.0 for s, d in zip(samples, deltas, strict=True))
-        p50 = statistics.median(samples)
-        assert _within_budget(p50), f"p50 {p50}ms must be under the 60s budget"
 
-    def test_budget_check_trips_when_p50_at_or_above_60s(self, spawner, mock_k8s_client):
-        """Negative control: a simulated p50 ≥ 60s makes the budget predicate fail.
-
-        Proves the assertion is load-bearing — it is NOT skipped on a missing
-        field (as the old ``if latency_ms is not None`` guard allowed).
+    def test_spawn_ms_tracks_large_deltas(self, spawner, mock_k8s_client):
+        """The field stays accurate for large (≥60s) sub-segment latencies too,
+        so a slow ``spawn_agent_job`` body is faithfully reported to a consumer.
         """
-        deltas = [61_000, 65_000, 62_000]  # ms per spawn, all over budget
+        deltas = [61_000, 65_000, 62_000]  # ms per spawn
         samples = self._spawn_with_clock(spawner, deltas)
 
-        p50 = statistics.median(samples)
-        assert p50 >= 60_000
-        assert not _within_budget(p50), "budget predicate must go red at p50 ≥ 60s"
+        assert all(abs(s - d) < 1.0 for s, d in zip(samples, deltas, strict=True))
+        assert statistics.median(samples) >= 60_000

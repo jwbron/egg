@@ -1008,6 +1008,15 @@ class KubernetesSpawner:
         if cached_token is not None:
             try:
                 if self.gateway.heartbeat_session_by_container(job_name):
+                    # Reuse returns a stub WITHOUT re-registering, so the gateway
+                    # session keeps its original phase/branch/upstream. This is
+                    # safe only because reuse is confined to one role within one
+                    # slice+phase (the propose→ack→confirm arc): those fields are
+                    # stable across that arc. Reuse MUST NOT cross a phase
+                    # boundary — phase end tears the session down (see
+                    # ``cleanup_pipeline`` / ``_teardown_session``), so the next
+                    # phase re-registers fresh rather than inheriting stale
+                    # gateway policy (#3064 slice-4 re-review).
                     logger.info(
                         "Reusing live cached session",
                         job_name=job_name,
@@ -2207,19 +2216,25 @@ class KubernetesSpawner:
         # by a stable base ``container_id`` (not the per-event Job name), so the
         # per-Job ``remove_agent_job`` calls above do not reach them; this is
         # the phase/pipeline-end teardown that releases them and bounds the
-        # session-token cache.
-        for cache_key in [k for k in self._session_token_cache if k[0] == pipeline_id]:
-            _pid, _role_value, _slice_id, session_id = cache_key
+        # session-token cache. Delegates to ``_teardown_session`` (the same
+        # delete-by-base-id + cache-eviction primitive used by the
+        # streak-exhaustion path) so the two callers share one implementation.
+        # Snapshot the keys first: ``_teardown_session`` pops from the cache it
+        # is iterated over.
+        for _pid, role_value, slice_id, _session_id in [
+            k for k in self._session_token_cache if k[0] == pipeline_id
+        ]:
             try:
-                self.gateway.delete_session_by_container(session_id)
-            except GatewayError as e:
+                self._teardown_session(pipeline_id, AgentRole(role_value), slice_id=slice_id)
+            except ValueError:
+                # A cache entry whose role string is not a known AgentRole
+                # (should not happen) — drop it directly so cleanup stays bounded.
                 logger.warning(
-                    "Failed to tear down reused gateway session during cleanup",
+                    "Unknown role in session-token cache during cleanup; evicting",
                     pipeline_id=pipeline_id,
-                    session_container_id=session_id,
-                    error=str(e),
+                    role=role_value,
                 )
-            self._session_token_cache.pop(cache_key, None)
+                self._session_token_cache.pop((_pid, role_value, slice_id, _session_id), None)
 
         if preserve_worktrees:
             logger.info(
@@ -2894,6 +2909,22 @@ class KubernetesSpawner:
                 **common_kwargs,
             )
 
+        def _teardown_event_session(role: AgentRole) -> None:
+            """Tear down a role's reused orchestrator-mode gateway session.
+
+            #3064 slice-4: the event loop's supervisor calls this when a role's
+            event arm exhausts its retry budget (the ``_exhausted`` transition).
+            Routes to :meth:`_teardown_session` under this closure's captured
+            ``pipeline_id`` / ``slice_id`` so the delete-by-base-id + cache
+            eviction targets the same stable key the spawn path registered
+            under. Best-effort: ``_teardown_session`` swallows gateway errors.
+            """
+            self._teardown_session(pipeline_id, role, slice_id=slice_id)
+
+        # Expose the teardown alongside the spawn callable so the executor's
+        # event-loop wiring can reach ``_teardown_session`` (which lives on the
+        # spawner) without holding a separate spawner reference.
+        _spawn.teardown_event_session = _teardown_event_session  # type: ignore[attr-defined]
         return _spawn
 
     # ------------------------------------------------------------------

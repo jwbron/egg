@@ -491,6 +491,7 @@ class ConcurrentPhaseExecutor:
         supervisor = JobSupervisor(
             overseer_alert=self._emit_supervision_alert,
             agent_failed=self._handle_propose_arm_exhaustion,
+            on_exhausted=self._teardown_exhausted_session,
         )
 
         loop = OrchestratorEventLoop(
@@ -894,6 +895,50 @@ class ConcurrentPhaseExecutor:
                 "Failed to engage AGENT_FAILED for propose-arm exhaustion",
                 pipeline_id=self.pipeline.id,
                 role=role,
+                error=str(exc),
+            )
+
+    def _teardown_exhausted_session(self, *, role: str, action: str, dedupe_key: str) -> None:
+        """Release a role's reused gateway session on streak exhaustion (#3064 slice-4).
+
+        Wired to :class:`JobSupervisor`'s ``on_exhausted`` hook (the
+        ``_exhausted`` transition). The exhausted event arm will spawn no
+        further events, so the long-lived orchestrator-mode session keyed by
+        the role's stable base ``container_id`` is torn down here rather than
+        lingering to pipeline cleanup. Reaches :meth:`KubernetesSpawner.
+        _teardown_session` via the teardown closure attached to ``spawn_fn``
+        (the spawner is not held directly). Best-effort — a teardown failure
+        must never wedge the supervision path.
+        """
+        teardown = getattr(self.spawn_fn, "teardown_event_session", None)
+        if teardown is None:
+            # Pod-mode / test spawn_fn without the event-mode teardown surface:
+            # there is no long-lived per-role session to release.
+            return
+        try:
+            agent_role = role if isinstance(role, AgentRole) else AgentRole(role)
+        except ValueError:
+            logger.warning(
+                "Unknown role on streak-exhaustion teardown; skipping",
+                pipeline_id=self.pipeline.id,
+                role=role,
+                dedupe_key=dedupe_key,
+            )
+            return
+        try:
+            teardown(agent_role)
+            logger.info(
+                "Tore down reused gateway session on streak exhaustion",
+                pipeline_id=self.pipeline.id,
+                role=agent_role.value,
+                action=action,
+                dedupe_key=dedupe_key,
+            )
+        except Exception as exc:  # noqa: BLE001 — never wedge the loop on teardown
+            logger.warning(
+                "Failed to tear down reused gateway session on streak exhaustion",
+                pipeline_id=self.pipeline.id,
+                role=agent_role.value,
                 error=str(exc),
             )
 

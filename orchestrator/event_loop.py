@@ -250,10 +250,20 @@ class JobSupervisor:
         clock: Callable[[], float] = time.monotonic,
         overseer_alert: Callable[..., Any] | None = None,
         agent_failed: Callable[..., Any] | None = None,
+        on_exhausted: Callable[..., Any] | None = None,
     ) -> None:
         self.clock = clock
         self._overseer_alert = overseer_alert
         self._agent_failed = agent_failed
+        # #3064 slice-4: fired once when a dedupe key crosses into the
+        # exhausted set (the ``_exhausted`` transition). The orchestrator
+        # wires this to tear down the role's reused gateway session — an
+        # exhausted arm spawns no further events, so its long-lived
+        # orchestrator-mode session is released here rather than lingering to
+        # pipeline cleanup. Called as ``on_exhausted(role=, action=,
+        # dedupe_key=)``; best-effort (a teardown error never wedges
+        # supervision).
+        self._on_exhausted = on_exhausted
         # Per-dedupe-key streaks — each key gets a fresh budget
         # The counter resets when the dedupe key changes, giving a fresh
         # budget for each distinct event.
@@ -347,6 +357,23 @@ class JobSupervisor:
             self._alerted_10[dedupe_key] = True
             self._exhausted.add(dedupe_key)
             self._emit_alert(dedupe_key, streak, action, role)
+            # #3064 slice-4: release the role's reused orchestrator-mode gateway
+            # session — the exhausted arm spawns no further events, so the
+            # long-lived session is torn down at this transition (any later
+            # spawn for the role simply re-registers on a cache miss). Fires for
+            # every action (a stuck reviewer arm is just as dead as a producer);
+            # best-effort so a teardown failure never wedges supervision.
+            if self._on_exhausted is not None:
+                try:
+                    self._on_exhausted(role=role, action=action, dedupe_key=dedupe_key)
+                except Exception:  # noqa: BLE001 — teardown is best-effort
+                    logger.warning(
+                        "JobSupervisor: on_exhausted teardown failed for key=%s "
+                        "(action=%s, role=%s)",
+                        dedupe_key,
+                        action,
+                        role,
+                    )
             # #2806 relocated for orchestrator mode: a *producer* propose arm
             # that exhausts its budget engages the existing AGENT_FAILED path.
             # Reviewer arms (ack/nack) are not producer failures.
