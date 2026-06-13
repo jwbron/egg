@@ -759,6 +759,41 @@ class TestMCPToolForwarding:
         assert "analysis" not in captured_data
         assert "plan" not in captured_data
 
+    def test_handle_submit_task_forwards_description_for_issue_pipelines(self):
+        """Issue-backed submissions forward ``description`` as the prompt
+        (#3163). It feeds ``contract.task_description`` — the binding
+        per-event task section; the issue branch used to silently drop
+        it, leaving that section empty for the most common pipeline
+        type.
+        """
+        from mcp_tools import PipelineToolHandler
+
+        handler = PipelineToolHandler.__new__(PipelineToolHandler)
+
+        captured_data = {}
+        call_count = 0
+
+        def mock_request(path, method="GET", data=None, timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                captured_data.update(data or {})
+                return {"data": {"pipeline": {"id": "issue-42"}}}
+            return {}
+
+        handler._make_request = mock_request
+
+        handler._handle_submit_task(
+            {
+                "description": "Fix the flaky retry logic per the issue",
+                "repo": "owner/repo",
+                "issue_number": 42,
+            }
+        )
+
+        assert captured_data["issue_number"] == 42
+        assert captured_data["prompt"] == "Fix the flaky retry logic per the issue"
+
 
 @pytest.fixture
 def mock_git():

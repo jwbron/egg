@@ -243,6 +243,33 @@ def _reset_heartbeat_coordinator():
     reset_heartbeat_coordinator()
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _fakeredis_message_store_backend():
+    """Back ``get_message_store()`` with fakeredis for the whole session.
+
+    #3159 removed the in-memory ``MessageStore`` backend, and with it the
+    silent auto→memory fallback that unit tests used to land on when no
+    Redis was reachable. Production creation now fails loudly without a
+    real Redis, so the test session patches ``_create_message_store`` to
+    build a ``RedisMessageStore`` over ``fakeredis.FakeRedis()`` instead.
+
+    Session-scoped to preserve the singleton semantics tests always had:
+    one store per process unless a test calls ``reset_message_store()``
+    itself, in which case the next ``get_message_store()`` builds a fresh
+    fakeredis-backed store (the patched creator handles re-creation too).
+    """
+    import fakeredis
+    import message_store
+    from redis_message_store import RedisMessageStore
+
+    original_create = message_store._create_message_store
+    message_store._create_message_store = lambda: RedisMessageStore(fakeredis.FakeRedis())
+    message_store.reset_message_store()
+    yield
+    message_store._create_message_store = original_create
+    message_store.reset_message_store()
+
+
 @pytest.fixture
 def lifecycle_secret() -> str:
     """The shared test bearer token. Useful for building explicit headers."""

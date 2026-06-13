@@ -117,7 +117,7 @@ _CONTEXT_1M_SUFFIX = "[1m]"
 # documents the real window (only membership is used). Add a model here when its
 # window is <1M. See #2987.
 _SUB_1M_CONTEXT_MODELS: dict[str, int] = {
-    "kimi-k2.6": 256_000,
+    "kimi-k2.7-code": 262_144,
     "glm-5.1": 202_752,
 }
 
@@ -264,8 +264,8 @@ def classify_model(model: str) -> AgentModelDecision:
     # real window is below 1M (``_SUB_1M_CONTEXT_MODELS``): those take the bare
     # name so Claude Code uses its 200K default and compacts before their true
     # limit instead of overflowing it. A pre-suffixed sub-1M model (e.g.
-    # ``kimi-k2.6[1m]``) is normalised back to bare here — the registry is
-    # authoritative over an operator's stray suffix.
+    # ``kimi-k2.7-code[1m]``) is normalised back to bare here — the registry
+    # is authoritative over an operator's stray suffix.
     if bare in _SUB_1M_CONTEXT_MODELS:
         claude_code_alias = bare
         if had_suffix:

@@ -3,17 +3,15 @@
 The k8s manifests pin the orchestrator to the Redis Streams backend
 (``EGG_MESSAGE_STORE_BACKEND=redis`` + the ``redis`` Deployment/Service in
 ``k8s/base/``). Before #2662 the cluster deployed no Redis, so production
-silently ran the in-memory ``MessageStore`` and ``RedisMessageStore`` had
-zero live coverage — everything above unit tier went through ``fakeredis``.
+silently ran the (since-removed, #3159) in-memory ``MessageStore`` and
+``RedisMessageStore`` had zero live coverage — everything above unit tier
+went through ``fakeredis``.
 
 These tests run against the live cluster ``make test-integration`` deploys:
 
-* the deployed orchestrator explicitly selects the ``redis`` backend (the
-  silent ``auto``→memory fallback is the #3076 mid-phase-restart loss risk
-  that #3077 slice-6's degraded health flag exists to catch);
-* ``/api/v1/health`` does not report the fallback marker; and
+* the deployed orchestrator explicitly pins the ``redis`` backend, and
 * a real XADD/XRANGE/DEL round-trip works from inside the orchestrator
-  container, through the production selection logic in
+  container, through the production creation logic in
   ``message_store._create_message_store()`` — exercising the env wiring,
   the in-image redis client, Service DNS, and the live Redis in one path.
 
@@ -45,11 +43,13 @@ class TestMessageStoreBackend:
     def test_deployed_backend_is_explicit_redis(self, egg_stack: EggStack) -> None:
         """The orchestrator Deployment pins EGG_MESSAGE_STORE_BACKEND=redis.
 
-        Explicit ``redis`` mode cannot silently fall back to in-memory:
-        creation raises instead. A manifest regression to ``auto`` (or
-        dropping the env var, whose default is ``auto``) fails here. The
-        real end-to-end coverage that the pinned backend actually works
-        lives in ``test_redis_streams_roundtrip_from_orchestrator_pod``.
+        Since #3159 redis is the only backend (unset also means redis,
+        and the removed ``auto``/``memory`` values fail loudly at
+        creation), but the manifest keeps the explicit pin as deployed
+        documentation of the choice — a regression that drops or edits
+        it fails here. The real end-to-end coverage that the pinned
+        backend actually works lives in
+        ``test_redis_streams_roundtrip_from_orchestrator_pod``.
         """
         result = _kubectl(
             "get",
@@ -65,25 +65,22 @@ class TestMessageStoreBackend:
             f"got {result.stdout.strip()!r}. See #2662."
         )
 
-    def test_health_reports_message_store_ok(self, orchestrator_url: str) -> None:
-        """/api/v1/health must not carry the auto→memory fallback marker.
+    def test_health_carries_no_message_store_component(self, orchestrator_url: str) -> None:
+        """/api/v1/health no longer reports a ``message_store`` component.
 
-        Scope caveat: the marker (``is_memory_fallback_degraded()``) is
-        only ever set on the *auto*→memory path, so in the explicit
-        ``redis`` mode this deployment pins it is structurally always
-        absent — a healthy ``{"status": "ok"}`` here does NOT prove Redis
-        is reachable (an unreachable Redis 500s ops without flipping this
-        flag). This is a cheap guard that the orchestrator came up without
-        degrading; the round-trip test below carries the real proof that
-        the orchestrator→Redis path works.
+        The #3077 slice-6 degraded component existed solely to surface
+        the auto→memory fallback; #3159 removed that fallback (and the
+        in-memory backend) so creation fails loudly instead of degrading.
+        This pins the surface removal — a reappearing component means
+        fallback machinery grew back. The round-trip test below carries
+        the real proof that the orchestrator→Redis path works.
         """
         resp = requests.get(f"{orchestrator_url}/api/v1/health", timeout=10)
         body = resp.json()
-        component = body.get("components", {}).get("message_store")
-        assert component == {"status": "ok"}, (
-            f"message_store health component is {component!r} — the deployed "
-            "orchestrator fell back to the in-memory backend (#3077 slice-6 "
-            "marker). Check the redis Deployment and REDIS_HOST wiring."
+        components = body.get("components", {})
+        assert "message_store" not in components, (
+            f"unexpected message_store health component {components.get('message_store')!r} "
+            "— the #3077 slice-6 fallback surface was removed in #3159."
         )
 
     def test_redis_streams_roundtrip_from_orchestrator_pod(self, egg_stack: EggStack) -> None:
