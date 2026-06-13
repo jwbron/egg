@@ -9,8 +9,9 @@ Precedence (highest wins):
 
     1. ``pipeline_config.agent_models.get(role.value)``  — per-pipeline
     2. ``get_default_agent_model(repo)``                 — per-repo
-    3. Built-in default — ``"fable"`` for refine/plan phase roles,
-       ``"opus"`` for everything else
+    3. Built-in default — ``"opus"`` for all roles. Fable has been
+       disabled, so ``FABLE_DEFAULT_MODEL`` is now ``"opus"`` and the
+       refine/plan phase roles unify on opus alongside everything else.
 
 Classifier (model string → upstream):
 
@@ -756,9 +757,9 @@ class TestDualImportRepoConfig:
 
 class TestDefaultPathRegression:
     """With ``agent_models={}`` and no repo default, EVERY role resolves
-    to an Anthropic-route built-in: ``fable`` for the refine/plan phase
-    roles, ``opus`` for everything else. ``upstream_model`` stays
-    ``None`` on every default path — the slice-2 no-op invariant.
+    to an Anthropic-route built-in: ``opus`` for all roles now that fable
+    has been disabled (refine/plan unify on opus). ``upstream_model``
+    stays ``None`` on every default path — the slice-2 no-op invariant.
     """
 
     def test_implement_phase_roles_default_to_anthropic_opus(self):
@@ -786,9 +787,13 @@ class TestDefaultPathRegression:
                     f"regression: default config must be Anthropic-only"
                 )
 
-    def test_refine_and_plan_roles_default_to_anthropic_fable(self):
+    def test_refine_and_plan_roles_default_to_anthropic_opus(self):
         """Refine/plan producers and reviewers pick up the built-in
-        ``fable`` default while staying on the Anthropic upstream."""
+        ``opus`` default while staying on the Anthropic upstream.
+
+        Fable has been disabled, so ``FABLE_DEFAULT_MODEL`` is now
+        ``"opus"`` — the refine/plan roles unify on opus alongside the
+        implement and downstream phases."""
         resolve_agent_model = _resolver()
         AgentRole = _agent_role()
         config = _pipeline_config()
@@ -804,8 +809,8 @@ class TestDefaultPathRegression:
                 AgentRole.REVIEWER_PLAN,
             ):
                 d = resolve_agent_model(role, config, "any/repo")
-                assert d.claude_code_alias == "fable", (
-                    f"{role.value} should default to fable, got {d.claude_code_alias!r}"
+                assert d.claude_code_alias == "opus", (
+                    f"{role.value} should default to opus, got {d.claude_code_alias!r}"
                 )
                 assert d.upstream == "anthropic"
                 assert d.upstream_model is None
@@ -870,9 +875,14 @@ class TestEffortPinning:
 
         assert classify_model("qwen3-max").effort is None
 
-    def test_refine_plan_default_decision_carries_high_effort(self):
-        """The built-in fable default for refine/plan roles flows through
-        ``resolve_agent_model`` with the pinned effort attached."""
+    def test_refine_plan_default_decision_inherits_default_effort(self):
+        """The built-in opus default for refine/plan roles flows through
+        ``resolve_agent_model`` carrying ``effort=None``.
+
+        Fable has been disabled, so ``FABLE_DEFAULT_MODEL`` is ``"opus"``;
+        opus is not in ``_FABLE_ALIASES``, so the pinned ``FABLE_EFFORT``
+        no longer applies and these roles inherit Claude Code's per-model
+        default — matching the coder/implement roles."""
         resolve_agent_model = _resolver()
         AgentRole = _agent_role()
         config = _pipeline_config()
@@ -881,5 +891,5 @@ class TestEffortPinning:
             refiner = resolve_agent_model(AgentRole.REFINER, config, "any/repo")
             coder = resolve_agent_model(AgentRole.CODER, config, "any/repo")
 
-        assert refiner.effort == "high"
+        assert refiner.effort is None
         assert coder.effort is None
