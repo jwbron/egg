@@ -558,9 +558,14 @@ data:
 > the OpenRouter provider (`extra_body.provider.order` + `allow_fallbacks:
 > false`) then gives a stable cache surface — without it OpenRouter routes
 > across a cheapest-available pool whose cache support varies per turn. The
-> bundled `cost_callback` logs the real upstream cost and per-session cache
-> hit rate (a JSON line per call) to the LiteLLM pod stream, visible via
-> `get_service_logs` / the structured-logging stream.
+> bundled `cost_callback` logs the real upstream cost, LiteLLM's own
+> pricing-map estimate (`cost_estimated`, which survives the streaming path
+> where billed cost is unavailable), per-session cache hit rate, and
+> per-role attribution (`pipeline_id`/`agent_role`/`phase` from the
+> gateway's `x-egg-*` headers — so per-role spend is a log query, not a
+> hand cross-reference of agent completion logs). Each call emits one JSON
+> line to the LiteLLM pod stream, visible via `get_service_logs` / the
+> structured-logging stream.
 
 > **Why the paired `<name>[1m]` row?** Claude Code registers the
 > custom model with a `[1m]` context-window-opt-in suffix
