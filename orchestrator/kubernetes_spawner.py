@@ -115,6 +115,8 @@ def _resolve_wait_producer_allowlist(phase: str | None, role: str, repo: str | N
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from egg_container import MountSpec
 
 logger = get_logger("orchestrator.kubernetes_spawner")
@@ -384,6 +386,11 @@ class SpawnedContainer:
     agent_role: AgentRole
     pipeline_id: str
     environment: dict[str, str]
+    # #3064 slice-4: wall-clock spawn→invoke latency in milliseconds, measured
+    # across ``spawn_agent_job`` (worktree re-attach/create + session
+    # reuse/register + k8s Job create). Used by the p50<60s budget assertion.
+    # ``None`` only on paths that bypass the spawn timer.
+    spawn_ms: float | None = None
 
 
 # --- spawn-retry policy (#1839) -------------------------------------------
@@ -507,7 +514,12 @@ def _validate_worktree_for_reuse(
         # .git integrity
         try:
             gd = _sp.run(
-                ["git", "-C", str(d), "rev-parse", "--git-dir"],
+                # ``safe.directory=*`` mirrors ``_clean_reused_worktree`` so a
+                # host_uid worktree owned by a different uid than the
+                # orchestrator process does not trip git's "dubious ownership"
+                # guard — which would fail rev-parse and silently degrade
+                # re-attach to create-with-retry on every event (#3064 review).
+                ["git", "-C", str(d), "-c", "safe.directory=*", "rev-parse", "--git-dir"],
                 capture_output=True,
                 text=True,
                 timeout=15,
@@ -551,7 +563,16 @@ def _validate_worktree_for_reuse(
         if branch:
             try:
                 cb = _sp.run(
-                    ["git", "-C", str(d), "rev-parse", "--abbrev-ref", "HEAD"],
+                    [
+                        "git",
+                        "-C",
+                        str(d),
+                        "-c",
+                        "safe.directory=*",
+                        "rev-parse",
+                        "--abbrev-ref",
+                        "HEAD",
+                    ],
                     capture_output=True,
                     text=True,
                     timeout=10,
@@ -711,6 +732,7 @@ class KubernetesSpawner:
         namespace: str = DEFAULT_NAMESPACE,
         *,
         docker_client: Any | None = None,
+        clock: "Callable[[], float] | None" = None,  # noqa: UP037
     ):
         """Initialize Kubernetes spawner.
 
@@ -738,15 +760,24 @@ class KubernetesSpawner:
         # pattern as state_store.py).
         self._restart_locks: dict[tuple[str, str, str | None], threading.Lock] = {}
         self._restart_locks_lock = threading.Lock()
-        # #3064 slice-4: session token cache for worktree re-attach.
-        # Key: (pipeline_id, agent_role_value, slice_id, job_name)
-        # Both the write side (spawn_agent_job at ~1158) and the read side
-        # (spawn_event_job at ~1547) use ``agent_role.value`` (str) as the key
-        # element — never the enum member directly. This is intentionally
-        # consistent: if a future caller passes the enum member instead of
-        # ``.value``, the lookup silently misses and falls through to a fresh
-        # session registration, which is safe (just an extra gateway round-trip).
+        # #3064 slice-4: per-role gateway-session token cache.
+        # Key: (pipeline_id, agent_role_value, slice_id, session_container_id)
+        # where ``session_container_id`` is the STABLE per-role+slice base Job
+        # name (``_build_k8s_job_names``) — NOT the per-event discriminated Job
+        # name. Keying on the stable id is what lets a session be reused across
+        # a role's successive one-shot events (propose, ack, …); keying on the
+        # per-event name (the pre-review behaviour) missed the cache every
+        # distinct event and re-registered. Both the write side (``spawn_agent_
+        # job`` via ``session_container_id``) and the read side (``_get_or_
+        # create_session``) build this element from the same stable base name
+        # and use ``agent_role.value`` (str), never the enum member directly.
+        # ``_teardown_session`` / ``cleanup_pipeline`` evict entries so the
+        # cache stays bounded by roster size.
         self._session_token_cache: dict[tuple[str, str, str | None, str], str] = {}
+        # #3064 slice-4: monotonic clock for the spawn→invoke latency budget.
+        # Injectable so the p50<60s budget test can drive a simulated clock
+        # (no real sleeps). Defaults to ``time.monotonic``.
+        self._clock: "Callable[[], float]" = clock or time.monotonic  # noqa: UP037
 
     # ------------------------------------------------------------------
     # #3064 slice-4: worktree re-attach instance methods (test-first
@@ -871,8 +902,18 @@ class KubernetesSpawner:
                     error=str(e),
                 )
                 return False
-            # hard-sync (best-effort in test environments without a remote;
-            # in production the origin remote always exists)
+            # Hard-sync to the role branch tip. This is the ONLY step that
+            # removes a predecessor's *local, unpushed* commit — ``reset
+            # --hard`` (above) only discards the uncommitted working tree, so
+            # a pod killed mid-event after a local commit still carries that
+            # commit through to here. If the hard-sync fails we MUST fall back
+            # to recreate (return False): continuing on the current HEAD would
+            # leak the predecessor's unproposed commit into the successor's
+            # worktree — and its next proposal — which is exactly the residue
+            # leak the R6 dirty-state policy exists to forbid (#3064 slice-4,
+            # review). A transient ``fetch origin`` blip is precisely what this
+            # resilience path must survive, so it is fatal-to-reuse, not
+            # silently swallowed.
             if branch:
                 try:
                     _sp.run(
@@ -913,18 +954,16 @@ class KubernetesSpawner:
                     )
                 except Exception as e:
                     logger.warning(
-                        "Worktree re-attach: hard-sync failed — "
-                        "worktree still clean, continuing with current HEAD",
+                        "Worktree re-attach: hard-sync failed — falling back "
+                        "to recreate (cannot prove worktree is at origin tip)",
                         agent_worktree_id=agent_worktree_id,
                         repo=n,
                         error=str(e),
                     )
-                    # The discard steps (reset --hard + clean -fd) already
-                    # succeeded, so the worktree is clean. The hard-sync
-                    # failure is logged but non-fatal — the agent runs on
-                    # the current (clean) HEAD. In production the origin
-                    # remote always exists, so this branch is only taken
-                    # in test environments or transient network errors.
+                    # Fatal: without a successful hard-sync we cannot guarantee
+                    # the worktree carries no predecessor residue ahead of
+                    # origin/{branch}. Recreate-with-retry is the safe fallback.
+                    return False
 
         logger.info(
             "Worktree re-attach: cleaned and hard-synced",
@@ -1010,6 +1049,11 @@ class KubernetesSpawner:
                 branch=branch,
                 base_branch=base_branch,
                 jira_ticket=jira_ticket,
+                # Per-agent upstream routing (#2769 slice-2) — forward so a
+                # session reused via this path keeps its litellm routing
+                # instead of silently falling back to the Anthropic default.
+                upstream=upstream,
+                upstream_model=upstream_model,
                 retry_transient=True,
             )
             self._session_token_cache[cache_key] = session_info.session_token
@@ -1022,6 +1066,51 @@ class KubernetesSpawner:
                 error=str(e),
             )
             return None
+
+    def _teardown_session(
+        self,
+        pipeline_id: str,
+        agent_role: AgentRole,
+        slice_id: str | None = None,
+    ) -> None:
+        """Tear down a role's reused gateway session (#3064 slice-4).
+
+        In orchestrator-ownership mode a single gateway session is reused
+        across a role's successive one-shot event spawns (see
+        :meth:`_get_or_create_session`), so the per-event Job stop/remove paths
+        deliberately do NOT delete it. This method is the explicit teardown for
+        that long-lived session — called at phase end (via
+        :meth:`cleanup_pipeline`) or on streak exhaustion, when the role will
+        spawn no further events. It deletes the gateway session keyed by the
+        stable base ``container_id`` and evicts the in-memory cache entry so the
+        cache stays bounded by roster size rather than growing per event.
+
+        Best-effort: a gateway error is logged and swallowed (teardown must
+        never wedge the caller). Pod-mode sessions are untouched — they are
+        keyed by the per-Job name and cleaned by the existing stop/remove
+        paths.
+        """
+        session_id, _ = self._build_k8s_job_names(pipeline_id, agent_role, slice_id=slice_id)
+        try:
+            self.gateway.delete_session_by_container(session_id)
+            logger.info(
+                "Tore down reused gateway session",
+                pipeline_id=pipeline_id,
+                role=agent_role.value,
+                session_container_id=session_id,
+            )
+        except GatewayError as e:
+            logger.warning(
+                "Failed to tear down reused gateway session",
+                pipeline_id=pipeline_id,
+                role=agent_role.value,
+                session_container_id=session_id,
+                error=str(e),
+            )
+        finally:
+            self._session_token_cache.pop(
+                (pipeline_id, agent_role.value, slice_id, session_id), None
+            )
 
     @property
     def k8s(self) -> KubernetesClient:
@@ -1103,6 +1192,7 @@ class KubernetesSpawner:
         job_name_suffix: str | None = None,
         reuse_worktree_id: str | None = None,
         existing_session_token: str | None = None,
+        session_container_id: str | None = None,
     ) -> SpawnedContainer:
         """Spawn a Kubernetes Job for an agent.
 
@@ -1144,6 +1234,13 @@ class KubernetesSpawner:
                 a fresh session. Used together with ``reuse_worktree_id``
                 to avoid redundant gateway round-trips across successive
                 one-shot event spawns (#3064 slice-4).
+            session_container_id: Stable identifier under which the gateway
+                session is registered, heartbeat, cached, and torn down — kept
+                distinct from the per-event k8s Job name so the session
+                survives (and is reused) across a role's successive one-shot
+                event spawns whose Job names each carry a per-event
+                discriminator. ``None`` (the pod-mode default) registers the
+                session under ``job_name`` exactly as before (#3064 slice-4).
 
         Returns:
             SpawnedContainer with Job and session info
@@ -1151,6 +1248,9 @@ class KubernetesSpawner:
         Raises:
             KubernetesSpawnError: If spawning fails
         """
+        # #3064 slice-4: spawn→invoke latency timer (p50<60s budget). Uses the
+        # injectable monotonic clock so tests can drive a simulated clock.
+        _spawn_start = self._clock()
         job_name, actual_k8s_job_name = self._build_k8s_job_names(
             pipeline_id, agent_role, slice_id=slice_id
         )
@@ -1386,6 +1486,10 @@ class KubernetesSpawner:
         session_info = None
         session_token = existing_session_token  # #3064 slice-4: reuse when supplied
         agent_anchor_id = f"{agent_role.value}-{job_name[:8]}"
+        # #3064 slice-4: the gateway session is keyed by a stable id (per
+        # role+slice) when the event path supplies one, so it persists across
+        # the per-event Job names; pod mode falls back to the Job name.
+        session_id = session_container_id or job_name
 
         try:
             if existing_session_token:
@@ -1399,7 +1503,7 @@ class KubernetesSpawner:
                 )
                 session_info = SessionInfo(
                     session_token=session_token,
-                    container_id=job_name,
+                    container_id=session_id,
                     container_ip=None,
                     mode=mode or "public",
                     created_at=datetime.now(),
@@ -1408,7 +1512,7 @@ class KubernetesSpawner:
 
             if session_info is None:
                 session_info = self.gateway.register_session(
-                    container_id=job_name,
+                    container_id=session_id,
                     container_ip=None,  # Token-only auth for k8s
                     mode=mode,
                     repos=repos,
@@ -1454,9 +1558,11 @@ class KubernetesSpawner:
                     session_token=session_token[:12] + "...",
                 )
 
-                # Cache the session token for potential re-attach on the next
-                # one-shot event spawn (#3064 slice-4).
-                cache_key = (pipeline_id, agent_role.value, slice_id, job_name)
+                # Cache the session token for potential reuse on the next
+                # one-shot event spawn (#3064 slice-4). Keyed by the stable
+                # ``session_id`` (not the per-event Job name) so a subsequent
+                # event for the same role+slice hits this entry.
+                cache_key = (pipeline_id, agent_role.value, slice_id, session_id)
                 self._session_token_cache[cache_key] = session_token
 
         except GatewayError as e:
@@ -1689,6 +1795,7 @@ class KubernetesSpawner:
                 agent_role=agent_role,
                 pipeline_id=pipeline_id,
                 environment=environment,
+                spawn_ms=(self._clock() - _spawn_start) * 1000.0,
             )
 
         except KubernetesClientError as e:
@@ -1852,28 +1959,44 @@ class KubernetesSpawner:
                     role=agent_role.value,
                 )
 
-        # Session reuse: check cache for a live session token for this role.
-        event_suffix = dedupe_key[:_EVENT_JOB_NAME_DISCRIMINATOR_LEN]
-        job_name, _jn2 = self._build_k8s_job_names(pipeline_id, agent_role, slice_id=slice_id)
-        if event_suffix:
-            job_name = _fit_k8s_name(f"{job_name}-{event_suffix}")
-        session_cache_key = (pipeline_id, agent_role.value, slice_id, job_name)
-        cached_token = self._session_token_cache.get(session_cache_key)
-        if cached_token is not None and reuse_worktree_id is not None:
-            if self.gateway.heartbeat_session_by_container(job_name):
-                reuse_session_token = cached_token
+        # Session reuse (#3064 slice-4). The gateway session is keyed by the
+        # STABLE per-role+slice base Job name (no per-event discriminator), so
+        # it survives across the distinct Job names of successive events and
+        # can actually be reused. ``_get_or_create_session`` owns the
+        # cache-lookup → heartbeat → re-register logic in ONE place (the same
+        # path the session-reuse tests drive) — there is no second, divergent
+        # inline lookup. When re-attach succeeded the worktree is already
+        # present, so we resolve the session here and hand the token to
+        # ``spawn_agent_job`` (which then skips its own registration). On a
+        # re-attach miss we leave registration to ``spawn_agent_job``'s
+        # create-with-retry path so the worktree-creation/session linkage
+        # (#1857) stays intact — but still under the stable ``session_base_id``
+        # so the next event reuses it.
+        session_base_id, _jn2 = self._build_k8s_job_names(
+            pipeline_id, agent_role, slice_id=slice_id
+        )
+        if reuse_worktree_id is not None:
+            session_info = self._get_or_create_session(
+                pipeline_id,
+                agent_role,
+                slice_id=slice_id,
+                mode=spawn_kwargs.get("mode", "public"),
+                repos=repos,
+                branch=branch,
+                base_branch=spawn_kwargs.get("base_branch"),
+                phase=spawn_kwargs.get("phase"),
+                issue_number=spawn_kwargs.get("issue_number"),
+                upstream=spawn_kwargs.get("upstream"),
+                upstream_model=spawn_kwargs.get("upstream_model"),
+                jira_ticket=spawn_kwargs.get("jira_ticket"),
+            )
+            if session_info is not None:
+                reuse_session_token = session_info.session_token
                 logger.info(
-                    "Event spawn: reusing cached gateway session",
+                    "Event spawn: resolved gateway session (reuse-or-register)",
                     pipeline_id=pipeline_id,
                     role=agent_role.value,
-                    job_name=job_name,
-                )
-            else:
-                logger.info(
-                    "Event spawn: cached session stale — will re-register",
-                    pipeline_id=pipeline_id,
-                    role=agent_role.value,
-                    job_name=job_name,
+                    session_container_id=session_base_id,
                 )
 
         event_env: dict[str, str] = {
@@ -1922,6 +2045,10 @@ class KubernetesSpawner:
             repo_volumes=resolved_repo_volumes,
             reuse_worktree_id=reuse_worktree_id,
             existing_session_token=reuse_session_token,
+            # Register/cache/heartbeat the session under the stable base id so
+            # it is reused across the role's successive event spawns (#3064
+            # slice-4), rather than re-registered under each per-event Job name.
+            session_container_id=session_base_id,
             **spawn_kwargs,
         )
 
@@ -2074,6 +2201,25 @@ class KubernetesSpawner:
                     job_name=job.job_name,
                     error=str(e),
                 )
+
+        # #3064 slice-4: tear down any long-lived event-mode gateway sessions
+        # reused across this pipeline's one-shot event spawns. They are keyed
+        # by a stable base ``container_id`` (not the per-event Job name), so the
+        # per-Job ``remove_agent_job`` calls above do not reach them; this is
+        # the phase/pipeline-end teardown that releases them and bounds the
+        # session-token cache.
+        for cache_key in [k for k in self._session_token_cache if k[0] == pipeline_id]:
+            _pid, _role_value, _slice_id, session_id = cache_key
+            try:
+                self.gateway.delete_session_by_container(session_id)
+            except GatewayError as e:
+                logger.warning(
+                    "Failed to tear down reused gateway session during cleanup",
+                    pipeline_id=pipeline_id,
+                    session_container_id=session_id,
+                    error=str(e),
+                )
+            self._session_token_cache.pop(cache_key, None)
 
         if preserve_worktrees:
             logger.info(
