@@ -247,10 +247,11 @@ RUN if [ "$CLAUDE_AGENT_SDK_VERSION" = "latest" ]; then \
 # Install Claude Code CLI (native installer) for the egg user
 #
 # Channel choice: 'latest', not 'stable'. orchestrator/agent_model_resolution.py
-# defaults refine/plan roles to bare model-family aliases at launch ('fable'),
-# and the stable channel lags those launches — at the time of #3136 stable
-# (2.1.153) predated the fable alias entirely, so a stable-channel image
-# crash-loops every refine/plan agent at spawn.
+# spawns agents on bare model-family aliases ('opus' is the built-in default;
+# 'fable' remains opt-in selectable per #3197), and the stable channel lags
+# new family launches — at the time of #3136 stable (2.1.153) predated the
+# fable alias entirely, so a stable-channel image crash-loops any agent
+# spawned on an alias it doesn't know.
 ARG CLAUDE_CODE_VERSION=latest
 # Cache-bust (#3136): BuildKit re-checks this URL's content on every build, so
 # the install layer below re-runs exactly when the release channel moves to a
@@ -285,8 +286,8 @@ RUN su - egg -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_CO
     # Save installed version for update checks (non-fatal if this fails)
     (/home/egg/.local/bin/claude --version 2>/dev/null | head -1 > /home/egg/.local/VERSION || true) && \
     # Fail the build if the installed build predates a model family that
-    # orchestrator/agent_model_resolution.py uses as a built-in default
-    # ('fable' for refine/plan roles, 'opus' for everything else): a Claude
+    # orchestrator/agent_model_resolution.py can spawn agents on ('opus', the
+    # built-in default; 'fable', opt-in selectable per #3197): a Claude
     # Code build whose alias table lacks the family rejects the bare alias at
     # session init and the agent crash-loops at spawn (#3136). No auth is
     # mounted at build time, so this is a strings-level heuristic — a build
@@ -295,13 +296,12 @@ RUN su - egg -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_CO
     for family in fable opus; do \
         if ! grep -aq "claude-${family}-" /home/egg/.local/bin/claude; then \
             echo "ERROR: installed Claude Code ($(cat /home/egg/.local/VERSION 2>/dev/null)) does not know the '${family}' model family."; \
-            echo "agent_model_resolution.py uses '${family}' as a built-in default — agents would crash-loop at spawn (#3136)."; \
+            echo "agent_model_resolution.py can spawn agents on '${family}' — agents would crash-loop at spawn (#3136)."; \
             echo "Pass a newer build: docker build --build-arg CLAUDE_CODE_VERSION=<version|latest> ..."; \
             echo "If pinning to an older CC build is intentional (and every"; \
             echo "agent_models entry has been pinned away from '${family}'),"; \
             echo "drop '${family}' from the 'for family in ...' list above to"; \
-            echo "skip the gate for that family (matches the bypass guidance"; \
-            echo "in docs/guides/per-agent-models.md)."; \
+            echo "skip the gate for that family."; \
             exit 1; \
         fi; \
     done && \
