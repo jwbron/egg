@@ -500,6 +500,7 @@ class ConcurrentPhaseExecutor:
             container_info=result.container_info,
             started_at=datetime.now(UTC),
             slice_id=self._slice_id,
+            resolved_model=decision.claude_code_alias,
         )
 
     def handle_agent_failure(self, role: str, error: str) -> dict[str, Any]:
