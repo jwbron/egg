@@ -185,6 +185,21 @@ _SPECS: tuple[ArtifactSpec, ...] = (
 # ``dict``) for the annotation so callers can't rely on mutation.
 _BY_NAME: Mapping[str, ArtifactSpec] = {spec.name: spec for spec in _SPECS}
 
+# Path -> name reverse-resolution patterns, compiled once at import time.
+# The specs are frozen, so the ``prefix``/``suffix`` split and the anchored
+# single-segment pattern never change between calls; precompiling here keeps
+# ``name_for_path`` off the per-call ``re.compile`` cost (one pattern per
+# spec, per render).  ``[^/]+`` matches the single non-empty, slash-free
+# ``{identifier}`` segment; ``fullmatch`` anchors both ends.
+_PATH_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
+    (
+        re.compile(re.escape(prefix) + "[^/]+" + re.escape(suffix)),
+        spec.name,
+    )
+    for spec in _SPECS
+    for prefix, _, suffix in (spec.path_template.partition("{identifier}"),)
+)
+
 
 def all_specs() -> tuple[ArtifactSpec, ...]:
     """Return every registered spec as an immutable tuple.
@@ -260,11 +275,9 @@ def name_for_path(path: str) -> str | None:
     matches; the first match wins.
     """
     candidate = path.strip()
-    for spec in _SPECS:
-        prefix, _, suffix = spec.path_template.partition("{identifier}")
-        pattern = re.compile(f"{re.escape(prefix)}[^/]+{re.escape(suffix)}")
+    for pattern, name in _PATH_PATTERNS:
         if pattern.fullmatch(candidate):
-            return spec.name
+            return name
     return None
 
 
