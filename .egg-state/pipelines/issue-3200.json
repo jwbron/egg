@@ -335,10 +335,10 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "running",
+      "status": "complete",
       "started_at": "2026-06-15T06:32:34.462057Z",
       "work_started_at": "2026-06-15T06:32:38.883125Z",
-      "completed_at": null,
+      "completed_at": "2026-06-15T07:28:08.088082Z",
       "containers": [
         {
           "container_id": "716e66e6-2e21-4deb-9243-e375c70f1b55",
@@ -573,7 +573,7 @@
         {
           "cycle": 0,
           "started_at": "2026-06-15T06:32:38.883125Z",
-          "completed_at": null,
+          "completed_at": "2026-06-15T07:28:08.088082Z",
           "commit_sha": "f02e6fc5c39df5befc03c8b2103cb737ab5dd203"
         }
       ],
@@ -641,7 +641,7 @@
     }
   ],
   "created_at": "2026-06-15T05:11:20.235313Z",
-  "updated_at": "2026-06-15T07:28:01.660803Z",
+  "updated_at": "2026-06-15T07:28:08.088470Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -654,7 +654,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-15T06:32:34.462060Z",
-  "version": 28,
+  "version": 29,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
