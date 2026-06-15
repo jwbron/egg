@@ -919,67 +919,6 @@ class TestSalvageBrcMemory:
         assert expected.exists()
 
 
-class TestRestoreSalvagedMemory:
-    """restore_salvaged_memory() reads a salvaged brc-memory.md for a
-    specific pipeline + role and returns structured content."""
-
-    def test_restores_existing_memory(self, tmp_path: Path) -> None:
-        from agent_salvage import restore_salvaged_memory
-
-        salvage_base = tmp_path / "salvaged-memory"
-        content = "# BRC memory — tester (issue-99)\n\nKey findings: ...\n"
-        dest = salvage_base / "issue-99" / "tester" / "brc-memory-issue-99.md"
-        dest.parent.mkdir(parents=True)
-        dest.write_text(content)
-
-        restored = restore_salvaged_memory("issue-99", "tester", salvage_base)
-
-        assert restored is not None
-        assert restored.role == "tester"
-        assert restored.pipeline_id == "issue-99"
-        assert restored.content == content
-        assert restored.source_path == dest
-
-    def test_returns_none_when_no_salvage(self, tmp_path: Path) -> None:
-        from agent_salvage import restore_salvaged_memory
-
-        salvage_base = tmp_path / "salvaged-memory"
-        restored = restore_salvaged_memory("issue-99", "missing_role", salvage_base)
-        assert restored is None
-
-    def test_returns_none_when_role_not_salvaged(self, tmp_path: Path) -> None:
-        """Coder was salvaged, tester was not — tester restore returns None."""
-        from agent_salvage import restore_salvaged_memory
-
-        salvage_base = tmp_path / "salvaged-memory"
-        dest = salvage_base / "issue-99" / "coder" / "brc-memory-issue-99.md"
-        dest.parent.mkdir(parents=True)
-        dest.write_text("content")
-
-        restored = restore_salvaged_memory("issue-99", "tester", salvage_base)
-        assert restored is None
-
-    def test_restored_memory_includes_timestamp(self, tmp_path: Path) -> None:
-        """The RestoredMemory record includes when the restoration was attempted."""
-        from datetime import datetime
-
-        from agent_salvage import restore_salvaged_memory
-
-        salvage_base = tmp_path / "salvaged-memory"
-        dest = salvage_base / "issue-99" / "coder" / "brc-memory-issue-99.md"
-        dest.parent.mkdir(parents=True)
-        dest.write_text("# memory")
-
-        restored = restore_salvaged_memory("issue-99", "coder", salvage_base)
-
-        assert restored is not None
-        # restored_at should be a parseable ISO-8601 timestamp close to "now".
-        ts = datetime.fromisoformat(restored.restored_at)
-        assert ts.tzinfo is not None  # timezone-aware
-        delta = datetime.now(UTC) - ts
-        assert abs(delta.total_seconds()) < 30  # within 30s
-
-
 class TestValidateSalvagedMemory:
     """validate_salvaged_memory() checks that a salvaged memory file is
     non-empty, has a parseable timestamp in the expected range, and
@@ -1266,3 +1205,53 @@ class TestRestoreSalvagedMemoryToWorktree:
         assert restored is None
         dest = fresh_repo / ".egg-state" / "agent-outputs" / "coder" / "brc-memory-issue-99.md"
         assert not dest.exists()
+
+    def test_does_not_overwrite_existing_memory_on_reuse(self, tmp_path: Path) -> None:
+        """Reuse path: when the worktree already holds this role's memory
+        (checked out from origin/<branch> via ``git reset --hard``), restore
+        must NOT clobber it with an older salvage snapshot. It leaves the
+        committed memory untouched and consumes the stale salvage."""
+        from agent_salvage import restore_salvaged_memory_to_worktree
+
+        salvage_base = tmp_path / "salvaged-memory"
+        src = salvage_base / "issue-99" / "coder" / "brc-memory-issue-99.md"
+        src.parent.mkdir(parents=True)
+        src.write_text("# OLD salvage snapshot\n")
+
+        # Reused worktree already carries the agent's current committed memory.
+        repo = tmp_path / "reused" / "repo"
+        dest_dir = repo / ".egg-state" / "agent-outputs" / "coder"
+        dest_dir.mkdir(parents=True)
+        dest = dest_dir / "brc-memory-issue-99.md"
+        current = "# CURRENT committed memory (newer)\n"
+        dest.write_text(current)
+
+        restored = restore_salvaged_memory_to_worktree(
+            "issue-99", "coder", repo, salvage_base=salvage_base
+        )
+
+        # Restore declined to overwrite; current memory is intact...
+        assert restored is None
+        assert dest.read_text() == current
+        # ...and the stale salvage was consumed so it can't be re-applied.
+        assert not src.exists()
+
+    def test_consumes_salvage_after_successful_restore(self, tmp_path: Path) -> None:
+        """A salvage is deleted once successfully restored, so a stale snapshot
+        cannot be re-applied to a later worktree within the staleness window."""
+        from agent_salvage import restore_salvaged_memory_to_worktree
+
+        salvage_base = tmp_path / "salvaged-memory"
+        src = salvage_base / "issue-99" / "coder" / "brc-memory-issue-99.md"
+        src.parent.mkdir(parents=True)
+        src.write_text("# BRC memory — coder (issue-99)\n")
+
+        fresh_repo = tmp_path / "fresh" / "repo"
+        fresh_repo.mkdir(parents=True)
+
+        restored = restore_salvaged_memory_to_worktree(
+            "issue-99", "coder", fresh_repo, salvage_base=salvage_base
+        )
+
+        assert restored is not None and restored.exists()
+        assert not src.exists()  # salvage consumed

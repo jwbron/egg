@@ -1506,11 +1506,22 @@ class KubernetesSpawner:
         # Restart-memory backstop (#3200 slice-1): if this role's BRC memory
         # was salvaged before a prior worktree was deleted (agent restart,
         # phase restart, pod death), restore the validated copy into the
-        # freshly (re)created worktree so the in-sandbox event-prompt composer
-        # seeds the fresh session from it. This single spawn chokepoint covers
-        # every spawn path; on a clean cold start no salvage exists and the
-        # call is a no-op. Best-effort — never blocks the spawn.
-        if repos and repo_volumes:
+        # freshly created worktree so the in-sandbox event-prompt composer
+        # seeds the fresh session from it. On a clean cold start no salvage
+        # exists and the call is a no-op. Best-effort — never blocks the spawn.
+        #
+        # Gate on ``worktree_created_this_call``: restore only makes sense on a
+        # genuinely fresh worktree (recovering memory written but not yet
+        # committed/pushed before the prior worktree was deleted). On the
+        # reuse path (#3064 event-pump re-spawn) the worktree was just
+        # ``git reset --hard origin/<branch>``-ed by ``_clean_reused_worktree``,
+        # so it already holds the agent's current *committed* memory; restoring
+        # an older salvage snapshot there would clobber newer memory and feed
+        # the stale copy back into the prompt (composer reads memory by
+        # default). Restore is also self-cleaning — it consumes the salvage
+        # after a successful copy so a stale snapshot cannot be re-applied to a
+        # later fresh worktree within the staleness window.
+        if worktree_created_this_call and repos and repo_volumes:
             primary_host_path = repo_volumes.get(repos[0])
             if primary_host_path:
                 try:

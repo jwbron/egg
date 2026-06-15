@@ -194,21 +194,6 @@ class SalvageResult:
     error: str | None = None
 
 
-@dataclass(frozen=True)
-class RestoredMemory:
-    """Result of restoring a single salvaged BRC memory file.
-
-    Field-order is aligned with what the test contract exercises
-    (:class:`TestRestoreSalvagedMemory`).
-    """
-
-    role: str
-    pipeline_id: str
-    content: str
-    source_path: Path
-    restored_at: str  # ISO-8601 with timezone
-
-
 # Lazy-resolved AgentRole values. Imported at call time to avoid hard-wiring
 # the orchestrator package layout into a module that may run standalone in
 # unit tests.
@@ -796,25 +781,26 @@ def salvage_worktree(
 
 # ── BRC Memory Salvage / Restore (pt. of #3200 slice-1) ────────────────────
 #
-# Contract (TDD) — the tester's tests define the API three callers consume:
+# The production API:
 #
 #   salvage_brc_memory(pipeline_id, agent_outputs, salvage_base)
 #       Copies per-role ``brc-memory-<pipeline_id>.md`` files from
 #       agent-output dirs into a pipeline-scoped salvage directory.
 #       Returns ``list[SalvageMemoryResult]`` — one per role.
 #
-#   restore_salvaged_memory(pipeline_id, role, salvage_base)
-#       Reads one salvaged memory file. Returns a ``RestoredMemory`` record
-#       or None when the file is missing. The record includes content,
-#       pipeline_id, role, source_path, and a timestamped restored_at.
-#
 #   validate_salvaged_memory(pipeline_id, mem_file, *, max_age_seconds)
 #       Self-contained validation. Returns ``(ok: bool, reason: str)``.
-#       Exists primarily for the composer — it validates the raw file before
-#       feeding its contents into the enrichment layer.
+#       Run at the restore boundary — the salvage file is validated before
+#       its contents are placed into the freshly created worktree.
 #
-# Module-level constants AGENT_OUTPUT_BASE_DIR and SALVAGE_BASE_DIR are the
-# default paths — tests monkeypatch them to tmp_path-hosted directories.
+#   restore_salvaged_memory_to_worktree(pipeline_id, role, repo_path, ...)
+#       The production restore path: validates a salvaged file and writes it
+#       into a freshly created worktree (called from
+#       ``KubernetesSpawner.spawn_agent_job``), consuming the salvage after.
+#
+# Salvage destination defaults to SALVAGE_MEMORY_BASE_DIR (a durable,
+# restart-surviving volume); ``auto_salvage_pipeline`` resolves it at call
+# time so tests can monkeypatch the module global.
 
 
 @dataclass
@@ -905,30 +891,6 @@ def salvage_brc_memory(
     return results
 
 
-def restore_salvaged_memory(
-    pipeline_id: str,
-    role: str,
-    salvage_base: Path,
-) -> RestoredMemory | None:
-    """Read a single salvaged BRC memory file.
-
-    Returns a ``RestoredMemory`` record when the file exists in the salvage
-    directory, or ``None`` when no salvage was created for that role.
-    """
-    src = salvage_base / pipeline_id / role / f"brc-memory-{pipeline_id}.md"
-    if not src.is_file():
-        return None
-
-    content = src.read_text()
-    return RestoredMemory(
-        role=role,
-        pipeline_id=pipeline_id,
-        content=content,
-        source_path=src,
-        restored_at=datetime.now(UTC).isoformat(),
-    )
-
-
 def validate_salvaged_memory(
     pipeline_id: str,
     mem_file: Path,
@@ -966,6 +928,11 @@ def validate_salvaged_memory(
     if len(content.strip()) == 0:
         return False, "Memory file is empty"
 
+    # Path-first binding (see docstring). On both production callers the path
+    # is ``<salvage>/<pid>/<role>/brc-memory-<pid>.md``, so the path check is
+    # always true and the content fallback never runs — in practice this is a
+    # path-shape assertion, not cross-pipeline content protection. The content
+    # fallback only matters for callers that pass a non-canonical path.
     if pipeline_id not in str(mem_file) and pipeline_id not in content:
         return False, (f"Memory file does not reference pipeline {pipeline_id}")
 
@@ -1008,12 +975,35 @@ def restore_salvaged_memory_to_worktree(
     per task-1-2. A genuinely-absent salvage (nothing was ever salvaged for
     this role) is the common cold-start case and returns ``None`` quietly.
 
+    The restore never overwrites a memory file already present in the worktree:
+    a destination that exists is the agent's current committed memory (a
+    worktree checked out from ``origin/<branch>`` already carries it), which is
+    authoritative and newer than any salvage snapshot. After a successful copy
+    the salvage source is consumed (deleted) so a stale snapshot cannot be
+    re-applied to a later worktree within the staleness window.
+
     Returns the restored destination path on success, ``None`` otherwise.
     Best-effort: never raises, so a restore failure cannot block the spawn.
     """
     src = salvage_base / pipeline_id / role / f"brc-memory-{pipeline_id}.md"
     if not src.is_file():
         # Nothing salvaged for this role — the common cold-start case.
+        return None
+
+    dest_dir = repo_path / _AGENT_OUTPUTS_SUBPATH / role
+    dest = dest_dir / f"brc-memory-{pipeline_id}.md"
+
+    if dest.exists():
+        # The worktree already carries this role's memory — committed to the
+        # branch and checked out from origin, so it is authoritative and at
+        # least as new as the salvage. Never clobber it with an older snapshot.
+        logger.info(
+            "Worktree already has BRC memory; skipping salvage restore",
+            pipeline_id=pipeline_id,
+            role=role,
+            dest_path=str(dest),
+        )
+        _consume_salvage(src, pipeline_id, role)
         return None
 
     ok, reason = validate_salvaged_memory(pipeline_id, src)
@@ -1030,12 +1020,10 @@ def restore_salvaged_memory_to_worktree(
         )
         return None
 
-    dest_dir = repo_path / _AGENT_OUTPUTS_SUBPATH / role
-    dest = dest_dir / f"brc-memory-{pipeline_id}.md"
     try:
-        content = src.read_text()
+        content = src.read_text(encoding="utf-8")
         dest_dir.mkdir(parents=True, exist_ok=True)
-        dest.write_text(content)
+        dest.write_text(content, encoding="utf-8")
     except OSError as e:
         logger.error(
             "Failed to write restored BRC memory into worktree; fresh agent "
@@ -1055,7 +1043,27 @@ def restore_salvaged_memory_to_worktree(
         source_path=str(src),
         dest_path=str(dest),
     )
+    # Consume the salvage so it cannot be re-applied to a later worktree.
+    _consume_salvage(src, pipeline_id, role)
     return dest
+
+
+def _consume_salvage(src: Path, pipeline_id: str, role: str) -> None:
+    """Delete a salvage file after it has been restored (or superseded).
+
+    Best-effort: a failure to clean up is logged but never propagated, since
+    the restore itself has already succeeded.
+    """
+    try:
+        src.unlink(missing_ok=True)
+    except OSError as e:
+        logger.warning(
+            "Failed to consume salvaged BRC memory after restore",
+            pipeline_id=pipeline_id,
+            role=role,
+            source_path=str(src),
+            error=str(e),
+        )
 
 
 def _salvage_memory_for_worktrees(
