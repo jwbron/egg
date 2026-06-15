@@ -34,6 +34,7 @@ rather than re-introducing a parser.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -184,6 +185,21 @@ _SPECS: tuple[ArtifactSpec, ...] = (
 # ``dict``) for the annotation so callers can't rely on mutation.
 _BY_NAME: Mapping[str, ArtifactSpec] = {spec.name: spec for spec in _SPECS}
 
+# Path -> name reverse-resolution patterns, compiled once at import time.
+# The specs are frozen, so the ``prefix``/``suffix`` split and the anchored
+# single-segment pattern never change between calls; precompiling here keeps
+# ``name_for_path`` off the per-call ``re.compile`` cost (one pattern per
+# spec, per render).  ``[^/]+`` matches the single non-empty, slash-free
+# ``{identifier}`` segment; ``fullmatch`` anchors both ends.
+_PATH_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
+    (
+        re.compile(re.escape(prefix) + "[^/]+" + re.escape(suffix)),
+        spec.name,
+    )
+    for spec in _SPECS
+    for prefix, _, suffix in (spec.path_template.partition("{identifier}"),)
+)
+
 
 def all_specs() -> tuple[ArtifactSpec, ...]:
     """Return every registered spec as an immutable tuple.
@@ -238,9 +254,37 @@ def resolve_artifact_path(name: str, identifier: str | int) -> str:
     return spec_by_name(name).resolve_path(identifier)
 
 
+def name_for_path(path: str) -> str | None:
+    """Reverse-resolve a concrete repo-relative ``path`` to its registered
+    artifact name, or ``None`` when no spec matches.
+
+    This is the inverse of :meth:`ArtifactSpec.resolve_path`: the
+    served-read consumers (the event-prompt first-review renderer in
+    ``orchestrator/routes/event_prompt.py``, #3216 WS1 of #3209) know a
+    producer's *changed paths* but the served-read endpoint and the
+    ``egg-artifact`` verb address artifacts by *name*. This maps the path
+    back so reviewers are handed ``egg-artifact get <name> --ref <sha>``
+    instead of a path-bearing ``git show <sha>:<path>``.
+
+    Each ``path_template`` has exactly one ``{identifier}`` placeholder
+    (enforced at construction), so it reduces to a ``prefix`` /
+    ``suffix`` pair around a single path segment. The identifier never
+    contains a ``/`` (it is an issue number or a hyphenated pipeline id),
+    so the placeholder matches one non-empty, slash-free run. The
+    templates have disjoint prefix+suffix shapes, so at most one spec
+    matches; the first match wins.
+    """
+    candidate = path.strip()
+    for pattern, name in _PATH_PATTERNS:
+        if pattern.fullmatch(candidate):
+            return name
+    return None
+
+
 __all__ = [
     "ArtifactSpec",
     "all_specs",
+    "name_for_path",
     "resolve_artifact_path",
     "spec_by_name",
     "specs_for",

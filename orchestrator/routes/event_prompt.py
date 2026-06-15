@@ -939,21 +939,37 @@ def _build_delta_entries(
         artifacts = [a.replace("`", "") for a in artifacts]
         refs_text = "\n".join(f"- `{a}`" for a in artifacts)
         if proposal_sha:
-            # First review with a known proposal SHA: render concrete,
-            # working read commands instead of the directionless "fetch
-            # and read the diffs yourself" (#3076 — reviewers NACKed
-            # plans they could not find because nothing said WHERE the
-            # producer's work lives; their worktree does not contain
-            # it, but the shared object store resolves the SHA).
-            show_cmds = "\n".join(f"- `git show {proposal_sha}:{a}`" for a in artifacts)
+            # First review with a known proposal SHA. The producer's work
+            # is NOT in this reviewer's worktree — per-role worktrees are
+            # isolated, and #3216 (WS1 of #3209) stops syncing peer trees
+            # into read-only reviewers — so render served reads keyed by
+            # artifact NAME rather than path-bearing `git show <sha>:<path>`
+            # commands. `egg-artifact` resolves the repo path server-side
+            # from the spec registry and streams the committed bytes at
+            # <sha>, regardless of whether the commit resolves in this
+            # worktree's object store (the #3002 split-store case the old
+            # `git show` channel breaks on). Registered coordination
+            # artifacts get a per-name read; anything unregistered is
+            # covered by the full proposed-change delta below.
+            from egg_contracts.artifact_spec import name_for_path
+
+            read_names: list[str] = []
+            for a in artifacts:
+                name = name_for_path(a)
+                if name and name not in read_names:
+                    read_names.append(name)
+            read_cmds = "\n".join(
+                f"- `egg-artifact get {name} --ref {proposal_sha}`" for name in read_names
+            )
             fallback_delta = (
                 "(No `last_reviewed_commit_sha` recorded yet for this "
                 "producer — this is your FIRST review of this proposal. "
-                "The producer's work is NOT in your working tree; per-"
-                "role worktrees are isolated. Read it via the proposed "
-                f"commit `{proposal_sha}`, which resolves from your "
-                "worktree through the shared object store:)\n\n"
-                + (f"Proposed artifacts:\n{show_cmds}\n\n" if artifacts else "")
+                "The producer's work is NOT in your working tree; per-role "
+                "worktrees are isolated. Read each registered coordination "
+                f"artifact at the proposed commit `{proposal_sha}` via the "
+                "served read — it resolves the artifact server-side from "
+                "its spec-registered name, no local checkout required:)\n\n"
+                + (f"Proposed artifacts:\n{read_cmds}\n\n" if read_cmds else "")
                 + "Full proposed change:\n"
                 f"- `git log {proposal_sha} --not origin/{base_branch} -p`\n\n"
                 "Do NOT NACK for a missing file before reading it via "
