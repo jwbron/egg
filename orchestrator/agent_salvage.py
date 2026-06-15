@@ -852,6 +852,12 @@ def salvage_brc_memory(
         role = role_dir.name
         src = role_dir / pattern
 
+        # No memory file for this role means it emitted nothing — skip it
+        # silently. A file that exists but is unreadable falls through to the
+        # read below and is recorded as ok=False.
+        if not src.exists():
+            continue
+
         dest_dir = salvage_base / pipeline_id / role
         dest = dest_dir / f"brc-memory-{pipeline_id}.md"
         try:

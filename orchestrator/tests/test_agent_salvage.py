@@ -840,6 +840,7 @@ class TestSalvageBrcMemory:
         agent_outputs = tmp_path / "agent-outputs"
         salvage_base = tmp_path / "salvaged-memory"
         # A non-role file/directory at top level must not be scanned.
+        agent_outputs.mkdir(parents=True)
         (agent_outputs / "architect-output.json").write_text("{}\n")
         # Role dirs are still found.
         _MemoryFixture.create(agent_outputs, "issue-99", "coder")
