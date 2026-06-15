@@ -59,6 +59,7 @@ from routes.pipelines import _get_draft_path
 # module function.
 from egg_contracts.artifact_spec import (
     ArtifactSpec,
+    name_for_path,
     resolve_artifact_path,
     spec_by_name,
     specs_for,
@@ -606,4 +607,49 @@ def test_module_exports_are_callable() -> None:
     # at every consumer call site.
     assert callable(resolve_artifact_path)
     assert callable(specs_for)
+    assert callable(name_for_path)
+
+
+class TestNameForPath:
+    """``name_for_path`` reverse-resolves a concrete path back to its
+    registered artifact name — the inverse of ``resolve_path`` used by the
+    event-prompt served-read renderer (#3216, WS1 of #3209)."""
+
+    @pytest.mark.parametrize("identifier", ["3200", 3200, "issue-3077-replan"])
+    def test_round_trips_every_registered_spec(self, identifier) -> None:
+        # resolve_path -> name_for_path is identity on the name for every
+        # row, for both issue-number and hyphenated-pipeline identifiers.
+        for spec in registered_specs():
+            path = spec.resolve_path(identifier)
+            assert name_for_path(path) == spec.name
+
+    def test_known_concrete_paths(self) -> None:
+        assert name_for_path(".egg-state/drafts/3200-plan.md") == "plan-draft"
+        assert name_for_path(".egg-state/drafts/3200-analysis.md") == "analysis-draft"
+        assert (
+            name_for_path(".egg-state/agent-outputs/3200-architect-output.json")
+            == "architect-output"
+        )
+        assert (
+            name_for_path(".egg-state/agent-outputs/3200-architect-slices.yaml")
+            == "architect-slices"
+        )
+
+    def test_strips_surrounding_whitespace(self) -> None:
+        assert name_for_path("  .egg-state/drafts/3200-plan.md\n") == "plan-draft"
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "",
+            "README.md",
+            ".egg-state/drafts/3200-plan.txt",  # wrong suffix
+            ".egg-state/other/3200-plan.md",  # wrong prefix
+            ".egg-state/drafts/3200-plan.md.bak",  # trailing junk
+            ".egg-state/drafts/a/b-plan.md",  # identifier must be one segment
+        ],
+    )
+    def test_unregistered_paths_return_none(self, path: str) -> None:
+        assert name_for_path(path) is None
+
     assert callable(spec_by_name)

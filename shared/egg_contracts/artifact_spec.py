@@ -34,6 +34,7 @@ rather than re-introducing a parser.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -238,9 +239,39 @@ def resolve_artifact_path(name: str, identifier: str | int) -> str:
     return spec_by_name(name).resolve_path(identifier)
 
 
+def name_for_path(path: str) -> str | None:
+    """Reverse-resolve a concrete repo-relative ``path`` to its registered
+    artifact name, or ``None`` when no spec matches.
+
+    This is the inverse of :meth:`ArtifactSpec.resolve_path`: the
+    served-read consumers (the event-prompt first-review renderer in
+    ``orchestrator/routes/event_prompt.py``, #3216 WS1 of #3209) know a
+    producer's *changed paths* but the served-read endpoint and the
+    ``egg-artifact`` verb address artifacts by *name*. This maps the path
+    back so reviewers are handed ``egg-artifact get <name> --ref <sha>``
+    instead of a path-bearing ``git show <sha>:<path>``.
+
+    Each ``path_template`` has exactly one ``{identifier}`` placeholder
+    (enforced at construction), so it reduces to a ``prefix`` /
+    ``suffix`` pair around a single path segment. The identifier never
+    contains a ``/`` (it is an issue number or a hyphenated pipeline id),
+    so the placeholder matches one non-empty, slash-free run. The
+    templates have disjoint prefix+suffix shapes, so at most one spec
+    matches; the first match wins.
+    """
+    candidate = path.strip()
+    for spec in _SPECS:
+        prefix, _, suffix = spec.path_template.partition("{identifier}")
+        pattern = re.compile(f"{re.escape(prefix)}[^/]+{re.escape(suffix)}")
+        if pattern.fullmatch(candidate):
+            return spec.name
+    return None
+
+
 __all__ = [
     "ArtifactSpec",
     "all_specs",
+    "name_for_path",
     "resolve_artifact_path",
     "spec_by_name",
     "specs_for",

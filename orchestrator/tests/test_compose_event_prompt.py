@@ -869,10 +869,14 @@ def test_build_delta_entries_legacy_payload_keeps_head_endpoint() -> None:
     assert mock_log.call_args.kwargs.get("end_ref") == "HEAD"
 
 
-def test_build_delta_entries_first_review_renders_git_show_commands() -> None:
-    """First review (no stored SHA) with a proposal SHA renders concrete,
-    working read commands — the producer's work is not in the reviewer's
-    working tree, and a plain Read of the path is expected to fail."""
+def test_build_delta_entries_first_review_renders_served_read_commands() -> None:
+    """First review (no stored SHA) with a proposal SHA renders served
+    reads keyed by artifact NAME (#3216, WS1 of #3209): a registered
+    coordination artifact path reverse-resolves to its spec name and the
+    reviewer is handed ``egg-artifact get <name> --ref <sha>`` rather than
+    a path-bearing ``git show``. The producer's work is not in the
+    reviewer's working tree, and a plain Read of the path is expected to
+    fail."""
     from pathlib import Path
 
     from orchestrator.routes.event_prompt import _build_delta_entries
@@ -888,6 +892,8 @@ def test_build_delta_entries_first_review_renders_git_show_commands() -> None:
                 {
                     "producer": "architect",
                     "current_version": 1,
+                    # .egg-state/drafts/p-plan.md reverse-resolves to the
+                    # registered ``plan-draft`` artifact.
                     "artifact_refs": [".egg-state/drafts/p-plan.md"],
                     "proposal_commit_sha": "b521d7d",
                 }
@@ -898,11 +904,13 @@ def test_build_delta_entries_first_review_renders_git_show_commands() -> None:
     entry = entries[0]
     assert entry["proposal_commit_sha"] == "b521d7d"
     delta = entry["delta"]
-    assert "git show b521d7d:.egg-state/drafts/p-plan.md" in delta
+    assert "egg-artifact get plan-draft --ref b521d7d" in delta
     assert "git log b521d7d --not origin/main -p" in delta
     assert "NOT in your working tree" in delta
     # The anti-phantom-NACK instruction is the point of the render.
     assert "Do NOT NACK" in delta
+    # Strict read-by-name: no path-bearing git-show coordination command.
+    assert "git show" not in delta
 
     # A 40-char SHA must render identically — guards against the
     # SHA-validation regex regressing to a fixed ``{7,7}`` width and
@@ -928,17 +936,19 @@ def test_build_delta_entries_first_review_renders_git_show_commands() -> None:
     )
     assert len(entries_full) == 1
     delta_full = entries_full[0]["delta"]
-    assert f"git show {full_sha}:.egg-state/drafts/p-plan.md" in delta_full
+    assert f"egg-artifact get plan-draft --ref {full_sha}" in delta_full
     assert f"git log {full_sha} --not origin/main -p" in delta_full
 
 
-def test_build_delta_entries_first_review_strips_backticks_from_artifact_paths() -> None:
-    """Producer-supplied artifact paths containing a backtick would otherwise
-    break the markdown code span the agent renders. The first-review
-    fallback strips backticks before interpolation; ``proposal_sha`` is
-    hex-validated upstream so it is not the attack surface. Belt-and-
-    braces only -- the agent (not bash) is the consumer, so this is not
-    a shell-injection vector."""
+def test_build_delta_entries_first_review_unregistered_paths_get_no_per_artifact_read() -> None:
+    """Strict read-by-name (#3216, WS1 of #3209): the first-review fallback
+    renders ``egg-artifact get <name>`` ONLY for paths that reverse-resolve
+    to a registered coordination artifact. Implement-phase code files
+    (``src/*.py``) are not registered, so they get no per-artifact read
+    command — the full ``git log -p`` delta covers them. Because the
+    rendered name comes from the spec registry (not producer input), the
+    old backtick-injection-via-path vector is structurally gone: no
+    producer-supplied path string reaches a rendered command at all."""
     from pathlib import Path
 
     from orchestrator.routes.event_prompt import _build_delta_entries
@@ -962,12 +972,15 @@ def test_build_delta_entries_first_review_strips_backticks_from_artifact_paths()
     )
     assert len(entries) == 1
     delta = entries[0]["delta"]
-    # The stripped path is what gets interpolated; no raw backtick from
-    # the artifact value reaches the rendered ``git show`` command, which
-    # would otherwise terminate the surrounding markdown code span.
-    assert "git show abc1234:src/evil.py" in delta
-    assert "git show abc1234:src/ok.py" in delta
+    # No per-artifact read command for unregistered code paths …
+    assert "egg-artifact get" not in delta
+    assert "git show" not in delta
+    # … and no producer-supplied path (let alone its backtick) is interpolated.
+    assert "src/" not in delta
     assert "`evil`" not in delta
+    # The full proposed-change delta is the review surface for code files.
+    assert "git log abc1234 --not origin/main -p" in delta
+    assert "Do NOT NACK" in delta
 
 
 def test_build_delta_entries_first_review_no_sha_strips_backticks_from_refs_text() -> None:
