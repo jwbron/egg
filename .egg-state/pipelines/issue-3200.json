@@ -473,10 +473,10 @@
         {
           "container_id": "a996c66c-79ee-414e-9abd-6038933aedee",
           "container_name": "egg-sandbox-egg-agent-issue-3200-slice-2-tester",
-          "status": "removed",
+          "status": "failed",
           "started_at": "2026-06-15T07:28:31.672532Z",
-          "exited_at": "2026-06-15T16:27:42.091864Z",
-          "exit_code": null,
+          "exited_at": "2026-06-15T16:28:17.438228Z",
+          "exit_code": -1,
           "agent_role": "tester",
           "session_token": null,
           "pod_name": null,
@@ -707,11 +707,11 @@
           "container_info": null,
           "slice_id": "slice-2",
           "started_at": "2026-06-15T07:28:31.672534Z",
-          "completed_at": "2026-06-15T16:27:42.091864Z",
+          "completed_at": "2026-06-15T16:28:17.447782Z",
           "resolved_model": "deepseek-v4-flash[1m]",
           "commit": null,
           "outputs": {},
-          "error": "Pipeline cancelled",
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -820,6 +820,13 @@
           "last_lines": [],
           "terminated_at": "2026-06-15T16:28:17.398118Z",
           "container_id": "6ec7e254-2d95-4c1b-a2de-b41aa1ef0d7c"
+        },
+        {
+          "role": "tester",
+          "exit_code": -1,
+          "last_lines": [],
+          "terminated_at": "2026-06-15T16:28:17.447792Z",
+          "container_id": "a996c66c-79ee-414e-9abd-6038933aedee"
         }
       ]
     }
@@ -880,7 +887,7 @@
     }
   ],
   "created_at": "2026-06-15T05:11:20.235313Z",
-  "updated_at": "2026-06-15T16:28:17.398433Z",
+  "updated_at": "2026-06-15T16:28:17.447966Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -893,7 +900,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-15T06:32:34.462060Z",
-  "version": 34,
+  "version": 35,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
