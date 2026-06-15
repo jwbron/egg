@@ -31,6 +31,14 @@
       "registered_at": "2026-06-15T05:17:55.351403+00:00",
       "repo": null,
       "role": "refiner"
+    },
+    "ab533f006a245ad0aab08edae3d0461e404f6c9f": {
+      "branch": "egg/issue-3200/work",
+      "patch_id": "e408be3c40488308107cc30517b974eccafa6dd6",
+      "pipeline_id": "issue-3200",
+      "registered_at": "2026-06-15T05:29:39.044561+00:00",
+      "repo": null,
+      "role": "task_planner"
     }
   },
   "version": 2
