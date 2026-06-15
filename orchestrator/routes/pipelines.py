@@ -16729,6 +16729,16 @@ def _run_implement_phase_slices(
     # On an invalid record, alert and decline to trust it — route the
     # slice through Layer-B/C so it is re-evaluated and (re-)run rather
     # than silently skipped.
+    #
+    # Note: a COMPLETE slice that recorded *no* durable evidence (no
+    # pr_number, no integration_base_sha — e.g. a legacy pre-#2871
+    # contract from before integration_base_sha existed) is distrusted
+    # here on every restart, even when it was genuinely merged. That is
+    # intentional, not a bug: such a slice falls through to Layer-B,
+    # where origin-side merge detection re-confirms it and re-marks it
+    # COMPLETE. The outcome stays correct; the only cost is one extra
+    # GitHub round-trip per restart. Any slice that forked under current
+    # code records integration_base_sha and is trusted here directly.
     layer_b_candidates = []
     for s in slices:
         if s.status == SliceStatus.COMPLETE:
