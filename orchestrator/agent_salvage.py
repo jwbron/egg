@@ -870,8 +870,8 @@ def salvage_brc_memory(
         dest = dest_dir / f"brc-memory-{pipeline_id}.md"
         try:
             dest_dir.mkdir(parents=True, exist_ok=True)
-            content = src.read_text()
-            dest.write_text(content)
+            content = src.read_text(encoding="utf-8")
+            dest.write_text(content, encoding="utf-8")
             results.append(
                 SalvageMemoryResult(
                     role=role,
@@ -914,14 +914,14 @@ def validate_salvaged_memory(
        check is on by default; pass ``0`` to disable it.
 
     Returns ``(True, "")`` on success, ``(False, reason)`` on failure.
-    Consumers call :func:`restore_salvaged_memory` to get the validated
-    content.
+    :func:`restore_salvaged_memory_to_worktree` calls this before placing a
+    salvaged file into a fresh worktree.
     """
     if not mem_file.is_file():
         return False, f"Memory file not found: {mem_file}"
 
     try:
-        content = mem_file.read_text()
+        content = mem_file.read_text(encoding="utf-8")
     except OSError as e:
         return False, f"Cannot read memory file: {e}"
 
@@ -997,6 +997,11 @@ def restore_salvaged_memory_to_worktree(
         # The worktree already carries this role's memory — committed to the
         # branch and checked out from origin, so it is authoritative and at
         # least as new as the salvage. Never clobber it with an older snapshot.
+        # Tradeoff: if the salvage held content committed-locally-but-unpushed
+        # (or written-then-lost) that is *newer* than origin's copy, it is
+        # discarded here. That is no worse than the no-feature baseline (origin's
+        # copy would win regardless), and the never-clobber safety choice is
+        # preferred over risking a stale overwrite of authoritative memory.
         logger.info(
             "Worktree already has BRC memory; skipping salvage restore",
             pipeline_id=pipeline_id,
@@ -1056,6 +1061,14 @@ def _consume_salvage(src: Path, pipeline_id: str, role: str) -> None:
     """
     try:
         src.unlink(missing_ok=True)
+        # Prune the now-empty <salvage>/<pid>/<role>/ and <salvage>/<pid>/
+        # dirs so consumed salvage leaves nothing behind. rmdir only removes
+        # empty dirs, so a sibling role still pending salvage is left intact.
+        for parent in (src.parent, src.parent.parent):
+            try:
+                parent.rmdir()
+            except OSError:
+                break
     except OSError as e:
         logger.warning(
             "Failed to consume salvaged BRC memory after restore",
