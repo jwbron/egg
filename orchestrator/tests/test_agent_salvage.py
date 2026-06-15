@@ -752,3 +752,394 @@ def test_worktree_commit_report_is_dataclass() -> None:
     )
     assert report.worktree is wt
     assert report.error is None
+
+
+# ---------------------------------------------------------------------------
+# BRC memory salvage / restore / validation (#3200 slice-1)
+# ---------------------------------------------------------------------------
+
+_SALVAGE_DIR = Path("/tmp/.egg-test-salvage")
+
+
+class _MemoryFixture:
+    """Helper to lay down brc-memory.md files under tmp_path for tests."""
+
+    @staticmethod
+    def create(
+        base: Path,
+        pipeline_id: str,
+        role: str,
+        content: str | None = None,
+    ) -> Path:
+        """Write a brc-memory.md for *role* under *base*/*role*/."""
+        role_dir = base / role
+        role_dir.mkdir(parents=True, exist_ok=True)
+        mem_file = role_dir / "brc-memory.md"
+        if content is None:
+            content = (
+                f"# BRC memory — {role} ({pipeline_id})\n\n"
+                f"## My proposal\n- Artifacts: some/path.md\n"
+                f"## Peer state\n- No peer proposals reviewed yet.\n"
+            )
+        mem_file.write_text(content)
+        return mem_file
+
+
+class TestSalvageBrcMemory:
+    """salvage_brc_memory() copies brc-memory.md files to a salvage directory
+    before worktree deletion, so they survive the restart."""
+
+    def test_copies_single_role_memory(self, tmp_path: Path) -> None:
+        from agent_salvage import salvage_brc_memory
+
+        agent_outputs = tmp_path / "agent-outputs"
+        salvage_base = tmp_path / "salvaged-memory"
+        _MemoryFixture.create(agent_outputs, "issue-99", "coder")
+
+        results = salvage_brc_memory("issue-99", agent_outputs, salvage_base)
+
+        assert len(results) == 1
+        r = results[0]
+        assert r.ok is True
+        assert r.role == "coder"
+        assert r.error is None
+        # Verify destination file exists and has content.
+        dest = salvage_base / "issue-99" / "coder" / "brc-memory-issue-99.md"
+        assert dest.exists()
+        assert dest.read_text() == r.content
+
+    def test_copies_multiple_roles(self, tmp_path: Path) -> None:
+        from agent_salvage import salvage_brc_memory
+
+        agent_outputs = tmp_path / "agent-outputs"
+        salvage_base = tmp_path / "salvaged-memory"
+        for role in ("coder", "tester", "documenter"):
+            _MemoryFixture.create(agent_outputs, "issue-99", role)
+
+        results = salvage_brc_memory("issue-99", agent_outputs, salvage_base)
+        roles = sorted(r.role for r in results)
+        assert roles == ["coder", "documenter", "tester"]
+        assert all(r.ok for r in results)
+
+    def test_skips_dir_without_brc_memory(self, tmp_path: Path) -> None:
+        from agent_salvage import salvage_brc_memory
+
+        agent_outputs = tmp_path / "agent-outputs"
+        salvage_base = tmp_path / "salvaged-memory"
+        # Role dir exists but has no brc-memory.md.
+        (agent_outputs / "coder").mkdir(parents=True)
+        (agent_outputs / "coder" / "unrelated.txt").write_text("nothing\n")
+
+        results = salvage_brc_memory("issue-99", agent_outputs, salvage_base)
+        assert results == []
+
+    def test_skips_non_role_directories(self, tmp_path: Path) -> None:
+        from agent_salvage import salvage_brc_memory
+
+        agent_outputs = tmp_path / "agent-outputs"
+        salvage_base = tmp_path / "salvaged-memory"
+        # A non-role file/directory at top level must not be scanned.
+        (agent_outputs / "architect-output.json").write_text("{}\n")
+        # Role dirs are still found.
+        _MemoryFixture.create(agent_outputs, "issue-99", "coder")
+
+        results = salvage_brc_memory("issue-99", agent_outputs, salvage_base)
+        assert len(results) == 1
+        assert results[0].role == "coder"
+
+    def test_overwrites_existing_salvage(self, tmp_path: Path) -> None:
+        """Re-salvage on a pipeline that already has salvaged memory replaces it."""
+        from agent_salvage import salvage_brc_memory
+
+        agent_outputs = tmp_path / "agent-outputs"
+        salvage_base = tmp_path / "salvaged-memory"
+        _MemoryFixture.create(agent_outputs, "issue-99", "coder", content="old content")
+
+        # First salvage.
+        salvage_brc_memory("issue-99", agent_outputs, salvage_base)
+
+        # Update source and salvage again.
+        _MemoryFixture.create(agent_outputs, "issue-99", "coder", content="new content")
+        results = salvage_brc_memory("issue-99", agent_outputs, salvage_base)
+
+        assert len(results) == 1
+        dest = salvage_base / "issue-99" / "coder" / "brc-memory-issue-99.md"
+        assert "new content" in dest.read_text()
+
+    def test_failure_on_missing_source_dir_does_not_raise(self, tmp_path: Path) -> None:
+        """If agent-outputs base dir doesn't exist, return empty list — never raise."""
+        from agent_salvage import salvage_brc_memory
+
+        missing = tmp_path / "does-not-exist"
+        salvage_base = tmp_path / "salvaged-memory"
+        results = salvage_brc_memory("issue-99", missing, salvage_base)
+        assert results == []
+
+    def test_failure_on_per_role_read_error_returns_not_ok(self, tmp_path: Path) -> None:
+        """A role dir that exists but whose brc-memory.md is unreadable returns
+        ok=False without blocking other roles."""
+        from agent_salvage import salvage_brc_memory
+
+        agent_outputs = tmp_path / "agent-outputs"
+        salvage_base = tmp_path / "salvaged-memory"
+        _MemoryFixture.create(agent_outputs, "issue-99", "coder")
+        # Create a role dir with a brc-memory.md that is a directory (unreadable).
+        bad_role_dir = agent_outputs / "reviewer_code"
+        bad_role_dir.mkdir()
+        (bad_role_dir / "brc-memory.md").mkdir()  # directory, not a file
+
+        results = salvage_brc_memory("issue-99", agent_outputs, salvage_base)
+        roles = sorted(r.role for r in results)
+        assert roles == ["coder", "reviewer_code"]
+        assert next(r for r in results if r.role == "coder").ok is True
+        assert next(r for r in results if r.role == "reviewer_code").ok is False
+        assert next(r for r in results if r.role == "reviewer_code").error is not None
+
+    def test_destination_path_encodes_pipeline_id(self, tmp_path: Path) -> None:
+        """Salvage destination path is
+        ``<salvage>/<pipeline-id>/<role>/brc-memory-<pipeline-id>.md``
+        so different pipelines do not collide even with the same role name."""
+        from agent_salvage import salvage_brc_memory
+
+        agent_outputs = tmp_path / "agent-outputs"
+        salvage_base = tmp_path / "salvaged-memory"
+        _MemoryFixture.create(agent_outputs, "issue-3200", "coder")
+
+        results = salvage_brc_memory("issue-3200", agent_outputs, salvage_base)
+
+        assert len(results) == 1
+        expected = salvage_base / "issue-3200" / "coder" / "brc-memory-issue-3200.md"
+        assert expected.exists()
+
+
+class TestRestoreSalvagedMemory:
+    """restore_salvaged_memory() reads a salvaged brc-memory.md for a
+    specific pipeline + role and returns structured content."""
+
+    def test_restores_existing_memory(self, tmp_path: Path) -> None:
+        from agent_salvage import restore_salvaged_memory
+
+        salvage_base = tmp_path / "salvaged-memory"
+        content = "# BRC memory — tester (issue-99)\n\nKey findings: ...\n"
+        dest = salvage_base / "issue-99" / "tester" / "brc-memory-issue-99.md"
+        dest.parent.mkdir(parents=True)
+        dest.write_text(content)
+
+        restored = restore_salvaged_memory("issue-99", "tester", salvage_base)
+
+        assert restored is not None
+        assert restored.role == "tester"
+        assert restored.pipeline_id == "issue-99"
+        assert restored.content == content
+        assert restored.source_path == dest
+
+    def test_returns_none_when_no_salvage(self, tmp_path: Path) -> None:
+        from agent_salvage import restore_salvaged_memory
+
+        salvage_base = tmp_path / "salvaged-memory"
+        restored = restore_salvaged_memory("issue-99", "missing_role", salvage_base)
+        assert restored is None
+
+    def test_returns_none_when_role_not_salvaged(self, tmp_path: Path) -> None:
+        """Coder was salvaged, tester was not — tester restore returns None."""
+        from agent_salvage import restore_salvaged_memory
+
+        salvage_base = tmp_path / "salvaged-memory"
+        dest = salvage_base / "issue-99" / "coder" / "brc-memory-issue-99.md"
+        dest.parent.mkdir(parents=True)
+        dest.write_text("content")
+
+        restored = restore_salvaged_memory("issue-99", "tester", salvage_base)
+        assert restored is None
+
+    def test_restored_memory_includes_timestamp(self, tmp_path: Path) -> None:
+        """The RestoredMemory record includes when the restoration was attempted."""
+        from datetime import datetime, timezone
+        from agent_salvage import restore_salvaged_memory
+
+        salvage_base = tmp_path / "salvaged-memory"
+        dest = salvage_base / "issue-99" / "coder" / "brc-memory-issue-99.md"
+        dest.parent.mkdir(parents=True)
+        dest.write_text("# memory")
+
+        restored = restore_salvaged_memory("issue-99", "coder", salvage_base)
+
+        assert restored is not None
+        # restored_at should be a parseable ISO-8601 timestamp close to "now".
+        ts = datetime.fromisoformat(restored.restored_at)
+        assert ts.tzinfo is not None  # timezone-aware
+        delta = datetime.now(timezone.utc) - ts
+        assert abs(delta.total_seconds()) < 30  # within 30s
+
+
+class TestValidateSalvagedMemory:
+    """validate_salvaged_memory() checks that a salvaged memory file is
+    non-empty, has a parseable timestamp in the expected range, and
+    belongs to the correct pipeline restart."""
+
+    def test_valid_memory_passes(self, tmp_path: Path) -> None:
+        from agent_salvage import validate_salvaged_memory
+
+        content = (
+            "# BRC memory — coder (issue-99)\n\n"
+            "## My proposal\nstuff\n"
+        )
+        mem_file = tmp_path / "brc-memory.md"
+        mem_file.write_text(content)
+
+        ok, reason = validate_salvaged_memory("issue-99", mem_file)
+        assert ok is True
+        assert reason == ""
+
+    def test_non_existent_file_fails(self, tmp_path: Path) -> None:
+        from agent_salvage import validate_salvaged_memory
+
+        missing = tmp_path / "does-not-exist.md"
+        ok, reason = validate_salvaged_memory("issue-99", missing)
+        assert ok is False
+        assert "not found" in reason.lower() or "missing" in reason.lower()
+
+    def test_empty_file_fails(self, tmp_path: Path) -> None:
+        from agent_salvage import validate_salvaged_memory
+
+        mem_file = tmp_path / "brc-memory.md"
+        mem_file.write_text("")
+
+        ok, reason = validate_salvaged_memory("issue-99", mem_file)
+        assert ok is False
+        assert "empty" in reason.lower() or "zero" in reason.lower()
+
+    def test_zero_byte_file_fails(self, tmp_path: Path) -> None:
+        from agent_salvage import validate_salvaged_memory
+
+        mem_file = tmp_path / "brc-memory.md"
+        mem_file.touch()  # zero-byte
+
+        ok, reason = validate_salvaged_memory("issue-99", mem_file)
+        assert ok is False
+        assert "empty" in reason.lower() or "zero" in reason.lower()
+
+    def test_memory_does_not_contain_pipeline_id_fails(self, tmp_path: Path) -> None:
+        """The file must reference the pipeline it claims to belong to."""
+        from agent_salvage import validate_salvaged_memory
+
+        content = "# BRC memory — coder (wrong-pipeline)\n"
+        mem_file = tmp_path / "brc-memory.md"
+        mem_file.write_text(content)
+
+        ok, reason = validate_salvaged_memory("issue-99", mem_file)
+        assert ok is False
+        # Reason should mention the pipeline mismatch.
+        assert "issue-99" in reason.lower() or "pipeline" in reason.lower()
+
+    def test_timestamp_in_valid_range_passes(self, tmp_path: Path) -> None:
+        """A file whose mtime is within an expected time window passes."""
+        from datetime import datetime, timezone, timedelta
+        from agent_salvage import validate_salvaged_memory
+
+        content = (
+            "# BRC memory — coder (issue-99)\n\n"
+            "## My proposal\nstuff\n"
+        )
+        mem_file = tmp_path / "brc-memory.md"
+        mem_file.write_text(content)
+        # Set mtime to 30 seconds ago — well within expected window.
+        recent = (datetime.now(timezone.utc) - timedelta(seconds=30)).timestamp()
+        os_utime = __import__("os").utime
+        os_utime(str(mem_file), (recent, recent))
+
+        ok, reason = validate_salvaged_memory("issue-99", mem_file, max_age_seconds=3600)
+        assert ok is True
+        assert reason == ""
+
+    def test_stale_timestamp_fails(self, tmp_path: Path) -> None:
+        """A file whose mtime is older than the max age fails validation."""
+        from datetime import datetime, timezone, timedelta
+        from agent_salvage import validate_salvaged_memory
+
+        content = (
+            "# BRC memory — coder (issue-99)\n\n"
+            "## My proposal\nstuff\n"
+        )
+        mem_file = tmp_path / "brc-memory.md"
+        mem_file.write_text(content)
+        # Set mtime to 2 hours ago — stale relative to 1-hour max age.
+        stale = (datetime.now(timezone.utc) - timedelta(hours=2)).timestamp()
+        os_utime = __import__("os").utime
+        os_utime(str(mem_file), (stale, stale))
+
+        ok, reason = validate_salvaged_memory("issue-99", mem_file, max_age_seconds=3600)
+        assert ok is False
+        assert "stale" in reason.lower() or "age" in reason.lower() or "expired" in reason.lower()
+
+
+class TestAutoSalvagePipelineBrcMemory:
+    """auto_salvage_pipeline() integration with BRC memory salvage:
+    salvage_brc_memory is called alongside worktree salvage; a failure
+    in memory salvage does not block worktree salvage."""
+
+    def test_memory_salvage_is_best_effort(self, tmp_path: Path) -> None:
+        """When salvage_brc_memory raises, auto_salvage_pipeline still
+        completes worktree salvage — memory failure is logged, not propagated."""
+        from agent_salvage import auto_salvage_pipeline, salvage_brc_memory
+
+        repo, local_branch = _make_worktree_layout(
+            tmp_path, "issue-99", agent_role="coder", slice_id=None
+        )
+        anchor = _git("rev-parse", "HEAD", cwd=repo).stdout.strip()
+        _set_assigned_branch(repo, local_branch, "egg/issue-99/work")
+        _create_remote_tracking(repo, "egg/issue-99/work", anchor)
+        _commit(repo, "x.txt", "a", "unpushed")
+
+        gateway = MagicMock()
+        gateway.push_worktree_branch.return_value = PushResult(ok=True)
+
+        # The salvage_brc_memory is called from within auto_salvage_pipeline;
+        # we simulate a failure. The worktree salvage results must still come through.
+        with (
+            patch("agent_salvage.WORKTREE_BASE_DIR", tmp_path),
+            patch(
+                "agent_salvage.salvage_brc_memory",
+                side_effect=RuntimeError("memory salvage failed"),
+            ),
+        ):
+            results = auto_salvage_pipeline(gateway, "issue-99")
+
+        # Worktree salvage results are still returned.
+        assert len(results) >= 1
+        # At least the coder's worktree was salvaged.
+        coder_results = [r for r in results if r.agent_role == "coder"]
+        assert len(coder_results) == 1
+        assert coder_results[0].ok is True
+        gateway.push_worktree_branch.assert_called()
+
+    def test_memory_salvage_happy_path(self, tmp_path: Path) -> None:
+        """When both memory and worktree salvage succeed, results include
+        SalvageMemoryResult metadata and worktree salvage results."""
+        from agent_salvage import auto_salvage_pipeline
+
+        repo, local_branch = _make_worktree_layout(
+            tmp_path, "issue-99", agent_role="coder", slice_id=None
+        )
+        anchor = _git("rev-parse", "HEAD", cwd=repo).stdout.strip()
+        _set_assigned_branch(repo, local_branch, "egg/issue-99/work")
+        _create_remote_tracking(repo, "egg/issue-99/work", anchor)
+        _commit(repo, "x.txt", "a", "unpushed")
+
+        agent_outputs = tmp_path / "agent-outputs"
+        salvage_base = tmp_path / "salvaged-memory"
+        _MemoryFixture.create(agent_outputs, "issue-99", "coder")
+
+        gateway = MagicMock()
+        gateway.push_worktree_branch.return_value = PushResult(ok=True)
+
+        with (
+            patch("agent_salvage.WORKTREE_BASE_DIR", tmp_path),
+            patch("agent_salvage.AGENT_OUTPUT_BASE_DIR", agent_outputs),
+            patch("agent_salvage.SALVAGE_BASE_DIR", salvage_base),
+        ):
+            results = auto_salvage_pipeline(gateway, "issue-99")
+
+        assert len(results) >= 1
+        dest = salvage_base / "issue-99" / "coder" / "brc-memory-issue-99.md"
+        assert dest.exists()
