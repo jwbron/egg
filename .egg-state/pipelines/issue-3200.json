@@ -212,10 +212,28 @@
       "resolution": "{\"action\": \"approve\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Refinement scope confirmation: This pipeline should deliver 3 components (session resume, deterministic seed layer, enrichment layer injection) plus 1 prerequisite fix (restart-memory preservation). Delivery scope should be:\nOption A (Recommended): Full scope — all 3 components + restart fix.\nOption B: Capped scope — restart fix + session resume only (defer deterministic/enrichment seed layers to a follow-up).",
+      "context": "Open contract question cq-1, registered by an agent during the refine phase.",
+      "options": [
+        "Option A: All 3 components + restart fix",
+        "Option B: Session resume + restart fix only (defer seed layers)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-06-15T05:25:33.540756Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-06-15T05:11:20.235313Z",
-  "updated_at": "2026-06-15T05:25:30.411762Z",
+  "updated_at": "2026-06-15T05:25:33.551639Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -228,7 +246,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12,
+  "version": 13,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
