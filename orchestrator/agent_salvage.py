@@ -185,17 +185,6 @@ class SalvageResult:
     error: str | None = None
 
 
-@dataclass
-class BrcMemorySalvageResult:
-    """Result of salvaging BRC memory files before worktree deletion."""
-
-    pipeline_id: str
-    saved: list[str]  # filenames that were copied
-    salvage_dir: Path  # where they were copied to
-    ok: bool
-    error: str | None = None
-
-
 @dataclass(frozen=True)
 class RestoredMemory:
     """Result of restoring a single salvaged BRC memory file.
@@ -863,9 +852,6 @@ def salvage_brc_memory(
             continue
         role = role_dir.name
         src = role_dir / pattern
-        if not src.is_file():
-            # Role dir exists but no memory file for this pipeline yet.
-            continue
 
         dest_dir = salvage_base / pipeline_id / role
         dest = dest_dir / f"brc-memory-{pipeline_id}.md"
@@ -991,6 +977,15 @@ def auto_salvage_pipeline(
     ``git reset --hard``. Left ``False`` on the cleanup path.
     """
     results: list[SalvageResult] = []
+    # Salvage BRC memory files before worktree deletion (best-effort).
+    try:
+        salvage_brc_memory(pipeline_id, Path(AGENT_OUTPUT_BASE_DIR), Path(SALVAGE_BASE_DIR))
+    except Exception as e:
+        logger.warning(
+            "BRC memory salvage failed; continuing with worktree salvage",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
     try:
         worktrees = enumerate_agent_worktrees(pipeline_id)
     except Exception as e:
