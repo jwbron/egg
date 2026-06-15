@@ -9,7 +9,291 @@
   "pipeline_id": "issue-3200",
   "current_phase": "refine",
   "acceptance_criteria": [],
-  "slices": [],
+  "slices": [
+    {
+      "id": "slice-1",
+      "name": "Restart-memory preservation",
+      "goal": "",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Copy brc-memory files from agent output dirs to salvage location before worktree deletion\nin auto_salvage_pipeline(). Add restore_salvaged_memory() for pipeline restart.\nReferenced in: R3 of risk assessment.\n",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Agent worktree is deleted, BRC memory file survives in salvage directory\nand is restored on restart. Verified by integration test.\n",
+          "files_affected": [
+            "orchestrator/agent_salvage.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-2",
+          "description": "**M3:** Post-restore validity check. Verify salvaged memory file is non-empty,\nhas valid timestamp within expected range, and belongs to the correct pipeline restart\n(not stale pre-restart copy). Reject missing/invalid restore with logged error.\nComposer must refuse to compose enrichment from invalid restore \u2014 hard error, not silent skip.\n",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Smoke test: restart pipeline \u2192 verify post-restart seed contains enrichment from valid copy.\nCorrupt/missing/zero-byte salvage file \u2192 composer error, not silent degradation.\n",
+          "files_affected": [
+            "orchestrator/agent_salvage.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-2",
+      "name": "Session resume via Agent SDK",
+      "goal": "",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Persist session_id to cursor file after each agent invocation. On next invocation,\npass --resume <session_id> into agent spawn command. Keyed by pipeline_id + role digest.\nEmit error log if session_id is missing from agent stdout but no blocking.\n",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Agent uses --resume <id> and receives cached context from provider prompt cache.",
+          "files_affected": [
+            "sandbox/egg_agent_tools/handlers/midturn_messages.py",
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-3",
+      "name": "Deterministic seed layer composer",
+      "goal": "",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Create orchestrator/routes/seed_composer.py with SeedComposer. render_deterministic_layer()\nreads from PeerConsensusTracker message store and committed BRC history to produce stable,\nsorted per-producer blocks with last-reviewed SHA, verdict, NACK reasons, obligations.\n\n**M4:** Hard enforced byte caps. The composer must actively reject (not warn) sections\nthat exceed their budget. Cap is enforced at composition time; truncation is reserved\nonly for the enrichment layer (Slice 4) and must truncate with sentinel marker.\nNo actual byte budgets exceed 4KB after rendering (2KB deterministic + 2KB enrichment).\nIntegration tests verify byte budget at composition time.\n\n**M2 (partial):** SHA-stamped enrichment claims must be cross-checked against the\ndeterministic layer's last-reviewed SHA per producer. Cross-check is performed during\nrender, not at usage time.\n",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Composer output is byte-stable on repeated calls with same store state and fits within\nbudget. Sections exceeding budget cause hard error. Test verifies: compose \u2192 verify\noutput \u2264 4KB (2KB deterministic + 2KB enrichment). Spark verification: compose from\nsame inputs \u2192 identical SHA256 hashes.\n",
+          "files_affected": [
+            "orchestrator/routes/seed_composer.py",
+            "orchestrator/peer_consensus.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-2"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-4",
+      "name": "Enrichment layer injection into seed",
+      "goal": "",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add render_enrichment_layer() and render_seed() to SeedComposer. Reads agent-authored\nbrc-memory.md, validates SHA stamps, renders bounded enrichment 4 KB cap after\ndeterministic prefix. Annotates stale SHA-stamped claims.\n\n**M2 complete:** Every SHA claim in enrichment is cross-checked against the deterministic\nlayer's last_reviewed_sha per producer. SHA mismatch on cross-check \u2192 blocked:\nthe enrichment section is dropped from the seed (truncated to empty) with a logged\nwarning, so the seed is still usable but without stale content. Output is always\nwithin cap: truncation with \"...\" sentinel + byte-count remaining.\n\n**M4 (final):** hard per-section caps enforced via test infrastructure.\n",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Integration test: produce BRC-memory \u2192 compose \u2192 verify output \u2264 4KB (2KB + 2KB).\nTest: stale SHA injected \u2192 enrich_on dropped; fresh SHA matches \u2192 enrichment retained.\nComposer fails closed (truncation) not silently (bypass caps).\n",
+          "files_affected": [
+            "orchestrator/routes/seed_composer.py",
+            "sandbox/egg_agent_tools/handlers/brc_memory.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-3"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-5",
+      "name": "Integration \u2014 resume vs seed mutual exclusion + detection",
+      "goal": "",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Wire invoke_agent_for_event() in consensus_wrapper.py to make the resume/seed\ndecision. Path algorithm: session-ID present \u2192 resume; no session-ID \u2192 fresh with\nseed; session-ID invalid/expired \u2192 fresh with seed only.\n\n**M5:** Implement the 5-state decision matrix specified in the risk assessment\n(M5 in the reviewer checklist).\n",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Cold start spawns with --system-prompt; warm path uses --resume. Neither flag appears\ntogether in any command. Both paths verified independently.\n",
+          "files_affected": [
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-2",
+          "description": "**M5 (continued):** Fallback-to-unseeded session when both resume cursor and seed path\nfail. Add explicit handler: if --resume fails AND --system-prompt composition fails\n(e.g. corrupted seed file, invalid JSON parse, SHA mismatch renders enrichment\nuntrustworthy), fall back to a clean launch with --system-prompt '' empty or absent\n\u2014 NEVER hybrid partially-cached + seed. Test covers: resume fail \u2192 seed fail \u2192\nunseeded fresh launch succeeds.\n",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test matrix: 5-state algorithm with each fallback validated. Resume file missing \u2192\nseed path reached. Seed composition fails \u2192 unseeded fresh launch succeeds.\n",
+          "files_affected": [
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-3",
+          "description": "**M6:** Provider-routing detection at resume-spawn. On the first event after resume,\ndetect if the provider has changed from the session's cached provider. Compare response\nmetadata (model ID, provider header, cost profile) against saved baseline. If provider\ndiverges \u2192 log warning + enable fresh-spawn fallback on next resume event. If the\ndeviation exceeds cost threshold \u2192 abort current session immediately and spawn fresh\nwith seed.\n\n**M1 single-pin wiring task:** Combine LiteLLM route configuration for\nsingle-provider pinning (add to litellm config) plus above detection in one task.\nThe LiteLLM route config change ensures:\n  - deepseek-v4-pro pinned to single provider  \n  - flash pinned to Fireworks (already)\nDetection at first-resume-handle verifies pin effective post-resume.\n",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test: configure single-pin \u2192 resume agent \u2192 verify provider header matches origin.\nTest: configure single-pin \u2192 resume agent \u2192 force provider switch \u2192 verify\nfresh-with-seed fallback triggered and estimated-cost display \u2264 10% deviation.\n",
+          "files_affected": [
+            "config/litellm/litellm-config.yaml",
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-4"
+      ],
+      "serialized_chain_order": [
+        "slice-2",
+        "slice-4"
+      ],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [
     {
       "id": "cq-1",
