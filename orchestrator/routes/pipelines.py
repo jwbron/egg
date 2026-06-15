@@ -16737,8 +16737,13 @@ def _run_implement_phase_slices(
     # intentional, not a bug: such a slice falls through to Layer-B,
     # where origin-side merge detection re-confirms it and re-marks it
     # COMPLETE. The outcome stays correct; the only cost is one extra
-    # GitHub round-trip per restart. Any slice that forked under current
-    # code records integration_base_sha and is trusted here directly.
+    # GitHub round-trip per restart. A slice that forked under current
+    # code *usually* records integration_base_sha and is trusted here
+    # directly — but that write is best-effort (the get_remote_branch_sha
+    # call at slice spawn swallows failures and degrades to ancestor-only
+    # detection), so a current-code slice whose base-SHA write failed also
+    # falls through to Layer-B and self-corrects identically to the legacy
+    # case above.
     layer_b_candidates = []
     for s in slices:
         if s.status == SliceStatus.COMPLETE:
