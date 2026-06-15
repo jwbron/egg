@@ -1598,6 +1598,12 @@ class TestSyncToProposals:
         return (
             "#!/bin/bash\nset -uo pipefail\n"
             f"EGG_REPO_PATH={shlex.quote(repo)}\n"
+            # #3216 gates the working-tree merge to execution-needing
+            # reviewers; the merge-behavior assertions below run as the
+            # tester (the role that executes the proposal). The role-skip
+            # path has its own coverage in
+            # test_sync_to_proposals_role_gate.py.
+            "EGG_AGENT_ROLE=tester\n"
             + cw_match.group(0)
             + "\n"
             + sync_match.group(0)

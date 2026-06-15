@@ -944,6 +944,20 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
 EXECUTION_ROLE_VALUES = frozenset({AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER})
 
 
+# Reviewer roles that must have the peer's proposal *merged into their
+# working tree* to do their job — i.e. they EXECUTE the proposal (run
+# the test suite / build against the merged tree) rather than only
+# reading its diff. The BRC event-pump wrapper's ``sync_to_proposals``
+# gate (#3216, WS1 of #3209) runs ``git merge`` only for these roles on
+# a review (``ack``/``nack``) arm; every other reviewer reads peer
+# artifacts via the per-event-prompt ``git show`` / ``egg-artifact``
+# served reads, so merging the peer's whole tree into their worktree
+# only risks the dual-role criss-cross propagation that corrupts shared
+# drafts (#3208). The ``tester`` is the only reviewer that runs the
+# proposed tree; reviewer_code and the refine/plan reviewers read diffs.
+REVIEWER_CHECKOUT_ROLE_VALUES = frozenset({AgentRole.TESTER})
+
+
 # Maps the fine-grained ``AgentRole`` shipped in agent sessions to the
 # coarse-grained ``Role`` enum used for contract field-ownership checks.
 # The gateway's contract and phase APIs consult this to authorize an
