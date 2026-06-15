@@ -1,0 +1,95 @@
+# 3200-architect-slices — Proposed implementation slices for full-context backstop
+
+pipeline_id: issue-3200
+phase: plan
+role: architect
+date: 2026-06-15
+
+slices:
+  - id: slice-1
+    title: Restart memory preservation
+    issue: 3183
+    goal: Salvage BRC memory files alongside commits before worktree deletion
+    component: restart-memory-preservation
+    agent_role: coder
+    files:
+      - orchestrator/agent_salvage.py
+
+  - id: slice-2
+    title: Session-ID cursor capture
+    issue: 3186
+    goal: Post-process agent stdout, extract session_id from AgentResult JSON, persist to cursor file
+    component: session-resume
+    agent_role: coder
+    files:
+      - orchestrator/consensus_wrapper.py
+
+  - id: slice-3
+    title: Resume path wiring
+    issue: 3186
+    goal: Thread --resume <session_id> through wrapper template invoke_agent_for_event
+    component: session-resume
+    agent_role: coder
+    depends_on:
+      - slice-2
+    files:
+      - orchestrator/consensus_wrapper.py
+
+  - id: slice-4
+    title: Seed composition framework
+    issue: null
+    goal: New orchestrator/routes/seed_composer.py module reading message store + BRC memory files
+    component: seed-injection
+    agent_role: coder
+    files:
+      - orchestrator/routes/seed_composer.py
+
+  - id: slice-5
+    title: Deterministic factual seed layer rendering
+    issue: 3189
+    goal: compose_deterministic_seed() reading from tracker + committed BRC history; stable-byte rendering
+    component: deterministic-seed
+    agent_role: coder
+    depends_on:
+      - slice-4
+    files:
+      - orchestrator/routes/seed_composer.py
+      - orchestrator/routes/event_prompt.py
+
+  - id: slice-6
+    title: Agent-authored enrichment layer injection
+    issue: 3188
+    goal: compose_enrichment_seed() reading BRCMemory files, SHA-stamp annotations
+    component: enrichment-seed
+    agent_role: coder
+    depends_on:
+      - slice-4
+    files:
+      - orchestrator/routes/seed_composer.py
+      - sandbox/egg_agent_tools/handlers/brc_memory.py
+
+  - id: slice-7
+    title: System-prompt injection through wrapper
+    issue: null
+    goal: Thread --system-prompt flag through build_event_pump_wrapped_command, mutually exclusive with --resume
+    component: system-prompt-injection
+    agent_role: coder
+    depends_on:
+      - slice-5
+      - slice-6
+    files:
+      - orchestrator/consensus_wrapper.py
+
+  - id: slice-8
+    title: Integration and end-to-end tests
+    issue: null
+    goal: E2E test across restart_phase with salvaged memory → re-seeded fresh session → cached resume
+    component: integration
+    agent_role: tester
+    depends_on:
+      - slice-3
+      - slice-7
+    files:
+      - orchestrator/consensus_wrapper.py
+      - orchestrator/routes/seed_composer.py
+      - orchestrator/routes/event_prompt.py
