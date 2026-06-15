@@ -1,0 +1,92 @@
+{
+  "issue": 3200,
+  "pipeline_id": "issue-3200",
+  "phase": "plan",
+  "role": "architect",
+  "decision": "proceed",
+  "architecture_plan": ".egg-state/drafts/3200-architecture-plan.md",
+  "components": [
+    {
+      "id": "session-resume",
+      "issue": 3186,
+      "title": "Session-ID capture and resume (warm path)",
+      "summary": "Persist AgentResult.session_id from agent stdout; thread --resume flag through consensus_wrapper.py invoke_agent_for_event. Resume reuses prompt-cached session; handles missing cursor gracefully.",
+      "files": [
+        "orchestrator/consensus_wrapper.py (invoke_agent_for_event, build_event_pump_wrapped_command)",
+        "shared/egg_agent/result.py (no change — already captures session_id)",
+        "shared/egg_agent/client.py (no change — already supports resume=)",
+        "shared/egg_agent/command.py (no change — already supports --resume)"
+      ]
+    },
+    {
+      "id": "restart-memory-preservation",
+      "issue": 3183,
+      "title": "Restart-phase BRC memory preservation",
+      "summary": "Salvage BRC memory files alongside commits in agent_salvage.py auto_salvage_pipeline() before worktree deletion. Stores to .egg-state/salvaged-memory/<pipeline-id>/<role>/brc-memory-<id>.md.",
+      "files": [
+        "orchestrator/agent_salvage.py (new salvage_brc_memory function, hook in auto_salvage_pipeline)"
+      ]
+    },
+    {
+      "id": "deterministic-seed",
+      "issue": 3189,
+      "title": "Deterministic factual seed layer",
+      "summary": "Orchestrator derives review anchors from message record (never agent-transcribed). New seed_composer.py module reads tracker state and committed BRC history to render per-producer last-reviewed SHA, verdicts, NACK reasons, obligations.",
+      "files": [
+        "orchestrator/routes/seed_composer.py (new file — compose_deterministic_seed)",
+        "orchestrator/routes/event_prompt.py (new keyword-only seed_prompt arg in compose_event_prompt)"
+      ]
+    },
+    {
+      "id": "enrichment-seed",
+      "issue": 3188,
+      "title": "Agent-authored enrichment seed layer",
+      "summary": "Read BRCMemory files from .egg-state/agent-outputs/<role>/brc-memory-<id>.md; extract key findings, producer narrative, decision trail; SHA-stamp each claim for stale detection via git-log delta cross-reference.",
+      "files": [
+        "orchestrator/routes/seed_composer.py (compose_enrichment_seed)",
+        "sandbox/egg_agent_tools/handlers/brc_memory.py (read path via memory_path_for_role)"
+      ]
+    },
+    {
+      "id": "system-prompt-injection",
+      "issue": null,
+      "title": "System-prompt injection through wrapper",
+      "summary": "Thread --system-prompt flag through build_event_pump_wrapped_command → agent_prefix_parts in the wrapper template. Mutually exclusive with --resume (warm path). Seed composed as stable, cacheable bytes injected at agent spawn time.",
+      "files": [
+        "orchestrator/consensus_wrapper.py (build_event_pump_wrapped_command, _EVENT_PUMP_WRAPPER_TEMPLATE)"
+      ]
+    },
+    {
+      "id": "deterministic-rendering",
+      "issue": null,
+      "title": "Deterministic rendering discipline",
+      "summary": "Sorted keys, hard per-section caps (2KB deterministic, 1KB enrichment), no timestamps, no random UUIDs, trimmed trailing whitespace for prompt-cache stability across restarts.",
+      "files": [
+        "orchestrator/routes/seed_composer.py (rendering logic)"
+      ]
+    }
+  ],
+  "slices_proposed": [
+    "slice-1: restart memory preservation",
+    "slice-2: session-id cursor capture",
+    "slice-3: resume path wiring",
+    "slice-4: seed composition framework (seed_composer.py)",
+    "slice-5: deterministic factual layer",
+    "slice-6: enrichment layer injection",
+    "slice-7: system-prompt injection path",
+    "slice-8: integration & tests"
+  ],
+  "open_questions": [
+    "Resume-vs-seed tiebreaker: wrapper bash vs agent client-side? (Proposed: wrapper bash)",
+    "Cross-role seed: should a restarted agent receive all roles' enrichment, or only its own?",
+    "Seed granularity: per-session stable prefix vs per-event recompilation? (Proposed: per-session)"
+  ],
+  "risks": [
+    {"risk": "Propagation error (wrong belief in seed amplifies)", "mitigation": "SHA-stamp + git-log delta cross-ref for stale detection"},
+    {"risk": "Non-cacheable rendered bytes (prompt cache miss)", "mitigation": "Sorted keys, hard numeric caps, no timestamps, strip whitespace"},
+    {"risk": "Provider mismatch on resume (full-price cache miss)", "mitigation": "LiteLLM single-pin --route deepseek-v4-pro"},
+    {"risk": "Memory file capacity at salvage", "mitigation": "Pre-filter; files ~10KB raw before truncation"},
+    {"risk": "SDK API break changes --system-prompt", "mitigation": "CI gate requires target SDK version pass"},
+    {"risk": "Seed > 8KB budget overrun", "mitigation": "Hard cap at composition, trunc with sentinel"}
+  ]
+}
