@@ -219,6 +219,7 @@ sandbox/
 ├── bin/                    # Git/gh wrapper scripts (route to gateway)
 │   ├── git
 │   ├── gh
+│   ├── egg-artifact        # Symlink to scripts/egg-artifact; served artifact reads by spec name via gateway (#3216)
 │   ├── egg-contract        # Symlink to contract_cli.py
 │   ├── egg-onboarding-docs # Generate repository documentation via egg-sdlc
 │   ├── egg-pipeline-watch  # Real-time pipeline progress viewer via SSE
