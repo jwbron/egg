@@ -1104,12 +1104,28 @@ def _validate_plan_extensions(
     try:
         from egg_contracts.plan_parser import (
             parse_plan,
-            validate_forest,
-            validate_slice_file_overlap,
             validate_task_role_alignment,
         )
     except ImportError:
         return
+
+    # The DAG-shape validators (#3211) are imported separately so a future
+    # module reshuffle that drops *either* symbol degrades to skipping only the
+    # forest / file-overlap gate — not the pre-existing parseability (#3026) and
+    # role-alignment (#2527) checks that share this function. Default to no-op
+    # validators (empty error lists) so the gate below is simply silent.
+    try:
+        from egg_contracts.plan_parser import (
+            validate_forest,
+            validate_slice_file_overlap,
+        )
+    except ImportError:
+
+        def validate_forest(_slices):  # type: ignore[misc]
+            return []
+
+        def validate_slice_file_overlap(_slices):  # type: ignore[misc]
+            return []
 
     try:
         parsed = parse_plan(plan_text)
