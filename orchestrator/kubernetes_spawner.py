@@ -1503,6 +1503,30 @@ class KubernetesSpawner:
                 f"operations. See #1869."
             )
 
+        # Restart-memory backstop (#3200 slice-1): if this role's BRC memory
+        # was salvaged before a prior worktree was deleted (agent restart,
+        # phase restart, pod death), restore the validated copy into the
+        # freshly (re)created worktree so the in-sandbox event-prompt composer
+        # seeds the fresh session from it. This single spawn chokepoint covers
+        # every spawn path; on a clean cold start no salvage exists and the
+        # call is a no-op. Best-effort — never blocks the spawn.
+        if repos and repo_volumes:
+            primary_host_path = repo_volumes.get(repos[0])
+            if primary_host_path:
+                try:
+                    agent_salvage.restore_salvaged_memory_to_worktree(
+                        pipeline_id,
+                        agent_role.value,
+                        Path(primary_host_path),
+                    )
+                except Exception as e:  # noqa: BLE001 — best-effort, must not block spawn
+                    logger.warning(
+                        "BRC memory restore failed; spawning without seed memory",
+                        pipeline_id=pipeline_id,
+                        role=agent_role.value,
+                        error=str(e),
+                    )
+
         # Register gateway session (token-only, no container_ip)
         session_info = None
         session_token = existing_session_token  # #3064 slice-4: reuse when supplied

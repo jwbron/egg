@@ -763,7 +763,12 @@ _SALVAGE_DIR = Path("/tmp/.egg-test-salvage")
 
 
 class _MemoryFixture:
-    """Helper to lay down brc-memory.md files under tmp_path for tests."""
+    """Helper to lay down brc-memory-<pipeline-id>.md files under tmp_path.
+
+    Uses the real production filename (pipeline-id-suffixed), NOT the bare
+    ``brc-memory.md`` leftover the system is documented to ignore — so a
+    regression in path/filename resolution surfaces as a test failure.
+    """
 
     @staticmethod
     def create(
@@ -772,10 +777,10 @@ class _MemoryFixture:
         role: str,
         content: str | None = None,
     ) -> Path:
-        """Write a brc-memory.md for *role* under *base*/*role*/."""
+        """Write ``brc-memory-<pipeline_id>.md`` for *role* under *base*/*role*/."""
         role_dir = base / role
         role_dir.mkdir(parents=True, exist_ok=True)
-        mem_file = role_dir / "brc-memory.md"
+        mem_file = role_dir / f"brc-memory-{pipeline_id}.md"
         if content is None:
             content = (
                 f"# BRC memory — {role} ({pipeline_id})\n\n"
@@ -885,10 +890,10 @@ class TestSalvageBrcMemory:
         agent_outputs = tmp_path / "agent-outputs"
         salvage_base = tmp_path / "salvaged-memory"
         _MemoryFixture.create(agent_outputs, "issue-99", "coder")
-        # Create a role dir with a brc-memory.md that is a directory (unreadable).
+        # Create a role dir whose memory file is a directory (unreadable).
         bad_role_dir = agent_outputs / "reviewer_code"
         bad_role_dir.mkdir()
-        (bad_role_dir / "brc-memory.md").mkdir()  # directory, not a file
+        (bad_role_dir / "brc-memory-issue-99.md").mkdir()  # directory, not a file
 
         results = salvage_brc_memory("issue-99", agent_outputs, salvage_base)
         roles = sorted(r.role for r in results)
@@ -1110,8 +1115,10 @@ class TestAutoSalvagePipelineBrcMemory:
         gateway.push_worktree_branch.assert_called()
 
     def test_memory_salvage_happy_path(self, tmp_path: Path) -> None:
-        """When both memory and worktree salvage succeed, results include
-        SalvageMemoryResult metadata and worktree salvage results."""
+        """Salvage reads the memory file from its REAL in-worktree location
+        (``<repo>/.egg-state/agent-outputs/<role>/brc-memory-<pid>.md``) with
+        the source path resolved unpatched from the enumerated worktree — only
+        the worktree base and the (durable) salvage destination are patched."""
         from agent_salvage import auto_salvage_pipeline
 
         repo, local_branch = _make_worktree_layout(
@@ -1122,20 +1129,140 @@ class TestAutoSalvagePipelineBrcMemory:
         _create_remote_tracking(repo, "egg/issue-99/work", anchor)
         _commit(repo, "x.txt", "a", "unpushed")
 
-        agent_outputs = tmp_path / "agent-outputs"
-        salvage_base = tmp_path / "salvaged-memory"
+        # Memory lives INSIDE the worktree, at the production-real path. The
+        # salvage source is resolved from the enumerated worktree.repo_path,
+        # not from a patched module constant.
+        agent_outputs = repo / ".egg-state" / "agent-outputs"
         _MemoryFixture.create(agent_outputs, "issue-99", "coder")
+
+        salvage_base = tmp_path / "salvaged-memory"
 
         gateway = MagicMock()
         gateway.push_worktree_branch.return_value = PushResult(ok=True)
 
         with (
             patch("agent_salvage.WORKTREE_BASE_DIR", tmp_path),
-            patch("agent_salvage.AGENT_OUTPUT_BASE_DIR", agent_outputs),
-            patch("agent_salvage.SALVAGE_BASE_DIR", salvage_base),
+            patch("agent_salvage.SALVAGE_MEMORY_BASE_DIR", salvage_base),
         ):
             results = auto_salvage_pipeline(gateway, "issue-99")
 
+        # Worktree (commit) salvage results still come through.
         assert len(results) >= 1
+        # Memory was salvaged from the real in-worktree path to the durable
+        # salvage destination.
         dest = salvage_base / "issue-99" / "coder" / "brc-memory-issue-99.md"
         assert dest.exists()
+        assert "coder" in dest.read_text()
+
+
+class TestRestoreSalvagedMemoryToWorktree:
+    """restore_salvaged_memory_to_worktree() places a validated salvaged
+    memory file back into a freshly (re)created worktree, and refuses to
+    place an invalid one (the task-1-2 hard-error path)."""
+
+    def test_round_trip_salvage_then_restore(self, tmp_path: Path) -> None:
+        """End-to-end: salvage from the real in-worktree layout, then restore
+        into a fresh worktree's real in-worktree path — unpatched source and
+        destination resolution. This is the task-1-1 salvage→restore round
+        trip the AC requires."""
+        from agent_salvage import (
+            restore_salvaged_memory_to_worktree,
+            salvage_brc_memory,
+        )
+
+        # Original worktree with memory at the production-real path. (Plain
+        # dirs — no real git repo needed; salvage/restore operate on the
+        # ``.egg-state/agent-outputs`` tree, not git plumbing.)
+        original_repo = tmp_path / "issue-3200-coder" / "repo"
+        agent_outputs = original_repo / ".egg-state" / "agent-outputs"
+        content = (
+            "# BRC memory — coder (issue-3200)\n\n"
+            "## My proposal\n- last_reviewed_commit_sha: abc123\n"
+        )
+        _MemoryFixture.create(agent_outputs, "issue-3200", "coder", content=content)
+
+        salvage_base = tmp_path / "salvaged-memory"
+        results = salvage_brc_memory("issue-3200", agent_outputs, salvage_base)
+        assert len(results) == 1 and results[0].ok
+
+        # Simulate the restart: a fresh worktree with NO memory file.
+        fresh_repo = tmp_path / "fresh" / "repo"
+        fresh_repo.mkdir(parents=True)
+
+        restored = restore_salvaged_memory_to_worktree(
+            "issue-3200", "coder", fresh_repo, salvage_base=salvage_base
+        )
+
+        assert restored is not None
+        expected = (
+            fresh_repo / ".egg-state" / "agent-outputs" / "coder" / "brc-memory-issue-3200.md"
+        )
+        assert restored == expected
+        assert expected.read_text() == content
+
+    def test_returns_none_when_no_salvage(self, tmp_path: Path) -> None:
+        """Cold start: nothing salvaged for the role → quiet None, no file."""
+        from agent_salvage import restore_salvaged_memory_to_worktree
+
+        salvage_base = tmp_path / "salvaged-memory"
+        fresh_repo = tmp_path / "fresh" / "repo"
+        fresh_repo.mkdir(parents=True)
+
+        restored = restore_salvaged_memory_to_worktree(
+            "issue-99", "coder", fresh_repo, salvage_base=salvage_base
+        )
+        assert restored is None
+        assert not (fresh_repo / ".egg-state").exists()
+
+    def test_refuses_to_restore_empty_memory(self, tmp_path: Path) -> None:
+        """task-1-2: a zero-byte salvage is invalid — restore refuses to place
+        it (loud logged error, not a silent skip) so the fresh agent does not
+        seed from degraded memory."""
+        from agent_salvage import restore_salvaged_memory_to_worktree
+
+        salvage_base = tmp_path / "salvaged-memory"
+        src = salvage_base / "issue-99" / "coder" / "brc-memory-issue-99.md"
+        src.parent.mkdir(parents=True)
+        src.write_text("")  # zero-byte → invalid
+
+        fresh_repo = tmp_path / "fresh" / "repo"
+        fresh_repo.mkdir(parents=True)
+
+        restored = restore_salvaged_memory_to_worktree(
+            "issue-99", "coder", fresh_repo, salvage_base=salvage_base
+        )
+
+        assert restored is None
+        # The invalid file was NOT placed into the worktree.
+        dest = fresh_repo / ".egg-state" / "agent-outputs" / "coder" / "brc-memory-issue-99.md"
+        assert not dest.exists()
+
+    def test_refuses_to_restore_stale_memory(self, tmp_path: Path) -> None:
+        """A salvage older than the default max-age window is rejected —
+        exercises the on-by-default staleness check
+        (_MAX_RESTORE_AGE_SECONDS wired as the validate default)."""
+        import os
+        from datetime import datetime, timedelta
+
+        from agent_salvage import _MAX_RESTORE_AGE_SECONDS, restore_salvaged_memory_to_worktree
+
+        salvage_base = tmp_path / "salvaged-memory"
+        src = salvage_base / "issue-99" / "coder" / "brc-memory-issue-99.md"
+        src.parent.mkdir(parents=True)
+        src.write_text("# BRC memory — coder (issue-99)\n")
+        # Backdate well past the 7-day default window.
+        stale = (
+            datetime.now(UTC) - timedelta(seconds=_MAX_RESTORE_AGE_SECONDS + 86400)
+        ).timestamp()
+        os.utime(str(src), (stale, stale))
+
+        fresh_repo = tmp_path / "fresh" / "repo"
+        fresh_repo.mkdir(parents=True)
+
+        restored = restore_salvaged_memory_to_worktree(
+            "issue-99", "coder", fresh_repo, salvage_base=salvage_base
+        )
+
+        assert restored is None
+        dest = fresh_repo / ".egg-state" / "agent-outputs" / "coder" / "brc-memory-issue-99.md"
+        assert not dest.exists()
