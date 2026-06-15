@@ -1149,7 +1149,16 @@ def auto_salvage_pipeline(
     # own checkout, not a process-wide path. Failure is logged, never
     # propagated, so it cannot block the unpushed-commit salvage that follows.
     try:
-        _salvage_memory_for_worktrees(pipeline_id, worktrees, worktree_filter)
+        # Resolve SALVAGE_MEMORY_BASE_DIR from the module global at call time
+        # rather than relying on the callee's default-argument binding (which is
+        # captured at import time and so is invisible to a test/runtime patch of
+        # the module constant).
+        _salvage_memory_for_worktrees(
+            pipeline_id,
+            worktrees,
+            worktree_filter,
+            salvage_base=SALVAGE_MEMORY_BASE_DIR,
+        )
     except Exception as e:
         logger.warning(
             "BRC memory salvage failed; continuing with worktree salvage",
