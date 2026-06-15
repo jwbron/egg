@@ -944,6 +944,30 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
 EXECUTION_ROLE_VALUES = frozenset({AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER})
 
 
+# Reviewer roles that must have the peer's proposal *merged into their
+# working tree* to do their job — i.e. they EXECUTE the proposal (run
+# the test suite / build against the merged tree) rather than only
+# reading its diff. The BRC event-pump wrapper's ``sync_to_proposals``
+# gate (#3216, WS1 of #3209) runs ``git merge`` only for these roles on
+# a review (``ack``/``nack``) arm; every other reviewer reads peer
+# artifacts via the per-event-prompt ``git show`` / ``egg-artifact``
+# served reads, so merging the peer's whole tree into their worktree
+# only risks the dual-role criss-cross propagation that corrupts shared
+# drafts (#3208). The ``tester`` is the only reviewer that runs the
+# proposed tree; reviewer_code and the refine/plan reviewers read diffs.
+#
+# Residual: the ``tester`` is itself a dual-role agent (producer of test
+# code + reviewer) and must keep merging to execute ``make test`` against
+# the proposed tree, so the #3208 merge-then-commit-on-top criss-cross
+# shape stays *reachable via tester* in the implement phase. This gate
+# therefore does NOT fully close #3208 — it removes the shape for every
+# read-only reviewer (the plan-phase ``risk_analyst`` / ``plan.md``
+# corruption that motivated #3216). The remaining tester surface is an
+# accepted residual of WS1·1a, tracked under the parent #3209 (which
+# supersedes #3208); do not assume #3208 is closed by this set alone.
+REVIEWER_CHECKOUT_ROLE_VALUES = frozenset({AgentRole.TESTER})
+
+
 # Maps the fine-grained ``AgentRole`` shipped in agent sessions to the
 # coarse-grained ``Role`` enum used for contract field-ownership checks.
 # The gateway's contract and phase APIs consult this to authorize an

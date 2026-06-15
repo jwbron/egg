@@ -70,6 +70,16 @@ SUPERVISION_BACKOFF_CAP_SECONDS = _supervision_policy.SUPERVISION_BACKOFF_CAP_SE
 SUPERVISION_FAILURE_STREAK_WARN = _supervision_policy.SUPERVISION_FAILURE_STREAK_WARN
 SUPERVISION_FAILURE_STREAK_ALERT = _supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT
 
+from egg_contracts.agent_roles import REVIEWER_CHECKOUT_ROLE_VALUES
+
+# Space-separated role values for which ``sync_to_proposals`` performs a
+# working-tree merge (#3216, WS1 of #3209). Rendered into the wrapper
+# template as the ``checkout_roles`` field; the bash gate skips the merge
+# for any role not in this list. Sorted for a deterministic, golden-stable
+# render. The policy itself lives in ``egg_contracts.agent_roles`` so role
+# semantics stay in one place.
+EVENT_PUMP_CHECKOUT_ROLES = " ".join(sorted(str(r) for r in REVIEWER_CHECKOUT_ROLE_VALUES))
+
 
 def _event_loop_owner() -> str:
     """Return the BRC event-loop ownership mode (``pod`` | ``orchestrator``).
@@ -555,6 +565,26 @@ invoke_agent_for_event() {{
 SYNC_FAILURE_BANNERS=""
 
 sync_to_proposals() {{
+    # #3216 (WS1 of #3209): only reviewers that EXECUTE the proposal (run
+    # the test suite / build against the merged tree) need a working-tree
+    # merge. Every other reviewer reads peer artifacts via this prompt's
+    # ``git show`` / ``egg-artifact`` served reads, so merging the peer's
+    # *whole* tree into their worktree buys nothing and risks the dual-role
+    # criss-cross propagation that corrupts shared drafts (#3208: a reviewer
+    # arm merges a peer's plan.md, a later producer turn commits on top, and
+    # the cross-merged lineages spawn spurious conflicts / a rebase-mangled
+    # yaml fence / a "File modified since read" livelock). Allowed roles are
+    # rendered from ``REVIEWER_CHECKOUT_ROLE_VALUES``; default-deny so an
+    # unset/unknown role reads via git-show (the safe, non-replicating side).
+    local _role="${{EGG_AGENT_ROLE:-}}"
+    case " {checkout_roles} " in
+        *" $_role "*) : ;;  # role runs the proposal; a real merged checkout is required
+        *)
+            SYNC_FAILURE_BANNERS=""
+            cw_log "sync-to-proposal: role=$_role reads peer artifacts via git-show/egg-artifact; skipping working-tree merge (#3216)."
+            return 0
+            ;;
+    esac
     local event_payload="$1"
     local repo="${{EGG_REPO_PATH:-$PWD}}"
     local shas sha
@@ -1159,6 +1189,7 @@ def build_event_pump_wrapped_command(
         spvr_backoff_cap=SUPERVISION_BACKOFF_CAP_SECONDS,
         spvr_failure_streak_warn=SUPERVISION_FAILURE_STREAK_WARN,
         spvr_failure_streak_alert=SUPERVISION_FAILURE_STREAK_ALERT,
+        checkout_roles=EVENT_PUMP_CHECKOUT_ROLES,
     )
     # The triple-quoted template opens with a newline (so the source reads
     # cleanly); strip it so ``#!/bin/bash`` lands on line 1. The script is run

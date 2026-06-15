@@ -406,6 +406,26 @@ invoke_agent_for_event() {
 SYNC_FAILURE_BANNERS=""
 
 sync_to_proposals() {
+    # #3216 (WS1 of #3209): only reviewers that EXECUTE the proposal (run
+    # the test suite / build against the merged tree) need a working-tree
+    # merge. Every other reviewer reads peer artifacts via this prompt's
+    # ``git show`` / ``egg-artifact`` served reads, so merging the peer's
+    # *whole* tree into their worktree buys nothing and risks the dual-role
+    # criss-cross propagation that corrupts shared drafts (#3208: a reviewer
+    # arm merges a peer's plan.md, a later producer turn commits on top, and
+    # the cross-merged lineages spawn spurious conflicts / a rebase-mangled
+    # yaml fence / a "File modified since read" livelock). Allowed roles are
+    # rendered from ``REVIEWER_CHECKOUT_ROLE_VALUES``; default-deny so an
+    # unset/unknown role reads via git-show (the safe, non-replicating side).
+    local _role="${EGG_AGENT_ROLE:-}"
+    case " tester " in
+        *" $_role "*) : ;;  # role runs the proposal; a real merged checkout is required
+        *)
+            SYNC_FAILURE_BANNERS=""
+            cw_log "sync-to-proposal: role=$_role reads peer artifacts via git-show/egg-artifact; skipping working-tree merge (#3216)."
+            return 0
+            ;;
+    esac
     local event_payload="$1"
     local repo="${EGG_REPO_PATH:-$PWD}"
     local shas sha
