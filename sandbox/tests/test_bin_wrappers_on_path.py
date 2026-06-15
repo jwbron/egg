@@ -29,6 +29,12 @@ _PATH_DIR_ON_IMAGE = "/opt/egg-runtime/sandbox/bin"
 # Bare wrapper commands the orchestrator renders into reviewer prompts. Each
 # must be resolvable on PATH, i.e. present in sandbox/bin and pointing at an
 # existing executable.
+#
+# MAINTENANCE: this set is coupled to the renderer (event_prompt.py) only via
+# the shared command string — there is no derivation, so if the renderer starts
+# emitting a *different* bare command this guard stays green while silently
+# diverging. When you add a bare command to the reviewer fallback prompt, add it
+# here too (and pin its rendered string in test_compose_event_prompt.py).
 _REVIEWER_BARE_COMMANDS = ("egg-artifact",)
 
 
