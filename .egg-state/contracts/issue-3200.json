@@ -33,10 +33,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option A: All 3 components + restart fix\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-15T05:26:03.691444Z",
       "debounce_until": null
     }
   ],
