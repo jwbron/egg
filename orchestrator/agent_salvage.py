@@ -48,8 +48,9 @@ visible knobs.
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -87,6 +88,21 @@ _SLICE_WORKTREE_RE = re.compile(r"^(slice-[0-9]+)-(.+)$")
 _UNCOMMITTED_SALVAGE_MESSAGE = "[salvage] pre-crash working-tree state (#2807)"
 _SALVAGE_COMMIT_NAME = "egg-salvage"
 _SALVAGE_COMMIT_EMAIL = "egg-salvage@localhost"
+
+# BRC memory salvage constants
+_BRC_MEMORY_SALVAGE_DIR = ".egg-state/salvaged-memory"
+"""Directory under repo_path where brc-memory-*.md files are staged before
+worktree deletion. The name is stable — it survives worktree removal because
+it sits in the repo root, not in the per-agent worktree dirs."""
+
+# Filename glob for BRC memory files in agent output dirs (role-scoped,
+# pipeline-keyed per #3163).
+_BRC_MEMORY_GLOB = "brc-memory-*.md"
+
+# Validate that restoration timestamp is not older than this many seconds
+# before first_seen. Expressed in seconds: 7 days (longer than any
+# realistic pipeline gap between restart spawns).
+_MAX_RESTORE_AGE_SECONDS = 7 * 24 * 3600
 
 
 @dataclass(frozen=True)
@@ -166,6 +182,17 @@ class SalvageResult:
     recovery_ref: str | None  # set on success
     head_sha: str | None
     n_commits: int
+    ok: bool
+    error: str | None = None
+
+
+@dataclass
+class BrcMemorySalvageResult:
+    """Result of salvaging BRC memory files before worktree deletion."""
+
+    pipeline_id: str
+    saved: list[str]  # filenames that were copied
+    salvage_dir: Path  # where they were copied to
     ok: bool
     error: str | None = None
 
@@ -361,7 +388,7 @@ def _read_assigned_branch(repo_path: Path, local_branch: str) -> str | None:
             cwd=repo_path,
             check=False,
         )
-    except OSError, subprocess.SubprocessError:
+    except (OSError, subprocess.SubprocessError):
         return None
     raw = (result.stdout or "").strip()
     if result.returncode != 0 or not raw:
@@ -381,7 +408,7 @@ def _ref_exists(repo_path: Path, ref: str) -> bool:
             cwd=repo_path,
             check=False,
         )
-    except OSError, subprocess.SubprocessError:
+    except (OSError, subprocess.CalledProcessError, subprocess.SubprocessError):
         return False
     return result.returncode == 0
 
@@ -570,7 +597,7 @@ def _has_uncommitted_changes(repo_path: Path) -> bool:
     """Return True when the worktree has staged, unstaged, or untracked changes."""
     try:
         result = _run_git("status", "--porcelain", cwd=repo_path, check=False)
-    except OSError, subprocess.SubprocessError:
+    except (OSError, subprocess.SubprocessError):
         return False
     return result.returncode == 0 and bool(result.stdout.strip())
 
@@ -679,7 +706,7 @@ def salvage_worktree(
             error=report.error,
         )
 
-    if not report.commits:
+    if not report.comits:
         # Nothing to salvage. ok=True so callers can short-circuit
         # without surfacing a spurious failure.
         return SalvageResult(
@@ -701,7 +728,7 @@ def salvage_worktree(
     # remote ref name. Launcher auth bypasses the agent-targeted
     # pipeline-push enforcement.
     try:
-        push_result = gateway.push_worktree_branch(
+        push_result = gateway.push_worktreebranch(
             pipeline_id=worktree.pipeline_id,
             repo_path=str(worktree.repo_path),
             branch=target_ref,
@@ -753,6 +780,314 @@ def salvage_worktree(
         n_commits=len(report.commits),
         ok=True,
     )
+
+
+# ── BRC Memory Salvage (pt. of #3200 slice-1) ────────────────────────────────
+#
+# ``salvage_brc_memory()`` copies per-role ``brc-memory-<pipeline_id>.md`` files
+# from ``.egg-state/agent-outputs/<role>/`` into a **salvage directory**
+# (``.egg-state/salvaged-memory/``) before worktree deletion removes them.
+# ``restore_salvaged_memory()`` reads them back after a pipeline restart,
+# validating that the files are non-empty, have a recent-enough timestamp,
+# and match the target pipeline (not a stale predecessor).
+
+
+def _agent_output_dir(repo_path: Path) -> Path:
+    """Return ``<repo_path>/.egg-state/agent-outputs``."""
+    return repo_path / ".egg-state" / "agent-outputs"
+
+
+def _salvage_dir(repo_path: Path) -> Path:
+    """Return ``<repo_path>/.egg-state/salvaged-memory``."""
+    return repo_path / _BRC_MEMORY_SALVAGE_DIR.lstrip("/")
+
+
+def _brc_memory_files(agent_output_dir: Path, pipeline_id: str) -> list[Path]:
+    """List ``brc-memory-<pipeline_id>.md`` files across all role subdirs.
+
+    Returns a list of existing Paths. Empty list when the agent output
+    directory is missing (fresh pipeline without any BRC memory yet).
+    """
+    if not agent_output_dir.is_dir():
+        return []
+    pattern = f"brc-memory-{pipeline_id}.md"
+    results: list[Path] = []
+    try:
+        for role_dir in sorted(agent_output_dir.iterdir()):
+            if not role_dir.is_dir():
+                continue
+            mem_file = role_dir / pattern
+            if mem_file.is_file():
+                results.append(mem_file)
+    except OSError:
+        return []
+    return results
+
+
+def salvage_brc_memory(
+    repo_path: Path,
+    pipeline_id: str,
+) -> BrcMemorySalvageResult:
+    """Copy per-role BRC memory files to a salvage directory.
+
+    Reads ``.egg-state/agent-outputs/<role>/brc-memory-<pipeline_id>.md``
+    for every role directory present and copies each found file into
+    ``.egg-state/salvaged-memory/<role>/brc-memory-<pipeline_id>.md``.
+
+    Must be called BEFORE worktree deletion — the salvage directory is
+    under ``repo_path`` which is the pipeline repo (not a per-agent
+    worktree). The salvage survives because the repo root outlives
+    per-agent worktree cleanup.
+
+    Best-effort returns with ``ok=True`` on any non-exceptional outcome
+    (including "no files to copy"). ``ok=False`` only on IO errors that
+    blocked staging one or more files.
+    """
+    try:
+        agent_output_dir = _agent_output_dir(repo_path)
+        salvaged = _brc_memory_files(agent_output_dir, pipeline_id)
+
+        if not salvaged:
+            # No files to copy — nothing to do.
+            return BrcMemorySalvageResult(
+                pipeline_id=pipeline_id,
+                saved=[],
+                salvage_dir=_salvage_dir(repo_path),
+                ok=True,
+            )
+    except Exception as e:
+        return BrcMemorySalvageResult(
+            pipeline_id=pipeline_id,
+            saved=[],
+            salvage_dir=_salvage_dir(repo_path),
+            ok=False,
+            error=f"Failed to enumerate BRC memory files: {e}",
+        )
+
+    saved: list[str] = []
+    dest_root = _salvage_dir(repo_path)
+    try:
+        dest_root.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        return BrcMemorySalvageResult(
+            pipeline_id=pipeline_id,
+            saved=[],
+            salvage_dir=dest_root,
+            ok=False,
+            error=f"Failed to create salvage directory: {e}",
+        )
+
+    ok = True
+    for src in salvaged:
+        # src is <repo>/.egg-state/agent-outputs/<role>/brc-memory-<pipeline>.md
+        # We want  dest = salvage_dir/<role>/brc-memory-<pipeline>.md
+        role = src.parent.name  # <role> directory name
+        dest_dir = dest_root / role
+        dest = dest_dir / src.name
+        try:
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            saved.append(f"{role}/{src.name}")
+        except OSError as e:
+            logger.warning(
+                "BRC memory salvage: failed to copy file",
+                pipeline_id=pipeline_id,
+                src=str(src),
+                error=str(e),
+            )
+            ok = False
+
+    if saved:
+        logger.info(
+            "BRC memory salvaged before worktree deletion",
+            pipeline_id=pipeline_id,
+            n_saved=len(saved),
+            salvage_dir=str(dest_root),
+            files=saved,
+        )
+
+    return BrcMemorySalvageResult(
+        pipeline_id=pipeline_id,
+        saved=saved,
+        salvage_dir=dest_root,
+        ok=ok,
+    )
+
+
+def restore_salvaged_memory(
+    repo_path: Path,
+    pipeline_id: str,
+    *,
+    first_seen: float | None = None,
+) -> list[str]:
+    """Restore BRC memory files from salvage back into agent output dirs.
+
+    Reads ``.egg-state/salvaged-memory/<role>/brc-memory-<pipeline>.md``
+    and copies each found file to ``.egg-state/agent-outputs/<role>/``
+    (overwriting existing). Each file is validated before restore:
+
+    * Non-empty (zero-byte files are rejected).
+    * Timestamp (mtime) within ``_MAX_RESTORE_AGE_SECONDS`` of
+      ``first_seen`` (typically the pipeline restart timestamp set by the
+      orchestrator). If ``first_seen`` is ``None``, timestamp validation
+      is skipped.
+
+    Invalid files are skipped with a logged warning; missing or corrupt files
+    are reported but do not block restoration of the remaining valid files.
+    Never raises — a missing or empty salvage dir is not an error
+    (the pipeline may never have had a salvage write).
+
+    Returns the list of file paths (relative to agent-outputs) that were
+    successfully restored.
+    """
+    src_root = _salvage_dir(repo_path)
+    dest_root = _agent_output_dir(repo_path)
+
+    if not src_root.is_dir():
+        logger.warning(
+            "BRC memory restore: salvage directory not found",
+            pipeline_id=pipeline_id,
+            salvaged_dir=str(src_root),
+        )
+        return []
+
+    restored: list[str] = []
+    pattern = f"brc-memory-{pipeline_id}.md"
+
+    try:
+        entries = sorted(src_root.iterdir())
+    except OSError as e:
+        logger.warning(
+            "BRC memory restore: failed to iterate salvage directory",
+            pipeline_id=pipeline_id,
+            salvaged_dir=str(src_root),
+            error=str(e),
+        )
+        return []
+
+    for role_dir in entries:
+        if not role_dir.is_dir():
+            continue
+        src = role_dir / pattern
+        if not src.is_file():
+            continue
+
+        # Validation: non-empty
+        try:
+            st = src.stat()
+        except OSError as e:
+            logger.warning(
+                "BRC memory restore: cannot stat file; skipping",
+                pipeline_id=pipeline_id,
+                file=str(src),
+                error=str(e),
+            )
+            continue
+
+        if st.st_size == 0:
+            logger.warning(
+                "BRC memory restore: salvaged file is empty; skipping",
+                pipeline_id=pipeline_id,
+                file=str(src),
+            )
+            continue
+
+        # Validation: timestamp within expected range
+        if first_seen is not None:
+            age = first_seen - st.st_mtime
+            if age > _MAX_RESTORE_AGE_SECONDS:
+                logger.warning(
+                    "BRC memory restore: salvaged file timestamp too old; "
+                    "possible stale copy from prior pipeline run",
+                    pipeline_id=pipeline_id,
+                    file=str(src),
+                    age_seconds=age,
+                    max_seconds=_MAX_RESTORE_AGE_SECONDS,
+                )
+                continue
+            if age < 0:
+                logger.warning(
+                    "BRC memory restore: salvaged file timestamp in the future "
+                    "(clock skew?); accepting but marking",
+                    pipeline_id=pipeline_id,
+                    file=str(src),
+                    age_seconds=abs(age),
+                )
+
+        # Validation: try reading file content — if it fails, skip.
+        try:
+            src.read_text(encoding="utf-8")
+        except OSError as e:
+            logger.warning(
+                "BRC memory restore: cannot read salvaged file; skipping",
+                pipeline_id=pipeline_id,
+                file=str(src),
+                error=str(e),
+            )
+            continue
+
+        # Restore
+        role = role_dir.name
+        dest_dir = dest_root / role
+        dest = dest_dir / pattern
+        try:
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            restored.append(f"{role}/{pattern}")
+        except OSError as e:
+            logger.warning(
+                "BRC memory restore: failed to copy salvaged file",
+                pipeline_id=pipeline_id,
+                file=str(src),
+                error=str(e),
+            )
+
+    if restored:
+        logger.info(
+            "BRC memory restored from salvage",
+            pipeline_id=pipeline_id,
+            n_restored=len(restored),
+            files=restored,
+        )
+    return restored
+
+
+def salvage_brc_memory_in_pipeline(
+    repo_path: Path,
+    pipeline_id: str,
+    *,
+    gateway: GatewayClient | None = None,
+    base_branch: str | None = None,
+    mode: str = "public",
+    worktree_filter: set[str] | None = None,
+    salvage_uncommitted: bool = False,
+) -> None:
+    """Full pipeline-side BRC memory salvage called before worktree deletion.
+
+    This mirrors the pattern of ``auto_salvage_pipeline``: it first salvages
+    BRC memory files from agent output directories, then performs the
+    existing worktree commit salvage. The BRC memory salvage must happen
+    BEFORE worktree deletion because agent output directories live inside
+    the pipeline repo, not in per-agent worktrees.
+
+    Best-effort — never raises; a failure in BRC memory salvage or worktree
+    salvage is logged but does not block the cleanup loop.
+    """
+    # BRC memory salvage first: copy brc-memory files out of agent-outputs
+    # into the salvaged-memory directory. This must happen before worktree
+    # deletion because agent-outputs are under the pipeline repo root.
+    salvage_brc_memory(repo_path, pipeline_id)
+
+    # Existing worktree salvage — git commits, recovery refs
+    if gateway is not None:
+        auto_salvage_pipeline(
+            gateway,
+            pipeline_id,
+            base_branch=base_branch,
+            mode=mode,
+            worktree_filter=worktree_filter,
+            salvage_uncommitted=salvage_uncommitted,
+        )
 
 
 def auto_salvage_pipeline(
