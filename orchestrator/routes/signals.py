@@ -1104,6 +1104,8 @@ def _validate_plan_extensions(
     try:
         from egg_contracts.plan_parser import (
             parse_plan,
+            validate_forest,
+            validate_slice_file_overlap,
             validate_task_role_alignment,
         )
     except ImportError:
@@ -1154,7 +1156,61 @@ def _validate_plan_extensions(
         )
         return
 
-    # (2) Role↔files alignment (#2527). #2528: pass the pipeline's repo so
+    # (2) Slice-DAG shape — forest (#2137) and file-overlap ordering
+    # (#3046). Both validators run at *populate* time today (the contract
+    # populator in ``routes/pipelines.py::_populate_contract_from_plan``),
+    # where a violation stashes ``plan_review_feedback`` and fails the whole
+    # pipeline ~24 min after consensus — the #3211 anti-pattern. Running the
+    # SAME validators here NACKs the producer while it is still alive in BRC
+    # (the #3016 pattern), so it re-emits a forest *before* consensus rather
+    # than a phase later. Reusing the populator's exact validators means the
+    # propose-time check and the populate check cannot diverge. Same
+    # non-blocking posture as the wraps above: a validator that *raises*
+    # (e.g. a future ``Slice`` field tightening) degrades to skip; only
+    # returned errors NACK.
+    try:
+        forest_errors = validate_forest(slices)
+        overlap_errors = validate_slice_file_overlap(slices)
+    except Exception as exc:
+        logger.warning(
+            "plan DAG-shape validation: validator raised (non-blocking)",
+            pipeline_id=pipeline_id,
+            commit_sha=commit_sha,
+            error=str(exc),
+        )
+        forest_errors = []
+        overlap_errors = []
+
+    if forest_errors:
+        bullets = "\n".join(f"  - {e}" for e in forest_errors)
+        raise ValueError(
+            "Plan proposal rejected: the slice DAG is not a forest.\n"
+            "Each slice must have at most one DAG parent — the implement "
+            "phase ships every slice as a stacked PR with exactly one base "
+            "branch, so multi-parent slices break the stacking invariant "
+            "and are hard-rejected at plan ingestion. Serialise the "
+            "upstream cluster into a linear ``dependencies`` chain and "
+            "record the chosen order on the downstream slice's "
+            "``serialized_chain_order`` field (see issue #2137 plan "
+            "TASK-2-3), then re-propose:\n" + bullets
+        )
+
+    if overlap_errors:
+        bullets = "\n".join(f"  - {e}" for e in overlap_errors)
+        raise ValueError(
+            "Plan proposal rejected: slices touch overlapping files "
+            "without a dependency ordering.\n"
+            "The implement phase cuts each slice's branch off its "
+            "dependency parent (roots off ``work``); two slices that touch "
+            "the same file must be ordered along ONE dependency chain or "
+            "their branches fork independently off the shared base and "
+            "collide at integration (a guaranteed modify/delete conflict). "
+            "Serialise the overlapping cluster into one linear "
+            "``dependencies`` chain — or merge the slices — then "
+            "re-propose:\n" + bullets
+        )
+
+    # (3) Role↔files alignment (#2527). #2528: pass the pipeline's repo so
     # per-repo ``role_patterns`` from repositories.yaml are honoured — plan-time
     # validation must mirror push-time enforcement, which also reads the per-repo
     # overrides (gateway/agent_restrictions.py).

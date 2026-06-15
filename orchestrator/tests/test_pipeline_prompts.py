@@ -2299,6 +2299,182 @@ class TestPlanProposalValidation:
         "in prose here rather than in a structured appendix.\n"
     )
 
+    # #3211 incident fixture: a legitimately diamond-shaped slice DAG —
+    # slice-5 (integration) naturally depends on BOTH slice-2 (resume) and
+    # slice-4 (enrichment). The implement phase ships each slice as a stacked
+    # PR off exactly one base, so the DAG must be a forest (≤1 parent). Today
+    # this only blows up at post-consensus contract population
+    # (``forest_violation``); the propose-time validator must NACK it now,
+    # while the producer is still alive in BRC, with the
+    # ``serialized_chain_order`` remediation.
+    _PLAN_WITH_NON_FOREST_DAG = (
+        "# Plan\n"
+        "\n"
+        "```yaml\n"
+        "# yaml-tasks\n"
+        "slices:\n"
+        "  - id: 1\n"
+        "    name: Restart fix\n"
+        "    goal: root\n"
+        "    tasks:\n"
+        "      - id: TASK-1-1\n"
+        "        description: a\n"
+        "        acceptance: a\n"
+        "        role: coder\n"
+        "        files:\n"
+        "          - orchestrator/a.py\n"
+        "  - id: 2\n"
+        "    name: Session resume\n"
+        "    goal: resume\n"
+        "    dependencies: slice-1\n"
+        "    tasks:\n"
+        "      - id: TASK-2-1\n"
+        "        description: b\n"
+        "        acceptance: b\n"
+        "        role: coder\n"
+        "        files:\n"
+        "          - orchestrator/b.py\n"
+        "  - id: 3\n"
+        "    name: Deterministic seed\n"
+        "    goal: seed\n"
+        "    dependencies: slice-1\n"
+        "    tasks:\n"
+        "      - id: TASK-3-1\n"
+        "        description: c\n"
+        "        acceptance: c\n"
+        "        role: coder\n"
+        "        files:\n"
+        "          - orchestrator/c.py\n"
+        "  - id: 4\n"
+        "    name: Enrichment\n"
+        "    goal: enrich\n"
+        "    dependencies: slice-3\n"
+        "    tasks:\n"
+        "      - id: TASK-4-1\n"
+        "        description: d\n"
+        "        acceptance: d\n"
+        "        role: coder\n"
+        "        files:\n"
+        "          - orchestrator/d.py\n"
+        "  - id: 5\n"
+        "    name: Integration\n"
+        "    goal: integrate\n"
+        "    dependencies: slice-2, slice-4\n"
+        "    tasks:\n"
+        "      - id: TASK-5-1\n"
+        "        description: e\n"
+        "        acceptance: e\n"
+        "        role: coder\n"
+        "        files:\n"
+        "          - orchestrator/e.py\n"
+        "```\n"
+    )
+
+    # #3211 companion: a valid forest serialised per the #2137 rule —
+    # slice-5 depends on slice-4 ALONE, with ``serialized_chain_order``
+    # recording the deliberate slice-2 → slice-4 ordering. All file sets are
+    # disjoint, so neither the forest nor the overlap validator fires. This
+    # is the shape the planner should have emitted for issue-3200.
+    _PLAN_WITH_SERIALIZED_FOREST = (
+        "# Plan\n"
+        "\n"
+        "```yaml\n"
+        "# yaml-tasks\n"
+        "slices:\n"
+        "  - id: 1\n"
+        "    name: Restart fix\n"
+        "    goal: root\n"
+        "    tasks:\n"
+        "      - id: TASK-1-1\n"
+        "        description: a\n"
+        "        acceptance: a\n"
+        "        role: coder\n"
+        "        files:\n"
+        "          - orchestrator/a.py\n"
+        "  - id: 2\n"
+        "    name: Session resume\n"
+        "    goal: resume\n"
+        "    dependencies: slice-1\n"
+        "    tasks:\n"
+        "      - id: TASK-2-1\n"
+        "        description: b\n"
+        "        acceptance: b\n"
+        "        role: coder\n"
+        "        files:\n"
+        "          - orchestrator/b.py\n"
+        "  - id: 3\n"
+        "    name: Deterministic seed\n"
+        "    goal: seed\n"
+        "    dependencies: slice-1\n"
+        "    tasks:\n"
+        "      - id: TASK-3-1\n"
+        "        description: c\n"
+        "        acceptance: c\n"
+        "        role: coder\n"
+        "        files:\n"
+        "          - orchestrator/c.py\n"
+        "  - id: 4\n"
+        "    name: Enrichment\n"
+        "    goal: enrich\n"
+        "    dependencies: slice-3\n"
+        "    tasks:\n"
+        "      - id: TASK-4-1\n"
+        "        description: d\n"
+        "        acceptance: d\n"
+        "        role: coder\n"
+        "        files:\n"
+        "          - orchestrator/d.py\n"
+        "  - id: 5\n"
+        "    name: Integration\n"
+        "    goal: integrate\n"
+        "    dependencies: slice-4\n"
+        "    serialized_chain_order:\n"
+        "      - slice-2\n"
+        "      - slice-4\n"
+        "    tasks:\n"
+        "      - id: TASK-5-1\n"
+        "        description: e\n"
+        "        acceptance: e\n"
+        "        role: coder\n"
+        "        files:\n"
+        "          - orchestrator/e.py\n"
+        "```\n"
+    )
+
+    # #3046/#3211 companion: two parallel ROOT slices (neither depends on the
+    # other) whose tasks touch the SAME file. This is a valid forest (each has
+    # ≤1 parent) so it slips past ``validate_forest``, but ``validate_slice_
+    # file_overlap`` must reject it — the branches fork independently off the
+    # shared base and collide at integration.
+    _PLAN_WITH_OVERLAPPING_SLICES = (
+        "# Plan\n"
+        "\n"
+        "```yaml\n"
+        "# yaml-tasks\n"
+        "slices:\n"
+        "  - id: 1\n"
+        "    name: First\n"
+        "    goal: edit shared\n"
+        "    tasks:\n"
+        "      - id: TASK-1-1\n"
+        "        description: a\n"
+        "        acceptance: a\n"
+        "        role: coder\n"
+        "        files:\n"
+        "          - orchestrator/shared_module.py\n"
+        "  - id: 2\n"
+        "    name: Second\n"
+        "    goal: also edit shared\n"
+        "    tasks:\n"
+        "      - id: TASK-2-1\n"
+        "        description: b\n"
+        "        acceptance: b\n"
+        "        role: coder\n"
+        "        files:\n"
+        "          - orchestrator/shared_module.py\n"
+        "```\n"
+    )
+
     @staticmethod
     def _patched_store(issue_number: int | None = 2527, branch: str = "egg/issue-2527"):
         mock_pipeline = MagicMock()
@@ -2371,6 +2547,58 @@ class TestPlanProposalValidation:
             payload = {"commit_sha": "abc1234"}
             with pytest.raises(ValueError, match="does not parse into any tasks"):
                 _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
+
+    def test_rejects_non_forest_slice_dag_at_propose_time(self):
+        """#3211 regression: a diamond-shaped slice DAG (slice-5 depends on
+        both slice-2 and slice-4) is NACKed at propose-time with the
+        ``serialized_chain_order`` remediation — instead of passing BRC
+        consensus and failing the whole pipeline at ``populate_contract``
+        (``forest_violation``) ~24 min later, while the producer is dead.
+        """
+        from routes.signals import _validate_plan_proposal
+
+        with (
+            self._patched_store(),
+            self._patched_worktree(),
+            self._patched_subprocess(self._PLAN_WITH_NON_FOREST_DAG),
+        ):
+            payload = {"commit_sha": "abc1234"}
+            with pytest.raises(ValueError, match="the slice DAG is not a forest"):
+                _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
+
+    def test_rejects_overlapping_unordered_slices_at_propose_time(self):
+        """#3046/#3211 regression: two parallel root slices touching the same
+        file (a valid forest, but unordered overlap) are NACKed at propose-time
+        with the serialise-the-cluster remediation — instead of failing at
+        ``populate_contract`` (``slice_overlap_violation``) post-consensus.
+        """
+        from routes.signals import _validate_plan_proposal
+
+        with (
+            self._patched_store(),
+            self._patched_worktree(),
+            self._patched_subprocess(self._PLAN_WITH_OVERLAPPING_SLICES),
+        ):
+            payload = {"commit_sha": "abc1234"}
+            with pytest.raises(ValueError, match="slices touch overlapping files"):
+                _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
+
+    def test_accepts_serialized_forest_plan(self):
+        """#3211: the would-be diamond serialised per the #2137 rule (slice-5
+        depends on slice-4 alone, ``serialized_chain_order`` records the
+        slice-2 → slice-4 order, file sets disjoint) passes propose-time
+        validation — no raise.
+        """
+        from routes.signals import _validate_plan_proposal
+
+        with (
+            self._patched_store(),
+            self._patched_worktree(),
+            self._patched_subprocess(self._PLAN_WITH_SERIALIZED_FOREST),
+        ):
+            payload = {"commit_sha": "abc1234"}
+            # Should not raise.
+            _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
 
     def test_rejects_when_plan_draft_absent(self):
         """``git show`` non-zero exit (plan absent at commit) → presence raise
