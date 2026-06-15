@@ -10,9 +10,77 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "Refinement scope confirmation: This pipeline should deliver 3 components (session resume, deterministic seed layer, enrichment layer injection) plus 1 prerequisite fix (restart-memory preservation). Delivery scope should be:\nOption A (Recommended): Full scope \u2014 all 3 components + restart fix.\nOption B: Capped scope \u2014 restart fix + session resume only (defer deterministic/enrichment seed layers to a follow-up).",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option A: All 3 components + restart fix",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B: Session resume + restart fix only (defer seed layers)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-06-15T05:17:25.967857Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "Refinement scope confirmation: This pipeline should deliver 3 components (session resume, deterministic seed layer, enrichment layer injection) plus 1 prerequisite fix (restart-memory preservation). Delivery scope should be:\nOption A (Recommended): Full scope \u2014 all 3 components + restart fix.\nOption B: Capped scope \u2014 restart fix + session resume only (defer deterministic/enrichment seed layers to a follow-up).",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option A: All 3 components + restart fix",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option B: Session resume + restart fix only (defer seed layers)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Refinement scope confirmation: This pipeline shoul...",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
