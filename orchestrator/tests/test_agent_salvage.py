@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+from datetime import UTC
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -954,7 +955,8 @@ class TestRestoreSalvagedMemory:
 
     def test_restored_memory_includes_timestamp(self, tmp_path: Path) -> None:
         """The RestoredMemory record includes when the restoration was attempted."""
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         from agent_salvage import restore_salvaged_memory
 
         salvage_base = tmp_path / "salvaged-memory"
@@ -968,7 +970,7 @@ class TestRestoreSalvagedMemory:
         # restored_at should be a parseable ISO-8601 timestamp close to "now".
         ts = datetime.fromisoformat(restored.restored_at)
         assert ts.tzinfo is not None  # timezone-aware
-        delta = datetime.now(timezone.utc) - ts
+        delta = datetime.now(UTC) - ts
         assert abs(delta.total_seconds()) < 30  # within 30s
 
 
@@ -980,10 +982,7 @@ class TestValidateSalvagedMemory:
     def test_valid_memory_passes(self, tmp_path: Path) -> None:
         from agent_salvage import validate_salvaged_memory
 
-        content = (
-            "# BRC memory — coder (issue-99)\n\n"
-            "## My proposal\nstuff\n"
-        )
+        content = "# BRC memory — coder (issue-99)\n\n## My proposal\nstuff\n"
         mem_file = tmp_path / "brc-memory.md"
         mem_file.write_text(content)
 
@@ -1034,17 +1033,15 @@ class TestValidateSalvagedMemory:
 
     def test_timestamp_in_valid_range_passes(self, tmp_path: Path) -> None:
         """A file whose mtime is within an expected time window passes."""
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta
+
         from agent_salvage import validate_salvaged_memory
 
-        content = (
-            "# BRC memory — coder (issue-99)\n\n"
-            "## My proposal\nstuff\n"
-        )
+        content = "# BRC memory — coder (issue-99)\n\n## My proposal\nstuff\n"
         mem_file = tmp_path / "brc-memory.md"
         mem_file.write_text(content)
         # Set mtime to 30 seconds ago — well within expected window.
-        recent = (datetime.now(timezone.utc) - timedelta(seconds=30)).timestamp()
+        recent = (datetime.now(UTC) - timedelta(seconds=30)).timestamp()
         os_utime = __import__("os").utime
         os_utime(str(mem_file), (recent, recent))
 
@@ -1054,17 +1051,15 @@ class TestValidateSalvagedMemory:
 
     def test_stale_timestamp_fails(self, tmp_path: Path) -> None:
         """A file whose mtime is older than the max age fails validation."""
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta
+
         from agent_salvage import validate_salvaged_memory
 
-        content = (
-            "# BRC memory — coder (issue-99)\n\n"
-            "## My proposal\nstuff\n"
-        )
+        content = "# BRC memory — coder (issue-99)\n\n## My proposal\nstuff\n"
         mem_file = tmp_path / "brc-memory.md"
         mem_file.write_text(content)
         # Set mtime to 2 hours ago — stale relative to 1-hour max age.
-        stale = (datetime.now(timezone.utc) - timedelta(hours=2)).timestamp()
+        stale = (datetime.now(UTC) - timedelta(hours=2)).timestamp()
         os_utime = __import__("os").utime
         os_utime(str(mem_file), (stale, stale))
 
@@ -1081,7 +1076,7 @@ class TestAutoSalvagePipelineBrcMemory:
     def test_memory_salvage_is_best_effort(self, tmp_path: Path) -> None:
         """When salvage_brc_memory raises, auto_salvage_pipeline still
         completes worktree salvage — memory failure is logged, not propagated."""
-        from agent_salvage import auto_salvage_pipeline, salvage_brc_memory
+        from agent_salvage import auto_salvage_pipeline
 
         repo, local_branch = _make_worktree_layout(
             tmp_path, "issue-99", agent_role="coder", slice_id=None

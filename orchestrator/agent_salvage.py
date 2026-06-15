@@ -48,10 +48,9 @@ visible knobs.
 from __future__ import annotations
 
 import re
-import shutil
 import subprocess
-from dataclasses import dataclass, field
-from datetime import datetime, timezone as dt_timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -391,7 +390,7 @@ def _read_assigned_branch(repo_path: Path, local_branch: str) -> str | None:
             cwd=repo_path,
             check=False,
         )
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return None
     raw = (result.stdout or "").strip()
     if result.returncode != 0 or not raw:
@@ -411,7 +410,7 @@ def _ref_exists(repo_path: Path, ref: str) -> bool:
             cwd=repo_path,
             check=False,
         )
-    except (OSError, subprocess.CalledProcessError, subprocess.SubprocessError):
+    except OSError, subprocess.CalledProcessError, subprocess.SubprocessError:
         return False
     return result.returncode == 0
 
@@ -600,7 +599,7 @@ def _has_uncommitted_changes(repo_path: Path) -> bool:
     """Return True when the worktree has staged, unstaged, or untracked changes."""
     try:
         result = _run_git("status", "--porcelain", cwd=repo_path, check=False)
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return False
     return result.returncode == 0 and bool(result.stdout.strip())
 
@@ -898,7 +897,7 @@ def restore_salvaged_memory(
         pipeline_id=pipeline_id,
         content=content,
         source_path=src,
-        restored_at=datetime.now(dt_timezone.utc).isoformat(),
+        restored_at=datetime.now(UTC).isoformat(),
     )
 
 
@@ -934,16 +933,14 @@ def validate_salvaged_memory(
         return False, "Memory file is empty"
 
     if pipeline_id not in content:
-        return False, (
-            f"Memory file content does not reference pipeline {pipeline_id}"
-        )
+        return False, (f"Memory file content does not reference pipeline {pipeline_id}")
 
     if max_age_seconds > 0:
         try:
             st = mem_file.stat()
         except OSError as e:
             return False, f"Cannot stat memory file: {e}"
-        age = datetime.now(dt_timezone.utc).timestamp() - st.st_mtime
+        age = datetime.now(UTC).timestamp() - st.st_mtime
         if age > max_age_seconds:
             return False, f"Memory file is stale (age {age:.0f}s > {max_age_seconds}s)"
 
