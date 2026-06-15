@@ -955,6 +955,16 @@ EXECUTION_ROLE_VALUES = frozenset({AgentRole.CODER, AgentRole.TESTER, AgentRole.
 # only risks the dual-role criss-cross propagation that corrupts shared
 # drafts (#3208). The ``tester`` is the only reviewer that runs the
 # proposed tree; reviewer_code and the refine/plan reviewers read diffs.
+#
+# Residual: the ``tester`` is itself a dual-role agent (producer of test
+# code + reviewer) and must keep merging to execute ``make test`` against
+# the proposed tree, so the #3208 merge-then-commit-on-top criss-cross
+# shape stays *reachable via tester* in the implement phase. This gate
+# therefore does NOT fully close #3208 — it removes the shape for every
+# read-only reviewer (the plan-phase ``risk_analyst`` / ``plan.md``
+# corruption that motivated #3216). The remaining tester surface is an
+# accepted residual of WS1·1a, tracked under the parent #3209 (which
+# supersedes #3208); do not assume #3208 is closed by this set alone.
 REVIEWER_CHECKOUT_ROLE_VALUES = frozenset({AgentRole.TESTER})
 
 
