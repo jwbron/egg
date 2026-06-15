@@ -96,12 +96,22 @@ def validate_forest(slices: list[Slice]) -> list[str]:
     """
 ```
 
-The orchestrator's `_populate_contract_from_plan` route invokes
-`validate_forest()`, stashes any returned errors on
-`Contract.plan_review_feedback` (so the plan reviewer NACKs the architect, #2809),
-**and then raises a structured `ForestValidationError`**. Slices are not
-written to the contract in this case — leaving `contract.slices` empty
-so downstream code visibly fails fast.
+`validate_forest()` is checked at **two points** in the pipeline:
+
+1. **Propose-time** (`_validate_plan_extensions` in `routes/signals.py`, #3211):
+   called while the producer is still alive in BRC, so a non-forest plan is
+   NACKed immediately and the architect can re-emit a fixed plan before
+   consensus is reached. Violations raise `ValueError` and the BRC propose
+   handler returns a structured NACK.
+2. **Populate-time** (`_populate_contract_from_plan`): the same validator runs
+   again after consensus as a belt-and-suspenders guard. Here a violation
+   stashes errors on `Contract.plan_review_feedback` (so the plan reviewer
+   NACKs the architect, #2809) **and raises a structured `ForestValidationError`**.
+   Slices are not written to the contract in this case — leaving
+   `contract.slices` empty so downstream code visibly fails fast.
+
+Running the same validators at both points means the propose-time check and
+the populate-time check cannot diverge.
 
 ```python
 class ForestValidationError(Exception):
@@ -149,8 +159,8 @@ dependencies, or merge the cycle members into a single slice.
 ```
 
 Multi-parent and cyclic violations are reported in the same returned
-list, so a single populator pass surfaces every structural defect at
-once.
+list, so both the propose-time and populate-time passes surface every
+structural defect at once.
 
 ### File-overlap ordering validation (#3046)
 
@@ -188,15 +198,20 @@ planner-declared signal `validate_task_role_alignment` uses); slices with
 no declared files contribute no overlap signal. The reachability walk is
 cycle-safe (a cycle is reported by `validate_forest`, not here).
 
-The populator (`_populate_contract_from_plan`) runs this validator *after*
-`validate_forest` passes and gives it **identical handling**: the slices
-are not written to the contract, the structured errors are stashed on
-`Contract.plan_review_feedback`, and a `ForestValidationError` is raised
-with `reason="slice_overlap_violation"` (the safe-wrapper maps it to
-`PopulateOutcome.SLICE_OVERLAP_VIOLATION`, distinct from
-`FOREST_VIOLATION`, so the operator-facing HITL prose names the actual
-defect). The plan reviewer NACKs the **architect** (slice-composition
-authority, #2809) — see plan-review criteria §12.
+Like `validate_forest`, this validator runs at **two points**:
+
+1. **Propose-time** (`_validate_plan_extensions`, #3211): checked right after
+   `validate_forest` passes, while the producer is still alive in BRC.
+   Overlap violations raise `ValueError` and are returned as a NACK so the
+   architect can fix the dependency ordering before consensus.
+2. **Populate-time** (`_populate_contract_from_plan`): runs again after
+   consensus with **identical handling** — slices are not written to the
+   contract, structured errors are stashed on `Contract.plan_review_feedback`,
+   and a `ForestValidationError` is raised with `reason="slice_overlap_violation"`
+   (the safe-wrapper maps it to `PopulateOutcome.SLICE_OVERLAP_VIOLATION`,
+   distinct from `FOREST_VIOLATION`, so the operator-facing HITL prose names
+   the actual defect). The plan reviewer NACKs the **architect**
+   (slice-composition authority, #2809) — see plan-review criteria §12.
 
 Because the forest constraint forbids a diamond (a slice cannot depend on
 two parents), the remediation is always to **serialise the overlapping
