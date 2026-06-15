@@ -1184,6 +1184,10 @@ class TestSliceMergedDetection:
         pipeline = _make_pipeline()
         slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
         slice1.status = SliceStatus.COMPLETE  # prior run wrote this on success
+        # A genuinely prior-completed slice recorded its integration-branch
+        # fork base — the #3214 evidence-of-running that lets Layer-A trust
+        # the COMPLETE status instead of distrusting a never-ran slice.
+        slice1.integration_base_sha = "a" * 40
         slice2 = _make_slice("slice-2", deps=["slice-1"], tasks=[_make_task("task-2-1")])
         contract = _make_contract(slices=[slice1, slice2])
 
@@ -1231,6 +1235,54 @@ class TestSliceMergedDetection:
         assert merged_calls_for_slice1 == [], (
             "step (A) must skip the GitHub-side merged-detection when contract "
             "already records COMPLETE"
+        )
+
+    def test_bootstrap_distrusts_false_complete_slice(self) -> None:
+        """#3214 — a slice recorded COMPLETE with no evidence it ran
+        (no PR, no fork base, tasks pending — the ``slice-3`` wedge
+        signature) must NOT be trusted at step (A). It is routed back
+        through merged-detection / re-run instead of being silently
+        skipped, so a corrupt contract can't false-complete the chain."""
+        pipeline = _make_pipeline()
+        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        slice1.status = SliceStatus.COMPLETE  # corrupt: COMPLETE but never ran
+        # No integration_base_sha, no pr_number, task still PENDING.
+        contract = _make_contract(slices=[slice1])
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = self._make_spawner()  # is_slice_branch_merged → False
+            exit_code, _ = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert exit_code == 0
+        # The false-complete slice was NOT trusted: step (A) declined it,
+        # so the GitHub-side merged-detection it would otherwise skip is
+        # invoked for slice-1 (proof the slice is re-evaluated, not
+        # silently skipped).
+        merged_calls_for_slice1 = [
+            c
+            for c in spawner.gateway.is_slice_branch_merged_into_parent.call_args_list
+            if c.kwargs.get("integration_branch", "").endswith("/slice-1")
+        ]
+        assert merged_calls_for_slice1 != [], (
+            "a COMPLETE slice with no evidence it ran must be re-evaluated, "
+            "not trusted at step (A) (#3214)"
         )
 
     def test_bootstrap_detects_merged_slice_on_origin(self) -> None:
@@ -1310,6 +1362,9 @@ class TestSliceMergedDetection:
         # remote to query.
         slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
         slice1.status = SliceStatus.COMPLETE
+        # Evidence the slice actually ran (#3214) — without it Layer-A
+        # would distrust a COMPLETE slice that shows no sign of execution.
+        slice1.integration_base_sha = "a" * 40
         slice2 = _make_slice("slice-2", deps=["slice-1"], tasks=[_make_task("task-2-1")])
         contract = _make_contract(slices=[slice1, slice2])
 
