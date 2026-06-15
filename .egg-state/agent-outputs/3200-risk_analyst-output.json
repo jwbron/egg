@@ -1,0 +1,103 @@
+{
+  "issue": 3200,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "title": "Risk Assessment: Full-context backstop — restart agents seeded from BRC memory",
+  "summary": "Technical risk assessment for the HITL-approved full scope (Option A): session resume (#3186), deterministic seed composer (#3189), enrichment layer injection (#3188), and prerequisite restart-memory fix (#3183). 6 structural risks identified across these 4 components. Dominant risks are cost-amplification (R1 provider bounce under resume), correctness-poison (R2 stale enrichment poisoning), and path-coexistence (R5 minimized interference). Overall risk is MEDIUM/HIGH. Verdict: CAUTION — PROCEED WITH MITIGATIONS. Requires 6 mandatory plan-level mitigations (M1—M6) addressing: single-pin wiring, SHA-validated enrichment, post-restore validity check, hard byte-caps on seed sections, path isolation with hybrid-fallback, and forward-compat provider-routing detection.",
+  "overall_risk": "MEDIUM/HIGH",
+  "verdict": "CAUTION_PROCEED_WITH_MITIGATIONS",
+  "scope_basis": "HITL cq-1: Option A — full scope (3 components + restart fix). Refinement at 87a88687b; Issue body at https://github.com/jwbron/egg/issues/3200.",
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Provider bounce under resume — full-cache loss on resume",
+      "impact": "HIGH",
+      "likelihood": "MEDIUM",
+      "detail": "If LiteLLM routes a resumed session to a different provider than the cached session origin, LLM charges full uncached rates until routing returns to the caching provider. At 130k-token history, that's $0.25 per such call. Over multiple review cycles (25+ for a typical phase), the cost exponentially cascades. DeepSeek>V4→Pro route already pinned for NonClaude routes — the detect-and-revert path must block this silently grievous cost amplification at first occurrence.",
+      "mitigations": [
+        "Plan MUST include a task to single-pin routing for the resume path (already documented for DeepSeek and Flash profiles).",
+        "First-event handler MUST verify provider unchanged from start-of-run baseline and abort to fresh-with-seed if routing diverged.",
+        "Cost threshold detection: provider switch on resume → fresh fallback (accept cost of one fresh session + seed rather than re-building entire history at uncached rates)."
+      ]
+    },
+    {
+      "id": "R2",
+      "title": "Stale enrichment claims poison fresh-session anchor",
+      "impact": "HIGH",
+      "likelihood": "LOW/MED",
+      "detail": "Agent-authored enrichment (key findings, claims ledger, producer narrative) introduce to the fresh session a cacheable anchor of claims that could suppress the verification path agents need to re-check. A stale enrichment can direct the session to hunt down false leads, its SHA drift from the current delta untraced. The enhancement-to-verify gap in the 'orientation-to-spot-check' design means the seed composer MUST verify SHA accuracy against the deterministic layer before presentation.",
+      "mitigations": [
+        "Seed composer MUST cross-check every enrichment SHA against the deterministic layer's last_reviewed_sha per producer before rendering.",
+        "Rendering MUST be blocked by at least one failed SHA-cross-check; no enrichment block ships without successful verification.",
+        "Hard-cap on enrichment section total byte size (independent from deterministic byte budget) enforced deterministically."
+      ]
+    },
+    {
+      "id": "R3",
+      "title": "Memory-file persistence at restart is not verified",
+      "impact": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "detail": "The restart-phase fix copies raw agent-outputs to salvage before worktree deletion — but there is no verification that the copy completes or is valid. A stranded write, zero-byte file, or missing timestamp all fail silently, leading the seed composer to restart from cold without enrichment. The fix is therefore a prerequisite for deterministic seed fidelity.",
+      "mitigations": [
+        "Implement post-restore validity check: non-empty file, complete timestamp, valid parseable JSON seed-header.",
+        "Seed composer MUST reject enrichment with a missing-or-invalid restore marker.",
+        "Test for: restart -> produce event -> verify post-restart seed contains enrichment."
+      ]
+    },
+    {
+      "id": "R4",
+      "title": "Large seed payload degrades fresh-session cache stability",
+      "impact": "MEDIUM",
+      "likelihood": "MED/HIGH",
+      "detail": "The seed plus enrichment form a system-prompt that is injected into every fresh session (cold starts + resume fallback). If either section is excessively large, the system prompt breaks the cache window, and the session FAILES to cache — defeating the design's cost model entirely. The system prompt must stay cache-stable for the restart to be a legitimate backstop.",
+      "mitigations": [
+        "Composer MUST enforce hard per-section byte caps on BOTH deterministic and enrichment sections independently.",
+        "Capped rendering with deterministic truncation (ellipsis + byte-remaining count) rather than silent omission.",
+        "Integrate per-section cache-size assertions into the session-resume smoke test."
+      ]
+    },
+    {
+      "id": "R5",
+      "title": "Resume/seed path interaction and dead-weight hybrid states",
+      "impact": "MEDIUM",
+      "likelihood": "LOW",
+      "detail": "The two paths — resume (seeded from cache) and fresh-seed (restart with system-prompt memory) — must coexist without interfering. The wrapper logic must handle the matrix: session-ID present/invalid/missing, seed present/missing/invalid, and decide cleanly between the available paths. An ambiguous state (partially-cached + seed) must have a well-defined first-choice fallback (resume room only: seed not applied, or fail to fresh unseeded).",
+      "mitigations": [
+        "Wrapper invoke_agent_for_event MUST implement a well-defined algorithm: session-ID set + seed present → resume path; no session-ID → seed path; session-ID expired → fresh with seed; session-ID set + no cache + seed → seed path; session-ID set + no cache + no seed → unseeded fresh (legacy).",
+        "A plan-level task MUST include a decision matrix test covering at least the 5 states in the algorithm above."
+      ]
+    },
+    {
+      "id": "R6",
+      "title": "Provider-routing detection on first-resume event post-resume",
+      "impact": "LOW/MED",
+      "likelihood": "MEDIUM",
+      "detail": "The resume-path routing detection only fires at spawn time. If provider-change occurs mid- or post-resume, the cost cascade described in R1 silently activates until a provider fails, or a subsequent detection test finds it. This is a forward-compatibility requirement rather than a plannable mitigation — the implementation test MUST address it, and the plan should document the detection option.",
+      "mitigations": [
+        "Plan task for routing detection on session-seed using first-event provider-check and cost deviation metric.",
+        "The test should also be in the side- stack of smoke tests: finish → resume → first event fire → verify provider, cost within threshold, and if deviation → auto-fresh with seeded fallback (recirculate the plan-specific active-mitigation then re-entering the resume).
+      ]
+    }
+  ],
+  "grounding": {
+    "verified_against_working_tree": [
+      "issue #3200 body (full scope: 3 components + restart fix)",
+      ".egg-state/drafts/3200-analysis.md at b3dd449 (SHA placeholder — refine write)",
+      "orchestrator/consensus_wrapper.py — codebase presence for orchestration bindings",
+      "orchestrator/routes/event_prompt.py:362-393 (_render_memory_section)",
+      "orchestrator/agent_salvage.py:758 (auto_salvage_pipeline unpushed commit preservation)",
+      "sandbox/egg_agent_tools/handlers/brc_memory.py:282-687 (BRCMemory dataclass)",
+      "shared/egg_agent/client.py:345-346 (system_prompt parameter)",
+      "orchestrator/pipelines.py:3560-3630 (restart_phase worktree deletion)",
+      "orchestrator/peer_consensus.py:2042-2327 (reconstruct from messages pattern)"
+    ]
+  },
+  "reviewer_checklist_for_plan": [
+    "M1: Single-pin LiteLLM routing for resume; first-event router-check with cost-deviation threshold; fresh-with-seed on detection failure (R1).",
+    "M2: Deterministic SHA-validated enrichment cross-check per producer before enrichment is rendered; blocked on SHA discrepancy (R2).",
+    "M3: Post-restore validity check in seed composer: non-empty, complete, valid parseable seed-header; reject missing/invalid enrichment (R3).",
+    "M4: Hard per-section byte caps at compose-time (not render-time); catalog truncation with block-size assertions testable (R4).",
+    "M5: Path-isolation decision matrix with 5-state test covering all path intersections; no ambiguous hybrid such as partially-cached+seed (R5).",
+    "M6: Forward-compatibility routing-detection task as an explicit plan step with smoke test verifying fresh-with-seed fallback on provider divergence (R6)."
+  ]
+}
