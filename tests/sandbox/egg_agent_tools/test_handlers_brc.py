@@ -774,7 +774,11 @@ class TestBrcReadPeerArtifact:
         assert hint, "empty no-file response must carry a hint (#3076)"
         assert "phase COMPLETION" in hint
         assert "NOT evidence" in hint
-        assert "git show" in hint
+        # #3216 retired `git show` from reviewer reads: the hint now
+        # points at the served-artifact channel for registered names and
+        # `git log` for unregistered paths.
+        assert "git show" not in hint
+        assert "egg-artifact get <name> --ref <proposal_commit_sha>" in hint
 
     def test_hint_absent_when_history_file_exists(self, tmp_path, monkeypatch):
         """A populated (or even filtered-to-empty) read of an existing
@@ -2169,7 +2173,9 @@ class TestBrcReadPeerArtifactLive:
         hint = resp["hint"]
         assert "phase COMPLETION" in hint
         assert "NOT evidence" in hint
-        assert "git show" in hint
+        # #3216: served-artifact channel replaces `git show` in the hint.
+        assert "git show" not in hint
+        assert "egg-artifact get <name> --ref <proposal_commit_sha>" in hint
         assert "unavailable" in hint
 
     def test_filters_apply_to_live_records(self, tmp_path, monkeypatch):
