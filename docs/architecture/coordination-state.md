@@ -105,12 +105,17 @@ explicitly justify the exception in this page before it ships.
 **Enforcing mechanisms:**
 
 - **Wrapper-performed sync** — the consensus wrapper calls
-  `sync_to_proposals()` on every BRC event before invoking the agent. Each
-  per-producer SHA's merge outcome is recorded; on any failure (unresolved
-  SHA, conflicting merge, dirty tree) the wrapper prepends a
-  **"worktree NOT synced"** banner to the per-event prompt. A reviewer
-  whose worktree silently failed to sync can no longer trust a stale
-  local diff — the banner says so. See
+  `sync_to_proposals()` on every BRC event before invoking the agent.
+  The function is role-gated (#3216): execution reviewers (currently:
+  `tester`) receive a full `git merge --no-edit` of each pending
+  producer's `proposal_commit_sha`; all other reviewers skip the
+  working-tree merge and read peer artifacts via the per-event-prompt
+  `git show`/`egg-artifact` served reads. For execution reviewers that
+  attempt the merge, each per-producer SHA's outcome is recorded; on
+  any failure (unresolved SHA, conflicting merge, dirty tree) the
+  wrapper prepends a **"worktree NOT synced"** banner to the per-event
+  prompt. A reviewer whose worktree silently failed to sync can no
+  longer trust a stale local diff — the banner says so. See
   [`orchestrator/consensus_wrapper.py`](../../orchestrator/consensus_wrapper.py)
   and [`orchestrator/routes/event_prompt.py`](../../orchestrator/routes/event_prompt.py).
 - **Per-event prompt composer** — the per-SHA delta section embeds
