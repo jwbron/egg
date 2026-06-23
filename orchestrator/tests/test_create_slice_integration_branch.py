@@ -243,7 +243,7 @@ class TestCreateSliceIntegrationBranchFailures:
         assert push_invoked == [True]
 
     def test_push_failure_returns_false_and_cleans_up_session(self, gateway_client):
-        """If the push request raises, the function must return False
+        """If the push request raises, the function must return None
         and still delete the synthetic session (no gateway-side leak)."""
         delete_calls: list[str] = []
 
@@ -462,9 +462,9 @@ class TestCreateSliceIntegrationBranchRestartRecovery:
         """Issue #2512 reproduction: slice-1 branch on origin contains
         coder/tester commits descended from parent (cancel_task with
         cleanup=false followed by restart_phase).  ``create_slice_
-        integration_branch`` must detect this and return True without
-        pushing — the prior commits are exactly what restart_phase
-        promises to preserve."""
+        integration_branch`` must detect this and return the fork-base
+        SHA without pushing — the prior commits are exactly what
+        restart_phase promises to preserve."""
         parent_sha = "8a76c30d" * 5  # parent-branch tip
         existing_sha = "0c5c6697" * 5  # slice-1 tip from prior run
 
@@ -625,7 +625,7 @@ class TestCreateSliceIntegrationBranchRestartRecovery:
 
         assert ok is None, (
             "non-fast-forward rejection on diverged history must surface as "
-            "ok=False — that's the user-visible signal the operator needs"
+            "ok=None — that's the user-visible signal the operator needs"
         )
         assert delete_spy.call_args_list == [call("diverged-tok")], (
             "synthetic session must still be cleaned up in the rejection path"
@@ -844,7 +844,7 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
         """The incident itself: slice has its own commits built on the
         recorded base, parent advanced additively (base ancestor of both,
         neither tip an ancestor of the other). Must preserve the branch
-        and return True WITHOUT pushing."""
+        and return the fork-base SHA WITHOUT pushing."""
         base_sha = "b0b0b0b0" * 5  # slice-2 tip when slice-3 was created
         existing_sha = "e1e1e1e1" * 5  # slice-3 tip (documenter commits)
         parent_sha = "a2a2a2a2" * 5  # slice-2 tip, advanced additively
@@ -879,7 +879,7 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
             [base_sha, parent_sha],
         ]
         # Symmetric coverage for ``test_push_failure_returns_false_and_cleans
-        # _up_session``: the new ``return True`` lives inside the outer
+        # _up_session``: the new ``return parent_sha`` lives inside the outer
         # ``try``, so ``delete_session`` must still fire from the ``finally``
         # on this success path. Pinning it here freezes that — a future
         # refactor that moved the early-return outside the try (or skipped
@@ -888,7 +888,7 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
         assert delete_calls == ["tok-resume-incident"], (
             "synthetic session must be deleted on the resume-in-place "
             "success path (the ``finally`` must still fire despite the "
-            "early ``return True``)"
+            "early ``return parent_sha``)"
         )
 
     def test_parent_rebase_falls_through_to_push(self, gateway_client):
