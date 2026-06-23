@@ -1905,9 +1905,11 @@ class TestCoderFixesForHolisticReview:
 
         call_order: list[str] = []
 
-        def _track_create_branch(*args: Any, **kwargs: Any) -> bool:
+        def _track_create_branch(*args: Any, **kwargs: Any) -> str:
             call_order.append("create_slice_integration_branch")
-            return True
+            # #3185 — the helper now returns the fork-base SHA it
+            # pushed at, not a bare bool.
+            return "a" * 40
 
         def _track_create_pr(*args: Any, **kwargs: Any) -> str:
             call_order.append("create_slice_pr")
@@ -2414,7 +2416,7 @@ class TestGlobalSliceAdmit:
             mock_start_recon.return_value = (MagicMock(), threading.Event())
             spawner = MagicMock()
             spawner.gateway = MagicMock()
-            spawner.gateway.create_slice_integration_branch.return_value = False
+            spawner.gateway.create_slice_integration_branch.return_value = None
             _run_implement_phase_slices(
                 pipeline_id=pipeline.id,
                 pipeline=pipeline,
@@ -2461,9 +2463,11 @@ class TestSliceIntegrationBranchPrecedesAgentSpawn:
 
         call_order: list[str] = []
 
-        def _track_create_branch(*args: Any, **kwargs: Any) -> bool:
+        def _track_create_branch(*args: Any, **kwargs: Any) -> str:
             call_order.append("create_slice_integration_branch")
-            return True
+            # #3185 — the helper now returns the fork-base SHA it
+            # pushed at, not a bare bool.
+            return "a" * 40
 
         def _track_run_phase(*args: Any, **kwargs: Any) -> tuple[int, str]:
             call_order.append("_run_concurrent_phase")
@@ -2511,6 +2515,55 @@ class TestSliceIntegrationBranchPrecedesAgentSpawn:
             "ref must exist on origin first"
         )
 
+    def test_fork_base_recorded_from_create_return_no_extra_round_trip(self) -> None:
+        """#3185 — the run loop records ``integration_base_sha`` from the
+        SHA ``create_slice_integration_branch`` returns, with no separate
+        ``get_remote_branch_sha`` round-trip. The prior best-effort
+        re-fetch could silently fail (no ``retry_transient``) and leave
+        the field unset, arming the empty-pre-created-branch trap on the
+        next restart (an un-started branch misclassified as merged by
+        ancestor-only detection in ``is_slice_branch_merged_into_parent``).
+        """
+        pipeline = _make_pipeline()
+        slice_obj = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        contract = _make_contract(slices=[slice_obj])
+        fork_base = "b" * 40
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch(
+                "routes.pipelines._run_concurrent_phase", return_value=(0, "ok")
+            ) as mock_run_phase,
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = MagicMock()
+            spawner.gateway = MagicMock()
+            spawner.gateway.create_slice_integration_branch.return_value = fork_base
+            spawner.gateway.create_slice_pr.return_value = "https://example/pr/1"
+            spawner.gateway.is_slice_branch_merged_into_parent.return_value = False
+            _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        # The fork base returned by the create call landed on the slice.
+        assert slice_obj.integration_base_sha == fork_base, (
+            f"integration_base_sha must be recorded from the create call's "
+            f"return value, not a separate best-effort re-fetch; got "
+            f"{slice_obj.integration_base_sha!r}"
+        )
+        assert mock_run_phase.call_count == 1
+
     def test_concurrent_phase_not_invoked_when_integration_branch_creation_fails(
         self,
     ) -> None:
@@ -2538,7 +2591,7 @@ class TestSliceIntegrationBranchPrecedesAgentSpawn:
             mock_start_recon.return_value = (MagicMock(), threading.Event())
             spawner = MagicMock()
             spawner.gateway = MagicMock()
-            spawner.gateway.create_slice_integration_branch.return_value = False
+            spawner.gateway.create_slice_integration_branch.return_value = None
 
             _run_implement_phase_slices(
                 pipeline_id=pipeline.id,
@@ -2583,10 +2636,11 @@ class TestSliceIntegrationBranchQualifierPreserved:
 
         captured: dict[str, Any] = {}
 
-        def _capture(*args: Any, **kwargs: Any) -> bool:
+        def _capture(*args: Any, **kwargs: Any) -> str:
             captured["parent_branch"] = kwargs.get("parent_branch")
             captured["integration_branch"] = kwargs.get("integration_branch")
-            return True
+            # #3185 — the helper returns the fork-base SHA, not a bool.
+            return "a" * 40
 
         with (
             patch("egg_contracts.loader.load_contract", return_value=contract),
