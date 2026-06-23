@@ -173,6 +173,85 @@ class ForestValidationError(Exception):
         return ({"error": self.reason, "errors": self.errors}, 422)
 
 
+class SliceCompletionInvariantError(RuntimeError):
+    """Raised when a slice would be persisted ``COMPLETE`` without a valid
+    completion basis (#3214).
+
+    The #3214 wedge traced to an interior forest node (``slice-3`` on
+    pipeline ``issue-3200``) persisted as ``SliceStatus.COMPLETE`` while
+    its only task was still ``pending``, it had no integration branch, and
+    it carried its *parent's* commit SHA. ``_persist_slice_status_complete``
+    wrote that contradictory state with no validation, so the slice-DAG
+    driver skipped real work and the chain wedged with no successor — and
+    it hung ~9h silently because nothing failed loud at the moment of the
+    bad write.
+
+    A slice has a valid completion basis when ANY of these execution
+    signals is present:
+
+    * a slice PR is recorded / supplied (``pr_number``); or
+    * the caller declares a verified ``basis`` — ``"merged"`` (the
+      integration branch was ancestry-verified merged into its parent) or
+      ``"consensus_complete"`` (BRC consensus reached, PR not yet opened
+      or its URL unparseable); or
+    * the slice forked an integration branch (``integration_base_sha`` is
+      set — #2871); or
+    * every task is ``TaskStatus.COMPLETE``.
+
+    The predicate accepts any one signal so it can only flag the slice-3
+    state where *all* are absent — a slice marked COMPLETE with zero
+    evidence it ran. We raise here so that corrupt write fails loud at its
+    source instead of wedging the forest a phase later.
+    """
+
+
+# Completion bases a caller may declare when it has positive, verified
+# evidence a slice finished even though not every task is marked COMPLETE
+# on the contract (the crash-recovery / merged-skip paths). See
+# :class:`SliceCompletionInvariantError`.
+_VERIFIED_SLICE_COMPLETION_BASES = frozenset({"merged", "consensus_complete"})
+
+
+def _validate_slice_completion_basis(
+    slice_obj: Any,
+    *,
+    pr_number: int | None = None,
+    basis: str | None = None,
+) -> str | None:
+    """Return ``None`` when ``slice_obj`` may legitimately be marked
+    ``SliceStatus.COMPLETE``, else a human-readable reason it may not.
+
+    Shared by the write chokepoint (``_persist_slice_status_complete``,
+    which raises :class:`SliceCompletionInvariantError` on a reason) and
+    the Layer-A bootstrap read-trust point (which alerts and declines to
+    trust a contradictory contract-recorded COMPLETE rather than
+    propagating it into the scheduler). See
+    :class:`SliceCompletionInvariantError` for the basis rules (#3214).
+    """
+    has_pr = pr_number is not None or getattr(slice_obj, "pr_number", None) is not None
+    verified_basis = basis in _VERIFIED_SLICE_COMPLETION_BASES
+    # A slice that actually forked its integration branch recorded a base
+    # SHA (#2871). Its absence — together with no PR, no verified basis,
+    # and no completed tasks — is the slice-3 false-complete signature: a
+    # slice marked COMPLETE with zero evidence it ever ran. The predicate
+    # accepts ANY single execution signal so it can only flag that
+    # genuinely-contradictory state, never a legitimately-completed slice
+    # whose other signals happen to be absent (e.g. an unparseable PR URL
+    # leaves ``pr_number`` None but the slice still forked and reached
+    # consensus). ``tasks_all_complete`` is the canonical model-side
+    # predicate so this can't drift from the contract's own notion of
+    # "work finished".
+    forked = getattr(slice_obj, "integration_base_sha", None) is not None
+    if has_pr or verified_basis or forked or slice_obj.tasks_all_complete:
+        return None
+    return (
+        f"slice {getattr(slice_obj, 'id', '?')} would be marked COMPLETE with no "
+        f"evidence it ran: no slice PR, no verified merge/consensus basis "
+        f"(basis={basis!r}), no integration-branch fork base, and tasks not all "
+        f"complete"
+    )
+
+
 # Add shared directory to path for egg_logging
 _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
@@ -16502,6 +16581,7 @@ def _run_implement_phase_slices(
         *,
         pr_number: int | None = None,
         pr_url: str | None = None,
+        basis: str | None = None,
         commit_to_branch: bool = True,
     ) -> None:
         """Mark ``slice_id`` as ``SliceStatus.COMPLETE`` on the contract.
@@ -16530,6 +16610,16 @@ def _run_implement_phase_slices(
         successful slice's commit (the pipeline-scoped glob picks them
         up) or the phase-boundary commit, whichever fires first.
 
+        ``basis`` lets a caller declare *why* the slice is complete when
+        not every task is marked COMPLETE on the contract: ``"merged"``
+        (integration branch ancestry-verified merged into its parent) or
+        ``"consensus_complete"`` (BRC consensus reached pre-restart, PR
+        not yet opened). The PR-open caller passes ``pr_number`` instead.
+        Absent any of these — and with tasks still pending — the write is
+        a #3214 false-complete and :func:`_validate_slice_completion_basis`
+        raises :class:`SliceCompletionInvariantError` rather than persist
+        a slice as done that never ran.
+
         When the caller just opened the slice's PR it passes
         ``pr_number`` / ``pr_url`` so the linkage lands in the same
         contract write (#3122) — the context-PR body refresh and any
@@ -16552,13 +16642,49 @@ def _run_implement_phase_slices(
                 contract_local = load_contract(pipeline_id, worktree_repo_path)
                 for s in contract_local.slices:
                     if s.id == slice_id:
+                        # #3214 — refuse to persist a contradictory COMPLETE.
+                        # An interior forest node marked COMPLETE without a
+                        # valid basis (tasks pending, no PR, no verified
+                        # merge/consensus) skips a slice that never ran and
+                        # wedges the chain a phase later. Fail loud here, at
+                        # the source of the bad write, instead.
+                        invalid = _validate_slice_completion_basis(
+                            s, pr_number=pr_number, basis=basis
+                        )
+                        if invalid is not None:
+                            logger.error(
+                                "Refusing to persist slice.status=COMPLETE — "
+                                "invalid completion basis (#3214)",
+                                pipeline_id=pipeline_id,
+                                slice_id=slice_id,
+                                reason=invalid,
+                            )
+                            raise SliceCompletionInvariantError(invalid)
                         s.status = SliceStatus.COMPLETE
                         if pr_number is not None:
                             s.pr_number = pr_number
                         if pr_url is not None:
                             s.pr_url = pr_url
+                        logger.info(
+                            "Slice marked COMPLETE",
+                            pipeline_id=pipeline_id,
+                            slice_id=slice_id,
+                            basis=(
+                                basis
+                                or (
+                                    "pr"
+                                    if (pr_number is not None or s.pr_number is not None)
+                                    else "tasks_complete"
+                                )
+                            ),
+                            pr_number=pr_number if pr_number is not None else s.pr_number,
+                        )
                         break
                 save_contract(contract_local, worktree_repo_path)
+        except SliceCompletionInvariantError:
+            # Fail loud — never swallow the completion invariant into the
+            # best-effort save handler below (#3214).
+            raise
         except Exception as save_err:  # noqa: BLE001
             # Contract load/save under per-pipeline state lock.
             # Catches loader validation errors, atomic-rename / fdopen
@@ -16595,10 +16721,43 @@ def _run_implement_phase_slices(
     bootstrap_complete: list[str] = []
     bootstrap_merged: list[str] = []
 
-    # Layer (A): cheap, no I/O. Trust contract-recorded COMPLETE status.
+    # Layer (A): cheap, no I/O. Trust contract-recorded COMPLETE status —
+    # but verify the recorded COMPLETE is not itself a #3214 false-complete
+    # (an interior forest node persisted COMPLETE with pending tasks, no
+    # PR, no merge). Blindly trusting a corrupt contract here is how the
+    # false-complete propagated into the scheduler and wedged the chain.
+    # On an invalid record, alert and decline to trust it — route the
+    # slice through Layer-B/C so it is re-evaluated and (re-)run rather
+    # than silently skipped.
+    #
+    # Note: a COMPLETE slice that recorded *no* durable evidence (no
+    # pr_number, no integration_base_sha — e.g. a legacy pre-#2871
+    # contract from before integration_base_sha existed) is distrusted
+    # here on every restart, even when it was genuinely merged. That is
+    # intentional, not a bug: such a slice falls through to Layer-B,
+    # where origin-side merge detection re-confirms it and re-marks it
+    # COMPLETE. The outcome stays correct; the only cost is one extra
+    # GitHub round-trip per restart. A slice that forked under current
+    # code *usually* records integration_base_sha and is trusted here
+    # directly — but that write is best-effort (the get_remote_branch_sha
+    # call at slice spawn swallows failures and degrades to ancestor-only
+    # detection), so a current-code slice whose base-SHA write failed also
+    # falls through to Layer-B and self-corrects identically to the legacy
+    # case above.
     layer_b_candidates = []
     for s in slices:
         if s.status == SliceStatus.COMPLETE:
+            invalid = _validate_slice_completion_basis(s, pr_number=s.pr_number)
+            if invalid is not None:
+                logger.error(
+                    "Contract records slice COMPLETE but the completion basis is "
+                    "invalid — NOT trusting it; re-evaluating the slice (#3214)",
+                    pipeline_id=pipeline_id,
+                    slice_id=s.id,
+                    reason=invalid,
+                )
+                layer_b_candidates.append(s)
+                continue
             scheduler.record_complete(s.id)
             bootstrap_complete.append(s.id)
             continue
@@ -16668,7 +16827,7 @@ def _run_implement_phase_slices(
         for slice_id, already_merged in results:
             if already_merged:
                 scheduler.record_complete(slice_id)
-                _persist_slice_status_complete(slice_id, commit_to_branch=False)
+                _persist_slice_status_complete(slice_id, basis="merged", commit_to_branch=False)
                 bootstrap_merged.append(slice_id)
 
     # Layer (C): non-COMPLETE slice classification (slice-4 TASK-4-4).
@@ -16732,7 +16891,7 @@ def _run_implement_phase_slices(
                 slice_id=s.id,
             )
             scheduler.record_complete(s.id)
-            _persist_slice_status_complete(s.id, commit_to_branch=False)
+            _persist_slice_status_complete(s.id, basis="consensus_complete", commit_to_branch=False)
             bootstrap_consensus_complete.append(s.id)
             continue
         if classification == "resume":
@@ -17061,7 +17220,7 @@ def _run_implement_phase_slices(
                             parent_branch=parent_branch,
                         )
                         scheduler.record_complete(slice_id)
-                        _persist_slice_status_complete(slice_id)
+                        _persist_slice_status_complete(slice_id, basis="merged")
                         try:
                             remove_peer_consensus_tracker(pipeline_id, slice_id)
                         except Exception:  # noqa: BLE001
@@ -17507,10 +17666,18 @@ def _run_implement_phase_slices(
                 # rather than racing them.
                 with get_pipeline_state_lock(pipeline_id):
                     scheduler.record_complete(slice_id)
+                    # Reaching here means ``_run_concurrent_phase`` returned
+                    # success (BRC consensus) AND ``pr_created`` gated above —
+                    # a verified completion independent of whether the PR URL
+                    # parsed to a number (#3122 stub URLs leave
+                    # ``slice_pr_number`` None). Declare the consensus basis so
+                    # the #3214 invariant accepts it; ``pr_number`` is still
+                    # passed for the slice-table linkage.
                     _persist_slice_status_complete(
                         slice_id,
                         pr_number=slice_pr_number,
                         pr_url=slice_pr_url if slice_pr_number else None,
+                        basis="consensus_complete",
                     )
 
                     # Refresh the context PR body so its slice table

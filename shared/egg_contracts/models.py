@@ -441,6 +441,19 @@ class Slice(EggContractBaseModel):
     def validate_commit(cls, v: Any) -> str | None:
         return _normalize_commit(v)
 
+    @property
+    def tasks_all_complete(self) -> bool:
+        """True iff this slice has tasks and every one is ``COMPLETE``.
+
+        Canonical "the slice's declared work finished" predicate, kept on
+        the model so completion checks don't drift across the orchestrator
+        (the slice-DAG completion invariant, overseer, health checks). An
+        empty task list is **not** complete — a slice with nothing to do is
+        a degenerate state a caller must justify some other way (a merged
+        PR / verified consensus), not silently treat as done. See #3214.
+        """
+        return bool(self.tasks) and all(t.status == TaskStatus.COMPLETE for t in self.tasks)
+
 
 # Backward-compat alias — see ``Slice`` docstring. ``Phase`` was the
 # original name pre-#2137; new code should reference ``Slice`` directly.
