@@ -172,7 +172,7 @@ class TestCreateSliceIntegrationBranchSuccess:
 
 
 class TestCreateSliceIntegrationBranchFailures:
-    def test_returns_false_when_parent_missing_on_origin(self, gateway_client):
+    def test_returns_none_when_parent_missing_on_origin(self, gateway_client):
         """If ``ls-remote`` returns no SHA (parent doesn't exist on
         origin), fail fast — don't issue a push that would emit git's
         confusing ``src refspec X does not match any``."""
@@ -242,7 +242,7 @@ class TestCreateSliceIntegrationBranchFailures:
         assert ok
         assert push_invoked == [True]
 
-    def test_push_failure_returns_false_and_cleans_up_session(self, gateway_client):
+    def test_push_failure_returns_none_and_cleans_up_session(self, gateway_client):
         """If the push request raises, the function must return None
         and still delete the synthetic session (no gateway-side leak)."""
         delete_calls: list[str] = []
@@ -281,7 +281,7 @@ class TestCreateSliceIntegrationBranchFailures:
 
 
 class TestCreateSliceIntegrationBranchShortCircuits:
-    def test_empty_branch_returns_false_without_calls(self, gateway_client):
+    def test_empty_branch_returns_none_without_calls(self, gateway_client):
         with (
             patch.object(gateway_client, "_make_request") as mock_req,
             patch.object(gateway_client, "fetch_branch") as mock_fetch,
@@ -878,7 +878,7 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
             [base_sha, existing_sha],
             [base_sha, parent_sha],
         ]
-        # Symmetric coverage for ``test_push_failure_returns_false_and_cleans
+        # Symmetric coverage for ``test_push_failure_returns_none_and_cleans
         # _up_session``: the new ``return parent_sha`` lives inside the outer
         # ``try``, so ``delete_session`` must still fire from the ``finally``
         # on this success path. Pinning it here freezes that — a future
