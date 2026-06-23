@@ -453,8 +453,8 @@ template](../../config/routing-policy.template.yaml).
 The Claude Code compaction profile is fixed at spawn (the `[1m]` /
 `ANTHROPIC_CUSTOM_MODEL_OPTION` registration). A fallback/switchover
 target with a *smaller* real context window than the source can
-overflow mid-conversation: `1M → Opus` is safe; `1M → 256K` (Kimi) or
-`1M → 202K` (GLM) is risky. The gateway cannot know each model's
+overflow mid-conversation: `1M → Opus` is safe; `1M → 256K` (Kimi) is
+risky. The gateway cannot know each model's
 window, so this is enforced only by policy authoring, not at runtime.
 
 ### Hot-reload delivery

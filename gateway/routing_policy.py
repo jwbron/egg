@@ -50,8 +50,8 @@ Trigger defaults (overridable per-file, issue #2987 review):
 Context-window safety (issue #2987 gotcha, NOT runtime-enforced here): the
 Claude Code compaction profile is fixed at spawn via the ``[1m]`` /
 ``ANTHROPIC_CUSTOM_MODEL_OPTION`` registration. A fallback/switchover target
-with a *smaller* real context window than the source (e.g. Kimi 256K, GLM
-202K under a 1M source) can overflow mid-conversation. ``1M → Opus`` is
+with a *smaller* real context window than the source (e.g. Kimi 256K under
+a 1M source) can overflow mid-conversation. ``1M → Opus`` is
 safe; ``1M → 256K`` is risky. The gateway cannot know each model's window,
 so this is a **policy-authoring constraint** documented in
 ``config/routing-policy.template.yaml`` and the upstream-routing
