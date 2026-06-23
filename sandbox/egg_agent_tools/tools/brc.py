@@ -430,8 +430,12 @@ async def brc_resolve_obligation(args: dict[str, Any]) -> dict[str, Any]:
     "empty result for the in-flight phase is structural (#3076) and is "
     "NOT evidence peers have not proposed. To read artifact CONTENT, "
     "use your event payload (pending_reviews carries "
-    "`proposal_commit_sha` + `artifact_refs`) and `git show "
-    "<sha>:<path>`. Paginated via `limit` + opaque `cursor`.",
+    "`proposal_commit_sha` + `artifact_refs`): spec-registered "
+    "coordination artifacts via `egg-artifact get <name> --ref "
+    "<proposal_commit_sha>` (gateway resolves the repo path "
+    "server-side, no local checkout, #3216), unregistered/code paths "
+    "via `git log <proposal_commit_sha> --not origin/<base> -p`. "
+    "Paginated via `limit` + opaque `cursor`.",
     _READ_PEER_ARTIFACT_SCHEMA,
 )
 async def brc_read_peer_artifact(args: dict[str, Any]) -> dict[str, Any]:

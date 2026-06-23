@@ -1344,9 +1344,15 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
                 "peers have not proposed. Live proposals arrive via "
                 "your event payload (pending_reviews carries each "
                 "producer's proposal_commit_sha and artifact_refs); "
-                "read a peer's proposed artifact with `git show "
-                "<proposal_commit_sha>:<path>` — the SHA resolves from "
-                "your worktree via the shared object store."
+                "read a peer's spec-registered coordination artifact "
+                "(plan-draft, analysis-draft, architect-output) with "
+                "`egg-artifact get <name> --ref <proposal_commit_sha>` — "
+                "the gateway resolves the artifact repo path server-side "
+                "from its registered name, so no shared object store or "
+                "local checkout is required (#3216). Unregistered paths "
+                "(e.g. code files) are covered by the full "
+                "`git log <proposal_commit_sha> --not origin/<base> -p` "
+                "delta."
             )
         return {
             "ok": True,
