@@ -70,7 +70,7 @@
 # The Claude Code compaction profile is fixed at spawn (the [1m] /
 # ANTHROPIC_CUSTOM_MODEL_OPTION registration). A fallback/switchover target
 # with a SMALLER real context window than the source can overflow
-# mid-conversation. 1M → Opus is safe; 1M → a 256K/202K model is risky. The
+# mid-conversation. 1M → Opus is safe; 1M → a 256K model is risky. The
 # gateway cannot know each model's window — keep fallback targets at least
 # as large as the source.
 #

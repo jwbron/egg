@@ -27,7 +27,7 @@ the agent is spawned with ``--model <upstream>[1m]`` and the
 ``ANTHROPIC_CUSTOM_MODEL_OPTION`` / ``…_OPTION_NAME`` env vars set so
 Claude Code registers the custom model with a 1M-context-window
 compaction profile. Models whose real context window is below 1M
-(``_SUB_1M_CONTEXT_MODELS`` — e.g. Kimi 256K) are the
+(``_SUB_1M_CONTEXT_MODELS`` — e.g. Kimi 256K, GLM 202K) are the
 exception: they get the bare ``<upstream>`` alias so Claude Code uses
 its 200K default and compacts before their true limit, since Claude
 Code has no sub-1M custom-model profile (#2987). The gateway no longer
@@ -120,6 +120,7 @@ _CONTEXT_1M_SUFFIX = "[1m]"
 # window is <1M. See #2987.
 _SUB_1M_CONTEXT_MODELS: dict[str, int] = {
     "kimi-k2.7-code": 262_144,
+    "glm-5.1": 202_752,
 }
 
 # Recognised Claude aliases that route through the Anthropic upstream.

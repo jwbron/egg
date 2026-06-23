@@ -475,7 +475,7 @@ class TestSubOneMContextModels:
     safely below their window. See #2987.
     """
 
-    @pytest.mark.parametrize("model", ["kimi-k2.7-code"])
+    @pytest.mark.parametrize("model", ["kimi-k2.7-code", "glm-5.1"])
     def test_sub_1m_model_drops_1m_suffix(self, model):
         resolve_agent_model = _resolver()
         AgentRole = _agent_role()
@@ -492,7 +492,7 @@ class TestSubOneMContextModels:
             f"model's real limit; got {d.claude_code_alias!r}"
         )
 
-    @pytest.mark.parametrize("model", ["kimi-k2.7-code"])
+    @pytest.mark.parametrize("model", ["kimi-k2.7-code", "glm-5.1"])
     def test_pre_suffixed_sub_1m_model_normalized_to_bare(self, model):
         """A stray operator ``[1m]`` on a sub-1M model is overridden — the
         registry is authoritative, so the alias is still bare.
@@ -507,13 +507,14 @@ class TestSubOneMContextModels:
         assert d.upstream_model == model
         assert d.claude_code_alias == model
 
-    @pytest.mark.parametrize("model", ["kimi-k2.7-code"])
+    @pytest.mark.parametrize("model", ["kimi-k2.7-code", "glm-5.1"])
     def test_sub_1m_env_vars_carry_bare_name(self, model, monkeypatch):
         """Every custom-model env var for a sub-1M model carries the bare
         name — none may leak the ``[1m]`` suffix (which would re-trigger the
-        1M profile for the main agent or its Task-tool subagents). Guards the
-        full env-var fan-out so a drift that special-cased the hyphen-period in
-        ``k2.7`` (e.g. a ``.lower()`` or escape) is caught here, not in the field.
+        1M profile for the main agent or its Task-tool subagents). Parametrized
+        over both registry entries so a future drift that only broke ``glm-5.1``
+        (e.g. a ``.lower()`` or escape that special-cased the hyphen-period in
+        ``k2.7``) is caught here, not in the field.
         """
         _clear_guardrail_overrides(monkeypatch)
         resolve_agent_model = _resolver()
@@ -533,14 +534,10 @@ class TestSubOneMContextModels:
             **_LITELLM_GUARDRAIL_DEFAULTS,
         }
 
-    @pytest.mark.parametrize(
-        "model", ["deepseek-v4-flash", "deepseek-v4-pro", "qwen3.7-max", "glm-5.2"]
-    )
+    @pytest.mark.parametrize("model", ["deepseek-v4-flash", "deepseek-v4-pro", "qwen3.7-max"])
     def test_one_m_models_still_carry_1m_suffix(self, model):
         """Regression guard: genuine >=1M cost-center models are unaffected —
-        they still get ``[1m]`` so they use their full 1M window. ``glm-5.2``
-        is the 1M successor to the sub-1M ``glm-5.1`` (removed from
-        ``_SUB_1M_CONTEXT_MODELS``), so it now takes the ``[1m]`` path.
+        they still get ``[1m]`` so they use their full 1M window.
         """
         resolve_agent_model = _resolver()
         AgentRole = _agent_role()
