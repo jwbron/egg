@@ -160,6 +160,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "ad1d6e6cb11d4b4323eea9e98f10533b5abd3a1f": {
+      "branch": "egg/issue-3200/work",
+      "patch_id": "515d8db7faa678b4306e77f22b427573ac3fe4d1",
+      "pipeline_id": "issue-3200",
+      "registered_at": "2026-06-24T21:49:30.308516+00:00",
+      "repo": null,
+      "role": "refiner"
+    },
     "ad7d5050ecfc9f59182ba2ef7133814612f4365f": {
       "branch": "egg/issue-3200/work",
       "patch_id": "8863793939be48aa10f9fd54a2d9fbd898a86fb0",
