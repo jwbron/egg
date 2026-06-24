@@ -1,18 +1,47 @@
-# refiner BRC memory — issue-3064 (refine)
+# refiner BRC memory — issue-3229 (refine)
 
-## IMPORTANT: prior memory was stale
-- Earlier memory in this file referenced issue-3077 (analysis at `.egg-state/drafts/3077-analysis.md`, HITL cq-1/cq-2 about served-state scope). That belonged to a DIFFERENT pipeline. This pipeline is **issue-3064** ("Orchestrator-driven on-demand agent spawning"). The gateway rejected the 3077-path proposal; contract confirmed pipeline_id=issue-3064. Do not act on 3077 content here.
+## CRITICAL CORRECTION (v2) — the issue's premise is FALSE
+- The issue body (lines 226-228) and contract task_description ("## History") claim
+  "#3064 never merged to main … Nothing from either attempt is on main; clean re-run."
+  **This is factually WRONG.** Verified against origin/main @74838edb4:
+  ALL SIX #3064 slices are MERGED — PRs #3167 (slice-1 flag), #3169 (slice-2 event loop),
+  #3181 (slice-3 JobSupervisor), #3192 (slice-4 worktree/session), #3198 (slice-5 health-mode),
+  + docs #3202/#3204/#3205. With test coverage (test_event_loop.py + orchestrator-mode tests
+  in test_concurrent_executor/test_consensus_wrapper/test_kubernetes_spawner/test_heartbeat).
+- The full orchestrator-owned on-demand spawning mechanism #3229 describes BUILDING already
+  EXISTS on main, behind EGG_EVENT_LOOP_OWNER (default "pod"): event_loop.py (OrchestratorEventLoop,
+  JobSupervisor, compute_dedupe_key on proposal_commit_sha, restart reconcile, convergence-stall);
+  kubernetes_spawner.spawn_event_job + LABEL_EVENT_DEDUPE adoption + pre-spawn worktree cleanup;
+  concurrent_executor._start_event_loop/_ExecutorEventSpawner/orchestrator-mode branch (spawns 0
+  agents up front)/_teardown_exhausted_session; env_config.get_event_loop_owner (default "pod");
+  health_monitor.set_orchestrator_mode/_orchestrator_skip_tripwire; consensus_wrapper ONE_SHOT_OWNER.
+- The ONLY undone piece is the default flip + live-BRC proving run, which the issue itself defers
+  to #3164 (out of #3229 scope). So #3229 has no obvious in-scope structural work vs main.
 
 ## Status
-- v1 analysis written to `.egg-state/drafts/3064-analysis.md`, HITL cq-1 (scope A/B/C; recommended B) and cq-2 (failure supervision; recommended bounded respawn + alert) registered on the issue-3064 contract. Committed + proposed (see decision log).
+- v1 (commit a24748b) was greenfield-scoped ("build the mechanism behind a flag") — WRONG; both
+  reviewers NACked v1 on the false "nothing on main" premise (reviewer_refine B1, reviewer_agent_design).
+- v2: draft rewritten to reconcile against main (inventory landed #3064 as foundation, re-derive real
+  gap, reframe scope+ACs to adopt/verify/gap-fill, fix build_consensus_wrapped_command attribution
+  → defined at consensus_wrapper.py:1216 not concurrent_executor). HITL cq-1 registered. Re-proposed v2.
 
-## Verdict / position
-- Recommended scope (Option B): on-demand spawner for propose|ack|nack + ownership flag defaulting to in-pod loop + spawn dedupe (role + proposal_commit_sha / nack-version) + bounded respawn supervision + confirm/complete orchestrator-side, PLUS worktree re-attach & session reuse, idle-budget/stall alerts re-homed orchestrator-side, lifecycle-aware health-monitor thresholds, #2806 signaling relocated. Default flip = gated follow-up after a live BRC cycle (issue's own bar).
-- Hard constraint (from scrapped #3023): guard + spawner land together or spawner-first; no rollback flag exists since #2908 slice-4 deleted EGG_BRC_EVENT_PUMP.
-- Key grounded facts: spawn-up-front at concurrent_executor.py:311-349 / kubernetes_spawner.py:491-940; in-pod loop consensus_wrapper.py:110-916 (wait-loop ≈379, heartbeat 30s ≈209-230, idle budget alert-only ≈702-720, streak backoff ≈897-901); _derive_next_action routes/consensus.py:296-422 (proposal_commit_sha in pending_reviews ≈220-221); confirm/complete already agent-free in wrapper; durable memory brc_memory.py atomic-write; tracker rebuilt from message store (#2761); worktrees hostPath-persistent (#3005/#2403).
+## HITL — cq-1 (registered, mcp__sdlc__register_open_question)
+- adopt-vs-reimplement conflict: issue premise vs git state. Options:
+  opt-1 adopt #3064 + verify/gap-fill only genuine delta; opt-2 operator names specific defect;
+  opt-3 collapse #3229 into #3164. MUST be resolved by operator before plan. Do NOT re-litigate.
 
-## If NACKed
-- Address reviewer points by editing `.egg-state/drafts/3064-analysis.md` in place, re-commit, re-propose (version bumps). Keep scope options A/B/C unless a reviewer shows a factual error. Cite file:line for any disputed claim.
+## Verdict / position (v2)
+- Scope is now PROVISIONAL and CONDITIONAL on cq-1 — NOT a greenfield Option-B build.
+- Do NOT plan a fresh build of the mechanism (adopt-vs-reimplement hazard; operator directive forbids).
+- Hard constraint (spawner-first / guard-depends-on-spawner from scrapped #3023) is ALREADY satisfied
+  on main (flag defaults to in-pod, spawner present).
+
+## If NACKed again
+- Address each blocker; edit draft in place, re-commit, re-propose (version bump). Keep the reconciled
+  current-state (mechanism is ON MAIN) and the cq-1 HITL — those are reviewer-required and verified.
+  Do NOT revert to greenfield framing. Cite file:line for disputed claims.
 
 ## Decision log
-- 2026-06-12: discovered stale 3077 memory; rebuilt analysis for issue-3064 from issue body (re-verified 2026-06-11 by author) + codebase exploration; registered cq-1/cq-2; proposed v1.
+- 2026-06-24 v1: greenfield Option-B analysis, proposed a24748b — NACked by both reviewers (false premise).
+- 2026-06-24 v2: verified #3064 fully merged on main; rewrote draft to adopt/verify/gap-fill framing;
+  registered HITL cq-1; re-committed + re-proposed.

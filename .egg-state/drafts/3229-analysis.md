@@ -1,231 +1,224 @@
 # Analysis: Orchestrator-driven on-demand agent spawning — lift the event pump out of the pod
 
 > Issue: #3229 | Phase: refine | Pipeline: issue-3229
-> Supersedes #3064 (and #3023). Nothing from either attempt is on main; clean re-run.
+> **Correction (v2):** the issue body's "nothing from #3064 is on main; clean
+> re-run" premise is factually false. The full mechanism #3229 describes is
+> already merged on main behind `EGG_EVENT_LOOP_OWNER` (default `pod`). This
+> analysis is reconciled against that reality. The adopt-vs-reimplement
+> conflict is registered as HITL decision **cq-1** and must be resolved by the
+> operator before plan.
 
-## Problem Statement
+## ⚠️ Blocking premise conflict — resolve before plan (HITL cq-1)
 
-The orchestrator spawns the full agent team for a phase up front
-(`orchestrator/concurrent_executor.py:394` `spawn_all()` →
-`build_consensus_wrapped_command` at `:632`/`:776` → `kubernetes_spawner.spawn_agent_job`,
-`orchestrator/kubernetes_spawner.py:1181`), and each agent pod then runs a
-long-lived in-pod event-pump bash loop (`orchestrator/consensus_wrapper.py`).
-The pod long-polls the bus (`egg-orch message wait-loop`, wrapper `:428`) with a
-30 s background heartbeat (`EVENT_PUMP_HEARTBEAT_INTERVAL_SECS_DEFAULT = 30`,
-`:125`) and stays alive — idle, reserving CPU/memory and a gateway session — for
-the whole phase, until global consensus completes. The 30-min idle budget
-(`EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT = 30`, `:109`; env `EGG_BRC_IDLE_BUDGET_MIN`)
-only raises an `OVERSEER_ALERT` (anomaly `stuck-phase-transition`); it never
-terminates the pod.
+Both refine reviewers NACked v1 on the same load-bearing fact, and they are
+correct. The issue body (lines 226–228) and the contract `task_description`
+("## History") both state:
 
-#3229 inverts the lifecycle: **the orchestrator owns the event loop and spawns
-an agent pod only when that role has an actionable event; the pod handles the one
-event and exits.** No idle pods. The actionable-event signal already exists:
-`_derive_next_action` (`orchestrator/routes/consensus.py:296`) computes per-role
-`propose / ack / nack / confirm / complete / wait` — today consumed by the in-pod
-loop *pulling*; the issue wants the orchestrator *pushing* (spawning) in response.
+> "#3064's … work branch ended even with main. **Nothing from either attempt is
+> on main; this is a clean re-run.**"
 
-This is **resource-freeing, not latency-sensitive**: the only things that move
-are *where the wait lives* and *when a pod exists*. There is no cold-start SLO.
-Per-phase reuse of the prompt-cache prefix / gateway session / worktree is
-unchanged; pods just don't exist while a role is idle.
+This is **contradicted by `origin/main` @ `74838edb4`.** All six #3064 slices are
+**merged**:
 
-## Current Behavior (verified against the working tree, 2026-06-24)
+| Slice | PR | What landed |
+|-------|-----|-------------|
+| slice-1 | #3167 (`758a85612`) | `EGG_EVENT_LOOP_OWNER` flag + dormant one-shot wrapper arm |
+| slice-2 | #3169 | `OrchestratorEventLoop`, `_start_event_loop`, `_ExecutorEventSpawner`, agent-free confirm/complete |
+| slice-3 | #3181 | `JobSupervisor` (bounded respawn, #3138 streak backoff) wired into the loop |
+| slice-4 | #3192 | worktree re-attach + dirty-state discard + gateway-session reuse across spawns |
+| slice-5 | #3198 | health-monitor / heartbeat orchestrator-mode awareness; convergence-stall notifier |
+| slice-6 / docs | #3202, #3204, #3205 | flag doc, on-demand agent lifecycle doc, slice-5 health-monitoring doc |
 
-### Spawn-up-front lifecycle
+There are no `TODO`/`FIXME`/`unproven` markers in `event_loop.py`, and the
+mechanism has test coverage (`orchestrator/tests/test_event_loop.py` plus
+orchestrator-mode tests in `test_concurrent_executor.py`,
+`test_consensus_wrapper.py`, `test_kubernetes_spawner.py`, `test_heartbeat.py`).
 
-- `spawn_all()` (`concurrent_executor.py:394`) creates the peer-consensus tracker
-  and spawns every role concurrently; each agent is wrapped via
-  `build_consensus_wrapped_command()` (`:632`, `:776`).
-- `spawn_agent_job()` (`kubernetes_spawner.py:1181`): one Job per role; per-agent
-  hostPath worktree keyed `{pipeline_id}[-{slice_id}]-{role}`; gateway session
-  registered once at spawn (token-only auth, `EGG_SESSION_TOKEN`). Session and
-  reservation live for the entire pod lifetime.
-- Termination: only when the wrapper observes `complete` / global consensus
-  `is_complete`. Cleanup tears down the session; the worktree persists on disk.
+**The operator directive makes adopt-vs-reimplement BINDING** ("what to adopt vs.
+implement from scratch"). The issue's premise conflicts with verifiable git
+state, so this is surfaced to the operator as HITL **cq-1**, not silently
+propagated (which would direct the implementer to rebuild working code) nor
+silently resolved (which would discard the merged #3064 code). **The scope and
+ACs below are provisional and conditional on cq-1.**
 
-### The in-pod loop is already one-shot per *invocation* — only the *pod* is long-lived
+## Problem Statement (as originally framed by #3229)
 
+The orchestrator spawns the full agent team for a phase up front, and each agent
+pod then runs a long-lived in-pod event-pump bash loop
+(`orchestrator/consensus_wrapper.py`). The pod long-polls the bus
+(`egg-orch message wait-loop`) with a 30 s heartbeat and stays alive — idle,
+reserving CPU/memory and a gateway session — for the whole phase, until global
+consensus completes. The 30-min idle budget (`EGG_BRC_IDLE_BUDGET_MIN`) only
+raises an `OVERSEER_ALERT`; it never terminates the pod.
+
+#3229's stated goal: invert the lifecycle so the orchestrator owns the event
+loop and spawns a one-shot pod only when a role has an actionable event; the pod
+handles the one event and exits. No idle pods. Resource-freeing, not
+latency-sensitive; no cold-start SLO.
+
+**This is exactly what #3064 already built and merged** (see the table above and
+"Current state" below). So #3229 as written is mostly a description of completed
+work; the genuine open question is what — if anything — remains undone, which is
+why cq-1 must be answered first.
+
+## Current state — what is ALREADY on main (the #3064 foundation)
+
+The orchestrator-owned on-demand mechanism is **present on main, gated off by
+default** (`EGG_EVENT_LOOP_OWNER` defaults to `pod`, so production behavior is
+byte-identical to the in-pod loop until the flag is flipped).
+
+### Orchestrator-side event loop + spawn trigger — PRESENT
+- `orchestrator/event_loop.py`: `OrchestratorEventLoop` derives per-role
+  next-actions against the consensus tracker and spawns one-shot Jobs for
+  `propose|ack|nack`; `compute_dedupe_key` keys review events on
+  `proposal_commit_sha` (the durable-state idempotency key #3229 asks for);
+  restart reconcile seeds from live Job labels; `convergence_stall_notifier`
+  re-uses the `OVERSEER_ALERT` surface.
+- `concurrent_executor.py:431` `_start_event_loop` (slice-2): in
+  `EGG_EVENT_LOOP_OWNER=orchestrator` mode, `spawn_all` spawns **no** agents up
+  front and starts the loop instead (`spawn_all` returns `[]`). `_ExecutorEventSpawner`
+  (`:118`) routes event spawns to `spawn_event_job`. Agent-free confirm/complete
+  via `_orchestrator_side_confirm`.
+
+### On-demand spawner + idempotency — PRESENT
+- `kubernetes_spawner.py:1923` `spawn_event_job` (rejects non-spawn actions);
+  `LABEL_EVENT_DEDUPE = "egg.event.dedupe-key"` (`:216`) + dedupe-label adoption
+  (`:283`/`:330`/`:1874`) gives at-most-one-live-pod-per-role+event across the
+  pod-startup window and across an orchestrator restart, derived from durable
+  state — not process memory.
+
+### Failure supervision re-homed — PRESENT
+- `JobSupervisor` (slice-3, PR #3181): bounded respawn with backoff mirroring
+  the wrapper's #3138 streak semantics; sticky `OVERSEER_ALERT` on exhaustion via
+  `_emit_supervision_alert`; propose-arm exhaustion engages the existing
+  `AGENT_FAILED` path (`_handle_propose_arm_exhaustion`);
+  `_teardown_exhausted_session` releases the session on exhaustion.
+
+### Worktree re-attach + gateway-session reuse — PRESENT
+- slice-4 (PR #3192): pre-spawn worktree cleanup + adoption in
+  `kubernetes_spawner`; dirty-state discard / hard-sync so a predecessor killed
+  mid-event does not leak residue into a successor; gateway-session reuse across
+  a role's successive spawns with phase-end/exhaustion teardown.
+
+### Health-monitor lifecycle-owner awareness — PRESENT
+- `health_monitor.py:212` `set_orchestrator_mode`; `_orchestrator_skip_tripwire`
+  (`:464`) so "role X has no active Job" is the **normal** state under
+  orchestrator ownership; `_publish_active_roles` /
+  `_enable_orchestrator_mode_surfaces` wire `_active_jobs` from the loop.
+
+### Ownership flag — PRESENT
+- `env_config.py:498` `get_event_loop_owner` ∈ {`pod`, `orchestrator`}, default
+  `pod`, no silent fallback (raises on invalid — the #3023 no-silent-default
+  contract). `consensus_wrapper.py:1207` `_event_loop_owner()` + the
+  `ONE_SHOT_OWNER` (`:1039`) `if owner=="orchestrator"` arm.
+
+### What is NOT done (the apparent real delta)
+- **The default flip is not done** — `EGG_EVENT_LOOP_OWNER` still defaults to
+  `pod`, so the orchestrator-owned path has (apparently) never been exercised
+  against a live BRC cycle in production. The issue body **explicitly defers the
+  flip + live proving run to #3164**, out of #3229's scope. That leaves #3229
+  with no obvious in-scope structural work versus main — hence cq-1.
+
+### The in-pod loop (still the production default)
 Each loop iteration calls `egg-orch brc get-state` / `brc next-action`; on
-`propose|ack|nack` it invokes the agent one-shot with a per-event prompt composed
-by `compose_event_prompt` (`orchestrator/routes/event_prompt.py:531`); on `wait`
-it blocks on the bus (`:428`). `confirm`/`complete` are handled **without invoking
-the agent** — the wrapper just calls `egg-orch consensus confirmed` and moves on
-(wrapper docstring `:19`). Failure handling is in-loop: linear backoff
-`streak × 2 s` capped 30 s, warn at streak 5, sticky `OVERSEER_ALERT` (anomaly
-`agent-invocation-fail-streak`) at streak 10 (#3138, wrapper `:25-29`).
+`propose|ack|nack` it invokes the agent one-shot with a per-event prompt from
+`compose_event_prompt` (`orchestrator/routes/event_prompt.py`); on `wait` it
+blocks on the bus. `confirm`/`complete` are handled agent-free. Failure handling:
+linear backoff capped 30 s, `OVERSEER_ALERT` at streak 10 (#3138). The pod does
+not exit between events.
 
-### Foundation already on main (what makes on-demand feasible) — #2908 / PR #2949
+> Attribution fix (v1 nit): `build_consensus_wrapped_command` is **defined** at
+> `consensus_wrapper.py:1216`; `concurrent_executor.py` only *calls* it.
 
-1. **Stateless per-event invocation** — `compose_event_prompt` builds the entire
-   single-event prompt: role banner, event payload, per-producer
-   `git log {last_reviewed_sha}..{proposal_sha} --not origin/{base} -p` delta,
-   open-NACK section, tail-positioned memory excerpt.
-2. **Durable per-role continuity** — BRC memory at
-   `.egg-state/agent-outputs/<role>/brc-memory.md`
-   (`sandbox/egg_agent_tools/handlers/brc_memory.py`: per-producer
-   `last_reviewed_commit_sha`, prior verdicts/NACK reasons, decision log; atomic
-   `os.replace()` write). Working memory survives across stateless invocations.
-3. **Cache survives pod death** — the prompt prefix cache is server-side
-   (Anthropic/LiteLLM), keyed on the stable prefix, not pinned to a pod.
-   Invocations are already one-shot, so inter-call gaps are set by event arrival,
-   not pod lifecycle; spawn latency adds tens of seconds to gaps already minutes
-   long.
-4. **Worktree persistence** — worktrees are hostPath-persistent across pod
-   restarts and keyed per `{pipeline_id}[-{slice_id}]-{role}` (#3005, #2403).
-   Re-attach across successive spawns is a reuse problem, not research.
+## The #2908 / PR #2949 foundation (unchanged, accurate from v1)
 
-### State inventory: what a pod holds vs. what is already durable
+Stateless per-event invocation (`compose_event_prompt`), durable per-role BRC
+memory (`.egg-state/agent-outputs/<role>/brc-memory.md`, `last_reviewed_commit_sha`),
+server-side prefix cache (survives pod death), hostPath-persistent worktrees keyed
+`{pipeline_id}[-{slice_id}]-{role}` (#3005, #2403). These are what made #3064
+feasible and remain the substrate.
 
-Lost on pod exit: container process memory, the heartbeat subprocess, the gateway
-session token, uncommitted worktree staging state. Already durable: brc-memory.md,
-committed `.egg-state/` artifacts, the worktree on disk, the message store
-(PROPOSE/ACK/NACK replay source), and the consensus tracker (rebuilt from
-messages, #2761). The only *correctness*-relevant pod-held state is the gateway
-session and any uncommitted worktree state — both manageable at spawn boundaries.
+## Hard constraint (still binding for any residual work)
 
-## Hard Constraint (learned from #3023, the scrapped first attempt)
+The passive-wrapper coexistence guard and the on-demand spawner must land
+together, or the spawner strictly first; the guard must depend on the spawner,
+never the reverse. #3023 committed the `EGG_EVENT_LOOP_OWNER`-style guard alone
+and had to revert (silencing the in-pod loop with nothing replacing it deadlocks
+BRC); and since #2908 slice-4 deleted `EGG_BRC_EVENT_PUMP` there is no rollback
+path. **On main this constraint is already satisfied** — the flag defaults to the
+in-pod loop and the spawner is fully present — so any residual #3229 work (and
+the #3164 flip) inherits a safe ordering rather than re-establishing it.
 
-**The passive-wrapper coexistence guard and the on-demand spawner must land
-together, or the spawner strictly first.** #3023 committed the
-`EGG_EVENT_LOOP_OWNER`-style guard alone and had to revert: silencing the in-pod
-loop with nothing replacing it deadlocks BRC. And since #2908 slice-4 deleted the
-legacy `EGG_BRC_EVENT_PUMP` flag, the current wrapper has **no rollback path** —
-the new ownership flag must default to the in-pod loop and flip only after the
-spawner is proven against a live BRC cycle (the #3164 follow-up). A plan that
-separates guard from spawner must make the guard depend on the spawner, never the
-reverse.
+## Real gap & provisional scope — CONDITIONAL ON cq-1
 
-The #3023 failure modes are fixed on main: contract-verify skipping slice PRs
-(#3040 → #3048), post-BRC reviewer-confirm deadlock (#3043 → #3050),
-overlapping-but-unordered slices rejected at plan ingestion (#3046 → #3049).
+Because the mechanism is on main, the honest scope question is *what remains*, and
+that depends on the operator's answer to cq-1. The three plausible shapes:
 
-## Design Questions the Plan Must Answer (grounded in code)
+- **cq-1 → adopt + verify/gap-fill (opt-1).** Re-scope #3229 to: (a) a written
+  reconciliation of the on-main #3064 mechanism against #3229's intent; (b) a
+  concrete defect/gap audit of the landed code (correctness of dedupe across
+  restart, supervision exhaustion paths, worktree residue discard, health-monitor
+  mode tripwires) producing a punch-list of anything missing/broken/unproven; (c)
+  ACs that target only that punch-list. If the audit finds the delta is solely the
+  proving run + flip, #3229 explicitly converges on #3164.
+- **cq-1 → named defect (opt-2).** The operator identifies the specific unproven
+  behaviour that motivated re-filing; refine/plan re-derive scope + ACs against
+  that concrete gap.
+- **cq-1 → collapse into #3164 (opt-3).** #3229 is redundant with merged #3064 +
+  pending #3164; close/collapse rather than run a fresh refine→plan→implement.
 
-1. **Spawn trigger & idempotency.** The consensus poll re-derives the same
-   actionable event for the ~10–30 s of pod startup. The spawner needs a dedupe
-   key: role + event identity — the `proposal_commit_sha` already carried in
-   `pending_reviews` payloads (`routes/consensus.py:220`) for review verbs; target
-   version + the open-NACK set for proposes. One event → one pod; at most one live
-   pod per role+slice. The key must be derivable from durable state (message-store
-   versions / commit SHAs), never from orchestrator process memory alone.
-2. **Verb→pod mapping.** Only `propose|ack|nack` need judgment and hence a pod.
-   `confirm`/`complete` bookkeeping moves orchestrator-side (the wrapper already
-   does these agent-free). A naive verb→pod mapping spawns pods that do nothing.
-3. **Failure supervision re-homing.** With one-shot pods, a pod dying mid-event
-   leaves nothing running — the orchestrator must notice (Job status) and respawn
-   bounded or alert. #2806's exit-code signaling and #3138's streak backoff need a
-   new home. Distinguish pod-infrastructure failure from a legitimate NACK loop —
-   only the former consumes respawn budget. (Decided policy below.)
-4. **Orchestrator-restart durability.** In-pod loops let BRC progress survive an
-   orchestrator bounce for free. Recommended: **stateless re-derivation rather
-   than persisted bookkeeping** — on restart re-derive next-actions from the
-   consensus tracker (rebuilt from the message store, #2761) and reconcile against
-   live Kubernetes Jobs before spawning, with the dedupe key making re-derived
-   spawns idempotent (cf. #3070).
-5. **Worktree & session reuse across a role's successive spawns.** Re-attach the
-   role's existing hostPath worktree (validate expected branch / `.git` integrity
-   / no foreign lock; fall back to create-with-retry on mismatch) and, on every
-   successful re-attach, discard uncommitted/untracked residue and hard-sync to
-   the role branch tip before invocation — so a predecessor killed mid-event never
-   leaks unproposed changes into a successor's commit. Reuse gateway sessions
-   across a role's spawns (re-register only when none is live or token aged out),
-   teardown at phase end / supervision exhaustion. Justified by **correctness and
-   resource hygiene, not a latency budget.**
-6. **Health-monitor semantics shift.** `HealthMonitor`
-   (`orchestrator/health_monitor.py:106`) keys tripwires on heartbeat timeouts
-   (120 s default, 600 s implement; `:274-279`) and container exits — both assume
-   long-lived pods. "Role X has no pod" becomes the *normal* state under
-   orchestrator ownership; the idle-budget overseer alert ("role X stuck in wait
-   N min") moves orchestrator-side where the global judgment belongs. Tripwires
-   must become lifecycle-owner-aware so they do not misfire on ephemeral pods.
+**Do NOT plan a greenfield build of the mechanism** — that is the
+adopt-vs-reimplement hazard both reviewers flagged and the operator directive
+forbids.
 
-## Scope (DECIDED — Option B minus the latency SLO)
+### Out of scope (unchanged)
+- The default flip + in-pod-loop retirement → **#3164** (gated on a live BRC
+  proving run). The agent primitive (pod image / worktree / Agent SDK /
+  permissions / gateway restrictions). BRC protocol semantics. Extended
+  prompt-cache TTL configuration.
 
-The operator fixed scope in the issue body and carried the prior run's gate
-resolutions; these are **binding** for plan, not open questions:
+## Provisional acceptance criteria — to be finalized after cq-1
 
-**In scope (deliver the full mechanism behind a flag defaulting to the in-pod loop):**
-- Orchestrator-side event loop + on-demand spawner for `propose|ack|nack`;
-  `confirm`/`complete` executed orchestrator-side with no pod.
-- An ownership flag (e.g. `EGG_EVENT_LOOP_OWNER`) defaulting to the in-pod loop.
-- Failure supervision re-homed: **bounded automatic respawn with backoff mirroring
-  #3138 streak semantics; `OVERSEER_ALERT` only on persistent exhaustion.**
-- Spawn idempotency via a durable-state dedupe key (proposal_commit_sha /
-  version + open-NACK set); at most one live pod per role+slice.
-- Stateless restart re-derivation reconciled against live Jobs.
-- Worktree re-attach + residue-discard/hard-sync; gateway-session reuse with
-  phase-end/exhaustion teardown.
-- Idle/stall alerts and health-monitor thresholds made lifecycle-owner-aware;
-  #2806 failure signaling relocated.
-- Docs for the final shape.
+These replace v1's AC1–AC8 (which described building already-merged components).
+Phrased as verify/gap-fill against on-main #3064:
 
-**Out of scope (this pipeline):**
-- The default flip and in-pod-loop retirement — tracked in **#3164** (flip gated
-  on a live BRC proving run with the flag on). The flag window is a *bounded
-  proving period*, not a permanent dual-mode state; #3164 retires the in-pod wait
-  arm + heartbeat + ownership flag in one cleanup PR so the end state carries no
-  dead/deprecated code.
-- The agent primitive (pod image / worktree / Agent SDK / permissions / gateway
-  restrictions).
-- BRC protocol semantics (propose/ack/nack/confirm, Delphi redaction,
-  multi-reviewer NACK barrier) — only *when a pod exists* changes.
-- Extended prompt-cache TTL configuration.
+- AC1: The analysis/plan reconciles against `origin/main` — the on-main #3064
+  mechanism is treated as the foundation, not as absent.
+- AC2: A defect/gap audit of the landed #3064 code produces an explicit
+  punch-list (each item: file:symbol, missing/incomplete/unproven/broken, why it
+  matters). If the punch-list is empty modulo the flip, that is stated and #3229's
+  overlap with #3164 is recorded.
+- AC3: Any code work targets only audited gaps; no reimplementation of components
+  already present and tested on main.
+- AC4: `EGG_EVENT_LOOP_OWNER` remains defaulted to `pod`; the default flip stays
+  with #3164. Production BRC consensus completes end-to-end with the flag unset.
+- AC5: cq-1 is resolved by the operator before plan finalization; the chosen
+  disposition (adopt/verify, named-defect, or collapse-into-#3164) governs the
+  final plan.
+- AC6: Docs updated only where the audit changes the documented behaviour
+  (avoid duplicating the slice-1/5 + on-demand-lifecycle docs already on main).
 
-No HITL decision is registered at this gate: the two questions the prior run
-(#3064) escalated — scope (Option B) and failure-supervision policy (bounded
-respawn + alert) — are pre-resolved verbatim in this issue's "Scope (decided)"
-and "Recommended resolutions carried from the prior run's gates" sections. If a
-reviewer surfaces a *new* structural question, register it then.
+## Risks / trade-offs
 
-## Risks / Trade-offs
-
-- **Deadlock by partial landing** — mitigated by the hard constraint
-  (spawner-first ordering; flag defaults to in-pod loop; #3049 now rejects
-  unordered overlapping slices at ingestion).
-- **Supervision gaps** — one-shot pods convert "loop retries" into "orchestrator
-  must respawn"; the bounded-respawn policy prevents both silent stalls and
-  runaway spawn loops.
-- **Monitor false positives** — health tripwires assuming long-lived pods misfire
-  on ephemeral ones; thresholds must become lifecycle-owner-aware in the same
-  change that introduces the spawner.
-- **Spawn races** — the dedupe key must hold across the pod-startup window and
-  across an orchestrator restart (durable-state derived), or two pods race one
-  event.
-
-## Acceptance Criteria (proposed; reviewer to confirm/refine in plan)
-
-- AC1: On-demand spawner spawns exactly one pod per actionable `propose|ack|nack`
-  event for a role+slice (dedupe key holds across the startup window).
-- AC2: `confirm`/`complete` advance consensus orchestrator-side with no pod spawned.
-- AC3: `EGG_EVENT_LOOP_OWNER` defaults to the in-pod loop; the in-pod path remains
-  the production default and BRC consensus still completes end-to-end with the flag
-  unset.
-- AC4: A pod that dies mid-event is respawned within a bounded budget with backoff;
-  persistent exhaustion raises a single `OVERSEER_ALERT`; a legitimate NACK loop
-  does not consume respawn budget.
-- AC5: Orchestrator restart re-derives outstanding actions from durable state and
-  reconciles against live Jobs without double-spawning.
-- AC6: Worktree re-attach discards uncommitted/untracked residue and hard-syncs to
-  the role branch tip before invocation; no predecessor residue leaks into a
-  successor's commit.
-- AC7: Health-monitor heartbeat/container tripwires do not misfire when a role
-  legitimately has no pod under orchestrator ownership.
-- AC8: Docs describe the final lifecycle-owner model and the #3164 flip path.
-
-## Out of Scope
-
-See "Scope (DECIDED)" above.
+- **Reimplementation hazard** — the dominant risk; mitigated by cq-1 + the
+  verify/gap-fill framing.
+- **Redundant pipeline** — if cq-1 → opt-3, running implement at all is waste;
+  surfacing the question now avoids it.
+- **Residual-work ordering** — any gap-fill still inherits the spawner-first hard
+  constraint, already satisfied on main.
 
 ## Related
 
-- **#3164** — flip event-loop ownership to the orchestrator + retire the in-pod
-  wait arm (the gated follow-up to this work).
-- **#2908** (closed) — BRC event-pump + durable agent memory; the foundation
-  (PR #2949 added `compose_event_prompt` + the cache-preserving prompt shape).
-- #3017 — declarative phase/stage abstraction (adjacent). #2958 — streaming
-  per-task commits / producer lifecycle (adjacent). #2866 — k3s as the sole
-  runtime (adjacent). #3070 — restart durability (cf. point 4). #2761 — tracker
-  rebuilt from message store. #3138 — wrapper streak backoff. #2806 — producer
-  failure exit-code signaling.
-- Superseded: #3064, #3023 (nothing on main).
+- **#3064** (MERGED, slices 1–6) — the orchestrator-owned event loop + on-demand
+  one-shot pods. **This is on main; #3229's "nothing on main" premise is wrong.**
+- **#3164** — flip `EGG_EVENT_LOOP_OWNER` default to orchestrator + retire the
+  in-pod wait arm; gated on a live BRC proving run. The only undone piece of the
+  #3229 vision.
+- **#2908** (closed, PR #2949) — BRC event-pump + durable memory + `compose_event_prompt`;
+  the substrate.
+- #3138 — wrapper streak backoff (mirrored by `JobSupervisor`). #2806 — producer
+  failure exit-code signaling (re-homed into supervision). #2761 — tracker rebuilt
+  from message store (restart durability). #3005 / #2403 — hostPath-persistent
+  worktrees. #3070 — restart-durability reference.
+- Superseded attempt #3023 (reverted; its failure modes — #3040→#3048,
+  #3043→#3050, #3046→#3049 — are fixed on main).
