@@ -10,9 +10,87 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "#3229's premise conflicts with verifiable git state \u2014 adopt-vs-reimplement must be arbitrated. The issue body (lines 226-228) and the contract task_description both assert \"#3064 never merged to main \u2026 Nothing from either attempt is on main; this is a clean re-run.\" This is FALSE against origin/main @74838edb4: all six #3064 slices are MERGED (PRs #3167 slice-1, #3169 slice-2, #3181 slice-3, #3192 slice-4, #3198 slice-5, + docs #3202/#3204/#3205), with test and doc coverage. The complete orchestrator-owned on-demand spawning mechanism #3229 describes building already exists on main, behind EGG_EVENT_LOOP_OWNER (default \"pod\"): orchestrator/event_loop.py (OrchestratorEventLoop, JobSupervisor #3138-backoff, compute_dedupe_key keyed on proposal_commit_sha, restart reconcile, convergence-stall notifier); kubernetes_spawner.spawn_event_job + LABEL_EVENT_DEDUPE adoption + pre-spawn worktree cleanup; concurrent_executor._start_event_loop / _ExecutorEventSpawner / orchestrator-mode branch (spawns no agents up front) / gateway-session reuse / _teardown_exhausted_session; env_config.get_event_loop_owner (default \"pod\"); health_monitor.set_orchestrator_mode + lifecycle-owner-aware tripwires; consensus_wrapper ONE_SHOT_OWNER arm. Proposed ACs AC1\u2013AC8 each already have a corresponding implementation. The ONLY work not done is the default flip + live-BRC proving run, which the issue itself defers to #3164. The operator directive makes adopt-vs-reimplement BINDING, so this conflict must be resolved by the operator before plan, not silently propagated (reimplementing working code) nor silently resolved (discarding on-main #3064). How should #3229 proceed?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Adopt landed #3064 as foundation; re-scope #3229 to verify/gap-fill only the genuine delta \u2014 identify what in the on-main code is missing/incomplete/broken/unproven and target only that; if the delta is just the proving run + flip, note the overlap with #3164",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "There is a specific defect or unproven behaviour in the landed #3064 code that motivated re-filing \u2014 operator to name it so refine/plan can target that concrete gap",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "#3229 is redundant with the merged #3064 + the pending #3164; collapse/close it into #3164 (the proving run + default flip) rather than running a fresh refine\u2192plan\u2192implement",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-06-24T21:15:13.460859Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "#3229's premise conflicts with verifiable git state \u2014 adopt-vs-reimplement must be arbitrated. The issue body (lines 226-228) and the contract task_description both assert \"#3064 never merged to main \u2026 Nothing from either attempt is on main; this is a clean re-run.\" This is FALSE against origin/main @74838edb4: all six #3064 slices are MERGED (PRs #3167 slice-1, #3169 slice-2, #3181 slice-3, #3192 slice-4, #3198 slice-5, + docs #3202/#3204/#3205), with test and doc coverage. The complete orchestrator-owned on-demand spawning mechanism #3229 describes building already exists on main, behind EGG_EVENT_LOOP_OWNER (default \"pod\"): orchestrator/event_loop.py (OrchestratorEventLoop, JobSupervisor #3138-backoff, compute_dedupe_key keyed on proposal_commit_sha, restart reconcile, convergence-stall notifier); kubernetes_spawner.spawn_event_job + LABEL_EVENT_DEDUPE adoption + pre-spawn worktree cleanup; concurrent_executor._start_event_loop / _ExecutorEventSpawner / orchestrator-mode branch (spawns no agents up front) / gateway-session reuse / _teardown_exhausted_session; env_config.get_event_loop_owner (default \"pod\"); health_monitor.set_orchestrator_mode + lifecycle-owner-aware tripwires; consensus_wrapper ONE_SHOT_OWNER arm. Proposed ACs AC1\u2013AC8 each already have a corresponding implementation. The ONLY work not done is the default flip + live-BRC proving run, which the issue itself defers to #3164. The operator directive makes adopt-vs-reimplement BINDING, so this conflict must be resolved by the operator before plan, not silently propagated (reimplementing working code) nor silently resolved (discarding on-main #3064). How should #3229 proceed?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Adopt landed #3064 as foundation; re-scope #3229 to verify/gap-fill only the genuine delta \u2014 identify what in the on-main code is missing/incomplete/broken/unproven and target only that; if the delta is just the proving run + flip, note the overlap with #3164",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "There is a specific defect or unproven behaviour in the landed #3064 code that motivated re-filing \u2014 operator to name it so refine/plan can target that concrete gap",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "#3229 is redundant with the merged #3064 + the pending #3164; collapse/close it into #3164 (the proving run + default flip) rather than running a fresh refine\u2192plan\u2192implement",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: #3229's premise conflicts with verifiable git stat...",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
