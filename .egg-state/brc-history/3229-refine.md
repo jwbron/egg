@@ -1,0 +1,1451 @@
+# BRC Consensus History — refine phase
+
+Generated: 2026-06-24T21:22:09Z
+Pipeline: issue-3229
+
+### [2026-06-24T21:06:08Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+event-pump start (slice=none)
+
+````yaml
+id: bcff21a4-57e8-4a
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:06:08Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+event-pump start (slice=none)
+
+````yaml
+id: c56474f7-535f-4a
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:06:08Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+event-pump start (slice=none)
+
+````yaml
+id: cdac0284-019c-42
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:06:09Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 246dc81f-1d28-4a
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:06:09Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 6e7948bb-c8f5-49
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:06:39Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: b02f4905-cc1b-4b
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:06:39Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 110bf090-7077-4a
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:07:09Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 026c123b-6edc-46
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:07:09Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: bfbe7d10-1258-48
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:07:10Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: fdb590c5-ba19-40
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:07:11Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: fcca258d-22c5-4f
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:07:40Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 820c7644-fdd6-47
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:07:40Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: c0badc08-4ae3-4f
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:07:41Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 57408353-3747-44
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:08:11Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 26ec7a89-4e6b-47
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:08:11Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 022bb8aa-215b-4d
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:08:41Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 68946432-eb36-4f
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:08:42Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: b139ca6b-78ec-4e
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:08:42Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 1c019b2d-cd83-4c
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:08:42Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: ff9e4182-5007-47
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:08:43Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 4531b079-6561-4c
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:08:58Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+Refine analysis for #3229 (orchestrator-driven on-demand agent spawning). Adapts the superseded #3064 analysis to this clean re-run: refreshes file:line citations against current main (_derive_next_action consensus.py:296, spawn_all concurrent_executor.py:394, spawn_agent_job kubernetes_spawner.py:1181, compose_event_prompt event_prompt.py:531, wrapper heartbeat/idle/streak constants, health_monitor.py:106). Records scope as DECIDED per the operator's issue body — Option B minus the latency SLO: orchestrator-side event loop + on-demand spawner for propose|ack|nack, confirm/complete orchestrator-side with no pod, EGG_EVENT_LOOP_OWNER flag defaulting to the in-pod loop, bounded respawn supervision (mirror #3138, OVERSEER_ALERT only on exhaustion), durable-state spawn dedupe (proposal_commit_sha / version + open-NACK set), stateless restart re-derivation reconciled against live Jobs, worktree re-attach with residue-discard/hard-sync, gateway-session reuse, lifecycle-owner-aware health thresholds, #2806 signaling relocated, docs. Default flip + in-pod-loop retirement out of scope (#3164). No HITL registered: scope and failure-supervision questions are pre-resolved in the issue body. Adds 8 proposed acceptance criteria for the plan phase to confirm. Hard constraint preserved: guard depends on spawner, never reverse; flag has no rollback since EGG_BRC_EVENT_PUMP was deleted in #2908 slice-4.
+
+````yaml
+id: 2d6d482f-053c-41
+phase: refine
+metadata:
+  payload:
+    summary: "Refine analysis for #3229 (orchestrator-driven on-demand agent spawning).\
+      \ Adapts the superseded #3064 analysis to this clean re-run: refreshes file:line\
+      \ citations against current main (_derive_next_action consensus.py:296, spawn_all\
+      \ concurrent_executor.py:394, spawn_agent_job kubernetes_spawner.py:1181, compose_event_prompt\
+      \ event_prompt.py:531, wrapper heartbeat/idle/streak constants, health_monitor.py:106).\
+      \ Records scope as DECIDED per the operator's issue body \u2014 Option B minus\
+      \ the latency SLO: orchestrator-side event loop + on-demand spawner for propose|ack|nack,\
+      \ confirm/complete orchestrator-side with no pod, EGG_EVENT_LOOP_OWNER flag\
+      \ defaulting to the in-pod loop, bounded respawn supervision (mirror #3138,\
+      \ OVERSEER_ALERT only on exhaustion), durable-state spawn dedupe (proposal_commit_sha\
+      \ / version + open-NACK set), stateless restart re-derivation reconciled against\
+      \ live Jobs, worktree re-attach with residue-discard/hard-sync, gateway-session\
+      \ reuse, lifecycle-owner-aware health thresholds, #2806 signaling relocated,\
+      \ docs. Default flip + in-pod-loop retirement out of scope (#3164). No HITL\
+      \ registered: scope and failure-supervision questions are pre-resolved in the\
+      \ issue body. Adds 8 proposed acceptance criteria for the plan phase to confirm.\
+      \ Hard constraint preserved: guard depends on spawner, never reverse; flag has\
+      \ no rollback since EGG_BRC_EVENT_PUMP was deleted in #2908 slice-4."
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/3229-analysis.md
+    risk_considered: 'Risk of re-litigating decided scope: mitigated by recording
+      scope as DECIDED (operator pre-resolved in issue body) rather than re-opening
+      HITL. Risk of stale citations: refreshed all anchors against the current working
+      tree. Risk of partial-landing deadlock: analysis carries the hard constraint
+      (spawner-first / guard-depends-on-spawner, no rollback flag).'
+    commit_sha: a24748b8fb4b05b9bde8d357fa45cbb53742f7dc
+    files_changed:
+    - .egg-state/drafts/3229-analysis.md
+    tests_run: []
+    tasks_satisfied: []
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 1
+  commit_sha: a24748b8fb4b05b9bde8d357fa45cbb53742f7dc
+````
+
+### [2026-06-24T21:09:12Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=0) (slice=none)
+
+````yaml
+id: a337b28c-8d17-4f
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:09:13Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=0) (slice=none)
+
+````yaml
+id: d2dc073f-db3a-4c
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:09:52Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=refiner (slice=none)
+
+````yaml
+id: 926e40b9-58df-4b
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:10:22Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=refiner (slice=none)
+
+````yaml
+id: e6ed6cda-b5f1-46
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:10:52Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=refiner (slice=none)
+
+````yaml
+id: ee354744-d66f-4e
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:10:53Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: a967d3e6-f7af-42
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:10:54Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=refiner (slice=none)
+
+````yaml
+id: cc863eee-8bf8-48
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:11:24Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=refiner (slice=none)
+
+````yaml
+id: 119ccdf6-a836-45
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:11:54Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=refiner (slice=none)
+
+````yaml
+id: 9a5cd0bd-f070-4b
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:11:55Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 3ebeb459-fdf7-42
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:11:56Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=refiner (slice=none)
+
+````yaml
+id: 495380b8-5d1c-4b
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:12:26Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=refiner (slice=none)
+
+````yaml
+id: 33fca64a-e626-4b
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:12:34Z] reviewer_refine → refiner (CONSENSUS_NACK): NACK from reviewer_refine for refiner
+
+BLOCKER B1 — the analysis's central, load-bearing premise is factually false, which mis-scopes the entire plan.
+
+The draft (Problem Statement, "Foundation already on main", "## History") and the issue body (lines 223–228) both assert: "Supersedes #3064 ... never merged to main — its work branch ended even with main. Nothing from either attempt is on main; this is a clean re-run." This is contradicted by origin/main. The full on-demand spawning mechanism #3229 describes BUILDING is ALREADY on main, tagged #3064 slice-2/3/4/5:
+
+- orchestrator/event_loop.py: OrchestratorEventLoop, compute_dedupe_key (review keyed by proposal_commit_sha), JobSupervisor (slice-3/#3138 backoff), agent-free confirm/complete.
+- orchestrator/kubernetes_spawner.py: spawn_event_job, LABEL_EVENT_DEDUPE dedupe-label adoption, pre-spawn worktree cleanup + adoption.
+- orchestrator/concurrent_executor.py: _start_event_loop (slice-2), _ExecutorEventSpawner, supervision wiring (slice-3), convergence-stall notifier (slice-5), EGG_EVENT_LOOP_OWNER=orchestrator, _enable_orchestrator_mode_surfaces (slice-5).
+- orchestrator/consensus_wrapper.py: _event_loop_owner(), ONE_SHOT_OWNER, the `if _event_loop_owner()=="orchestrator"` arm.
+- orchestrator/env_config.py: get_event_loop_owner() / EGG_EVENT_LOOP_OWNER validation.
+- orchestrator/health_monitor.py: set_orchestrator_mode, orchestrator-mode awareness ("roles with no active Job are normal"), _orchestrator_skip_tripwire.
+
+Consequence: acceptance criteria AC2–AC7 describe building components that already exist. The draft claims "verified against the working tree, 2026-06-24" yet missed the single most important fact governing scope. The operator directive makes adopt-vs-reimplement BINDING ("what to adopt vs. implement from scratch"); the draft inverts it by scoping "deliver the full mechanism behind a flag" as if nothing exists.
+
+REQUIRED TO CLEAR:
+1. Reconcile the analysis with origin/main: inventory what #3064 slices already landed and treat it as the foundation. The "Current state"/"Foundation already on main" sections must reflect that the orchestrator-side spawner mechanism is PRESENT (not absent) — likely present-but-unproven, which is plausibly why #3229 was re-filed.
+2. Re-derive the REAL gap: what is missing, incomplete, unproven, or broken in the on-main #3064 implementation that #3229 must finish/fix/prove. Rewrite scope + ACs against that gap, not against a greenfield build.
+3. Register a HITL decision for the adopt-vs-reimplement question. The issue body's "nothing on main" premise conflicts with the code; per the operator directive that conflict must be surfaced to the operator, not silently propagated and not silently resolved by discarding on-main #3064 code. The draft's "No HITL decision is registered at this gate" is incorrect here — a genuinely new structural question has surfaced.
+
+(Non-blocking nit: the draft attributes the *definition* of build_consensus_wrapped_command to concurrent_executor.py:632/776, but those are call sites; the definition is consensus_wrapper.py:1216. Fix while reconciling.)
+
+````yaml
+id: fb25a215-494c-4c
+phase: refine
+metadata:
+  payload:
+    reason: "BLOCKER B1 \u2014 the analysis's central, load-bearing premise is factually\
+      \ false, which mis-scopes the entire plan.\n\nThe draft (Problem Statement,\
+      \ \"Foundation already on main\", \"## History\") and the issue body (lines\
+      \ 223\u2013228) both assert: \"Supersedes #3064 ... never merged to main \u2014\
+      \ its work branch ended even with main. Nothing from either attempt is on main;\
+      \ this is a clean re-run.\" This is contradicted by origin/main. The full on-demand\
+      \ spawning mechanism #3229 describes BUILDING is ALREADY on main, tagged #3064\
+      \ slice-2/3/4/5:\n\n- orchestrator/event_loop.py: OrchestratorEventLoop, compute_dedupe_key\
+      \ (review keyed by proposal_commit_sha), JobSupervisor (slice-3/#3138 backoff),\
+      \ agent-free confirm/complete.\n- orchestrator/kubernetes_spawner.py: spawn_event_job,\
+      \ LABEL_EVENT_DEDUPE dedupe-label adoption, pre-spawn worktree cleanup + adoption.\n\
+      - orchestrator/concurrent_executor.py: _start_event_loop (slice-2), _ExecutorEventSpawner,\
+      \ supervision wiring (slice-3), convergence-stall notifier (slice-5), EGG_EVENT_LOOP_OWNER=orchestrator,\
+      \ _enable_orchestrator_mode_surfaces (slice-5).\n- orchestrator/consensus_wrapper.py:\
+      \ _event_loop_owner(), ONE_SHOT_OWNER, the `if _event_loop_owner()==\"orchestrator\"\
+      ` arm.\n- orchestrator/env_config.py: get_event_loop_owner() / EGG_EVENT_LOOP_OWNER\
+      \ validation.\n- orchestrator/health_monitor.py: set_orchestrator_mode, orchestrator-mode\
+      \ awareness (\"roles with no active Job are normal\"), _orchestrator_skip_tripwire.\n\
+      \nConsequence: acceptance criteria AC2\u2013AC7 describe building components\
+      \ that already exist. The draft claims \"verified against the working tree,\
+      \ 2026-06-24\" yet missed the single most important fact governing scope. The\
+      \ operator directive makes adopt-vs-reimplement BINDING (\"what to adopt vs.\
+      \ implement from scratch\"); the draft inverts it by scoping \"deliver the full\
+      \ mechanism behind a flag\" as if nothing exists.\n\nREQUIRED TO CLEAR:\n1.\
+      \ Reconcile the analysis with origin/main: inventory what #3064 slices already\
+      \ landed and treat it as the foundation. The \"Current state\"/\"Foundation\
+      \ already on main\" sections must reflect that the orchestrator-side spawner\
+      \ mechanism is PRESENT (not absent) \u2014 likely present-but-unproven, which\
+      \ is plausibly why #3229 was re-filed.\n2. Re-derive the REAL gap: what is missing,\
+      \ incomplete, unproven, or broken in the on-main #3064 implementation that #3229\
+      \ must finish/fix/prove. Rewrite scope + ACs against that gap, not against a\
+      \ greenfield build.\n3. Register a HITL decision for the adopt-vs-reimplement\
+      \ question. The issue body's \"nothing on main\" premise conflicts with the\
+      \ code; per the operator directive that conflict must be surfaced to the operator,\
+      \ not silently propagated and not silently resolved by discarding on-main #3064\
+      \ code. The draft's \"No HITL decision is registered at this gate\" is incorrect\
+      \ here \u2014 a genuinely new structural question has surfaced.\n\n(Non-blocking\
+      \ nit: the draft attributes the *definition* of build_consensus_wrapped_command\
+      \ to concurrent_executor.py:632/776, but those are call sites; the definition\
+      \ is consensus_wrapper.py:1216. Fix while reconciling.)"
+    artifact_references:
+    - .egg-state/drafts/3229-analysis.md
+    - orchestrator/event_loop.py
+    - orchestrator/concurrent_executor.py
+    - orchestrator/kubernetes_spawner.py
+    - orchestrator/consensus_wrapper.py
+    - orchestrator/env_config.py
+    - orchestrator/health_monitor.py
+    - orchestrator/routes/consensus.py
+    nack_version: 1
+  reason: "BLOCKER B1 \u2014 the analysis's central, load-bearing premise is factually\
+    \ false, which mis-scopes the entire plan.\n\nThe draft (Problem Statement, \"\
+    Foundation already on main\", \"## History\") and the issue body (lines 223\u2013\
+    228) both assert: \"Supersedes #3064 ... never merged to main \u2014 its work\
+    \ branch ended even with main. Nothing from either attempt is on main; this is\
+    \ a clean re-run.\" This is contradicted by origin/main. The full on-demand spawning\
+    \ mechanism #3229 describes BUILDING is ALREADY on main, tagged #3064 slice-2/3/4/5:\n\
+    \n- orchestrator/event_loop.py: OrchestratorEventLoop, compute_dedupe_key (review\
+    \ keyed by proposal_commit_sha), JobSupervisor (slice-3/#3138 backoff), agent-free\
+    \ confirm/complete.\n- orchestrator/kubernetes_spawner.py: spawn_event_job, LABEL_EVENT_DEDUPE\
+    \ dedupe-label adoption, pre-spawn worktree cleanup + adoption.\n- orchestrator/concurrent_executor.py:\
+    \ _start_event_loop (slice-2), _ExecutorEventSpawner, supervision wiring (slice-3),\
+    \ convergence-stall notifier (slice-5), EGG_EVENT_LOOP_OWNER=orchestrator, _enable_orchestrator_mode_surfaces\
+    \ (slice-5).\n- orchestrator/consensus_wrapper.py: _event_loop_owner(), ONE_SHOT_OWNER,\
+    \ the `if _event_loop_owner()==\"orchestrator\"` arm.\n- orchestrator/env_config.py:\
+    \ get_event_loop_owner() / EGG_EVENT_LOOP_OWNER validation.\n- orchestrator/health_monitor.py:\
+    \ set_orchestrator_mode, orchestrator-mode awareness (\"roles with no active Job\
+    \ are normal\"), _orchestrator_skip_tripwire.\n\nConsequence: acceptance criteria\
+    \ AC2\u2013AC7 describe building components that already exist. The draft claims\
+    \ \"verified against the working tree, 2026-06-24\" yet missed the single most\
+    \ important fact governing scope. The operator directive makes adopt-vs-reimplement\
+    \ BINDING (\"what to adopt vs. implement from scratch\"); the draft inverts it\
+    \ by scoping \"deliver the full mechanism behind a flag\" as if nothing exists.\n\
+    \nREQUIRED TO CLEAR:\n1. Reconcile the analysis with origin/main: inventory what\
+    \ #3064 slices already landed and treat it as the foundation. The \"Current state\"\
+    /\"Foundation already on main\" sections must reflect that the orchestrator-side\
+    \ spawner mechanism is PRESENT (not absent) \u2014 likely present-but-unproven,\
+    \ which is plausibly why #3229 was re-filed.\n2. Re-derive the REAL gap: what\
+    \ is missing, incomplete, unproven, or broken in the on-main #3064 implementation\
+    \ that #3229 must finish/fix/prove. Rewrite scope + ACs against that gap, not\
+    \ against a greenfield build.\n3. Register a HITL decision for the adopt-vs-reimplement\
+    \ question. The issue body's \"nothing on main\" premise conflicts with the code;\
+    \ per the operator directive that conflict must be surfaced to the operator, not\
+    \ silently propagated and not silently resolved by discarding on-main #3064 code.\
+    \ The draft's \"No HITL decision is registered at this gate\" is incorrect here\
+    \ \u2014 a genuinely new structural question has surfaced.\n\n(Non-blocking nit:\
+    \ the draft attributes the *definition* of build_consensus_wrapped_command to\
+    \ concurrent_executor.py:632/776, but those are call sites; the definition is\
+    \ consensus_wrapper.py:1216. Fix while reconciling.)"
+  revision_count: 1
+````
+
+### [2026-06-24T21:12:45Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 79426365-0855-4a
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:12:56Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=0) (slice=none)
+
+````yaml
+id: 48f610b6-fd41-41
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:13:15Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: fa83a7e1-e229-4e
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:13:33Z] reviewer_agent_design → refiner (CONSENSUS_NACK): NACK from reviewer_agent_design for refiner
+
+BLOCKING (agent-design/lifecycle dimension): the analysis's core current-state premise is factually false. It states "Supersedes #3064 (and #3023). Nothing from either attempt is on main; clean re-run," and its "Current Behavior (verified against the working tree, 2026-06-24)" section describes ONLY the in-pod loop. But origin/main @74838edb4 already carries the full #3064 orchestrator-owned event-loop mechanism behind EGG_EVENT_LOOP_OWNER (default "pod"):
+• orchestrator/event_loop.py (1069 lines): OrchestratorEventLoop, JobSupervisor, compute_dedupe_key, event_identity keyed on proposal_commit_sha, restart reconcile (seeds from live Job labels), bounded respawn/backoff (#3138 streak semantics), convergence-stall notifier.
+• concurrent_executor.py: _start_event_loop, _ExecutorEventSpawner, the orchestrator-mode branch that spawns NO agents up front, _teardown_exhausted_session, gateway-session reuse via heartbeat fan-out.
+• kubernetes_spawner.py: spawn_event_job, LABEL_EVENT_DEDUPE, dedupe-label adoption + pre-spawn worktree cleanup (the AC6 residue/adoption surface).
+• env_config.py: get_event_loop_owner() default "pod" (AC3).
+• health_monitor.py: set_orchestrator_mode() + lifecycle-owner-aware tripwires ("roles with no active Job are normal") (AC7).
+• consensus_wrapper.py: ONE_SHOT_OWNER one-shot branch.
+
+Every proposed AC1–AC8 already has a corresponding implementation on main. This is NOT a greenfield clean re-run, and a plan built on this analysis would direct the implementer to reimplement working code — exactly the adopt-vs-reimplement hazard the operator directive says must be arbitrated.
+
+Required to clear this NACK:
+1. Correct the "Current Behavior" section to inventory the landed #3064 slices 2–5 on main (event_loop.py, spawn_event_job, the orchestrator-mode branch, health-monitor orchestrator-mode, EGG_EVENT_LOOP_OWNER default "pod").
+2. Reframe the work and ACs from "build the mechanism" to "adopt/verify/gap-fill against the landed #3064 code" — identify what is actually missing or unproven versus what already exists, so the plan targets the real delta (this likely converges toward #3164's proving/flip scope).
+3. The contract task_description repeats the same false "Nothing from either attempt is on main; this is a clean re-run" claim. That is an operator-level contradiction with verifiable git state — register it as an open question via mcp__sdlc__register_open_question so the operator resolves whether the #3064 landed code is to be adopted/completed (and whether this pipeline collapses into #3164) before plan proceeds.
+
+Non-blocking note: aside from this premise, the analysis is well-structured and its descriptions of the in-pod loop, the #2908 foundation, and the spawner-first landing-order hard constraint are accurate and valuable.
+
+````yaml
+id: 47a10fd0-e777-47
+phase: refine
+metadata:
+  payload:
+    reason: "BLOCKING (agent-design/lifecycle dimension): the analysis's core current-state\
+      \ premise is factually false. It states \"Supersedes #3064 (and #3023). Nothing\
+      \ from either attempt is on main; clean re-run,\" and its \"Current Behavior\
+      \ (verified against the working tree, 2026-06-24)\" section describes ONLY the\
+      \ in-pod loop. But origin/main @74838edb4 already carries the full #3064 orchestrator-owned\
+      \ event-loop mechanism behind EGG_EVENT_LOOP_OWNER (default \"pod\"):\n\u2022\
+      \ orchestrator/event_loop.py (1069 lines): OrchestratorEventLoop, JobSupervisor,\
+      \ compute_dedupe_key, event_identity keyed on proposal_commit_sha, restart reconcile\
+      \ (seeds from live Job labels), bounded respawn/backoff (#3138 streak semantics),\
+      \ convergence-stall notifier.\n\u2022 concurrent_executor.py: _start_event_loop,\
+      \ _ExecutorEventSpawner, the orchestrator-mode branch that spawns NO agents\
+      \ up front, _teardown_exhausted_session, gateway-session reuse via heartbeat\
+      \ fan-out.\n\u2022 kubernetes_spawner.py: spawn_event_job, LABEL_EVENT_DEDUPE,\
+      \ dedupe-label adoption + pre-spawn worktree cleanup (the AC6 residue/adoption\
+      \ surface).\n\u2022 env_config.py: get_event_loop_owner() default \"pod\" (AC3).\n\
+      \u2022 health_monitor.py: set_orchestrator_mode() + lifecycle-owner-aware tripwires\
+      \ (\"roles with no active Job are normal\") (AC7).\n\u2022 consensus_wrapper.py:\
+      \ ONE_SHOT_OWNER one-shot branch.\n\nEvery proposed AC1\u2013AC8 already has\
+      \ a corresponding implementation on main. This is NOT a greenfield clean re-run,\
+      \ and a plan built on this analysis would direct the implementer to reimplement\
+      \ working code \u2014 exactly the adopt-vs-reimplement hazard the operator directive\
+      \ says must be arbitrated.\n\nRequired to clear this NACK:\n1. Correct the \"\
+      Current Behavior\" section to inventory the landed #3064 slices 2\u20135 on\
+      \ main (event_loop.py, spawn_event_job, the orchestrator-mode branch, health-monitor\
+      \ orchestrator-mode, EGG_EVENT_LOOP_OWNER default \"pod\").\n2. Reframe the\
+      \ work and ACs from \"build the mechanism\" to \"adopt/verify/gap-fill against\
+      \ the landed #3064 code\" \u2014 identify what is actually missing or unproven\
+      \ versus what already exists, so the plan targets the real delta (this likely\
+      \ converges toward #3164's proving/flip scope).\n3. The contract task_description\
+      \ repeats the same false \"Nothing from either attempt is on main; this is a\
+      \ clean re-run\" claim. That is an operator-level contradiction with verifiable\
+      \ git state \u2014 register it as an open question via mcp__sdlc__register_open_question\
+      \ so the operator resolves whether the #3064 landed code is to be adopted/completed\
+      \ (and whether this pipeline collapses into #3164) before plan proceeds.\n\n\
+      Non-blocking note: aside from this premise, the analysis is well-structured\
+      \ and its descriptions of the in-pod loop, the #2908 foundation, and the spawner-first\
+      \ landing-order hard constraint are accurate and valuable."
+    artifact_references:
+    - .egg-state/drafts/3229-analysis.md
+    nack_version: 1
+  reason: "BLOCKING (agent-design/lifecycle dimension): the analysis's core current-state\
+    \ premise is factually false. It states \"Supersedes #3064 (and #3023). Nothing\
+    \ from either attempt is on main; clean re-run,\" and its \"Current Behavior (verified\
+    \ against the working tree, 2026-06-24)\" section describes ONLY the in-pod loop.\
+    \ But origin/main @74838edb4 already carries the full #3064 orchestrator-owned\
+    \ event-loop mechanism behind EGG_EVENT_LOOP_OWNER (default \"pod\"):\n\u2022\
+    \ orchestrator/event_loop.py (1069 lines): OrchestratorEventLoop, JobSupervisor,\
+    \ compute_dedupe_key, event_identity keyed on proposal_commit_sha, restart reconcile\
+    \ (seeds from live Job labels), bounded respawn/backoff (#3138 streak semantics),\
+    \ convergence-stall notifier.\n\u2022 concurrent_executor.py: _start_event_loop,\
+    \ _ExecutorEventSpawner, the orchestrator-mode branch that spawns NO agents up\
+    \ front, _teardown_exhausted_session, gateway-session reuse via heartbeat fan-out.\n\
+    \u2022 kubernetes_spawner.py: spawn_event_job, LABEL_EVENT_DEDUPE, dedupe-label\
+    \ adoption + pre-spawn worktree cleanup (the AC6 residue/adoption surface).\n\u2022\
+    \ env_config.py: get_event_loop_owner() default \"pod\" (AC3).\n\u2022 health_monitor.py:\
+    \ set_orchestrator_mode() + lifecycle-owner-aware tripwires (\"roles with no active\
+    \ Job are normal\") (AC7).\n\u2022 consensus_wrapper.py: ONE_SHOT_OWNER one-shot\
+    \ branch.\n\nEvery proposed AC1\u2013AC8 already has a corresponding implementation\
+    \ on main. This is NOT a greenfield clean re-run, and a plan built on this analysis\
+    \ would direct the implementer to reimplement working code \u2014 exactly the\
+    \ adopt-vs-reimplement hazard the operator directive says must be arbitrated.\n\
+    \nRequired to clear this NACK:\n1. Correct the \"Current Behavior\" section to\
+    \ inventory the landed #3064 slices 2\u20135 on main (event_loop.py, spawn_event_job,\
+    \ the orchestrator-mode branch, health-monitor orchestrator-mode, EGG_EVENT_LOOP_OWNER\
+    \ default \"pod\").\n2. Reframe the work and ACs from \"build the mechanism\"\
+    \ to \"adopt/verify/gap-fill against the landed #3064 code\" \u2014 identify what\
+    \ is actually missing or unproven versus what already exists, so the plan targets\
+    \ the real delta (this likely converges toward #3164's proving/flip scope).\n\
+    3. The contract task_description repeats the same false \"Nothing from either\
+    \ attempt is on main; this is a clean re-run\" claim. That is an operator-level\
+    \ contradiction with verifiable git state \u2014 register it as an open question\
+    \ via mcp__sdlc__register_open_question so the operator resolves whether the #3064\
+    \ landed code is to be adopted/completed (and whether this pipeline collapses\
+    \ into #3164) before plan proceeds.\n\nNon-blocking note: aside from this premise,\
+    \ the analysis is well-structured and its descriptions of the in-pod loop, the\
+    \ #2908 foundation, and the spawner-first landing-order hard constraint are accurate\
+    \ and valuable."
+  revision_count: 1
+````
+
+### [2026-06-24T21:13:45Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: ce3b4d1e-3373-48
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:13:55Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 136db4e6-843e-44
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:14:16Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 76524bbf-cf40-47
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:14:17Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 90fcd7f3-6600-4e
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:14:25Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 441a8999-9d6e-48
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:14:47Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 57245f9f-dab3-42
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:14:55Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 1898496c-2215-4d
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:15:17Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 90bf50a7-8364-4b
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:15:18Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: d04762f0-da9c-42
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:15:19Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: f7d91821-ca91-4f
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:15:26Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 745f5889-8ee9-42
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:15:26Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 67306d56-8686-4a
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:15:49Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: bc11298e-9d97-40
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:15:57Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: a94aebd0-aed8-40
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:16:19Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 1b02b620-1467-4e
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:16:20Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 3270456f-d84b-49
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:16:20Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 49902d7d-efbb-40
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:16:27Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 393c3755-e2c1-4b
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:16:51Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 52a7e062-ef9b-4a
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:16:58Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 211a68d7-cf24-4f
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:16:58Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: c2e2b10d-28a9-40
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:17:21Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 3b10e4f8-d9d0-49
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:17:22Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: a0f5f136-56d8-41
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:17:22Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: d6078253-b578-49
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:17:28Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: da4b49c1-5f7b-43
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:17:53Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 013ff41d-b985-4d
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:17:59Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: c0f3d004-d28e-4b
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:17:59Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 28cca3b8-1ceb-42
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:18:00Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 8e2a033f-e7a9-48
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:18:23Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 385c88f6-a481-43
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:18:24Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 919e6d9d-78e4-49
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:18:24Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 29c50a49-4525-47
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:18:30Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 6a67193e-f367-4c
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:18:55Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 89b1dbad-bd28-48
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:19:01Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: effb08f2-cc7c-41
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:19:25Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: aee7e221-031f-4e
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:19:26Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 4fc05e7f-480b-4c
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:19:26Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: ea21195a-4a63-40
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:19:31Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 93f2b6c5-66e2-48
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:19:32Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 7e1f67f2-dad8-41
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:19:40Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+v2 reconciles the analysis with origin/main and clears the shared blocker from BOTH reviewers (reviewer_refine B1 + reviewer_agent_design). Verified all six #3064 slices are MERGED on main (PRs #3167 slice-1, #3169 slice-2, #3181 slice-3, #3192 slice-4, #3198 slice-5, + docs #3202/#3204/#3205), so the issue body's "nothing on main; clean re-run" premise is factually false and the full orchestrator-owned on-demand spawning mechanism already exists behind EGG_EVENT_LOOP_OWNER (default "pod").
+
+Addressing every finding from both NACKs:
+(1) [both reviewers, req#1] Current-state rewritten to inventory the landed #3064 mechanism as the foundation — event_loop.py (OrchestratorEventLoop, JobSupervisor #3138-backoff, compute_dedupe_key on proposal_commit_sha, restart-reconcile, convergence-stall), kubernetes_spawner.spawn_event_job + LABEL_EVENT_DEDUPE adoption + pre-spawn worktree cleanup, concurrent_executor._start_event_loop/_ExecutorEventSpawner/orchestrator-mode branch (spawns 0 agents up front)/_teardown_exhausted_session, env_config.get_event_loop_owner default "pod", health_monitor.set_orchestrator_mode/_orchestrator_skip_tripwire, consensus_wrapper ONE_SHOT_OWNER — all marked PRESENT, with test+doc coverage. The false "Foundation already on main"/"## History"/"nothing on main" framing is removed.
+(2) [both reviewers, req#2] Real gap re-derived: only the default flip + live-BRC proving run remain, which the issue itself defers to #3164. Scope + ACs reframed from greenfield build (old AC1–AC8 described already-merged components) to adopt/verify/gap-fill against the landed code — no reimplementation.
+(3) [both reviewers, req#3] HITL cq-1 registered (mcp__sdlc__register_open_question) for the adopt-vs-reimplement conflict between the issue premise and verifiable git state; operator must arbitrate (adopt+gap-fill / named-defect / collapse-into-#3164) before plan. v1's incorrect "No HITL decision is registered" is replaced; scope/ACs are provisional and conditional on cq-1.
+(4) [reviewer_refine nit] build_consensus_wrapped_command attribution fixed: defined at consensus_wrapper.py:1216, not concurrent_executor.py:632/776 (those are call sites).
+
+**Adversarial re-review**
+
+**Your v2 review has TWO equal-weight mandates:**
+
+1. **Verify named v1 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` — the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** — ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v1 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: e416e9b5-f861-4d
+phase: refine
+metadata:
+  payload:
+    summary: "v2 reconciles the analysis with origin/main and clears the shared blocker\
+      \ from BOTH reviewers (reviewer_refine B1 + reviewer_agent_design). Verified\
+      \ all six #3064 slices are MERGED on main (PRs #3167 slice-1, #3169 slice-2,\
+      \ #3181 slice-3, #3192 slice-4, #3198 slice-5, + docs #3202/#3204/#3205), so\
+      \ the issue body's \"nothing on main; clean re-run\" premise is factually false\
+      \ and the full orchestrator-owned on-demand spawning mechanism already exists\
+      \ behind EGG_EVENT_LOOP_OWNER (default \"pod\").\n\nAddressing every finding\
+      \ from both NACKs:\n(1) [both reviewers, req#1] Current-state rewritten to inventory\
+      \ the landed #3064 mechanism as the foundation \u2014 event_loop.py (OrchestratorEventLoop,\
+      \ JobSupervisor #3138-backoff, compute_dedupe_key on proposal_commit_sha, restart-reconcile,\
+      \ convergence-stall), kubernetes_spawner.spawn_event_job + LABEL_EVENT_DEDUPE\
+      \ adoption + pre-spawn worktree cleanup, concurrent_executor._start_event_loop/_ExecutorEventSpawner/orchestrator-mode\
+      \ branch (spawns 0 agents up front)/_teardown_exhausted_session, env_config.get_event_loop_owner\
+      \ default \"pod\", health_monitor.set_orchestrator_mode/_orchestrator_skip_tripwire,\
+      \ consensus_wrapper ONE_SHOT_OWNER \u2014 all marked PRESENT, with test+doc\
+      \ coverage. The false \"Foundation already on main\"/\"## History\"/\"nothing\
+      \ on main\" framing is removed.\n(2) [both reviewers, req#2] Real gap re-derived:\
+      \ only the default flip + live-BRC proving run remain, which the issue itself\
+      \ defers to #3164. Scope + ACs reframed from greenfield build (old AC1\u2013\
+      AC8 described already-merged components) to adopt/verify/gap-fill against the\
+      \ landed code \u2014 no reimplementation.\n(3) [both reviewers, req#3] HITL\
+      \ cq-1 registered (mcp__sdlc__register_open_question) for the adopt-vs-reimplement\
+      \ conflict between the issue premise and verifiable git state; operator must\
+      \ arbitrate (adopt+gap-fill / named-defect / collapse-into-#3164) before plan.\
+      \ v1's incorrect \"No HITL decision is registered\" is replaced; scope/ACs are\
+      \ provisional and conditional on cq-1.\n(4) [reviewer_refine nit] build_consensus_wrapped_command\
+      \ attribution fixed: defined at consensus_wrapper.py:1216, not concurrent_executor.py:632/776\
+      \ (those are call sites)."
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/3229-analysis.md
+    risk_considered: "Dominant risk is the adopt-vs-reimplement hazard both reviewers\
+      \ flagged \u2014 mitigated by reconciling against main and registering HITL\
+      \ cq-1 rather than pre-resolving scope. Scope is explicitly provisional pending\
+      \ operator input on cq-1."
+    commit_sha: 44f33916c08c6017995cb62149556de55d5991cf
+    files_changed:
+    - .egg-state/drafts/3229-analysis.md
+    - .egg-state/agent-outputs/refiner/brc-memory.md
+    tests_run: []
+    tasks_satisfied: []
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 2
+  commit_sha: 44f33916c08c6017995cb62149556de55d5991cf
+````
+
+### [2026-06-24T21:19:55Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=refiner (slice=none)
+
+````yaml
+id: fba0986d-75f0-46
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:19:56Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=0) (slice=none)
+
+````yaml
+id: bc072249-148f-45
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:20:02Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=0) (slice=none)
+
+````yaml
+id: 2df46f23-dcab-42
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:20:25Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=0) (slice=none)
+
+````yaml
+id: 572fe1b8-0e35-44
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:20:26Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=refiner (slice=none)
+
+````yaml
+id: dc5f3bb5-b407-47
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:20:54Z] reviewer_refine → refiner (CONSENSUS_ACK): ACK from reviewer_refine for refiner
+
+v2 fully resolves prior BLOCKER B1. The false "nothing from #3064 is on main / clean re-run" premise is corrected: the draft now inventories the landed #3064 mechanism as the foundation and reframes scope+ACs from greenfield build to adopt/verify/gap-fill. Independently verified against origin/main @74838edb4 — all cited symbols present: event_loop.py (OrchestratorEventLoop:558, JobSupervisor:307, compute_dedupe_key:198), env_config.get_event_loop_owner (default 'pod', raises on invalid), kubernetes_spawner.spawn_event_job:1923 + LABEL_EVENT_DEDUPE:216, concurrent_executor._start_event_loop:458 + _ExecutorEventSpawner:118, health_monitor.set_orchestrator_mode:212 + _orchestrator_skip_tripwire:464, consensus_wrapper ONE_SHOT_OWNER:1039. v1 attribution nit fixed: build_consensus_wrapped_command defined at consensus_wrapper.py:1216 (confirmed not in concurrent_executor). The binding adopt-vs-reimplement conflict is correctly escalated as HITL cq-1 (registered, unresolved, opt-1/2/3 + Other) for operator arbitration before plan. No new blocking findings in the a24748b..44f33916 delta.
+
+````yaml
+id: 1fbacdb7-5b46-43
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/3229-analysis.md
+    - .egg-state/agent-outputs/refiner/brc-memory.md
+    reason: "v2 fully resolves prior BLOCKER B1. The false \"nothing from #3064 is\
+      \ on main / clean re-run\" premise is corrected: the draft now inventories the\
+      \ landed #3064 mechanism as the foundation and reframes scope+ACs from greenfield\
+      \ build to adopt/verify/gap-fill. Independently verified against origin/main\
+      \ @74838edb4 \u2014 all cited symbols present: event_loop.py (OrchestratorEventLoop:558,\
+      \ JobSupervisor:307, compute_dedupe_key:198), env_config.get_event_loop_owner\
+      \ (default 'pod', raises on invalid), kubernetes_spawner.spawn_event_job:1923\
+      \ + LABEL_EVENT_DEDUPE:216, concurrent_executor._start_event_loop:458 + _ExecutorEventSpawner:118,\
+      \ health_monitor.set_orchestrator_mode:212 + _orchestrator_skip_tripwire:464,\
+      \ consensus_wrapper ONE_SHOT_OWNER:1039. v1 attribution nit fixed: build_consensus_wrapped_command\
+      \ defined at consensus_wrapper.py:1216 (confirmed not in concurrent_executor).\
+      \ The binding adopt-vs-reimplement conflict is correctly escalated as HITL cq-1\
+      \ (registered, unresolved, opt-1/2/3 + Other) for operator arbitration before\
+      \ plan. No new blocking findings in the a24748b..44f33916 delta."
+    ack_version: 2
+  version: 2
+````
+
+### [2026-06-24T21:20:56Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=0) (slice=none)
+
+````yaml
+id: 00ed9fbc-8429-40
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:20:56Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=refiner (slice=none)
+
+````yaml
+id: 69ba6724-ae24-42
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:21:00Z] reviewer_refine (CONSENSUS_CONFIRMED): Confirmed by reviewer_refine
+
+````yaml
+id: 13f88b20-6594-44
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-06-24T21:21:01Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 5c5a7e44-1c22-4d
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:21:20Z] reviewer_agent_design → refiner (CONSENSUS_ACK): ACK from reviewer_agent_design for refiner
+
+v2 clears my prior NACK (agent-design/lifecycle dimension) in full. The load-bearing factual error is fixed: current-state now correctly inventories the merged #3064 mechanism on origin/main @74838edb4 behind EGG_EVENT_LOOP_OWNER (default "pod") instead of falsely claiming "nothing on main; clean re-run". I re-verified every cited symbol against main: event_loop.py (OrchestratorEventLoop/JobSupervisor/compute_dedupe_key keyed on proposal_commit_sha/restart reconcile); kubernetes_spawner.spawn_event_job @1923 + LABEL_EVENT_DEDUPE @216; concurrent_executor._start_event_loop/_ExecutorEventSpawner/_orchestrator_side_confirm/_teardown_exhausted_session; env_config.get_event_loop_owner default "pod" with no silent fallback (#3023 contract); health_monitor.set_orchestrator_mode @212 + _orchestrator_skip_tripwire @464; consensus_wrapper ONE_SHOT_OWNER @1039 + build_consensus_wrapped_command defined @1216 (v1 attribution nit fixed). Scope/ACs are correctly reframed from greenfield build to adopt/verify/gap-fill, and the adopt-vs-reimplement conflict the operator directive makes BINDING is surfaced as HITL cq-1 (confirmed registered and unresolved on the contract) rather than silently propagated (which would direct reimplementation of working code) or silently resolved (which would discard merged #3064). Scope remaining provisional/conditional on cq-1 is the correct posture for refine. No new findings in the delta.
+
+````yaml
+id: d15b46ac-17f9-4d
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/3229-analysis.md
+    reason: 'v2 clears my prior NACK (agent-design/lifecycle dimension) in full. The
+      load-bearing factual error is fixed: current-state now correctly inventories
+      the merged #3064 mechanism on origin/main @74838edb4 behind EGG_EVENT_LOOP_OWNER
+      (default "pod") instead of falsely claiming "nothing on main; clean re-run".
+      I re-verified every cited symbol against main: event_loop.py (OrchestratorEventLoop/JobSupervisor/compute_dedupe_key
+      keyed on proposal_commit_sha/restart reconcile); kubernetes_spawner.spawn_event_job
+      @1923 + LABEL_EVENT_DEDUPE @216; concurrent_executor._start_event_loop/_ExecutorEventSpawner/_orchestrator_side_confirm/_teardown_exhausted_session;
+      env_config.get_event_loop_owner default "pod" with no silent fallback (#3023
+      contract); health_monitor.set_orchestrator_mode @212 + _orchestrator_skip_tripwire
+      @464; consensus_wrapper ONE_SHOT_OWNER @1039 + build_consensus_wrapped_command
+      defined @1216 (v1 attribution nit fixed). Scope/ACs are correctly reframed from
+      greenfield build to adopt/verify/gap-fill, and the adopt-vs-reimplement conflict
+      the operator directive makes BINDING is surfaced as HITL cq-1 (confirmed registered
+      and unresolved on the contract) rather than silently propagated (which would
+      direct reimplementation of working code) or silently resolved (which would discard
+      merged #3064). Scope remaining provisional/conditional on cq-1 is the correct
+      posture for refine. No new findings in the delta.'
+    ack_version: 2
+  version: 2
+````
+
+### [2026-06-24T21:21:20Z] orchestrator → refiner (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 2) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 8fc96d59-156f-4d
+phase: refine
+metadata:
+  ready_to_confirm: true
+  version: 2
+````
+
+### [2026-06-24T21:21:27Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=0) (slice=none)
+
+````yaml
+id: c3fd8200-bf65-46
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:21:27Z] refiner (CONSENSUS_CONFIRMED): Confirmed by refiner
+
+````yaml
+id: 3bf2e501-3eb9-4f
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-06-24T21:21:28Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=refiner (slice=none)
+
+````yaml
+id: cb6651fa-feff-41
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:21:31Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: ddf5e83e-6041-41
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:21:58Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=0) (slice=none)
+
+````yaml
+id: f75eec76-a410-41
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-24T21:21:59Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=refiner (slice=none)
+
+````yaml
+id: 67b0d97d-016a-48
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:22:01Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 1038510f-3edd-49
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-24T21:22:09Z] reviewer_agent_design (CONSENSUS_CONFIRMED): Confirmed by reviewer_agent_design
+
+````yaml
+id: 352e47dc-9fd9-4c
+phase: refine
+metadata:
+  consensus_reached: true
+````
