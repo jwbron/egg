@@ -10,9 +10,163 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "Pipeline scope for #3200 (BRC context discipline). The issue mandates \"build + measure with a preserved fallback.\" What should THIS pipeline deliver?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "A: Token-occupancy capture only (AgentResult from ResultMessage.usage) \u2014 minimal prerequisite that unblocks everything, defers the discipline itself",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "B (recommended): Full build+measure prototype on ONE reviewer role \u2014 steps 1-4: token capture + protected-root/queryable-env split + threshold reseed + measurement harness; generalization (step 5) and recursion escalation explicitly deferred/gated on measurement",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "C: B plus generalize to all roles/producers now \u2014 contradicts the issue's measure-first mandate, not recommended",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-2",
+      "question": "Which reviewer role should the #3200 prototype run on? This affects measurement validity (peak utilization under resume + the recursion-escalation signal). A reviewer that accumulates the largest per-event working set is the strongest test of the resume hypothesis.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "reviewer_code (implement phase) \u2014 sees real multi-file diffs, largest working set, strongest stress test of JIT-pull-vs-inline and the recursion signal",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "reviewer_refine (refine phase) \u2014 longest-lived in a text-heavy phase, closest to the motivating #3183 incident, lighter to stand up",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Leave the specific role to the plan/architect phase \u2014 refine only fixes the requirement that it be a single reviewer with a status-quo control on the same phase",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-06-24T21:48:29.160491Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "Pipeline scope for #3200 (BRC context discipline). The issue mandates \"build + measure with a preserved fallback.\" What should THIS pipeline deliver?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "A: Token-occupancy capture only (AgentResult from ResultMessage.usage) \u2014 minimal prerequisite that unblocks everything, defers the discipline itself",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "B (recommended): Full build+measure prototype on ONE reviewer role \u2014 steps 1-4: token capture + protected-root/queryable-env split + threshold reseed + measurement harness; generalization (step 5) and recursion escalation explicitly deferred/gated on measurement",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "C: B plus generalize to all roles/producers now \u2014 contradicts the issue's measure-first mandate, not recommended",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Pipeline scope for #3200 (BRC context discipline)....",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-24T21:48:30.899365Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "Which reviewer role should the #3200 prototype run on? This affects measurement validity (peak utilization under resume + the recursion-escalation signal). A reviewer that accumulates the largest per-event working set is the strongest test of the resume hypothesis.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "reviewer_code (implement phase) \u2014 sees real multi-file diffs, largest working set, strongest stress test of JIT-pull-vs-inline and the recursion signal",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "reviewer_refine (refine phase) \u2014 longest-lived in a text-heavy phase, closest to the motivating #3183 incident, lighter to stand up",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Leave the specific role to the plan/architect phase \u2014 refine only fixes the requirement that it be a single reviewer with a status-quo control on the same phase",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Which reviewer role should the #3200 prototype run...",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
