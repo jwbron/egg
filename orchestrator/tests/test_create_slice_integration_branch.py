@@ -95,7 +95,16 @@ class TestCreateSliceIntegrationBranchSuccess:
                 parent_branch="egg/issue-2393",
             )
 
-        assert ok is True
+        assert ok
+        # #3185 — the helper returns the fork-base SHA it pushed at, so
+        # the caller records ``integration_base_sha`` from this call with
+        # no extra ``get_remote_branch_sha`` round-trip (whose best-effort
+        # failure previously left the field unset and armed the
+        # empty-branch trap). The returned SHA is the resolved parent tip.
+        assert ok == parent_sha, (
+            "create_slice_integration_branch must return the fork-base SHA "
+            f"(parent tip), got {ok!r}"
+        )
         assert len(push_payloads) == 1
         push = push_payloads[0]
         assert push["refspec"] == f"{parent_sha}:refs/heads/egg/issue-2393/slice-1", (
@@ -153,7 +162,7 @@ class TestCreateSliceIntegrationBranchSuccess:
                 parent_branch="egg/issue-2393",
             )
 
-        assert ok is True
+        assert ok
         assert order == [
             "fetch",
             "ls-remote:refs/heads/egg/issue-2393",
@@ -163,7 +172,7 @@ class TestCreateSliceIntegrationBranchSuccess:
 
 
 class TestCreateSliceIntegrationBranchFailures:
-    def test_returns_false_when_parent_missing_on_origin(self, gateway_client):
+    def test_returns_none_when_parent_missing_on_origin(self, gateway_client):
         """If ``ls-remote`` returns no SHA (parent doesn't exist on
         origin), fail fast — don't issue a push that would emit git's
         confusing ``src refspec X does not match any``."""
@@ -189,7 +198,7 @@ class TestCreateSliceIntegrationBranchFailures:
                 parent_branch="egg/issue-2393",
             )
 
-        assert ok is False
+        assert ok is None
         assert push_invoked == [], "push must not be issued when parent is not on origin"
 
     def test_fetch_returning_false_does_not_short_circuit(self, gateway_client):
@@ -230,11 +239,11 @@ class TestCreateSliceIntegrationBranchFailures:
                 parent_branch="egg/issue-2393",
             )
 
-        assert ok is True
+        assert ok
         assert push_invoked == [True]
 
-    def test_push_failure_returns_false_and_cleans_up_session(self, gateway_client):
-        """If the push request raises, the function must return False
+    def test_push_failure_returns_none_and_cleans_up_session(self, gateway_client):
+        """If the push request raises, the function must return None
         and still delete the synthetic session (no gateway-side leak)."""
         delete_calls: list[str] = []
 
@@ -267,12 +276,12 @@ class TestCreateSliceIntegrationBranchFailures:
                 parent_branch="egg/issue-2393",
             )
 
-        assert ok is False
+        assert ok is None
         assert delete_calls == ["tok-push"]
 
 
 class TestCreateSliceIntegrationBranchShortCircuits:
-    def test_empty_branch_returns_false_without_calls(self, gateway_client):
+    def test_empty_branch_returns_none_without_calls(self, gateway_client):
         with (
             patch.object(gateway_client, "_make_request") as mock_req,
             patch.object(gateway_client, "fetch_branch") as mock_fetch,
@@ -285,7 +294,7 @@ class TestCreateSliceIntegrationBranchShortCircuits:
                     integration_branch="",
                     parent_branch="egg/issue-2393",
                 )
-                is False
+                is None
             )
             assert (
                 gateway_client.create_slice_integration_branch(
@@ -294,7 +303,7 @@ class TestCreateSliceIntegrationBranchShortCircuits:
                     integration_branch="egg/issue-2393/slice-1",
                     parent_branch="",
                 )
-                is False
+                is None
             )
             mock_req.assert_not_called()
             mock_fetch.assert_not_called()
@@ -314,7 +323,9 @@ class TestCreateSliceIntegrationBranchShortCircuits:
                 integration_branch="egg/issue-2393",
                 parent_branch="egg/issue-2393",
             )
-        assert ok is True
+        # No-op path returns a non-None sentinel (the fork base is not
+        # resolved here — no round-trip — so the caller skips recording).
+        assert ok is not None
         mock_req.assert_not_called()
         mock_fetch.assert_not_called()
         mock_ls.assert_not_called()
@@ -352,7 +363,7 @@ class TestCreateSliceIntegrationBranchSession:
                 mode="private",
             )
 
-        assert ok is True
+        assert ok
         register_spy.assert_called_once()
         kwargs = register_spy.call_args.kwargs
         assert kwargs["synthetic"] is True
@@ -393,7 +404,7 @@ class TestCreateSliceIntegrationBranchSession:
                 parent_branch="egg/issue-2393",
             )
 
-        assert ok is True
+        assert ok
         assert register_spy.call_count == 1, "session must be registered exactly once"
         assert delete_spy.call_args_list == [call("shared-tok")], (
             "session must be deleted exactly once with the shared token"
@@ -427,7 +438,7 @@ class TestCreateSliceIntegrationBranchSession:
                 parent_branch="egg/issue-2393",
             )
 
-        assert ok is False
+        assert ok is None
         assert register_spy.call_count == 1
         assert delete_spy.call_args_list == [call("orphan-tok")]
 
@@ -451,9 +462,9 @@ class TestCreateSliceIntegrationBranchRestartRecovery:
         """Issue #2512 reproduction: slice-1 branch on origin contains
         coder/tester commits descended from parent (cancel_task with
         cleanup=false followed by restart_phase).  ``create_slice_
-        integration_branch`` must detect this and return True without
-        pushing — the prior commits are exactly what restart_phase
-        promises to preserve."""
+        integration_branch`` must detect this and return the fork-base
+        SHA without pushing — the prior commits are exactly what
+        restart_phase promises to preserve."""
         parent_sha = "8a76c30d" * 5  # parent-branch tip
         existing_sha = "0c5c6697" * 5  # slice-1 tip from prior run
 
@@ -495,7 +506,7 @@ class TestCreateSliceIntegrationBranchRestartRecovery:
                 parent_branch="egg/issue-2474",
             )
 
-        assert ok is True, "must short-circuit success when prior work descends from parent"
+        assert ok, "must short-circuit success when prior work descends from parent"
         assert push_invoked == [], (
             "must NOT push when integration branch already descends from "
             "parent — that push would be rejected as non-fast-forward"
@@ -552,14 +563,14 @@ class TestCreateSliceIntegrationBranchRestartRecovery:
                 parent_branch="egg/issue-1",
             )
 
-        assert ok is True, "diverged history → push proceeds and (here) succeeds"
+        assert ok, "diverged history → push proceeds and (here) succeeds"
         assert len(push_invoked) == 1, "must attempt the push when histories diverge"
         assert push_invoked[0]["refspec"] == (f"{parent_sha}:refs/heads/egg/issue-1/slice-1")
 
     def test_diverged_history_push_rejection_surfaces_as_failure(self, gateway_client):
         """The whole point of falling through to the push on diverged
         history is that origin's non-fast-forward rejection surfaces
-        as a clear ``ok is False`` signal (rather than silently
+        as a clear ``ok is None`` failure signal (rather than silently
         overwriting unknown work).  Pin that the rejection actually
         propagates and that the synthetic session is still cleaned up
         in the failure path."""
@@ -612,9 +623,9 @@ class TestCreateSliceIntegrationBranchRestartRecovery:
                 parent_branch="egg/issue-1",
             )
 
-        assert ok is False, (
+        assert ok is None, (
             "non-fast-forward rejection on diverged history must surface as "
-            "ok=False — that's the user-visible signal the operator needs"
+            "ok=None — that's the user-visible signal the operator needs"
         )
         assert delete_spy.call_args_list == [call("diverged-tok")], (
             "synthetic session must still be cleaned up in the rejection path"
@@ -650,7 +661,7 @@ class TestCreateSliceIntegrationBranchRestartRecovery:
                 parent_branch="egg/issue-1",
             )
 
-        assert ok is True
+        assert ok
         assert push_invoked == [True], "push still runs (it's a fast-forward no-op)"
         assert merge_base_calls == [], (
             "must not run merge-base when existing tip is already at parent_sha"
@@ -708,7 +719,7 @@ class TestCreateSliceIntegrationBranchRestartRecovery:
                 parent_branch="egg/issue-1",
             )
 
-        assert ok is True
+        assert ok
         assert push_invoked == [True], "push must run on the first-run / branch-absent path"
         assert merge_base_calls == [], (
             "must not run merge-base when integration branch doesn't exist on origin"
@@ -833,7 +844,7 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
         """The incident itself: slice has its own commits built on the
         recorded base, parent advanced additively (base ancestor of both,
         neither tip an ancestor of the other). Must preserve the branch
-        and return True WITHOUT pushing."""
+        and return the fork-base SHA WITHOUT pushing."""
         base_sha = "b0b0b0b0" * 5  # slice-2 tip when slice-3 was created
         existing_sha = "e1e1e1e1" * 5  # slice-3 tip (documenter commits)
         parent_sha = "a2a2a2a2" * 5  # slice-2 tip, advanced additively
@@ -856,7 +867,7 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
             session_token="tok-resume-incident",
         )
 
-        assert ok is True, "additive-advance + own commits must resume in place"
+        assert ok, "additive-advance + own commits must resume in place"
         assert push_invoked == [], (
             "must NOT push — a parent-tip push here is non-fast-forward and "
             "would discard / fail the slice's committed work"
@@ -867,8 +878,8 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
             [base_sha, existing_sha],
             [base_sha, parent_sha],
         ]
-        # Symmetric coverage for ``test_push_failure_returns_false_and_cleans
-        # _up_session``: the new ``return True`` lives inside the outer
+        # Symmetric coverage for ``test_push_failure_returns_none_and_cleans
+        # _up_session``: the new ``return parent_sha`` lives inside the outer
         # ``try``, so ``delete_session`` must still fire from the ``finally``
         # on this success path. Pinning it here freezes that — a future
         # refactor that moved the early-return outside the try (or skipped
@@ -877,7 +888,7 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
         assert delete_calls == ["tok-resume-incident"], (
             "synthetic session must be deleted on the resume-in-place "
             "success path (the ``finally`` must still fire despite the "
-            "early ``return True``)"
+            "early ``return parent_sha``)"
         )
 
     def test_parent_rebase_falls_through_to_push(self, gateway_client):
@@ -904,7 +915,7 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
             base_sha=base_sha,
         )
 
-        assert ok is True, "diverged push (here) succeeds in the stub"
+        assert ok, "diverged push (here) succeeds in the stub"
         assert len(push_invoked) == 1, "rebase class must fall through to the push"
         assert push_invoked[0]["refspec"] == f"{parent_sha}:refs/heads/{self._INT}"
         assert [a[1:] for a in merge_base_args] == [
@@ -996,7 +1007,7 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
             base_sha=base_sha,
         )
 
-        assert ok is True
+        assert ok
         assert len(push_invoked) == 1, "un-started branch must fast-forward to parent"
         assert push_invoked[0]["refspec"] == f"{parent_sha}:refs/heads/{self._INT}"
         # Only the #2512 probe runs; the resume-in-place probes are gated
@@ -1342,7 +1353,7 @@ class TestShaIsAncestor:
             ok = gateway_client._sha_is_ancestor(
                 "pipe-1", "/repo", "aaaa", "bbbb", bearer_token="tok"
             )
-        assert ok is True
+        assert ok
         call_data = mock_req.call_args.kwargs["data"]
         assert call_data["operation"] == "merge-base"
         assert call_data["args"] == ["--is-ancestor", "aaaa", "bbbb"]

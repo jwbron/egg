@@ -17247,35 +17247,43 @@ def _run_implement_phase_slices(
                 # agents that would push to a missing parent.
                 if pipeline.repo:
                     try:
-                        branch_ok = bool(
-                            spawner.gateway.create_slice_integration_branch(
-                                pipeline_id,
-                                str(worktree_repo_path),
-                                integration_branch=integration_branch,
-                                parent_branch=parent_branch,
-                                # #2947 — hand the slice's recorded fork
-                                # base to the gateway so a crash/restart
-                                # over a branch that already carries this
-                                # slice's commits (with an additively
-                                # advanced parent) resumes in place
-                                # instead of non-fast-forward-failing.
-                                integration_base_sha=recorded_base_sha,
-                                # Orchestrator pre-creates the slice
-                                # integration branch on a synthetic session
-                                # before agents spawn; attribute to the
-                                # orchestrator, not a phantom coder (#2919).
-                                # The push rides the slice-integration
-                                # exemption (synthetic + branch shape), not a
-                                # role gate.
-                                agent_role="orchestrator",
-                                mode=gateway_mode,  # type: ignore[arg-type]
-                            )
+                        # #3185 — the helper now returns the fork-base
+                        # SHA it pushed the integration branch at (the
+                        # parent tip resolved inside the call), or None
+                        # on failure. Recording that SHA directly here
+                        # replaces a prior best-effort
+                        # ``get_remote_branch_sha`` re-fetch that could
+                        # silently fail (no ``retry_transient``) and
+                        # leave ``integration_base_sha`` unset — arming
+                        # the empty-pre-created-branch trap on the next
+                        # restart.
+                        created_base_sha = spawner.gateway.create_slice_integration_branch(
+                            pipeline_id,
+                            str(worktree_repo_path),
+                            integration_branch=integration_branch,
+                            parent_branch=parent_branch,
+                            # #2947 — hand the slice's recorded fork
+                            # base to the gateway so a crash/restart
+                            # over a branch that already carries this
+                            # slice's commits (with an additively
+                            # advanced parent) resumes in place
+                            # instead of non-fast-forward-failing.
+                            integration_base_sha=recorded_base_sha,
+                            # Orchestrator pre-creates the slice
+                            # integration branch on a synthetic session
+                            # before agents spawn; attribute to the
+                            # orchestrator, not a phantom coder (#2919).
+                            # The push rides the slice-integration
+                            # exemption (synthetic + branch shape), not a
+                            # role gate.
+                            agent_role="orchestrator",
+                            mode=gateway_mode,  # type: ignore[arg-type]
                         )
                     except Exception as branch_err:  # noqa: BLE001
                         # Gateway `create_slice_integration_branch`
                         # call. Catches GatewayError (HTTP/timeout)
-                        # and OSError (DNS / socket). Mark branch_ok
-                        # False so the cascade machinery surfaces a
+                        # and OSError (DNS / socket). Treat as failure
+                        # so the cascade machinery surfaces a
                         # missing-parent error.
                         logger.error(
                             "Slice integration branch creation raised",
@@ -17283,8 +17291,8 @@ def _run_implement_phase_slices(
                             slice_id=slice_id,
                             error=str(branch_err),
                         )
-                        branch_ok = False
-                    if not branch_ok:
+                        created_base_sha = None
+                    if created_base_sha is None:
                         logger.error(
                             "Slice integration branch creation failed; "
                             "marking slice failed (agents not spawned)",
@@ -17300,9 +17308,9 @@ def _run_implement_phase_slices(
                             f"{parent_branch}"
                         )
 
-                    # #2871 — record the integration branch's fork base
-                    # exactly once, on first creation. The branch was just
-                    # pushed at the parent's tip and no agent has been
+                    # #2871 / #3185 — record the integration branch's fork
+                    # base exactly once, on first creation. The branch was
+                    # just pushed at the parent's tip and no agent has been
                     # spawned yet, so its origin tip still equals its base.
                     # Persisting it now lets a later restart's bootstrap
                     # reconciliation (and the race check above) tell an
@@ -17312,33 +17320,35 @@ def _run_implement_phase_slices(
                     # only write it when unset so a restart over a branch
                     # that already carries slice commits (#2512 recovery)
                     # keeps its original base rather than the advanced tip.
-                    if recorded_base_sha is None:
+                    # ``created_base_sha`` is the SHA the create call
+                    # returned (no extra round-trip); it is an empty string
+                    # on the unreachable no-op path
+                    # (``integration_branch == parent_branch``), which we
+                    # skip here.
+                    if recorded_base_sha is None and created_base_sha:
                         try:
-                            base_sha = spawner.gateway.get_remote_branch_sha(
-                                pipeline_id,
-                                str(worktree_repo_path),
-                                f"refs/heads/{integration_branch}",
-                                mode=gateway_mode,  # type: ignore[arg-type]
-                            )
-                            if base_sha:
-                                with get_pipeline_state_lock(pipeline_id):
-                                    contract_local = load_contract(pipeline_id, worktree_repo_path)
-                                    for s in contract_local.slices:
-                                        if s.id == slice_id:
-                                            s.integration_base_sha = base_sha
-                                            break
-                                    save_contract(contract_local, worktree_repo_path)
-                                recorded_base_sha = base_sha
+                            with get_pipeline_state_lock(pipeline_id):
+                                contract_local = load_contract(pipeline_id, worktree_repo_path)
+                                for s in contract_local.slices:
+                                    if s.id == slice_id:
+                                        s.integration_base_sha = created_base_sha
+                                        break
+                                save_contract(contract_local, worktree_repo_path)
+                            recorded_base_sha = created_base_sha
                         except Exception as base_err:  # noqa: BLE001
-                            # Gateway `get_remote_branch_sha` +
-                            # contract load/save. Catches GatewayError,
-                            # OSError, and the loader/save exception
-                            # surface. Best-effort: empty-branch
-                            # detection degrades to ancestor-only.
+                            # Contract load/save under per-pipeline state
+                            # lock. Catches loader validation, atomic-
+                            # rename I/O, and pydantic re-serialisation
+                            # errors. Best-effort: the fork base is no
+                            # longer a round-trip failure (the SHA came
+                            # from the create call itself), so this now
+                            # only fires on a contract-write failure — a
+                            # transient the next run repairs on the same
+                            # create path.
                             logger.warning(
-                                "Failed to record slice integration_base_sha "
-                                "(#2871); empty-branch detection degrades to "
-                                "ancestor-only on a future restart",
+                                "Failed to persist slice integration_base_sha "
+                                "(#2871); a future restart re-records it on the "
+                                "create path",
                                 pipeline_id=pipeline_id,
                                 slice_id=slice_id,
                                 integration_branch=integration_branch,

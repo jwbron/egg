@@ -2714,8 +2714,23 @@ class GatewayClient:
         integration_base_sha: str | None = None,
         agent_role: str = "coder",
         mode: Literal["public", "private"] = "public",
-    ) -> bool:
+    ) -> str | None:
         """Create the slice integration branch on origin from ``parent_branch``.
+
+        On success returns the fork-base SHA the integration branch was
+        pushed at (the resolved ``parent_sha``) — exactly the value the
+        caller records as :attr:`Slice.integration_base_sha` (#2871).
+        Returning it here lets the caller persist the fork base from the
+        same gateway call that created the branch, with no extra
+        ``get_remote_branch_sha`` round-trip whose best-effort failure
+        previously left ``integration_base_sha`` unset and armed the
+        #3185 empty-branch trap (an un-started branch later misclassified
+        as merged by ancestor-only detection). ``None`` on any failure
+        (the caller logs and surfaces a clear error to the run loop). The
+        #2512 / #2947 recovery short-circuits also return ``parent_sha``:
+        they only fire when the branch already exists, which means a
+        prior run already recorded its base, so the caller's
+        "record only when unset" guard ignores the returned value there.
 
         Pushes ``<parent_sha>:refs/heads/<integration_branch>`` via a
         synthetic, launcher-authenticated session through
@@ -2748,14 +2763,20 @@ class GatewayClient:
         or whose base was never recorded) degrades to the prior
         behaviour — the rejection surfaces.
 
-        Returns ``True`` on success, ``False`` on any error (the
-        caller logs and surfaces a clear error to the run loop).
+        Returns the fork-base SHA (``parent_sha``) on success, ``None``
+        on any error (the caller logs and surfaces a clear error to the
+        run loop).
         """
         if not integration_branch or not parent_branch:
-            return False
+            return None
         if integration_branch == parent_branch:
             # No-op: integration branch already exists at parent's tip.
-            return True
+            # ``parent_sha`` is not resolved on this no-op path (no
+            # round-trip has happened yet), so return an empty string
+            # rather than a misleading None — the caller's "record only
+            # when unset" guard skips recording here anyway because the
+            # branch already existing means a prior run recorded its base.
+            return ""
 
         # Register one synthetic session up front and share it across
         # the fetch, ls-remote, and push (#2398).  The session is
@@ -2818,7 +2839,7 @@ class GatewayClient:
                     integration_branch=integration_branch,
                     parent_branch=parent_branch,
                 )
-                return False
+                return None
 
             # #2512 — restart_phase recovery: if the slice integration
             # branch already exists on origin with commits descended
@@ -2881,7 +2902,15 @@ class GatewayClient:
                         parent_sha=parent_sha,
                         existing_sha=existing_sha,
                     )
-                    return True
+                    # The branch already existed with commits descended from
+                    # ``parent_sha``, so ``parent_sha`` *is* the fork
+                    # base (the branch was created at it and advanced).
+                    # For post-#2871 contracts a prior run already
+                    # recorded it, so the caller's "record only when
+                    # unset" guard no-ops; for a pre-#2871 contract
+                    # this return value backfills the field correctly.
+                    # Either way ``parent_sha`` is the right value.
+                    return parent_sha
                 # #2947 — crash / restart mid-slice resume-in-place. The
                 # existing tip is NOT a descendant of the (advanced)
                 # parent, so the #2512 fast-path above did not fire — but
@@ -2963,7 +2992,12 @@ class GatewayClient:
                         existing_sha=existing_sha,
                         integration_base_sha=integration_base_sha,
                     )
-                    return True
+                    # This path is gated on ``integration_base_sha`` being
+                    # supplied, so the caller already has the recorded
+                    # base (``recorded_base_sha`` is not None) and skips
+                    # recording this return value. Return ``parent_sha``
+                    # so the caller treats the call as success.
+                    return parent_sha
                 # Could not verify ancestry: parent_sha is either not
                 # reachable from the existing tip (genuinely diverged
                 # history) or the merge-base call itself failed
@@ -3008,7 +3042,12 @@ class GatewayClient:
                 parent_branch=parent_branch,
                 parent_sha=parent_sha,
             )
-            return True
+            # #3185 — return the fork base the branch was pushed at so
+            # the caller records ``integration_base_sha`` from this call
+            # with no extra round-trip. The previous best-effort re-fetch
+            # could silently fail (no ``retry_transient``) and leave the
+            # field unset, arming the empty-branch trap.
+            return parent_sha
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "Failed to create slice integration branch",
@@ -3018,7 +3057,7 @@ class GatewayClient:
                 parent_sha=parent_sha,
                 error=str(exc),
             )
-            return False
+            return None
         finally:
             if session_token:
                 try:

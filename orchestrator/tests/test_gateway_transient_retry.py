@@ -233,12 +233,12 @@ class TestCreateSliceIntegrationBranchRetry:
                 parent_branch="egg/issue-2869/work",
             )
 
-        assert ok is True
+        assert ok  # #3185 — returns the fork-base SHA on success
         assert push_attempts["n"] == 2, "push should retry once after the transient blip"
 
     def test_permanent_push_rejection_still_fails_without_retry(self, gateway_client):
         """A non-fast-forward rejection (permanent 5xx) is not retried —
-        it surfaces as ``ok is False`` on the first attempt."""
+        it surfaces as ``ok is None`` on the first attempt."""
         push_attempts = {"n": 0}
 
         def fake_make_request(endpoint, method=None, data=None, **kwargs):
@@ -265,5 +265,5 @@ class TestCreateSliceIntegrationBranchRetry:
                 parent_branch="egg/issue-2869/work",
             )
 
-        assert ok is False
+        assert ok is None  # #3185 — failure returns None
         assert push_attempts["n"] == 1, "permanent rejection must not be retried"
