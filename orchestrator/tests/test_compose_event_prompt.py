@@ -2738,3 +2738,207 @@ def test_cli_renders_task_section_from_worktree_contract(tmp_path) -> None:
     out = out_buf.getvalue()
     assert "## Task & operator directives" in out
     assert "PRIOR WORK: ADOPT, DO NOT REIMPLEMENT" in out
+
+
+# ---------------------------------------------------------------------------
+# Per-iteration operator kickback (#3231)
+# ---------------------------------------------------------------------------
+
+
+def test_iteration_feedback_section_rendered_with_directives() -> None:
+    """A ``propose`` prompt carrying ``iteration_feedback`` surfaces the
+    operator's most-recent directive so the producer addresses it before
+    re-proposing, with the explicit "unchanged = defect" framing.
+    """
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose"},
+        "",
+        [],
+        [],
+        "main",
+        iteration_feedback={
+            "directives": [
+                {
+                    "iteration_n": 0,
+                    "feedback_text": "Build for ALL roles, not a single-role prototype.",
+                    "created_at": "2026-06-24T22:28:51+00:00",
+                },
+                {
+                    "iteration_n": 1,
+                    "feedback_text": "Drop cq-2; reframe cq-1 around measurement tooling.",
+                    "created_at": "2026-06-24T22:40:00+00:00",
+                },
+            ],
+        },
+    )
+
+    assert "## Operator feedback on the prior draft" in prompt
+    # Most recent directive rendered in full.
+    assert "Drop cq-2" in prompt
+    # Earlier directive summarised one-line.
+    assert "Build for ALL roles" in prompt
+    # The defect framing the issue names as "done" criterion 2.
+    assert "defect" in prompt
+    assert "content_changed: false" in prompt
+    # Placed after the event section, before the role contract.
+    event_idx = prompt.index("## Event")
+    feedback_idx = prompt.index("## Operator feedback")
+    contract_idx = prompt.index("## What to do")
+    assert event_idx < feedback_idx < contract_idx
+
+
+def test_iteration_feedback_includes_prior_iteration_summary() -> None:
+    """The prior iteration's verdict matrix + NACK reasons render so the
+    producer knows what tripped the rubric last round.
+    """
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose"},
+        "",
+        [],
+        [],
+        "main",
+        iteration_feedback={
+            "directives": [
+                {"iteration_n": 0, "feedback_text": "Reframe the scope."},
+            ],
+            "prior_iteration": {
+                "iteration_n": 0,
+                "verdict_matrix": {"reviewer_code->coder": "nacked"},
+                "nack_reasons": ["reviewer_code->coder: prototype is single-role"],
+                "final_proposal_commit": {"coder": "abc123"},
+            },
+        },
+    )
+
+    assert "### Prior iteration summary" in prompt
+    assert "reviewer_code->coder: nacked" in prompt
+    assert "prototype is single-role" in prompt
+
+
+def test_iteration_feedback_omitted_when_none() -> None:
+    """No kickback → no section (golden-stable for the no-kickback path)."""
+    for kwargs in (
+        {},
+        {"iteration_feedback": None},
+        {"iteration_feedback": {}},
+        {"iteration_feedback": {"directives": [], "prior_iteration": None}},
+    ):
+        prompt = compose_event_prompt(
+            "coder",
+            {"action": "propose"},
+            "",
+            [],
+            [],
+            "main",
+            **kwargs,
+        )
+        assert "## Operator feedback on the prior draft" not in prompt
+
+
+def test_iteration_feedback_truncates_at_cap_with_sentinel() -> None:
+    """An oversized directive block is cut with a pointer to get-state."""
+    from orchestrator.routes.event_prompt import ITERATION_FEEDBACK_MAX_CHARS
+
+    huge = "scope correction " * (ITERATION_FEEDBACK_MAX_CHARS // 5)
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose"},
+        "",
+        [],
+        [],
+        "main",
+        iteration_feedback={
+            "directives": [
+                {"iteration_n": 0, "feedback_text": huge},
+            ],
+        },
+    )
+
+    assert "operator feedback truncated" in prompt
+    assert "egg-orch brc get-state" in prompt
+
+
+def test_iteration_feedback_counts_toward_envelope_cap() -> None:
+    """A capped iteration-feedback section + pathological NACKs honour the
+    10 KB bound — the NACKs section truncates, not the feedback section.
+    """
+    from orchestrator.routes.event_prompt import ITERATION_FEEDBACK_MAX_CHARS
+
+    nacks = [
+        {
+            "reviewer": f"reviewer_{i}",
+            "version": 3,
+            "reason": "blocker " * 600,
+            "artifact_refs": [],
+        }
+        for i in range(6)
+    ]
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose"},
+        "",
+        nacks,
+        [],
+        "main",
+        iteration_feedback={
+            "directives": [
+                {"iteration_n": 0, "feedback_text": "y" * ITERATION_FEEDBACK_MAX_CHARS},
+            ],
+        },
+    )
+
+    envelope = _strip_git_log_blocks(prompt)
+    assert len(envelope.encode("utf-8")) <= PROMPT_ENVELOPE_MAX_BYTES + 1024
+    assert "NACK list truncated" in prompt
+    # The feedback section's prose survives even when NACKs are the
+    # truncated driver.
+    assert "## Operator feedback on the prior draft" in prompt
+
+
+def test_cli_renders_iteration_feedback_from_event_payload(tmp_path) -> None:
+    """End-to-end: the CLI pulls ``iteration_feedback`` off the event
+    payload piped on stdin and renders the section.
+    """
+    import io
+    import json as _json
+    import os
+    import sys as _sys
+
+    from orchestrator.routes import event_prompt
+
+    payload = {
+        "action": "propose",
+        "iteration_feedback": {
+            "directives": [
+                {"iteration_n": 0, "feedback_text": "Address the scope correction."},
+            ],
+        },
+    }
+
+    saved_env = {
+        k: os.environ.get(k) for k in ("EGG_AGENT_ROLE", "EGG_REPO_PATH", "EGG_PIPELINE_ID")
+    }
+    saved_stdin = _sys.stdin
+    saved_stdout = _sys.stdout
+    out_buf = io.StringIO()
+    try:
+        os.environ["EGG_AGENT_ROLE"] = "coder"
+        os.environ["EGG_REPO_PATH"] = str(tmp_path)
+        os.environ.pop("EGG_PIPELINE_ID", None)
+        _sys.stdin = io.StringIO(_json.dumps(payload))
+        _sys.stdout = out_buf
+        rc = event_prompt._cli(["propose"])
+    finally:
+        _sys.stdin = saved_stdin
+        _sys.stdout = saved_stdout
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    assert rc == 0
+    out = out_buf.getvalue()
+    assert "## Operator feedback on the prior draft" in out
+    assert "Address the scope correction." in out

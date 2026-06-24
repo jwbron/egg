@@ -1046,7 +1046,7 @@ section is the wait-side companion to this architecture description.
 ### Per-event prompt composer (`compose_event_prompt`)
 
 `compose_event_prompt(role, event_payload, memory_excerpt, nacks,
-git_log_delta, base_branch, *, task_description="") -> str` builds the
+git_log_delta, base_branch, *, task_description="", iteration_feedback=None) -> str` builds the
 one-shot user prompt the wrapper invokes the agent with at each
 `case action.kind == INVOKE`
 branch of the deterministic loop (see [Deterministic loop structure](#deterministic-loop-structure)
@@ -1056,6 +1056,7 @@ above). It assembles, in order:
 |----------|---------|--------|-------|
 | Top | Role banner + one-line event description | `role` + `event_payload.kind` | A few hundred bytes; identifies the producer/reviewer side of the dispatch. |
 | Top | Task & operator directives (#3123/#3163) | The contract's `task_description`, read from the worktree contract file via the pod-inherited `EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER`; populated for all pipeline types since #3163 (issue anchor + submit description); omitted only when the contract carries no task statement and no issue identity | ≤ 4 KB (`TASK_DESCRIPTION_MAX_CHARS`), truncated with a pointer to `mcp__sdlc__show_contract`. Pushes the operator's submit-time directives into every invocation instead of relying on the agent pulling them per the rules file. |
+| Top | Operator feedback on the prior draft (#3231) | The current phase execution's `operator_directives` (chronological) + latest `iteration_history` summary (#2795), threaded onto the `propose` event_payload by the `next-action` route from persisted pipeline state. Only the `propose` arm (the kicked-back producer's re-run). Rendered in full for the most-recent directive, one line each for earlier ones. | ≤ 4 KB (`ITERATION_FEEDBACK_MAX_CHARS`), truncated with a pointer to `egg-orch brc get-state`. Surfaced only under `EGG_EVENT_LOOP_OWNER=orchestrator` — the in-pod path already carries #2795's iteration context. Omitted when there is no kickback (golden-stable). Makes an unchanged re-propose after `request_changes` a defect, not a valid cycle. |
 | Middle | NACK payload (per-reviewer NACK with `reason` + `artifact_refs`) | `orchestrator/peer_consensus.py` `_open_nacks_barrier_response.nacks[]` (line numbers come from the slice-3 contract spec and are drift-prone — prefer the function-name reference; the function span is around lines 949–1046 in practice) — the same envelope the producer sees on the aggregated-NACK 409 (see [§10.6](../reference/agent-wait-patterns.md#106-409-stale_version--aggregated-nack-are-event-pump-signals-not-transient-errors)). | One section per reviewer that NACKed the current version; rendered with reason text + artifact references. |
 | Middle | Single expected action | `event_payload.kind` | A few hundred bytes; states whether the agent should review, fix, confirm, etc. |
 | Tail | Per-producer git-log delta | `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p` ← `last_reviewed_commit_sha` from the [BRC memory file](brc-memory.md) | Scaled by actual change size; **NOT** counted against the 10 KB envelope. |

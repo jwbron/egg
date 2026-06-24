@@ -77,3 +77,14 @@ files:
   # Decompose in a follow-up PR.
   orchestrator/routes/decisions.py:
     issue: "3124"
+  # #3231 added the per-iteration operator-kickback rendering
+  # (_render_iteration_feedback_section + _extract_iteration_feedback +
+  # the ITERATION_FEEDBACK_MAX_CHARS cap + envelope-cap wiring) to the
+  # per-event prompt composer, pushing it from 1358 → 1555 lines (55 over
+  # the 1,500-line hard cap). The file was already over the 800-line soft
+  # cap; the new functions are cohesive with the existing render helpers
+  # and splitting them out would fracture the single composer that the
+  # module's docstring is built around. Decompose the render helpers into
+  # a sibling module in a follow-up PR.
+  orchestrator/routes/event_prompt.py:
+    issue: "3231"

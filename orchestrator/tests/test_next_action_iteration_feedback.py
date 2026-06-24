@@ -1,0 +1,210 @@
+"""Tests for the per-iteration operator kickback delivery on the
+orchestrator-owned event-loop ``next-action`` path (#3231).
+
+Under ``EGG_EVENT_LOOP_OWNER=orchestrator`` the re-spawned producer's
+prompt is composed from the ``event_payload`` the ``next-action`` route
+returns. Without the ``iteration_feedback`` block the producer re-reads
+its own prior on-disk draft and re-proposes it byte-for-byte — the
+operator's ``request_changes`` / ``change_approach`` silently no-ops
+(the #1283 / #1915 fake-cycle class). These tests pin the orchestrator-
+side attachment of ``PhaseExecution.operator_directives`` /
+``iteration_history`` (#2795) onto the ``propose`` event_payload.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+_orchestrator_path = Path(__file__).parent.parent
+if str(_orchestrator_path) not in sys.path:
+    sys.path.insert(0, str(_orchestrator_path))
+
+_shared_path = Path(__file__).parent.parent.parent / "shared"
+if _shared_path.exists() and str(_shared_path) not in sys.path:
+    sys.path.insert(0, str(_shared_path))
+
+sys.modules.setdefault("docker", MagicMock())
+sys.modules.setdefault("docker.errors", MagicMock())
+sys.modules.setdefault("docker.types", MagicMock())
+
+from models import IterationSummary, OperatorDirective, PhaseExecution  # noqa: E402
+from peer_consensus import PeerConsensusTracker  # noqa: E402
+from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph  # noqa: E402
+
+PIPELINE_ID = "issue-3231-impl"
+
+
+def _phase_execution_with_directives(phase: str = "refine") -> PhaseExecution:
+    pe = PhaseExecution(phase=phase)  # type: ignore[arg-type]
+    pe.operator_directives = [
+        OperatorDirective(
+            iteration_n=0,
+            feedback_text="Build for ALL roles, not a single-role prototype.",
+        ),
+        OperatorDirective(
+            iteration_n=1,
+            feedback_text="Drop cq-2; reframe cq-1 around measurement tooling.",
+        ),
+    ]
+    pe.iteration_history = [
+        IterationSummary(
+            iteration_n=0,
+            verdict_matrix={"reviewer_code->coder": "nacked"},
+            nack_reasons=["reviewer_code->coder: prototype is single-role"],
+            final_proposal_commit={"coder": "abc123"},
+        ),
+    ]
+    return pe
+
+
+# ---------------------------------------------------------------------------
+# _build_iteration_feedback (pure function of pipeline state)
+# ---------------------------------------------------------------------------
+
+
+def _pipeline_state(phase_execution: PhaseExecution | None = None) -> MagicMock:
+    """Build a fake pipeline state object exposing ``current_phase`` and
+    ``get_phase_execution``.
+    """
+    pipeline = MagicMock()
+    # current_phase is a PipelinePhase enum; the route only needs
+    # get_phase_execution to accept it and return the PhaseExecution.
+    pipeline.current_phase = "refine"
+    pipeline.get_phase_execution = MagicMock(return_value=phase_execution)
+    return pipeline
+
+
+def test_build_iteration_feedback_surfaces_directives_and_history() -> None:
+    """Directives (chronological) + latest iteration summary land in the
+    serializable block the route attaches to the event_payload.
+    """
+    from routes.consensus import _build_iteration_feedback
+
+    store = MagicMock()
+    store.load_pipeline.return_value = _pipeline_state(_phase_execution_with_directives())
+    with patch("routes.consensus.get_state_store", return_value=store):
+        block = _build_iteration_feedback(PIPELINE_ID, Path("/repo"))
+    assert block is not None
+    assert [d["iteration_n"] for d in block["directives"]] == [0, 1]
+    assert "Build for ALL roles" in block["directives"][0]["feedback_text"]
+    assert block["prior_iteration"]["iteration_n"] == 0
+    assert block["prior_iteration"]["verdict_matrix"] == {"reviewer_code->coder": "nacked"}
+    assert "prototype is single-role" in block["prior_iteration"]["nack_reasons"][0]
+
+
+def test_build_iteration_feedback_none_when_no_kickback() -> None:
+    """No directives and no iteration history → None (section omitted)."""
+    from routes.consensus import _build_iteration_feedback
+
+    empty_pe = PhaseExecution(phase="refine")  # type: ignore[arg-type]
+    store = MagicMock()
+    store.load_pipeline.return_value = _pipeline_state(empty_pe)
+    with patch("routes.consensus.get_state_store", return_value=store):
+        assert _build_iteration_feedback(PIPELINE_ID, Path("/repo")) is None
+
+
+def test_build_iteration_feedback_none_when_repo_unresolvable() -> None:
+    """A None repo_path (resolution failed) → None, never raises."""
+    from routes.consensus import _build_iteration_feedback
+
+    assert _build_iteration_feedback(PIPELINE_ID, None) is None
+
+
+def test_build_iteration_feedback_best_effort_on_store_failure() -> None:
+    """A store/parse failure degrades to None rather than 500-ing the route."""
+    from routes.consensus import _build_iteration_feedback
+
+    store = MagicMock()
+    store.load_pipeline.side_effect = RuntimeError("state unreadable")
+    with patch("routes.consensus.get_state_store", return_value=store):
+        assert _build_iteration_feedback(PIPELINE_ID, Path("/repo")) is None
+
+
+# ---------------------------------------------------------------------------
+# Route-level: handle_next_action attaches iteration_feedback on propose
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def simple_graph():
+    return ReviewGraph([ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)])
+
+
+@pytest.fixture
+def simple_tracker(simple_graph):
+    return PeerConsensusTracker(PIPELINE_ID, simple_graph)
+
+
+@pytest.fixture
+def app():
+    from flask import Flask
+    from routes.consensus import consensus_bp
+
+    app = Flask(__name__)
+    app.register_blueprint(consensus_bp)
+    app.config["TESTING"] = True
+    return app
+
+
+@pytest.fixture
+def client(app):
+    return app.test_client()
+
+
+def _post(client, role):
+    return client.post(
+        f"/api/v1/pipelines/{PIPELINE_ID}/consensus/next-action",
+        data=json.dumps({"role": role}),
+        content_type="application/json",
+    )
+
+
+def test_next_action_attaches_iteration_feedback_on_propose(client, simple_tracker) -> None:
+    """A producer's ``propose`` event_payload carries ``iteration_feedback``
+    when the current phase execution has operator directives.
+    """
+
+    store = MagicMock()
+    store.load_pipeline.return_value = _pipeline_state(_phase_execution_with_directives())
+    with (
+        patch("routes.consensus.get_peer_consensus_tracker", return_value=simple_tracker),
+        patch("routes.consensus.get_state_store", return_value=store),
+        patch(
+            "routes.consensus._resolve_repo_path_for_next_action",
+            return_value=Path("/repo"),
+        ),
+    ):
+        resp = _post(client, "coder")
+    assert resp.status_code == 200, resp.data
+    data = resp.get_json()
+    assert data["action"] == "propose"
+    payload = data["event_payload"]
+    assert "iteration_feedback" in payload
+    assert "Drop cq-2" in payload["iteration_feedback"]["directives"][-1]["feedback_text"]
+
+
+def test_next_action_omits_iteration_feedback_when_no_kickback(client, simple_tracker) -> None:
+    """No kickback → the event_payload carries no ``iteration_feedback``
+    key (golden-stable for the no-kickback path).
+    """
+
+    empty_pe = PhaseExecution(phase="refine")  # type: ignore[arg-type]
+    store = MagicMock()
+    store.load_pipeline.return_value = _pipeline_state(empty_pe)
+    with (
+        patch("routes.consensus.get_peer_consensus_tracker", return_value=simple_tracker),
+        patch("routes.consensus.get_state_store", return_value=store),
+        patch(
+            "routes.consensus._resolve_repo_path_for_next_action",
+            return_value=Path("/repo"),
+        ),
+    ):
+        resp = _post(client, "coder")
+    assert resp.status_code == 200
+    payload = resp.get_json().get("event_payload") or {}
+    assert "iteration_feedback" not in payload

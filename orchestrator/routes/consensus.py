@@ -613,6 +613,95 @@ def _maybe_reopen_confirmed_producer(
     return rows
 
 
+def _build_iteration_feedback(pipeline_id: str, repo_path: Path | None) -> dict[str, Any] | None:
+    """Build the ``iteration_feedback`` block for a ``propose`` event (#3231).
+
+    Under ``EGG_EVENT_LOOP_OWNER=orchestrator`` the re-spawned producer's
+    prompt is composed by ``orchestrator/routes/event_prompt.py`` (not the
+    in-pod ``_build_phase_iteration_context`` path that already carries
+    #2795's iteration context). Without this block the producer re-reads
+    its own prior on-disk draft and re-proposes it byte-for-byte — the
+    operator's ``request_changes`` / ``change_approach`` silently no-ops
+    (the #1283 / #1915 fake-cycle class, regressed for the orchestrator-
+    owned event loop).
+
+    Loads the current phase execution's ``operator_directives``
+    (chronological, oldest→newest) and the latest ``iteration_history``
+    summary straight off the persisted pipeline state and returns a
+    serializable dict the ``next-action`` route attaches onto the
+    ``propose`` event_payload. Uses the loaded pipeline's own
+    ``current_phase`` (a ``PipelinePhase``) to resolve the phase
+    execution — no string→enum coercion needed. ``None`` (section
+    omitted) when there are no directives and no prior-iteration
+    summary — the no-kickback golden-stable path. Best-effort: a
+    store/parse failure returns ``None`` rather than 500-ing the
+    route, so a transient read glitch degrades to the pre-fix prompt
+    shape rather than wedging BRC.
+    """
+    if not repo_path:
+        return None
+    try:
+        pipeline_state = get_state_store(repo_path).load_pipeline(pipeline_id)
+    except Exception as exc:  # noqa: BLE001 — best-effort, see docstring
+        logger.warning(
+            "iteration_feedback: pipeline state unreadable; omitting block",
+            pipeline_id=pipeline_id,
+            error=str(exc),
+        )
+        return None
+    phase_enum = getattr(pipeline_state, "current_phase", None)
+    if phase_enum is None:
+        return None
+    get_phase_execution = getattr(pipeline_state, "get_phase_execution", None)
+    if get_phase_execution is None:
+        # No phase-execution accessor (e.g. a stripped test double) —
+        # degrade to the pre-fix prompt shape rather than 500-ing.
+        return None
+    phase_execution = get_phase_execution(phase_enum)
+    directives = list(phase_execution.operator_directives or [])
+    history = list(phase_execution.iteration_history or [])
+    if not directives and not history:
+        return None
+
+    payload: dict[str, Any] = {}
+    if directives:
+        payload["directives"] = [
+            {
+                "iteration_n": d.iteration_n,
+                "feedback_text": d.feedback_text,
+                "created_at": d.created_at.isoformat() if d.created_at else None,
+            }
+            for d in directives
+        ]
+    if history:
+        latest = history[-1]
+        payload["prior_iteration"] = {
+            "iteration_n": latest.iteration_n,
+            "verdict_matrix": dict(latest.verdict_matrix or {}),
+            "nack_reasons": list(latest.nack_reasons or []),
+            "final_proposal_commit": dict(latest.final_proposal_commit or {}),
+        }
+    return payload or None
+
+
+def _resolve_repo_path_for_next_action(pipeline_id: str) -> Path | None:
+    """Best-effort repo path resolution for the next-action route.
+
+    Mirrors the resolution ``_maybe_reopen_confirmed_producer`` uses, but
+    returns ``None`` on any failure so callers (e.g.
+    ``_build_iteration_feedback``) can degrade to the pre-fix prompt shape
+    rather than 500-ing the route.
+    """
+    try:
+        from typing import cast
+
+        from routes import get_repo_path, resolve_repo_path_for_pipeline
+
+        return cast(Path | None, resolve_repo_path_for_pipeline(pipeline_id, get_repo_path()))
+    except Exception:  # noqa: BLE001 — best-effort
+        return None
+
+
 @consensus_bp.route("/<pipeline_id>/consensus/next-action", methods=["POST"])
 def handle_next_action(pipeline_id: str) -> tuple[Response, int]:
     """Derive the next BRC action for the given role.
@@ -694,6 +783,22 @@ def handle_next_action(pipeline_id: str) -> tuple[Response, int]:
             "consensus reopened: contract task(s) were assigned to this role "
             "after it confirmed — deliver them, mark them complete, and re-propose"
         )
+
+    # Per-iteration operator kickback (#3231): the ``propose`` arm is the
+    # only one where a kicked-back producer re-runs, so thread the
+    # operator's ``request_changes`` / ``change_approach`` feedback onto
+    # the event_payload there. Under ``EGG_EVENT_LOOP_OWNER=orchestrator``
+    # the re-spawned producer's prompt is composed from this payload; without
+    # this block the producer re-reads its own prior draft and re-proposes it
+    # unchanged (the #1283 / #1915 fake-cycle class). Best-effort: a read
+    # failure degrades to the pre-fix shape rather than wedging BRC.
+    if action == "propose":
+        iteration_feedback = _build_iteration_feedback(
+            pipeline_id, _resolve_repo_path_for_next_action(pipeline_id)
+        )
+        if iteration_feedback:
+            event_payload = dict(event_payload or {})
+            event_payload["iteration_feedback"] = iteration_feedback
     if action not in _VALID_ACTIONS:  # pragma: no cover - defensive
         logger.error(
             "next-action produced invalid action; coercing to wait",
