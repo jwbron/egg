@@ -194,35 +194,38 @@ switches, each read in exactly one place:
 
 | Env var | Read in | Effect |
 |---------|---------|--------|
-| `EGG_SESSION_RESUME` | `egg_agent.session.session_resume_enabled` | Master opt-in for warm resume. OFF (default) → a passed-in `session_id` is ignored and the agent cold-starts; the substrate is inert and the agent path is byte-for-byte the legacy cold-start. |
+| `EGG_CONTEXT_DISCIPLINE` | `egg_agent.context_discipline.context_discipline_enabled` | **Master switch** for the whole discipline (protected-root / queryable-environment split + JIT pull + threshold reseed). ON → every event-pump role takes the new path and `session_resume_enabled` is forced ON; OFF (default) → today's full-context inline path, byte-for-byte unchanged. Subsumes the narrower `EGG_SESSION_RESUME` knob (see below). |
+| `EGG_SESSION_RESUME` | `egg_agent.session.session_resume_enabled` | Narrower opt-in for warm resume. OFF (default) → a passed-in `session_id` is ignored and the agent cold-starts; the substrate is inert and the agent path is byte-for-byte the legacy cold-start. The master flag above subsumes this: `session_resume_enabled` returns `True` for `EGG_SESSION_RESUME` **or** `context_discipline_enabled()`. |
 | `EGG_SESSION_STATE_FILE` | `egg_agent.session.resolve_session_state_path` | Location of the cross-invocation session-state file. Unset → the round-trip is a no-op (substrate stays inert). |
 | `EGG_RESEED_THRESHOLD` | `egg_agent.reseed.resolve_reseed_threshold` | Cross-boundary integer override of the reseed threshold. The sandbox runs with `orchestrator` off `PYTHONPATH`, so the orchestrator side may compute `reseed_threshold(model)` and export the integer here; otherwise the gate imports the orchestrator helper when available, and falls back to `None` (safe reseed) when neither yields a value. |
 
-**Slice-9 master flag (forthcoming — not yet shipped).** The terminal slice
-([#3200](https://github.com/jwbron/egg/issues/3200) slice-9) is *designed to*
-introduce a single master context-discipline flag that gates the whole
-discipline (protected-root / queryable-environment split + threshold reseed +
-JIT pull) for **every** event-pump role — producers and reviewers alike — each
-inlining only its own contract and its own anchors via the role-parameterized
-`render_protected_root`. The intent is a **kill-switch**, not the preserved
-fallback build:
+**Slice-9 master flag (`EGG_CONTEXT_DISCIPLINE`, shipped).** The terminal slice
+([#3200](https://github.com/jwbron/egg/issues/3200) slice-9) introduced a single
+master context-discipline flag that gates the whole discipline (protected-root /
+queryable-environment split + threshold reseed + JIT pull) for **every**
+event-pump role — producers and reviewers alike — each inlining only its own
+contract and its own anchors via the role-parameterized `render_protected_root`.
+It is a **kill-switch**, not the preserved fallback build:
 
 - **ON** → every role takes the new path; the mechanism is uniform and only the
   *content* of the root differs by role.
 - **OFF (and default during rollout)** → today's full-context inlining path,
   byte-for-byte unchanged; the OFF path retains no dependency on the new code.
 
-The seam the flag is built around already exists:
+The seam the flag is built around already existed:
 `compose_event_prompt(..., jit_pull=...)` in
 `orchestrator/routes/event_prompt.py` carries a `jit_pull` parameter whose
-`jit_pull=False` default renders the legacy inline path byte-for-byte. The
-forthcoming flag is intended to drive that toggle from a single read-site so no
-role hard-codes the new path. **Until slice-9 lands this flag is unbuilt:** no
-production code wires a master context-discipline flag, nothing sets
-`jit_pull=True`, and `compose_event_prompt` is reached only via its `_cli`
-subprocess entry-point (which leaves `jit_pull` at its `False` default). The
-companion comment in `shared/egg_agent/session.py` likewise scopes the flag as
-something that *may later* subsume `EGG_SESSION_RESUME`.
+`jit_pull=False` default renders the legacy inline path byte-for-byte. The flag
+drives that toggle from a single read-site so no role hard-codes the new path:
+`event_prompt._cli` reads `context_discipline_enabled()` once and sets
+`jit_pull=` accordingly. `shared/egg_agent/session.py::session_resume_enabled`
+now actively subsumes `EGG_SESSION_RESUME` — it returns `True` for that narrow
+knob **or** `context_discipline_enabled()` — so the master flag activates the
+warm-resume substrate alongside the prompt split. The authoritative reader is
+`shared/egg_agent/context_discipline.py::context_discipline_enabled` (the only
+read on the normal import path; the lone exception is the deliberate
+`except`-fallback mirror in `event_prompt._context_discipline_enabled` for the
+wrapper-bash standalone case where `egg_agent` is off `PYTHONPATH`).
 
 ## Measurement (emit-only)
 
