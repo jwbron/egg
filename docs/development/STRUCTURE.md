@@ -281,18 +281,18 @@ shared/
 ├── egg_agent/              # Claude Agent SDK wrapper
 │   ├── __init__.py         # Public API: AgentResult, build_agent_command
 │   ├── __main__.py         # CLI entry point (python3 -m egg_agent)
+│   ├── _logging.py         # Logger resolution: returns egg_logging structured logger or a kwarg-dropping stdlib fallback when egg_logging is absent (shared by client.py and session.py)
 │   ├── client.py           # run_agent(), run_agent_async()
 │   ├── command.py          # build_agent_command() for orchestrator-spawned containers
 │   ├── result.py           # AgentResult dataclass
+│   ├── session.py          # Session-state round-trip for BRC event-pump warm resume (#3200 slice-6): write_session_state(), read_session_state(), session_resume_enabled() persist session_id + window_occupancy between one-shot invocations; gated on EGG_SESSION_RESUME or EGG_CONTEXT_DISCIPLINE (default OFF); path via EGG_SESSION_STATE_FILE or --session-state-file
 │   ├── tool_interceptor.py # Pre-execution file write checks (Write/Edit/NotebookEdit) against role restrictions
 │   ├── tool_output_cap.py  # Predictive PreToolUse cap for built-in CC tools (Read/Grep): denies calls whose model-bound result is likely to be excessive (cost/context discipline, NOT the buffer-crash fix — that's the raised reader buffer in client.py, #2884); tunable via EGG_TOOL_OUTPUT_CAP / EGG_READ_CAP_BYTES (#2876); agents can raise their own session's Read cap by writing the byte size to /tmp/egg-read-cap-bytes (#3175)
 │   ├── midturn_messages.py # Throttled PostToolUse hook that polls the message bus mid-turn and injects new operator-authored messages as additionalContext; backed by EGG_MIDTURN_MESSAGES_INTERVAL_SECS (default 60 s) and EGG_MIDTURN_MESSAGES=false escape hatch (#3123)
 │   ├── route_guidance.py   # Advisory system-prompt addendum appended only on LiteLLM (non-Claude) routes: steers toward batched tool calls, filtered output, and subagent-isolated bulk reads to cut turns × context cost; gated on ANTHROPIC_CUSTOM_MODEL_OPTION, kill switch EGG_ROUTE_PROMPT_GUIDANCE=false (#3175)
 │   ├── context_discipline.py # Master feature flag for the #3200 BRC context discipline (slice-9): single EGG_CONTEXT_DISCIPLINE switch that enables the whole discipline (protected-root/queryable-env split + JIT pull + threshold reseed); subsumes the narrower EGG_SESSION_RESUME knob; default OFF (#3200)
-│   ├── session.py          # Session-state round-trip for BRC event-pump warm-resume substrate: persists session_id + window_occupancy between one-shot invocations, gated on EGG_SESSION_RESUME or EGG_CONTEXT_DISCIPLINE (#3200 slice-6)
 │   ├── reseed.py           # Resume-vs-reseed decision gate: compares resumed session occupancy against threshold (min(400_000, 0.80 × real_backend_window)) and chooses resume or reseed; bias-to-reseed on uncertainty (#3200 slice-8)
-│   ├── queryable_env.py    # JIT-pull queryable-environment renderers: renders pointers (git log recipe + read_peer_artifact / brc-transcript handles) instead of inlining bulk diffs and memory excerpts (#3200 slice-5)
-│   └── _logging.py         # Shared logger resolution: returns egg structured logger when egg_logging is available, falls back to a kwargs-dropping stdlib logger outside the sandbox
+│   └── queryable_env.py    # JIT-pull queryable-environment renderers for the BRC event-pump (#3200 slice-5): renders small stable POINTERS (git log recipe, BRC-memory path, read_peer_artifact / brc-transcript handles) in the protected root instead of inlining the bulk, to slow recency-driven context growth before auto-compaction
 ├── egg_anchor/             # Agent anchor mechanism for post-compaction state recovery
 │   ├── __init__.py         # Public API exports
 │   ├── models.py           # Pydantic models (AgentAnchor, AnchorMeta, ProgressItem, Decision, BRCState)
