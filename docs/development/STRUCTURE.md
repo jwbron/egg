@@ -289,6 +289,7 @@ shared/
 │   ├── tool_interceptor.py # Pre-execution file write checks (Write/Edit/NotebookEdit) against role restrictions
 │   ├── tool_output_cap.py  # Predictive PreToolUse cap for built-in CC tools (Read/Grep): denies calls whose model-bound result is likely to be excessive (cost/context discipline, NOT the buffer-crash fix — that's the raised reader buffer in client.py, #2884); tunable via EGG_TOOL_OUTPUT_CAP / EGG_READ_CAP_BYTES (#2876); agents can raise their own session's Read cap by writing the byte size to /tmp/egg-read-cap-bytes (#3175)
 │   ├── midturn_messages.py # Throttled PostToolUse hook that polls the message bus mid-turn and injects new operator-authored messages as additionalContext; backed by EGG_MIDTURN_MESSAGES_INTERVAL_SECS (default 60 s) and EGG_MIDTURN_MESSAGES=false escape hatch (#3123)
+│   ├── queryable_env.py    # JIT-pull "queryable environment" renderers for the BRC event-pump (#3200 slice-5): small stable POINTERS (git log recipe, BRC-memory path) in the protected root instead of inlining the bulk, to slow recency-driven context growth before auto-compaction
 │   └── route_guidance.py   # Advisory system-prompt addendum appended only on LiteLLM (non-Claude) routes: steers toward batched tool calls, filtered output, and subagent-isolated bulk reads to cut turns × context cost; gated on ANTHROPIC_CUSTOM_MODEL_OPTION, kill switch EGG_ROUTE_PROMPT_GUIDANCE=false (#3175)
 ├── egg_anchor/             # Agent anchor mechanism for post-compaction state recovery
 │   ├── __init__.py         # Public API exports
