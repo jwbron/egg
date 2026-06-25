@@ -85,15 +85,62 @@ jobs:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
-      - name: Get PR HEAD SHA
+      - name: Get PR HEAD SHA and branch topology
         id: pr-head
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           PR_NUMBER: ${{ inputs.pr_number }}
         run: |
-          head_sha=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.sha')
-          echo "sha=${head_sha}" >> "$GITHUB_OUTPUT"
-          echo "PR HEAD SHA: ${head_sha}"
+          set -euo pipefail
+          pr_json=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}")
+          head_sha=$(echo "$pr_json" | jq -r '.head.sha')
+          head_ref=$(echo "$pr_json" | jq -r '.head.ref')
+          base_ref=$(echo "$pr_json" | jq -r '.base.ref')
+
+          # Decide whether this is a multi-slice *context roll-up* work->main PR
+          # (egg/<id>/work -> main carrying only .egg-state/ artifacts), as
+          # opposed to a single-slice/monolithic implementation PR that happens
+          # to share the same topology. Topology ALONE is too coarse (#3254
+          # review): the orchestrator opens slice PRs — and thus turns work->main
+          # into a pure roll-up — only when the contract has more than one slice
+          # (_is_slice_dag_mode: len(slices) > 1). A single-slice/monolithic
+          # pipeline commits implementation directly onto egg/<id>/work, so its
+          # work->main PR IS the implementation PR and is the ONLY GitHub-level
+          # review it gets. So gate the skip on the slice count in the contract
+          # on the work branch, fetched by the pipeline's OWN key (never the
+          # whole contracts/ dir, which inherits historical multi-slice
+          # contracts from main). Fetch/parse failures leave context-pr=false
+          # (fail-open -> review runs, the safe direction).
+          context_pr=false
+          if [[ "$head_ref" =~ ^egg/(.+)/work$ && ( "$base_ref" == "main" || "$base_ref" == "master" ) ]]; then
+            pipeline_id="${BASH_REMATCH[1]}"
+            slice_count=0
+            candidates="${pipeline_id}.json"
+            if [[ "$pipeline_id" == issue-* ]]; then
+              candidates="${candidates} ${pipeline_id#issue-}.json"
+            fi
+            for cf in $candidates; do
+              b64=$(gh api "repos/${{ github.repository }}/contents/.egg-state/contracts/${cf}?ref=${head_ref}" \
+                --jq '.content // ""' 2>/dev/null || echo "")
+              if [[ -n "$b64" ]]; then
+                slice_count=$(printf '%s' "$b64" | base64 -d 2>/dev/null \
+                  | jq '((.slices // .phases) // []) | length' 2>/dev/null || echo 0)
+                break
+              fi
+            done
+            if [[ "${slice_count:-0}" -gt 1 ]]; then
+              context_pr=true
+            fi
+            echo "work->main PR ${head_ref}: ${slice_count} slice(s) -> context-pr=${context_pr}"
+          fi
+
+          {
+            echo "sha=${head_sha}"
+            echo "head-ref=${head_ref}"
+            echo "base-ref=${base_ref}"
+            echo "context-pr=${context_pr}"
+          } >> "$GITHUB_OUTPUT"
+          echo "PR HEAD SHA: ${head_sha} (${head_ref} -> ${base_ref}, context-pr=${context_pr})"
 
       # NOTE: This step duplicates marker detection logic from the "Find last bot review
       # commit for re-review context" step in the review job (lines 306-388). This is
@@ -160,10 +207,34 @@ jobs:
           PR_TITLE: ${{ inputs.pr_title }}
           ALREADY_REVIEWED: ${{ steps.already-reviewed.outputs.already-reviewed }}
           HEAD_SHA: ${{ steps.pr-head.outputs.sha }}
+          HEAD_REF: ${{ steps.pr-head.outputs.head-ref }}
+          BASE_REF: ${{ steps.pr-head.outputs.base-ref }}
+          CONTEXT_PR: ${{ steps.pr-head.outputs.context-pr }}
         run: |
           # For workflow_dispatch, always run
           if [[ "${{ inputs.event_name }}" == "workflow_dispatch" ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Multi-slice context/state PR (egg/<id>/work -> main): the pr-head
+          # step already confirmed, via the contract slice count, that
+          # implementation is delivered through reviewed slice PRs, so this
+          # work->main PR is a pure .egg-state/ roll-up and implementation-style
+          # review is a false positive by construction (#3254). A
+          # single-slice/monolithic work->main PR is NOT flagged (context-pr
+          # stays false) and is reviewed normally — it is the only GitHub-level
+          # review the implementation gets. Topology alone is too coarse to make
+          # this call, which is why the discriminator lives in pr-head.
+          #
+          # NOTE: the contract-verification caller
+          # (on-pull-request-contract-verify.yml) already short-circuits this
+          # same context PR in its OWN should-run gate before it ever reaches
+          # reusable-review.yml, so this skip is effectively only exercised by
+          # the egg-reviewer caller (on-pull-request.yml).
+          if [[ "$CONTEXT_PR" == "true" ]]; then
+            echo "::notice::Skipping review: multi-slice context PR ${HEAD_REF} -> ${BASE_REF} holds only .egg-state/ artifacts"
+            echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
