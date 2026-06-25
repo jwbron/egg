@@ -170,6 +170,18 @@ def _extract_branch_regexes(job: dict, step_id: str) -> list[str]:
         f"no bash `=~` regex operands found in step (id: {step_id}) — the "
         "branch-topology check is not gating on the head ref at all"
     )
+    # Pin the helper to "exactly the two gate regexes", not "whatever `=~`
+    # operands happen to be here". The scan is greedy over the whole `run:`
+    # script, so a future maintainer adding an unrelated `[[ … =~ … ]]` to the
+    # same step would otherwise OR a stray operand into `_is_skipped` and flip
+    # table cases. Asserting the count makes that break loud and self-pointing
+    # at the new operand rather than silently mutating the behavioral table.
+    assert len(operands) == 2, (
+        f"expected exactly 2 bash `=~` regex operands in step (id: {step_id}), "
+        f"found {len(operands)}: {operands!r} — the branch-topology gate should "
+        "embed only the slice and work head-ref shapes; an extra operand here "
+        "would be OR'd into the skip decision and change which refs are skipped"
+    )
     return operands
 
 
