@@ -251,8 +251,10 @@ def _resolve_threshold(model: str) -> int | None:
 
     Reuses :func:`egg_agent.reseed.resolve_reseed_threshold`, which reads the
     ``$EGG_RESEED_THRESHOLD`` override first (the cross-boundary channel the
-    orchestrator exports into the sandbox) and falls back to the orchestrator
-    computation when importable. Returns ``None`` when unresolved.
+    orchestrator side *may* export into the sandbox — like
+    ``$EGG_REAL_BACKEND_WINDOW``, no producer wires it yet, so today this falls
+    through to the import path) and falls back to the orchestrator computation
+    when importable. Returns ``None`` when unresolved.
     """
     try:
         from egg_agent.reseed import resolve_reseed_threshold
