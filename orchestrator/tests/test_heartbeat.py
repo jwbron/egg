@@ -2,22 +2,18 @@
 
 Covers:
 
-* ``should_fan_out_gateway_session`` (issue #2076 NB4) — the route-
-  level integration tests in ``test_messages.py`` exercise the
-  throttle through the HEARTBEAT endpoint, but a refactor of the
-  coordinator is hard to do safely without targeted unit coverage of
-  the disable case, the cooldown elapsed/not-elapsed branches, the
-  ``clear()`` reset, and concurrent access.
 * Per-slice independence of ``is_duplicate`` and ``check_rate_limit``
   (issue #2471) — two slices that share a role must not share dedup
   state or rate budgets.
+
+The gateway-session fan-out throttle (``should_fan_out_gateway_session``)
+and the orchestrator-mode guard were removed in #3164 along with the
+in-pod wait arm; the coordinator no longer has any gateway side effect.
 """
 
 from __future__ import annotations
 
 import sys
-import threading
-import time
 from pathlib import Path
 
 # Add orchestrator to path so bare imports resolve.
@@ -33,172 +29,6 @@ from heartbeat import (  # noqa: E402
 
 # Singleton reset between tests is handled by ``_reset_heartbeat_coordinator``
 # in ``conftest.py`` (autouse-scoped to all orchestrator tests).
-
-
-class TestShouldFanOutGatewaySession:
-    """Unit tests for the per-(pipeline, slice, role) gateway-fan-out throttle."""
-
-    def test_zero_interval_disables_throttle(self):
-        """``min_interval_seconds == 0`` always returns True without recording."""
-        coord = HeartbeatCoordinator()
-
-        for _ in range(5):
-            assert coord.should_fan_out_gateway_session("p1", None, "coder", 0.0) is True
-
-        # Nothing was recorded, so a subsequent positive-interval call
-        # sees no prior fan-out and fires.
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is True
-
-    def test_negative_interval_disables_throttle(self):
-        """Any non-positive value disables (matches the docstring contract)."""
-        coord = HeartbeatCoordinator()
-
-        for _ in range(3):
-            assert coord.should_fan_out_gateway_session("p1", None, "coder", -1.0) is True
-
-        # Same as the zero case — no recording happened.
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is True
-
-    def test_first_call_fires_and_records(self):
-        """First call fires AND records the new timestamp.
-
-        The recording side-effect is verified directly: a second call
-        inside the cooldown window can only return False if the first
-        call wrote ``_last_fan_out[(p1, None, coder)]``.
-        """
-        coord = HeartbeatCoordinator()
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is True
-        # Recording side-effect: second call within the window is suppressed.
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is False
-
-    def test_second_call_within_cooldown_suppressed(self):
-        """A second call inside the cooldown window returns False."""
-        coord = HeartbeatCoordinator()
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is True
-        # Immediately again — well inside 30s.
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is False
-
-    def test_call_after_cooldown_fires(self):
-        """Once the window elapses, the next call fires again."""
-        coord = HeartbeatCoordinator()
-        # 50ms cooldown + 200ms sleep — 150ms headroom keeps the test
-        # robust against GC pauses or noisy CI scheduling. ``time.sleep``
-        # is a guaranteed lower bound, so the cooldown is always elapsed
-        # by the time the third assertion runs.
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 0.05) is True
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 0.05) is False
-        time.sleep(0.2)
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 0.05) is True
-
-    def test_different_roles_throttled_independently(self):
-        """Throttle key includes the role — different roles don't collide."""
-        coord = HeartbeatCoordinator()
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is True
-        assert coord.should_fan_out_gateway_session("p1", None, "tester", 30.0) is True
-        # Both are now suppressed independently.
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is False
-        assert coord.should_fan_out_gateway_session("p1", None, "tester", 30.0) is False
-
-    def test_different_pipelines_throttled_independently(self):
-        """Throttle key includes the pipeline — different pipelines don't collide."""
-        coord = HeartbeatCoordinator()
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is True
-        assert coord.should_fan_out_gateway_session("p2", None, "coder", 30.0) is True
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is False
-        assert coord.should_fan_out_gateway_session("p2", None, "coder", 30.0) is False
-
-    def test_different_slices_throttled_independently(self):
-        """Throttle key includes the slice — sibling slices don't collide (#2471)."""
-        coord = HeartbeatCoordinator()
-        assert coord.should_fan_out_gateway_session("p1", "slice-2", "reviewer_code", 30.0) is True
-        assert coord.should_fan_out_gateway_session("p1", "slice-3", "reviewer_code", 30.0) is True
-        # Each sibling is suppressed inside its own window — they did not
-        # share the throttle entry.
-        assert coord.should_fan_out_gateway_session("p1", "slice-2", "reviewer_code", 30.0) is False
-        assert coord.should_fan_out_gateway_session("p1", "slice-3", "reviewer_code", 30.0) is False
-
-    def test_pipeline_level_and_sliced_dont_collide(self):
-        """``slice_id=None`` is a distinct bucket from any ``slice-<N>`` (#2471)."""
-        coord = HeartbeatCoordinator()
-        # Pipeline-level agent fires.
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is True
-        # Slice-scoped agent in the same pipeline + role still fires —
-        # it lives in a separate bucket.
-        assert coord.should_fan_out_gateway_session("p1", "slice-1", "coder", 30.0) is True
-        # Both are now suppressed inside their own windows.
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is False
-        assert coord.should_fan_out_gateway_session("p1", "slice-1", "coder", 30.0) is False
-
-    def test_suppressed_call_does_not_advance_recorded_timestamp(self):
-        """Hot-looping must not push the cooldown forward indefinitely.
-
-        Uses a 50ms cooldown + 200ms sleep — 150ms headroom keeps the
-        ``time.time()`` reads robust against scheduling jitter on CI.
-        """
-        coord = HeartbeatCoordinator()
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 0.05) is True
-        # Hammer the coordinator inside the window — every call returns
-        # False, but the recorded timestamp stays at the initial fire.
-        for _ in range(10):
-            assert coord.should_fan_out_gateway_session("p1", None, "coder", 0.05) is False
-        time.sleep(0.2)
-        # Still fires once the original window elapses, which proves the
-        # suppressed calls didn't reset the clock.
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 0.05) is True
-
-    def test_clear_drops_throttle_state_for_pipeline(self):
-        """``clear(pipeline)`` lets the next call fire immediately."""
-        coord = HeartbeatCoordinator()
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is True
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is False
-        coord.clear("p1")
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is True
-
-    def test_clear_only_affects_targeted_pipeline(self):
-        """``clear(p1)`` must not drop p2's throttle entries."""
-        coord = HeartbeatCoordinator()
-        coord.should_fan_out_gateway_session("p1", None, "coder", 30.0)
-        coord.should_fan_out_gateway_session("p2", None, "coder", 30.0)
-        coord.clear("p1")
-        # p1 reset, fires again.
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is True
-        # p2 untouched, still suppressed.
-        assert coord.should_fan_out_gateway_session("p2", None, "coder", 30.0) is False
-
-    def test_clear_drops_all_slice_scoped_entries_for_pipeline(self):
-        """``clear(p1)`` must sweep every slice's entry, not just ``slice_id=None`` (#2471)."""
-        coord = HeartbeatCoordinator()
-        coord.should_fan_out_gateway_session("p1", None, "coder", 30.0)
-        coord.should_fan_out_gateway_session("p1", "slice-1", "coder", 30.0)
-        coord.should_fan_out_gateway_session("p1", "slice-2", "coder", 30.0)
-        coord.clear("p1")
-        # All three buckets reset — first post-clear call in each fires.
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is True
-        assert coord.should_fan_out_gateway_session("p1", "slice-1", "coder", 30.0) is True
-        assert coord.should_fan_out_gateway_session("p1", "slice-2", "coder", 30.0) is True
-
-    def test_concurrent_callers_only_one_wins(self):
-        """Under contention, exactly one thread should see True per window."""
-        coord = HeartbeatCoordinator()
-        results: list[bool] = []
-        results_lock = threading.Lock()
-        barrier = threading.Barrier(20)
-
-        def worker():
-            barrier.wait()
-            res = coord.should_fan_out_gateway_session("p1", None, "coder", 30.0)
-            with results_lock:
-                results.append(res)
-
-        threads = [threading.Thread(target=worker) for _ in range(20)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-
-        # Exactly one thread crossed the throttle boundary first.
-        assert sum(results) == 1
-        assert len(results) == 20
 
 
 class TestIsDuplicate:
@@ -333,23 +163,19 @@ class TestSingletonAccessor:
 
 
 # ---------------------------------------------------------------------------
-# Slice-5: heartbeat coordinator mode guard (#3064 TASK-5-2)
+# Orchestrator-mode heartbeat semantics (#3064 / #3164)
 # ---------------------------------------------------------------------------
-# These tests are written test-first: they pin the slice-5 contract that the
-# coder's TASK-5-1 must satisfy. Per the plan (slice-5) the
-# HeartbeatCoordinator gains:
-#
-#   * A mode guard: ``should_accept`` (or a method that checks
-#     EGG_EVENT_LOOP_OWNER) — in orchestrator mode, absent senders between
-#     events trip nothing; the heartbeat fan-out to gateway session refresh
-#     happens at spawn (slice-4) instead.
-#
-# Pod-mode behavior is unchanged (existing tests pass unmodified).
+# Under the orchestrator-owned event loop, agents are spawned per-event and
+# exit; between events there is no sender, so a heartbeat gap is normal. The
+# gateway-session fan-out and the coordinator's mode flag were removed in
+# #3164 — the coordinator now only tracks dedup/rate state and raises no
+# alert itself. The remaining test pins that the coordinator can be queried
+# without error for a key that has never sent a heartbeat.
 # ---------------------------------------------------------------------------
 
 
 class TestModeGuard:
-    """HeartbeatCoordinator mode-guard tests (#3064 slice-5 TASK-5-2)."""
+    """Coordinator has no gateway/alert side effect (#3064 / #3164)."""
 
     def test_absent_sender_in_orchestrator_mode_does_not_trip(self):
         """In orchestrator mode, an absent sender's silence is normal.
@@ -372,47 +198,3 @@ class TestModeGuard:
         # confirms that the coordinator can be queried without error for
         # keys that have never sent a heartbeat.
         assert coord.is_duplicate("p1", "slice-5", "coder", "WORKING", None) is False
-
-    def test_orchestrator_mode_suppresses_fan_out(self):
-        """``set_orchestrator_mode(True)`` short-circuits the fan-out gate.
-
-        In orchestrator mode the gateway-session refresh happens at spawn
-        (slice-4 worktree re-attach), not from heartbeat fan-out, so
-        ``should_fan_out_gateway_session`` must return ``False`` regardless
-        of cooldown state — the orchestrator-mode early-return in
-        ``heartbeat.py`` precedes the cooldown bookkeeping.
-        """
-        coord = HeartbeatCoordinator()
-        coord.set_orchestrator_mode(True)
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is False
-        # Still suppressed on a second call — the gate never records a
-        # timestamp in orchestrator mode, so there is no cooldown to expire.
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is False
-
-    def test_pod_mode_fan_out_unchanged(self):
-        """Default (pod) mode retains the cooldown-gated fan-out behavior.
-
-        Without ``set_orchestrator_mode``, the first call fans out and
-        records a timestamp; the second call within the cooldown is
-        suppressed. This confirms the mode guard leaves pod-mode behavior
-        untouched.
-        """
-        coord = HeartbeatCoordinator()  # default pod mode
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is True
-        # Within cooldown — suppressed, exactly as before the mode guard.
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is False
-
-    def test_orchestrator_mode_toggle_restores_pod_behavior(self):
-        """Disabling orchestrator mode restores the fan-out path.
-
-        ``set_orchestrator_mode(False)`` must un-gate the fan-out so a
-        coordinator that was flipped into orchestrator mode (e.g. on a
-        misconfigured restart) recovers pod-mode fan-out once corrected.
-        """
-        coord = HeartbeatCoordinator()
-        coord.set_orchestrator_mode(True)
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is False
-        coord.set_orchestrator_mode(False)
-        # Back in pod mode the first call fans out and records again.
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is True
-        assert coord.should_fan_out_gateway_session("p1", None, "coder", 30.0) is False

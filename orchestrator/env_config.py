@@ -231,23 +231,29 @@ def get_heartbeat_rate_limit() -> int:
 # #2137 — slice-scheduler configuration knobs.
 #
 # EGG_ORCH_MAX_PARALLEL_SLICES — soft concurrency cap on slice spawns
-#   per wave. Default 1 — a single slice runs at once unless explicitly
-#   raised. Each slice spawns ~8 agent containers, so a higher cap can
-#   saturate a small/single-node host (lowered to 1 after a 2-slice wave
-#   overwhelmed a single-node cluster). This env var is the fallback
-#   default; the authoritative per-pipeline knob is the
+#   per wave. Default 4. Under the orchestrator-owned event loop (#3164)
+#   a slice no longer pins ~8 resident agent containers for its whole
+#   lifetime — the orchestrator spawns at most one short-lived one-shot
+#   pod per actionable BRC event, so the host load of an in-flight slice
+#   is a fraction of the old resident-cohort cost. That is what makes a
+#   4-wide default safe on a single-node host where the resident model
+#   forced the cap down to 1. This env var is the fallback default; the
+#   authoritative per-pipeline knob is the
 #   ``PipelineConfig.max_parallel_slices`` field, set at pipeline
 #   creation, which takes precedence when set. (History: original
 #   decision-5 cap of 5; lowered to 2 in #2466 for container/gateway
-#   pressure; lowered to 1 for single-node host safety.)
+#   pressure; lowered to 1 for single-node host safety under the
+#   resident-pod model; raised to 4 in #3164 once on-demand spawning
+#   removed the resident-cohort cost.)
 #
 # EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES — orchestrator-process-wide
 #   cap on slices in flight across ALL running pipelines (#2241
-#   gap 1). Default 4 (operationally observed safe ceiling — each
-#   slice spawns ~8 containers and the host saturates beyond that).
-#   Slice spawn defers when saturated; admission happens before
-#   ``mark_spawned`` so the per-pipeline cap accounting stays
-#   honest.
+#   gap 1). Default 4. Under on-demand spawning (#3164) an in-flight
+#   slice costs at most one short-lived one-shot pod per BRC event
+#   rather than a resident ~8-container cohort, so a single 4-wide
+#   pipeline no longer saturates the host at this ceiling. Slice spawn
+#   defers when saturated; admission happens before ``mark_spawned`` so
+#   the per-pipeline cap accounting stays honest.
 #
 # EGG_ORCH_SLICE_LOCAL_MAX_CYCLES — per-slice BRC re-proposal ceiling
 #   before HITL escalation (refine-phase decision-9 opt-3 two-tier
@@ -268,7 +274,7 @@ def get_heartbeat_rate_limit() -> int:
 #   decision-16 opt-3 hybrid).
 # -----------------------------------------------------------------
 
-DEFAULT_MAX_PARALLEL_SLICES = 1
+DEFAULT_MAX_PARALLEL_SLICES = 4
 DEFAULT_GLOBAL_MAX_PARALLEL_SLICES = 4
 DEFAULT_SLICE_LOCAL_MAX_CYCLES = 3
 DEFAULT_SLICE_GLOBAL_MAX_CYCLES = 10
@@ -329,7 +335,7 @@ def _coerce_positive_float(env_name: str, default: float) -> float:
 
 
 def get_max_parallel_slices() -> int:
-    """Return the per-pipeline parallel-slice spawn cap (default 1)."""
+    """Return the per-pipeline parallel-slice spawn cap (default 4)."""
     return _coerce_positive_int("EGG_ORCH_MAX_PARALLEL_SLICES", DEFAULT_MAX_PARALLEL_SLICES)
 
 
@@ -338,9 +344,10 @@ def get_global_max_parallel_slices() -> int:
 
     Distinct from ``EGG_ORCH_MAX_PARALLEL_SLICES`` which caps slices
     per pipeline. This cap bounds slices across **all** running
-    pipelines in the orchestrator process — the operationally
-    observed safe ceiling is ~4 because each slice spawns ~8
-    containers and the host saturates beyond that.
+    pipelines in the orchestrator process. Under on-demand spawning
+    (#3164) an in-flight slice costs at most one short-lived one-shot
+    pod per BRC event rather than a resident ~8-container cohort, so 4
+    remains a comfortable ceiling rather than a saturation point.
 
     Slice spawn defers (the slice stays READY) when the cap is
     saturated; the per-pipeline ``iter_ready`` accounting is not
@@ -470,51 +477,7 @@ def get_recovery_ref_cleanup_interval_seconds() -> float:
     )
 
 
-# -----------------------------------------------------------------
-# EGG_EVENT_LOOP_OWNER — who drives the BRC event loop (#3064).
-#
-#   ``pod`` (default)   — today's behavior: each agent container runs
-#       the in-pod event-pump wait-loop in ``consensus_wrapper.py``.
-#   ``orchestrator``    — the orchestrator owns the loop and spawns a
-#       one-shot pod per actionable BRC event (slice-2+). The wrapper's
-#       dormant one-shot arm (slice-1) only engages in this mode.
-#
-# Unlike the other knobs in this module, an unrecognised value is
-# rejected LOUDLY (``ValueError``) rather than silently falling back to
-# the default. There is no safe silent fallback for an ownership mode:
-# the #3023 post-mortem showed that getting this wrong either deadlocks
-# BRC (loop silenced with nothing replacing it) or spawns duplicate
-# pods, so a typo must surface immediately instead of masquerading as
-# the default. The default-when-unset path stays ``pod`` so the flag is
-# dormant until an operator opts in.
-# -----------------------------------------------------------------
-
-EVENT_LOOP_OWNER_POD = "pod"
-EVENT_LOOP_OWNER_ORCHESTRATOR = "orchestrator"
-DEFAULT_EVENT_LOOP_OWNER = EVENT_LOOP_OWNER_POD
-VALID_EVENT_LOOP_OWNERS = (EVENT_LOOP_OWNER_POD, EVENT_LOOP_OWNER_ORCHESTRATOR)
-
-
-def get_event_loop_owner() -> str:
-    """Return the BRC event-loop ownership mode (default ``pod``).
-
-    Reads ``EGG_EVENT_LOOP_OWNER`` (case-insensitive) ∈
-    {``pod``, ``orchestrator``}. Unset/empty ⇒ ``pod`` (the in-pod
-    wait-loop, today's behavior). Any other value raises ``ValueError``
-    — there is no safe silent default for an ownership mode, so a
-    misconfiguration fails loudly at read time (see the module comment
-    and the #3023 post-mortem).
-    """
-    raw = os.environ.get("EGG_EVENT_LOOP_OWNER", "").strip()
-    if not raw:
-        return DEFAULT_EVENT_LOOP_OWNER
-    normalized = raw.lower()
-    if normalized not in VALID_EVENT_LOOP_OWNERS:
-        msg = (
-            f"EGG_EVENT_LOOP_OWNER={raw!r} is not a recognised ownership "
-            f"mode; valid values are {VALID_EVENT_LOOP_OWNERS} "
-            f"(default {DEFAULT_EVENT_LOOP_OWNER!r})."
-        )
-        logger.error(msg)
-        raise ValueError(msg)
-    return normalized
+# EGG_EVENT_LOOP_OWNER and ``get_event_loop_owner`` were removed in #3164.
+# The orchestrator now unconditionally owns the BRC event loop (one-shot
+# pod per actionable event); the in-pod wait-loop and the ownership flag
+# it gated were retired after the live proving run on #3200.

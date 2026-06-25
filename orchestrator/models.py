@@ -604,13 +604,15 @@ class PipelineConfig(BaseModel):
         ge=1,
         description=(
             "Per-pipeline cap on how many implement-phase slices run concurrently "
-            "in a slice-DAG wave. Set at pipeline creation. Each slice spawns ~8 "
-            "agent containers, so this is the primary host-load control for the "
-            "implement phase. When None (the default), the orchestrator falls back "
-            "to the EGG_ORCH_MAX_PARALLEL_SLICES env var, whose default is 1 — i.e. "
-            "a single slice runs at once unless explicitly raised here or via the "
-            "env var. The process-wide EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES cap "
-            "still applies across all pipelines."
+            "in a slice-DAG wave. Set at pipeline creation. Under on-demand "
+            "spawning (#3164) an in-flight slice costs at most one short-lived "
+            "one-shot pod per BRC event rather than a resident ~8-container "
+            "cohort, so this remains the primary implement-phase host-load knob "
+            "but at a far lower per-slice cost. When None (the default), the "
+            "orchestrator falls back to the EGG_ORCH_MAX_PARALLEL_SLICES env var, "
+            "whose default is 4. The process-wide "
+            "EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES cap still applies across all "
+            "pipelines."
         ),
     )
     message_poll_hint_seconds: int = Field(

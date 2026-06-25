@@ -112,7 +112,7 @@ orchestrator/
 ├── action_guards.py        # Formal BRC state machine action guards (preconditions for propose/ack/nack/confirm/withdraw)
 ├── approval_matrix.py      # Per-reviewer ACK/NACK matrix for BRC consensus
 ├── attestation_schemas.py  # Attestation payload validation for BRC proposals
-├── consensus_wrapper.py    # Shell wrapper template: deterministic event-pump loop (sole path since slice-4; legacy capped-restart template and EGG_BRC_EVENT_PUMP flag deleted); contains dormant one-shot arm (#3064 slice-1) spliced in when EGG_EVENT_LOOP_OWNER=orchestrator
+├── consensus_wrapper.py    # Shell wrapper template: one-shot-only per-event arm (#3164 retired the in-pod wait-loop + 30s heartbeat; legacy capped-restart template and EGG_BRC_EVENT_PUMP flag deleted in #2908 slice-4). The orchestrator (event_loop.py) owns the BRC loop and spawns a one-shot pod per actionable event (EGG_EVENT_ACTION)
 ├── dag_visualizer.py       # ASCII DAG visualization for pipeline status
 ├── decision_queue.py       # HITL decision queue
 ├── events.py               # Event bus for pipeline events

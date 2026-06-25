@@ -164,6 +164,7 @@ class TestFullEscalationChain:
             pipeline_id=PIPELINE_ID,
             config=config,
         )
+        monitor.set_active_roles({AGENT_ID_CODER})
         store = ProgressStore()
 
         # Track escalations
@@ -334,6 +335,8 @@ class TestDeterministicResolution:
             config=config,
         )
 
+        monitor.set_active_roles({AGENT_ID_CODER})
+
         escalations = []
         monitor.on_escalation(lambda e: escalations.append(e))
 
@@ -368,6 +371,8 @@ class TestDeterministicResolution:
             config=config,
         )
 
+        monitor.set_active_roles({AGENT_ID_CODER})
+
         escalations = []
         monitor.on_escalation(lambda e: escalations.append(e))
 
@@ -401,6 +406,8 @@ class TestDeterministicResolution:
             pipeline_id=PIPELINE_ID,
             config=config,
         )
+
+        monitor.set_active_roles({AGENT_ID_CODER})
 
         escalations = []
         monitor.on_escalation(lambda e: escalations.append(e))
@@ -452,6 +459,7 @@ class TestMultipleAgentsStalling:
             pipeline_id=PIPELINE_ID,
             config=config,
         )
+        monitor.set_active_roles({AGENT_ID_CODER, AGENT_ID_TESTER})
 
         # Register both agents
         _emit_progress(bus, agent_id=AGENT_ID_CODER)
@@ -487,6 +495,7 @@ class TestMultipleAgentsStalling:
             pipeline_id=PIPELINE_ID,
             config=config,
         )
+        monitor.set_active_roles({AGENT_ID_CODER, AGENT_ID_TESTER})
 
         # Register both agents
         _emit_progress(bus, agent_id=AGENT_ID_CODER)
@@ -516,6 +525,7 @@ class TestMultipleAgentsStalling:
             pipeline_id=PIPELINE_ID,
             config=config,
         )
+        monitor.set_active_roles({AGENT_ID_CODER, AGENT_ID_TESTER})
 
         escalations = []
         monitor.on_escalation(lambda e: escalations.append(e))
@@ -560,6 +570,7 @@ class TestMultipleAgentsStalling:
             pipeline_id=PIPELINE_ID,
             config=config,
         )
+        monitor.set_active_roles({AGENT_ID_CODER, AGENT_ID_TESTER})
 
         escalations = []
         monitor.on_escalation(lambda e: escalations.append(e))
@@ -611,6 +622,7 @@ class TestOverseerDisabledFallback:
             pipeline_id=PIPELINE_ID,
             config=config,
         )
+        monitor.set_active_roles({AGENT_ID_CODER})
 
         escalations = []
         monitor.on_escalation(lambda e: escalations.append(e))
@@ -702,6 +714,7 @@ class TestOverseerDisabledFallback:
                 pipeline_id=PIPELINE_ID,
                 config=config,
             )
+            monitor.set_active_roles({AGENT_ID_CODER})
 
             escalations: list = []
             monitor.on_escalation(lambda e, _esc=escalations: _esc.append(e))

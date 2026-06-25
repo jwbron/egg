@@ -618,10 +618,8 @@ def _build_iteration_feedback(
 ) -> dict[str, Any] | None:
     """Build the ``iteration_feedback`` block for a BRC event (#3231).
 
-    Under ``EGG_EVENT_LOOP_OWNER=orchestrator`` the re-spawned agent's
-    prompt is composed by ``orchestrator/routes/event_prompt.py`` (not the
-    in-pod ``_build_phase_iteration_context`` path that already carries
-    #2795's iteration context). Without this block:
+    The re-spawned agent's prompt is composed by
+    ``orchestrator/routes/event_prompt.py``. Without this block:
 
     * the **producer** (``propose`` arm) re-reads its own prior on-disk
       draft and re-proposes it byte-for-byte — the operator's
@@ -809,9 +807,8 @@ def handle_next_action(pipeline_id: str) -> tuple[Response, int]:
 
     # Per-iteration operator kickback (#3231): thread the operator's
     # ``request_changes`` / ``change_approach`` feedback onto the
-    # event_payload so the re-spawned agent sees it under
-    # ``EGG_EVENT_LOOP_OWNER=orchestrator`` (its prompt is composed from
-    # this payload). Two arms carry it:
+    # event_payload so the re-spawned agent sees it (its prompt is
+    # composed from this payload). Two arms carry it:
     #   * ``propose`` — the kicked-back producer must address (or rebut)
     #     the directive before re-proposing, else it re-reads its own
     #     prior draft and re-proposes it unchanged (the #1283 / #1915

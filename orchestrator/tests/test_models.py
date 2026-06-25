@@ -569,11 +569,17 @@ class TestPipelineConfig:
         with pytest.raises(ValidationError):
             PipelineConfig(max_parallel_slices=0)
 
-    def test_env_fallback_default_is_single_slice(self):
-        """When no per-pipeline value is set, the fallback default is 1 slice."""
+    def test_env_fallback_default_is_four_slices(self):
+        """When no per-pipeline value is set, the fallback default is 4 slices.
+
+        Raised from 1 to 4 in #3164: under the orchestrator-owned event
+        loop an in-flight slice no longer pins a resident ~8-container
+        cohort (it spawns one short-lived one-shot pod per BRC event), so
+        a 4-wide wave is safe on a single-node host.
+        """
         from orchestrator.env_config import DEFAULT_MAX_PARALLEL_SLICES
 
-        assert DEFAULT_MAX_PARALLEL_SLICES == 1
+        assert DEFAULT_MAX_PARALLEL_SLICES == 4
 
 
 class TestResolveConsensusTimeoutMinutes:

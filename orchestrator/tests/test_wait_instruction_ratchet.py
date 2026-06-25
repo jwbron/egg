@@ -1,17 +1,21 @@
 """Blocking-wait instruction ratchet for agent-facing prompt sources (#3157).
 
 The event-pump contract (#2908) is: **agents never wait on the message
-bus** — the consensus wrapper (`orchestrator/consensus_wrapper.py`) owns
-every blocking read (`egg-orch message wait` / `wait-loop`) and invokes
-the agent one-shot per actionable BRC event. The per-event prompt
-(`orchestrator/routes/event_prompt.py`) states the contract to the agent
-directly; `docs/reference/agent-wait-patterns.md` §0 is the reference.
+bus**. Since [#3164](https://github.com/jwbron/egg/issues/3164) retired
+the in-pod wait arm, the **orchestrator owns all waiting**
+(`orchestrator/event_loop.py`): it derives the next BRC event in-process
+and spawns the agent one-shot per actionable event — agents never issue
+a blocking read (`egg-orch message wait` / `wait-loop`). The per-event
+prompt (`orchestrator/routes/event_prompt.py`) states the contract to the
+agent directly; `docs/reference/agent-wait-patterns.md` §0 is the
+reference.
 
 #3157 retired the pre-pump agent-facing canon that still taught the
 "STAY ALIVE" blocking-wait idiom. This module is the ratchet: any future
 reintroduction of a blocking-wait instruction into the scanned
 agent-facing sources fails CI before the contract can drift back —
-recreating the #1897 pathologies and double-waiting against the wrapper.
+recreating the #1897 pathologies and double-waiting against the
+orchestrator-owned loop.
 
 Scope (the sources that reach agents):
 
@@ -24,8 +28,9 @@ Scope (the sources that reach agents):
 Patterns matched:
 
 * `egg-orch message wait` / `egg-orch message wait-loop` — the blocking
-  CLI surface is wrapper-internal; agent-facing text may name it only to
-  forbid it (those occurrences are allowlisted with justification).
+  CLI surface is not for agents (the orchestrator owns all waiting);
+  agent-facing text may name it only to forbid it (those occurrences are
+  allowlisted with justification).
 * `STAY ALIVE` / `stay-alive` / `stay_alive` — the retired idiom name.
   Agent-facing text must not present it as a live step.
 
@@ -90,23 +95,23 @@ _SCAN_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 # names the forbidden command in order to forbid it.
 _ALLOWLIST: tuple[tuple[str, str, int], ...] = (
     # JUSTIFICATION: mission.md tells the agent it does NOT need to call
-    # `egg-orch message wait` because the wrapper owns sequencing — the
-    # token appears only inside the negative instruction that codifies
-    # the event-pump contract (#2908 slice-3 mission rewrite).
+    # `egg-orch message wait` because the orchestrator owns all waiting —
+    # the token appears only inside the negative instruction that codifies
+    # the event-pump contract (#2908 mission rewrite; #3164 ownership flip).
     ("sandbox/agent-config/rules/mission.md", "egg-orch message wait", 155),
     # JUSTIFICATION: the rules/orchestrator.md CLI-reference callout
     # forbids agent-tier blocking waits (#3157); it names
-    # `egg-orch message wait` / `wait-loop` only to mark them
-    # wrapper-internal and direct the agent to exit instead. Two
-    # matches on the same line (the wrapper attribution and the
-    # "do NOT run" clause) — both covered by this entry.
+    # `egg-orch message wait` / `wait-loop` only to mark them not for
+    # agents (the orchestrator owns the wait, #3164) and direct the agent
+    # to exit instead. Two matches on the same line (the orchestrator
+    # attribution and the "do NOT run" clause) — both covered by this entry.
     ("sandbox/agent-config/rules/orchestrator.md", "egg-orch message wait", 64),
     # JUSTIFICATION: the per-event prompt contract string is the
     # authoritative agent-facing wording of the invariant — "Do NOT
-    # block on ``egg-orch message wait-loop`` yourself: the wrapper
-    # owns the wait and the heartbeat (#2908 slice-2)". The token is
-    # present precisely to forbid the call.
-    ("orchestrator/routes/event_prompt.py", "egg-orch message wait-loop", 829),
+    # block on ``egg-orch message wait-loop`` yourself: the orchestrator
+    # owns the wait and spawns you one-shot per event (#3164)". The token
+    # is present precisely to forbid the call.
+    ("orchestrator/routes/event_prompt.py", "egg-orch message wait-loop", 827),
 )
 
 
@@ -161,15 +166,16 @@ def _filter_allowlist(
 )
 def test_agent_facing_markdown_has_no_wait_instructions(prompt_path: Path) -> None:
     """No agent-facing markdown source may instruct a blocking bus wait
-    or present the STAY ALIVE idiom as live. The wrapper owns all
-    waiting (#2908); agents handle one event and exit (#3157)."""
+    or present the STAY ALIVE idiom as live. The orchestrator owns all
+    waiting (#2908/#3164); agents handle one event and exit (#3157)."""
     text = prompt_path.read_text(encoding="utf-8")
     findings = _filter_allowlist(prompt_path.relative_to(_REPO_ROOT).as_posix(), _scan_text(text))
     assert not findings, (
         f"blocking-wait instruction in {prompt_path.name}: {findings}; "
-        f"agents never wait on the bus — the consensus wrapper owns "
-        f"`egg-orch message wait[-loop]` and invokes agents one-shot "
-        f"per event (docs/reference/agent-wait-patterns.md §0). If the "
+        f"agents never wait on the bus — the orchestrator owns all "
+        f"waiting (it derives `egg-orch message wait[-loop]` in-process "
+        f"and spawns agents one-shot per event; "
+        f"docs/reference/agent-wait-patterns.md §0). If the "
         f"occurrence is a negative instruction (naming the command to "
         f"forbid it), add a justified _ALLOWLIST entry."
     )

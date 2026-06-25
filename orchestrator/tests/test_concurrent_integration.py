@@ -680,13 +680,15 @@ class TestSpawnUsesConsensusWrapper:
         assert command[0] == "bash"
         assert command[1] == "-c"
         assert "egg_agent" in command[2]
-        # Slice-4 (#2908) replaced the capped-restart wrapper with the
-        # event-pump template; check for its deterministic-loop markers
-        # instead of the deleted RESTART_COUNT / "BRC Consensus Recovery"
-        # strings.
+        # #3164 retired the in-pod wait loop: the wrapper is now a one-shot
+        # event handler. Check for its markers — it re-derives next-action
+        # once as a stale-event backstop (``egg-orch brc next-action``) and
+        # keys on the injected ``EGG_EVENT_ACTION`` — rather than the deleted
+        # blocking-loop ``egg-orch brc get-state`` / wait-loop strings.
         assert "event-pump" in command[2]
-        assert "egg-orch brc get-state" in command[2]
         assert "egg-orch brc next-action" in command[2]
+        assert "EGG_EVENT_ACTION" in command[2]
+        assert "egg-orch brc get-state" not in command[2]
 
 
 class TestNoImplicitReadyOnCleanExit:

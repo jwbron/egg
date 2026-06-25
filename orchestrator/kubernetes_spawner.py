@@ -216,12 +216,12 @@ _PROTECTED_ENV_KEYS: frozenset[str] = frozenset(
 LABEL_EVENT_DEDUPE = "egg.event.dedupe-key"
 LABEL_EVENT_ACTION = "egg.event.action"
 
-# Env keys read by the consensus wrapper's one-shot arm
-# (``consensus_wrapper.py``). ``EGG_EVENT_LOOP_OWNER=orchestrator`` +
-# ``EGG_EVENT_ACTION`` engage the arm; ``EGG_EVENT_DEDUPE_KEY`` is the
-# stale-event backstop / reconciliation handle. None are in
-# ``_PROTECTED_ENV_KEYS`` — the one-shot entry is their only writer.
-ENV_EVENT_LOOP_OWNER = "EGG_EVENT_LOOP_OWNER"
+# Env keys read by the consensus wrapper's one-shot event handler
+# (``consensus_wrapper.py``). ``EGG_EVENT_ACTION`` engages the handler;
+# ``EGG_EVENT_DEDUPE_KEY`` is the stale-event backstop / reconciliation
+# handle. None are in ``_PROTECTED_ENV_KEYS`` — the one-shot spawn is
+# their only writer. (The ``EGG_EVENT_LOOP_OWNER`` ownership flag was
+# retired in #3164 — the orchestrator always owns the event loop.)
 ENV_EVENT_ACTION = "EGG_EVENT_ACTION"
 ENV_EVENT_DEDUPE_KEY = "EGG_EVENT_DEDUPE_KEY"
 ENV_EVENT_PAYLOAD_REFS = "EGG_EVENT_PAYLOAD_REFS"
@@ -1934,10 +1934,10 @@ class KubernetesSpawner:
         """Spawn (or adopt) a one-shot Job for a single BRC event (#3064).
 
         The Job's env carries the full event identity so the consensus
-        wrapper's one-shot arm engages (``EGG_EVENT_LOOP_OWNER=orchestrator``
-        + ``EGG_EVENT_ACTION`` ∈ ``propose|ack|nack`` + ``EGG_EVENT_DEDUPE_KEY``)
-        and the dedupe key rides as a Job *label* — the reconciliation handle
-        the event loop rebuilds its live set from on restart.
+        wrapper's one-shot event handler engages (``EGG_EVENT_ACTION`` ∈
+        ``propose|ack|nack`` + ``EGG_EVENT_DEDUPE_KEY``) and the dedupe key
+        rides as a Job *label* — the reconciliation handle the event loop
+        rebuilds its live set from on restart.
 
         **Adoption**: requesting a spawn for an already-live dedupe key
         returns ``None`` (the existing Job is adopted) rather than creating a
@@ -2042,7 +2042,6 @@ class KubernetesSpawner:
                 )
 
         event_env: dict[str, str] = {
-            ENV_EVENT_LOOP_OWNER: "orchestrator",
             ENV_EVENT_ACTION: action,
             ENV_EVENT_DEDUPE_KEY: dedupe_key,
         }

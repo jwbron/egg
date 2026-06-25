@@ -1,8 +1,8 @@
 """Tests for the per-iteration operator kickback delivery on the
 orchestrator-owned event-loop ``next-action`` path (#3231).
 
-Under ``EGG_EVENT_LOOP_OWNER=orchestrator`` the re-spawned producer's
-prompt is composed from the ``event_payload`` the ``next-action`` route
+The re-spawned producer's prompt is composed from the
+``event_payload`` the ``next-action`` route
 returns. Without the ``iteration_feedback`` block the producer re-reads
 its own prior on-disk draft and re-proposes it byte-for-byte — the
 operator's ``request_changes`` / ``change_approach`` silently no-ops

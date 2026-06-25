@@ -48,11 +48,12 @@ class HeartbeatCoordinator:
     Thread-safe.  One instance lives as an orchestrator-process-global
     singleton (``get_heartbeat_coordinator``).
 
-    Mode guard (#3064 slice-5): in orchestrator mode the gateway-session
-    refresh side-effect (``should_fan_out_gateway_session``) is suppressed
-    — session refresh happens at spawn time (slice-4 worktree re-attach),
-    not via heartbeat fan-out. Absent-sender alerts are handled by the
-    health monitor's mode-aware tripwires, not the coordinator.
+    The coordinator validates, dedups, and rate-limits HEARTBEATs for
+    liveness tracking. It has no gateway-session side effect: under the
+    orchestrator-owned event loop (#3164) a pod is one-shot per BRC event,
+    so its gateway session is refreshed at spawn time (worktree re-attach),
+    not via a heartbeat fan-out (the resident-pod keep-alive that lived
+    here was removed in #3164).
     """
 
     def __init__(self, window_seconds: int = 60) -> None:
@@ -62,11 +63,6 @@ class HeartbeatCoordinator:
         self._windows: dict[_Key, deque[float]] = {}
         # (pipeline_id, slice_id, role) -> last-seen (state, waiting_on)
         self._last_state: dict[_Key, tuple[str, str]] = {}
-        # (pipeline_id, slice_id, role) -> last gateway-session fan-out epoch-seconds
-        self._last_fan_out: dict[_Key, float] = {}
-        # #3064 slice-5: in orchestrator mode the heartbeat path does NOT
-        # refresh the gateway session — that happens at spawn time.
-        self._orchestrator_mode: bool = False
 
     def check_rate_limit(
         self,
@@ -134,79 +130,13 @@ class HeartbeatCoordinator:
         with self._lock:
             self._last_state[key] = (state, waiting_on or "")
 
-    def should_fan_out_gateway_session(
-        self,
-        pipeline_id: str,
-        slice_id: str | None,
-        role: str,
-        min_interval_seconds: float,
-    ) -> bool:
-        """Throttle gateway-session fan-outs (issue #2076 NB2).
-
-        The HEARTBEAT route fans out a gateway-session refresh both on
-        the dedup early-return path and after the rate-limit gate.  The
-        dedup path bypasses the per-(slice, role) rate limiter (by
-        design — see ``check_rate_limit``'s NB1 from #1897), so a
-        misbehaving agent hot-looping with identical state can amplify
-        into the gateway without burning rate budget.  This per-(slice,
-        role) cooldown caps that amplification independently of the
-        heartbeat-acceptance rate.
-
-        Returns ``True`` and records the new timestamp if at least
-        ``min_interval_seconds`` have passed since the previous fan-out
-        for this ``(pipeline_id, slice_id, role)``; returns ``False``
-        (without recording) if the caller should skip the fan-out this
-        round.  Any non-positive ``min_interval_seconds`` (``<= 0``)
-        disables throttling — every call returns ``True`` without
-        recording.
-
-        Callers must pass a finite real number. ``float('nan')`` falls
-        through both branches (``nan <= 0`` and ``now - last < nan`` are
-        both False), which would silently behave as "always record,
-        never suppress" — not a meaningful state.  The realistic call
-        site (``_GATEWAY_FANOUT_MIN_INTERVAL_SECONDS = 30.0``) is a
-        module constant, but if a future env-var-driven knob lands
-        (#2076 NB5) it should sanitize NaN/inf at parse time.
-        """
-        if min_interval_seconds <= 0:
-            return True
-        key: _Key = (pipeline_id, slice_id, role)
-        now = time.time()
-        # Single lock acquisition covers both the orchestrator-mode gate and
-        # the cooldown bookkeeping.
-        with self._lock:
-            # #3064 slice-5: in orchestrator mode session refresh happens at
-            # spawn (slice-4 worktree re-attach), not from heartbeat fan-out.
-            # Suppress the gateway call to prevent absent-sender alerts from
-            # stale heartbeat fan-out in orchestrator mode.
-            if self._orchestrator_mode:
-                return False
-            last = self._last_fan_out.get(key, 0.0)
-            if now - last < min_interval_seconds:
-                return False
-            self._last_fan_out[key] = now
-        return True
-
-    def set_orchestrator_mode(self, enabled: bool = True) -> None:
-        """Enable or disable orchestrator-mode suppression of session fan-out.
-
-        In orchestrator mode (``enabled=True``) the gateway-session refresh
-        side-effect is suppressed — the heartbeat route still validates,
-        dedups, and rate-limits, but ``should_fan_out_gateway_session``
-        returns ``False``. Session refresh happens at spawn (slice-4 worktree
-        re-attach) not from heartbeat fan-out. Pod-mode (``enabled=False``)
-        restores today's fan-out behavior.  Thread-safe.
-        """
-        with self._lock:
-            self._orchestrator_mode = enabled
-
     def clear(self, pipeline_id: str) -> None:
         """Drop all state for a pipeline (on phase transition).
 
-        Sweeps every ``(pipeline_id, *, *)`` key across all three
+        Sweeps every ``(pipeline_id, *, *)`` key across both
         per-(pipeline, slice, role) maps so a phase transition resets
-        rate budgets, dedup memory, and fan-out cooldowns for both
-        pipeline-level and slice-scoped agents in one shot.
+        rate budgets and dedup memory for both pipeline-level and
+        slice-scoped agents in one shot.
         """
         with self._lock:
             for key in list(self._windows):
@@ -215,9 +145,6 @@ class HeartbeatCoordinator:
             for key in list(self._last_state):
                 if key[0] == pipeline_id:
                     del self._last_state[key]
-            for key in list(self._last_fan_out):
-                if key[0] == pipeline_id:
-                    del self._last_fan_out[key]
 
 
 _coordinator: HeartbeatCoordinator | None = None

@@ -1,14 +1,14 @@
 """Orchestrator-owned BRC event loop (#3064 slice-2, TASK-2-1; slice-3, TASK-3-1;
 slice-5, TASK-5-1).
 
-Under ``EGG_EVENT_LOOP_OWNER=orchestrator`` the orchestrator — not a
-long-lived in-pod wait-loop — owns the BRC event loop. For every role it
-consumes the logic backing ``routes.consensus._derive_next_action``
-IN-PROCESS and maps the derived verb onto a lifecycle action:
+The orchestrator — not a long-lived in-pod wait-loop — owns the BRC
+event loop (unconditionally, post-#3164). For every role it consumes the
+logic backing ``routes.consensus._derive_next_action`` IN-PROCESS and
+maps the derived verb onto a lifecycle action:
 
 * ``propose | ack | nack`` → request a one-shot Job via an injectable
-  spawner (the pod handles exactly one event and exits — the slice-1
-  wrapper arm).
+  spawner (the pod handles exactly one event and exits — the wrapper's
+  one-shot event handler).
 * ``confirm | complete``   → executed orchestrator-side, agent-free, with
   **no pod** (mirrors the wrapper's ``egg-orch consensus confirmed`` arm).
 * ``wait``                 → nothing.

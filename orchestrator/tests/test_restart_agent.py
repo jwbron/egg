@@ -406,7 +406,13 @@ class TestRestartAgentEndpoint:
     def test_restart_agent_success(
         self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
     ):
-        """Successful agent restart returns 200 with new container ID."""
+        """Successful agent restart returns 200 and delegates respawn (#3164).
+
+        After #3164 ``restart_agent`` no longer spawns a resident pod —
+        it resets consensus + kills the live one-shot Job and the event
+        loop respawns. So the response carries no ``container_id``; it
+        carries the ``respawn`` delegation marker.
+        """
         mock_repo.return_value = "/repo"
         mock_lock_fn.return_value = MagicMock()
         pipeline = _make_pipeline_with_running_agent()
@@ -416,18 +422,7 @@ class TestRestartAgentEndpoint:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.k8s.list_containers.return_value = []
         mock_spawner.get_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
@@ -439,8 +434,11 @@ class TestRestartAgentEndpoint:
         assert response.status_code == 200
         data = response.get_json()
         assert data.get("success") is True
-        assert data["data"]["container_id"] == "new-container-xyz"
+        # #3164: no resident pod is spawned here.
+        mock_spawner.restart_agent_container.assert_not_called()
+        assert "container_id" not in data["data"]
         assert data["data"]["agent_role"] == "coder"
+        assert data["data"]["respawn"] == "delegated to orchestrator event loop"
 
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
@@ -517,18 +515,7 @@ class TestRestartAgentEndpoint:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.k8s.list_containers.return_value = []
         mock_spawner.get_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
@@ -562,18 +549,7 @@ class TestRestartAgentEndpoint:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.k8s.list_containers.return_value = []
         mock_spawner.get_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
@@ -590,10 +566,15 @@ class TestRestartAgentEndpoint:
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_restart_spawner_failure_returns_500(
+    def test_restart_tolerates_live_job_listing_failure(
         self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
     ):
-        """Restart returns 500 when spawner fails."""
+        """A k8s failure listing live one-shot Jobs is best-effort (#3164).
+
+        The respawn is owned by the event loop, so a failure tearing
+        down the stuck pod must not fail the restart — consensus is
+        still reset and the route returns 200.
+        """
         mock_repo.return_value = "/repo"
         mock_lock_fn.return_value = MagicMock()
         pipeline = _make_pipeline_with_running_agent()
@@ -603,7 +584,8 @@ class TestRestartAgentEndpoint:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        mock_spawner.restart_agent_container.side_effect = ContainerSpawnError("Failed")
+        mock_spawner.k8s.list_containers.side_effect = RuntimeError("k8s API down")
+        mock_spawner.get_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -611,21 +593,23 @@ class TestRestartAgentEndpoint:
             json={},
         )
 
-        assert response.status_code == 500
+        assert response.status_code == 200
+        mock_spawner.restart_agent_container.assert_not_called()
 
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_restart_spawner_failure_reverts_status_to_failed(
+    def test_restart_failed_pipeline_transitions_to_running_no_revert(
         self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
     ):
-        """Spawn failure must revert pipeline status back to FAILED.
+        """Restart of a FAILED pipeline transitions to RUNNING and stays there.
 
-        Regression test for review feedback on #1594: the early status update
-        sets RUNNING before the spawn attempt. If the spawn raises
-        ContainerSpawnError, the status must be reverted so monitoring doesn't
-        see a 'running' pipeline with no running agent.
+        After #3164 there is no resident spawn that can fail, so the
+        early FAILED -> RUNNING transition is never reverted: the event
+        loop owns the respawn. Replaces the old
+        ``...spawner_failure_reverts_status_to_failed`` regression test
+        whose spawn-failure path no longer exists.
         """
         mock_repo.return_value = "/repo"
         mock_lock_fn.return_value = MagicMock()
@@ -638,7 +622,8 @@ class TestRestartAgentEndpoint:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        mock_spawner.restart_agent_container.side_effect = ContainerSpawnError("Failed")
+        mock_spawner.k8s.list_containers.return_value = []
+        mock_spawner.get_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -646,27 +631,23 @@ class TestRestartAgentEndpoint:
             json={},
         )
 
-        assert response.status_code == 500
-        # Verify status was reverted to FAILED after spawn failure
-        assert pipeline.status == PipelineStatus.FAILED
-        assert pipeline.phases["implement"].status == PipelineStatus.FAILED
-        # Verify update_pipeline was called at least twice:
-        # once for the early RUNNING update, once for the FAILED revert
-        assert mock_store.update_pipeline.call_count >= 2
+        assert response.status_code == 200
+        assert pipeline.status == PipelineStatus.RUNNING
+        assert pipeline.phases["implement"].status == PipelineStatus.RUNNING
+        mock_spawner.restart_agent_container.assert_not_called()
 
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_restart_cancelled_spawner_failure_reverts_status_to_failed(
+    def test_restart_cancelled_pipeline_transitions_to_running_no_revert(
         self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
     ):
-        """Spawn failure on a CANCELLED pipeline reverts status to FAILED.
+        """Restart of a CANCELLED pipeline transitions to RUNNING (no revert).
 
-        When restart_agent is called on a CANCELLED pipeline and the spawn
-        fails, the revert unconditionally sets FAILED (not back to CANCELLED).
-        This is intentional: FAILED is also restartable, and it accurately
-        reflects that the restart attempt failed.
+        cancel_task(cleanup=false) leaves CANCELLED with state preserved;
+        restart resumes it. With no resident spawn (#3164) there is no
+        failure path that would revert to FAILED.
         """
         mock_repo.return_value = "/repo"
         mock_lock_fn.return_value = MagicMock()
@@ -679,7 +660,8 @@ class TestRestartAgentEndpoint:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        mock_spawner.restart_agent_container.side_effect = ContainerSpawnError("Failed")
+        mock_spawner.k8s.list_containers.return_value = []
+        mock_spawner.get_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -687,11 +669,10 @@ class TestRestartAgentEndpoint:
             json={},
         )
 
-        assert response.status_code == 500
-        # Spawn failure reverts to FAILED (not back to CANCELLED)
-        assert pipeline.status == PipelineStatus.FAILED
-        assert pipeline.phases["implement"].status == PipelineStatus.FAILED
-        assert mock_store.update_pipeline.call_count >= 2
+        assert response.status_code == 200
+        assert pipeline.status == PipelineStatus.RUNNING
+        assert pipeline.phases["implement"].status == PipelineStatus.RUNNING
+        mock_spawner.restart_agent_container.assert_not_called()
 
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
@@ -709,254 +690,6 @@ class TestRestartAgentEndpoint:
 
         assert response.status_code == 400
 
-    @patch("routes.pipelines._compute_gateway_mode")
-    @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    def test_restart_agent_uses_computed_gateway_mode(
-        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_gateway_mode, client
-    ):
-        """Agent restart should use _compute_gateway_mode, not hardcoded 'public'.
-
-        This ensures private-repo pipelines get the correct gateway mode on restart.
-        """
-        mock_repo.return_value = "/repo"
-        mock_lock_fn.return_value = MagicMock()
-        mock_gateway_mode.return_value = ("private", "private")
-
-        pipeline = _make_pipeline_with_running_agent()
-
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_resolve.return_value = (mock_store, pipeline)
-
-        mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
-        mock_spawner.get_restart_count.return_value = 1
-        mock_spawner_fn.return_value = mock_spawner
-
-        response = client.post(
-            "/api/v1/pipelines/issue-100/agents/coder/restart",
-            json={},
-        )
-
-        assert response.status_code == 200
-        # Verify _compute_gateway_mode was called with the pipeline
-        mock_gateway_mode.assert_called_once_with(pipeline)
-        # Verify the computed mode was passed to the spawner
-        restart_call = mock_spawner.restart_agent_container.call_args
-        assert restart_call[1].get("mode") == "private", (
-            "Expected computed gateway mode 'private', not hardcoded 'public'"
-        )
-
-
-# ---------------------------------------------------------------------------
-# Issue #2967 follow-up: restart path resolves ``pipeline.base_branch=None``
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.skipif(not _HAS_FLASK, reason="Flask not available")
-class TestRestartAgentBaseBranchResolution:
-    """The restart path resolves the default branch when
-    ``pipeline.base_branch`` is ``None`` so the spawner receives a concrete
-    branch name. Without this, the spawner's ``EGG_BASE_BRANCH``
-    env-injection guard skips the export, the BRC event-pump's per-producer
-    ``git log {sha}..HEAD --not origin/<base>`` delta falls back to
-    ``origin/main`` in both consumers, and the diff errors out on every
-    non-``main`` repo (mirrors the initial-spawn fix at
-    ``test_kubernetes_spawner.py::test_spawn_with_base_branch_sets_egg_base_branch_env``).
-    """
-
-    @patch("routes.pipelines.get_default_branch")
-    @patch("routes.pipelines.resolve_worktree_repo_path")
-    @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    def test_restart_resolves_base_branch_when_pipeline_base_is_none(
-        self,
-        mock_repo,
-        mock_resolve,
-        mock_spawner_fn,
-        mock_lock_fn,
-        mock_resolve_worktree,
-        mock_get_default,
-        client,
-    ):
-        """A ``None`` ``pipeline.base_branch`` resolves to ``get_default_branch``
-        and is forwarded as the spawner's ``base_branch`` argument."""
-        mock_repo.return_value = "/repo"
-        mock_lock_fn.return_value = MagicMock()
-        mock_resolve_worktree.return_value = Path("/repo/worktree")
-        mock_get_default.return_value = "master"
-
-        pipeline = _make_pipeline_with_running_agent()
-        assert pipeline.base_branch is None, (
-            "fixture must leave base_branch unset to exercise the auto-detect path"
-        )
-
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_resolve.return_value = (mock_store, pipeline)
-
-        mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
-        mock_spawner.get_restart_count.return_value = 1
-        mock_spawner_fn.return_value = mock_spawner
-
-        response = client.post(
-            "/api/v1/pipelines/issue-100/agents/coder/restart",
-            json={"reason": "auto-detect base branch"},
-        )
-
-        assert response.status_code == 200
-        restart_kwargs = mock_spawner.restart_agent_container.call_args.kwargs
-        assert restart_kwargs.get("base_branch") == "master", (
-            "Restart must thread the resolved default branch into the spawner's "
-            "base_branch kwarg so EGG_BASE_BRANCH is exported and the BRC delta "
-            "works on non-main repos (#2967 follow-up)."
-        )
-
-    @patch("routes.pipelines.get_default_branch")
-    @patch("routes.pipelines.resolve_worktree_repo_path")
-    @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    def test_restart_preserves_explicit_pipeline_base_branch(
-        self,
-        mock_repo,
-        mock_resolve,
-        mock_spawner_fn,
-        mock_lock_fn,
-        mock_resolve_worktree,
-        mock_get_default,
-        client,
-    ):
-        """An explicit ``pipeline.base_branch`` is forwarded unchanged — the
-        ``get_default_branch`` fallback only fires when it's ``None``."""
-        mock_repo.return_value = "/repo"
-        mock_lock_fn.return_value = MagicMock()
-        mock_resolve_worktree.return_value = Path("/repo/worktree")
-        # If this fires, the explicit ``base_branch`` was wrongly discarded.
-        mock_get_default.side_effect = AssertionError(
-            "get_default_branch must not fire when pipeline.base_branch is set"
-        )
-
-        pipeline = _make_pipeline_with_running_agent()
-        pipeline.base_branch = "jwbron-claude-md"
-
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_resolve.return_value = (mock_store, pipeline)
-
-        mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
-        mock_spawner.get_restart_count.return_value = 1
-        mock_spawner_fn.return_value = mock_spawner
-
-        response = client.post(
-            "/api/v1/pipelines/issue-100/agents/coder/restart",
-            json={"reason": "explicit base branch"},
-        )
-
-        assert response.status_code == 200
-        restart_kwargs = mock_spawner.restart_agent_container.call_args.kwargs
-        assert restart_kwargs.get("base_branch") == "jwbron-claude-md"
-
-    @patch("routes.pipelines.get_default_branch")
-    @patch("routes.pipelines.resolve_worktree_repo_path")
-    @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    def test_restart_tolerates_worktree_resolution_failure(
-        self,
-        mock_repo,
-        mock_resolve,
-        mock_spawner_fn,
-        mock_lock_fn,
-        mock_resolve_worktree,
-        mock_get_default,
-        client,
-    ):
-        """If the worktree path cannot be resolved (e.g. pruned), the restart
-        still proceeds with the raw ``pipeline.base_branch`` — preserving
-        pre-#2967 restart availability rather than blocking on resolution."""
-        mock_repo.return_value = "/repo"
-        mock_lock_fn.return_value = MagicMock()
-        mock_resolve_worktree.side_effect = RuntimeError("worktree pruned")
-
-        pipeline = _make_pipeline_with_running_agent()
-        # Leave base_branch=None so the resolution would normally fire.
-        assert pipeline.base_branch is None
-
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_resolve.return_value = (mock_store, pipeline)
-
-        mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
-        mock_spawner.get_restart_count.return_value = 1
-        mock_spawner_fn.return_value = mock_spawner
-
-        response = client.post(
-            "/api/v1/pipelines/issue-100/agents/coder/restart",
-            json={"reason": "worktree pruned"},
-        )
-
-        assert response.status_code == 200
-        # get_default_branch must not be called when worktree resolution fails.
-        mock_get_default.assert_not_called()
-        # Restart still happens with the raw (None) pipeline.base_branch.
-        restart_kwargs = mock_spawner.restart_agent_container.call_args.kwargs
-        assert restart_kwargs.get("base_branch") is None
-
 
 # ---------------------------------------------------------------------------
 # Issue #2410: slice_id forwarding through the operator restart route
@@ -971,10 +704,17 @@ class TestRestartAgentEndpointSliceScope:
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_slice_id_query_param_forwarded_to_spawner(
+    def test_slice_id_query_param_scopes_live_job_lookup_and_count(
         self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
     ):
-        """``?slice_id=slice-2`` reaches ``restart_agent_container``."""
+        """``?slice_id=slice-2`` scopes the live-Job label filter + restart count (#2410/#3164).
+
+        After #3164 there is no spawn; the slice scope instead narrows
+        the ``list_containers`` label filter (so we only tear down the
+        slice's stuck pod) and the per-slice restart-count bucket.
+        """
+        from kubernetes_client import LABEL_AGENT_ROLE, LABEL_PIPELINE_ID, LABEL_SLICE_ID
+
         mock_repo.return_value = "/repo"
         mock_lock_fn.return_value = MagicMock()
         pipeline = _make_pipeline_with_running_agent()
@@ -984,18 +724,7 @@ class TestRestartAgentEndpointSliceScope:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-slice-2-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.k8s.list_containers.return_value = []
         mock_spawner.get_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
@@ -1005,24 +734,31 @@ class TestRestartAgentEndpointSliceScope:
         )
 
         assert response.status_code == 200
-        restart_call = mock_spawner.restart_agent_container.call_args
-        assert restart_call.kwargs["slice_id"] == "slice-2"
+        mock_spawner.restart_agent_container.assert_not_called()
+        # The live one-shot Job lookup is found by LABEL (Jobs carry an
+        # event-discriminator suffix in their name), scoped to the slice.
+        list_call = mock_spawner.k8s.list_containers.call_args
+        assert list_call.kwargs["labels"] == {
+            LABEL_PIPELINE_ID: "issue-100",
+            LABEL_AGENT_ROLE: "coder",
+            LABEL_SLICE_ID: "slice-2",
+        }
         # Reading the restart count after a slice-scoped restart MUST
-        # query the per-slice budget bucket (#2410). Without this, the
-        # JSON response and audit log report the pipeline-level count
-        # (typically 0) and operators can't trust "you've burned N of M
-        # restarts" telemetry.
+        # query the per-slice budget bucket (#2410).
         get_count_call = mock_spawner.get_restart_count.call_args
         assert get_count_call.kwargs.get("slice_id") == "slice-2"
+        assert response.get_json()["data"]["slice_id"] == "slice-2"
 
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_slice_id_body_field_forwarded_to_spawner(
+    def test_slice_id_body_field_scopes_live_job_lookup_and_count(
         self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
     ):
-        """``{"slice_id": "slice-2"}`` in the body reaches the spawner."""
+        """``{"slice_id": "slice-2"}`` in the body scopes the label filter + count."""
+        from kubernetes_client import LABEL_AGENT_ROLE, LABEL_PIPELINE_ID, LABEL_SLICE_ID
+
         mock_repo.return_value = "/repo"
         mock_lock_fn.return_value = MagicMock()
         pipeline = _make_pipeline_with_running_agent()
@@ -1032,18 +768,7 @@ class TestRestartAgentEndpointSliceScope:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-slice-2-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.k8s.list_containers.return_value = []
         mock_spawner.get_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
@@ -1053,8 +778,13 @@ class TestRestartAgentEndpointSliceScope:
         )
 
         assert response.status_code == 200
-        restart_call = mock_spawner.restart_agent_container.call_args
-        assert restart_call.kwargs["slice_id"] == "slice-2"
+        mock_spawner.restart_agent_container.assert_not_called()
+        list_call = mock_spawner.k8s.list_containers.call_args
+        assert list_call.kwargs["labels"] == {
+            LABEL_PIPELINE_ID: "issue-100",
+            LABEL_AGENT_ROLE: "coder",
+            LABEL_SLICE_ID: "slice-2",
+        }
         get_count_call = mock_spawner.get_restart_count.call_args
         assert get_count_call.kwargs.get("slice_id") == "slice-2"
 
@@ -1082,10 +812,12 @@ class TestRestartAgentEndpointSliceScope:
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_no_slice_id_forwards_none(
+    def test_no_slice_id_omits_slice_label_and_uses_none_count(
         self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
     ):
-        """Pipeline-level callers (no slice_id) get ``slice_id=None`` forwarded."""
+        """Pipeline-level callers omit the slice label and read the None count bucket."""
+        from kubernetes_client import LABEL_AGENT_ROLE, LABEL_PIPELINE_ID, LABEL_SLICE_ID
+
         mock_repo.return_value = "/repo"
         mock_lock_fn.return_value = MagicMock()
         pipeline = _make_pipeline_with_running_agent()
@@ -1095,18 +827,7 @@ class TestRestartAgentEndpointSliceScope:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.k8s.list_containers.return_value = []
         mock_spawner.get_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
@@ -1116,8 +837,13 @@ class TestRestartAgentEndpointSliceScope:
         )
 
         assert response.status_code == 200
-        restart_call = mock_spawner.restart_agent_container.call_args
-        assert restart_call.kwargs["slice_id"] is None
+        mock_spawner.restart_agent_container.assert_not_called()
+        list_call = mock_spawner.k8s.list_containers.call_args
+        assert list_call.kwargs["labels"] == {
+            LABEL_PIPELINE_ID: "issue-100",
+            LABEL_AGENT_ROLE: "coder",
+        }
+        assert LABEL_SLICE_ID not in list_call.kwargs["labels"]
         get_count_call = mock_spawner.get_restart_count.call_args
         assert get_count_call.kwargs.get("slice_id") is None
 
@@ -1201,18 +927,7 @@ class TestRestartAgentEndpointSliceScope:
         )
 
         mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-slice-2-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.k8s.list_containers.return_value = []
         mock_spawner.get_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
@@ -1224,12 +939,12 @@ class TestRestartAgentEndpointSliceScope:
         assert response.status_code == 200
         # Lock in the "gate ran AND accepted" intent: without this assertion
         # the test would pass identically whether the gate executed or fell
-        # through silently on a fast-path skip. ``load_contract`` may also
-        # be invoked downstream by the spawner flow, so we verify the gate's
-        # specific call rather than the total count.
+        # through silently on a fast-path skip.
         mock_load_contract.assert_any_call(100, Path("/repo"))
-        restart_call = mock_spawner.restart_agent_container.call_args
-        assert restart_call.kwargs["slice_id"] == "slice-2"
+        # #3164: validation accepted, no resident spawn; the per-slice
+        # count bucket is read.
+        mock_spawner.restart_agent_container.assert_not_called()
+        assert mock_spawner.get_restart_count.call_args.kwargs.get("slice_id") == "slice-2"
 
     @patch("egg_contracts.loader.load_contract")
     @patch("routes.pipelines.get_container_spawner")
@@ -1275,100 +990,6 @@ class TestRestartAgentEndpointSliceScope:
         # Fast-path: no contract load attempted, no spawner call.
         mock_load_contract.assert_not_called()
         mock_spawner.restart_agent_container.assert_not_called()
-
-    @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    def test_slice_restart_passes_slice_integration_branch(
-        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
-    ):
-        """Slice-scoped restart must target the slice integration branch (#2428).
-
-        The gateway registers the new session with ``assigned_branch =
-        branch`` and rejects every push that doesn't match. If the
-        restart route forwards the pipeline tip instead, the restarted
-        agent's pushes are rejected the same way the slice-coder
-        spawn-side bug rejected them. The slice integration branch is
-        ``<namespace_root>/<slice_id>``, the same shape the slice
-        scheduler uses for the initial spawn.
-        """
-        mock_repo.return_value = "/repo"
-        mock_lock_fn.return_value = MagicMock()
-        # Use a /work-suffixed pipeline branch so the namespace root is
-        # exercised (post-#2399 shape).
-        pipeline = _make_pipeline_with_running_agent()
-        pipeline.branch = "egg/issue-100/work"
-
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_resolve.return_value = (mock_store, pipeline)
-
-        mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-slice-2-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
-        mock_spawner.get_restart_count.return_value = 1
-        mock_spawner_fn.return_value = mock_spawner
-
-        response = client.post(
-            "/api/v1/pipelines/issue-100/agents/coder/restart?slice_id=slice-2",
-            json={"reason": "Slice agent stalled"},
-        )
-
-        assert response.status_code == 200
-        restart_call = mock_spawner.restart_agent_container.call_args
-        assert restart_call.kwargs["branch"] == "egg/issue-100/slice-2"
-
-    @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    def test_pipeline_level_restart_passes_pipeline_branch(
-        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
-    ):
-        """Without slice_id, restart still forwards the pipeline branch unchanged."""
-        mock_repo.return_value = "/repo"
-        mock_lock_fn.return_value = MagicMock()
-        pipeline = _make_pipeline_with_running_agent()
-
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_resolve.return_value = (mock_store, pipeline)
-
-        mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
-        mock_spawner.get_restart_count.return_value = 1
-        mock_spawner_fn.return_value = mock_spawner
-
-        response = client.post(
-            "/api/v1/pipelines/issue-100/agents/coder/restart",
-            json={"reason": "Pipeline-level restart"},
-        )
-
-        assert response.status_code == 200
-        restart_call = mock_spawner.restart_agent_container.call_args
-        assert restart_call.kwargs["branch"] == "egg/issue-100"
 
 
 # ---------------------------------------------------------------------------
@@ -1450,17 +1071,7 @@ class TestRestartAgentEndpointSliceDerivation:
         )
 
         mock_spawner = MagicMock()
-        mock_spawner.restart_agent_container.return_value = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-slice-2-reviewer_code_holistic",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.REVIEWER_CODE_HOLISTIC,
-            pipeline_id="issue-100",
-            environment={},
-        )
+        mock_spawner.k8s.list_containers.return_value = []
         mock_spawner.get_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
@@ -1470,12 +1081,18 @@ class TestRestartAgentEndpointSliceDerivation:
         )
 
         assert response.status_code == 200
-        restart_call = mock_spawner.restart_agent_container.call_args
-        # The crashed slice is derived: the spawner sets EGG_SLICE_ID from
-        # this and targets the slice integration branch, so the respawned
-        # agent rejoins slice-2's BRC tracker rather than the bare one.
-        assert restart_call.kwargs["slice_id"] == "slice-2"
-        assert restart_call.kwargs["branch"] == "egg/issue-100/slice-2"
+        mock_spawner.restart_agent_container.assert_not_called()
+        # The crashed slice is derived: consensus reset + the live-Job
+        # label filter + the restart-count bucket are all scoped to
+        # slice-2, so the event loop respawns the slice-2-scoped agent
+        # and it rejoins slice-2's BRC tracker rather than the bare one.
+        from kubernetes_client import LABEL_SLICE_ID
+
+        assert (
+            mock_spawner.k8s.list_containers.call_args.kwargs["labels"][LABEL_SLICE_ID] == "slice-2"
+        )
+        assert mock_spawner.get_restart_count.call_args.kwargs.get("slice_id") == "slice-2"
+        assert response.get_json()["data"]["slice_id"] == "slice-2"
 
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
@@ -1571,17 +1188,7 @@ class TestRestartAgentEndpointSliceDerivation:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        mock_spawner.restart_agent_container.return_value = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-slice-1-reviewer_code_holistic",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.REVIEWER_CODE_HOLISTIC,
-            pipeline_id="issue-100",
-            environment={},
-        )
+        mock_spawner.k8s.list_containers.return_value = []
         mock_spawner.get_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
@@ -1596,445 +1203,11 @@ class TestRestartAgentEndpointSliceDerivation:
             )
 
         assert response.status_code == 200
-        restart_call = mock_spawner.restart_agent_container.call_args
-        assert restart_call.kwargs["slice_id"] == "slice-1"
-
-
-# ---------------------------------------------------------------------------
-# Issue #2439: spawner ``base_branch`` matches the slice forest's parent edge
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.skipif(not _HAS_FLASK, reason="Flask not available")
-class TestRestartAgentEndpointBaseBranch:
-    """Restart route forwards the right ``base_branch`` to the spawner (#2439).
-
-    ``gateway.create_worktrees`` is idempotent and ``restart_agent_job``
-    passes ``preserve_worktree_on_failure=True``, so most restarts hit a
-    pre-existing worktree and the wrong ``base_branch`` is never
-    consulted — but a worktree-absent restart (cleanup race, manual
-    gateway prune, container hostpath wiped) reaches the worktree
-    creation path. Forking from ``pipeline.branch`` (the integration
-    tip) at that point pulls sibling slices' commits into the rebuilt
-    worktree.
-    """
-
-    @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    def test_pipeline_level_restart_uses_pipeline_base_branch(
-        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
-    ):
-        """Pipeline-level restart forwards ``pipeline.base_branch`` (not ``pipeline.branch``).
-
-        Every other call site in the codebase uses ``pipeline.base_branch``
-        for spawner ``base_branch``; the operator-triggered restart route
-        was the lone outlier (#2439).
-        """
-        mock_repo.return_value = "/repo"
-        mock_lock_fn.return_value = MagicMock()
-        pipeline = _make_pipeline_with_running_agent()
-        pipeline.base_branch = "main"
-
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_resolve.return_value = (mock_store, pipeline)
-
-        mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
-        mock_spawner.get_restart_count.return_value = 1
-        mock_spawner_fn.return_value = mock_spawner
-
-        response = client.post(
-            "/api/v1/pipelines/issue-100/agents/coder/restart",
-            json={"reason": "Pipeline-level restart"},
-        )
-
-        assert response.status_code == 200
-        restart_call = mock_spawner.restart_agent_container.call_args
-        assert restart_call.kwargs["base_branch"] == "main"
-        # Defensive: the integration tip must NEVER be forwarded as
-        # ``base_branch``. If the worktree is rebuilt, forking from
-        # the tip leaks tip commits into the per-agent worktree.
-        assert restart_call.kwargs["base_branch"] != pipeline.branch
-
-    @patch("egg_contracts.loader.load_contract")
-    @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    def test_root_slice_restart_uses_pipeline_base_branch(
-        self,
-        mock_repo,
-        mock_resolve,
-        mock_spawner_fn,
-        mock_lock_fn,
-        mock_load_contract,
-        client,
-    ):
-        """A root slice (no parent in the slice forest) falls back to ``pipeline.base_branch``."""
-        from egg_contracts.models import Contract, Slice
-
-        mock_repo.return_value = "/repo"
-        mock_lock_fn.return_value = MagicMock()
-        pipeline = _make_pipeline_with_running_agent()
-        pipeline.branch = "egg/issue-100/work"
-        pipeline.base_branch = "main"
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_resolve.return_value = (mock_store, pipeline)
-
-        mock_load_contract.return_value = Contract(
-            pipeline_id="issue-100",
-            # slice-1 has no dependencies → root of the forest.
-            slices=[Slice(id="slice-1", name="Root slice")],
-        )
-
-        mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-slice-1-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
-        mock_spawner.get_restart_count.return_value = 1
-        mock_spawner_fn.return_value = mock_spawner
-
-        response = client.post(
-            "/api/v1/pipelines/issue-100/agents/coder/restart?slice_id=slice-1",
-            json={"reason": "Root slice agent stalled"},
-        )
-
-        assert response.status_code == 200
-        restart_call = mock_spawner.restart_agent_container.call_args
-        assert restart_call.kwargs["base_branch"] == "main"
-
-    @patch("egg_contracts.loader.load_contract")
-    @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    def test_child_slice_restart_uses_parent_slice_integration_branch(
-        self,
-        mock_repo,
-        mock_resolve,
-        mock_spawner_fn,
-        mock_lock_fn,
-        mock_load_contract,
-        client,
-    ):
-        """A child slice's restart forks from its parent slice's integration branch.
-
-        Mirrors :func:`_run_one_slice_inner`'s ``parent_branch``
-        derivation: when ``slice-2`` lists ``slice-1`` as its
-        dependency, the parent integration branch is
-        ``<namespace_root>/slice-1``. Without this, a worktree-absent
-        restart of ``slice-2`` would re-fork from the pipeline tip
-        and pull sibling-slice commits into ``slice-2``'s rebuilt
-        worktree (#2439).
-        """
-        from egg_contracts.models import Contract, Slice
-
-        mock_repo.return_value = "/repo"
-        mock_lock_fn.return_value = MagicMock()
-        pipeline = _make_pipeline_with_running_agent()
-        pipeline.branch = "egg/issue-100/work"
-        pipeline.base_branch = "main"
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_resolve.return_value = (mock_store, pipeline)
-
-        mock_load_contract.return_value = Contract(
-            pipeline_id="issue-100",
-            slices=[
-                Slice(id="slice-1", name="Parent slice"),
-                Slice(
-                    id="slice-2",
-                    name="Child slice",
-                    dependencies=["slice-1"],
-                ),
-            ],
-        )
-
-        mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-slice-2-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
-        mock_spawner.get_restart_count.return_value = 1
-        mock_spawner_fn.return_value = mock_spawner
-
-        response = client.post(
-            "/api/v1/pipelines/issue-100/agents/coder/restart?slice_id=slice-2",
-            json={"reason": "Child slice agent stalled"},
-        )
-
-        assert response.status_code == 200
-        restart_call = mock_spawner.restart_agent_container.call_args
-        # The agent's assigned branch is still its OWN integration
-        # branch (slice-2). It's the spawner's ``base_branch`` — the
-        # ref the per-agent worktree is forked off of when rebuilt —
-        # that should reference the parent slice's integration branch.
-        assert restart_call.kwargs["branch"] == "egg/issue-100/slice-2"
-        assert restart_call.kwargs["base_branch"] == "egg/issue-100/slice-1"
-
-    @patch("egg_contracts.loader.load_contract")
-    @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    def test_slice_restart_with_unloadable_contract_falls_back_to_pipeline_base(
-        self,
-        mock_repo,
-        mock_resolve,
-        mock_spawner_fn,
-        mock_lock_fn,
-        mock_load_contract,
-        client,
-    ):
-        """When the contract can't be loaded, slice restart falls back to ``pipeline.base_branch``.
-
-        The slice-id existence check (#2421) intentionally falls
-        through silently when the contract can't be loaded so legitimate
-        restarts on a pruned worktree aren't gated. The base-branch
-        fix (#2439) inherits that policy: with no contract to consult
-        for the parent edge, the spawner gets ``pipeline.base_branch``
-        — the same fallback the other call sites use.
-        """
-        from egg_contracts.loader import ContractNotFoundError
-
-        mock_repo.return_value = "/repo"
-        mock_lock_fn.return_value = MagicMock()
-        pipeline = _make_pipeline_with_running_agent()
-        pipeline.branch = "egg/issue-100/work"
-        pipeline.base_branch = "main"
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_resolve.return_value = (mock_store, pipeline)
-
-        mock_load_contract.side_effect = ContractNotFoundError(
-            "issue-100", Path("/repo/.egg-state/contracts/issue-100.json")
-        )
-
-        mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-slice-2-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
-        mock_spawner.get_restart_count.return_value = 1
-        mock_spawner_fn.return_value = mock_spawner
-
-        response = client.post(
-            "/api/v1/pipelines/issue-100/agents/coder/restart?slice_id=slice-2",
-            json={"reason": "Slice restart with no contract"},
-        )
-
-        assert response.status_code == 200
-        restart_call = mock_spawner.restart_agent_container.call_args
-        assert restart_call.kwargs["base_branch"] == "main"
-
-    @patch("egg_contracts.loader.load_contract")
-    @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    def test_child_slice_restart_prefers_parent_branch_at_creation(
-        self,
-        mock_repo,
-        mock_resolve,
-        mock_spawner_fn,
-        mock_lock_fn,
-        mock_load_contract,
-        client,
-    ):
-        """Restart prefers the recorded ``parent_branch_at_creation`` over reconstruction.
-
-        Set by ``_run_one_slice_inner`` when the slice was provisioned
-        (#2137 TASK-4-2); per the docstring on
-        ``Slice.parent_branch_at_creation`` it's *the* recorded fact
-        about how the slice was forked. Reconstructing
-        ``f"{_issue_branch}/{parent_slice_id}"`` would silently drift
-        if a future qualifier-suffix or namespacing change lands in
-        ``_run_one_slice_inner`` but not in the restart route — the
-        recorded value would not (#2460 review observation 2).
-        """
-        from egg_contracts.models import Contract, Slice
-
-        mock_repo.return_value = "/repo"
-        mock_lock_fn.return_value = MagicMock()
-        pipeline = _make_pipeline_with_running_agent()
-        pipeline.branch = "egg/issue-100/work"
-        pipeline.base_branch = "main"
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_resolve.return_value = (mock_store, pipeline)
-
-        # The recorded value differs from what reconstruction would
-        # produce (a hypothetical future qualifier suffix). The route
-        # must prefer the recorded value over reconstruction.
-        recorded_parent_branch = "egg/issue-100/slice-1-future-qualifier"
-        mock_load_contract.return_value = Contract(
-            pipeline_id="issue-100",
-            slices=[
-                Slice(id="slice-1", name="Parent slice"),
-                Slice(
-                    id="slice-2",
-                    name="Child slice",
-                    dependencies=["slice-1"],
-                    parent_branch_at_creation=recorded_parent_branch,
-                ),
-            ],
-        )
-
-        mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-slice-2-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
-        mock_spawner.get_restart_count.return_value = 1
-        mock_spawner_fn.return_value = mock_spawner
-
-        response = client.post(
-            "/api/v1/pipelines/issue-100/agents/coder/restart?slice_id=slice-2",
-            json={"reason": "Child slice agent stalled"},
-        )
-
-        assert response.status_code == 200
-        restart_call = mock_spawner.restart_agent_container.call_args
-        # The recorded parent branch wins over reconstructed
-        # ``egg/issue-100/slice-1``.
-        assert restart_call.kwargs["base_branch"] == recorded_parent_branch
-
-    @patch("egg_contracts.loader.load_contract")
-    @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    def test_child_slice_restart_falls_back_when_parent_complete(
-        self,
-        mock_repo,
-        mock_resolve,
-        mock_spawner_fn,
-        mock_lock_fn,
-        mock_load_contract,
-        client,
-    ):
-        """Restart falls back to ``pipeline.base_branch`` when the parent slice is complete (#2470).
-
-        When the parent slice has reached ``SliceStatus.COMPLETE``,
-        its PR has plausibly been merged and the head branch deleted
-        by GitHub's standard auto-cleanup. The gateway's per-repo
-        ``git fetch origin <parent_branch>`` would then wedge the
-        restart on a missing-branch fetch error. The route detects
-        this via the contract's slice status and falls back to
-        ``pipeline.base_branch`` — equivalent to the
-        contract-unloadable fall-through (#2421/#2439): prefer
-        letting the restart proceed over over-strict gating.
-
-        The recorded ``parent_branch_at_creation`` is set on the
-        child slice here to confirm the fallback wins even when the
-        recorded value is available (the issue here is the *branch's*
-        existence, not the route's knowledge of its name).
-        """
-        from egg_contracts.models import Contract, Slice, SliceStatus
-
-        mock_repo.return_value = "/repo"
-        mock_lock_fn.return_value = MagicMock()
-        pipeline = _make_pipeline_with_running_agent()
-        pipeline.branch = "egg/issue-100/work"
-        pipeline.base_branch = "main"
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_resolve.return_value = (mock_store, pipeline)
-
-        mock_load_contract.return_value = Contract(
-            pipeline_id="issue-100",
-            slices=[
-                Slice(
-                    id="slice-1",
-                    name="Parent slice (complete, branch likely deleted on origin)",
-                    status=SliceStatus.COMPLETE,
-                ),
-                Slice(
-                    id="slice-2",
-                    name="Child slice",
-                    dependencies=["slice-1"],
-                    parent_branch_at_creation="egg/issue-100/slice-1",
-                ),
-            ],
-        )
-
-        mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-slice-2-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
-        mock_spawner.get_restart_count.return_value = 1
-        mock_spawner_fn.return_value = mock_spawner
-
-        response = client.post(
-            "/api/v1/pipelines/issue-100/agents/coder/restart?slice_id=slice-2",
-            json={"reason": "Child slice restart after parent merged"},
-        )
-
-        assert response.status_code == 200
-        restart_call = mock_spawner.restart_agent_container.call_args
-        # Fallback wins over both the recorded parent branch and
-        # reconstructed ``egg/issue-100/slice-1``.
-        assert restart_call.kwargs["base_branch"] == "main"
-        # Agent's assigned branch is unaffected — still its own
-        # integration branch.
-        assert restart_call.kwargs["branch"] == "egg/issue-100/slice-2"
+        mock_spawner.restart_agent_container.assert_not_called()
+        # The explicit slice_id wins over derivation: it scopes the count
+        # bucket and the response.
+        assert mock_spawner.get_restart_count.call_args.kwargs.get("slice_id") == "slice-1"
+        assert response.get_json()["data"]["slice_id"] == "slice-1"
 
 
 # ---------------------------------------------------------------------------
@@ -2118,18 +1291,7 @@ class TestRestartAgentSliceMatching:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="container-slice-3-RESTARTED",
-                container_name="egg-issue-100-slice-3-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.k8s.list_containers.return_value = []
         mock_spawner.get_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
@@ -2160,7 +1322,9 @@ class TestRestartAgentSliceMatching:
         assert slice2_persisted["container_id"] == slice2_container_before, (
             "slice-2 container_id must not change when slice-3 is restarted"
         )
-        assert slice3_persisted["container_id"] == "container-slice-3-RESTARTED"
+        # #3164: the restarted record's container_id is cleared to None —
+        # the event loop owns the respawn and sets the live container_id.
+        assert slice3_persisted["container_id"] is None
         assert slice3_persisted["status"] == AgentExecutionStatus.RUNNING.value
 
     @patch("routes.pipelines.get_pipeline_state_lock")
@@ -2212,18 +1376,7 @@ class TestRestartAgentSliceMatching:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="container-slice-3-NEW",
-                container_name="egg-issue-100-slice-3-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.k8s.list_containers.return_value = []
         mock_spawner.get_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
@@ -2245,7 +1398,9 @@ class TestRestartAgentSliceMatching:
         )
         slice3_rows = [a for a in persisted_agents if a["slice_id"] == "slice-3"]
         assert len(slice3_rows) == 1
-        assert slice3_rows[0]["container_id"] == "container-slice-3-NEW"
+        # #3164: appended record has no resident container — event loop respawns.
+        assert slice3_rows[0]["container_id"] is None
+        assert slice3_rows[0]["status"] == AgentExecutionStatus.RUNNING.value
 
 
 # ---------------------------------------------------------------------------
@@ -2563,20 +1718,26 @@ class TestRestartLockCleanup:
 
 @pytest.mark.skipif(not _HAS_FLASK, reason="Flask not available")
 class TestConsensusResetOrdering:
-    """Tests that consensus is reset AFTER successful spawn, not before (issue #1695, item 5)."""
+    """Consensus reset is orchestrator-native and unconditional (#3164).
+
+    The old spawn-then-reset ordering (issue #1695 item 5) is moot: there
+    is no resident spawn that can fail, so consensus is always reset and
+    the event loop respawns from the cleared state.
+    """
 
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_spawn_failure_preserves_consensus(
+    def test_live_job_deletion_failure_still_resets_consensus(
         self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
     ):
-        """If spawner raises ContainerSpawnError, consensus state must NOT be reset.
+        """A best-effort live-Job teardown failure does not block consensus reset.
 
-        Regression test for issue #1695 item 5: consensus reset was previously
-        done before the spawn attempt, leaving orphaned consensus deletion on
-        spawn failure.
+        After #3164 the only "failure" before the consensus reset is the
+        best-effort Job teardown. It must be swallowed so the consensus
+        reset (and thus the event-loop respawn) still happens — the
+        opposite of the old "preserve consensus on spawn failure" rule.
         """
         mock_repo.return_value = "/repo"
         mock_lock_fn.return_value = MagicMock()
@@ -2587,69 +1748,10 @@ class TestConsensusResetOrdering:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        mock_spawner.restart_agent_container.side_effect = ContainerSpawnError("Docker error")
-        mock_spawner_fn.return_value = mock_spawner
-
-        # Mock the peer-consensus tracker via sys.modules so the inline
-        # import inside the route handler resolves correctly (no create=True
-        # needed). The legacy ``consensus`` evaluator reset was removed in
-        # #2777 (slice-2).
-        mock_tracker = MagicMock()
-
-        with patch.dict(
-            "sys.modules",
-            {
-                "peer_consensus": MagicMock(
-                    get_peer_consensus_tracker=MagicMock(return_value=mock_tracker)
-                ),
-            },
-        ):
-            response = client.post(
-                "/api/v1/pipelines/issue-100/agents/coder/restart",
-                json={"reason": "Agent stalled"},
-            )
-
-            assert response.status_code == 500
-
-            # Consensus should NOT have been reset since spawn failed
-            mock_tracker.remove_agent.assert_not_called()
-
-    @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    def test_successful_spawn_resets_consensus(
-        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
-    ):
-        """On successful spawn, consensus state should be reset for the agent."""
-        mock_repo.return_value = "/repo"
-        mock_lock_fn.return_value = MagicMock()
-        pipeline = _make_pipeline_with_running_agent()
-
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_resolve.return_value = (mock_store, pipeline)
-
-        mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.k8s.list_containers.side_effect = RuntimeError("k8s API down")
         mock_spawner.get_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
-        # Patch the peer-consensus tracker import inside the route handler.
-        # The legacy ``consensus`` evaluator reset was removed in #2777
-        # (slice-2 deleted ``orchestrator/consensus.py``); only the
-        # peer-consensus (BRC) tracker is reset on restart now.
         mock_tracker = MagicMock()
 
         with patch.dict(
@@ -2666,8 +1768,51 @@ class TestConsensusResetOrdering:
             )
 
             assert response.status_code == 200
+            mock_spawner.restart_agent_container.assert_not_called()
+            mock_tracker.remove_agent.assert_called_once_with("coder")
 
-            # Consensus should have been reset after successful spawn
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_resets_consensus(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+    ):
+        """A restart resets the agent's BRC consensus state (#3164).
+
+        Only the peer-consensus (BRC) tracker is reset; the legacy
+        ``consensus`` evaluator reset was removed in #2777 (slice-2).
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = []
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        mock_tracker = MagicMock()
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "peer_consensus": MagicMock(
+                    get_peer_consensus_tracker=MagicMock(return_value=mock_tracker)
+                ),
+            },
+        ):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={"reason": "Agent stalled"},
+            )
+
+            assert response.status_code == 200
+            mock_spawner.restart_agent_container.assert_not_called()
             mock_tracker.remove_agent.assert_called_once_with("coder")
 
 
@@ -2693,18 +1838,7 @@ class TestRestartAgentResetsHealthMonitor:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.k8s.list_containers.return_value = []
         mock_spawner.get_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
@@ -2734,9 +1868,9 @@ class TestRestartAgentResetsHealthMonitor:
     def test_successful_restart_refreshes_started_at(
         self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
     ):
-        """``restart_agent`` must overwrite ``agent.started_at`` with the new
-        spawn timestamp so ``_get_concurrent_status`` reports an
-        ``elapsed_seconds`` anchored on the live container, not the dead one
+        """``restart_agent`` must overwrite ``agent.started_at`` with the
+        restart timestamp so ``_get_concurrent_status`` reports an
+        ``elapsed_seconds`` anchored on the respawn, not the dead container
         (issue #2084)."""
         mock_repo.return_value = "/repo"
         mock_lock_fn.return_value = MagicMock()
@@ -2751,18 +1885,7 @@ class TestRestartAgentResetsHealthMonitor:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        new_container = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-container-xyz",
-                container_name="egg-issue-100-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-100",
-            environment={},
-        )
-        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.k8s.list_containers.return_value = []
         mock_spawner.get_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
@@ -2786,9 +1909,9 @@ class TestRestartAgentResetsHealthMonitor:
         agent = pipeline.phases["implement"].agents[0]
         assert agent.started_at is not None
         assert agent.started_at > original_started_at, (
-            "restart_agent must refresh started_at to the new container's "
-            "spawn time so _get_concurrent_status reports an elapsed_seconds "
-            "anchored on the live container instead of the dead one."
+            "restart_agent must refresh started_at to the restart time so "
+            "_get_concurrent_status reports an elapsed_seconds anchored on "
+            "the respawn instead of the dead container."
         )
         # The refreshed timestamp should be very recent (the test just ran).
         assert (datetime.now(UTC) - agent.started_at) < timedelta(seconds=30)
@@ -2797,11 +1920,18 @@ class TestRestartAgentResetsHealthMonitor:
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_failed_spawn_skips_reset_agent(
+    def test_live_job_deletion_failure_still_resets_health(
         self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
     ):
-        """If the spawn fails, the heartbeat anchor must be preserved so the
-        old container's stall signal isn't silently swallowed."""
+        """A best-effort live-Job teardown failure does not block the health reset (#3164).
+
+        The respawn is owned by the event loop, so the health-monitor
+        anchor must be cleared unconditionally — a stuck-pod teardown
+        error must not leave the dead container's clock anchored against
+        the respawn (issue #2084). Replaces the old
+        ``test_failed_spawn_skips_reset_agent`` whose spawn-failure path
+        no longer exists.
+        """
         mock_repo.return_value = "/repo"
         mock_lock_fn.return_value = MagicMock()
         pipeline = _make_pipeline_with_running_agent()
@@ -2811,7 +1941,8 @@ class TestRestartAgentResetsHealthMonitor:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        mock_spawner.restart_agent_container.side_effect = ContainerSpawnError("boom")
+        mock_spawner.k8s.list_containers.side_effect = RuntimeError("k8s API down")
+        mock_spawner.get_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         mock_hm = MagicMock()
@@ -2830,5 +1961,6 @@ class TestRestartAgentResetsHealthMonitor:
                 json={"reason": "stalled"},
             )
 
-            assert response.status_code == 500
-            mock_hm.reset_agent.assert_not_called()
+            assert response.status_code == 200
+            mock_spawner.restart_agent_container.assert_not_called()
+            mock_hm.reset_agent.assert_called_once_with("coder")
