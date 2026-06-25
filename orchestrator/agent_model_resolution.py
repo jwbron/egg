@@ -138,6 +138,31 @@ _CLAUDE_EXACT_ALIASES = frozenset(
 )
 _CLAUDE_VERSIONED_RE = re.compile(r"^claude-")
 
+# Real backend context-window resolution + reseed threshold (#3200, AC-3
+# foundation). The reseed gate (slice-6) keys its 80% margin on the TRUE
+# upstream window, NOT the ``[1m]`` alias: the alias only selects Claude Code's
+# compaction PROFILE. Computing ``0.80 * 1_000_000`` for a model whose real
+# backend is, say, 128K defers the reseed past the real limit and overflows the
+# upstream mid-turn — the "mis-trigger bug" the issue calls out.
+
+# Window attributed to every recognised Claude family alias. Per the ratified
+# plan (task-2-1), Claude aliases resolve to the 1M window; the ``[1m]`` suffix
+# is not load-bearing for Claude routes here.
+_CLAUDE_BACKEND_WINDOW = 1_000_000
+
+# The 200K compaction profile — the fallback real window for a non-Claude model
+# that is not in the sub-1M registry, and the ceiling for the conservative
+# unknown-model resolution (:func:`_conservative_unknown_window`).
+_PROFILE_200K_WINDOW = 200_000
+
+# Reseed-threshold knobs (task-2-2). The floor is an initial, operator-tunable
+# knob (NOT derived — a context-rot / cost ceiling); the margin reseeds
+# deterministically below Claude Code's ~95% lossy auto-compaction wall. Both
+# are read live inside :func:`reseed_threshold` so an operator can override them
+# (reassign / monkeypatch) without re-importing.
+RESEED_THRESHOLD_FLOOR = 400_000
+RESEED_THRESHOLD_MARGIN = 0.80
+
 # Context guardrails for agent spawns (#3175). Every SDK turn re-sends
 # the whole conversation, and cached tokens bill at a
 # discounted-but-nonzero rate on every route (~10% of the input price
@@ -393,6 +418,75 @@ def classify_model(model: str) -> AgentModelDecision:
     )
 
 
+def _conservative_unknown_window() -> int:
+    """Real window for an unregistered / unknown model.
+
+    The SMALLEST window we know about, so an unregistered backend that is in
+    truth smaller than the 200K profile cannot mis-trigger the reseed gate
+    (defer the reseed past its real limit). With only ``kimi-k2.7-code``
+    (262_144) registered this evaluates to the 200K profile floor — matching
+    contract task-2-1 ("200_000 for an unregistered non-Claude model").
+    Registering a sub-200K backend in :data:`_SUB_1M_CONTEXT_MODELS`
+    automatically tightens this, honouring the conservative unknown-model
+    directive (architect slice-2) without a code change. The floor is included
+    in the ``min`` set so an empty registry still resolves to 200_000.
+    """
+    return min([_PROFILE_200K_WINDOW, *_SUB_1M_CONTEXT_MODELS.values()])
+
+
+def real_backend_window(model: str) -> int:
+    """Resolve the REAL upstream context window (in tokens) for *model*.
+
+    This is the true backend window the agent's session runs against —
+    distinct from the ``[1m]`` alias, which only selects Claude Code's
+    compaction *profile*. The reseed gate (#3200 slice-6) keys its 80% margin
+    on this value so it never computes ``0.80 * 1_000_000`` for a backend whose
+    real window is smaller (the mis-trigger bug: deferring the reseed past the
+    real limit overflows the upstream mid-turn).
+
+    Resolution keys on the BARE model name (the ``[1m]`` suffix is stripped
+    first, so it is never load-bearing here):
+
+    - A member of :data:`_SUB_1M_CONTEXT_MODELS` -> its registered real window
+      (e.g. ``kimi-k2.7-code`` -> 262_144). Checked FIRST so a
+      ``kimi-k2.7-code[1m]`` alias still returns 262_144, never the
+      [1m]-implied 1M.
+    - A recognised Claude family alias (``opus`` / ``opus[1m]`` / ``sonnet`` /
+      ``claude-*`` ...) -> :data:`_CLAUDE_BACKEND_WINDOW` (1_000_000).
+    - Anything else (an unregistered non-Claude / 200K-profile model) -> the
+      conservative unknown window (:func:`_conservative_unknown_window`),
+      which is 200_000 under the current registry.
+    """
+    bare = (
+        model.removesuffix(_CONTEXT_1M_SUFFIX)
+        if model.endswith(_CONTEXT_1M_SUFFIX)
+        else model
+    )
+    # Registry first: authoritative over the [1m] alias for sub-1M backends, so
+    # a stray ``[1m]`` suffix can never inflate a sub-1M window to the implied 1M.
+    if bare in _SUB_1M_CONTEXT_MODELS:
+        return _SUB_1M_CONTEXT_MODELS[bare]
+    if _is_claude_alias(model) or _is_claude_alias(bare):
+        return _CLAUDE_BACKEND_WINDOW
+    return _conservative_unknown_window()
+
+
+def reseed_threshold(model: str) -> int:
+    """Token-occupancy threshold above which the event-pump gate reseeds.
+
+    ``min(RESEED_THRESHOLD_FLOOR, floor(RESEED_THRESHOLD_MARGIN *
+    real_backend_window(model)))`` (#3200 task-2-2). The floor
+    (:data:`RESEED_THRESHOLD_FLOOR`, 400_000) is an absolute context-rot / cost
+    ceiling — an initial knob, not derived. The margin
+    (:data:`RESEED_THRESHOLD_MARGIN`, 0.80) reseeds deterministically below
+    Claude Code's ~95% lossy auto-compaction wall, computed against the REAL
+    backend window (never the ``[1m]`` alias). Worked examples: ``opus[1m]`` ->
+    400_000; a 200K-profile model -> 160_000; a 128K-class backend -> ~102_000.
+    """
+    real = real_backend_window(model)
+    return min(RESEED_THRESHOLD_FLOOR, int(RESEED_THRESHOLD_MARGIN * real))
+
+
 def resolve_agent_model(
     role: AgentRole | str,
     pipeline_config: object | None,
@@ -465,9 +559,13 @@ __all__ = [
     "DEFAULT_AGENT_MODEL",
     "FABLE_DEFAULT_MODEL",
     "FABLE_EFFORT",
+    "RESEED_THRESHOLD_FLOOR",
+    "RESEED_THRESHOLD_MARGIN",
     "UPSTREAM_ANTHROPIC",
     "UPSTREAM_LITELLM",
     "classify_model",
     "context_guardrail_env",
+    "real_backend_window",
+    "reseed_threshold",
     "resolve_agent_model",
 ]
