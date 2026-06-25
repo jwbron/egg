@@ -198,13 +198,13 @@ switches, each read in exactly one place:
 | `EGG_SESSION_STATE_FILE` | `egg_agent.session.resolve_session_state_path` | Location of the cross-invocation session-state file. Unset → the round-trip is a no-op (substrate stays inert). |
 | `EGG_RESEED_THRESHOLD` | `egg_agent.reseed.resolve_reseed_threshold` | Cross-boundary integer override of the reseed threshold. The sandbox runs with `orchestrator` off `PYTHONPATH`, so the orchestrator side may compute `reseed_threshold(model)` and export the integer here; otherwise the gate imports the orchestrator helper when available, and falls back to `None` (safe reseed) when neither yields a value. |
 
-**Slice-9 master flag.** The terminal slice
-([#3200](https://github.com/jwbron/egg/issues/3200) slice-9) introduces a
-single master context-discipline flag that gates the whole discipline
-(protected-root / queryable-environment split + threshold reseed + JIT pull) for
-**every** event-pump role — producers and reviewers alike — each inlining only
-its own contract and its own anchors via the role-parameterized
-`render_protected_root`. The flag is a **kill-switch**, not the preserved
+**Slice-9 master flag (forthcoming — not yet shipped).** The terminal slice
+([#3200](https://github.com/jwbron/egg/issues/3200) slice-9) is *designed to*
+introduce a single master context-discipline flag that gates the whole
+discipline (protected-root / queryable-environment split + threshold reseed +
+JIT pull) for **every** event-pump role — producers and reviewers alike — each
+inlining only its own contract and its own anchors via the role-parameterized
+`render_protected_root`. The intent is a **kill-switch**, not the preserved
 fallback build:
 
 - **ON** → every role takes the new path; the mechanism is uniform and only the
@@ -212,10 +212,17 @@ fallback build:
 - **OFF (and default during rollout)** → today's full-context inlining path,
   byte-for-byte unchanged; the OFF path retains no dependency on the new code.
 
-The flag drives the existing `compose_event_prompt(..., jit_pull=...)` toggle in
-`orchestrator/routes/event_prompt.py`, whose `jit_pull=False` default already
-renders the legacy inline path byte-for-byte. It is read in one place; no role
-hard-codes the new path.
+The seam the flag is built around already exists:
+`compose_event_prompt(..., jit_pull=...)` in
+`orchestrator/routes/event_prompt.py` carries a `jit_pull` parameter whose
+`jit_pull=False` default renders the legacy inline path byte-for-byte. The
+forthcoming flag is intended to drive that toggle from a single read-site so no
+role hard-codes the new path. **Until slice-9 lands this flag is unbuilt:** no
+production code wires a master context-discipline flag, nothing sets
+`jit_pull=True`, and `compose_event_prompt` is reached only via its `_cli`
+subprocess entry-point (which leaves `jit_pull` at its `False` default). The
+companion comment in `shared/egg_agent/session.py` likewise scopes the flag as
+something that *may later* subsume `EGG_SESSION_RESUME`.
 
 ## Measurement (emit-only)
 
