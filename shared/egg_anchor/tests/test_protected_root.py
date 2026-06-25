@@ -304,10 +304,14 @@ def test_duplicate_edge_entries_are_byte_stable_via_tiebreakers() -> None:
     """>1 entry per (producer, reviewer) edge renders identically regardless of order.
 
     The primary sort key is ``(producer, reviewer)``; if the derived layer ever
-    emits multiple entries for the same edge, only the ``version``/``reason``/
-    ``condition``/``resolved`` tiebreakers keep the render byte-stable. Permuting
-    the input order of such duplicate-edge entries must not change the output —
-    this fails loudly if a tiebreaker is dropped from a sort key.
+    emits multiple entries for the same edge, the ``version`` tiebreaker keeps
+    the render byte-stable. Here every duplicate pair carries a distinct
+    ``version``, so this test exercises the ``version`` tiebreaker specifically;
+    the secondary ``reviewed_sha``/``reason``/``condition``/``resolved`` keys (for
+    the rarer case where ``version`` also collides) are covered by
+    :func:`test_version_collisions_disambiguated_by_secondary_tiebreakers`.
+    Permuting the input order of duplicate-edge entries must not change the
+    output — this fails loudly if the ``version`` tiebreaker is dropped.
     """
     forward = BRCDerivedAnchors(
         last_reviewed_sha={"coder": SHA_CODER},
@@ -349,6 +353,65 @@ def test_duplicate_edge_entries_are_byte_stable_via_tiebreakers() -> None:
         ],
     )
     # Same logical content, every duplicate-edge list reversed.
+    reversed_anchors = BRCDerivedAnchors(
+        last_reviewed_sha={"coder": SHA_CODER},
+        latest_verdicts=list(reversed(forward.latest_verdicts)),
+        open_nacks=list(reversed(forward.open_nacks)),
+        conditional_ack_obligations=list(reversed(forward.conditional_ack_obligations)),
+    )
+
+    assert _render(derived=forward) == _render(derived=reversed_anchors)
+
+
+def test_version_collisions_disambiguated_by_secondary_tiebreakers() -> None:
+    """Entries colliding on (producer, reviewer, version) sort by the secondary keys.
+
+    This is the case the ``version`` tiebreaker alone cannot resolve: every pair
+    shares the same ``(producer, reviewer, version)``, so byte-stability rests
+    *only* on the trailing key — ``reviewed_sha`` for verdicts, ``reason`` for
+    NACKs, ``condition``/``resolved`` for obligations. Reversing the input must
+    still render identically; dropping any of those secondary keys makes the two
+    renders diverge and this test fail loudly.
+    """
+    forward = BRCDerivedAnchors(
+        last_reviewed_sha={"coder": SHA_CODER},
+        latest_verdicts=[
+            ReviewEdgeVerdict(
+                reviewer="reviewer_code",
+                producer="coder",
+                verdict=ReviewVerdict.NACK,
+                version=2,
+                reviewed_sha=SHA_CODER,  # secondary key A
+            ),
+            ReviewEdgeVerdict(
+                reviewer="reviewer_code",
+                producer="coder",
+                verdict=ReviewVerdict.ACK,
+                version=2,
+                reviewed_sha=SHA_TESTER,  # secondary key B (same edge + version)
+            ),
+        ],
+        open_nacks=[
+            OpenNack(reviewer="reviewer_code", producer="coder", version=2, reason="alpha"),
+            OpenNack(reviewer="reviewer_code", producer="coder", version=2, reason="beta"),
+        ],
+        conditional_ack_obligations=[
+            ConditionalAckObligation(
+                reviewer="reviewer_security",
+                producer="coder",
+                version=2,
+                condition="aaa condition",
+                resolved=False,
+            ),
+            ConditionalAckObligation(
+                reviewer="reviewer_security",
+                producer="coder",
+                version=2,
+                condition="zzz condition",
+                resolved=True,
+            ),
+        ],
+    )
     reversed_anchors = BRCDerivedAnchors(
         last_reviewed_sha={"coder": SHA_CODER},
         latest_verdicts=list(reversed(forward.latest_verdicts)),
