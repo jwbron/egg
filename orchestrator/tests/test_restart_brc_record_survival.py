@@ -192,6 +192,10 @@ class TestRestartAgentPreservesBrcRecord:
             environment={},
         )
         mock_spawner.get_restart_count.return_value = 1
+        # restart_agent reads the just-incremented count via
+        # check_and_increment_restart_count (#3244); it must be a real int so
+        # the restart_count telemetry stays JSON-serializable.
+        mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         # Seed the live (fakeredis-backed) message store *before* the restart.
