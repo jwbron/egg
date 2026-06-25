@@ -440,6 +440,14 @@
       "repo": null,
       "role": "coder"
     },
+    "d85ea290d80319953648deb71c9768b8d7f68f7f": {
+      "branch": "egg/issue-3200/slice-6",
+      "patch_id": "bc84c21e00437f544d27a44c0ea8b2ff15afa44a",
+      "pipeline_id": "issue-3200",
+      "registered_at": "2026-06-25T07:24:19.035652+00:00",
+      "repo": null,
+      "role": "tester"
+    },
     "da067bb6f07d6795e7fd1c392301ecde64782d4f": {
       "branch": "egg/issue-3200/slice-1",
       "patch_id": "d3d7d18b02e4d86bbcc2da39773f60fd215e555b",
