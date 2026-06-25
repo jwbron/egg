@@ -17,6 +17,15 @@ verification runs for a given PR. That gate is a proven regression magnet:
 These assertions lock in all three trigger conditions so a future "cleanup"
 cannot silently drop the slice trigger (or reintroduce the #1134 over-fire) without
 the suite going red.
+
+* #3254: the work->main *context/state* PR (`egg/<id>/work -> main`) holds only
+  `.egg-state/` orchestration artifacts — never implementation code — so
+  running implementation verification on it is a false positive by
+  construction. A deterministic head/base topology gate short-circuits it to
+  `run=false` *before* the added-contract trigger (condition 2) can fire on the
+  contract the work->main diff necessarily adds. The assertions below lock that
+  ordering in so the skip cannot be reordered after — or removed by — a future
+  edit.
 """
 
 from __future__ import annotations
@@ -28,6 +37,7 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "on-pull-request-contract-verify.yml"
+REUSABLE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "reusable-review.yml"
 
 
 @pytest.fixture
@@ -39,6 +49,21 @@ def check_script() -> str:
     jobs = data.get("jobs", {})
     should_run = jobs.get("should-run")
     assert should_run is not None, "missing `should-run` job in contract-verify workflow"
+    steps = should_run.get("steps", [])
+    check_steps = [s for s in steps if isinstance(s, dict) and s.get("id") == "check"]
+    assert check_steps, "missing `check` step (id: check) in the should-run job"
+    return check_steps[0].get("run", "")
+
+
+@pytest.fixture
+def reusable_check_script() -> str:
+    """Return the bash body of reusable-review.yml's `should-run` `check` step."""
+    if not REUSABLE_WORKFLOW.exists():
+        pytest.skip(f"{REUSABLE_WORKFLOW} not found — repo is in an unexpected state")
+    data = yaml.safe_load(REUSABLE_WORKFLOW.read_text(encoding="utf-8"))
+    jobs = data.get("jobs", {})
+    should_run = jobs.get("should-run")
+    assert should_run is not None, "missing `should-run` job in reusable-review workflow"
     steps = should_run.get("steps", [])
     check_steps = [s for s in steps if isinstance(s, dict) and s.get("id") == "check"]
     assert check_steps, "missing `check` step (id: check) in the should-run job"
@@ -137,4 +162,71 @@ def test_slice_trigger_is_topology_keyed_not_bare_existence(check_script: str) -
         "`if [[ ... slice-[0-9]+$ ... ]]; then ... fi` block — this risks "
         "reintroducing the #1134 over-fire on PRs that merely inherit the "
         "default branch's contracts"
+    )
+
+
+def test_context_pr_skip_present(check_script: str) -> None:
+    """#3254: the work->main context PR is deterministically skipped.
+
+    The context/state PR (`egg/<id>/work -> main`) holds only `.egg-state/`
+    artifacts, so the gate must short-circuit it to `run=false` on the
+    head/base topology rather than letting implementation verification run.
+    """
+    assert "^egg/.+/work$" in check_script, (
+        "should-run gate has no context-PR head match — the work->main "
+        "context PR will fall through and run implementation verification (#3254)"
+    )
+    # The skip must actually disable the run, not merely match the branch.
+    skip_idx = next(
+        (i for i, line in enumerate(check_script.splitlines()) if "^egg/.+/work$" in line),
+        None,
+    )
+    assert skip_idx is not None
+    tail = "\n".join(check_script.splitlines()[skip_idx : skip_idx + 5])
+    assert "run=false" in tail, (
+        "the context-PR head match does not set run=false on the next lines — "
+        "the skip is inert (#3254)"
+    )
+
+
+def test_context_pr_skip_precedes_other_triggers(check_script: str) -> None:
+    """The context-PR skip must fire BEFORE the sdlc:pr / added-contract triggers.
+
+    The work->main diff necessarily *adds* the contract relative to main, which
+    would trip the added-contract trigger (condition 2); the context PR also
+    carries the `sdlc:pr` label. So the deterministic skip only wins if it is
+    evaluated first. Lock that ordering in.
+    """
+    lines = check_script.splitlines()
+    work_idx = next((i for i, ln in enumerate(lines) if "^egg/.+/work$" in ln), None)
+    label_idx = next((i for i, ln in enumerate(lines) if 'grep -q "^sdlc:pr$"' in ln), None)
+    added_idx = next((i for i, ln in enumerate(lines) if 'status == "added"' in ln), None)
+    assert work_idx is not None, "context-PR skip missing (#3254)"
+    assert label_idx is not None and added_idx is not None
+    assert work_idx < label_idx, (
+        "context-PR skip is evaluated after the sdlc:pr label trigger — the "
+        "label would win and verification would run on the context PR (#3254)"
+    )
+    assert work_idx < added_idx, (
+        "context-PR skip is evaluated after the added-contract trigger — the "
+        "work->main contract add would win and verification would run (#3254)"
+    )
+
+
+def test_reusable_review_skips_context_pr(reusable_check_script: str) -> None:
+    """#3254: the shared review gate (egg-reviewer + contract-verification) also
+    skips the work->main context PR deterministically on head/base topology."""
+    assert "^egg/.+/work$" in reusable_check_script, (
+        "reusable-review should-run gate has no context-PR head match — the "
+        "egg-reviewer will run implementation-style review on the work->main "
+        "context PR (#3254)"
+    )
+    skip_idx = next(
+        (i for i, line in enumerate(reusable_check_script.splitlines()) if "^egg/.+/work$" in line),
+        None,
+    )
+    assert skip_idx is not None
+    tail = "\n".join(reusable_check_script.splitlines()[skip_idx : skip_idx + 5])
+    assert "run=false" in tail, (
+        "the reusable-review context-PR match does not set run=false — the skip is inert (#3254)"
     )
