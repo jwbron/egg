@@ -121,9 +121,40 @@ jobs:
         if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip == 'true'
         run: echo "Skipping conflict resolution due to [skip-conflict-fix] marker"
 
+      # Skip egg slice PRs (#3255). A slice PR's head is egg/<id>/slice-<N> and
+      # its base is the advancing egg/<id>/work state-branch. Resolving such a PR
+      # by merging the base in (this bot's strategy) drags every later slice's
+      # contract-persist commit — and re-stamped copies of the whole refine/plan
+      # prefix — into the early slice's history. Slice-stack reconciliation is
+      # owned by the orchestrator's stacked-PR reconciler, not this generic
+      # base-into-head merge bot. The push/schedule entry point already skips
+      # these in on-merge-conflict.yml's `find` step; this guard makes the
+      # invariant airtight for the manual-dispatch (workflow_dispatch) entry
+      # point, which calls this reusable workflow directly and would otherwise
+      # re-introduce exactly the pollution #3255 removes. The egg/<id>/work ->
+      # main context PR (whose head does NOT match this pattern) is deliberately
+      # still resolved here so the base PR keeps tracking main.
+      - name: Check for egg slice PR
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
+        id: slice-check
+        env:
+          HEAD_REF: ${{ steps.pr-meta.outputs.head-ref }}
+        run: |
+          set -euo pipefail
+          if [[ "$HEAD_REF" =~ ^egg/.+/slice-[0-9]+$ ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "PR head $HEAD_REF is an egg slice PR, skipping — orchestrator owns slice-stack reconciliation (#3255)"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Early exit if slice PR
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true' && steps.slice-check.outputs.skip == 'true'
+        run: echo "Skipping conflict resolution for egg slice PR — orchestrator owns slice-stack reconciliation (#3255)"
+
       # Minimize previous conflict resolution comments (status comments marked with semantic marker)
       - name: Minimize previous conflict comments
-        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true' && steps.slice-check.outputs.skip != 'true'
         run: |
           set -euo pipefail
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
@@ -142,7 +173,7 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
       - name: Post starting comment
-        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true' && steps.slice-check.outputs.skip != 'true'
         run: |
           set -euo pipefail
           BODY="<!-- egg-status-comment -->
@@ -156,14 +187,14 @@ jobs:
 
       # SECURITY: Build the conflict prompt from a trusted checkout (main).
       - name: Checkout main (trusted)
-        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true' && steps.slice-check.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           ref: main
           persist-credentials: false
 
       - name: Build conflict prompt
-        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true' && steps.slice-check.outputs.skip != 'true'
         id: prompt
         run: bash ${{ inputs.prompt_script }}
         env:
@@ -172,7 +203,7 @@ jobs:
           BASE_REF: ${{ inputs.base_ref || steps.pr-meta.outputs.base-ref }}
 
       - name: Checkout PR branch
-        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true' && steps.slice-check.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           repository: ${{ steps.pr-meta.outputs.head-repo }}
@@ -181,7 +212,7 @@ jobs:
           fetch-depth: 0
 
       - name: Run egg conflict resolution
-        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true' && steps.slice-check.outputs.skip != 'true'
         id: egg
         uses: jwbron/egg/action@main
         with:
@@ -196,7 +227,7 @@ jobs:
           timeout: ${{ inputs.timeout }}
 
       - name: Post result comment
-        if: always() && !cancelled() && steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
+        if: always() && !cancelled() && steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true' && steps.slice-check.outputs.skip != 'true'
         run: |
           set -euo pipefail
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

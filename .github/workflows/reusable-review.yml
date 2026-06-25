@@ -538,7 +538,17 @@ jobs:
               echo "::warning::Empty content for ${name} on ${work_branch} (too large for contents API?); keeping PR-branch copy"
               continue
             fi
-            echo "$content" | base64 -d > ".egg-state/contracts/${name}"
+            # Decode to a temp file and promote only on success. A raw
+            # `base64 -d > dest` under `set -euo pipefail` would hard-fail the
+            # whole review job if the payload ever fails to decode; this step is
+            # best-effort, so a bad decode must degrade to "keep the PR-branch
+            # copy", not abort the review (#3255 review note).
+            if ! echo "$content" | base64 -d > ".egg-state/contracts/${name}.tmp" 2>/dev/null; then
+              echo "::warning::Failed to base64-decode ${name} from ${work_branch}; keeping PR-branch copy"
+              rm -f ".egg-state/contracts/${name}.tmp"
+              continue
+            fi
+            mv ".egg-state/contracts/${name}.tmp" ".egg-state/contracts/${name}"
             echo "Overlaid canonical .egg-state/contracts/${name} from ${work_branch}"
           done <<< "$names"
 

@@ -36,6 +36,7 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 CONFLICT_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "on-merge-conflict.yml"
+REUSABLE_CONFLICT_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "reusable-conflict-resolve.yml"
 REVIEW_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "reusable-review.yml"
 
 SLICE_HEAD_REGEX = "^egg/.+/slice-[0-9]+$"
@@ -118,6 +119,44 @@ def test_conflict_bot_does_not_skip_the_context_pr(find_script: str) -> None:
         "the conflict bot appears to skip the work/context PR too — it must keep "
         "resolving egg/<id>/work -> main so the base PR stays up to date (#3255)"
     )
+
+
+def test_reusable_conflict_resolve_skips_slice_prs() -> None:
+    """Defense-in-depth: the reusable workflow must also skip slice PRs.
+
+    The ``find`` step only guards the push/schedule entry point. The
+    ``workflow_dispatch`` (manual) entry point calls
+    ``reusable-conflict-resolve.yml`` directly with an operator-supplied
+    ``pr_number`` and would otherwise re-introduce exactly the history pollution
+    #3255 removes. The slice skip therefore also lives in the reusable workflow,
+    where both entry points converge.
+    """
+    slice_check = _step_run(REUSABLE_CONFLICT_WORKFLOW, "resolve", step_id="slice-check")
+    assert SLICE_HEAD_REGEX in slice_check, (
+        "the reusable conflict-resolve workflow no longer matches the slice-PR "
+        "head pattern — manual dispatch could re-pollute slice history (#3255)"
+    )
+    assert "skip=true" in slice_check, (
+        "the reusable conflict-resolve slice-check sets no skip output (#3255)"
+    )
+
+    # Every step that performs the actual conflict resolution must be gated on
+    # the slice-check skip, or the guard is inert.
+    data = yaml.safe_load(REUSABLE_CONFLICT_WORKFLOW.read_text(encoding="utf-8"))
+    gated = {
+        "Checkout PR branch",
+        "Run egg conflict resolution",
+    }
+    seen = set()
+    for step in data["jobs"]["resolve"].get("steps", []):
+        if not isinstance(step, dict) or step.get("name") not in gated:
+            continue
+        seen.add(step["name"])
+        assert "steps.slice-check.outputs.skip != 'true'" in step.get("if", ""), (
+            f"step {step['name']!r} is not gated on the slice-check skip — a "
+            f"manually dispatched slice PR would still be resolved (#3255)"
+        )
+    assert seen == gated, f"expected gated steps {gated} not all present, saw {seen}"
 
 
 def test_review_overlays_canonical_contract_for_slice_prs() -> None:
