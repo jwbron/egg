@@ -143,7 +143,7 @@ Top-level anchor model:
 - **`BRCState`**: `phase` (BRCPhase), `proposed_at`, `acks`, `nacks`, `last_message_id`
 - **`KeyContext`**: `label` (max 50 chars), `value` (max 500 chars)
 - **`ErrorEncountered`**: `error` (max 200 chars), `resolution` (max 200 chars), `timestamp`
-- **`BRCDerivedAnchors`**: four deterministic BRC anchor fields derived from the message record — `last_reviewed_sha` (producer → SHA), `latest_verdicts` (list of `ReviewEdgeVerdict`), `open_nacks` (list of `OpenNack`), `conditional_ack_obligations` (list of `ConditionalAckObligation`)
+- **`BRCDerivedAnchors`**: four deterministic BRC anchor fields derived from the message record — `last_reviewed_sha` (producer → SHA of the latest proposal any reviewer has verdicted on — a per-producer max-across-reviewers aggregate, not a per-edge value; the per-edge reviewed SHA lives in `latest_verdicts[].reviewed_sha`), `latest_verdicts` (list of `ReviewEdgeVerdict`), `open_nacks` (list of `OpenNack`), `conditional_ack_obligations` (list of `ConditionalAckObligation`)
 - **`ReviewEdgeVerdict`**: `reviewer`, `producer`, `verdict` (ReviewVerdict), `version`, `reviewed_sha` — latest verdict on a single reviewer→producer edge
 - **`OpenNack`**: `reviewer`, `producer`, `version`, `reason` — unresolved NACK against the producer's current proposal version
 - **`ConditionalAckObligation`**: `reviewer`, `producer`, `version`, `condition`, `resolved` — pre-merge obligation from a conditional ACK (#1998)
