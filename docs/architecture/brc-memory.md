@@ -97,15 +97,23 @@ composer.
 
 The memory file is markdown with three top-level sections. The six required
 fields are reproduced verbatim from architect v2
-`design.memory_schema.required_fields`:
+`design.memory_schema.required_fields`; a seventh field (`enrichment_sha`)
+is synthesized by the renderer from `last_reviewed_commit_sha` (#3200
+slice-5) and is rendered immediately before `summary_of_assessment` so
+consumers can detect stale claims without parsing two separate fields:
 
 ```markdown
 ## Codebase / change model
 
+<!-- enrichment (claims, not ground truth); re-verify vs the live
+git-log delta — #3189 anchors are authoritative -->
 <distilled prose: what the codebase does, what this slice changes,
 which subsystems are in play>
 
 ## Per-producer assessment
+
+<!-- summaries are SHA-stamped claims; stale when enrichment_sha
+!= the producer's current proposal SHA -->
 
 ### <producer-role>
 
@@ -114,6 +122,8 @@ which subsystems are in play>
 - prior_verdict: <ACK | NACK | conditional-ACK>
 - prior_nack_reasons: <bulleted reasons from the last NACK, if any>
 - prior_conditional_obligation: <the pre_merge_condition text, if any>
+- enrichment_sha: <SHA the summary_of_assessment was authored against;
+  equals last_reviewed_commit_sha by construction>
 - summary_of_assessment: <distilled prose of what was reviewed and why
   the verdict landed where it did>
 
@@ -136,7 +146,8 @@ which subsystems are in play>
 | | `prior_verdict` | One of `ACK`, `NACK`, or `conditional-ACK` so a re-entered handler knows which path to take. |
 | | `prior_nack_reasons` | Carries forward NACK reasons so re-review can verify they were addressed. Cleared on the next ACK from this reviewer: the producer's fixes have, by the ACK contract, resolved the NACKs that ACK is replacing, so a slice-3 reader inspecting this field after an ACK will see ``[]``. The decision-log entry for the NACK remains for the audit trail. |
 | | `prior_conditional_obligation` | Echoes any `pre_merge_condition` attached to a conditional ACK (#1998 / #2336). |
-| | `summary_of_assessment` | Distilled rationale — the bit that takes the most context to reconstruct from raw transcript. |
+| | `enrichment_sha` | SHA the `summary_of_assessment` was authored against; synthesized by the renderer from `last_reviewed_commit_sha` (always equal by construction). Consumers call `egg_agent.queryable_env.enrichment_is_stale(enrichment_sha, current_proposal_sha)` to determine whether to trust the summary or re-derive it from the live `git log` delta. Added in #3200 slice-5. |
+| | `summary_of_assessment` | Distilled rationale — the bit that takes the most context to reconstruct from raw transcript. This is #3188 agent-authored enrichment (claims, not ground truth); compare `enrichment_sha` against the producer's current proposal SHA before trusting it. |
 | `## Decision log` | (entries) | Append-only narrative of significant moments in the review, **capped at the last 20** via distill-on-write. |
 
 ### Decision-log cap (distill-on-write)
@@ -223,7 +234,7 @@ write is **action-scaffolded** off the ACK/NACK signal payload rather than
 free-form journaling. Handler return values are unchanged in every mode —
 the writer is a side-effect, not part of the orchestrator-bound contract.
 
-## How slice-3 reads it
+## How slice-3 reads it (inline path)
 
 Once `EGG_BRC_MEMORY=full` is in effect, the event-pump's
 `compose_event_prompt` step reads the per-producer
@@ -245,6 +256,30 @@ or the stateless pump systematically weakens adversarial review
 When the mode is `write-only` (the slice-1 rollout posture), the read path
 passes an empty memory excerpt — writes happen but reads are no-ops,
 preserving the inert default.
+
+## How slice-5 reads it (JIT-pull path, #3200)
+
+Slice-5 adds a `jit_pull` flag to `compose_event_prompt` (default `False`
+— production behaviour is unchanged until slice-9 sets the flag). When
+`jit_pull=True`:
+
+- The delta and memory excerpt are **not inlined**. Instead, `compose_event_prompt`
+  renders pointer blocks — the exact `git log` recipe scoped by the
+  `last_reviewed_commit_sha` + proposal SHA anchors, plus
+  `mcp__brc__read_peer_artifact` / `GET /<pipeline_id>/brc-transcript`
+  handles — so only small pointers stay resident in the protected root.
+- The `enrichment_sha` in each producer's assessment block lets the agent
+  detect whether the in-memory summary is still valid for the current
+  proposal before deciding to pull the full delta. Call
+  `egg_agent.queryable_env.enrichment_is_stale(enrichment_sha, current_proposal_sha)`
+  to determine whether to trust the summary or re-derive it from the live
+  `git log` delta.
+- **Honest limit**: pulling the delta/transcript does NOT bound the context
+  window. A pulled slice stays resident until the next reseed (slice-6). The
+  reseed bounds the window; the pull only lowers the resident root cost and
+  makes the reseed re-pull-able.
+
+The canonical module for the JIT-pull renderers is `shared/egg_agent/queryable_env.py`.
 
 For the full architecture of the slice-3 reader (composer shape, 10 KB
 envelope, tail-position memory delivery per architect od-6 Option B,
