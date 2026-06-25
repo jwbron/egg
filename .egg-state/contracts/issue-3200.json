@@ -9,7 +9,725 @@
   "pipeline_id": "issue-3200",
   "current_phase": "refine",
   "acceptance_criteria": [],
-  "slices": [],
+  "slices": [
+    {
+      "id": "slice-1",
+      "name": "Token-occupancy capture (prerequisite, AC-1)",
+      "goal": "Capture cumulative window occupancy (cache_read+cache_creation+input) in AgentResult from ResultMessage.usage. Depends on: none. Blocks phases 8 and 10.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Extend `AgentResult` (`shared/egg_agent/result.py:24-33`) with an optional cumulative window-occupancy field (default None, non-breaking). Docstring defines occupancy = cache_read + cache_creation + input and states it is NOT billed/effective input. Optionally retain raw component counts for downstream breakout; the single total is the load-bearing field.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Optional occupancy field defaults None; docstring defines occupancy and excludes billed input; existing constructors still build.",
+          "files_affected": [
+            "shared/egg_agent/result.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `shared/egg_agent/client.py` stop dropping `message.usage` on the ResultMessage branch (717-751). Read usage, compute occupancy defensively (missing/None sub-fields -> 0), thread it into result_meta and EVERY AgentResult build site in the file (~733/~747/~760/~782/~804/~825). Guard against SDK shapes with no usage.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "usage read on the ResultMessage branch; occupancy=cache_read+cache_creation+input computed defensively; populated on all AgentResult return sites; absent usage -> None, no exception.",
+          "files_affected": [
+            "shared/egg_agent/client.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-3",
+          "description": "Unit tests for occupancy capture: populated usage -> sum; absent usage -> None without raising; partial usage -> sum of present components; a cache-dominated case proves cache_read is included (not just input).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "full/absent/partial cases covered; cache-dominated case asserts occupancy != billed input; tests pass under make test.",
+          "files_affected": [
+            "shared/egg_agent/tests/"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-2",
+      "name": "Real-window resolution + threshold (AC-3 foundation)",
+      "goal": "Pure deterministic helpers for the real backend window and the reseed threshold. Logical dep: none; serialized after slice 1 to avoid shared-file (orchestrator/tests) integration collisions (#3046).",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add a real-backend-window resolver in `orchestrator/agent_model_resolution.py`: Claude aliases -> 1_000_000; `_SUB_1M_CONTEXT_MODELS` members -> registered size (kimi-k2.7-code -> 262144); other non-Claude/200K-profile -> 200_000. Key on the bare model name, not the [1m] suffix. Reuse the existing tables.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Returns 1_000_000 for opus/opus[1m]; 262_144 for kimi-k2.7-code; 200_000 for an unregistered non-Claude model; never the [1m]-implied 1M for a sub-1M backend.",
+          "files_affected": [
+            "orchestrator/agent_model_resolution.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add a threshold function `threshold = min(400_000, 0.80 * real_backend_window)` consuming task-2-1. Expose 400_000 as a named, overridable constant (initial knob, not derived). The 0.80 margin pre-empts CC's ~95% compaction.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Returns min(400_000, 0.80*real_window); floor is a named overridable constant; margin documented as pre-empting CC ~95% compaction.",
+          "files_affected": [
+            "orchestrator/agent_model_resolution.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-3",
+          "description": "Unit tests for the worked examples: opus[1m]->400k; 200K->160k; Qwen/128K-class->~102k. Regression test: the sub-1M threshold is computed against the real window, NOT the [1m] alias (the mis-trigger bug).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "400k/160k/~102k asserted; mis-trigger regression asserted; tests pass.",
+          "files_affected": [
+            "orchestrator/tests/"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-3",
+      "name": "Derive",
+      "goal": "Derive the four #3189 anchor fields (last-reviewed SHA/producer, latest verdicts, open NACK reasons, conditional-ACK obligations) from the BRC message record; extend shared/egg_anchor additively. Closes the substrate gap the NACK flagged (BRCState carries none of these today; #3189 OPEN). Logical dep: none; serialized after slice 2 (#3046). Hard prereq of the protected root (slice 4).",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Implement a deterministic derivation that, from the BRC message record (CONSENSUS_PROPOSE/ACK/NACK/conditional-ACK messages), computes: (i) last-reviewed SHA per producer (latest reviewed proposal_commit_sha per edge); (ii) latest verdict per reviewer->producer edge; (iii) open NACK reasons (current-version NACKs not yet resolved); (iv) conditional-ACK obligations (pre_merge_condition, with resolved/unresolved status). Derivation is mechanical (never agent-transcribed). Extend shared/egg_anchor model(s) to carry these four fields additively (do not break BRCState.acks/nacks/last_message_id at models.py:96-103).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The four fields derive purely from the message record; the egg_anchor model carries them additively without breaking existing fields; against a fixture message record the derived anchors match exactly; no agent-authored content enters this layer.",
+          "files_affected": [
+            "shared/egg_anchor/",
+            "orchestrator/"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-2",
+          "description": "Tests: a fixture message stream (multiple producers; an ACK then re-propose + NACK; a conditional-ACK with an unresolved obligation) yields the correct last-reviewed SHA per producer, latest verdict per edge, open NACK reason, and unresolved obligation; a resolved obligation is marked resolved; legacy acks/nacks/last_message_id untouched.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Derivation correctness for all four fields asserted against a realistic fixture; obligation resolved/unresolved distinguished; legacy-field non-regression asserted; tests pass.",
+          "files_affected": [
+            "shared/egg_anchor/tests/",
+            "orchestrator/tests/"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-2"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-4",
+      "name": "Protected root (deterministic, resident, AC-2 part 1)",
+      "goal": "Small, byte-stable, role-parameterized resident root rendered from the phase-3 #3189 anchors. Logical dep: slice 3 (the anchors it renders). Feeds slices 5, 8, 9.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Implement a protected-root renderer assembling, in fixed order: (a) role contract, (b) task anchor via compose_task_description (#3163), (c) the #3189 deterministic anchors derived in phase 3 (last-reviewed SHA/producer, latest verdicts, open NACKs, conditional-ACK obligations), (d) non-negotiable directives. Role-parameterized; emits STABLE BYTES (sorted keys, bounded sections, hard per-section caps, no timestamps/nondeterministic ordering).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Four sections in fixed order; byte-stable across repeated identical renders; role-parameterized; the phase-3 deterministic layer is authoritative for section (c) (no agent claims inlined here).",
+          "files_affected": [
+            "shared/egg_anchor/",
+            "shared/egg_agent/"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-2",
+          "description": "Tests for deterministic rendering: identical input -> identical bytes; oversized sections truncated at the documented per-section cap; key ordering stable regardless of input dict order; two roles render distinct-but-each-stable roots.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Byte-stability, per-section-cap truncation, sort-stability, role-parameterization each asserted; tests pass.",
+          "files_affected": [
+            "shared/egg_anchor/tests/",
+            "shared/egg_agent/tests/"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-3"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-5",
+      "name": "Queryable environment (JIT pull, AC-2 part 2)",
+      "goal": "Move bulk out of the inlined prompt; pull JIT via read_peer_artifact + /brc-transcript; move #3188 enrichment into this layer, SHA-stamped. Logical dep: slice 4 (protected root must exist before bulk is removed from it).",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Stop inlining bulk BRC history / peer artifacts / diffs in the event-pump prompt. Pre-stage only the deterministic delta (the phase-3 #3189 layer in the protected root); leave bulk to read_peer_artifact + GET /<pipeline_id>/brc-transcript (`orchestrator/routes/messages.py:415`). Code comment records the honest limit: JIT pull does NOT bound the window (a pulled slice stays resident until reseed/compaction); the reseed (phase 8) bounds it.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Prompt no longer inlines bulk history/artifacts/diffs; bulk reachable only via read_peer_artifact / /brc-transcript; comment records 'pull does not bound the window, reseed does'.",
+          "files_affected": [
+            "sandbox/",
+            "shared/egg_agent/"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-2",
+          "description": "Move #3188 agent-authored enrichment into the queryable environment: surfaced on demand (not inlined), SHA-stamped so the git-log delta can invalidate stale claims. Treat enrichment as claims, not ground truth; the phase-3 deterministic layer + git-log delta stay authoritative; a wrong 'verified' claim must not suppress re-checking.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Enrichment pulled on demand; each record SHA-stamped; stale enrichment (SHA older than current delta) detectable/invalidatable; deterministic layer authoritative.",
+          "files_affected": [
+            "shared/egg_agent/",
+            "orchestrator/"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-3",
+          "description": "Tests: the event prompt excludes bulk history; JIT-pulled content is retrievable via the existing tools; enrichment SHA-stamping and stale-claim invalidation behave as specified.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Bulk-exclusion, JIT retrievability, and SHA-stamp invalidation asserted; tests pass.",
+          "files_affected": [
+            "shared/egg_agent/tests/",
+            "orchestrator/tests/"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-4"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-6",
+      "name": "Session-resume substrate (#3186) + cold-start fallback (NEW - fixes B2)",
+      "goal": "Land resume=<session_id> plumbing in client.py + the no-warm-session cold-start fallback (fresh seed from the protected root). Closes the second substrate gap the NACK flagged (0 resume hits in client.py; #3186 OPEN). Logical dep: none; serialized after slice 5 (#3046). Hard prereq of the reseed (slice 8).",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Add session-resume plumbing to the event-pump path: thread a resume=<session_id> (continue-conversation) option through shared/egg_agent/client.py so a re-invocation can re-enter the prior session by session_id (already on AgentResult). Define the no-warm-session fallback explicitly: when no resumable session_id exists (first invocation, expired session, consensus reset, pod death), seed a fresh session from the protected root (phase 4) - never a hard failure. (Architect confirms the SDK option surface; this task owns the requirement + tests.)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "client.py exposes a resume-by-session_id option threaded through the event-pump path; when no resumable session exists the path seeds fresh from the protected root rather than erroring; resume is opt-in (default off) so rollout is staged.",
+          "files_affected": [
+            "shared/egg_agent/client.py",
+            "sandbox/"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-6-2",
+          "description": "Tests: a valid session_id resumes the prior conversation; an absent/expired session_id cold-starts from the protected root without raising; resume defaults off unless explicitly enabled.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "resume-by-id, cold-start-fallback, and default-off each asserted; no exception on the missing-session path; tests pass.",
+          "files_affected": [
+            "shared/egg_agent/tests/",
+            "sandbox/tests/"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-5"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-7",
+      "name": "Mid-phase BRC message-record persistence",
+      "goal": "Make the BRC message record survive a mid-phase restart so a reseeded session can re-pull it and re-derive the phase-3 anchors (_write_brc_history persists at phase transitions only today). Logical dep: none; serialized after slice 6 (#3046). Must land before the reseed (slice 8) is trusted across restarts.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-7-1",
+          "description": "Ensure the BRC message record survives a mid-phase restart. Choose between (a) reading the live Redis message stream across the restart, or (b) adding a history-persist step to the restart route so _write_brc_history also fires mid-phase. (Architect confirms the mechanism; this task owns the requirement + test.)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "After a simulated mid-phase restart, the phase's BRC message record is retrievable (Redis stream or persisted history); no message loss across the restart boundary.",
+          "files_affected": [
+            "orchestrator/"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-2",
+          "description": "Tests: a mid-phase restart preserves the message record (proposals, verdicts, open NACKs) so the post-restart session can reconstruct the queryable environment and re-derive the phase-3 anchors.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test simulates mid-phase restart and asserts the message record is intact afterwards; tests pass.",
+          "files_affected": [
+            "orchestrator/tests/"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-6"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-8",
+      "name": "Threshold reseed (resume-vs-reseed, AC-3)",
+      "goal": "Resume-vs-reseed decision at re-invocation, comparing occupancy to the threshold; reseed a fresh session from the protected root, pre-empting CC compaction. None/unknown occupancy and no-warm-session both bias to reseed. Logical deps: slices 1, 2, 4, 6, 7 (all upstream in the serialized chain via slice 7).",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-8-1",
+          "description": "Implement the resume-vs-reseed decision in the event-pump wrapper: read resumed-session occupancy (phase 1); compute the threshold from the model's real window (phase 2); if occupancy is a known value < threshold, resume the cached session via the phase-6 substrate; if occupancy >= threshold, start a FRESH session seeded only from the protected root (phase 4), relying on JIT re-pull (phase 5). None/unknown occupancy -> bias to RESEED (cheap, safe), NEVER resume-below-threshold (covers non-Claude / sub-200K LiteLLM routes whose usage may be partial/absent). If the phase-6 resume path reports no warm session, fall through to the reseed seed. Fire below CC's ~95% compaction. Reseed expected to fire rarely; do not couple it to within-event growth (tool_output_cap.py's job).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Resumes when occupancy is known and < min(400k,0.80*real_window); reseeds from the protected root when occupancy >= threshold OR occupancy is None/unknown OR no warm session; reseeded session contains the protected root and only re-pulled bulk; trigger uses occupancy (cache_read+cache_creation+input), not billed input; None-occupancy and no-warm-session both resolve to a safe reseed, never a lossy resume.",
+          "files_affected": [
+            "sandbox/",
+            "shared/egg_agent/"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-8-2",
+          "description": "Tests for the decision boundary: occupancy just-under threshold -> resume; at/over -> reseed-from-root; None/unknown occupancy -> reseed (not resume); no-warm-session -> reseed; the reseeded session carries the protected root and re-pulls bulk on demand; the threshold is computed against the real backend window (no [1m] mis-trigger).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Under/at/over + None-occupancy->reseed + no-warm-session->reseed covered; reseed-from-root + JIT-re-pull asserted; real-window threshold asserted; tests pass.",
+          "files_affected": [
+            "sandbox/tests/",
+            "shared/egg_agent/tests/"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-7"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-9",
+      "name": "Generalize to ALL BRC roles behind a feature flag (fixes B4)",
+      "goal": "Wire token capture + protected-root/queryable-env split + threshold reseed into every event-pump role, gated behind one feature flag whose OFF state retains today's full-context path. Role-parameterized root, uniform mechanism. Logical deps: slices 4, 5, 8 (all upstream via slice 8). Operator-decided all-roles scope; the flag is a kill-switch, not the preserved fallback build.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-9-1",
+          "description": "Introduce a single feature flag (env/config) gating the context discipline (protected-root/queryable-env split + threshold reseed + JIT pull). ON -> the new path for every event-pump role: producers (coder/architect/task_planner/risk_analyst ...) and reviewers (reviewer_code/reviewer_plan/reviewer_refine ...), each inlining only its own contract + its own anchors via the phase-4 role-parameterized renderer. OFF (and default during rollout) -> today's full-context inlining path, byte-for-byte unchanged. The flag is read in one place; no role hard-codes the new path.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "One flag gates the whole discipline; OFF preserves the current full-context path unchanged; ON drives every event-pump role through the split + threshold reseed with a role-parameterized root; producers and reviewers both covered; the OFF path retains no dependency on the new code.",
+          "files_affected": [
+            "sandbox/",
+            "shared/egg_agent/",
+            "orchestrator/"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-9-2",
+          "description": "Integration tests exercising >=1 producer role and >=1 reviewer role end-to-end with the flag ON (protected root resident, bulk pulled JIT, reseed firing at threshold; mechanism uniform, only root content differs by role) AND a test that with the flag OFF the legacy full-context path is taken unchanged.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Flag-ON integration covers >=1 producer + >=1 reviewer (role-parameterized root + uniform mechanism); flag-OFF test asserts the legacy path is unchanged; tests pass.",
+          "files_affected": [
+            "integration_tests/",
+            "sandbox/tests/"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-8"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-10",
+      "name": "Measurement tooling/surfaces (emit-only, AC-4 + AC-5)",
+      "goal": "Emit per-event occupancy + metric surfaces for a later measurement pass; run no measurement and gate nothing. Logical deps: slices 1, 8 (both upstream via slice 9); serialized last to avoid shared-file (shared/egg_agent, orchestrator + tests) integration collisions (#3046).",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-10-1",
+          "description": "Emit per-event measurement surfaces from the occupancy field + reseed decisions: window occupancy per event; peak utilization under resume; single-event working set vs real window (recursion-escalation signal); reseed frequency per phase; root-cache hit rate; tokens/event. Route through existing progress/heartbeat/metrics surfaces. EMIT ONLY \u2014 no aggregation into a verdict, no A/B harness, no comparison, nothing gated.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All listed surfaces emitted per event from phase-1 occupancy + phase-8 reseed signals; no control flow branches on the measured values; emit-only documented.",
+          "files_affected": [
+            "shared/egg_agent/",
+            "orchestrator/"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-10-2",
+          "description": "Tests asserting the surfaces emit correct values for a synthetic event sequence (including >=1 reseed), and that no code path consumes the metrics to make a decision (proving emit-only / nothing-gated).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Multi-event-with-reseed surface values asserted; a test confirms no decision branches on the metrics; tests pass.",
+          "files_affected": [
+            "shared/egg_agent/tests/",
+            "orchestrator/tests/"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-9"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [
     {
       "id": "cq-1",
@@ -171,7 +889,14 @@
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
-  "pr": null,
+  "pr": {
+    "title": "BRC context discipline: protected root + queryable environment + threshold reseed (#3200)",
+    "description": "Build the full context-discipline mechanism for event-pump BRC agents, wired for\nALL roles (producers AND reviewers): capture cumulative window occupancy in\nAgentResult; derive the #3189 deterministic anchors from the BRC message record;\nsplit each event into a small deterministic protected root (resident, cacheable)\nplus a queryable environment pulled just-in-time; land the #3186 session-resume\nsubstrate; and bound the session with a deterministic threshold reseed at\nmin(400k, 0.80 x real_backend_window) that pre-empts Claude Code's ~95% lossy\nauto-compaction. The whole discipline is gated behind one feature flag (OFF =\ntoday's full-context path). Also build the measurement TOOLING (per-event\noccupancy + metric surfaces), emit-only.\n\nScope is operator-decided (resolved HITL cq-1/cq-2): full build across all roles +\nmeasurement tooling only. NO measurement run, no A/B, no status-quo comparison, and\nnothing gated on measured results. The measurement pass, the go/no-go, the gated\ngeneralization, the sub-agent recursion escalation, and the preserved verbatim\nfull-context fallback are explicit FOLLOW-UP work, out of scope. Implements #3200.",
+    "test_plan": "- Automated: unit tests for token-occupancy capture (full/absent/partial usage,\n  cache-dominated case); real-window + threshold helpers (worked examples\n  opus[1m]->400k, 200K->160k, 128K->~102k, plus the [1m] mis-trigger regression);\n  #3189 anchor derivation from a fixture message record (four fields + obligation\n  resolved/unresolved + legacy-field non-regression); protected-root deterministic\n  byte-stability + per-section caps + role-parameterization; queryable-env\n  bulk-exclusion + JIT retrievability + enrichment SHA-stamp invalidation; #3186\n  resume-by-id + cold-start fallback + default-off; mid-phase restart message-record\n  survival; resume-vs-reseed decision boundary incl. None-occupancy->reseed and\n  no-warm-session->reseed; feature-flag ON/OFF (OFF retains legacy path); emit-only\n  metric surfaces (no decision branches on metrics).\n- Integration: >=1 producer and >=1 reviewer driven end-to-end through the new path\n  with the flag ON (resident root, JIT bulk pull, reseed at threshold), plus a\n  flag-OFF assertion that the legacy full-context path is unchanged.\n- Run with `make test` (changeset-aware); full suite via `make test-all`.",
+    "manual_steps": "Pre-merge: none\nPost-merge: roll the feature flag ON for a subset of roles, then operator runs the\ndeferred measurement pass end-to-end (separate follow-up issue).",
+    "context_pr_number": null,
+    "deferred_actions": []
+  },
   "feedback": null,
   "phase_configs": null,
   "agent_executions": []
