@@ -16,10 +16,14 @@ resume is slice-8 (``task-8-1``). Keeping the decision out of the substrate is
 deliberate so the substrate can ship dark.
 
 **Opt-in, default OFF (staged rollout).** ``session_resume_enabled()`` gates
-the whole behaviour on ``EGG_SESSION_RESUME``; until an operator flips it on,
-the substrate is inert and the agent path is byte-for-byte the legacy
-cold-start. (Slice-9's master context-discipline flag may later subsume this
-narrower switch; for now it is the single, documented staging knob.)
+the whole behaviour on ``EGG_SESSION_RESUME`` *or* the slice-9 master
+context-discipline flag (``egg_agent.context_discipline``); until one of them is
+flipped on, the substrate is inert and the agent path is byte-for-byte the
+legacy cold-start. The narrower ``EGG_SESSION_RESUME`` knob remains for
+staged rollout, but the master flag subsumes it (#3200 slice-9, task-9-1): a
+single ``EGG_CONTEXT_DISCIPLINE`` enables the whole discipline — the
+queryable-environment split and this warm-resume substrate together — so no
+component is enabled in isolation by the master switch.
 
 **Cold-start fallback — never a hard failure.** A missing/empty/corrupt state
 file, an unset path, or a record without a usable ``session_id`` all resolve to
@@ -38,6 +42,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from egg_agent.context_discipline import context_discipline_enabled
 
 try:
     from egg_logging import get_logger
@@ -75,12 +81,20 @@ _TRUTHY = {"1", "true", "yes", "on"}
 def session_resume_enabled() -> bool:
     """Return whether warm-session resume is enabled (opt-in, default OFF).
 
-    Resume only ever happens when this returns ``True``. With the flag unset —
-    the rollout default — a passed-in ``session_id`` is ignored and the agent
-    cold-starts, so the substrate can ship before the slice-8 gate that drives
-    it. Accepts the usual truthy spellings (``1/true/yes/on``, case-insensitive).
+    Resume only ever happens when this returns ``True``. It returns ``True``
+    when EITHER the narrower ``EGG_SESSION_RESUME`` staging knob is set OR the
+    slice-9 master context-discipline flag
+    (:func:`egg_agent.context_discipline.context_discipline_enabled`) is on — the
+    master flag subsumes this narrower switch so a single ``EGG_CONTEXT_DISCIPLINE``
+    enables the whole discipline (queryable-env split + this warm-resume
+    substrate) together (#3200 slice-9, task-9-1). With both unset — the rollout
+    default — a passed-in ``session_id`` is ignored and the agent cold-starts, so
+    the substrate can ship before the slice-8 gate that drives it. Accepts the
+    usual truthy spellings (``1/true/yes/on``, case-insensitive).
     """
-    return os.environ.get(SESSION_RESUME_ENV, "").strip().lower() in _TRUTHY
+    if os.environ.get(SESSION_RESUME_ENV, "").strip().lower() in _TRUTHY:
+        return True
+    return context_discipline_enabled()
 
 
 @dataclass(frozen=True)
