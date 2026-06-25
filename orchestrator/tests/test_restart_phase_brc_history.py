@@ -239,11 +239,14 @@ class TestInFlightBrcRecordSurvivesToDisk:
 
 # ---------------------------------------------------------------------------
 # Restart wiring: restart_phase must persist the in-flight phase's record
-# before the destructive teardown.  These pin task-7-1's requirement and
-# FAIL until the coder wires the persist step (TDD contract pin).  The
-# assumed seam (_persist_phase_brc_history, the #1827 helper) is declared to
-# `coder` via HANDOFF so we converge in-cycle; if the architect's confirmed
-# mechanism differs, these flip to the agreed seam.
+# before the destructive teardown.  These pinned task-7-1's requirement as a
+# TDD contract pin; the coder (commit 6360107b) has since CONVERGED on
+# Option (b) (durable persist, belt-and-suspenders with the Option (a) live-
+# Redis survival): ``restart_phase`` now calls ``_persist_phase_brc_history``
+# via the #1827 helper, before the destructive container/worktree teardown.
+# The xfail markers are therefore removed — these now assert as real, hard
+# regression guards: a future change that drops the persist call from the
+# restart path must fail CI rather than be swallowed as an expected failure.
 # ---------------------------------------------------------------------------
 
 
@@ -330,12 +333,6 @@ class TestRestartPhasePersistsInFlightBrcHistory:
     to the mid-phase restart path, which is the slice-7 gap.
     """
 
-    @pytest.mark.xfail(
-        reason="task-7-1 (coder) wires restart_phase -> persist; assumed seam "
-        "_persist_phase_brc_history, mechanism (a Redis-survival vs b durable persist) "
-        "pending architect confirmation. HANDOFF sent; xfail removed on convergence.",
-        strict=False,
-    )
     @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines._persist_phase_brc_history")
     @patch("routes.pipelines.get_container_spawner")
@@ -368,11 +365,6 @@ class TestRestartPhasePersistsInFlightBrcHistory:
             f"restart must persist the in-flight phase's record, got phase={phase_arg!r}"
         )
 
-    @pytest.mark.xfail(
-        reason="task-7-1 (coder) wires restart_phase -> persist before teardown; "
-        "mechanism pending architect confirmation. HANDOFF sent; xfail removed on convergence.",
-        strict=False,
-    )
     @patch("routes.pipelines.agent_salvage.enumerate_agent_worktrees")
     @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines._persist_phase_brc_history")
