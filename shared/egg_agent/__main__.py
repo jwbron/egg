@@ -13,6 +13,7 @@ import argparse
 import sys
 
 from egg_agent.client import run_agent
+from egg_agent.reseed import decide_resume_session
 from egg_agent.session import write_session_state
 
 
@@ -78,6 +79,19 @@ def main() -> int:
             print("Error: empty prompt from stdin", file=sys.stderr)
             return 1
 
+    # Resume-vs-reseed gate (#3200 slice-8, task-8-1). The decision happens at
+    # the start of each one-shot re-invocation: read the prior run's occupancy
+    # from the slice-6 state file, compare against the real-window threshold, and
+    # either resume the cached session (occupancy known and below threshold) or
+    # reseed from the protected root (resume=None -> fresh session, JIT re-pull).
+    # Every ambiguous case (no warm session, unknown occupancy, no threshold,
+    # resume disabled) biases to a safe reseed rather than a lossy resume.
+    resume_decision = decide_resume_session(
+        model=args.model,
+        explicit_resume=args.resume,
+        session_state_path=args.session_state_file,
+    )
+
     result = run_agent(
         prompt,
         model=args.model,
@@ -86,7 +100,7 @@ def main() -> int:
         timeout=args.timeout,
         on_output=_stream_to_stdout,
         effort=args.effort,
-        resume=args.resume,
+        resume=resume_decision.session_id,
     )
 
     # Write side of the session-state round-trip (#3200 slice-6): persist this

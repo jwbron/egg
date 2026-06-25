@@ -219,11 +219,16 @@ def _isolated_agent_env(monkeypatch):
       default (OFF). Tests that want a warm resume opt in explicitly via
       ``monkeypatch.setenv("EGG_SESSION_RESUME", "1")`` — mirroring the real
       two-fold gate (non-empty session_id AND the enable flag).
+    * ``EGG_CONTEXT_DISCIPLINE`` is also cleared: since #3200 slice-9 the master
+      flag subsumes ``EGG_SESSION_RESUME`` (``session_resume_enabled()`` ORs it
+      in), so an ambient value in the runner's env would silently flip resume ON
+      and break the default-OFF baseline these tests assert.
     """
     monkeypatch.setenv("EGG_MCP_TOOLS", "false")
     monkeypatch.delenv("EGG_AGENT_ROLE", raising=False)
     monkeypatch.delenv("EGG_PRIVATE_MODE", raising=False)
     monkeypatch.delenv("EGG_SESSION_RESUME", raising=False)
+    monkeypatch.delenv("EGG_CONTEXT_DISCIPLINE", raising=False)
 
 
 def _options_from(mock_query):

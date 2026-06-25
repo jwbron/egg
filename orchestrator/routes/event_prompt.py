@@ -1142,6 +1142,28 @@ def _parse_per_producer_sha(memory_text: str) -> dict[str, str]:
     return out
 
 
+def _pipeline_id_token() -> str:
+    """Resolve the validated pipeline-id token from env, or ``""`` when unusable.
+
+    ``EGG_PIPELINE_ID`` with an ``issue-<EGG_ISSUE_NUMBER>`` fallback (the
+    pod-inherited identifiers; see ``_read_task_description`` /
+    ``_memory_path``). Returns ``""`` when neither is set or the token carries
+    a character outside ``[A-Za-z0-9_-]`` — the same fail-soft validation the
+    #3163 memory filename uses, so a malformed id never leaks into a path or a
+    rendered pull handle. Shared by :func:`_memory_path` and the slice-9
+    ``jit_pull`` wiring (the ``pipeline_id`` interpolated into the
+    ``brc-transcript`` handle) so both resolve the id identically.
+    """
+    pipeline_id = (os.environ.get("EGG_PIPELINE_ID") or "").strip()
+    if not pipeline_id:
+        issue_number = (os.environ.get("EGG_ISSUE_NUMBER") or "").strip()
+        if issue_number:
+            pipeline_id = f"issue-{issue_number}"
+    if not pipeline_id or not all(ch.isalnum() or ch in "_-" for ch in pipeline_id):
+        return ""
+    return pipeline_id
+
+
 def _memory_path(repo_path: Path, role: str) -> Path | None:
     """Resolve the pipeline-scoped BRC memory file path (#3163).
 
@@ -1150,20 +1172,17 @@ def _memory_path(repo_path: Path, role: str) -> Path | None:
     (``brc-memory-<pipeline-id>.md``) so a fresh pipeline never inlines
     a previous pipeline's memory — role-only keying let memory files
     merged to main via context PRs seed later pipelines' prompts with
-    the wrong pipeline's distilled state. The id resolves from
-    ``EGG_PIPELINE_ID`` with an ``issue-<EGG_ISSUE_NUMBER>`` fallback,
-    matching the contract-file resolution above.
+    the wrong pipeline's distilled state. The id resolves via
+    :func:`_pipeline_id_token` (``EGG_PIPELINE_ID`` with an
+    ``issue-<EGG_ISSUE_NUMBER>`` fallback), matching the contract-file
+    resolution above.
 
     Fail-soft (unlike the sandbox writer, which raises): no resolvable
     pipeline id or a malformed token yields ``None`` — the composer
     omits the memory section rather than reading a shared file.
     """
-    pipeline_id = (os.environ.get("EGG_PIPELINE_ID") or "").strip()
+    pipeline_id = _pipeline_id_token()
     if not pipeline_id:
-        issue_number = (os.environ.get("EGG_ISSUE_NUMBER") or "").strip()
-        if issue_number:
-            pipeline_id = f"issue-{issue_number}"
-    if not pipeline_id or not all(ch.isalnum() or ch in "_-" for ch in pipeline_id):
         return None
     return repo_path / ".egg-state" / "agent-outputs" / role / f"brc-memory-{pipeline_id}.md"
 
@@ -1675,6 +1694,40 @@ def _extract_iteration_feedback(event_payload: Any) -> dict[str, Any] | None:
     return raw
 
 
+def _context_discipline_enabled() -> bool:
+    """Return whether the #3200 context discipline (master flag) is enabled.
+
+    The single switch (``EGG_CONTEXT_DISCIPLINE``, default OFF) that flips THIS
+    composer from the legacy full-context INLINE path to the
+    queryable-environment JIT-pull path (``compose_event_prompt(jit_pull=…)``).
+    Read once here in ``_cli`` and applied uniformly: the composer is already
+    role-parameterized, so this one read covers every event-pump role —
+    producers and reviewers alike — with no role hard-coding the new path.
+
+    Canonical home: :func:`egg_agent.context_discipline.context_discipline_enabled`
+    — the SAME function the sandbox-side warm-resume gate
+    (``egg_agent.session.session_resume_enabled``) reads, so the whole discipline
+    has one authoritative on/off. This module, however, also runs standalone
+    under the wrapper bash where ``egg_agent`` may be off ``PYTHONPATH`` (the same
+    constraint that forces :func:`_render_delta_pointer_section` to avoid the
+    ``egg_agent`` import). So when the import is unavailable we fall back to
+    reading the same env var inline with identical truthy semantics — a
+    deliberate cross-boundary mirror, exactly the pattern
+    ``egg_agent.reseed.resolve_reseed_threshold`` uses to import
+    ``orchestrator.agent_model_resolution`` under ``try``/``except``.
+    """
+    try:
+        from egg_agent.context_discipline import context_discipline_enabled
+    except Exception:  # pragma: no cover - wrapper-bash standalone (egg_agent off path)
+        return os.environ.get("EGG_CONTEXT_DISCIPLINE", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+    return context_discipline_enabled()
+
+
 def _cli(argv: list[str] | None = None) -> int:
     """Render the per-event prompt for the wrapper bash (TASK-3-2).
 
@@ -1703,6 +1756,11 @@ def _cli(argv: list[str] | None = None) -> int:
       not re-exported by the wrapper) — contract identifier for the
       ``task_description`` section (#3123) and the pipeline-scoped
       memory filename (#3163). Unset → both sections omitted.
+    * ``EGG_CONTEXT_DISCIPLINE`` (pod env, inherited — #3200 slice-9
+      master flag, default OFF) — when truthy, renders the per-producer
+      delta + durable memory as JIT-pull POINTERS instead of inlining
+      the bulk (``jit_pull=True``); OFF keeps the legacy full-context
+      inline path byte-for-byte. Read via ``_context_discipline_enabled``.
     """
     parser = argparse.ArgumentParser(
         description="Render the per-event BRC event-pump prompt (slice-3).",
@@ -1798,6 +1856,24 @@ def _cli(argv: list[str] | None = None) -> int:
     # only hop, mirroring how NACKs already flow.
     iteration_feedback = _extract_iteration_feedback(event_payload)
 
+    # #3200 slice-9 (task-9-1): the single master flag gates the whole context
+    # discipline. ON -> render the bulk (per-producer delta + memory) as
+    # JIT-pull POINTERS so only the small role-parameterized protected root
+    # stays resident; OFF (default) -> the legacy full-context INLINE path,
+    # byte-for-byte unchanged. The composer is role-parameterized, so flipping
+    # ``jit_pull`` here drives every event-pump role (producers AND reviewers)
+    # through the new path without any role hard-coding it. ``memory_rel_path``
+    # / ``pipeline_id`` are consumed only on the ``jit_pull=True`` arm (the
+    # memory pointer + the ``brc-transcript`` pull handle); on the OFF arm they
+    # are ignored, so the legacy path keeps no dependency on the new code.
+    context_discipline = _context_discipline_enabled()
+    memory_rel_path = ""
+    if context_discipline and memory_path is not None:
+        try:
+            memory_rel_path = memory_path.relative_to(repo_path).as_posix()
+        except ValueError:
+            memory_rel_path = memory_path.as_posix()
+
     prompt = compose_event_prompt(
         role,
         event_payload if isinstance(event_payload, dict) else {"raw": event_payload},
@@ -1807,6 +1883,9 @@ def _cli(argv: list[str] | None = None) -> int:
         base_branch,
         task_description=task_description,
         iteration_feedback=iteration_feedback,
+        jit_pull=context_discipline,
+        memory_rel_path=memory_rel_path,
+        pipeline_id=_pipeline_id_token(),
     )
     sys.stdout.write(prompt)
     return 0

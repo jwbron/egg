@@ -285,19 +285,22 @@ shared/
 │   ├── client.py           # run_agent(), run_agent_async()
 │   ├── command.py          # build_agent_command() for orchestrator-spawned containers
 │   ├── result.py           # AgentResult dataclass
-│   ├── session.py          # Session-state round-trip for BRC warm resume (#3200 slice-6): write_session_state(), read_session_state(), session_resume_enabled(); gated on EGG_SESSION_RESUME (default OFF); path via EGG_SESSION_STATE_FILE or --session-state-file
+│   ├── session.py          # Session-state round-trip for BRC event-pump warm resume (#3200 slice-6): write_session_state(), read_session_state(), session_resume_enabled() persist session_id + window_occupancy between one-shot invocations; gated on EGG_SESSION_RESUME or EGG_CONTEXT_DISCIPLINE (default OFF); path via EGG_SESSION_STATE_FILE or --session-state-file
 │   ├── tool_interceptor.py # Pre-execution file write checks (Write/Edit/NotebookEdit) against role restrictions
 │   ├── tool_output_cap.py  # Predictive PreToolUse cap for built-in CC tools (Read/Grep): denies calls whose model-bound result is likely to be excessive (cost/context discipline, NOT the buffer-crash fix — that's the raised reader buffer in client.py, #2884); tunable via EGG_TOOL_OUTPUT_CAP / EGG_READ_CAP_BYTES (#2876); agents can raise their own session's Read cap by writing the byte size to /tmp/egg-read-cap-bytes (#3175)
 │   ├── midturn_messages.py # Throttled PostToolUse hook that polls the message bus mid-turn and injects new operator-authored messages as additionalContext; backed by EGG_MIDTURN_MESSAGES_INTERVAL_SECS (default 60 s) and EGG_MIDTURN_MESSAGES=false escape hatch (#3123)
-│   ├── queryable_env.py    # JIT-pull "queryable environment" renderers for the BRC event-pump (#3200 slice-5): small stable POINTERS (git log recipe, BRC-memory path) in the protected root instead of inlining the bulk, to slow recency-driven context growth before auto-compaction
-│   └── route_guidance.py   # Advisory system-prompt addendum appended only on LiteLLM (non-Claude) routes: steers toward batched tool calls, filtered output, and subagent-isolated bulk reads to cut turns × context cost; gated on ANTHROPIC_CUSTOM_MODEL_OPTION, kill switch EGG_ROUTE_PROMPT_GUIDANCE=false (#3175)
+│   ├── route_guidance.py   # Advisory system-prompt addendum appended only on LiteLLM (non-Claude) routes: steers toward batched tool calls, filtered output, and subagent-isolated bulk reads to cut turns × context cost; gated on ANTHROPIC_CUSTOM_MODEL_OPTION, kill switch EGG_ROUTE_PROMPT_GUIDANCE=false (#3175)
+│   ├── context_discipline.py # Master feature flag for the #3200 BRC context discipline (slice-9): single EGG_CONTEXT_DISCIPLINE switch that enables the whole discipline (protected-root/queryable-env split + JIT pull + threshold reseed); subsumes the narrower EGG_SESSION_RESUME knob; default OFF (#3200)
+│   ├── reseed.py           # Resume-vs-reseed decision gate: compares resumed session occupancy against threshold (min(400_000, 0.80 × real_backend_window)) and chooses resume or reseed; bias-to-reseed on uncertainty (#3200 slice-8)
+│   └── queryable_env.py    # JIT-pull queryable-environment renderers for the BRC event-pump (#3200 slice-5): renders small stable POINTERS (git log recipe, BRC-memory path, read_peer_artifact / brc-transcript handles) in the protected root instead of inlining the bulk, to slow recency-driven context growth before auto-compaction
 ├── egg_anchor/             # Agent anchor mechanism for post-compaction state recovery
 │   ├── __init__.py         # Public API exports
 │   ├── models.py           # Pydantic models (AgentAnchor, AnchorMeta, ProgressItem, Decision, BRCState)
 │   ├── loader.py           # Atomic file read/write (temp-then-rename), API sync helper
 │   ├── validator.py        # Schema validation, size budget enforcement (soft/hard limits)
 │   ├── constants.py        # Re-exports anchor constants from egg_config
-│   └── tests/              # Unit tests for models, loader, validator
+│   ├── protected_root.py   # Deterministic byte-stable protected-root renderer for event-pump BRC agents (RootCaps, render_protected_root)
+│   └── tests/              # Unit tests for models, loader, validator, protected root renderer
 ├── egg_config/             # Configuration utilities
 │   ├── constants.py        # Centralized constants (ports, networks, container names, infrastructure branch names, anchor size limits)
 │   ├── compose_config.py   # Bridges config.yaml settings to docker-compose environment variables
