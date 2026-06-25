@@ -291,6 +291,15 @@ Only runs on PRs that modify agent-related files:
 - `docs/guides/sdlc-pipeline.md` — SDLC pipeline operational guide
 - `docs/architecture/**` — Architecture documentation
 
+> **Note — pipeline PRs are not skipped here.** Unlike the code reviewer and autofixer
+> (which skip `egg/<id>/slice-<N>` and `egg/<id>/work` PRs), this design reviewer still
+> runs on pipeline PRs that touch the paths above. That is intentional: it pushes **no**
+> commits (its only output is a PR comment), so it does not pollute slice history — the
+> #3255 driver behind those skips does not apply. The in-band BRC agent-mode-design review
+> already covers pipeline PRs, so the GitHub-level run here is redundant but harmless; a
+> matching head-ref gate on this caller is an easy follow-on if the redundant comment noise
+> becomes unwanted.
+
 ### What It Reviews
 
 This is a **specialized** review, not a general code review. The base AI Code Review
