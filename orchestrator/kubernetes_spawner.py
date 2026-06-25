@@ -16,6 +16,7 @@ import re
 import sys
 import threading
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -203,6 +204,52 @@ _PROTECTED_ENV_KEYS: frozenset[str] = frozenset(
         "CLAUDE_CODE_OAUTH_TOKEN",
     }
 )
+
+
+# Context-discipline flags (#3200) that the orchestrator forwards from its OWN
+# env into every spawned agent pod when set. These switches are read *in-pod* —
+# by the agent (``egg_agent.context_discipline`` / ``egg_agent.session``) and by
+# the wrapper's in-pod prompt composer (``event_prompt._context_discipline_enabled``)
+# — but the orchestrator deployment is the one process an operator can flip them
+# on. Nothing else wires them into the Job env (no ``envFrom``, and ``sandbox_env``
+# is built from pipeline fields), so without this forward ``kubectl set env`` on
+# the orchestrator is a no-op for agents. Forwarding them here makes that the
+# single operator knob. Default-OFF semantics are preserved: an unset/blank flag
+# is simply not forwarded, so the pod stays on the legacy path byte-for-byte. The
+# forward runs BEFORE the ``extra_env`` merge, so a per-spawn override still
+# wins. ``EGG_SESSION_RESUME`` rides along as the narrower staged-rollout knob;
+# the per-spawn substrate (``EGG_SESSION_STATE_FILE`` / ``EGG_RESEED_THRESHOLD``)
+# needs real per-pod wiring and is deliberately NOT a blind forward.
+#
+# NOTE: the #3249 emit-only measurement knob (``EGG_CONTEXT_MEASUREMENT``) is
+# deliberately NOT forwarded yet — it has no in-pod consumer (no
+# ``egg_agent.measurement`` module exists), and the flag-name auto-discovery
+# convention (``sandbox/tests/test_context_discipline_flag.py``) means the
+# eventual consumer's flag name isn't pinned. Forwarding a guessed name now would
+# be a silent no-op. Add it here once #3249's emit consumer lands under a fixed
+# name.
+_FORWARDED_DISCIPLINE_ENV_KEYS: tuple[str, ...] = (
+    "EGG_CONTEXT_DISCIPLINE",
+    "EGG_SESSION_RESUME",
+)
+
+
+def _forwarded_discipline_env(source: Mapping[str, str]) -> dict[str, str]:
+    """Return the context-discipline flags set and non-blank in *source*.
+
+    Pure: selects the :data:`_FORWARDED_DISCIPLINE_ENV_KEYS` subset of *source*
+    (typically ``os.environ``) whose value is set and non-blank. An unset or
+    blank flag is omitted, never forwarded as an empty string — so the pod's
+    default-OFF parse is identical to the flag simply being absent. Note this is
+    a non-blank filter, not a truthiness filter: a value like ``"false"`` is
+    forwarded as-is and parsed OFF in-pod.
+    """
+    out: dict[str, str] = {}
+    for key in _FORWARDED_DISCIPLINE_ENV_KEYS:
+        value = source.get(key)
+        if value and value.strip():
+            out[key] = value
+    return out
 
 
 # --- #3064 slice-2: orchestrator-owned one-shot event spawns ------------
@@ -1746,6 +1793,13 @@ class KubernetesSpawner:
             )
             if wait_allowlist:
                 environment["EGG_WAIT_PRODUCER_ALLOWLIST"] = wait_allowlist
+
+            # Forward operator-set context-discipline flags (#3200) from
+            # the orchestrator's own env into the pod. Read in-pod but flippable
+            # only on the orchestrator deployment, so this is the single
+            # operator knob (kubectl set env). Placed before the extra_env merge
+            # so a per-spawn override still wins. See _forwarded_discipline_env.
+            environment.update(_forwarded_discipline_env(os.environ))
 
             # Caller's extra_env overrides defaults, except protected keys
             if extra_env:
