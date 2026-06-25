@@ -41,7 +41,7 @@ from egg_anchor.models import (
     ReviewEdgeVerdict,
     ReviewVerdict,
 )
-from egg_anchor.protected_root import render_protected_root
+from egg_anchor.protected_root import RootCaps, render_protected_root
 
 # ---------------------------------------------------------------------------
 # Canonical fixture inputs. Sentinels are unique so each of the four sections
@@ -291,3 +291,96 @@ def test_two_roles_render_distinct_but_each_stable_roots() -> None:
 
     assert ROLE_A in a_first
     assert ROLE_B in b_first
+
+
+# ---------------------------------------------------------------------------
+# 5. Robustness guards — exercise the tiebreaker keys and the sub-marker
+#    `_truncate` clamp directly, so the determinism they protect is locked in
+#    even though the upstream deriver currently makes both cases unreachable.
+# ---------------------------------------------------------------------------
+
+
+def test_duplicate_edge_entries_are_byte_stable_via_tiebreakers() -> None:
+    """>1 entry per (producer, reviewer) edge renders identically regardless of order.
+
+    The primary sort key is ``(producer, reviewer)``; if the derived layer ever
+    emits multiple entries for the same edge, only the ``version``/``reason``/
+    ``condition``/``resolved`` tiebreakers keep the render byte-stable. Permuting
+    the input order of such duplicate-edge entries must not change the output —
+    this fails loudly if a tiebreaker is dropped from a sort key.
+    """
+    forward = BRCDerivedAnchors(
+        last_reviewed_sha={"coder": SHA_CODER},
+        latest_verdicts=[
+            ReviewEdgeVerdict(
+                reviewer="reviewer_code",
+                producer="coder",
+                verdict=ReviewVerdict.NACK,
+                version=1,
+                reviewed_sha=SHA_CODER,
+            ),
+            ReviewEdgeVerdict(
+                reviewer="reviewer_code",
+                producer="coder",
+                verdict=ReviewVerdict.ACK,
+                version=2,
+                reviewed_sha=SHA_TESTER,
+            ),
+        ],
+        open_nacks=[
+            OpenNack(reviewer="reviewer_code", producer="coder", version=1, reason="alpha"),
+            OpenNack(reviewer="reviewer_code", producer="coder", version=2, reason="beta"),
+        ],
+        conditional_ack_obligations=[
+            ConditionalAckObligation(
+                reviewer="reviewer_security",
+                producer="coder",
+                version=1,
+                condition="first condition",
+                resolved=False,
+            ),
+            ConditionalAckObligation(
+                reviewer="reviewer_security",
+                producer="coder",
+                version=2,
+                condition="second condition",
+                resolved=True,
+            ),
+        ],
+    )
+    # Same logical content, every duplicate-edge list reversed.
+    reversed_anchors = BRCDerivedAnchors(
+        last_reviewed_sha={"coder": SHA_CODER},
+        latest_verdicts=list(reversed(forward.latest_verdicts)),
+        open_nacks=list(reversed(forward.open_nacks)),
+        conditional_ack_obligations=list(reversed(forward.conditional_ack_obligations)),
+    )
+
+    assert _render(derived=forward) == _render(derived=reversed_anchors)
+
+
+def test_sub_marker_cap_hard_trims_without_marker() -> None:
+    """A cap smaller than the truncation marker hard-trims to the cap, never longer.
+
+    With ``reason_chars`` below the marker length, ``_truncate`` cannot fit its
+    marker, so it hard-trims the value to the cap rather than returning the
+    (longer) marker alone — keeping the documented "hard ceiling including the
+    marker" guarantee for any custom :class:`RootCaps`.
+    """
+    flood = BRCDerivedAnchors(
+        last_reviewed_sha={"coder": SHA_CODER},
+        open_nacks=[
+            OpenNack(
+                reviewer="reviewer_code",
+                producer="coder",
+                version=2,
+                reason="abcdefghij" * 10,  # 100 chars, far past the 5-char cap.
+            ),
+        ],
+    )
+    text = _render(derived=flood, caps=RootCaps(reason_chars=5))
+    # The reason is hard-trimmed to exactly 5 chars, with no marker appended
+    # (the cap is smaller than the marker, so the marker cannot be added).
+    assert "abcde" in text
+    assert "abcdef" not in text
+    assert "…[truncated]" not in text
