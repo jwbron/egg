@@ -31,6 +31,14 @@
       "registered_at": "2026-06-25T20:44:03.725170+00:00",
       "repo": null,
       "role": "refiner"
+    },
+    "f87a1cafa79b37625262b9c7efab6b699fb3433b": {
+      "branch": "egg/issue-3258/work",
+      "patch_id": "01225e0c4b3b4a2a3de5b8aa8117b958b0cad8f4",
+      "pipeline_id": "issue-3258",
+      "registered_at": "2026-06-25T20:49:50.357165+00:00",
+      "repo": null,
+      "role": "risk_analyst"
     }
   },
   "version": 2
