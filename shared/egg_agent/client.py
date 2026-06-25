@@ -41,6 +41,8 @@ def _truncate(value: str, max_len: int = _MAX_TOOL_CONTENT_LOG_LEN) -> str:
 # SDK usage sub-fields that sum to window occupancy. Occupancy measures how
 # much of the real backend window the turn consumed; unlike billed input it
 # INCLUDES cache reads (the bulk of a warm-resumed session) and cache writes.
+# Feed these helpers a single turn's usage (the final AssistantMessage.usage),
+# never the ResultMessage's session-cumulative usage — see #3200.
 _OCCUPANCY_USAGE_KEYS = (
     "input_tokens",
     "cache_read_input_tokens",
@@ -72,11 +74,13 @@ def _usage_components(usage: dict[str, Any] | None) -> dict[str, int] | None:
 
 
 def _compute_occupancy(usage: dict[str, Any] | None) -> int | None:
-    """Compute cumulative window occupancy from an SDK usage dict.
+    """Compute window occupancy from a single turn's SDK usage dict.
 
-    Occupancy = cache_read + cache_creation + input (NOT billed input). Returns
-    None when no usage is reported so callers bias to a safe reseed rather than
-    a lossy resume (#3200). Missing sub-fields are treated as 0.
+    Occupancy = cache_read + cache_creation + input (NOT billed input). Pass the
+    final turn's ``AssistantMessage.usage``; passing the session-cumulative
+    ``ResultMessage.usage`` would overcount by ~num_turns (#3200). Returns None
+    when no usage is reported so callers bias to a safe reseed rather than a
+    lossy resume. Missing sub-fields are treated as 0.
     """
     components = _usage_components(usage)
     if components is None:
@@ -663,6 +667,13 @@ async def run_agent_async(
     stdout_parts: list[str] = []
     actual_model: str | None = None
     result_meta: dict[str, Any] = {}
+    # Window occupancy must come from the FINAL turn, not the session aggregate.
+    # ``ResultMessage.usage`` is cumulative across every turn in the query()
+    # call (≈ num_turns × window), whereas each ``AssistantMessage.usage`` is
+    # that single turn's window. Track the most recent per-turn usage as we
+    # stream and thread it into the result instead of the ResultMessage
+    # aggregate (#3200).
+    last_assistant_usage: dict[str, Any] | None = None
 
     # Log the effective cwd — when the caller did not pass one and
     # EGG_REPO_PATH is unset, the SDK inherits os.getcwd(), so log
@@ -706,6 +717,10 @@ async def run_agent_async(
                 if isinstance(message, AssistantMessage):
                     if not actual_model and message.model:
                         actual_model = message.model
+                    # Keep the latest per-turn usage; the final one is the
+                    # session's resident window occupancy (#3200).
+                    if message.usage is not None:
+                        last_assistant_usage = message.usage
                     for block in message.content:
                         if isinstance(block, ToolUseBlock):
                             # Serialize tool input for logging (truncated)
@@ -765,18 +780,20 @@ async def run_agent_async(
                         stdout_parts.append(message.result)
                         if on_output:
                             on_output(message.result)
-                    # Do NOT drop message.usage: it carries the cache_read /
-                    # cache_creation / input counts that sum to window
-                    # occupancy — the load-bearing signal for the threshold
-                    # reseed (#3200). Compute defensively so SDK shapes with
-                    # no usage block yield None (-> safe reseed) not an error.
+                    # Window occupancy comes from ``last_assistant_usage`` (the
+                    # final turn's window), NOT ``message.usage`` here — the
+                    # ResultMessage usage is cumulative across all turns and
+                    # would overcount by roughly num_turns. Occupancy is the
+                    # load-bearing signal for the threshold reseed (#3200).
+                    # Compute defensively so SDK shapes with no usage block
+                    # yield None (-> safe reseed) not an error.
                     result_meta = {
                         "cost_usd": message.total_cost_usd,
                         "num_turns": message.num_turns,
                         "duration_ms": message.duration_ms,
                         "session_id": message.session_id,
-                        "window_occupancy": _compute_occupancy(message.usage),
-                        "token_usage": _usage_components(message.usage),
+                        "window_occupancy": _compute_occupancy(last_assistant_usage),
+                        "token_usage": _usage_components(last_assistant_usage),
                     }
                     if message.is_error:
                         logger.info(
@@ -826,8 +843,8 @@ async def run_agent_async(
             returncode=-1,
             error=f"Timed out after {timeout} seconds",
             metadata={"model": actual_model} if actual_model else None,
-            window_occupancy=result_meta.get("window_occupancy"),
-            token_usage=result_meta.get("token_usage"),
+            window_occupancy=_compute_occupancy(last_assistant_usage),
+            token_usage=_usage_components(last_assistant_usage),
         )
 
     except (ProcessError, CLINotFoundError, ClaudeSDKError) as e:
@@ -850,8 +867,8 @@ async def run_agent_async(
             returncode=-1,
             error=str(e),
             metadata={"model": actual_model} if actual_model else None,
-            window_occupancy=result_meta.get("window_occupancy"),
-            token_usage=result_meta.get("token_usage"),
+            window_occupancy=_compute_occupancy(last_assistant_usage),
+            token_usage=_usage_components(last_assistant_usage),
         )
 
     except Exception as e:
@@ -874,8 +891,8 @@ async def run_agent_async(
             returncode=-1,
             error=str(e),
             metadata={"model": actual_model} if actual_model else None,
-            window_occupancy=result_meta.get("window_occupancy"),
-            token_usage=result_meta.get("token_usage"),
+            window_occupancy=_compute_occupancy(last_assistant_usage),
+            token_usage=_usage_components(last_assistant_usage),
         )
 
     logger.info(
@@ -900,8 +917,8 @@ async def run_agent_async(
         num_turns=result_meta.get("num_turns"),
         duration_ms=result_meta.get("duration_ms"),
         session_id=result_meta.get("session_id"),
-        window_occupancy=result_meta.get("window_occupancy"),
-        token_usage=result_meta.get("token_usage"),
+        window_occupancy=_compute_occupancy(last_assistant_usage),
+        token_usage=_usage_components(last_assistant_usage),
     )
 
 

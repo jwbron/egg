@@ -57,6 +57,7 @@ except ImportError:
     class AssistantMessage:  # type: ignore[no-redef]
         content: list[Any] = field(default_factory=list)
         model: str | None = None
+        usage: Any = None
 
     @dataclass
     class UserMessage:  # type: ignore[no-redef]
@@ -190,10 +191,11 @@ async def _collect_async_iter(ait) -> list:
     return items
 
 
-def _make_assistant_msg(text: str) -> AssistantMessage:
+def _make_assistant_msg(text: str, usage: Any = None) -> AssistantMessage:
     return AssistantMessage(
         content=[TextBlock(text=text)],
         model="claude-opus-4-6-20250313",
+        usage=usage,
     )
 
 
@@ -1707,19 +1709,34 @@ class TestAgentResultOccupancyField:
 
 
 class TestOccupancyCapture:
-    """task-1-2/task-1-3: client threads occupancy off ResultMessage.usage."""
+    """task-1-2/task-1-3: client threads occupancy off the final turn's usage.
+
+    Occupancy is sourced from the last ``AssistantMessage.usage`` (the resident
+    window for that turn), NOT ``ResultMessage.usage`` (which is cumulative
+    across every turn and would overcount by ~num_turns). Where it sharpens the
+    test, the ResultMessage carries a deliberately larger cumulative usage to
+    prove the aggregate is ignored (#3200).
+    """
 
     @patch("claude_agent_sdk.query")
     def test_full_usage_sums_window_components(self, mock_query):
-        """Populated usage -> occupancy is the sum of the three window parts."""
+        """Populated final-turn usage -> occupancy is the sum of the three parts."""
 
         async def gen(**kwargs):
-            yield _make_assistant_msg("hi")
-            yield _make_result_msg(
+            yield _make_assistant_msg(
+                "hi",
                 usage=_usage(
                     input_tokens=1_000,
                     cache_creation_input_tokens=2_000,
                     cache_read_input_tokens=70_000,
+                ),
+            )
+            # Cumulative aggregate is much larger; it must NOT be used.
+            yield _make_result_msg(
+                usage=_usage(
+                    input_tokens=3_000,
+                    cache_creation_input_tokens=6_000,
+                    cache_read_input_tokens=210_000,
                 )
             )
 
@@ -1731,10 +1748,10 @@ class TestOccupancyCapture:
 
     @patch("claude_agent_sdk.query")
     def test_absent_usage_yields_none_without_raising(self, mock_query):
-        """usage is None -> occupancy None, and no exception is raised."""
+        """No per-turn usage -> occupancy None, and no exception is raised."""
 
         async def gen(**kwargs):
-            yield _make_assistant_msg("hi")
+            yield _make_assistant_msg("hi", usage=None)
             yield _make_result_msg(usage=None)
 
         mock_query.side_effect = gen
@@ -1750,9 +1767,11 @@ class TestOccupancyCapture:
         """Missing sub-fields count as 0; the present ones still sum."""
 
         async def gen(**kwargs):
-            yield _make_assistant_msg("hi")
             # cache_creation absent entirely; only input + cache_read present.
-            yield _make_result_msg(usage=_usage(input_tokens=500, cache_read_input_tokens=4_500))
+            yield _make_assistant_msg(
+                "hi", usage=_usage(input_tokens=500, cache_read_input_tokens=4_500)
+            )
+            yield _make_result_msg()
 
         mock_query.side_effect = gen
         result = _run_async(run_agent_async("test prompt"))
@@ -1764,14 +1783,15 @@ class TestOccupancyCapture:
         """A present-but-None sub-field is coerced to 0, not a TypeError."""
 
         async def gen(**kwargs):
-            yield _make_assistant_msg("hi")
-            yield _make_result_msg(
+            yield _make_assistant_msg(
+                "hi",
                 usage={
                     "input_tokens": 100,
                     "cache_creation_input_tokens": None,
                     "cache_read_input_tokens": 900,
-                }
+                },
             )
+            yield _make_result_msg()
 
         mock_query.side_effect = gen
         result = _run_async(run_agent_async("test prompt"))
@@ -1788,14 +1808,15 @@ class TestOccupancyCapture:
         """
 
         async def gen(**kwargs):
-            yield _make_assistant_msg("hi")
-            yield _make_result_msg(
+            yield _make_assistant_msg(
+                "hi",
                 usage=_usage(
                     input_tokens=50,
                     cache_creation_input_tokens=0,
                     cache_read_input_tokens=120_000,
-                )
+                ),
             )
+            yield _make_result_msg()
 
         mock_query.side_effect = gen
         result = _run_async(run_agent_async("test prompt"))
@@ -1809,15 +1830,16 @@ class TestOccupancyCapture:
         """output_tokens is billed but is NOT part of window occupancy."""
 
         async def gen(**kwargs):
-            yield _make_assistant_msg("hi")
-            yield _make_result_msg(
+            yield _make_assistant_msg(
+                "hi",
                 usage=_usage(
                     input_tokens=1_000,
                     cache_creation_input_tokens=0,
                     cache_read_input_tokens=0,
                     output_tokens=9_999,
-                )
+                ),
             )
+            yield _make_result_msg()
 
         mock_query.side_effect = gen
         result = _run_async(run_agent_async("test prompt"))
@@ -1833,15 +1855,16 @@ class TestOccupancyCapture:
         """token_usage mirrors the raw component counts for phase-10 surfaces."""
 
         async def gen(**kwargs):
-            yield _make_assistant_msg("hi")
-            yield _make_result_msg(
+            yield _make_assistant_msg(
+                "hi",
                 usage=_usage(
                     input_tokens=1_000,
                     cache_creation_input_tokens=2_000,
                     cache_read_input_tokens=70_000,
                     output_tokens=300,
-                )
+                ),
             )
+            yield _make_result_msg()
 
         mock_query.side_effect = gen
         result = _run_async(run_agent_async("test prompt"))
@@ -1860,14 +1883,59 @@ class TestOccupancyCapture:
         )
 
     @patch("claude_agent_sdk.query")
-    def test_error_result_also_captures_occupancy(self, mock_query):
-        """The error build site populates occupancy too (every site, task-1-2)."""
+    def test_multistep_uses_final_turn_not_cumulative_aggregate(self, mock_query):
+        """A multi-step session: occupancy == the LAST turn's window.
+
+        This is the case the original (ResultMessage-sourced) implementation got
+        wrong. Each AssistantMessage carries its own growing per-turn window; the
+        ResultMessage reports the session-cumulative sum, which is far larger.
+        Occupancy must equal the final AssistantMessage's window (~150k), not the
+        cumulative aggregate (~450k) -- otherwise the reseed threshold would fire
+        after a couple of steps regardless of the true resident window.
+        """
 
         async def gen(**kwargs):
+            # Three turns, each with a growing per-turn window.
+            yield _make_assistant_msg(
+                "step 1", usage=_usage(input_tokens=2_000, cache_read_input_tokens=98_000)
+            )
+            yield _make_assistant_msg(
+                "step 2", usage=_usage(input_tokens=3_000, cache_read_input_tokens=120_000)
+            )
+            # Final turn -> the resident window we care about: 150_000.
+            yield _make_assistant_msg(
+                "step 3", usage=_usage(input_tokens=5_000, cache_read_input_tokens=145_000)
+            )
+            # ResultMessage usage is cumulative across all three turns (~450k).
+            yield _make_result_msg(
+                usage=_usage(input_tokens=10_000, cache_read_input_tokens=363_000)
+            )
+
+        mock_query.side_effect = gen
+        result = _run_async(run_agent_async("test prompt"))
+
+        assert result.success is True
+        # Final turn's window, not the cumulative aggregate.
+        assert result.window_occupancy == 150_000
+        # Guard against regressing to the ResultMessage aggregate.
+        assert result.window_occupancy != 373_000
+        assert result.token_usage["cache_read_input_tokens"] == 145_000
+
+    @patch("claude_agent_sdk.query")
+    def test_error_result_also_captures_occupancy(self, mock_query):
+        """The error build site populates occupancy too (every site, task-1-2).
+
+        Occupancy is the last AssistantMessage's window even when the run ends in
+        an error ResultMessage.
+        """
+
+        async def gen(**kwargs):
+            yield _make_assistant_msg(
+                "partial", usage=_usage(input_tokens=10, cache_read_input_tokens=40)
+            )
             yield _make_result_msg(
                 result="Rate limit exceeded",
                 is_error=True,
-                usage=_usage(input_tokens=10, cache_read_input_tokens=40),
             )
 
         mock_query.side_effect = gen

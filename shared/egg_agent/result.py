@@ -19,12 +19,15 @@ class AgentResult:
         num_turns: Number of conversation turns
         duration_ms: Total duration in milliseconds
         session_id: Claude session ID
-        window_occupancy: Cumulative context-window occupancy for the final
-            turn, defined as ``cache_read_input_tokens +
-            cache_creation_input_tokens + input_tokens`` from the SDK usage
-            block. This is the load-bearing field for the threshold-reseed
-            decision (#3200): it measures how much of the real backend window
-            the resumed session is consuming. It is NOT the billed/effective
+        window_occupancy: Context-window occupancy for the final turn, defined
+            as the sum of the three window sub-components ``cache_read_input_tokens
+            + cache_creation_input_tokens + input_tokens`` from that turn's SDK
+            usage block. Sourced from the last ``AssistantMessage.usage``
+            (per-turn), NOT the ``ResultMessage.usage`` aggregate — the latter
+            is cumulative across all turns and would overcount by ~num_turns
+            (#3200). This is the load-bearing field for the threshold-reseed
+            decision: it measures how much of the real backend window the
+            resumed session is consuming. It is NOT the billed/effective
             input — billing excludes cache reads and discounts cache writes,
             so occupancy is typically much larger than the billed input. None
             when the SDK reports no usage (e.g. non-Claude/LiteLLM routes with
