@@ -199,6 +199,19 @@ switches, each read in exactly one place:
 | `EGG_SESSION_STATE_FILE` | `egg_agent.session.resolve_session_state_path` | Location of the cross-invocation session-state file. Unset → the round-trip is a no-op (substrate stays inert). |
 | `EGG_RESEED_THRESHOLD` | `egg_agent.reseed.resolve_reseed_threshold` | Cross-boundary integer override of the reseed threshold. The sandbox runs with `orchestrator` off `PYTHONPATH`, so the orchestrator side may compute `reseed_threshold(model)` and export the integer here; otherwise the gate imports the orchestrator helper when available, and falls back to `None` (safe reseed) when neither yields a value. |
 
+**Setting the flags in production.** `EGG_CONTEXT_DISCIPLINE` and
+`EGG_SESSION_RESUME` are read in-pod but must be set on the **orchestrator
+deployment** — `orchestrator/kubernetes_spawner.py` forwards them from the
+orchestrator's own environment into every spawned agent Job
+(`_FORWARDED_DISCIPLINE_ENV_KEYS`, added in
+[#3272](https://github.com/jwbron/egg/issues/3272)). Nothing else wires them
+into the Job env (`envFrom` is absent; `sandbox_env` is built from pipeline
+fields), so a `kubectl set env` on the pods directly has no effect. The
+forward runs before the per-spawn `extra_env` merge, so a targeted
+per-spawn override still wins. `EGG_SESSION_STATE_FILE` and
+`EGG_RESEED_THRESHOLD` carry per-pod values and are NOT blindly forwarded —
+they need explicit per-pod wiring.
+
 **Slice-9 master flag (`EGG_CONTEXT_DISCIPLINE`, shipped).** The terminal slice
 ([#3200](https://github.com/jwbron/egg/issues/3200) slice-9) introduced a single
 master context-discipline flag that gates the whole discipline (protected-root /
@@ -279,3 +292,4 @@ discipline described here is a strict prerequisite of recursion.
 | Token-occupancy capture | `shared/egg_agent/result.py`, `shared/egg_agent/client.py` |
 | Real-window + threshold resolution | `orchestrator/agent_model_resolution.py` |
 | Event-prompt inline-vs-pointer toggle | `orchestrator/routes/event_prompt.py` |
+| Context-discipline flag forwarding (orchestrator → agent pods) | `orchestrator/kubernetes_spawner.py` (`_FORWARDED_DISCIPLINE_ENV_KEYS`, `_forwarded_discipline_env`) |
