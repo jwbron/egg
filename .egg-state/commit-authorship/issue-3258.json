@@ -15,6 +15,14 @@
       "registered_at": "2026-06-25T20:18:43.452327+00:00",
       "repo": null,
       "role": "refiner"
+    },
+    "b97726f707679fcc89c1d31dbee4760cfb334d71": {
+      "branch": "egg/issue-3258/work",
+      "patch_id": "43f914d62f03ca799dd4f6fcc99af2173a9eb18c",
+      "pipeline_id": "issue-3258",
+      "registered_at": "2026-06-25T20:44:03.725170+00:00",
+      "repo": null,
+      "role": "refiner"
     }
   },
   "version": 2
