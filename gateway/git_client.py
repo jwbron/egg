@@ -652,6 +652,7 @@ GIT_ALLOWED_COMMANDS: dict[str, dict[str, list[str]]] = {
     "rebase": {
         "allowed_flags": [
             "--onto",
+            "--autostash",
             "--abort",
             "--continue",
             "--skip",
@@ -2376,10 +2377,16 @@ def build_rebase_onto_args(
                 f"{label} must look like a git ref (alnum + . _ / + -); got {v!r}",
             )
 
-    # Construct the canonical shape. We do NOT accept any extra flags
-    # — callers that need ``--abort`` / ``--continue`` go through the
-    # regular agent-driven path.
-    args = ["--onto", new_base, old_base, branch]
+    # Construct the canonical shape. ``--autostash`` is prepended so the
+    # rebase proceeds against a worktree carrying uncommitted
+    # ``.egg-state/agent-outputs/`` residue (BRC memory writes left
+    # uncommitted because post-agent auto-commit is disabled). Without
+    # it ``git rebase`` refuses with ``cannot rebase: You have unstaged
+    # changes`` even on conflict-free content (#3245) — the same refusal
+    # #2714 fixed on the push-reconcile rebase path. We do NOT accept any
+    # other extra flags — callers that need ``--abort`` / ``--continue``
+    # go through the regular agent-driven path.
+    args = ["--autostash", "--onto", new_base, old_base, branch]
     ok, err, _ = validate_git_args("rebase", args)
     if not ok:
         return [], False, err

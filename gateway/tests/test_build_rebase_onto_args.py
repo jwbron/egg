@@ -13,8 +13,9 @@ the request reaches the gateway's ``/git`` endpoint.
 Coverage:
 
 * Happy path: well-formed branch / new_base / old_base produce the
-  canonical ``["--onto", new_base, old_base, branch]`` shape and
-  ``ok=True``.
+  canonical ``["--autostash", "--onto", new_base, old_base, branch]``
+  shape and ``ok=True`` (``--autostash`` added in #3245 so the rebase
+  survives uncommitted ``.egg-state/agent-outputs/`` residue).
 * Empty / non-string inputs are rejected with ``ok=False`` and a
   ``branch / new_base / old_base must be a non-empty string`` error.
 * Whitespace-only inputs are rejected (``"   "`` is treated the same
@@ -55,9 +56,12 @@ class TestHappyPath:
         )
         assert ok is True
         assert err == ""
-        # The shape MUST be exactly --onto NEW OLD BRANCH so the
-        # gateway's allowlist sees positional refs only.
+        # The shape MUST be exactly --autostash --onto NEW OLD BRANCH so
+        # the gateway's allowlist sees positional refs only. --autostash
+        # (#3245) lets the rebase proceed against a worktree carrying
+        # uncommitted .egg-state/agent-outputs/ residue.
         assert args == [
+            "--autostash",
             "--onto",
             "egg/issue-2137",
             "egg/issue-2137/slice-1",
@@ -72,7 +76,7 @@ class TestHappyPath:
         )
         assert ok is True
         assert err == ""
-        assert args == ["--onto", "main", "develop", "feature"]
+        assert args == ["--autostash", "--onto", "main", "develop", "feature"]
 
     def test_returns_three_tuple_on_success(self) -> None:
         result = build_rebase_onto_args("a", "b", "c")
@@ -158,19 +162,20 @@ class TestNoFlagLeakage:
     """The helper does not allow flag injection via input strings."""
 
     def test_no_extra_flags_added_to_argv(self) -> None:
-        """The argv must contain ONLY ``--onto`` plus the three refs."""
+        """The argv contains ONLY ``--autostash`` / ``--onto`` plus the three refs."""
         args, ok, _ = build_rebase_onto_args("feature", "main", "develop")
         assert ok is True
-        # No ``--strategy-option`` / ``-X`` / ``--exec`` style flags.
+        # No ``--strategy-option`` / ``-X`` / ``--exec`` style flags — only
+        # the two canonical flags (#3245 added ``--autostash``).
         flag_args = [a for a in args if a.startswith("-")]
-        assert flag_args == ["--onto"]
+        assert flag_args == ["--autostash", "--onto"]
 
     def test_input_strings_travel_as_positional_refs(self) -> None:
         """Even if a ref name resembles a flag, the argv shape is fixed.
 
         The allowlist validator runs on the constructed argv. The refs
-        appear in fixed positions (slots 1, 2, 3 after ``--onto``); they
-        are not re-parsed as flags.
+        appear in fixed positions (slots 2, 3, 4 after ``--autostash
+        --onto``); they are not re-parsed as flags.
         """
         args, ok, _ = build_rebase_onto_args(
             branch="branch",
@@ -178,10 +183,11 @@ class TestNoFlagLeakage:
             old_base="old",
         )
         assert ok is True
-        assert args[0] == "--onto"
-        assert args[1] == "new"
-        assert args[2] == "old"
-        assert args[3] == "branch"
+        assert args[0] == "--autostash"
+        assert args[1] == "--onto"
+        assert args[2] == "new"
+        assert args[3] == "old"
+        assert args[4] == "branch"
 
     def test_validate_git_args_invoked(self) -> None:
         """validate_git_args is called and its verdict drives the return.
@@ -195,7 +201,7 @@ class TestNoFlagLeakage:
         # Sanity check: the canonical shape passes the real validator.
         args, ok, err = build_rebase_onto_args("a", "b", "c")
         assert ok is True
-        assert args == ["--onto", "b", "c", "a"]
+        assert args == ["--autostash", "--onto", "b", "c", "a"]
         assert err == ""
 
 

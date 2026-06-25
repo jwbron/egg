@@ -129,7 +129,22 @@ def _build_rebase_onto_args(
                 f"{label} must look like a git ref (alnum + . _ / + -); got {v!r}",
             )
 
-    return ["--onto", new_base.strip(), old_base.strip(), branch.strip()], True, ""
+    # ``--autostash`` is prepended so the rebase proceeds against a
+    # worktree carrying uncommitted ``.egg-state/agent-outputs/`` residue
+    # (BRC memory writes left uncommitted because post-agent auto-commit
+    # is disabled). Without it ``git rebase`` refuses with ``cannot
+    # rebase: You have unstaged changes`` even on conflict-free content,
+    # surfacing as the opaque ``"git rebase failed"`` (#3245) — the same
+    # refusal #2714 fixed on the push-reconcile rebase path. The gateway
+    # ``rebase`` allowlist permits ``--autostash`` (gateway/git_client.py),
+    # and the base-branch rebase guard (gateway.py) ignores it (it is
+    # neither a positional nor an ``--onto`` value), so the protected-ref
+    # check on ``new_base`` is unaffected.
+    return (
+        ["--autostash", "--onto", new_base.strip(), old_base.strip(), branch.strip()],
+        True,
+        "",
+    )
 
 
 @dataclass
@@ -2226,11 +2241,23 @@ class GatewayClient:
             )
             return True
         except Exception as exc:  # noqa: BLE001
+            # ``str(exc)`` is the gateway's flattened message (e.g. the
+            # opaque ``"git rebase failed"`` for a non-zero git exit).
+            # The real git stderr — which distinguishes a dirty-worktree
+            # refusal from a genuine content conflict from a transport
+            # error — rides in ``GatewayError.details`` (the gateway puts
+            # ``{stdout, stderr, returncode}`` there). Surface it so an
+            # operator can tell a recoverable mechanism failure apart from
+            # a real conflict without spelunking the gateway pod (#3245).
+            raw_details = getattr(exc, "details", None)
+            details = raw_details if isinstance(raw_details, dict) else {}
             logger.warning(
                 "rebase_onto: gateway request failed",
                 pipeline_id=pipeline_id,
                 branch=branch,
                 error=str(exc),
+                git_stderr=(details.get("stderr") or "").strip() or None,
+                git_returncode=details.get("returncode"),
             )
             return False
         finally:
