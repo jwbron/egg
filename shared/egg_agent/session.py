@@ -39,14 +39,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-try:
-    from egg_logging import get_logger
+from egg_agent._logging import resolve_logger
 
-    logger: Any = get_logger("egg-agent")
-except ImportError:  # pragma: no cover - stdlib fallback outside the sandbox
-    import logging
-
-    logger = logging.getLogger(__name__)
+# Structured logger, with a kwarg-dropping stdlib fallback outside the sandbox.
+# The bare ``logging.getLogger`` fallback this replaced raised ``TypeError`` on
+# the ``event_type=``/``error=`` kwargs below, which would have defeated the
+# module's "never raise; every failure cold-starts" contract (#3200 review).
+logger: Any = resolve_logger("egg-agent", __name__)
 
 __all__ = [
     "SESSION_RESUME_ENV",

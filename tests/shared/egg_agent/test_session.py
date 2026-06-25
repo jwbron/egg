@@ -25,6 +25,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from egg_agent import session
+from egg_agent._logging import _StdlibLoggerAdapter
 from egg_agent.session import (
     SESSION_RESUME_ENV,
     SESSION_STATE_FILE_ENV,
@@ -281,6 +282,44 @@ class TestReadDiagnostics:
         path.write_text(json.dumps({"session_id": "s", "window_occupancy": 1}), encoding="utf-8")
         assert read_session_state(path) == SessionState("s", 1)
         fake.debug.assert_not_called()
+
+
+class TestStdlibLoggerFallback:
+    """The egg_logging-less fallback must keep the never-raise contract.
+
+    Outside the sandbox ``session.logger`` is a ``_StdlibLoggerAdapter`` (a bare
+    ``logging.Logger`` would raise ``TypeError`` on the ``event_type=``/``error=``
+    kwargs the anomalous branches pass). These assert the adapter swallows those
+    kwargs so a corrupt/unreadable record still cold-starts to ``None``/``False``
+    instead of crashing the agent run.
+    """
+
+    def _patch_stdlib_logger(self, monkeypatch):
+        adapter = _StdlibLoggerAdapter("test-session-fallback")
+        monkeypatch.setattr(session, "logger", adapter)
+        return adapter
+
+    def test_malformed_json_does_not_raise(self, monkeypatch, tmp_path):
+        self._patch_stdlib_logger(monkeypatch)
+        path = tmp_path / "state.json"
+        path.write_text("{not json", encoding="utf-8")
+        assert read_session_state(path) is None
+
+    def test_unreadable_does_not_raise(self, monkeypatch, tmp_path):
+        self._patch_stdlib_logger(monkeypatch)
+
+        def boom(self, *a, **k):
+            raise PermissionError("denied")
+
+        monkeypatch.setattr(Path, "read_text", boom)
+        assert read_session_state(tmp_path / "state.json") is None
+
+    def test_write_oserror_does_not_raise(self, monkeypatch, tmp_path):
+        self._patch_stdlib_logger(monkeypatch)
+        # Parent is a file → mkdir raises OSError on the write side.
+        parent = tmp_path / "afile"
+        parent.write_text("x", encoding="utf-8")
+        assert write_session_state("sess", path=parent / "state.json") is False
 
 
 # ── __all__ surface is importable ────────────────────────────────────────────

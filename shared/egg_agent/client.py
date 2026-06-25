@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from egg_agent._logging import resolve_logger
 from egg_agent.result import AgentResult
 from egg_agent.session import session_resume_enabled
 
@@ -89,35 +89,10 @@ def _compute_occupancy(usage: dict[str, Any] | None) -> int | None:
     return sum(components[key] for key in _OCCUPANCY_USAGE_KEYS)
 
 
-class _StdlibLoggerAdapter:
-    """Thin adapter so stdlib logger ignores structured-log kwargs."""
-
-    def __init__(self, name: str) -> None:
-        self._logger = logging.getLogger(name)
-
-    def _log(self, level: int, msg: str, **kwargs: Any) -> None:
-        # Drop structured kwargs that stdlib doesn't understand
-        self._logger.log(level, msg)
-
-    def info(self, msg: str, **kwargs: Any) -> None:
-        self._log(logging.INFO, msg, **kwargs)
-
-    def debug(self, msg: str, **kwargs: Any) -> None:
-        self._log(logging.DEBUG, msg, **kwargs)
-
-    def warning(self, msg: str, **kwargs: Any) -> None:
-        self._log(logging.WARNING, msg, **kwargs)
-
-    def error(self, msg: str, **kwargs: Any) -> None:
-        self._log(logging.ERROR, msg, **kwargs)
-
-
-try:
-    from egg_logging import get_logger
-
-    logger: Any = get_logger("egg-agent")
-except ImportError:
-    logger = _StdlibLoggerAdapter(__name__)
+# ``_StdlibLoggerAdapter`` and the egg_logging-vs-stdlib resolution now live in
+# ``egg_agent._logging`` so sibling modules (e.g. ``session.py``) can reuse the
+# kwarg-dropping fallback without importing this SDK-heavy module.
+logger: Any = resolve_logger("egg-agent", __name__)
 
 # Default model for sandbox agents
 DEFAULT_MODEL = "opus[1m]"

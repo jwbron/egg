@@ -552,7 +552,7 @@ class TestRunAgentAsync:
 
     def test_stdlib_logger_fallback_does_not_crash(self):
         """Test that the stdlib logger adapter handles arbitrary kwargs."""
-        from egg_agent.client import _StdlibLoggerAdapter
+        from egg_agent._logging import _StdlibLoggerAdapter
 
         adapter = _StdlibLoggerAdapter("test-fallback")
         # Should not raise TypeError
