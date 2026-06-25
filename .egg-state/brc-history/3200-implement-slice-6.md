@@ -1,0 +1,796 @@
+# BRC Consensus History — implement phase, slice-6
+
+Generated: 2026-06-25T07:32:21Z
+Pipeline: issue-3200
+Slice: slice-6
+
+### [2026-06-25T07:12:50Z] tester (HEARTBEAT): heartbeat: WORKING
+
+one-shot event arm action=propose (slice=slice-6)
+
+````yaml
+id: e6693350-3723-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:12:50Z] coder (HEARTBEAT): heartbeat: WORKING
+
+one-shot event arm action=propose (slice=slice-6)
+
+````yaml
+id: 7b9ff254-7ad6-47
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:12:50Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+one-shot event arm action=propose (slice=slice-6)
+
+````yaml
+id: 0329db07-20cf-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:13:49Z] documenter (CONSENSUS_PROPOSE): Proposal from documenter
+
+Documenter has no work in slice-6 (session-resume substrate + cold-start fallback). Both slice tasks (task-6-1 resume plumbing, task-6-2 tests) are code/test work with no documenter-roled assignment and no doc artifact. Proposing no-changes so consensus is not blocked on documenter.
+
+````yaml
+id: c58eb530-a515-4d
+phase: implement
+metadata:
+  payload:
+    summary: Documenter has no work in slice-6 (session-resume substrate + cold-start
+      fallback). Both slice tasks (task-6-1 resume plumbing, task-6-2 tests) are code/test
+      work with no documenter-roled assignment and no doc artifact. Proposing no-changes
+      so consensus is not blocked on documenter.
+    attestation: {}
+    artifacts: []
+    risk_considered: ''
+    commit_sha: ''
+    files_changed: []
+    tests_run: []
+    tasks_satisfied: []
+    no_changes_needed: true
+    no_changes_reason: "slice-6 (Session-resume substrate #3186 + cold-start fallback)\
+      \ consists solely of code/test plumbing tasks: task-6-1 (thread resume=<session_id>\
+      \ through the event-pump path, cold-start fallback) and task-6-2 (resume/cold-start\
+      \ tests). Neither task is documenter-roled, and the slice produces no user-facing\
+      \ or reference documentation deliverable. Documentation of the overall context-discipline\
+      \ mechanism is feature-end work, not part of this slice. Documenter therefore\
+      \ has no changes in slice-6 \u2014 same posture as slice-1."
+  version: 1
+  commit_sha: ''
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:21:43Z] coder (CONSENSUS_PROPOSE): Proposal from coder
+
+slice-6 task-6-1: session-resume substrate + cold-start fallback. Adds warm-resume plumbing for the BRC event-pump so a re-invocation can re-enter the prior Claude session by session_id instead of re-seeding. New shared/egg_agent/session.py exposes session_resume_enabled() (EGG_SESSION_RESUME, opt-in, default OFF) plus atomic, never-raising read/write of the cross-invocation session-state record (session_id + window_occupancy); every failure mode (no path, missing/empty/corrupt file, no session_id) collapses to the cold-start signal. client.py run_agent_async gains resume=<session_id> -> options.resume, applied ONLY when the flag is enabled and the id is non-empty; absent/disabled/stale session cold-starts from the protected root (fork_session left unset so a resume CONTINUES the session). __main__.py gains --resume input and the --session-state-file write-back round-trip; sandbox/llm/claude/runner.py threads resume through. The resume-vs-reseed DECISION (occupancy vs threshold) is deferred to the slice-8 gate; this is substrate only. Tests are task-6-2 (tester) so impl touches no test dirs.
+
+````yaml
+id: f81f02f9-bd92-40
+phase: implement
+metadata:
+  payload:
+    summary: 'slice-6 task-6-1: session-resume substrate + cold-start fallback. Adds
+      warm-resume plumbing for the BRC event-pump so a re-invocation can re-enter
+      the prior Claude session by session_id instead of re-seeding. New shared/egg_agent/session.py
+      exposes session_resume_enabled() (EGG_SESSION_RESUME, opt-in, default OFF) plus
+      atomic, never-raising read/write of the cross-invocation session-state record
+      (session_id + window_occupancy); every failure mode (no path, missing/empty/corrupt
+      file, no session_id) collapses to the cold-start signal. client.py run_agent_async
+      gains resume=<session_id> -> options.resume, applied ONLY when the flag is enabled
+      and the id is non-empty; absent/disabled/stale session cold-starts from the
+      protected root (fork_session left unset so a resume CONTINUES the session).
+      __main__.py gains --resume input and the --session-state-file write-back round-trip;
+      sandbox/llm/claude/runner.py threads resume through. The resume-vs-reseed DECISION
+      (occupancy vs threshold) is deferred to the slice-8 gate; this is substrate
+      only. Tests are task-6-2 (tester) so impl touches no test dirs.'
+    attestation: {}
+    artifacts:
+    - shared/egg_agent/session.py
+    - shared/egg_agent/client.py
+    - shared/egg_agent/__main__.py
+    - sandbox/llm/claude/runner.py
+    - 5bf70837e
+    risk_considered: 'Opt-in default-OFF flag means zero behavior change until an
+      operator enables it, so rollout is staged and reversible. SDK option surface
+      verified against installed claude-agent-sdk (ClaudeAgentOptions.resume: str|None,
+      continues session without fork_session). Cold-start fallback proven never-raising
+      via smoke tests. Ruff clean; existing client tests pass. No test-dir writes
+      to avoid colliding with tester''s task-6-2.'
+    commit_sha: 5bf70837e
+    files_changed:
+    - shared/egg_agent/session.py
+    - shared/egg_agent/client.py
+    - shared/egg_agent/__main__.py
+    - sandbox/llm/claude/runner.py
+    tests_run: []
+    tasks_satisfied:
+    - task-6-1
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 1
+  commit_sha: 5bf70837e
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:21:50Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+one-shot event arm action=ack (slice=slice-6)
+
+````yaml
+id: 3832488e-c060-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:21:50Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+one-shot event arm action=ack (slice=slice-6)
+
+````yaml
+id: 363f2fd3-0aa1-4c
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:21:51Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+one-shot event arm action=ack (slice=slice-6)
+
+````yaml
+id: 879b243d-21b7-43
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:21:51Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+one-shot event arm action=ack (slice=slice-6)
+
+````yaml
+id: 9de61704-8e17-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:21:52Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+one-shot event arm action=ack (slice=slice-6)
+
+````yaml
+id: 34c718ad-ab96-47
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:23:11Z] reviewer_security → coder (CONSENSUS_ACK): ACK from reviewer_security for coder
+
+Security review PASS (slice-6 session-resume substrate, commit 5bf70837e). No security blockers. (1) Safe deserialization: read_session_state uses json.loads with strict type validation — session_id must be non-empty str, window_occupancy coerced to int/None (bools rejected); no code-exec or injection vector through the state-file payload. (2) Atomic write via NamedTemporaryFile (mode 0600) + os.replace — persisted session_id not world-readable, no partial-record exposure. (3) Path handling rejects blank/whitespace values so an empty env var cannot redirect the round-trip to CWD. (4) Defensive failure modes: every error collapses to cold-start/False, no crash, only str(exc) logged (no secret leak). (5) No new untrusted-input surface — no auth/credential/gateway/network changes; resume gated behind EGG_SESSION_RESUME (default OFF), ships dark. Non-blocking notes for the slice-8 consumer: session_id from the state file flows to options.resume without char sanitization (safe today given trusted config source + default-OFF, but keep the trust assumption if the state path ever lands in agent-writable space); temp file leaks on a replace() failure (cleanliness, not security).
+
+````yaml
+id: 1a0010b8-a900-42
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - shared/egg_agent/session.py
+    - shared/egg_agent/client.py
+    - shared/egg_agent/__main__.py
+    - sandbox/llm/claude/runner.py
+    reason: "Security review PASS (slice-6 session-resume substrate, commit 5bf70837e).\
+      \ No security blockers. (1) Safe deserialization: read_session_state uses json.loads\
+      \ with strict type validation \u2014 session_id must be non-empty str, window_occupancy\
+      \ coerced to int/None (bools rejected); no code-exec or injection vector through\
+      \ the state-file payload. (2) Atomic write via NamedTemporaryFile (mode 0600)\
+      \ + os.replace \u2014 persisted session_id not world-readable, no partial-record\
+      \ exposure. (3) Path handling rejects blank/whitespace values so an empty env\
+      \ var cannot redirect the round-trip to CWD. (4) Defensive failure modes: every\
+      \ error collapses to cold-start/False, no crash, only str(exc) logged (no secret\
+      \ leak). (5) No new untrusted-input surface \u2014 no auth/credential/gateway/network\
+      \ changes; resume gated behind EGG_SESSION_RESUME (default OFF), ships dark.\
+      \ Non-blocking notes for the slice-8 consumer: session_id from the state file\
+      \ flows to options.resume without char sanitization (safe today given trusted\
+      \ config source + default-OFF, but keep the trust assumption if the state path\
+      \ ever lands in agent-writable space); temp file leaks on a replace() failure\
+      \ (cleanliness, not security)."
+    ack_version: 1
+  version: 1
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:23:24Z] reviewer_concurrency → coder (CONSENSUS_ACK): ACK from reviewer_concurrency for coder
+
+Concurrency dimension ACK for slice-6 task-6-1 (session-resume substrate + cold-start fallback) @ 5bf70837e. Cross-process session-state IPC is concurrency-clean: write_session_state uses a same-directory NamedTemporaryFile(delete=False) closed by the `with` block BEFORE tmp_path.replace(resolved), so the rename is atomic on a single filesystem and a concurrent reader never observes a torn/partial record; flush-before-rename ordering is correct. Concurrent writers each get a unique temp name and the last os.replace wins atomically — no corruption (and the event-pump is one-process-per-event/sequential anyway). read_session_state collapses every failure mode (missing/empty/corrupt/non-object/no session_id) to None = cold-start, never raising. client.py only sets options.resume on a per-call local options object before the awaited SDK call — no shared mutable state, no async race; fork_session left unset so the resumed id continues and the write-back of the same id is idempotent. result.session_id/window_occupancy verified present on AgentResult, so the __main__ write-back cannot AttributeError. Change is additive and default-OFF (EGG_SESSION_RESUME). Non-blocking nits only: temp-file orphaned on a mid-write OSError (delete=False, no cleanup; unique names so no collision), and no fsync before replace (read-side corrupt/empty->cold-start makes this fail-safe). No concurrency blockers.
+
+````yaml
+id: 86e2dc6f-a3bd-40
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - shared/egg_agent/session.py
+    - shared/egg_agent/client.py
+    - shared/egg_agent/__main__.py
+    - sandbox/llm/claude/runner.py
+    - shared/egg_agent/result.py
+    reason: "Concurrency dimension ACK for slice-6 task-6-1 (session-resume substrate\
+      \ + cold-start fallback) @ 5bf70837e. Cross-process session-state IPC is concurrency-clean:\
+      \ write_session_state uses a same-directory NamedTemporaryFile(delete=False)\
+      \ closed by the `with` block BEFORE tmp_path.replace(resolved), so the rename\
+      \ is atomic on a single filesystem and a concurrent reader never observes a\
+      \ torn/partial record; flush-before-rename ordering is correct. Concurrent writers\
+      \ each get a unique temp name and the last os.replace wins atomically \u2014\
+      \ no corruption (and the event-pump is one-process-per-event/sequential anyway).\
+      \ read_session_state collapses every failure mode (missing/empty/corrupt/non-object/no\
+      \ session_id) to None = cold-start, never raising. client.py only sets options.resume\
+      \ on a per-call local options object before the awaited SDK call \u2014 no shared\
+      \ mutable state, no async race; fork_session left unset so the resumed id continues\
+      \ and the write-back of the same id is idempotent. result.session_id/window_occupancy\
+      \ verified present on AgentResult, so the __main__ write-back cannot AttributeError.\
+      \ Change is additive and default-OFF (EGG_SESSION_RESUME). Non-blocking nits\
+      \ only: temp-file orphaned on a mid-write OSError (delete=False, no cleanup;\
+      \ unique names so no collision), and no fsync before replace (read-side corrupt/empty->cold-start\
+      \ makes this fail-safe). No concurrency blockers."
+    ack_version: 1
+  version: 1
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:23:54Z] reviewer_contract → coder (CONSENSUS_ACK): ACK from reviewer_contract for coder
+
+task-6-1 verified against all three acceptance-criteria clauses. (1) client.py exposes resume-by-session_id threaded through the full event-pump path (CLI --resume, run_agent **kwargs forward, sandbox runner, options.resume); SDK ClaudeAgentOptions confirmed to support resume/fork_session. (2) Cold-start fallback never raises — session.py read/resolve/write collapse every failure mode (no path/missing/empty/corrupt/no session_id/OS error) to None/False, and options.resume is left unset so a fresh session seeds from the protected root. (3) Opt-in default OFF via EGG_SESSION_RESUME with the legacy path byte-identical when off. Correctly substrate-only with the occupancy-vs-threshold decision deferred to slice-8 as the contract scopes it; AgentResult.window_occupancy present from slice-1; ruff clean.
+
+````yaml
+id: 66ac34e8-5e57-44
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - shared/egg_agent/session.py
+    - shared/egg_agent/client.py
+    - shared/egg_agent/__main__.py
+    - sandbox/llm/claude/runner.py
+    reason: "task-6-1 verified against all three acceptance-criteria clauses. (1)\
+      \ client.py exposes resume-by-session_id threaded through the full event-pump\
+      \ path (CLI --resume, run_agent **kwargs forward, sandbox runner, options.resume);\
+      \ SDK ClaudeAgentOptions confirmed to support resume/fork_session. (2) Cold-start\
+      \ fallback never raises \u2014 session.py read/resolve/write collapse every\
+      \ failure mode (no path/missing/empty/corrupt/no session_id/OS error) to None/False,\
+      \ and options.resume is left unset so a fresh session seeds from the protected\
+      \ root. (3) Opt-in default OFF via EGG_SESSION_RESUME with the legacy path byte-identical\
+      \ when off. Correctly substrate-only with the occupancy-vs-threshold decision\
+      \ deferred to slice-8 as the contract scopes it; AgentResult.window_occupancy\
+      \ present from slice-1; ruff clean."
+    ack_version: 1
+    attestation:
+      tasks_verified:
+      - task-6-1
+      ac_clauses_verified:
+      - client.py exposes resume-by-session_id threaded through event-pump path (CLI
+        --resume -> run_agent -> run_agent_async -> options.resume; sandbox runner
+        threads it too; SDK ClaudeAgentOptions confirmed to expose resume/fork_session)
+      - no resumable session cold-starts from protected root, never raises (read/resolve/write
+        all collapse failures to None/False; options.resume unset when disabled)
+      - opt-in default OFF via EGG_SESSION_RESUME; legacy path byte-identical when
+        off
+      notes: Substrate-only correctly scoped; resume-vs-reseed decision deferred to
+        slice-8 per contract. AgentResult.window_occupancy (slice-1) present so __main__
+        write-back is valid. fork_session left unset = continue not branch, matches
+        intent. ruff clean. task-6-2 tests are tester-owned (pending).
+  version: 1
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:24:43Z] reviewer_code → coder (CONSENSUS_ACK): ACK from reviewer_code for coder
+
+ACK slice-6 task-6-1 (session-resume substrate + cold-start fallback). First review of coder; no prior blockers. Audited full proposal at 5bf70837e. Correctness verified: options.resume/fork_session are valid ClaudeAgentOptions fields (checked installed SDK); resume gated on non-empty session_id AND EGG_SESSION_RESUME (default OFF, ships dark); cold-start fallback collapses every failure (missing/empty/corrupt/no-path/disabled/stale) to None/fresh-session and never raises — verified by live round-trip (empty id->no write, None path->no-op, corrupt JSON->None, bool occupancy->None coercion since bool is an int subclass). Atomic write via temp+os.replace with OSError swallowed to False. Threading verified end-to-end: __main__ -> run_agent(**kwargs) -> run_agent_async(resume=); runner -> _sdk_run_agent_async(resume=); AgentResult exposes session_id + window_occupancy. Backward compatible (keyword-only resume default None); no circular import. Scope honored: substrate only, resume-vs-reseed decision correctly deferred to slice-8; unresolved HITL cq-3 (slice-2 real_backend_window) does not touch this slice. Minor non-blocking nits: delete=False temp file leaks on OSError during replace (no finally-unlink); write side runs regardless of resume flag when a path is set (acceptable for occupancy capture).
+
+````yaml
+id: ae3bc358-b225-4c
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - shared/egg_agent/session.py
+    - shared/egg_agent/client.py
+    - shared/egg_agent/__main__.py
+    - sandbox/llm/claude/runner.py
+    reason: "ACK slice-6 task-6-1 (session-resume substrate + cold-start fallback).\
+      \ First review of coder; no prior blockers. Audited full proposal at 5bf70837e.\
+      \ Correctness verified: options.resume/fork_session are valid ClaudeAgentOptions\
+      \ fields (checked installed SDK); resume gated on non-empty session_id AND EGG_SESSION_RESUME\
+      \ (default OFF, ships dark); cold-start fallback collapses every failure (missing/empty/corrupt/no-path/disabled/stale)\
+      \ to None/fresh-session and never raises \u2014 verified by live round-trip\
+      \ (empty id->no write, None path->no-op, corrupt JSON->None, bool occupancy->None\
+      \ coercion since bool is an int subclass). Atomic write via temp+os.replace\
+      \ with OSError swallowed to False. Threading verified end-to-end: __main__ ->\
+      \ run_agent(**kwargs) -> run_agent_async(resume=); runner -> _sdk_run_agent_async(resume=);\
+      \ AgentResult exposes session_id + window_occupancy. Backward compatible (keyword-only\
+      \ resume default None); no circular import. Scope honored: substrate only, resume-vs-reseed\
+      \ decision correctly deferred to slice-8; unresolved HITL cq-3 (slice-2 real_backend_window)\
+      \ does not touch this slice. Minor non-blocking nits: delete=False temp file\
+      \ leaks on OSError during replace (no finally-unlink); write side runs regardless\
+      \ of resume flag when a path is set (acceptable for occupancy capture)."
+    ack_version: 1
+    attestation:
+      files_reviewed:
+      - shared/egg_agent/session.py
+      - shared/egg_agent/client.py
+      - shared/egg_agent/__main__.py
+      - sandbox/llm/claude/runner.py
+      issues_found: 0
+      checks:
+      - sdk_resume_field_valid
+      - flag_gated_default_off
+      - cold_start_never_raises
+      - round_trip_verified
+      - threading_end_to_end
+      - backward_compatible
+      - scope_substrate_only
+  version: 1
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:25:22Z] reviewer_code_holistic → coder (CONSENSUS_ACK): ACK from reviewer_code_holistic for coder
+
+Holistic ACK (slice-6 task-6-1, first review @5bf70837e). All four mandatory passes clean. (1) End-to-end: traced the literal resume chain __main__ --resume -> run_agent(**kwargs) -> run_agent_async(resume) -> options.resume; confirmed `resume` AND `fork_session` are real ClaudeAgentOptions fields (SDK 0.2.97), so warm-resume is genuinely wired, not a __checkout__-style silent no-op. fork_session left unset (default False) -> continue, matching the comment. runner.run_agent_async -> _sdk_run_agent_async(resume) target accepts it. Write side uses real AgentResult.session_id/window_occupancy (slice-1); JSON keys are symmetric between write_session_state payload and read_session_state getters. (2) Doc<->code: session.py header's claim that consensus_wrapper invokes one-shot `python3 -m egg_agent` per event is accurate (verified the agent_command_prefix construction site); __main__ is the correct seam for slice-8 to add the flags. No docs claim un-implemented behaviour. (3) Synthetic-key/sentinel: EGG_SESSION_RESUME / EGG_SESSION_STATE_FILE each produced+consumed within session.py (self-consistent); options.resume correctly coordinated with the SDK. (4) Silent-fallback: read->None->cold-start is exactly the task AC (never a hard failure / no exception on missing-session path), not masking an operator misconfig; the one OS-level write failure logs an operator-visible warning, and the disabled-but-requested path logs session_resume_skipped. Substrate is inert/default-OFF; the resume-vs-reseed decision is correctly deferred to slice-8. No cross-module coherence defects.
+
+````yaml
+id: 27bf862f-a988-40
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - shared/egg_agent/session.py
+    - shared/egg_agent/client.py
+    - shared/egg_agent/__main__.py
+    - sandbox/llm/claude/runner.py
+    reason: 'Holistic ACK (slice-6 task-6-1, first review @5bf70837e). All four mandatory
+      passes clean. (1) End-to-end: traced the literal resume chain __main__ --resume
+      -> run_agent(**kwargs) -> run_agent_async(resume) -> options.resume; confirmed
+      `resume` AND `fork_session` are real ClaudeAgentOptions fields (SDK 0.2.97),
+      so warm-resume is genuinely wired, not a __checkout__-style silent no-op. fork_session
+      left unset (default False) -> continue, matching the comment. runner.run_agent_async
+      -> _sdk_run_agent_async(resume) target accepts it. Write side uses real AgentResult.session_id/window_occupancy
+      (slice-1); JSON keys are symmetric between write_session_state payload and read_session_state
+      getters. (2) Doc<->code: session.py header''s claim that consensus_wrapper invokes
+      one-shot `python3 -m egg_agent` per event is accurate (verified the agent_command_prefix
+      construction site); __main__ is the correct seam for slice-8 to add the flags.
+      No docs claim un-implemented behaviour. (3) Synthetic-key/sentinel: EGG_SESSION_RESUME
+      / EGG_SESSION_STATE_FILE each produced+consumed within session.py (self-consistent);
+      options.resume correctly coordinated with the SDK. (4) Silent-fallback: read->None->cold-start
+      is exactly the task AC (never a hard failure / no exception on missing-session
+      path), not masking an operator misconfig; the one OS-level write failure logs
+      an operator-visible warning, and the disabled-but-requested path logs session_resume_skipped.
+      Substrate is inert/default-OFF; the resume-vs-reseed decision is correctly deferred
+      to slice-8. No cross-module coherence defects.'
+    ack_version: 1
+  version: 1
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:28:13Z] tester (CONSENSUS_PROPOSE): Proposal from tester
+
+Tester task-6-2: tests for slice-6 session-resume plumbing + cold-start fallback (tests/shared/egg_agent/test_client_resume.py, commit 21fec06b8, rebased green on top of coder task-6-1 commit 5bf70837e).
+
+Verifies the contract task-6-1 implements in shared/egg_agent/client.py + egg_agent/session.py:
+- run_agent_async gains keyword-only `resume: str | None = None`.
+- Two-fold default-off / staged rollout: (a) param defaults to None; (b) a passed-in session_id is threaded to ClaudeAgentOptions.resume ONLY when EGG_SESSION_RESUME (session_resume_enabled()) is enabled — so the substrate ships dark ahead of the slice-8 resume-vs-reseed gate.
+- Cold-start fallback: a falsy id (None or "") never sets options.resume -> fresh session seeded from the protected-root prompt, never a hard failure ("no resumable session": first invocation / expired / consensus reset / pod death). Holds even with the enable flag ON.
+
+6 tests, all passing: (1) signature default-off via inspect; (2) resume-by-id forwarded when EGG_SESSION_RESUME on; (3) id ignored when flag off (staged-rollout half of default-off); (4) no-arg fresh even when flag on; (5) explicit resume=None cold-start; (6) empty-id cold-start. Mock SDK installed per the test_client.py/test_main.py convention; EGG_MCP_TOOLS=false + intercept_tools=False keep the plain SDK path; EGG_SESSION_RESUME cleared as baseline. ruff check + format clean.
+
+Pre-existing/unrelated: test_client.py::test_buffer_overflow_returns_failure_with_marker fails in isolation WITHOUT my file (real claude_agent_sdk vs mock divergence under py3.14) — not introduced here, outside slice-6 scope.
+
+````yaml
+id: bbaed1f2-1ade-45
+phase: implement
+metadata:
+  payload:
+    summary: "Tester task-6-2: tests for slice-6 session-resume plumbing + cold-start\
+      \ fallback (tests/shared/egg_agent/test_client_resume.py, commit 21fec06b8,\
+      \ rebased green on top of coder task-6-1 commit 5bf70837e).\n\nVerifies the\
+      \ contract task-6-1 implements in shared/egg_agent/client.py + egg_agent/session.py:\n\
+      - run_agent_async gains keyword-only `resume: str | None = None`.\n- Two-fold\
+      \ default-off / staged rollout: (a) param defaults to None; (b) a passed-in\
+      \ session_id is threaded to ClaudeAgentOptions.resume ONLY when EGG_SESSION_RESUME\
+      \ (session_resume_enabled()) is enabled \u2014 so the substrate ships dark ahead\
+      \ of the slice-8 resume-vs-reseed gate.\n- Cold-start fallback: a falsy id (None\
+      \ or \"\") never sets options.resume -> fresh session seeded from the protected-root\
+      \ prompt, never a hard failure (\"no resumable session\": first invocation /\
+      \ expired / consensus reset / pod death). Holds even with the enable flag ON.\n\
+      \n6 tests, all passing: (1) signature default-off via inspect; (2) resume-by-id\
+      \ forwarded when EGG_SESSION_RESUME on; (3) id ignored when flag off (staged-rollout\
+      \ half of default-off); (4) no-arg fresh even when flag on; (5) explicit resume=None\
+      \ cold-start; (6) empty-id cold-start. Mock SDK installed per the test_client.py/test_main.py\
+      \ convention; EGG_MCP_TOOLS=false + intercept_tools=False keep the plain SDK\
+      \ path; EGG_SESSION_RESUME cleared as baseline. ruff check + format clean.\n\
+      \nPre-existing/unrelated: test_client.py::test_buffer_overflow_returns_failure_with_marker\
+      \ fails in isolation WITHOUT my file (real claude_agent_sdk vs mock divergence\
+      \ under py3.14) \u2014 not introduced here, outside slice-6 scope."
+    attestation:
+      tests_run: 6
+      checks_passed:
+      - test
+      - lint
+      - security
+      tests_passed: 6
+      tests_failed: 0
+      test_command: python3 -m pytest tests/shared/egg_agent/test_client_resume.py
+      security_basis: Changeset is a single test file under tests/shared/egg_agent/,
+        which is OUTSIDE `make security`'s bandit scan scope (gateway shared sandbox
+        orchestrator) and introduces no security surface (no exec/eval/subprocess/secrets/network).
+        bandit is unavailable in this sandbox (the security target SKIPs=pass when
+        bandit is absent); the venv could not be synced offline. No production code
+        touched.
+      notes: All 6 resume tests pass against coder task-6-1 (5bf70837e). ruff check
+        + ruff format clean. Pre-existing unrelated failure in test_client.py::test_buffer_overflow
+        (real-SDK-vs-mock under py3.14, fails without my file) is out of slice-6 scope.
+    artifacts:
+    - tests/shared/egg_agent/test_client_resume.py
+    risk_considered: 'Convergence risk (concurrent producer pair) realized and resolved:
+      the coder gated resume behind a non-empty id AND EGG_SESSION_RESUME, beyond
+      the unconditional threading my first draft assumed. Rebased onto the coder''s
+      commit and aligned the suite to the actual two-fold gate, adding an explicit
+      flag-off test so the staged-rollout default-off is locked. Tests use lenient
+      getattr reads and a `not` check for the empty-id case to avoid over-constraining
+      the implementation.'
+    commit_sha: 21fec06b8f0d087245fb47de32cf7ed535259488
+    files_changed:
+    - tests/shared/egg_agent/test_client_resume.py
+    tests_run:
+    - test_default_off_signature
+    - test_resume_by_id_threads_into_options_when_enabled
+    - test_resume_id_ignored_when_flag_disabled
+    - test_default_runs_fresh_without_resume
+    - test_resume_none_cold_starts_without_raising
+    - test_empty_session_id_cold_starts
+    tasks_satisfied:
+    - task-6-2
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 1
+  commit_sha: 21fec06b8f0d087245fb47de32cf7ed535259488
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:28:13Z] orchestrator → coder (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 233abae7-c705-41
+phase: implement
+metadata:
+  ready_to_confirm: true
+  version: 1
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:28:13Z] orchestrator → documenter (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 592d0fb6-8a2a-46
+phase: implement
+metadata:
+  ready_to_confirm: true
+  version: 1
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:28:17Z] coder (CONSENSUS_CONFIRMED): Consensus confirmed by coder
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 9c533331-a501-47
+phase: implement
+metadata:
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:28:17Z] documenter (CONSENSUS_CONFIRMED): Consensus confirmed by documenter
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: d72a8be2-2c49-42
+phase: implement
+metadata:
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:28:54Z] reviewer_security → tester (CONSENSUS_ACK): ACK from reviewer_security for tester
+
+Security review PASS (slice-6 task-6-2 resume tests, commit 21fec06b8f0d). Test-only artifact, no new attack surface: no network/subprocess/eval/exec/file-write, no credential/auth/gateway handling. (1) Mock-SDK injection (sys.modules["claude_agent_sdk"]=_mock_sdk) is test-time only, gated behind ImportError, follows the existing test_client.py convention — not a runtime path. (2) Tests positively reinforce the security posture of the substrate I ACKed at coder 5bf70837e: test_resume_id_ignored_when_flag_disabled and test_empty_session_id_cold_starts pin the two-fold default-OFF gate (non-empty id AND EGG_SESSION_RESUME flag) and assert an empty/falsy id is never forwarded to options.resume — locking in the dark/staged-rollout and never-hard-fail cold-start invariants. (3) No secret-leak vector; assertions read only options.resume attribute state. No security blockers.
+
+````yaml
+id: 44642fef-3c5f-45
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - tests/shared/egg_agent/test_client_resume.py
+    reason: "Security review PASS (slice-6 task-6-2 resume tests, commit 21fec06b8f0d).\
+      \ Test-only artifact, no new attack surface: no network/subprocess/eval/exec/file-write,\
+      \ no credential/auth/gateway handling. (1) Mock-SDK injection (sys.modules[\"\
+      claude_agent_sdk\"]=_mock_sdk) is test-time only, gated behind ImportError,\
+      \ follows the existing test_client.py convention \u2014 not a runtime path.\
+      \ (2) Tests positively reinforce the security posture of the substrate I ACKed\
+      \ at coder 5bf70837e: test_resume_id_ignored_when_flag_disabled and test_empty_session_id_cold_starts\
+      \ pin the two-fold default-OFF gate (non-empty id AND EGG_SESSION_RESUME flag)\
+      \ and assert an empty/falsy id is never forwarded to options.resume \u2014 locking\
+      \ in the dark/staged-rollout and never-hard-fail cold-start invariants. (3)\
+      \ No secret-leak vector; assertions read only options.resume attribute state.\
+      \ No security blockers."
+    ack_version: 1
+  version: 1
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:28:57Z] reviewer_security (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_security
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 277d08a1-ce12-45
+phase: implement
+metadata:
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:29:04Z] reviewer_concurrency → tester (CONSENSUS_ACK): ACK from reviewer_concurrency for tester
+
+Concurrency-dimension ACK for slice-6 task-6-2 (resume-plumbing tests) @ 21fec06b. The test module is race-free: _run_async creates a fresh asyncio.new_event_loop() per call and closes it in finally, never installing it as the global current loop — no cross-test loop bleed or default-policy interference, each coroutine runs to completion synchronously. All env mutation (EGG_SESSION_RESUME / EGG_MCP_TOOLS / EGG_AGENT_ROLE) goes through function-scoped monkeypatch with auto-revert, and the autouse _isolated_agent_env fixture clears the resume flag so no gate state leaks across tests. sys.modules mock-SDK install + @patch('claude_agent_sdk.query') mutate process globals but match the established test_client.py convention, restore per-test, and pytest-xdist runs are process-isolated. The tests introduce no new concurrency surface: they assert pure param threading onto a per-call local ClaudeAgentOptions.resume (no shared mutable state, no threads, no file IPC) — consistent with the concurrency-clean session-resume substrate I ACKed at 5bf70837e. Both passes (no prior NACK blockers; no new delta findings) succeed.
+
+````yaml
+id: 52c0bc85-b94c-45
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - tests/shared/egg_agent/test_client_resume.py
+    reason: "Concurrency-dimension ACK for slice-6 task-6-2 (resume-plumbing tests)\
+      \ @ 21fec06b. The test module is race-free: _run_async creates a fresh asyncio.new_event_loop()\
+      \ per call and closes it in finally, never installing it as the global current\
+      \ loop \u2014 no cross-test loop bleed or default-policy interference, each\
+      \ coroutine runs to completion synchronously. All env mutation (EGG_SESSION_RESUME\
+      \ / EGG_MCP_TOOLS / EGG_AGENT_ROLE) goes through function-scoped monkeypatch\
+      \ with auto-revert, and the autouse _isolated_agent_env fixture clears the resume\
+      \ flag so no gate state leaks across tests. sys.modules mock-SDK install + @patch('claude_agent_sdk.query')\
+      \ mutate process globals but match the established test_client.py convention,\
+      \ restore per-test, and pytest-xdist runs are process-isolated. The tests introduce\
+      \ no new concurrency surface: they assert pure param threading onto a per-call\
+      \ local ClaudeAgentOptions.resume (no shared mutable state, no threads, no file\
+      \ IPC) \u2014 consistent with the concurrency-clean session-resume substrate\
+      \ I ACKed at 5bf70837e. Both passes (no prior NACK blockers; no new delta findings)\
+      \ succeed."
+    ack_version: 1
+  version: 1
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:29:08Z] reviewer_concurrency (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_concurrency
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: b6fb6275-0cfa-4a
+phase: implement
+metadata:
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:29:41Z] reviewer_code → tester (CONSENSUS_ACK): ACK from reviewer_code for tester
+
+ACK slice-6 task-6-2 (tests for session-resume substrate). First review of tester; no prior blockers. Audited full proposal at 21fec06b. Ran the file: 6 passed. Non-vacuous and correctly maps to coder's client.py impl (5bf70837e): (1) test_default_off_signature is a real inspect.signature check pinning resume:str|None=None at param level; (2) the flag-gate PAIR — test_resume_by_id_threads_into_options_when_enabled (EGG_SESSION_RESUME=1 -> options.resume=='sess-abc') and test_resume_id_ignored_when_flag_disabled (flag unset -> resume NOT forwarded) — exactly pins the two-fold gate at client.py:425-440 (`resume_session_id and session_resume_enabled()` vs `elif resume_session_id`); removing the gate fails the ignored test, so it's non-vacuous; (3) cold-start fallback covered for resume=None, resume='', and no-arg, each asserting result.success + options.resume falsy, matching the `(resume or '').strip()` falsy branch (no hard failure). _options_from asserts query() was actually invoked so assertions exercise the live path. Mock-SDK install + EGG_MCP_TOOLS=false + intercept_tools=False follow the test_client.py convention and keep it on the plain SDK path; no network, no flakiness. Covers all three acceptance behaviors (resume-by-id, cold-start, default-off). Minor non-blocking nit: whitespace-only id (e.g. '   ') strips to empty but isn't explicitly tested; the falsy-id path is otherwise well covered.
+
+````yaml
+id: c98c1253-eba8-45
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - tests/shared/egg_agent/test_client_resume.py
+    reason: "ACK slice-6 task-6-2 (tests for session-resume substrate). First review\
+      \ of tester; no prior blockers. Audited full proposal at 21fec06b. Ran the file:\
+      \ 6 passed. Non-vacuous and correctly maps to coder's client.py impl (5bf70837e):\
+      \ (1) test_default_off_signature is a real inspect.signature check pinning resume:str|None=None\
+      \ at param level; (2) the flag-gate PAIR \u2014 test_resume_by_id_threads_into_options_when_enabled\
+      \ (EGG_SESSION_RESUME=1 -> options.resume=='sess-abc') and test_resume_id_ignored_when_flag_disabled\
+      \ (flag unset -> resume NOT forwarded) \u2014 exactly pins the two-fold gate\
+      \ at client.py:425-440 (`resume_session_id and session_resume_enabled()` vs\
+      \ `elif resume_session_id`); removing the gate fails the ignored test, so it's\
+      \ non-vacuous; (3) cold-start fallback covered for resume=None, resume='', and\
+      \ no-arg, each asserting result.success + options.resume falsy, matching the\
+      \ `(resume or '').strip()` falsy branch (no hard failure). _options_from asserts\
+      \ query() was actually invoked so assertions exercise the live path. Mock-SDK\
+      \ install + EGG_MCP_TOOLS=false + intercept_tools=False follow the test_client.py\
+      \ convention and keep it on the plain SDK path; no network, no flakiness. Covers\
+      \ all three acceptance behaviors (resume-by-id, cold-start, default-off). Minor\
+      \ non-blocking nit: whitespace-only id (e.g. '   ') strips to empty but isn't\
+      \ explicitly tested; the falsy-id path is otherwise well covered."
+    ack_version: 1
+    attestation:
+      files_reviewed:
+      - tests/shared/egg_agent/test_client_resume.py
+      issues_found: 0
+      tests_executed: 6
+      tests_passed: 6
+  version: 1
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:29:46Z] reviewer_code (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_code
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: eaef1264-0470-4d
+phase: implement
+metadata:
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:29:51Z] reviewer_code_holistic → tester (CONSENSUS_ACK): ACK from reviewer_code_holistic for tester
+
+Holistic ACK (slice-6 task-6-2, first review @21fec06b). All four holistic passes clean against the coder substrate @5bf70837e (already holistically ACKed). (1) End-to-end: the 6 tests drive the REAL resume chain — run_agent_async(resume=...) -> client.py `(resume or "").strip()` + `session_resume_enabled()` gate -> options.resume -> read back from the genuine `query(prompt=..., options=options)` kwarg via call_args.kwargs["options"]. Nothing stubbed past the code under test; query() is the only patched seam. (2) Doc<->code symmetry: each test docstring maps 1:1 to a real branch — default_off_signature (param resume=None), resume_by_id_when_enabled (flag on + non-empty id -> options.resume==sess-abc), id_ignored_when_flag_disabled (elif branch logs+skips, options.resume stays None), fresh-without-resume / resume=None / empty-id all hit the falsy-or-disabled cold-start (never raises), matching the substrate's two-fold default-off and "never a hard failure" contract. (3) Sentinel/synthetic-key coordination: mock ClaudeAgentOptions carries the real SDK resume-family fields (resume/continue_conversation/session_id/fork_session, SDK 0.2.97), so assertions read real attribute state on both real-SDK and mock-SDK paths. (4) Silent-fallback hunt: NOT vacuous — the positive test asserts options.resume == "sess-abc" directly (no getattr default), so it fails loudly if resume is unwired; negatives use defensive getattr but are backstopped by that positive. Import-order safe: SDK `query` import is lazy inside run_agent_async (line 308), not module-level, so `from egg_agent.client import run_agent_async` at the top does not trigger the SDK import before the mock is installed in sys.modules — matching the proven test_client.py convention the module cites.
+
+````yaml
+id: 49c409d8-e617-45
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - tests/shared/egg_agent/test_client_resume.py
+    reason: "Holistic ACK (slice-6 task-6-2, first review @21fec06b). All four holistic\
+      \ passes clean against the coder substrate @5bf70837e (already holistically\
+      \ ACKed). (1) End-to-end: the 6 tests drive the REAL resume chain \u2014 run_agent_async(resume=...)\
+      \ -> client.py `(resume or \"\").strip()` + `session_resume_enabled()` gate\
+      \ -> options.resume -> read back from the genuine `query(prompt=..., options=options)`\
+      \ kwarg via call_args.kwargs[\"options\"]. Nothing stubbed past the code under\
+      \ test; query() is the only patched seam. (2) Doc<->code symmetry: each test\
+      \ docstring maps 1:1 to a real branch \u2014 default_off_signature (param resume=None),\
+      \ resume_by_id_when_enabled (flag on + non-empty id -> options.resume==sess-abc),\
+      \ id_ignored_when_flag_disabled (elif branch logs+skips, options.resume stays\
+      \ None), fresh-without-resume / resume=None / empty-id all hit the falsy-or-disabled\
+      \ cold-start (never raises), matching the substrate's two-fold default-off and\
+      \ \"never a hard failure\" contract. (3) Sentinel/synthetic-key coordination:\
+      \ mock ClaudeAgentOptions carries the real SDK resume-family fields (resume/continue_conversation/session_id/fork_session,\
+      \ SDK 0.2.97), so assertions read real attribute state on both real-SDK and\
+      \ mock-SDK paths. (4) Silent-fallback hunt: NOT vacuous \u2014 the positive\
+      \ test asserts options.resume == \"sess-abc\" directly (no getattr default),\
+      \ so it fails loudly if resume is unwired; negatives use defensive getattr but\
+      \ are backstopped by that positive. Import-order safe: SDK `query` import is\
+      \ lazy inside run_agent_async (line 308), not module-level, so `from egg_agent.client\
+      \ import run_agent_async` at the top does not trigger the SDK import before\
+      \ the mock is installed in sys.modules \u2014 matching the proven test_client.py\
+      \ convention the module cites."
+    ack_version: 1
+  version: 1
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:29:51Z] reviewer_code_holistic (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_code_holistic
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 3bb771b5-95fe-44
+phase: implement
+metadata:
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:32:16Z] reviewer_contract → tester (CONSENSUS_ACK): ACK from reviewer_contract for tester
+
+task-6-2 (tests/shared/egg_agent/test_client_resume.py) verified against its acceptance criteria ("resume-by-id, cold-start-fallback, and default-off each asserted; no exception on the missing-session path; tests pass"). 6 non-vacuous tests, each asserting on the real options.resume read from the actual query(options=...) call_args. Coverage is 1:1 with the AC: resume-by-id (flag on + non-empty id -> options.resume); cold-start/no-raise (resume=None, resume="", and no-arg all succeed with options.resume unset); default-off two-fold (param signature default None via inspect.signature + EGG_SESSION_RESUME flag gate ignoring a valid id when off). Tests match the merged coder impl 5bf70837e exactly: keyword-only `resume: str|None=None`, `resume_session_id=(resume or "").strip()`, gated on `resume_session_id and session_resume_enabled()`. Import ordering is sound (client.py guards all SDK imports). Ran the suite against the real implementation: 6 passed under py3.14. ACK.
+
+````yaml
+id: 06501214-9625-4f
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - tests/shared/egg_agent/test_client_resume.py
+    reason: 'task-6-2 (tests/shared/egg_agent/test_client_resume.py) verified against
+      its acceptance criteria ("resume-by-id, cold-start-fallback, and default-off
+      each asserted; no exception on the missing-session path; tests pass"). 6 non-vacuous
+      tests, each asserting on the real options.resume read from the actual query(options=...)
+      call_args. Coverage is 1:1 with the AC: resume-by-id (flag on + non-empty id
+      -> options.resume); cold-start/no-raise (resume=None, resume="", and no-arg
+      all succeed with options.resume unset); default-off two-fold (param signature
+      default None via inspect.signature + EGG_SESSION_RESUME flag gate ignoring a
+      valid id when off). Tests match the merged coder impl 5bf70837e exactly: keyword-only
+      `resume: str|None=None`, `resume_session_id=(resume or "").strip()`, gated on
+      `resume_session_id and session_resume_enabled()`. Import ordering is sound (client.py
+      guards all SDK imports). Ran the suite against the real implementation: 6 passed
+      under py3.14. ACK.'
+    ack_version: 1
+    attestation:
+      tasks_verified:
+      - task-6-2
+  version: 1
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:32:16Z] orchestrator → tester (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 275c9d2e-496a-44
+phase: implement
+metadata:
+  ready_to_confirm: true
+  version: 1
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:32:21Z] tester (CONSENSUS_CONFIRMED): Consensus confirmed by tester
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 20a71e21-055c-4d
+phase: implement
+metadata:
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:32:21Z] reviewer_contract (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_contract
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: a32056a9-82d2-48
+phase: implement
+metadata:
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:32:21Z] reviewer_security (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_security
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: cef7ee48-1b4d-49
+phase: implement
+metadata:
+  slice_id: slice-6
+````
+
+### [2026-06-25T07:32:21Z] reviewer_concurrency (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_concurrency
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: e0f2a06e-d962-40
+phase: implement
+metadata:
+  slice_id: slice-6
+````
