@@ -132,24 +132,54 @@ def read_session_state(
     configured, missing file, empty file, malformed JSON, non-object payload,
     or a record without a usable ``session_id``. Reading a record NEVER implies
     a resume decision — the slice-8 gate owns that.
+
+    The benign "nothing to resume yet" cases — no path configured and the file
+    not existing — stay quiet. The *anomalous* cases (an unreadable file or a
+    record that exists but is corrupt) emit a ``logger.debug`` so an operator
+    who turned ``EGG_SESSION_RESUME`` on but is silently cold-starting every
+    event has a diagnostic trail. This mirrors the write side's warning.
     """
     resolved = resolve_session_state_path(path)
     if resolved is None:
         return None
     try:
         raw = resolved.read_text(encoding="utf-8")
-    except OSError:
+    except FileNotFoundError:
+        # No file yet — the normal first-invocation / pre-write path. Stay quiet.
+        return None
+    except OSError as exc:
+        logger.debug(
+            "Session-state file is unreadable; cold-starting",
+            event_type="system",
+            event_subtype="session_state_unreadable",
+            error=str(exc),
+        )
         return None
     if not raw.strip():
         return None
     try:
         data = json.loads(raw)
     except ValueError, TypeError:
+        logger.debug(
+            "Session-state file holds malformed JSON; cold-starting",
+            event_type="system",
+            event_subtype="session_state_corrupt",
+        )
         return None
     if not isinstance(data, dict):
+        logger.debug(
+            "Session-state payload is not a JSON object; cold-starting",
+            event_type="system",
+            event_subtype="session_state_corrupt",
+        )
         return None
     session_id = data.get("session_id")
     if not isinstance(session_id, str) or not session_id.strip():
+        logger.debug(
+            "Session-state record has no usable session_id; cold-starting",
+            event_type="system",
+            event_subtype="session_state_corrupt",
+        )
         return None
     return SessionState(
         session_id=session_id.strip(),
