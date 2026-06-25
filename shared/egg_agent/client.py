@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from egg_agent.result import AgentResult
+from egg_agent.session import session_resume_enabled
 
 if TYPE_CHECKING:
     # Annotation-only SDK types. With ``from __future__ import annotations``
@@ -245,6 +246,7 @@ async def run_agent_async(
     env: dict[str, str] | None = None,
     intercept_tools: bool = True,
     effort: str | None = None,
+    resume: str | None = None,
 ) -> AgentResult:
     """Run a Claude agent using the Agent SDK.
 
@@ -265,6 +267,17 @@ async def run_agent_async(
             ``max``), passed to the CLI as ``--effort``. ``None``
             (default) omits the flag so the session inherits Claude
             Code's per-model default.
+        resume: Optional Claude ``session_id`` to re-enter (warm resume,
+            #3200 slice-6). The BRC event-pump runs one process per event,
+            so resuming lets a re-invocation continue the prior session
+            instead of re-seeding from scratch. Opt-in and default OFF: a
+            resume only happens when this is a non-empty session_id AND
+            ``EGG_SESSION_RESUME`` is enabled. When omitted, disabled, or
+            when the session is gone (expired / consensus reset / pod
+            death) the run cold-starts from the prompt's protected root —
+            a fresh session, never a hard failure. The resume-vs-reseed
+            *decision* (occupancy vs threshold) lives in the slice-8 gate;
+            this is only the substrate that makes resume possible.
 
     Returns:
         :class:`AgentResult` with response text and metadata.
@@ -393,6 +406,39 @@ async def run_agent_async(
     if effort is not None:
         # The SDK passes this to the spawned CLI as ``--effort <level>``.
         options.effort = effort
+
+    # --- Warm-session resume substrate (#3200, slice-6) ---
+    # Opt-in, default OFF (staged rollout). Even when a caller passes a
+    # session_id to resume, we only re-enter that session when EGG_SESSION_RESUME
+    # is enabled — so the substrate can ship dark ahead of the slice-8 gate that
+    # drives it. ``options.resume`` is the SDK's "load conversation history from
+    # this session_id" hook; we deliberately leave ``fork_session`` unset so the
+    # resumed session CONTINUES (and keeps accumulating) rather than branching.
+    #
+    # Cold-start fallback: when resume is omitted, disabled, or the prior session
+    # is gone (first invocation / expired session / consensus reset / pod death),
+    # we simply do NOT set ``options.resume`` and the run starts a FRESH session
+    # seeded from the prompt (the protected root). This never raises — a missing
+    # warm session degrades to a fresh seed, not a hard failure. The
+    # resume-vs-reseed DECISION (occupancy vs threshold) is the slice-8 gate; this
+    # layer only makes resume possible.
+    resume_session_id = (resume or "").strip()
+    if resume_session_id and session_resume_enabled():
+        options.resume = resume_session_id
+        logger.info(
+            "Resuming prior agent session",
+            event_type="system",
+            event_subtype="session_resume",
+            session_id=resume_session_id,
+        )
+    elif resume_session_id:
+        logger.info(
+            "Session resume requested but disabled (EGG_SESSION_RESUME off); "
+            "cold-starting from the protected root",
+            event_type="system",
+            event_subtype="session_resume_skipped",
+            session_id=resume_session_id,
+        )
 
     # --- Register in-process SDK MCP servers with egg's agent tools ---
     # Default-on since issue #1942.  Set ``EGG_MCP_TOOLS=false`` (or

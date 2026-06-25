@@ -29,6 +29,7 @@ async def run_agent_async(
     cwd: Path | str | None = None,
     on_output: Callable[[str], None] | None = None,
     model: str | None = None,
+    resume: str | None = None,
 ) -> AgentResult:
     """Run agent via the Claude Agent SDK.
 
@@ -40,6 +41,11 @@ async def run_agent_async(
         on_output: Optional callback for streaming output line-by-line
         model: Model to use (default: opus[1m]). Can be a model alias ('opus', 'sonnet')
                or a full model identifier.
+        resume: Optional Claude ``session_id`` to re-enter (warm resume,
+            #3200 slice-6). Threaded straight through to the SDK client; it
+            is opt-in and default OFF there (a resume only happens when
+            ``EGG_SESSION_RESUME`` is enabled), and an absent/stale session
+            cold-starts from the protected root rather than erroring.
 
     Returns:
         AgentResult with response and status.
@@ -55,6 +61,7 @@ async def run_agent_async(
         cwd=cwd_path,
         timeout=effective_timeout,
         on_output=on_output,
+        resume=resume,
     )
 
     return sdk_result
