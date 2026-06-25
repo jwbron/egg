@@ -314,7 +314,7 @@
       "id": "slice-5",
       "name": "Queryable environment (JIT pull, AC-2 part 2)",
       "goal": "Move bulk out of the inlined prompt; pull JIT via read_peer_artifact + /brc-transcript; move #3188 enrichment into this layer, SHA-stamped. Logical dep: slice 4 (protected root must exist before bulk is removed from it).",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -324,9 +324,9 @@
           "id": "task-5-1",
           "description": "Stop inlining bulk BRC history / peer artifacts / diffs in the event-pump prompt. Pre-stage only the deterministic delta (the phase-3 #3189 layer in the protected root); leave bulk to read_peer_artifact + GET /<pipeline_id>/brc-transcript (`orchestrator/routes/messages.py:415`). Code comment records the honest limit: JIT pull does NOT bound the window (a pulled slice stays resident until reseed/compaction); the reseed (phase 8) bounds it.",
           "status": "pending",
-          "commit": null,
+          "commit": "e9a5eec50",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "New shared/egg_agent/queryable_env.py renders JIT POINTERS (per-producer `git log A..B --not origin/base -p` recipe scoped by #3189 SHAs + read_peer_artifact / GET /<pipeline_id>/brc-transcript handles) instead of inlined bulk; honest-limit (\"pull does not bound the window, reseed does\") in code constant + rendered prose. protected_root.py adds optional byte-stable \"QUERYABLE ENVIRONMENT (JIT pull)\" section (omitted when None). ADDITIVE: legacy inline path (_render_producer_delta_section/_render_memory_section/compose_event_prompt) untouched so slice-9 flag keeps OFF path byte-identical.",
           "acceptance_criteria": "Prompt no longer inlines bulk history/artifacts/diffs; bulk reachable only via read_peer_artifact / /brc-transcript; comment records 'pull does not bound the window, reseed does'.",
           "files_affected": [
             "sandbox/",
@@ -346,9 +346,9 @@
           "id": "task-5-2",
           "description": "Move #3188 agent-authored enrichment into the queryable environment: surfaced on demand (not inlined), SHA-stamped so the git-log delta can invalidate stale claims. Treat enrichment as claims, not ground truth; the phase-3 deterministic layer + git-log delta stay authoritative; a wrong 'verified' claim must not suppress re-checking.",
           "status": "pending",
-          "commit": null,
+          "commit": "e9a5eec50",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "brc_memory.py renders #3188 enrichment as SHA-stamped CLAIMS (enrichment_sha bullet + claims-not-ground-truth banners); parser skips banner lines so render\u2192parse\u2192render is idempotent (verified). egg_agent.queryable_env.enrichment_is_stale() invalidates a claim whose stamp != current proposal SHA (fail-safe: unstamped/uncomparable\u2192stale). orchestrator event_prompt.py adds additive _render_memory_pointer_section (memory on demand, not inlined). Deterministic #3189 layer + git-log delta authoritative.",
           "acceptance_criteria": "Enrichment pulled on demand; each record SHA-stamped; stale enrichment (SHA older than current delta) detectable/invalidatable; deterministic layer authoritative.",
           "files_affected": [
             "shared/egg_agent/",
@@ -370,7 +370,7 @@
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Tester suite for slice-5 task-5-3 landed in commit 08202efb3. Two files: orchestrator/tests/test_queryable_env_jit.py (bulk-exclusion behavioural probe, JIT-retrievability of read_peer_artifact handler + /brc-transcript route, SHA-stamp staleness/freshness) and tests/shared/egg_agent/test_queryable_env.py (egg_agent-home queryable-env layer locator: honest-limit contract + JIT-pull tool reference). Skip-guarded per the parallel-BRC convention: bulk-exclusion + SHA-stamp tests skip while coder task-5-1/task-5-2 unmerged on the tester branch; JIT-retrievability passes today (existing #3076/#3077 tools). 2 passed / 6 skipped, ruff clean. Converges with coder symbols at PR assembly.",
           "acceptance_criteria": "Bulk-exclusion, JIT retrievability, and SHA-stamp invalidation asserted; tests pass.",
           "files_affected": [
             "shared/egg_agent/tests/",
@@ -391,11 +391,11 @@
         "slice-4"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3200/slice-4",
+      "integration_base_sha": "04a94f8a4c4d6ce88f8c310106876df6e509b7d2",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3240,
+      "pr_url": "https://github.com/jwbron/egg/pull/3240",
       "review_feedback": []
     },
     {
@@ -1278,6 +1278,83 @@
       "old_value": "",
       "new_value": "Tests in shared/egg_anchor/tests/test_protected_root.py (proposed tester v1, commit 1f4b9167a; coder renderer task-4-1 merged at a3dc986c3). 6 tests, all PASS against the real renderer; full shared/egg_anchor suite 111 passed; ruff clean.\n\nCoverage maps 1:1 to task-4-2 ACs:\n- byte-stability: two identical renders -> identical bytes; non-empty; all four sections present (role contract / task anchor / #3189 anchors / directives) in fixed a->b->c->d order.\n- per-section-cap truncation: a ~4MB free-text role_contract is hard-capped (not inlined verbatim, output < input/20, head survives -> truncated not omitted); a 5000-entry open_nacks flood (~5MB) is bounded by the cap.\n- sort-stability: same logical anchors with reversed dict-insertion + list-element order render to IDENTICAL bytes (renderer sorts its own content; does not trust caller pre-sort).\n- role-parameterization: reviewer_code vs coder render distinct roots, each individually byte-stable; role name present in its own root.\n\nParallel-BRC-producer convention: flexible locators (11 module/symbol candidates), signature-introspecting kwarg mapping with name aliases, model-as-object-or-dict + directives-as-list-or-string tolerance, function-or-class result handling. Skipped pre-merge; converged on the coder's API with NO test edits after merge. Validated 6/6 PASS against a throwaway reference renderer before merge (since removed; protected_root.py is coder-owned).",
       "reason": "Updated notes for task-4-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:59:28.226165Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.2.notes",
+      "old_value": "",
+      "new_value": "Tester suite for slice-5 task-5-3 landed in commit 08202efb3. Two files: orchestrator/tests/test_queryable_env_jit.py (bulk-exclusion behavioural probe, JIT-retrievability of read_peer_artifact handler + /brc-transcript route, SHA-stamp staleness/freshness) and tests/shared/egg_agent/test_queryable_env.py (egg_agent-home queryable-env layer locator: honest-limit contract + JIT-pull tool reference). Skip-guarded per the parallel-BRC convention: bulk-exclusion + SHA-stamp tests skip while coder task-5-1/task-5-2 unmerged on the tester branch; JIT-retrievability passes today (existing #3076/#3077 tools). 2 passed / 6 skipped, ruff clean. Converges with coder symbols at PR assembly.",
+      "reason": "Updated notes for task-5-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:02:53.235874Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.commit",
+      "old_value": null,
+      "new_value": "9436aa33f",
+      "reason": "Linked commit 9436aa3 to task-5-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:02:53.585415Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.1.commit",
+      "old_value": null,
+      "new_value": "9436aa33f",
+      "reason": "Linked commit 9436aa3 to task-5-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:02:57.013832Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.notes",
+      "old_value": "",
+      "new_value": "New shared/egg_agent/queryable_env.py renders JIT POINTERS (per-producer `git log A..B --not origin/base -p` recipe scoped by #3189 SHAs + read_peer_artifact / GET /<pipeline_id>/brc-transcript handles) instead of inlined bulk; honest-limit (\"pull does not bound the window, reseed does\") in code constant + rendered prose. protected_root.py adds optional byte-stable \"QUERYABLE ENVIRONMENT (JIT pull)\" section (omitted when None). ADDITIVE: legacy inline path (_render_producer_delta_section/_render_memory_section/compose_event_prompt) untouched so slice-9 flag keeps OFF path byte-identical.",
+      "reason": "Updated notes for task-5-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:02:59.132771Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.1.notes",
+      "old_value": "",
+      "new_value": "brc_memory.py renders #3188 enrichment as SHA-stamped CLAIMS (enrichment_sha bullet + claims-not-ground-truth banners); parser skips banner lines so render\u2192parse\u2192render is idempotent (verified). egg_agent.queryable_env.enrichment_is_stale() invalidates a claim whose stamp != current proposal SHA (fail-safe: unstamped/uncomparable\u2192stale). orchestrator event_prompt.py adds additive _render_memory_pointer_section (memory on demand, not inlined). Deterministic #3189 layer + git-log delta authoritative.",
+      "reason": "Updated notes for task-5-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:07:49.572658Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.commit",
+      "old_value": "9436aa33f",
+      "new_value": "e9a5eec50",
+      "reason": "Linked commit e9a5eec to task-5-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:07:49.780191Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.1.commit",
+      "old_value": "9436aa33f",
+      "new_value": "e9a5eec50",
+      "reason": "Linked commit e9a5eec to task-5-2",
       "checkpoint_id": null
     }
   ],
