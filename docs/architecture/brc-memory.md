@@ -105,15 +105,13 @@ consumers can detect stale claims without parsing two separate fields:
 ```markdown
 ## Codebase / change model
 
-<!-- enrichment (claims, not ground truth); re-verify vs the live
-git-log delta — #3189 anchors are authoritative -->
+<!-- enrichment (claims, not ground truth); re-verify vs the live git-log delta — #3189 anchors are authoritative -->
 <distilled prose: what the codebase does, what this slice changes,
 which subsystems are in play>
 
 ## Per-producer assessment
 
-<!-- summaries are SHA-stamped claims; stale when enrichment_sha
-!= the producer's current proposal SHA -->
+<!-- summaries are SHA-stamped claims; stale when enrichment_sha != the producer's current proposal SHA -->
 
 ### <producer-role>
 
