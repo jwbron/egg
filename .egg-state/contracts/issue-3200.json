@@ -182,7 +182,7 @@
       "id": "slice-3",
       "name": "Derive",
       "goal": "Derive the four #3189 anchor fields (last-reviewed SHA/producer, latest verdicts, open NACK reasons, conditional-ACK obligations) from the BRC message record; extend shared/egg_anchor additively. Closes the substrate gap the NACK flagged (BRCState carries none of these today; #3189 OPEN). Logical dep: none; serialized after slice 2 (#3046). Hard prereq of the protected root (slice 4).",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -191,8 +191,8 @@
         {
           "id": "task-3-1",
           "description": "Implement a deterministic derivation that, from the BRC message record (CONSENSUS_PROPOSE/ACK/NACK/conditional-ACK messages), computes: (i) last-reviewed SHA per producer (latest reviewed proposal_commit_sha per edge); (ii) latest verdict per reviewer->producer edge; (iii) open NACK reasons (current-version NACKs not yet resolved); (iv) conditional-ACK obligations (pre_merge_condition, with resolved/unresolved status). Derivation is mechanical (never agent-transcribed). Extend shared/egg_anchor model(s) to carry these four fields additively (do not break BRCState.acks/nacks/last_message_id at models.py:96-103).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "34278c681",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "The four fields derive purely from the message record; the egg_anchor model carries them additively without breaking existing fields; against a fixture message record the derived anchors match exactly; no agent-authored content enters this layer.",
@@ -213,10 +213,10 @@
         {
           "id": "task-3-2",
           "description": "Tests: a fixture message stream (multiple producers; an ACK then re-propose + NACK; a conditional-ACK with an unresolved obligation) yields the correct last-reviewed SHA per producer, latest verdict per edge, open NACK reason, and unresolved obligation; a resolved obligation is marked resolved; legacy acks/nacks/last_message_id untouched.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "3c0c9ad5a",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Tests in shared/egg_anchor/tests/test_brc_anchor_derivation.py + orchestrator/tests/test_brc_anchor_derivation.py. After coder task-3-1 (derive_brc_anchors / BRCDerivedAnchors in shared/egg_anchor/brc_derive.py + models.py) merged, fixtures were aligned to the real contract (message dicts with nested metadata; ACK/NACK carry the producer in to_role). ALL 9 TESTS PASS (commit 3c0c9ad5a; coder impl 34278c681).\n\nCoverage:\n- last_reviewed_sha per producer: coder->v2 SHA, tester->v1 SHA; superseded coder-v1 SHA absent.\n- latest_verdicts per edge: reviewer_code->coder NACK; reviewer_security->coder (conditional) ACK; reviewer_code->tester (conditional) ACK.\n- open_nacks on current version: reviewer_code->coder \"missing guard\".\n- conditional_ack_obligations: coder \"git mv old new\" resolved=False; tester \"update import path\" resolved=True (flipped by CONSENSUS_OBLIGATION_RESOLVED).\n- determinism: identical record -> identical anchors (slice-4 byte-stability prereq).\n- ApprovalMatrix substrate cross-check (orchestrator): the message-record derivation agrees with the ApprovalMatrix/ApprovalEntry projection (verdict states, ack_commit_sha, NACK reason, pre_merge_condition + obligation_resolved).\n- legacy non-regression: BRCState.acks/nacks/last_message_id unchanged by the additive BRCDerivedAnchors extension.\n\nAC scenario: multiple producers (coder, tester); ACK-then-repropose+NACK; an unresolved obligation and a resolved-in-cycle obligation (resolved by a non-producer role since a producer cannot self-resolve). ruff clean.",
           "acceptance_criteria": "Derivation correctness for all four fields asserted against a realistic fixture; obligation resolved/unresolved distinguished; legacy-field non-regression asserted; tests pass.",
           "files_affected": [
             "shared/egg_anchor/tests/",
@@ -237,11 +237,11 @@
         "slice-2"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3200/slice-2",
+      "integration_base_sha": "216f1de24a3decf55cedcef0ad79e0f08da524a1",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3238,
+      "pr_url": "https://github.com/jwbron/egg/pull/3238",
       "review_feedback": []
     },
     {
@@ -794,6 +794,34 @@
       "resolved_by": "human",
       "resolved_at": "2026-06-25T04:54:56.425535Z",
       "debounce_until": null
+    },
+    {
+      "id": "cq-3",
+      "question": "slice-2 (task-2-1/2-3): What is the real_backend_window of a BARE Claude alias (`opus`/`sonnet`/`haiku`, no `[1m]`)? The ratified contract and a reviewer NACK conflict, and the answer sets both the coder's resolver and the tester's worked-example tests.\n\nEVIDENCE FOR 1_000_000 (threshold 400k):\n- RATIFIED CONTRACT task-2-1 acceptance_criteria (authoritative): \"Returns 1_000_000 for opus/opus[1m]; 262_144 for kimi-k2.7-code; 200_000 for an unregistered non-Claude model; never the [1m]-implied 1M for a sub-1M backend.\" => bare opus == opus[1m] == 1M; the \"200K profile\" case is an unregistered NON-Claude model.\n- Coder's merged impl (commit 55387ff1f, task-2-1 marked complete) implements exactly this; tester ACKed it and PROPOSED a matching test (commit 335979385); issue worked example \"200K profile->160k\" is satisfiable by the non-Claude 200K case, so it does NOT force bare opus to 160k.\n\nEVIDENCE FOR 200_000 (threshold 160k) \u2014 reviewer_code_holistic NACK:\n- Plan-phase architect drafts say bare opus->200K: 3200-architect-slices.yaml:25 and 3200-architect-output.json:209 (\"opus/sonnet/haiku (no [1m]) -> 200_000\"). These DIVERGE from the ratified contract.\n- Technical merit (AC-3 core): Claude Code auto-compacts a no-`[1m]` session at ~95% of the 200K native window (~190K). If bare opus resolves to 1M, the default agent (DEFAULT_AGENT_MODEL=\"opus\", bare) reseeds at 400k \u2014 AFTER CC's lossy 190K compaction \u2014 reintroducing the exact alias-vs-real-window mis-trigger AC-3 exists to prevent, for the most common agent.\n\nI cannot resolve this by editing tests: option 1 keeps the ratified contract + coder impl but requires reviewer_code_holistic to withdraw its NACK; option 2 is technically safer for AC-3 but contradicts the ratified contract task-2-1 AC and requires the coder to re-implement (distinguish `[1m]`) and the contract AC to be amended. Operator adjudication needed.",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "1) Bare opus/sonnet/haiku -> 1_000_000 (threshold 400k), == opus[1m]. Upholds the RATIFIED contract task-2-1 AC and the already-merged coder impl (55387ff1f) + tester test (v1). reviewer_code_holistic withdraws its NACK. Any default-agent compaction concern is logged as out-of-scope follow-up.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "2) Bare opus/sonnet/haiku -> 200_000 (threshold 160k); only the [1m]-suffixed aliases -> 1_000_000. Adopts the architect plan + reviewer NACK + AC-3 technical merit. Requires: coder re-implements real_backend_window to distinguish the [1m] suffix for Claude aliases, contract task-2-1 AC is amended, and the tester test is updated to assert bare opus->200k/160k.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
@@ -1058,6 +1086,132 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-2-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:25:42.153263Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-3",
+        "question": "slice-2 (task-2-1/2-3): What is the real_backend_window of a BARE Claude alias (`opus`/`sonnet`/`haiku`, no `[1m]`)? The ratified contract and a reviewer NACK conflict, and the answer sets both the coder's resolver and the tester's worked-example tests.\n\nEVIDENCE FOR 1_000_000 (threshold 400k):\n- RATIFIED CONTRACT task-2-1 acceptance_criteria (authoritative): \"Returns 1_000_000 for opus/opus[1m]; 262_144 for kimi-k2.7-code; 200_000 for an unregistered non-Claude model; never the [1m]-implied 1M for a sub-1M backend.\" => bare opus == opus[1m] == 1M; the \"200K profile\" case is an unregistered NON-Claude model.\n- Coder's merged impl (commit 55387ff1f, task-2-1 marked complete) implements exactly this; tester ACKed it and PROPOSED a matching test (commit 335979385); issue worked example \"200K profile->160k\" is satisfiable by the non-Claude 200K case, so it does NOT force bare opus to 160k.\n\nEVIDENCE FOR 200_000 (threshold 160k) \u2014 reviewer_code_holistic NACK:\n- Plan-phase architect drafts say bare opus->200K: 3200-architect-slices.yaml:25 and 3200-architect-output.json:209 (\"opus/sonnet/haiku (no [1m]) -> 200_000\"). These DIVERGE from the ratified contract.\n- Technical merit (AC-3 core): Claude Code auto-compacts a no-`[1m]` session at ~95% of the 200K native window (~190K). If bare opus resolves to 1M, the default agent (DEFAULT_AGENT_MODEL=\"opus\", bare) reseeds at 400k \u2014 AFTER CC's lossy 190K compaction \u2014 reintroducing the exact alias-vs-real-window mis-trigger AC-3 exists to prevent, for the most common agent.\n\nI cannot resolve this by editing tests: option 1 keeps the ratified contract + coder impl but requires reviewer_code_holistic to withdraw its NACK; option 2 is technically safer for AC-3 but contradicts the ratified contract task-2-1 AC and requires the coder to re-implement (distinguish `[1m]`) and the contract AC to be amended. Operator adjudication needed.",
+        "type": "hitl",
+        "phase": "implement",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "1) Bare opus/sonnet/haiku -> 1_000_000 (threshold 400k), == opus[1m]. Upholds the RATIFIED contract task-2-1 AC and the already-merged coder impl (55387ff1f) + tester test (v1). reviewer_code_holistic withdraws its NACK. Any default-agent compaction concern is logged as out-of-scope follow-up.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "2) Bare opus/sonnet/haiku -> 200_000 (threshold 160k); only the [1m]-suffixed aliases -> 1_000_000. Adopts the architect plan + reviewer NACK + AC-3 technical merit. Requires: coder re-implements real_backend_window to distinguish the [1m] suffix for Claude aliases, contract task-2-1 AC is amended, and the tester test is updated to assert bare opus->200k/160k.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: slice-2 (task-2-1/2-3): What is the real_backend_w...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:28:47.002676Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.commit",
+      "old_value": null,
+      "new_value": "34278c681",
+      "reason": "Linked commit 34278c6 to task-3-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:28:47.052148Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:30:01.995872Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.notes",
+      "old_value": "",
+      "new_value": "Tests in shared/egg_anchor/tests/test_brc_anchor_derivation.py + orchestrator/tests/test_brc_anchor_derivation.py (commit 226412c52). 9 tests: 2 pass today, 7 skip-guarded until coder task-3-1 lands the derivation symbol (parallel-BRC-producer convention, cf. test_reseed_threshold.py).\n\nGround-truth (no guard, run today): (a) orchestrator test_matrix_substrate_models_four_fields asserts the ApprovalMatrix/ApprovalEntry substrate carries all four #3189 facts for the AC scenario \u2014 current proposal version, per-edge verdict (reviewer_code->coder NACKED v2, reviewer_security->coder ACKED v2, reviewer_code->tester ACKED v1), ack_commit_sha as last-reviewed SHA, NACK reason \"missing guard\", pre_merge_condition unresolved (coder) vs obligation_resolved (tester); (b) egg_anchor test_legacy_brcstate_fields_untouched asserts BRCState.acks/nacks/last_message_id survive the additive extension.\n\nSkip-guarded derivation-output assertions (activate at PR assembly): last-reviewed SHA per producer (coder->v2 SHA, tester->v1 SHA, superseded coder-v1 SHA absent); latest verdict per edge; open NACK reason on current version; unresolved obligation text surfaced; resolved obligation distinguished (filtered or flagged); deterministic byte-stable output (slice-4 prereq). Locators probe several plausible module/symbol/field spellings and pytest.skip until one resolves.\n\nAC scenario fixture: multiple producers (coder, tester); ACK-then-repropose+NACK (coder v1 ACK -> v2 NACK); conditional-ACK with unresolved obligation (reviewer_security->coder \"git mv old new\") and a resolved obligation (reviewer_code->tester \"update import path\", resolved in-cycle by a non-producer role since the producer cannot self-resolve).",
+      "reason": "Updated notes for task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:30:02.349688Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.commit",
+      "old_value": null,
+      "new_value": "226412c52",
+      "reason": "Linked commit 226412c to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:33:14.406136Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.notes",
+      "old_value": "Tests in shared/egg_anchor/tests/test_brc_anchor_derivation.py + orchestrator/tests/test_brc_anchor_derivation.py (commit 226412c52). 9 tests: 2 pass today, 7 skip-guarded until coder task-3-1 lands the derivation symbol (parallel-BRC-producer convention, cf. test_reseed_threshold.py).\n\nGround-truth (no guard, run today): (a) orchestrator test_matrix_substrate_models_four_fields asserts the ApprovalMatrix/ApprovalEntry substrate carries all four #3189 facts for the AC scenario \u2014 current proposal version, per-edge verdict (reviewer_code->coder NACKED v2, reviewer_security->coder ACKED v2, reviewer_code->tester ACKED v1), ack_commit_sha as last-reviewed SHA, NACK reason \"missing guard\", pre_merge_condition unresolved (coder) vs obligation_resolved (tester); (b) egg_anchor test_legacy_brcstate_fields_untouched asserts BRCState.acks/nacks/last_message_id survive the additive extension.\n\nSkip-guarded derivation-output assertions (activate at PR assembly): last-reviewed SHA per producer (coder->v2 SHA, tester->v1 SHA, superseded coder-v1 SHA absent); latest verdict per edge; open NACK reason on current version; unresolved obligation text surfaced; resolved obligation distinguished (filtered or flagged); deterministic byte-stable output (slice-4 prereq). Locators probe several plausible module/symbol/field spellings and pytest.skip until one resolves.\n\nAC scenario fixture: multiple producers (coder, tester); ACK-then-repropose+NACK (coder v1 ACK -> v2 NACK); conditional-ACK with unresolved obligation (reviewer_security->coder \"git mv old new\") and a resolved obligation (reviewer_code->tester \"update import path\", resolved in-cycle by a non-producer role since the producer cannot self-resolve).",
+      "new_value": "Tests in shared/egg_anchor/tests/test_brc_anchor_derivation.py + orchestrator/tests/test_brc_anchor_derivation.py. After coder task-3-1 (derive_brc_anchors / BRCDerivedAnchors in shared/egg_anchor/brc_derive.py + models.py) merged, fixtures were aligned to the real contract (message dicts with nested metadata; ACK/NACK carry the producer in to_role). ALL 9 TESTS PASS (commit 3c0c9ad5a; coder impl 34278c681).\n\nCoverage:\n- last_reviewed_sha per producer: coder->v2 SHA, tester->v1 SHA; superseded coder-v1 SHA absent.\n- latest_verdicts per edge: reviewer_code->coder NACK; reviewer_security->coder (conditional) ACK; reviewer_code->tester (conditional) ACK.\n- open_nacks on current version: reviewer_code->coder \"missing guard\".\n- conditional_ack_obligations: coder \"git mv old new\" resolved=False; tester \"update import path\" resolved=True (flipped by CONSENSUS_OBLIGATION_RESOLVED).\n- determinism: identical record -> identical anchors (slice-4 byte-stability prereq).\n- ApprovalMatrix substrate cross-check (orchestrator): the message-record derivation agrees with the ApprovalMatrix/ApprovalEntry projection (verdict states, ack_commit_sha, NACK reason, pre_merge_condition + obligation_resolved).\n- legacy non-regression: BRCState.acks/nacks/last_message_id unchanged by the additive BRCDerivedAnchors extension.\n\nAC scenario: multiple producers (coder, tester); ACK-then-repropose+NACK; an unresolved obligation and a resolved-in-cycle obligation (resolved by a non-producer role since a producer cannot self-resolve). ruff clean.",
+      "reason": "Updated notes for task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:33:14.513493Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.commit",
+      "old_value": "226412c52",
+      "new_value": "3c0c9ad5a",
+      "reason": "Linked commit 3c0c9ad to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:34:59.045649Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.commit",
+      "old_value": "3c0c9ad5a",
+      "new_value": "3c0c9ad5a",
+      "reason": "Linked commit 3c0c9ad to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:34:59.057560Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-2 as complete",
       "checkpoint_id": null
     }
   ],
