@@ -81,9 +81,7 @@ def _cli_module() -> Any:
             continue
         if callable(getattr(module, "_cli", None)):
             return module
-    pytest.skip(
-        f"event-prompt CLI module not found; tried {list(_CLI_MODULE_CANDIDATES)}"
-    )
+    pytest.skip(f"event-prompt CLI module not found; tried {list(_CLI_MODULE_CANDIDATES)}")
 
 
 # Candidate env-var names for the single slice-9 master flag. The coder owns the
@@ -309,13 +307,11 @@ def test_falsey_flag_spellings_are_byte_identical_to_default(repo: Path) -> None
     for name in _FLAG_CANDIDATES:
         for falsey in ("0", "false", "no", "off", ""):
             assert (
-                _run_cli("reviewer_code", _REVIEW_PAYLOAD, repo, {name: falsey})
-                == reviewer_default
+                _run_cli("reviewer_code", _REVIEW_PAYLOAD, repo, {name: falsey}) == reviewer_default
             ), f"reviewer prompt changed with falsey {name}={falsey!r}"
-            assert (
-                _run_cli("coder", _PRODUCER_PAYLOAD, repo, {name: falsey})
-                == producer_default
-            ), f"producer prompt changed with falsey {name}={falsey!r}"
+            assert _run_cli("coder", _PRODUCER_PAYLOAD, repo, {name: falsey}) == producer_default, (
+                f"producer prompt changed with falsey {name}={falsey!r}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -341,9 +337,7 @@ def test_flag_on_reviewer_uses_jit_pull(repo: Path, discovered_flag: str | None)
     )
 
 
-def test_flag_on_producer_excludes_inline_bulk(
-    repo: Path, discovered_flag: str | None
-) -> None:
+def test_flag_on_producer_excludes_inline_bulk(repo: Path, discovered_flag: str | None) -> None:
     """Flag-ON: a producer's BRC-memory excerpt is no longer inlined.
 
     Covers the ">=1 producer" half of the AC: with the flag ON the producer
@@ -359,9 +353,7 @@ def test_flag_on_producer_excludes_inline_bulk(
     )
 
 
-def test_flag_on_mechanism_is_uniform_across_roles(
-    repo: Path, discovered_flag: str | None
-) -> None:
+def test_flag_on_mechanism_is_uniform_across_roles(repo: Path, discovered_flag: str | None) -> None:
     """One flag value flips BOTH a producer and a reviewer to the new path.
 
     The "uniform mechanism" AC: the SAME master flag (read in one place) drives
@@ -379,9 +371,7 @@ def test_flag_on_mechanism_is_uniform_across_roles(
     )
 
 
-def test_flag_on_root_is_role_parameterized(
-    repo: Path, discovered_flag: str | None
-) -> None:
+def test_flag_on_root_is_role_parameterized(repo: Path, discovered_flag: str | None) -> None:
     """Flag-ON roots are role-parameterized: distinct per role, each non-empty.
 
     The mechanism is uniform but the CONTENT differs by role: the producer's
