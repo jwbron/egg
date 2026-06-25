@@ -23,6 +23,7 @@ import pytest
 from egg_agent.measurement import (
     MEASUREMENT_ENV,
     MEASUREMENT_METRIC_FIELDS,
+    REAL_BACKEND_WINDOW_ENV,
     build_snapshot,
     measurement_enabled,
     record_measurement,
@@ -43,6 +44,7 @@ def _clear_measurement_env(monkeypatch):
         "EGG_PHASE",
         "EGG_SLICE_ID",
         "EGG_RESEED_THRESHOLD",
+        REAL_BACKEND_WINDOW_ENV,
     ):
         monkeypatch.delenv(var, raising=False)
 
@@ -143,7 +145,18 @@ def test_call_site_discards_return_and_leaves_exit_code_untouched():
 
 def test_no_branch_condition_reads_a_snapshot_metric():
     """No ``If`` / ``While`` / ternary / ``assert`` condition in the measurement
-    module reads a built ``snapshot.<metric>`` field — the emit-only guard."""
+    module reads a built ``snapshot.<metric>`` field — the emit-only guard.
+
+    **Scope:** this flags only a *direct* ``snapshot.<metric>`` attribute access
+    in a branch condition. It does NOT follow a metric aliased to a local first
+    (e.g. ``occ = snapshot.window_occupancy; ... if occ is None``), so a future
+    branch that gates on an aliased metric would slip past it. That is acceptable
+    because the operational invariant is narrower than total dataflow: ``_summary``
+    already aliases metrics to locals purely to null-format an emit-only string,
+    and no branch — aliased or not — steers agent control flow on a metric value.
+    Treat this test as a cheap structural tripwire for the obvious violation, not
+    a proof of the full emit-only invariant.
+    """
     tree = ast.parse((_SHARED / "measurement.py").read_text())
     metrics = set(MEASUREMENT_METRIC_FIELDS)
 
@@ -219,10 +232,79 @@ def test_synthetic_reseed_event_builds_all_six_metrics():
     # (6) tokens per event = occupancy + output
     assert snap.tokens_per_event == 123_000
 
-    # (2)/(3) real backend window, threshold, utilization (opus[1m] -> 1M / 400k)
+    # (2)/(3) real backend window, threshold, utilization (opus[1m] -> 1M / 400k).
+    # This exercises the dev/CI import-succeeds path (orchestrator on sys.path).
+    # The production in-pod path — orchestrator off PYTHONPATH, window fed by the
+    # EGG_REAL_BACKEND_WINDOW override or null — is covered by
+    # test_real_window_resolves_from_env_in_pod / test_real_window_null_in_pod_*.
     assert snap.real_backend_window == 1_000_000
     assert snap.reseed_threshold == 400_000
     assert snap.window_utilization == pytest.approx(120_000 / 1_000_000)
+
+
+def _block_orchestrator_import(monkeypatch):
+    """Force ``from orchestrator.agent_model_resolution import …`` to raise.
+
+    Reproduces the production pod, where ``orchestrator`` is off ``PYTHONPATH``
+    (``sandbox/Dockerfile``). Setting the module to ``None`` in ``sys.modules``
+    makes the import statement raise ``ImportError`` — the exact failure
+    ``_resolve_real_window`` / ``_resolve_threshold`` guard against. The
+    ``import sys`` test setup is local so the autouse env fixture still runs.
+    """
+    import sys
+
+    monkeypatch.setitem(sys.modules, "orchestrator.agent_model_resolution", None)
+
+
+def test_real_window_resolves_from_env_in_pod(monkeypatch):
+    """In-pod (orchestrator unimportable), the ``EGG_REAL_BACKEND_WINDOW``
+    cross-boundary override populates ``real_backend_window`` /
+    ``window_utilization`` — the production path the metric must actually serve.
+    """
+    _block_orchestrator_import(monkeypatch)
+    monkeypatch.setenv(REAL_BACKEND_WINDOW_ENV, "128000")
+
+    snap = build_snapshot(
+        result=_result(window_occupancy=64_000),
+        resume_decision=_reseed_decision(),
+        model="qwen-128k",
+    )
+
+    assert snap.real_backend_window == 128_000
+    assert snap.window_utilization == pytest.approx(64_000 / 128_000)
+
+
+def test_real_window_null_in_pod_without_override(monkeypatch):
+    """In-pod with no override set, ``real_backend_window`` /
+    ``window_utilization`` degrade to ``None`` — the honest production state
+    before the orchestrator exports the window (not a misleading value)."""
+    _block_orchestrator_import(monkeypatch)
+
+    snap = build_snapshot(
+        result=_result(),
+        resume_decision=_reseed_decision(),
+        model="opus[1m]",
+    )
+
+    assert snap.real_backend_window is None
+    assert snap.window_utilization is None
+    # The occupancy-only metrics are unaffected — they don't need the window.
+    assert snap.window_occupancy == 120_000
+    assert snap.root_cache_hit_rate == pytest.approx(90_000 / 120_000)
+
+
+@pytest.mark.parametrize("bad", ["", "0", "-5", "nope", "1.5"])
+def test_real_window_override_rejects_non_positive_int(monkeypatch, bad):
+    """A blank / non-positive / non-int override is ignored, and with the
+    orchestrator import also blocked the window resolves to ``None`` rather than
+    a bogus value."""
+    _block_orchestrator_import(monkeypatch)
+    monkeypatch.setenv(REAL_BACKEND_WINDOW_ENV, bad)
+
+    snap = build_snapshot(result=_result(), resume_decision=_reseed_decision(), model="opus[1m]")
+
+    assert snap.real_backend_window is None
+    assert snap.window_utilization is None
 
 
 def test_resume_event_records_no_reseed():

@@ -30,6 +30,15 @@ The six metrics:
 3. **single-event working set vs real backend window** — the event's resident
    working set (occupancy) against ``real_backend_window`` (the
    recursion-escalation signal, #3200 §6).
+
+Metrics 2 and 3 are window-relative, so they depend on resolving the model's
+real backend window. ``orchestrator`` is off ``PYTHONPATH`` in the production
+pod (``sandbox/Dockerfile``), so the in-pod resolution comes from the
+``EGG_REAL_BACKEND_WINDOW`` cross-boundary env channel (see
+:data:`REAL_BACKEND_WINDOW_ENV`), mirroring how the reseed threshold crosses the
+boundary via ``EGG_RESEED_THRESHOLD``. When neither the env override nor the
+(dev/CI-only) orchestrator import yields a value, both metrics degrade to
+``None`` rather than raising.
 4. **reseed frequency per phase** — the per-event ``reseeded`` verdict +
    ``reseed_reason`` from the slice-8 gate; frequency is aggregated offline.
 5. **root-cache hit rate** — ``cache_read / occupancy`` (share of the window
@@ -65,6 +74,7 @@ if TYPE_CHECKING:
 __all__ = [
     "MEASUREMENT_ENV",
     "MEASUREMENT_METRIC_FIELDS",
+    "REAL_BACKEND_WINDOW_ENV",
     "MeasurementSnapshot",
     "build_snapshot",
     "emit_snapshot",
@@ -78,6 +88,17 @@ __all__ = [
 # ``context_discipline._TRUTHY`` so the flags share one mental model.
 MEASUREMENT_ENV = "EGG_CONTEXT_MEASUREMENT"
 _TRUTHY = {"1", "true", "yes", "on"}
+
+# Cross-boundary real-backend-window override. The sandbox runs with
+# ``orchestrator`` off ``PYTHONPATH`` (``sandbox/Dockerfile`` sets
+# ``PYTHONPATH=.../sandbox:.../shared``), so an in-pod
+# ``from orchestrator.agent_model_resolution import real_backend_window`` always
+# fails — which would null ``real_backend_window`` / ``window_utilization`` on
+# *every* production event. This env channel is the fix, mirroring
+# ``reseed.RESEED_THRESHOLD_ENV``: the orchestrator side (which CAN compute the
+# window) may export the resolved integer at spawn time so ``_resolve_real_window``
+# populates the metric in-pod instead of degrading to a null window.
+REAL_BACKEND_WINDOW_ENV = "EGG_REAL_BACKEND_WINDOW"
 
 # A type alias for the injectable subprocess runner (overridden in tests).
 Runner = Callable[[list[str]], object]
@@ -173,20 +194,51 @@ def _safe_ratio(numerator: int | None, denominator: int | None) -> float | None:
     return numerator / denominator
 
 
+def _positive_int(value: object) -> int | None:
+    """Return ``value`` as a positive int, else ``None`` (bools are not ints here).
+
+    Mirrors :func:`egg_agent.reseed._positive_int` so the two cross-boundary
+    overrides validate identically.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if value > 0 else None
+
+
 def _resolve_real_window(model: str) -> int | None:
     """Resolve the model's real backend window, or ``None`` — never raising.
 
-    Guard-imports :func:`orchestrator.agent_model_resolution.real_backend_window`
-    (the sandbox runs with ``orchestrator`` off ``PYTHONPATH``, so the import may
-    fail; the measurement degrades to a null window there). Mirrors the
-    cross-boundary import stance in :mod:`egg_agent.reseed`.
+    Resolution order, mirroring :func:`egg_agent.reseed.resolve_reseed_threshold`:
+
+    1. ``$EGG_REAL_BACKEND_WINDOW`` — an explicit positive-int override, the
+       cross-boundary channel for the sandbox. **This is the path that runs in
+       production**: the agent process runs with ``orchestrator`` off
+       ``PYTHONPATH`` (``sandbox/Dockerfile``), so the import below always fails
+       in-pod. Without this override ``real_backend_window`` / ``window_utilization``
+       would be ``None`` on every production event.
+    2. :func:`orchestrator.agent_model_resolution.real_backend_window` when that
+       module is importable (tests + orchestrator runtime).
+
+    Returns ``None`` when neither yields a value (e.g. the sandbox with no
+    override set), degrading the two window-relative metrics to null rather than
+    raising.
     """
+    raw = os.environ.get(REAL_BACKEND_WINDOW_ENV, "").strip()
+    if raw:
+        try:
+            override = int(raw)
+        except ValueError:
+            override = None
+        positive = _positive_int(override)
+        if positive is not None:
+            return positive
+
     try:
         from orchestrator.agent_model_resolution import real_backend_window
     except Exception:  # pragma: no cover - sandbox lacks orchestrator on PYTHONPATH
         return None
     try:
-        return real_backend_window(model)
+        return _positive_int(real_backend_window(model))
     except Exception:  # pragma: no cover - defensive: resolution never raises here
         return None
 
@@ -221,13 +273,15 @@ def build_snapshot(
     resume_decision: ResumeDecision,
     model: str,
 ) -> MeasurementSnapshot:
-    """Build the six-metric snapshot from the slice-1 / slice-8 fields (pure).
+    """Build the six-metric snapshot from the slice-1 / slice-8 fields.
 
     Binds to ``result.window_occupancy`` / ``result.token_usage`` (slice-1) and
     ``resume_decision`` (slice-8), degrading every derived metric to ``None`` /
-    ``0`` when its source is absent. No I/O beyond the best-effort
-    window/threshold resolution helpers (both of which return ``None`` rather
-    than raising), so this is unit-testable in isolation.
+    ``0`` when its source is absent. The only environment reads are the identity
+    fields (``EGG_AGENT_ROLE`` / ``EGG_PHASE`` / ``EGG_SLICE_ID``) and the
+    best-effort window/threshold resolution helpers (all of which return
+    ``None`` rather than raising) — not a pure function, but free of any
+    side effect, so it is unit-testable in isolation.
     """
     occupancy = result.window_occupancy
     usage = result.token_usage
@@ -311,6 +365,12 @@ def emit_snapshot(snapshot: MeasurementSnapshot, *, run: Runner = _default_run) 
     by the CLI from the pod env (``EGG_PIPELINE_ID`` / ``EGG_AGENT_ROLE``).
     Never raises; each surface emits independently so one failing does not
     suppress the other.
+
+    The two emits are sequential 5s-capped subprocesses, so a fully stalled
+    orchestrator adds up to ~10s per event before the pod returns. That worst
+    case is bounded by the default-OFF gate (only opted-in measurement runs pay
+    it) and the per-call ``timeout`` cap; the offline consumers tolerate a
+    dropped emit, so the cap is preferred over an unbounded wait.
     """
     detail = json.dumps(asdict(snapshot), separators=(",", ":"), sort_keys=True)
     run(
