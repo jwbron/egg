@@ -144,7 +144,7 @@ def read_session_state(
         return None
     try:
         data = json.loads(raw)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
     if not isinstance(data, dict):
         return None

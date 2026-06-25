@@ -88,6 +88,5 @@ def test_layer_routes_bulk_to_jit_pull_tools() -> None:
     module = _layer_module()
     source = inspect.getsource(module)
     assert any(token in source for token in _JIT_POINTER_TOKENS), (
-        "queryable-environment layer names no JIT-pull tool; expected one of "
-        f"{_JIT_POINTER_TOKENS}"
+        f"queryable-environment layer names no JIT-pull tool; expected one of {_JIT_POINTER_TOKENS}"
     )

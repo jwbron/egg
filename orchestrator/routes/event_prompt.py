@@ -461,7 +461,9 @@ def _render_delta_pointer_section(
     for entry in sorted(git_log_delta, key=lambda e: str(e.get("producer") or "")):
         producer = str(entry.get("producer") or "(unknown)").strip() or "(unknown)"
         sha = str(entry.get("last_reviewed_commit_sha") or "").strip()
-        proposal_sha = str(entry.get("proposal_commit_sha") or "").strip() or "<proposal_commit_sha>"
+        proposal_sha = (
+            str(entry.get("proposal_commit_sha") or "").strip() or "<proposal_commit_sha>"
+        )
         if sha:
             recipe = f"git log {sha}..{proposal_sha} --not origin/{base_branch} -p"
         else:
@@ -471,11 +473,9 @@ def _render_delta_pointer_section(
         lines.append("")
     lines.extend(
         [
-            "Bulk BRC history and peer-artifact content are also NOT "
-            "inlined — pull on demand:",
+            "Bulk BRC history and peer-artifact content are also NOT inlined — pull on demand:",
             "",
-            "- Peer artifacts + message transcript: "
-            "``mcp__brc__read_peer_artifact``.",
+            "- Peer artifacts + message transcript: ``mcp__brc__read_peer_artifact``.",
             f"- Live in-flight transcript: ``GET /{pid}/brc-transcript?"
             "phase=implement&role=<your-role>``.",
             "",

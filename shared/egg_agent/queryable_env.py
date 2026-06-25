@@ -158,8 +158,7 @@ def render_pull_handles(pipeline_id: str, *, phase: str = "implement") -> str:
     pid = (pipeline_id or "<pipeline_id>").strip() or "<pipeline_id>"
     ph = (phase or "implement").strip() or "implement"
     lines = [
-        "Bulk BRC history and peer-artifact content are NOT inlined — "
-        "pull them on demand:",
+        "Bulk BRC history and peer-artifact content are NOT inlined — pull them on demand:",
         "",
         "- Peer artifacts + message transcript: "
         "``mcp__brc__read_peer_artifact`` (filter by ``peer_role`` / "
