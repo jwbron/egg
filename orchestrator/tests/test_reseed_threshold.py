@@ -115,6 +115,32 @@ def test_unregistered_non_claude_model_returns_200k_profile():
     assert real("acme-unregistered-model-v9") == 200_000
 
 
+def test_claude_alias_window_keyed_on_bare_name():
+    """A Claude alias bearing [1m] resolves via its bare name, not the suffixed form.
+
+    ``haiku[1m]`` is deliberately NOT in ``_CLAUDE_EXACT_ALIASES`` (only
+    opus/sonnet/fable have ``[1m]`` members), so the resolver must strip the
+    suffix and match the bare ``haiku`` — keeping the Claude window for the
+    suffixed form rather than falling through to the 200K unknown default.
+    """
+    real = _real_window()
+    assert real("haiku") == 1_000_000
+    assert real("haiku[1m]") == 1_000_000
+
+
+def test_unknown_window_decoupled_from_registry(monkeypatch):
+    """Registering a sub-200K backend must NOT lower the unknown-model window.
+
+    The unknown-model default is the 200K profile, decoupled from
+    ``_SUB_1M_CONTEXT_MODELS``: an unrelated registry edit cannot silently drop
+    every unknown model's resolved window.
+    """
+    amr = _module()
+    real = _real_window()
+    monkeypatch.setitem(amr._SUB_1M_CONTEXT_MODELS, "tiny-50k-test", 50_000)
+    assert real("acme-unregistered-model-v9") == 200_000
+
+
 # --------------------------------------------------------------------------- #
 # reseed_threshold — min(400_000, 0.80 * real_window), worked examples
 # --------------------------------------------------------------------------- #

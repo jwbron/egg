@@ -421,17 +421,22 @@ def classify_model(model: str) -> AgentModelDecision:
 def _conservative_unknown_window() -> int:
     """Real window for an unregistered / unknown model.
 
-    The SMALLEST window we know about, so an unregistered backend that is in
-    truth smaller than the 200K profile cannot mis-trigger the reseed gate
-    (defer the reseed past its real limit). With only ``kimi-k2.7-code``
-    (262_144) registered this evaluates to the 200K profile floor — matching
-    contract task-2-1 ("200_000 for an unregistered non-Claude model").
-    Registering a sub-200K backend in :data:`_SUB_1M_CONTEXT_MODELS`
-    automatically tightens this, honouring the conservative unknown-model
-    directive (architect slice-2) without a code change. The floor is included
-    in the ``min`` set so an empty registry still resolves to 200_000.
+    The 200K compaction profile — Claude Code's default for any model not
+    opted into ``[1m]``, so an unregistered backend auto-compacts safely below
+    its real limit rather than mis-triggering the reseed gate (deferring the
+    reseed past the real window). Matches contract task-2-1 ("200_000 for an
+    unregistered non-Claude model").
+
+    Deliberately returns the 200K profile DIRECTLY rather than the ``min`` over
+    :data:`_SUB_1M_CONTEXT_MODELS`: an unknown model's true window has no
+    logical relationship to whichever sub-1M backends happen to be registered,
+    so coupling them would let an unrelated registry edit (e.g. adding a 50K
+    model) silently drop every unknown model's window — a surprising,
+    hard-to-trace side effect. A genuinely smaller-than-200K backend should be
+    registered in :data:`_SUB_1M_CONTEXT_MODELS` so it resolves by its own
+    name, not lower this shared default.
     """
-    return min([_PROFILE_200K_WINDOW, *_SUB_1M_CONTEXT_MODELS.values()])
+    return _PROFILE_200K_WINDOW
 
 
 def real_backend_window(model: str) -> int:
@@ -462,7 +467,13 @@ def real_backend_window(model: str) -> int:
     # a stray ``[1m]`` suffix can never inflate a sub-1M window to the implied 1M.
     if bare in _SUB_1M_CONTEXT_MODELS:
         return _SUB_1M_CONTEXT_MODELS[bare]
-    if _is_claude_alias(model) or _is_claude_alias(bare):
+    # Key the Claude check on ``bare`` too (consistent with the registry lookup
+    # above and the docstring's "keys on the BARE name" contract). This is also
+    # more correct than checking ``model``: ``haiku[1m]`` is NOT in
+    # ``_CLAUDE_EXACT_ALIASES`` (only opus/sonnet/fable have ``[1m]`` members),
+    # so ``_is_claude_alias("haiku[1m]")`` is False — only the bare ``haiku``
+    # match resolves it to the Claude window.
+    if _is_claude_alias(bare):
         return _CLAUDE_BACKEND_WINDOW
     return _conservative_unknown_window()
 
