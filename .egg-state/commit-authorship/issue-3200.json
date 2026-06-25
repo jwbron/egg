@@ -32,6 +32,14 @@
       "repo": null,
       "role": "tester"
     },
+    "211d99189bfbddee841a24f23cd6123f706bbd17": {
+      "branch": "egg/issue-3200/work",
+      "patch_id": null,
+      "pipeline_id": "issue-3200",
+      "registered_at": "2026-06-25T05:06:57.344711+00:00",
+      "repo": null,
+      "role": "architect"
+    },
     "270b30664bf5a343803530b83e4a46ff4140d638": {
       "branch": "egg/issue-3200/slice-1",
       "patch_id": "330e6a71dfe558e3fc142e8961d619f85b4e239f",
