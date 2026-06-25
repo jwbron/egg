@@ -326,9 +326,12 @@ class TestEndToEndOrphanHeal:
 
         rebase_payload, push_payload, edit_payload = payloads
 
-        # Step 1: canonical rebase argv.
+        # Step 1: canonical rebase argv. ``--autostash`` (#3245) is
+        # prepended so the rebase survives uncommitted
+        # ``.egg-state/agent-outputs/`` residue on the worktree.
         assert rebase_payload["operation"] == "rebase"
         assert rebase_payload["args"] == [
+            "--autostash",
             "--onto",
             "egg/issue-2137",
             "egg/issue-2137/slice-1",
