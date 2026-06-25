@@ -1551,7 +1551,14 @@ class PipelineToolHandler:
         try:
             status_result = self._make_request(f"/api/v1/pipelines/{task_id}/status")
             concurrent = status_result.get("data", {}).get("concurrent", {}) or {}
-        except Exception:
+        except Exception as e:
+            # Symmetric with routes.pipelines._live_event_agents: a repeatedly
+            # failing /status round-trip is otherwise invisible (#3230).
+            logger.debug(
+                "Live running-agent backfill query failed (#3230)",
+                task_id=task_id,
+                error=str(e),
+            )
             return []
         agents = concurrent.get("agents", []) or []
         return [a for a in agents if a.get("status") == "running"]
