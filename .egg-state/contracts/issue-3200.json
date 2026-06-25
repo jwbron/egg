@@ -598,7 +598,7 @@
       "id": "slice-9",
       "name": "Generalize to ALL BRC roles behind a feature flag (fixes B4)",
       "goal": "Wire token capture + protected-root/queryable-env split + threshold reseed into every event-pump role, gated behind one feature flag whose OFF state retains today's full-context path. Role-parameterized root, uniform mechanism. Logical deps: slices 4, 5, 8 (all upstream via slice 8). Operator-decided all-roles scope; the flag is a kill-switch, not the preserved fallback build.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -607,10 +607,10 @@
         {
           "id": "task-9-1",
           "description": "Introduce a single feature flag (env/config) gating the context discipline (protected-root/queryable-env split + threshold reseed + JIT pull). ON -> the new path for every event-pump role: producers (coder/architect/task_planner/risk_analyst ...) and reviewers (reviewer_code/reviewer_plan/reviewer_refine ...), each inlining only its own contract + its own anchors via the phase-4 role-parameterized renderer. OFF (and default during rollout) -> today's full-context inlining path, byte-for-byte unchanged. The flag is read in one place; no role hard-codes the new path.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "53f5d2624b2b9c0da8d8dc1323607069fb079b53",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Single master flag EGG_CONTEXT_DISCIPLINE (default OFF) gates the whole discipline.\n\nFiles:\n- shared/egg_agent/context_discipline.py (NEW): context_discipline_enabled() \u2014 the ONLY reader of the env var (read-in-one-place).\n- shared/egg_agent/session.py: session_resume_enabled() = EGG_SESSION_RESUME OR master flag (master subsumes the narrower staging knob \u2192 split + reseed enabled together).\n- orchestrator/routes/event_prompt.py: _cli() reads the flag via _context_discipline_enabled() (canonical import + self-contained wrapper-bash fallback, mirroring reseed.resolve_reseed_threshold's cross-boundary try/except) and threads jit_pull/memory_rel_path/pipeline_id into the already role-parameterized compose_event_prompt. Extracted _pipeline_id_token() (behaviour-preserving) shared by _memory_path + the jit_pull wiring.\n\nOFF path: jit_pull=False \u2192 legacy renderers byte-for-byte; new kwargs ignored on the OFF arm (no dependency on new code). Verified: OFF output == no-flag default output.\nON path verified: per-producer delta + memory rendered as JIT pointers (recipe + brc-transcript handle), raw bulk excluded.\n\nRole coverage: composer is role-parameterized (role arg); one CLI read covers producers AND reviewers \u2014 no role hard-codes the path.\n\nNo consensus_wrapper.py change: flag inherited from pod env by both composer + agent processes (like EGG_PIPELINE_ID; the explicit VAR=x prefix only overrides, doesn't clear inherited env).\n\nTests: task-9-2 (tester) owns flag ON/OFF integration tests. Existing suites pass (121 passed/2 expected slice-5 skips); pre-existing unrelated SDK failure in test_client.py::TestBufferOverflowErrorHandling (CLIJSONDecodeError ctor signature) is not introduced by this change. render_protected_root standalone renderer swap-in is out of scope for the flag (no live consumer; the jit_pull=True composer output IS the role-parameterized protected root in the current design).",
           "acceptance_criteria": "One flag gates the whole discipline; OFF preserves the current full-context path unchanged; ON drives every event-pump role through the split + threshold reseed with a role-parameterized root; producers and reviewers both covered; the OFF path retains no dependency on the new code.",
           "files_affected": [
             "sandbox/",
@@ -633,7 +633,7 @@
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Slice-9 task-9-2 integration tests for the master context-discipline feature flag. Two files:\n\n1. integration_tests/test_context_discipline_flag_e2e.py \u2014 drives the REAL per-event prompt composer through its CLI seam (orchestrator/routes/event_prompt.py::_cli, via --event-payload-file), the single place the flag flips jit_pull for every role. Covers the AC end-to-end:\n   - Flag-OFF (runs TODAY, default path): reviewer ACK takes legacy INLINE delta (header \"## Per-producer re-review delta\", no JIT tokens); producer propose INLINES the memory excerpt sentinel; and EVERY candidate flag set to a falsey value (\"0\"/\"false\"/\"no\"/\"off\"/\"\") renders BYTE-IDENTICAL output to the no-flag default for both roles (pins \"OFF preserves the legacy path byte-for-byte\" + no falsey spelling accidentally enables).\n   - Flag-ON (>=1 producer + >=1 reviewer): reviewer gains JIT-pull pointers (read_peer_artifact / brc-transcript / \"(pull on demand)\"); producer drops the inline memory bulk; the SAME flag value flips BOTH (uniform mechanism, read in one place); roots are role-parameterized (each names its own role, producer != reviewer).\n2. sandbox/tests/test_context_discipline_flag.py \u2014 pins the flag-reader CONTRACT directly: default-OFF (unset => disabled), truthy => enabled, falsey => disabled. Confirms a single env-driven reader (not a hard-coded constant, not re-parsed per role).\n\nParallel-BRC convention: the flag's env-var name + reader home are the coder's (task-9-1); the e2e suite AUTO-DISCOVERS the flag behaviourally (toggle candidates, observe which flips the rendered path) and the reader suite probes candidate (module, attr) homes. Flag-ON / reader tests skip-guard until coder task-9-1 merges; flag-OFF byte-stability runs today and keeps passing after convergence.\n\nVALIDATED: 3 passed / 7 skipped on the tester branch (system pytest 9.0.3 / py3.14). Both the flag-ON assertions and the reader contract were validated GREEN against throwaway reference implementations of task-9-1 (a single-place EGG_CONTEXT_DISCIPLINE read -> jit_pull=True + memory_rel_path + pipeline_id; discovery correctly bound to it); throwaways removed. ruff clean. Hermetic: reviewer arm uses the artifact-fallback baseline (no git subprocess); no k3s/egg_stack fixtures used.",
           "acceptance_criteria": "Flag-ON integration covers >=1 producer + >=1 reviewer (role-parameterized root + uniform mechanism); flag-OFF test asserts the legacy path is unchanged; tests pass.",
           "files_affected": [
             "integration_tests/",
@@ -654,11 +654,11 @@
         "slice-8"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3200/slice-8",
+      "integration_base_sha": "5b0a1351264e56078f4b914cc8cbf6cc1b47ebf1",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3252,
+      "pr_url": "https://github.com/jwbron/egg/pull/3252",
       "review_feedback": []
     },
     {
@@ -1454,6 +1454,72 @@
       "old_value": "",
       "new_value": "Resume-vs-reseed gate landed in shared/egg_agent/reseed.py (new) + __main__.py wiring; session.py py2-except SyntaxError fixed (gate imports from it). Pure core decide_session_action(session_id, occupancy, threshold)->ResumeDecision; decide_resume_session() reads SessionState (slice-6) + resolve_reseed_threshold() (EGG_RESEED_THRESHOLD env override -> lazy defensive orchestrator import -> None). Bias-to-reseed on all ambiguity (no warm session / None occupancy / no threshold / resume disabled); reseed yields no resume id. Threshold via slice-2 real_backend_window (no [1m] mistrigger). Env-activated only -> orchestrator bash wrapper/golden byte-identical; dark by default. Tester task-8-2 (test_reseed_decision.py) 9/9 pass; full egg_agent suite green except a pre-existing, unrelated test_client buffer-overflow failure (reproduces on clean tree).",
       "reason": "Updated notes for task-8-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T17:16:29.391723Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.8.tasks.1.notes",
+      "old_value": "",
+      "new_value": "Slice-9 task-9-2 integration tests for the master context-discipline feature flag. Two files:\n\n1. integration_tests/test_context_discipline_flag_e2e.py \u2014 drives the REAL per-event prompt composer through its CLI seam (orchestrator/routes/event_prompt.py::_cli, via --event-payload-file), the single place the flag flips jit_pull for every role. Covers the AC end-to-end:\n   - Flag-OFF (runs TODAY, default path): reviewer ACK takes legacy INLINE delta (header \"## Per-producer re-review delta\", no JIT tokens); producer propose INLINES the memory excerpt sentinel; and EVERY candidate flag set to a falsey value (\"0\"/\"false\"/\"no\"/\"off\"/\"\") renders BYTE-IDENTICAL output to the no-flag default for both roles (pins \"OFF preserves the legacy path byte-for-byte\" + no falsey spelling accidentally enables).\n   - Flag-ON (>=1 producer + >=1 reviewer): reviewer gains JIT-pull pointers (read_peer_artifact / brc-transcript / \"(pull on demand)\"); producer drops the inline memory bulk; the SAME flag value flips BOTH (uniform mechanism, read in one place); roots are role-parameterized (each names its own role, producer != reviewer).\n2. sandbox/tests/test_context_discipline_flag.py \u2014 pins the flag-reader CONTRACT directly: default-OFF (unset => disabled), truthy => enabled, falsey => disabled. Confirms a single env-driven reader (not a hard-coded constant, not re-parsed per role).\n\nParallel-BRC convention: the flag's env-var name + reader home are the coder's (task-9-1); the e2e suite AUTO-DISCOVERS the flag behaviourally (toggle candidates, observe which flips the rendered path) and the reader suite probes candidate (module, attr) homes. Flag-ON / reader tests skip-guard until coder task-9-1 merges; flag-OFF byte-stability runs today and keeps passing after convergence.\n\nVALIDATED: 3 passed / 7 skipped on the tester branch (system pytest 9.0.3 / py3.14). Both the flag-ON assertions and the reader contract were validated GREEN against throwaway reference implementations of task-9-1 (a single-place EGG_CONTEXT_DISCIPLINE read -> jit_pull=True + memory_rel_path + pipeline_id; discovery correctly bound to it); throwaways removed. ruff clean. Hermetic: reviewer arm uses the artifact-fallback baseline (no git subprocess); no k3s/egg_stack fixtures used.",
+      "reason": "Updated notes for task-9-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T17:20:18.314050Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.8.tasks.0.commit",
+      "old_value": null,
+      "new_value": "59f1417e18a0d65968e6c15b256d533f901ef429",
+      "reason": "Linked commit 59f1417 to task-9-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T17:20:28.776077Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.8.tasks.0.notes",
+      "old_value": "",
+      "new_value": "Single master flag EGG_CONTEXT_DISCIPLINE (default OFF) gates the whole discipline.\n\nFiles:\n- shared/egg_agent/context_discipline.py (NEW): context_discipline_enabled() \u2014 the ONLY reader of the env var (read-in-one-place).\n- shared/egg_agent/session.py: session_resume_enabled() = EGG_SESSION_RESUME OR master flag (master subsumes the narrower staging knob \u2192 split + reseed enabled together).\n- orchestrator/routes/event_prompt.py: _cli() reads the flag via _context_discipline_enabled() (canonical import + self-contained wrapper-bash fallback, mirroring reseed.resolve_reseed_threshold's cross-boundary try/except) and threads jit_pull/memory_rel_path/pipeline_id into the already role-parameterized compose_event_prompt. Extracted _pipeline_id_token() (behaviour-preserving) shared by _memory_path + the jit_pull wiring.\n\nOFF path: jit_pull=False \u2192 legacy renderers byte-for-byte; new kwargs ignored on the OFF arm (no dependency on new code). Verified: OFF output == no-flag default output.\nON path verified: per-producer delta + memory rendered as JIT pointers (recipe + brc-transcript handle), raw bulk excluded.\n\nRole coverage: composer is role-parameterized (role arg); one CLI read covers producers AND reviewers \u2014 no role hard-codes the path.\n\nNo consensus_wrapper.py change: flag inherited from pod env by both composer + agent processes (like EGG_PIPELINE_ID; the explicit VAR=x prefix only overrides, doesn't clear inherited env).\n\nTests: task-9-2 (tester) owns flag ON/OFF integration tests. Existing suites pass (121 passed/2 expected slice-5 skips); pre-existing unrelated SDK failure in test_client.py::TestBufferOverflowErrorHandling (CLIJSONDecodeError ctor signature) is not introduced by this change. render_protected_root standalone renderer swap-in is out of scope for the flag (no live consumer; the jit_pull=True composer output IS the role-parameterized protected root in the current design).",
+      "reason": "Updated notes for task-9-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T17:20:32.558363Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.8.tasks.0.commit",
+      "old_value": "59f1417e18a0d65968e6c15b256d533f901ef429",
+      "new_value": "59f1417e18a0d65968e6c15b256d533f901ef429",
+      "reason": "Linked commit 59f1417 to task-9-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T17:20:32.591011Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.8.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-9-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T17:21:35.887760Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.8.tasks.0.commit",
+      "old_value": "59f1417e18a0d65968e6c15b256d533f901ef429",
+      "new_value": "53f5d2624b2b9c0da8d8dc1323607069fb079b53",
+      "reason": "Linked commit 53f5d26 to task-9-1",
       "checkpoint_id": null
     }
   ],
