@@ -197,7 +197,7 @@ def _render_raw(**overrides: Any) -> str | bytes:
 
     try:
         sig = inspect.signature(fn)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         sig = None
 
     args: list[Any] = []
@@ -226,8 +226,7 @@ def _render_raw(**overrides: Any) -> str | bytes:
                 unmatched_required.append(name)
         if unmatched_required:
             pytest.skip(
-                f"renderer has unmapped required params {unmatched_required}; "
-                f"signature {sig}"
+                f"renderer has unmapped required params {unmatched_required}; signature {sig}"
             )
         if accepts_var_kw:
             for group in _CANONICAL_ORDER:
@@ -274,10 +273,7 @@ def _task_anchor() -> str:
     try:
         from egg_contracts.loader import compose_task_description
     except ImportError:
-        return (
-            "This pipeline's task is GitHub issue #3200. "
-            f"{TASK_ANCHOR_SENTINEL}"
-        )
+        return f"This pipeline's task is GitHub issue #3200. {TASK_ANCHOR_SENTINEL}"
     composed = compose_task_description(
         description=f"{TASK_ANCHOR_SENTINEL} Protected root context discipline.",
         issue_number=3200,
@@ -383,8 +379,7 @@ def test_render_contains_all_four_sections_in_fixed_order() -> None:
     positions = [text.find(m) for m in markers]
     if all(p >= 0 for p in positions):
         assert positions == sorted(positions), (
-            "protected-root sections are not in the fixed a->b->c->d order: "
-            f"{positions}"
+            f"protected-root sections are not in the fixed a->b->c->d order: {positions}"
         )
 
 

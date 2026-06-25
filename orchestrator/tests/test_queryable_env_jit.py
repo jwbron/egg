@@ -80,8 +80,7 @@ def _composer() -> Callable[..., Any]:
         if callable(fn):
             return fn
     pytest.skip(
-        "event-prompt composer not found; tried "
-        f"{[f'{m}.{a}' for m, a in _COMPOSER_CANDIDATES]}"
+        f"event-prompt composer not found; tried {[f'{m}.{a}' for m, a in _COMPOSER_CANDIDATES]}"
     )
 
 
@@ -89,10 +88,7 @@ def _composer() -> Callable[..., Any]:
 # prompt the bulk is being inlined (legacy path); if it is absent the
 # bulk-exclusion change has landed.
 _BULK_SENTINEL = "ZZ-BULK-DIFF-SENTINEL-SLICE5-ZZ"
-_GIANT_DELTA = (
-    f"diff --git a/huge.py b/huge.py\n{_BULK_SENTINEL}\n"
-    + "+" + ("x" * 200_000) + "\n"
-)
+_GIANT_DELTA = f"diff --git a/huge.py b/huge.py\n{_BULK_SENTINEL}\n" + "+" + ("x" * 200_000) + "\n"
 
 # JIT-pull tool names the bulk-excluded prompt should steer the agent toward.
 _JIT_POINTER_TOKENS: tuple[str, ...] = ("read_peer_artifact", "brc-transcript")
@@ -176,8 +172,7 @@ def test_event_prompt_excludes_inlined_bulk_diff() -> None:
     # envelope is bounded well below the raw bulk it replaced.
     assert _BULK_SENTINEL not in prompt
     assert len(prompt.encode("utf-8")) < len(_GIANT_DELTA) / 20, (
-        "prompt not bounded below the raw bulk size after exclusion "
-        f"({len(prompt)} bytes)"
+        f"prompt not bounded below the raw bulk size after exclusion ({len(prompt)} bytes)"
     )
 
 
@@ -326,8 +321,7 @@ def test_enrichment_stamped_at_old_sha_is_stale() -> None:
     fn = _stale_detector()
     verdict = _call_stale(fn, enrichment_sha=_STALE_SHA, current_sha=_CURRENT_SHA)
     assert bool(verdict) is True, (
-        "enrichment stamped at an older SHA than the current delta was not "
-        "flagged stale"
+        "enrichment stamped at an older SHA than the current delta was not flagged stale"
     )
 
 
@@ -339,6 +333,4 @@ def test_enrichment_stamped_at_current_sha_is_fresh() -> None:
     """
     fn = _stale_detector()
     verdict = _call_stale(fn, enrichment_sha=_CURRENT_SHA, current_sha=_CURRENT_SHA)
-    assert bool(verdict) is False, (
-        "enrichment stamped at the current SHA was wrongly flagged stale"
-    )
+    assert bool(verdict) is False, "enrichment stamped at the current SHA was wrongly flagged stale"
