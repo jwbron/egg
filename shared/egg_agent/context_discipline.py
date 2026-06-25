@@ -14,12 +14,17 @@ the warm-resume gate (``egg_agent.session.session_resume_enabled``) activates so
 the slice-8 occupancy-vs-threshold gate can resume-or-reseed. ``OFF`` — the
 rollout default — preserves today's full-context INLINE path byte-for-byte.
 
-**Read in ONE place.** This module owns the only read of
-``$EGG_CONTEXT_DISCIPLINE``. Every other call site
-(``session.session_resume_enabled``, the event-prompt composer's ``jit_pull``
-decision) calls :func:`context_discipline_enabled` rather than re-reading the
-env var, so the discipline has a single authoritative on/off and no role
-hard-codes the new path.
+**Read in ONE place on the normal import path.** This module owns the only read
+of ``$EGG_CONTEXT_DISCIPLINE`` whenever ``egg_agent`` is importable. Every other
+call site (``session.session_resume_enabled``, the event-prompt composer's
+``jit_pull`` decision) calls :func:`context_discipline_enabled` rather than
+re-reading the env var, so the discipline has a single authoritative on/off and
+no role hard-codes the new path. The lone exception is the deliberate
+cross-boundary mirror in ``orchestrator.routes.event_prompt`` (its
+``except``-fallback inline-reads the same env var with identical truthy
+semantics, for the wrapper-bash standalone case where ``egg_agent`` is off
+``PYTHONPATH``) — that fallback exists precisely to preserve this single-source
+semantics when the import is unavailable.
 
 **Subsumes the narrower staging knobs.** Earlier slices shipped each component
 behind its own staging switch (``EGG_SESSION_RESUME`` for the warm-resume
