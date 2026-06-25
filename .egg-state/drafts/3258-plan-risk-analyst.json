@@ -1,0 +1,191 @@
+{
+  "issue": 3258,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "title": "Risk Assessment: #3200 slice-10 — emit-only BRC context-discipline measurement surfaces",
+  "summary": "Technical risk assessment for building the emit-only measurement surfaces (six per-event metrics routed through existing progress/heartbeat/metrics surfaces, read through ONE null-degrading adapter seam per the operator's Option D resolution). Overall risk is MEDIUM. The approach is sound and deliberately small, but it has three structural pitfalls that the plan must address explicitly: (1) the per-event emit point on `main` does NOT currently have access to the token-occupancy signal — that data lives downstream in the litellm cost callback and is not read back by the orchestrator post-event, so 'per-event occupancy emit' has no live source on main and the seam degrades to null/zero (acceptable per Option D, but the wiring point must be chosen so real values can flow later without rework); (2) the emit-only / no-gating invariant (AC-2) is genuinely fragile because two of the six metrics ('peak utilization under resume' and 'reseed frequency per phase') require cross-event state that looks like aggregation, and the existing heartbeat surface already rate-limits and dedupes — both create temptations to read emitted state; (3) the metrics registry is process-global with last-write-wins gauges and label cardinality risk. All are mitigable within the slice. No measurement, comparison, or verdict logic may be added (hard scope).",
+
+  "overall_risk_level": "MEDIUM",
+  "recommendation": "PROCEED_WITH_MITIGATIONS",
+
+  "grounding": {
+    "base_branch": "main",
+    "head_verified": "151857ed9",
+    "verified_facts": [
+      "shared/egg_agent/result.py: AgentResult has only success/stdout/stderr/returncode/error/metadata/cost_usd/num_turns/duration_ms/session_id — NO window-occupancy field on main.",
+      "grep -rniE 'reseed|occupanc' over shared/orchestrator/sandbox = 0 hits on main — slice-8 reseed substrate absent.",
+      "Token occupancy components (cache_read_input_tokens, cache_creation_input_tokens, prompt_tokens) exist ONLY in config/litellm/cost_callback.py:200-203 (downstream cost callback), not on AgentResult and not reconstructed by the orchestrator per event.",
+      "orchestrator event_loop.py / consensus_wrapper.py do NOT read AgentResult token usage back post-event (grep for AgentResult/cost_usd/num_turns = 0 hits) — there is no existing per-event occupancy read point in the orchestrator.",
+      "progress_emit -> POST /api/v1/pipelines/<pid>/progress with fields agent_role/step/state/detail/blocker (sandbox/egg_agent_tools/handlers/progress.py:35-84).",
+      "heartbeat surface rate-limits 20/min per (pipeline,slice,role) and dedupes on (state,waiting_on) (orchestrator/heartbeat.py); progress_heartbeat handler forwards signal_type=heartbeat.",
+      "metrics registry get_metrics_registry() exposes counters/gauges/histograms at GET /api/v1/metrics + /prometheus; gauges are last-write-wins; labels are embedded in the metric key (orchestrator/routes/metrics.py)."
+    ]
+  },
+
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Per-event occupancy signal has no live source at the emit point on main",
+      "category": "compatibility",
+      "severity": "HIGH",
+      "likelihood": "CERTAIN",
+      "impact": "If the plan binds the occupancy seam to a source that does not exist at the chosen emit point, the metric is structurally un-fillable even after slice-1 (#3236) merges, requiring rework — defeating the Option-D 'no rework when fields land' guarantee.",
+      "description": "The window-occupancy components (cache_read + cache_creation + input) live only in config/litellm/cost_callback.py, which runs in the litellm sidecar downstream of the agent. The orchestrator does NOT read AgentResult token usage back after an event, and AgentResult has no occupancy field on main. So 'emit occupancy per event' has no live data path today. Per Option D this is acceptable (the seam returns null/zero on main), BUT the plan must place the seam's read at a point that slice-1's merged AgentResult.window_occupancy field will actually populate — i.e., bind the seam to the AgentResult the orchestrator already holds after spawning the agent, not to the litellm callback. If the plan instead wires emit from inside the sandbox agent (which never sees aggregate token usage), the seam can never bind to the real field and Option-D's automatic-flow promise breaks.",
+      "affected_files": [
+        "shared/egg_agent/result.py",
+        "orchestrator/event_loop.py",
+        "orchestrator/consensus_wrapper.py",
+        "config/litellm/cost_callback.py"
+      ],
+      "mitigation": {
+        "strategy": "Plan must explicitly fix the emit point at the orchestrator-side post-event boundary where the AgentResult is available (the same object slice-1 #3236 extends with the occupancy field). The single adapter seam reads occupancy_for(agent_result) -> int | None off that field; null on main, real after #3236 merges — zero rework. Do NOT emit occupancy from inside the sandbox. Document the exact field name the seam expects so it matches #3236's schema (see R6).",
+        "effort": "MEDIUM",
+        "residual_risk": "LOW once the emit point is the orchestrator post-event boundary — the field simply starts returning non-null after #3236."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R2",
+      "title": "Emit-only invariant (AC-2) is fragile: two metrics need cross-event state resembling aggregation",
+      "category": "correctness",
+      "severity": "HIGH",
+      "likelihood": "HIGH",
+      "impact": "Mis-scoping 'peak utilization under resume' or 'reseed frequency per phase' as a consumed/gated value would violate AC-2/AC-5 (emit-only, nothing gated) and fail the structural no-decision-branch test, or — worse — pass a weak test while actually gating.",
+      "description": "Four of the six metrics are point-in-time (occupancy, working-set-vs-window, root-cache hit rate, tokens/event). But 'peak context utilization under resume' requires a running max across events, and 'reseed frequency per phase' requires a per-phase counter. Maintaining a running max / counter is itself a stateful reduction that looks like 'aggregation into a verdict'. The line that keeps it emit-only: the accumulated value may be WRITTEN to a surface (metrics gauge/counter) but MUST NOT be READ BACK by any control-flow path to choose behavior. The danger is a reviewer/implementer treating 'no aggregation' as 'no running max', breaking metric #2; OR computing the max in a way that some branch later reads.",
+      "affected_files": [
+        "(new) emit module under orchestrator/ or shared/",
+        "orchestrator/routes/metrics.py"
+      ],
+      "mitigation": {
+        "strategy": "Plan must state precisely: running-max and per-phase counters are PERMITTED (they are measurement signals, not verdicts) and live in write-only metric sinks (gauge.set / counter.inc). The emit-only invariant is specifically 'no control-flow branch reads an emitted metric value'. The AC-2 structural test must assert the emit functions return None/void AND that no emitted metric value is bound into a conditional/threshold/early-return anywhere in the emit module's call graph — not merely that the emit module has no 'if'. Avoid a tautological test (see R5).",
+        "effort": "MEDIUM",
+        "residual_risk": "MEDIUM — the distinction is subtle and must be enforced by the test, not just prose."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R3",
+      "title": "Heartbeat surface rate-limiting (20/min) and (state,waiting_on) dedup drops/collapses per-event emits",
+      "category": "correctness",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "If metrics are routed through the heartbeat body, AC-1's 'emitted per event' fidelity is silently lost — high-frequency events get rate-limited (20/min per pipeline,slice,role) and identical-state heartbeats are deduped, so the synthetic-sequence test (AC-3) could see fewer emits than events.",
+      "description": "orchestrator/heartbeat.py rate-limits to 20/min per (pipeline,slice,role) and dedupes on (state,waiting_on). Metrics carried as heartbeat body fields do not change the dedup key, so two events with the same state would collapse to one heartbeat — losing per-event metric payloads. The progress-emit surface (POST .../progress) has no such rate-limit/dedup and is the better carrier for per-event values; metrics-registry counters/histograms are also unaffected by heartbeat throttling.",
+      "affected_files": [
+        "orchestrator/heartbeat.py",
+        "sandbox/egg_agent_tools/handlers/progress.py"
+      ],
+      "mitigation": {
+        "strategy": "Plan should route per-event metric values through the progress-emit surface and/or the metrics registry (counters/histograms/gauges), NOT primarily through heartbeat body fields. If heartbeat is used at all, document that it carries only a liveness echo, not the authoritative per-event metric, so dedup/rate-limit cannot drop a measurement. AC-3 synthetic test must assert one emit per event on the chosen surface.",
+        "effort": "LOW",
+        "residual_risk": "LOW once progress/metrics surfaces are the authoritative carriers."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R4",
+      "title": "Metrics-registry label cardinality and last-write-wins gauges distort per-event semantics",
+      "category": "operational",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "Per-event gauges keyed without an event dimension overwrite each other (last-write-wins), losing per-event history; conversely, labeling by event_id/pipeline/role/phase explodes cardinality and bloats /metrics and /prometheus output.",
+      "description": "orchestrator/routes/metrics.py embeds labels in the metric key and renders every key in the Prometheus output. Gauges are last-write-wins per key. 'Tokens/event' and 'occupancy' as gauges keyed only by (pipeline,role) would overwrite each event; keyed by event_id they would grow unbounded. Histograms are the natural fit for per-event distributions (tokens/event, occupancy) since they accumulate without per-event keys; counters fit reseed-frequency and root-cache hit/miss.",
+      "affected_files": [
+        "orchestrator/routes/metrics.py",
+        "orchestrator/metrics.py"
+      ],
+      "mitigation": {
+        "strategy": "Plan should map each metric to the correct instrument type: histograms for per-event distributions (occupancy, tokens/event, working-set-vs-window, peak-under-resume), counters for reseed-frequency-per-phase and root-cache hits/misses (hit rate derived at read time from two counters, NOT precomputed-and-gated). Bound label sets to (pipeline,phase,role) — never event_id. Document the cardinality budget.",
+        "effort": "LOW",
+        "residual_risk": "LOW."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R5",
+      "title": "AC-2 structural no-decision-branch test risks being tautological / weak",
+      "category": "testing",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "A test that merely greps the emit module for 'if' or asserts 'function returns None' can pass while a real consumer reads an emitted metric elsewhere — giving false confidence that AC-4/AC-5 of #3200 are met.",
+      "description": "The strongest interpretation of AC-2 is 'no control-flow path consumes an emitted metric value for a decision'. A weak test (return-type check, or absence of 'if' in one file) does not prove the negative across the call graph. The proof should be structural over the emit surface's value sinks: emitted values flow only into write-only sinks (progress payload dict, counter.inc, gauge.set, histogram.observe) and are never returned to a caller that branches on them, nor read back from the registry by orchestrator control flow.",
+      "affected_files": [
+        "(new) test asserting emit-only invariant"
+      ],
+      "mitigation": {
+        "strategy": "Plan must specify the assertion shape: (a) emit functions return None/void; (b) the metric values are passed only to write-only sink calls; (c) a guard test that grep/AST-asserts no orchestrator control-flow path reads the new metric keys back from the registry for a branch/threshold. Prefer an AST-based or import-graph assertion over a string grep. Tester role should own strengthening this.",
+        "effort": "MEDIUM",
+        "residual_risk": "MEDIUM — proving a negative is inherently limited; document the test's scope and what it does/doesn't cover."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R6",
+      "title": "Seam field-name drift from unmerged slice-1 (#3236) / slice-8 (#3251) schemas",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "If the adapter seam assumes a field/signal name that differs from what #3236/#3251 actually merge, the 'real values flow automatically, no rework' guarantee fails and a follow-up edit is needed.",
+      "description": "The seam binds to AgentResult.<occupancy field> and to slice-8 reseed signals that do not exist on main. Their exact names/shapes are defined in the open PRs. A guess that diverges means the seam silently keeps returning null even after merge.",
+      "affected_files": [
+        "(new) adapter seam module"
+      ],
+      "mitigation": {
+        "strategy": "Plan should have the seam read via getattr with a documented expected field name sourced from PR #3236/#3251 (architect/refiner to confirm the names from the open PRs), defaulting to None when absent. Keep the seam the SINGLE read point so any later name correction is one edit. Add a code comment linking #3236/#3251 so the binding is auditable. This is intentionally low-rework by design (one seam), so residual risk is contained.",
+        "effort": "LOW",
+        "residual_risk": "LOW — single-point change if names drift."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R7",
+      "title": "Scope creep into measurement / comparison / verdict (owned by #3249)",
+      "category": "scope",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "Adding any A/B comparison, status-quo baseline, aggregation-to-verdict, or go/no-go logic violates the emit-only hard scope (AC-5 of #3200) and crosses into #3249's ownership.",
+      "description": "'Peak under resume' and 'hit rate' naturally invite a 'is this good/bad?' judgment. The slice must stop at emitting raw signals. Root-cache HIT RATE in particular must be emitted as raw hit/miss counts (rate derived at read time by a human/#3249), not as a precomputed ratio that some threshold could later consume.",
+      "affected_files": [
+        "(new) emit module"
+      ],
+      "mitigation": {
+        "strategy": "Plan and task list must restate the OUT-OF-SCOPE boundary verbatim and ensure no task introduces comparison/aggregation-to-verdict. Reviewer to reject any consumed metric. Emit raw counts for ratios where possible.",
+        "effort": "LOW",
+        "residual_risk": "LOW with explicit reviewer gate."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R8",
+      "title": "`make test` changeset-aware narrowing may not reach new emit tests",
+      "category": "testing",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "AC-3 requires `make test` green; if the new test module is not statically reachable from the diff's import graph, the changeset-aware runner could skip it, giving a false-green.",
+      "description": "make test narrows to tests reachable from the diff via static imports. A new test file that imports the new emit module will be reached; but if the emit module is wired via dynamic dispatch/registration only, the runner may not connect them.",
+      "affected_files": [
+        "(new) test module",
+        "Makefile / test wrapper"
+      ],
+      "mitigation": {
+        "strategy": "Ensure the new test imports the emit module directly (static import). Verify with `make test` locally and, if in doubt, confirm with a targeted `.venv/bin/pytest <new test>` run as documented in docs/guides/testing.md. The tester should confirm the new tests actually execute (non-zero collected count).",
+        "effort": "LOW",
+        "residual_risk": "LOW."
+      },
+      "requires_human_review": false
+    }
+  ],
+
+  "cross_cutting_concerns": [
+    "Single seam discipline: every occupancy/reseed read MUST go through one adapter module. The plan should make this a structural rule the reviewer can check (no direct AgentResult.<occupancy> or reseed access outside the seam).",
+    "Emit point placement (R1) and emit-only invariant (R2/R5) are the two findings most likely to cause rework or AC failure — the plan should resolve both explicitly rather than deferring to implement.",
+    "Instrument-type mapping (R4): histograms for per-event distributions, counters for frequencies/hit-miss, no event_id labels."
+  ],
+
+  "open_questions_for_plan": [
+    "Confirm the exact AgentResult occupancy field name and slice-8 reseed signal shape from PRs #3236/#3251 so the seam binds without drift (R6).",
+    "Confirm the orchestrator post-event boundary (event_loop / consensus_wrapper) is the chosen emit point so the seam can bind to the AgentResult slice-1 extends (R1)."
+  ],
+
+  "overall_recommendation_detail": "PROCEED_WITH_MITIGATIONS. The slice is correctly scoped and self-contained on main under Option D. The plan must (1) fix the emit point at the orchestrator post-event boundary where AgentResult is available, (2) define the emit-only invariant precisely (running-max/counters allowed as write-only sinks; no control-flow reads emitted values) and back it with an AST/import-graph structural test rather than a grep, (3) route per-event values through progress-emit and the metrics registry (histograms/counters), not throttled heartbeats, and (4) keep all occupancy/reseed reads behind one null-degrading seam with field names confirmed against #3236/#3251. No measurement, comparison, or verdict logic is in scope."
+}
