@@ -48,6 +48,7 @@ def resolve_logger(structured_name: str, fallback_name: str) -> Any:
     """
     try:
         from egg_logging import get_logger
+
+        return get_logger(structured_name)
     except ImportError:  # pragma: no cover - stdlib fallback outside the sandbox
         return _StdlibLoggerAdapter(fallback_name)
-    return get_logger(structured_name)
