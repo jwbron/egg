@@ -326,6 +326,34 @@ class TestRestartCountManagement:
         assert hasattr(spawner, "_restart_counts")
         assert spawner._restart_counts == {}
 
+    def test_check_and_increment_restart_count_increments(self, spawner):
+        """check_and_increment_restart_count bumps and returns the new count (#3244)."""
+        assert spawner.check_and_increment_restart_count("issue-100", AgentRole.CODER) == 1
+        assert spawner.check_and_increment_restart_count("issue-100", AgentRole.CODER) == 2
+        assert spawner.get_restart_count("issue-100", "coder") == 2
+
+    def test_check_and_increment_restart_count_enforces_cap(self, spawner):
+        """Once the budget is exhausted, further calls raise instead of incrementing (#3244)."""
+        spawner._restart_counts[("issue-100", "coder", None)] = 2
+        with pytest.raises(ContainerSpawnError, match="Restart limit"):
+            spawner.check_and_increment_restart_count(
+                "issue-100", AgentRole.CODER, max_restarts=2
+            )
+        # The rejected call must not burn an extra slot.
+        assert spawner.get_restart_count("issue-100", "coder") == 2
+
+    def test_check_and_increment_restart_count_slice_scoped(self, spawner):
+        """Slice-scoped budgets are independent of the pipeline-level bucket (#3244)."""
+        assert (
+            spawner.check_and_increment_restart_count(
+                "issue-100", AgentRole.CODER, slice_id="slice-2"
+            )
+            == 1
+        )
+        # Pipeline-level bucket untouched.
+        assert spawner.get_restart_count("issue-100", "coder") == 0
+        assert spawner.get_restart_count("issue-100", "coder", slice_id="slice-2") == 1
+
 
 # ---------------------------------------------------------------------------
 # REST API endpoint tests (task-1-2)
@@ -399,19 +427,22 @@ def client(app):
 class TestRestartAgentEndpoint:
     """Tests for POST /<pipeline_id>/agents/<role>/restart endpoint."""
 
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_agent_success(
-        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
     ):
         """Successful agent restart returns 200 and delegates respawn (#3164).
 
         After #3164 ``restart_agent`` no longer spawns a resident pod —
         it resets consensus + kills the live one-shot Job and the event
         loop respawns. So the response carries no ``container_id``; it
-        carries the ``respawn`` delegation marker.
+        carries the ``respawn`` delegation marker. The pipeline here is
+        RUNNING (live event loop), so the route must NOT relaunch a driver
+        thread — doing so would race the live loop (#3244 review).
         """
         mock_repo.return_value = "/repo"
         mock_lock_fn.return_value = MagicMock()
@@ -419,11 +450,12 @@ class TestRestartAgentEndpoint:
 
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
         mock_spawner.k8s.list_containers.return_value = []
-        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -439,6 +471,55 @@ class TestRestartAgentEndpoint:
         assert "container_id" not in data["data"]
         assert data["data"]["agent_role"] == "coder"
         assert data["data"]["respawn"] == "delegated to orchestrator event loop"
+        # restart_count reflects the just-incremented budget (#3244), not 0.
+        assert data["data"]["restart_count"] == 1
+        # RUNNING pipeline: live event loop owns the respawn; no relaunch.
+        mock_spawn_thread.assert_not_called()
+
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_agent_rejected_when_budget_exhausted(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        """Over-budget restart is rejected 429 without mutating state (#3244).
+
+        The per-(pipeline, role, slice) restart cap that pre-#3164 lived in
+        ``restart_agent_job`` is re-enforced on the route. When the budget is
+        exhausted the route must reject loudly instead of resetting consensus
+        / flipping status and returning a misleading success — an unbounded
+        restart storm can actively prevent a converging phase from reaching
+        consensus.
+        """
+        from kubernetes_spawner import KubernetesSpawnError
+
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = []
+        mock_spawner.check_and_increment_restart_count.side_effect = KubernetesSpawnError(
+            "Restart limit (2) exceeded for coder in pipeline issue-100 (restarted 2 times)"
+        )
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart",
+            json={"reason": "Agent stalled"},
+        )
+
+        assert response.status_code == 429
+        # No destructive action: consensus/Jobs untouched, no relaunch.
+        mock_spawner.k8s.list_containers.assert_not_called()
+        mock_spawn_thread.assert_not_called()
 
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
@@ -491,12 +572,13 @@ class TestRestartAgentEndpoint:
 
         assert response.status_code == 409
 
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_agent_cancelled_pipeline_resumes(
-        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
     ):
         """Restart succeeds on a cancelled pipeline and resets status to running.
 
@@ -512,11 +594,12 @@ class TestRestartAgentEndpoint:
 
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
         mock_spawner.k8s.list_containers.return_value = []
-        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -529,13 +612,16 @@ class TestRestartAgentEndpoint:
         assert pipeline.phases["implement"].status == PipelineStatus.RUNNING
         # Verify the CANCELLED -> RUNNING transition was persisted
         assert mock_store.update_pipeline.call_count >= 1
+        # Dead event loop is restarted by relaunching the driver thread (#3244).
+        mock_spawn_thread.assert_called_once()
 
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_agent_failed_pipeline(
-        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
     ):
         """Restart succeeds on a failed pipeline and resets status to running."""
         mock_repo.return_value = "/repo"
@@ -546,11 +632,12 @@ class TestRestartAgentEndpoint:
 
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
         mock_spawner.k8s.list_containers.return_value = []
-        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -561,6 +648,8 @@ class TestRestartAgentEndpoint:
         assert response.status_code == 200
         assert pipeline.status == PipelineStatus.RUNNING
         assert pipeline.phases["implement"].status == PipelineStatus.RUNNING
+        # Dead event loop is restarted by relaunching the driver thread (#3244).
+        mock_spawn_thread.assert_called_once()
 
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines.get_container_spawner")
@@ -585,7 +674,7 @@ class TestRestartAgentEndpoint:
 
         mock_spawner = MagicMock()
         mock_spawner.k8s.list_containers.side_effect = RuntimeError("k8s API down")
-        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -596,20 +685,24 @@ class TestRestartAgentEndpoint:
         assert response.status_code == 200
         mock_spawner.restart_agent_container.assert_not_called()
 
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_failed_pipeline_transitions_to_running_no_revert(
-        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
     ):
-        """Restart of a FAILED pipeline transitions to RUNNING and stays there.
+        """Restart of a FAILED pipeline transitions to RUNNING and respawns.
 
         After #3164 there is no resident spawn that can fail, so the
-        early FAILED -> RUNNING transition is never reverted: the event
-        loop owns the respawn. Replaces the old
-        ``...spawner_failure_reverts_status_to_failed`` regression test
-        whose spawn-failure path no longer exists.
+        early FAILED -> RUNNING transition is never reverted. But a
+        FAILED pipeline's event loop and ``_run_pipeline`` driver thread
+        are already dead, so resetting consensus alone would leave the
+        pipeline RUNNING-but-idle (#3244 review). The route must relaunch
+        a fresh driver thread to restart the event loop — assert that
+        actually happens (the prior version of this test only checked the
+        status flip and never that a respawn was driven).
         """
         mock_repo.return_value = "/repo"
         mock_lock_fn.return_value = MagicMock()
@@ -619,11 +712,12 @@ class TestRestartAgentEndpoint:
 
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
         mock_spawner.k8s.list_containers.return_value = []
-        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -635,19 +729,26 @@ class TestRestartAgentEndpoint:
         assert pipeline.status == PipelineStatus.RUNNING
         assert pipeline.phases["implement"].status == PipelineStatus.RUNNING
         mock_spawner.restart_agent_container.assert_not_called()
+        # The dead event loop is restarted by relaunching the driver thread
+        # (mirrors restart_phase) — without this the respawn never happens.
+        mock_spawn_thread.assert_called_once()
+        assert mock_spawn_thread.call_args.args[0] == "issue-100"
 
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_cancelled_pipeline_transitions_to_running_no_revert(
-        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
     ):
-        """Restart of a CANCELLED pipeline transitions to RUNNING (no revert).
+        """Restart of a CANCELLED pipeline transitions to RUNNING and respawns.
 
         cancel_task(cleanup=false) leaves CANCELLED with state preserved;
         restart resumes it. With no resident spawn (#3164) there is no
-        failure path that would revert to FAILED.
+        failure path that would revert to FAILED. As with the FAILED path,
+        the dead event loop is restarted by relaunching the driver thread
+        (#3244 review).
         """
         mock_repo.return_value = "/repo"
         mock_lock_fn.return_value = MagicMock()
@@ -657,11 +758,12 @@ class TestRestartAgentEndpoint:
 
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
         mock_spawner.k8s.list_containers.return_value = []
-        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -673,6 +775,7 @@ class TestRestartAgentEndpoint:
         assert pipeline.status == PipelineStatus.RUNNING
         assert pipeline.phases["implement"].status == PipelineStatus.RUNNING
         mock_spawner.restart_agent_container.assert_not_called()
+        mock_spawn_thread.assert_called_once()
 
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
@@ -725,7 +828,7 @@ class TestRestartAgentEndpointSliceScope:
 
         mock_spawner = MagicMock()
         mock_spawner.k8s.list_containers.return_value = []
-        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -743,9 +846,9 @@ class TestRestartAgentEndpointSliceScope:
             LABEL_AGENT_ROLE: "coder",
             LABEL_SLICE_ID: "slice-2",
         }
-        # Reading the restart count after a slice-scoped restart MUST
-        # query the per-slice budget bucket (#2410).
-        get_count_call = mock_spawner.get_restart_count.call_args
+        # Enforcing/incrementing the restart budget after a slice-scoped
+        # restart MUST target the per-slice budget bucket (#2410/#3244).
+        get_count_call = mock_spawner.check_and_increment_restart_count.call_args
         assert get_count_call.kwargs.get("slice_id") == "slice-2"
         assert response.get_json()["data"]["slice_id"] == "slice-2"
 
@@ -769,7 +872,7 @@ class TestRestartAgentEndpointSliceScope:
 
         mock_spawner = MagicMock()
         mock_spawner.k8s.list_containers.return_value = []
-        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -785,7 +888,7 @@ class TestRestartAgentEndpointSliceScope:
             LABEL_AGENT_ROLE: "coder",
             LABEL_SLICE_ID: "slice-2",
         }
-        get_count_call = mock_spawner.get_restart_count.call_args
+        get_count_call = mock_spawner.check_and_increment_restart_count.call_args
         assert get_count_call.kwargs.get("slice_id") == "slice-2"
 
     @patch("routes.pipelines._resolve_pipeline")
@@ -828,7 +931,7 @@ class TestRestartAgentEndpointSliceScope:
 
         mock_spawner = MagicMock()
         mock_spawner.k8s.list_containers.return_value = []
-        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -844,7 +947,7 @@ class TestRestartAgentEndpointSliceScope:
             LABEL_AGENT_ROLE: "coder",
         }
         assert LABEL_SLICE_ID not in list_call.kwargs["labels"]
-        get_count_call = mock_spawner.get_restart_count.call_args
+        get_count_call = mock_spawner.check_and_increment_restart_count.call_args
         assert get_count_call.kwargs.get("slice_id") is None
 
     @patch("egg_contracts.loader.load_contract")
@@ -928,7 +1031,7 @@ class TestRestartAgentEndpointSliceScope:
 
         mock_spawner = MagicMock()
         mock_spawner.k8s.list_containers.return_value = []
-        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -944,7 +1047,7 @@ class TestRestartAgentEndpointSliceScope:
         # #3164: validation accepted, no resident spawn; the per-slice
         # count bucket is read.
         mock_spawner.restart_agent_container.assert_not_called()
-        assert mock_spawner.get_restart_count.call_args.kwargs.get("slice_id") == "slice-2"
+        assert mock_spawner.check_and_increment_restart_count.call_args.kwargs.get("slice_id") == "slice-2"
 
     @patch("egg_contracts.loader.load_contract")
     @patch("routes.pipelines.get_container_spawner")
@@ -1072,7 +1175,7 @@ class TestRestartAgentEndpointSliceDerivation:
 
         mock_spawner = MagicMock()
         mock_spawner.k8s.list_containers.return_value = []
-        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -1091,7 +1194,7 @@ class TestRestartAgentEndpointSliceDerivation:
         assert (
             mock_spawner.k8s.list_containers.call_args.kwargs["labels"][LABEL_SLICE_ID] == "slice-2"
         )
-        assert mock_spawner.get_restart_count.call_args.kwargs.get("slice_id") == "slice-2"
+        assert mock_spawner.check_and_increment_restart_count.call_args.kwargs.get("slice_id") == "slice-2"
         assert response.get_json()["data"]["slice_id"] == "slice-2"
 
     @patch("routes.pipelines.get_container_spawner")
@@ -1189,7 +1292,7 @@ class TestRestartAgentEndpointSliceDerivation:
 
         mock_spawner = MagicMock()
         mock_spawner.k8s.list_containers.return_value = []
-        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         with patch("egg_contracts.loader.load_contract") as mock_load_contract:
@@ -1206,7 +1309,7 @@ class TestRestartAgentEndpointSliceDerivation:
         mock_spawner.restart_agent_container.assert_not_called()
         # The explicit slice_id wins over derivation: it scopes the count
         # bucket and the response.
-        assert mock_spawner.get_restart_count.call_args.kwargs.get("slice_id") == "slice-1"
+        assert mock_spawner.check_and_increment_restart_count.call_args.kwargs.get("slice_id") == "slice-1"
         assert response.get_json()["data"]["slice_id"] == "slice-1"
 
 
@@ -1292,7 +1395,7 @@ class TestRestartAgentSliceMatching:
 
         mock_spawner = MagicMock()
         mock_spawner.k8s.list_containers.return_value = []
-        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         slice2_before = next(
@@ -1377,7 +1480,7 @@ class TestRestartAgentSliceMatching:
 
         mock_spawner = MagicMock()
         mock_spawner.k8s.list_containers.return_value = []
-        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -1749,7 +1852,7 @@ class TestConsensusResetOrdering:
 
         mock_spawner = MagicMock()
         mock_spawner.k8s.list_containers.side_effect = RuntimeError("k8s API down")
-        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         mock_tracker = MagicMock()
@@ -1793,7 +1896,7 @@ class TestConsensusResetOrdering:
 
         mock_spawner = MagicMock()
         mock_spawner.k8s.list_containers.return_value = []
-        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         mock_tracker = MagicMock()
@@ -1839,7 +1942,7 @@ class TestRestartAgentResetsHealthMonitor:
 
         mock_spawner = MagicMock()
         mock_spawner.k8s.list_containers.return_value = []
-        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         mock_hm = MagicMock()
@@ -1886,7 +1989,7 @@ class TestRestartAgentResetsHealthMonitor:
 
         mock_spawner = MagicMock()
         mock_spawner.k8s.list_containers.return_value = []
-        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         with patch.dict(
@@ -1942,7 +2045,7 @@ class TestRestartAgentResetsHealthMonitor:
 
         mock_spawner = MagicMock()
         mock_spawner.k8s.list_containers.side_effect = RuntimeError("k8s API down")
-        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
         mock_hm = MagicMock()

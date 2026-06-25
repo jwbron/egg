@@ -2657,6 +2657,9 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     immediately log FATAL and ``exit 64``, so ``restart_agent`` no
     longer spawns anything itself. Instead it:
 
+      0. Enforces the per-(pipeline, role, slice) restart budget
+         (``check_and_increment_restart_count``); a request over budget is
+         rejected with HTTP 429 before any state is mutated (#3244).
       1. Best-effort deletes the role's live one-shot Job(s) (to kill a
          stuck pod). One-shot Jobs carry an event-discriminator suffix
          in their name, so they are found by label
@@ -2665,10 +2668,15 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
       2. Resets the role's consensus state and health-monitor anchor.
       3. Marks the agent record RUNNING with ``container_id = None``.
 
-    The event loop (polling ~every 5s during the concurrent phase) then
-    spawns a fresh one-shot pod once the role's consensus state is
-    reset — that is the respawn. The agent's per-agent worktree is
-    preserved so committed work is retained.
+    For a pipeline that is already RUNNING, the live event loop (polling
+    ~every 5s during the concurrent phase) spawns a fresh one-shot pod once
+    the role's consensus state is reset — that is the respawn. For a pipeline
+    that was FAILED/CANCELLED the event loop and its ``_run_pipeline`` driver
+    thread are already dead, so the route also relaunches a fresh driver
+    thread (mirroring ``restart_phase``) to restart the event loop; otherwise
+    the reset would leave the pipeline RUNNING-but-idle with nothing to
+    respawn it (#3244). The agent's per-agent worktree is preserved so
+    committed work is retained.
 
     URL params:
         pipeline_id: Pipeline ID
@@ -2900,12 +2908,47 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     current_phase = pipeline.current_phase.value
     phase_exec = pipeline.phases.get(current_phase)
 
+    # Enforce the per-(pipeline, role, slice) restart budget BEFORE any
+    # destructive action (#3244 review). Pre-#3164 this cap lived inside
+    # ``restart_agent_job``, which the route no longer calls — without
+    # re-enforcing it here an operator/overseer could call ``restart_agent``
+    # without bound, each call resetting consensus and actively preventing a
+    # live phase from converging. ``check_and_increment_restart_count`` raises
+    # when the budget is exhausted; reject loudly (429) instead of flipping
+    # status / resetting consensus and returning a misleading success. The
+    # returned count is the source of truth for the ``restart_count``
+    # telemetry below (the old read-only ``get_restart_count`` read always
+    # reported 0 on this path since nothing incremented it).
+    try:
+        new_restart_count = spawner.check_and_increment_restart_count(
+            pipeline_id, role, slice_id=slice_id
+        )
+    except KubernetesSpawnError as budget_err:
+        logger.warning(
+            "restart_agent rejected: restart budget exhausted",
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+            slice_id=slice_id,
+            error=str(budget_err),
+        )
+        return make_error_response(str(budget_err), status_code=429)
+
     # Early status update: transition FAILED/CANCELLED -> RUNNING so that
-    # get_status returns "running" immediately and the event loop (which
-    # only acts on RUNNING pipelines) is unblocked to respawn (see #1594,
-    # #1725). With no resident spawn (#3164) there is no failure path that
-    # would revert this transition.
-    if pipeline.status in (PipelineStatus.FAILED, PipelineStatus.CANCELLED):
+    # get_status returns "running" immediately. Unlike a RUNNING pipeline —
+    # whose live event loop picks up the consensus reset below and respawns
+    # within one poll — a FAILED/CANCELLED pipeline has NO live event loop:
+    # ``_run_concurrent_phase`` already returned and ``stop_event_loop()``
+    # tore the loop down on its way out, and the ``_run_pipeline`` driver
+    # thread has exited. Resetting consensus alone would leave the pipeline
+    # RUNNING-but-idle with nothing to respawn it (#3244 review). So when we
+    # make this transition we record it and relaunch a fresh ``_run_pipeline``
+    # driver thread at the end of the route (mirroring ``restart_phase`` step
+    # 7) — that restarts the event loop, which then performs the respawn.
+    pipeline_was_inactive = pipeline.status in (
+        PipelineStatus.FAILED,
+        PipelineStatus.CANCELLED,
+    )
+    if pipeline_was_inactive:
         early_lock = get_pipeline_state_lock(pipeline_id)
         with early_lock:
             pipeline = store.load_pipeline(pipeline_id)
@@ -2914,8 +2957,18 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                 _phase_exec = pipeline.phases.get(current_phase)
                 if _phase_exec is not None:
                     _phase_exec.status = PipelineStatus.RUNNING
+                # Bump run_epoch so the relaunched driver thread (below) owns a
+                # fresh epoch namespace and any stale thread that observes the
+                # transition detects itself as superseded (mirrors
+                # ``restart_phase`` / ``advance_phase``).
+                pipeline.run_epoch = datetime.now(UTC)
                 pipeline.updated_at = datetime.now(UTC)
                 store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
+            else:
+                # Lost the race — another writer already moved it off
+                # FAILED/CANCELLED, so its driver thread / event loop is
+                # live and will own the respawn. Don't relaunch a duplicate.
+                pipeline_was_inactive = False
 
     # #3164: ``restart_agent`` no longer spawns a resident pod. The
     # orchestrator event loop owns the BRC respawn — once the role's
@@ -3086,30 +3139,34 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
         pipeline.updated_at = datetime.now(UTC)
         store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
 
-    # Slice-scoped restarts (#2410) read the per-slice budget bucket
-    # ``(pipeline_id, agent_role, slice_id)``; the pipeline-level
-    # ``(pipeline_id, agent_role, None)`` bucket is untouched. Reading
-    # without ``slice_id`` here would return the pipeline-level count
-    # (typically zero) and the JSON response below would misreport the
-    # operator's "you've burned N of M restarts" telemetry. Best-effort:
-    # the count is informational, so a lookup failure must not fail the
-    # restart.
+    # ``restart_count`` is the value just incremented by
+    # ``check_and_increment_restart_count`` above (#3244). It is scoped to the
+    # same ``(pipeline_id, agent_role, slice_id)`` bucket the cap is enforced
+    # on, so it correctly reports the operator's "you've burned N of M
+    # restarts" telemetry — the pre-fix read-only ``get_restart_count`` read
+    # always reported 0 here because nothing on this path incremented it.
     response_data: dict[str, object] = {
         "agent_role": agent_role,
         "slice_id": slice_id,
         "respawn": "delegated to orchestrator event loop",
+        "restart_count": new_restart_count,
     }
-    try:
-        response_data["restart_count"] = spawner.get_restart_count(
-            pipeline_id, agent_role, slice_id=slice_id
-        )
-    except Exception as count_err:  # noqa: BLE001 - informational only
-        logger.warning(
-            "Failed to read restart_count for restart response",
+
+    # When the pipeline was FAILED/CANCELLED its event loop and driver thread
+    # are dead (see the early-status comment above), so the consensus reset
+    # alone has nothing to act on it. Relaunch a fresh ``_run_pipeline`` driver
+    # thread — exactly as ``restart_phase`` step 7 does — to restart the event
+    # loop, which then respawns the role's one-shot Job within one poll. For a
+    # pipeline that was already RUNNING we skip this: its live event loop owns
+    # the respawn and a second driver thread would race it (#3244 review).
+    if pipeline_was_inactive:
+        _spawn_pipeline_run_thread(pipeline_id, store.repo_path, pipeline.run_epoch)
+        logger.info(
+            "restart_agent: relaunched driver thread for inactive pipeline",
             pipeline_id=pipeline_id,
             agent_role=agent_role,
             slice_id=slice_id,
-            error=str(count_err),
+            run_epoch=pipeline.run_epoch.isoformat() if pipeline.run_epoch else None,
         )
 
     logger.info(
