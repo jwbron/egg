@@ -3530,19 +3530,36 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
     #     BRC record survival). Today ``_write_brc_history`` runs only at phase
     #     transitions (``_persist_phase_brc_history`` in complete/advance_phase,
     #     #1827); a mid-phase restart never wrote the durable on-disk
-    #     transcript. The live Redis stream survives a bare restart (the store
-    #     is cleared only at phase transitions / pipeline create+delete, never
-    #     here — see step 5), so a reseeded session can re-pull the in-flight
-    #     record from Redis via ``/brc-transcript`` + ``read_peer_artifact``.
-    #     But that live stream is lost if Redis itself is wiped (orchestrator
-    #     pod death — the cold-start case task-6-1 covers). Persisting here
-    #     extends the #1827 persist-before-clear invariant to the restart path:
-    #     it captures the proposals / verdicts / open NACKs to
-    #     ``.egg-state/brc-history/`` while the phase is still intact, so the
-    #     post-restart session can reconstruct the queryable environment and
-    #     re-derive the #3189 anchors even across a full Redis loss. Best-effort
-    #     and front-running teardown: a transcript-write hiccup must never block
-    #     recovery of a wedged phase (mirrors the salvage step below).
+    #     transcript.
+    #
+    #     PRIMARY mechanism is option (a), the live Redis stream: it survives a
+    #     bare restart (the store is cleared only at phase transitions /
+    #     pipeline create+delete, never here — see step 5), so a reseeded
+    #     session re-pulls the in-flight record from Redis via
+    #     ``/brc-transcript`` + ``read_peer_artifact``. The slice-scoped
+    #     CONSENSUS_PROPOSE/ACK/NACK records of an in-flight implement slice
+    #     rely on (a) for survival.
+    #
+    #     This disk persist (option (b)) is a belt-and-suspenders ADD-ON with a
+    #     deliberately NARROW durability scope — do not overstate it. It calls
+    #     ``_persist_phase_brc_history`` -> ``_write_brc_history(
+    #     write_per_slice=False)``. For a slice-aware implement phase that path
+    #     writes ONLY the ``{id}-implement-unattributed.{md,json}`` sibling
+    #     (non-CONSENSUS BRC types: HEARTBEAT/STATUS/HANDOFF/AGENT_FAILED/
+    #     NUDGE/OVERSEER_ALERT) and SKIPS the per-slice bucket loop; the
+    #     slice's CONSENSUS_* proposals/verdicts/open-NACKs are NOT written to
+    #     disk here (write_per_slice=False avoids the #2755 add/add conflict on
+    #     ``work``; per-slice files are owned by the slice integration branch).
+    #     So across a FULL Redis loss (orchestrator pod death, the cold-start
+    #     case task-6-1 covers) the in-flight slice record does NOT survive on
+    #     disk — only (a) preserves it. What (b) does buy: for non-slice phases
+    #     (plan/refine/pr) and non-slice implement runs the aggregate
+    #     ``{id}-{phase}.{md,json}`` transcript IS written, and for slice runs
+    #     the unattributed audit sibling is captured — extending the #1827
+    #     persist-before-clear invariant to the restart path for everything
+    #     except the per-slice CONSENSUS buckets. Best-effort and front-running
+    #     teardown: a transcript-write hiccup must never block recovery of a
+    #     wedged phase (mirrors the salvage step below).
     try:
         _persist_phase_brc_history(pipeline, store, phase)
     except Exception as brc_persist_err:  # noqa: BLE001
