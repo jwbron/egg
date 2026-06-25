@@ -111,7 +111,7 @@ _ALLOWLIST: tuple[tuple[str, str, int], ...] = (
     # block on ``egg-orch message wait-loop`` yourself: the orchestrator
     # owns the wait and spawns you one-shot per event (#3164)". The token
     # is present precisely to forbid the call.
-    ("orchestrator/routes/event_prompt.py", "egg-orch message wait-loop", 827),
+    ("orchestrator/routes/event_prompt.py", "egg-orch message wait-loop", 984),
 )
 
 
