@@ -299,7 +299,8 @@ shared/
 │   ├── loader.py           # Atomic file read/write (temp-then-rename), API sync helper
 │   ├── validator.py        # Schema validation, size budget enforcement (soft/hard limits)
 │   ├── constants.py        # Re-exports anchor constants from egg_config
-│   └── tests/              # Unit tests for models, loader, validator
+│   ├── protected_root.py   # Deterministic byte-stable protected-root renderer for event-pump BRC agents (RootCaps, render_protected_root)
+│   └── tests/              # Unit tests for models, loader, validator, protected root renderer
 ├── egg_config/             # Configuration utilities
 │   ├── constants.py        # Centralized constants (ports, networks, container names, infrastructure branch names, anchor size limits)
 │   ├── compose_config.py   # Bridges config.yaml settings to docker-compose environment variables
