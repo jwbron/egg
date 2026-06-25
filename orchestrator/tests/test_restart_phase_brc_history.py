@@ -505,8 +505,6 @@ class TestRestartPhasePersistGuardIsNonFatal:
             json={},
         )
 
-        assert response.status_code == 200, (
-            "a BRC-persist failure must not block the phase restart"
-        )
+        assert response.status_code == 200, "a BRC-persist failure must not block the phase restart"
         # The guarded persist was actually reached (else the test is vacuous).
         mock_persist.assert_called_once()
