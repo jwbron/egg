@@ -1,0 +1,151 @@
+# BRC Consensus History — implement phase
+
+Generated: 2026-06-25T17:52:52Z
+Pipeline: issue-3200
+
+### [2026-06-25T17:50:25Z] orchestrator (OVERSEER_ALERT): branch-divergence: egg/issue-3200/work contains merged-main commits
+
+Pipeline branch ``origin/egg/issue-3200/work`` is 32 commits ahead of ``origin/main`` and contains 18 commit(s) whose subjects look like merged-main PRs (``(#NNNN)`` signature).  This is the contamination shape investigated in #2222 (Phase 4 / #2224 detector).
+
+Offending commits:
+  4cecec3e43b1 Persist slice completion statuses after bootstrap reconciliation (#3117)
+  a9b188e40f34 Persist contract after slice slice-9 completion (#3117)
+  0c997df02be8 Persist contract after slice slice-8 completion (#3117)
+  ad76d0c0eb62 Persist contract after slice slice-7 completion (#3117)
+  895bf786b279 Persist contract after slice slice-6 completion (#3117)
+  3811ab642972 Persist contract after slice slice-5 completion (#3117)
+  55f255099d3e Persist contract after slice slice-4 completion (#3117)
+  48e72ddf4631 Persist contract after slice slice-3 completion (#3117)
+  73cb929fddb1 Persist contract after slice slice-2 completion (#3117)
+  e89a220ef024 Persist contract after slice slice-1 completion (#3117)
+  ... and 8 more
+
+If this is real contamination, the resulting PR will show a borked diff against current main — see #2222 recovery procedure (rebase ``--onto`` the right base).  If this is a false positive (e.g. an agent legitimately copied a ``(#NNNN)`` reference into a commit subject), no action is required.
+
+````yaml
+id: 9c786aaf-7b64-44
+phase: implement
+metadata:
+  anomaly_type: branch-divergence
+  phase: implement
+  pipeline_branch: egg/issue-3200/work
+  base_branch: main
+  ahead_count: 32
+  offending_shas:
+  - 4cecec3e43b14ac7a0722a48c618e29624d68d02
+  - a9b188e40f34efd62c2bce41e9d5fe9402956220
+  - 0c997df02be803351d3ecd6b427d03b94b79011e
+  - ad76d0c0eb62e553b012e85bd1c80779903db5cf
+  - 895bf786b27936065d1d5a0692a703ee337ea350
+  - 3811ab64297283938e727a2e3ce939aa741f2595
+  - 55f255099d3e7f3dab4a8423249141506f8c6c26
+  - 48e72ddf4631ca90e048dd032121d6bb26809857
+  - 73cb929fddb1eac4f2bbd9a1a0f35a8da0c4ac40
+  - e89a220ef0240c92d7d9ab098de2abcf9251c5f9
+  - f1426a61f7b1f0e7251f5ddc88fc61d9fc89caea
+  - ff343d09a6f369d54aeb1032154a65d172eabec0
+  - f575ce51cf50382805541c3510faa6b61b032137
+  - 756fc284400225bb9a9fc86bbe0295f22b4ec564
+  - a72d56ec2d67f2cc1d47c25cd10e6ba95605b86c
+  - efcea403145948414a67a0d9057a5f0701e3b181
+  - 0a339aafbf996af799359aff9fdd63fde957d639
+  - 067c8905f9196ce3d581d3ca35a534c3faa7abd8
+````
+
+### [2026-06-25T17:50:43Z] orchestrator (OVERSEER_ALERT): branch-divergence: egg/issue-3200/work contains merged-main commits
+
+Pipeline branch ``origin/egg/issue-3200/work`` is 32 commits ahead of ``origin/main`` and contains 18 commit(s) whose subjects look like merged-main PRs (``(#NNNN)`` signature).  This is the contamination shape investigated in #2222 (Phase 4 / #2224 detector).
+
+Offending commits:
+  4cecec3e43b1 Persist slice completion statuses after bootstrap reconciliation (#3117)
+  a9b188e40f34 Persist contract after slice slice-9 completion (#3117)
+  0c997df02be8 Persist contract after slice slice-8 completion (#3117)
+  ad76d0c0eb62 Persist contract after slice slice-7 completion (#3117)
+  895bf786b279 Persist contract after slice slice-6 completion (#3117)
+  3811ab642972 Persist contract after slice slice-5 completion (#3117)
+  55f255099d3e Persist contract after slice slice-4 completion (#3117)
+  48e72ddf4631 Persist contract after slice slice-3 completion (#3117)
+  73cb929fddb1 Persist contract after slice slice-2 completion (#3117)
+  e89a220ef024 Persist contract after slice slice-1 completion (#3117)
+  ... and 8 more
+
+If this is real contamination, the resulting PR will show a borked diff against current main — see #2222 recovery procedure (rebase ``--onto`` the right base).  If this is a false positive (e.g. an agent legitimately copied a ``(#NNNN)`` reference into a commit subject), no action is required.
+
+````yaml
+id: 25921895-1a6c-4e
+phase: implement
+metadata:
+  anomaly_type: branch-divergence
+  phase: implement
+  pipeline_branch: egg/issue-3200/work
+  base_branch: main
+  ahead_count: 32
+  offending_shas:
+  - 4cecec3e43b14ac7a0722a48c618e29624d68d02
+  - a9b188e40f34efd62c2bce41e9d5fe9402956220
+  - 0c997df02be803351d3ecd6b427d03b94b79011e
+  - ad76d0c0eb62e553b012e85bd1c80779903db5cf
+  - 895bf786b27936065d1d5a0692a703ee337ea350
+  - 3811ab64297283938e727a2e3ce939aa741f2595
+  - 55f255099d3e7f3dab4a8423249141506f8c6c26
+  - 48e72ddf4631ca90e048dd032121d6bb26809857
+  - 73cb929fddb1eac4f2bbd9a1a0f35a8da0c4ac40
+  - e89a220ef0240c92d7d9ab098de2abcf9251c5f9
+  - f1426a61f7b1f0e7251f5ddc88fc61d9fc89caea
+  - ff343d09a6f369d54aeb1032154a65d172eabec0
+  - f575ce51cf50382805541c3510faa6b61b032137
+  - 756fc284400225bb9a9fc86bbe0295f22b4ec564
+  - a72d56ec2d67f2cc1d47c25cd10e6ba95605b86c
+  - efcea403145948414a67a0d9057a5f0701e3b181
+  - 0a339aafbf996af799359aff9fdd63fde957d639
+  - 067c8905f9196ce3d581d3ca35a534c3faa7abd8
+````
+
+### [2026-06-25T17:52:52Z] orchestrator (OVERSEER_ALERT): branch-divergence: egg/issue-3200/work contains merged-main commits
+
+Pipeline branch ``origin/egg/issue-3200/work`` is 32 commits ahead of ``origin/main`` and contains 18 commit(s) whose subjects look like merged-main PRs (``(#NNNN)`` signature).  This is the contamination shape investigated in #2222 (Phase 4 / #2224 detector).
+
+Offending commits:
+  4cecec3e43b1 Persist slice completion statuses after bootstrap reconciliation (#3117)
+  a9b188e40f34 Persist contract after slice slice-9 completion (#3117)
+  0c997df02be8 Persist contract after slice slice-8 completion (#3117)
+  ad76d0c0eb62 Persist contract after slice slice-7 completion (#3117)
+  895bf786b279 Persist contract after slice slice-6 completion (#3117)
+  3811ab642972 Persist contract after slice slice-5 completion (#3117)
+  55f255099d3e Persist contract after slice slice-4 completion (#3117)
+  48e72ddf4631 Persist contract after slice slice-3 completion (#3117)
+  73cb929fddb1 Persist contract after slice slice-2 completion (#3117)
+  e89a220ef024 Persist contract after slice slice-1 completion (#3117)
+  ... and 8 more
+
+If this is real contamination, the resulting PR will show a borked diff against current main — see #2222 recovery procedure (rebase ``--onto`` the right base).  If this is a false positive (e.g. an agent legitimately copied a ``(#NNNN)`` reference into a commit subject), no action is required.
+
+````yaml
+id: 362159b9-5473-4e
+phase: implement
+metadata:
+  anomaly_type: branch-divergence
+  phase: implement
+  pipeline_branch: egg/issue-3200/work
+  base_branch: main
+  ahead_count: 32
+  offending_shas:
+  - 4cecec3e43b14ac7a0722a48c618e29624d68d02
+  - a9b188e40f34efd62c2bce41e9d5fe9402956220
+  - 0c997df02be803351d3ecd6b427d03b94b79011e
+  - ad76d0c0eb62e553b012e85bd1c80779903db5cf
+  - 895bf786b27936065d1d5a0692a703ee337ea350
+  - 3811ab64297283938e727a2e3ce939aa741f2595
+  - 55f255099d3e7f3dab4a8423249141506f8c6c26
+  - 48e72ddf4631ca90e048dd032121d6bb26809857
+  - 73cb929fddb1eac4f2bbd9a1a0f35a8da0c4ac40
+  - e89a220ef0240c92d7d9ab098de2abcf9251c5f9
+  - f1426a61f7b1f0e7251f5ddc88fc61d9fc89caea
+  - ff343d09a6f369d54aeb1032154a65d172eabec0
+  - f575ce51cf50382805541c3510faa6b61b032137
+  - 756fc284400225bb9a9fc86bbe0295f22b4ec564
+  - a72d56ec2d67f2cc1d47c25cd10e6ba95605b86c
+  - efcea403145948414a67a0d9057a5f0701e3b181
+  - 0a339aafbf996af799359aff9fdd63fde957d639
+  - 067c8905f9196ce3d581d3ca35a534c3faa7abd8
+````
