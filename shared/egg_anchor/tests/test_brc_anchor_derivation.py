@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -345,7 +345,7 @@ _REAL_RECORD_PATH = Path(__file__).parent / "data" / "brc_record_real.json"
 def _real_record() -> list[dict[str, Any]]:
     if not _REAL_RECORD_PATH.exists():  # pragma: no cover - fixture is committed
         pytest.skip(f"real BRC record fixture missing: {_REAL_RECORD_PATH}")
-    return json.loads(_REAL_RECORD_PATH.read_text())
+    return cast(list[dict[str, Any]], json.loads(_REAL_RECORD_PATH.read_text()))
 
 
 def test_real_record_locks_live_message_shape() -> None:
