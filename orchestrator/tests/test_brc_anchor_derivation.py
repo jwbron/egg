@@ -159,30 +159,89 @@ def test_matrix_substrate_models_four_fields() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _flatten(value: Any) -> str:
-    return repr(value)
+def _scenario_messages() -> list[dict[str, Any]]:
+    """The same AC scenario as a BRC message record (derivation input).
+
+    Equivalent to ``_build_scenario_matrix`` but expressed as the serialized
+    message dicts the derivation consumes — verdicts carry the producer in
+    ``to_role`` and the version/commit/reason/condition in ``metadata``.
+    """
+
+    def m(mtype: str, frm: str, seq: int, to: str = "all", **meta: Any) -> dict[str, Any]:
+        return {
+            "message_type": mtype,
+            "from_role": frm,
+            "to_role": to,
+            "id": f"msg-{seq:03d}",
+            "metadata": meta,
+        }
+
+    return [
+        m("CONSENSUS_PROPOSE", "coder", 1, version=1, commit_sha=SHA_CODER_V1),
+        m("CONSENSUS_ACK", "reviewer_code", 2, "coder", version=1, commit_sha=SHA_CODER_V1),
+        m("CONSENSUS_PROPOSE", "coder", 3, version=2, commit_sha=SHA_CODER_V2),
+        m("CONSENSUS_NACK", "reviewer_code", 4, "coder", version=2, reason="missing guard"),
+        m(
+            "CONSENSUS_ACK",
+            "reviewer_security",
+            5,
+            "coder",
+            version=2,
+            commit_sha=SHA_CODER_V2,
+            pre_merge_condition="git mv old new",
+        ),
+        m("CONSENSUS_PROPOSE", "tester", 6, version=1, commit_sha=SHA_TESTER_V1),
+        m(
+            "CONSENSUS_ACK",
+            "reviewer_code",
+            7,
+            "tester",
+            version=1,
+            commit_sha=SHA_TESTER_V1,
+            pre_merge_condition="update import path",
+        ),
+        m(
+            "CONSENSUS_OBLIGATION_RESOLVED",
+            "coder",
+            8,
+            "tester",
+            producer_role="tester",
+            reviewer_role="reviewer_code",
+        ),
+    ]
 
 
 def test_derivation_agrees_with_matrix() -> None:
-    """The derivation reproduces the matrix's four-field projection."""
+    """Message-record derivation reproduces the ApprovalMatrix four-field projection."""
+    from approval_matrix import ApprovalState
+
     fn = _derivation()
     matrix = _build_scenario_matrix()
+    anchors = fn(_scenario_messages())
 
-    anchors = None
-    for arg in (matrix,):
-        try:
-            anchors = fn(arg)
-            break
-        except TypeError:
-            continue
-    if anchors is None:
-        pytest.skip("derivation does not accept an ApprovalMatrix input")
+    # (i) last-reviewed SHA per producer == the matrix's reviewed proposal head.
+    last_reviewed = dict(anchors.last_reviewed_sha)
+    assert last_reviewed.get("coder") == SHA_CODER_V2, last_reviewed
+    assert last_reviewed.get("tester") == SHA_TESTER_V1, last_reviewed
+    assert SHA_CODER_V1 not in last_reviewed.values(), last_reviewed
 
-    blob = _flatten(anchors)
-    # Current reviewed SHAs present; superseded coder v1 absent.
-    assert SHA_CODER_V2 in blob, blob
-    assert SHA_TESTER_V1 in blob, blob
-    assert SHA_CODER_V1 not in blob, blob
-    # Open NACK reason surfaced; resolved obligation distinguishable.
-    assert "missing guard" in blob, blob
-    assert "git mv old new" in blob, blob
+    # (ii) latest verdict per edge agrees with matrix entry states.
+    verdict_by_edge = {(v.reviewer, v.producer): v.verdict.value for v in anchors.latest_verdicts}
+    assert verdict_by_edge[("reviewer_code", "coder")] == "nack"
+    assert verdict_by_edge[("reviewer_security", "coder")] in ("ack", "conditional_ack")
+    assert verdict_by_edge[("reviewer_code", "tester")] in ("ack", "conditional_ack")
+    assert (
+        matrix.get_entry("reviewer_code", "coder").state is ApprovalState.NACKED
+    )  # ground-truth cross-check
+
+    # (iii) open NACK reason on the current version.
+    nack_reasons = {(n.reviewer, n.producer): n.reason for n in anchors.open_nacks}
+    assert nack_reasons.get(("reviewer_code", "coder")) == "missing guard", nack_reasons
+
+    # (iv) conditional-ACK obligations: coder's unresolved, tester's resolved.
+    obligations = {(o.reviewer, o.producer): o for o in anchors.conditional_ack_obligations}
+    coder_ob = obligations.get(("reviewer_security", "coder"))
+    tester_ob = obligations.get(("reviewer_code", "tester"))
+    assert coder_ob is not None and coder_ob.condition == "git mv old new"
+    assert coder_ob.resolved is False
+    assert tester_ob is not None and tester_ob.resolved is True

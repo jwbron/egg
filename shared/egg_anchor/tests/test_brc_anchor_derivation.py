@@ -153,38 +153,30 @@ SHA_CODER_V2 = "bbbbbbb2222222222222222222222222222222bb"
 SHA_TESTER_V1 = "ccccccc3333333333333333333333333333333cc"
 
 
-class _Msg:
-    """Message-store-shaped record: attribute access plus a ``metadata`` dict.
+def _msg(
+    message_type: str,
+    from_role: str,
+    seq: int,
+    *,
+    to_role: str = "all",
+    **metadata: Any,
+) -> dict[str, Any]:
+    """A BRC message record entry — the plain-dict shape the derivation consumes.
 
-    Mirrors the orchestrator ``Message`` surface the reconstruction reads
-    (``m.message_type`` / ``m.from_role`` / ``m.metadata``) while also being
-    subscriptable, so a derivation that consumes dict-like messages also works.
+    Mirrors ``read_peer_artifact`` / ``_write_brc_history`` output: top-level
+    ``message_type`` / ``from_role`` / ``to_role`` / ``id`` plus a nested
+    ``metadata`` dict carrying the orchestrator-stamped consensus fields.
     """
-
-    def __init__(self, message_type: str, from_role: str, seq: int, **metadata: Any) -> None:
-        self.message_type = message_type
-        self.from_role = from_role
-        self.to_role = "all"
-        self.seq = seq
-        self.id = f"msg-{seq:03d}"
-        self.metadata = metadata
-
-    def __getitem__(self, key: str) -> Any:
-        if key in ("message_type", "from_role", "to_role", "id", "seq"):
-            return getattr(self, key)
-        return self.metadata[key]
-
-    def get(self, key: str, default: Any = None) -> Any:
-        try:
-            return self[key]
-        except KeyError:
-            return default
-
-    def __repr__(self) -> str:  # keep failures legible
-        return f"_Msg({self.message_type} from {self.from_role} {self.metadata})"
+    return {
+        "message_type": message_type,
+        "from_role": from_role,
+        "to_role": to_role,
+        "id": f"msg-{seq:03d}",
+        "metadata": metadata,
+    }
 
 
-def _scenario_messages() -> list[_Msg]:
+def _scenario_messages() -> list[dict[str, Any]]:
     """Multiple producers; ACK then re-propose + NACK; conditional ACKs.
 
     coder:  v1 proposed -> reviewer_code ACK v1; re-proposed v2 ->
@@ -192,63 +184,45 @@ def _scenario_messages() -> list[_Msg]:
             conditional-ACK v2 (obligation "git mv old new", UNRESOLVED).
     tester: v1 proposed -> reviewer_code conditional-ACK v1
             (obligation "update import path") then OBLIGATION_RESOLVED.
+
+    Verdict messages carry the producer in ``to_role`` (the edge target) and the
+    proposal version + commit/condition/reason in ``metadata``.
     """
-
-    def meta_propose(producer: str, version: int, sha: str) -> dict[str, Any]:
-        return {
-            "producer_role": producer,
-            "version": version,
-            "commit_sha": sha,
-            "proposal_commit_sha": sha,
-        }
-
-    def meta_ack(producer: str, version: int, sha: str, condition: str = "") -> dict[str, Any]:
-        return {
-            "producer_role": producer,
-            "version": version,
-            "ack_version": version,
-            "commit_sha": sha,
-            "proposal_commit_sha": sha,
-            "pre_merge_condition": condition,
-        }
-
-    def meta_nack(producer: str, version: int, reason: str) -> dict[str, Any]:
-        return {
-            "producer_role": producer,
-            "version": version,
-            "nack_version": version,
-            "reason": reason,
-        }
-
     return [
-        # coder v1
-        _Msg("CONSENSUS_PROPOSE", "coder", 1, **meta_propose("coder", 1, SHA_CODER_V1)),
-        _Msg("CONSENSUS_ACK", "reviewer_code", 2, **meta_ack("coder", 1, SHA_CODER_V1)),
-        # coder re-proposes v2 — supersedes v1
-        _Msg("CONSENSUS_PROPOSE", "coder", 3, **meta_propose("coder", 2, SHA_CODER_V2)),
-        _Msg("CONSENSUS_NACK", "reviewer_code", 4, **meta_nack("coder", 2, "missing guard")),
-        _Msg(
+        # coder v1 — ACKed, then superseded.
+        _msg("CONSENSUS_PROPOSE", "coder", 1, version=1, commit_sha=SHA_CODER_V1),
+        _msg("CONSENSUS_ACK", "reviewer_code", 2, to_role="coder", version=1, commit_sha=SHA_CODER_V1),
+        # coder re-proposes v2 — supersedes v1.
+        _msg("CONSENSUS_PROPOSE", "coder", 3, version=2, commit_sha=SHA_CODER_V2),
+        _msg("CONSENSUS_NACK", "reviewer_code", 4, to_role="coder", version=2, reason="missing guard"),
+        _msg(
             "CONSENSUS_ACK",
             "reviewer_security",
             5,
-            **meta_ack("coder", 2, SHA_CODER_V2, condition="git mv old new"),
+            to_role="coder",
+            version=2,
+            commit_sha=SHA_CODER_V2,
+            pre_merge_condition="git mv old new",
         ),
-        # tester v1 — conditional ACK then obligation resolved in-cycle
-        _Msg("CONSENSUS_PROPOSE", "tester", 6, **meta_propose("tester", 1, SHA_TESTER_V1)),
-        _Msg(
+        # tester v1 — conditional ACK then obligation resolved in-cycle.
+        _msg("CONSENSUS_PROPOSE", "tester", 6, version=1, commit_sha=SHA_TESTER_V1),
+        _msg(
             "CONSENSUS_ACK",
             "reviewer_code",
             7,
-            **meta_ack("tester", 1, SHA_TESTER_V1, condition="update import path"),
+            to_role="tester",
+            version=1,
+            commit_sha=SHA_TESTER_V1,
+            pre_merge_condition="update import path",
         ),
-        _Msg(
+        _msg(
             "CONSENSUS_OBLIGATION_RESOLVED",
             "coder",  # a non-producer role satisfies it; tester cannot self-resolve
             8,
+            to_role="tester",
             producer_role="tester",
             reviewer_role="reviewer_code",
             resolved_by="coder",
-            commit_sha=SHA_TESTER_V1,
         ),
     ]
 
