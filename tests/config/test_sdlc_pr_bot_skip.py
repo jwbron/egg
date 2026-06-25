@@ -16,6 +16,7 @@ calls ``reusable-review.yml`` and MUST keep verifying slice PRs (#3040).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -130,4 +131,66 @@ def test_autofix_gate_allows_manual_dispatch() -> None:
     assert "workflow_dispatch" in script and "run=true" in script, (
         "on-check-failure.yml should-run does not force a run on workflow_dispatch — "
         "the manual escape hatch is gone"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Behavioral coverage of the skip patterns
+# --------------------------------------------------------------------------- #
+#
+# The tests above pin the literal regex strings into the workflow scripts, which
+# catches accidental deletion of a gate. They do NOT, however, catch a regex that
+# still contains the pinned substring but is subtly broken (a dropped anchor, a
+# stray character). The table below feeds representative branch refs through the
+# SAME patterns the workflows embed — combined with the bash `||` the gates use —
+# so the actual match/no-match behavior is locked in, not just the spelling.
+#
+# Both gates skip when the head ref matches SLICE_RE *or* WORK_RE. We compile the
+# pinned constants (which `test_*_skips_both_pipeline_shapes` proves are the ones
+# actually present in the scripts) and assert the resulting decision per ref.
+
+
+def _is_skipped(ref: str) -> bool:
+    """True when a head ref matches either pipeline shape — i.e. the bot skips it.
+
+    Mirrors the workflows' ``[[ "$REF" =~ SLICE_RE || "$REF" =~ WORK_RE ]]``.
+    """
+    return bool(re.search(SLICE_RE, ref)) or bool(re.search(WORK_RE, ref))
+
+
+# (ref, should_be_skipped). Comments note why, including the deliberate
+# over-matches on multi-segment refs (acceptable: CLAUDE.md mandates
+# single-segment human branches `egg/<topic>`).
+_REF_CASES = [
+    # Pipeline shapes — MUST skip.
+    ("egg/issue-5/slice-2", True),
+    ("egg/123/slice-0", True),
+    ("egg/abc/slice-10", True),
+    ("egg/issue-5/work", True),
+    ("egg/123/work", True),
+    # Human / doc-updater single-segment branches — MUST run (not skipped).
+    ("egg/topic", False),
+    ("egg/doc-update-1", False),
+    ("egg/feature", False),
+    ("main", False),
+    # Anchor regressions the spelling-only tests would miss — MUST run.
+    ("egg/issue-5/slice-2x", False),  # trailing char defeats `[0-9]+$`
+    ("egg/issue-5/slice-", False),  # no digit
+    ("egg/issue-5/work-extra", False),  # trailing chars defeat `work$`
+    ("xegg/issue-5/work", False),  # leading char defeats `^egg/`
+    ("egg/slice-2", False),  # needs an intermediate `<id>/` segment
+    # Multi-segment refs DO match — documents the known over-match (a deliberate
+    # trade-off; human branches are single-segment by convention).
+    ("egg/feature/work", True),
+    ("egg/foo/slice-1", True),
+]
+
+
+@pytest.mark.parametrize(("ref", "skipped"), _REF_CASES)
+def test_skip_patterns_match_expected_refs(ref: str, skipped: bool) -> None:
+    """The pinned regexes skip exactly the pipeline branch shapes (and the
+    documented multi-segment over-match), and let everything else through."""
+    assert _is_skipped(ref) is skipped, (
+        f"ref {ref!r}: expected skipped={skipped}, got {_is_skipped(ref)} — "
+        f"SLICE_RE={SLICE_RE!r} WORK_RE={WORK_RE!r}"
     )
