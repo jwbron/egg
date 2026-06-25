@@ -46,8 +46,11 @@ and via `workflow_dispatch` with a PR number.
 
 ### How It Works
 
-1. **Skip checks** — Skips draft PRs, PRs with `[skip-review]` in the title, and PRs where
-   the current HEAD commit has already been reviewed by the same bot. This prevents redundant
+1. **Skip checks** — Skips draft PRs, PRs with `[skip-review]` in the title, PRs where
+   the current HEAD commit has already been reviewed by the same bot, and multi-slice
+   work→main context PRs (`egg/<id>/work -> main` with more than one contract slice — implementation
+   is delivered through reviewed slice PRs, so this PR carries only `.egg-state/` artifacts).
+   Single-slice/monolithic work→main PRs are not skipped. This prevents redundant
    reviews when a draft PR is marked as ready for review without new commits.
 2. **Wait for CI checks** — Waits for all non-review checks (e.g., lint, tests) to complete
    before starting the review. Skips checks matching `egg-review /` (the standard reviewer
@@ -323,12 +326,13 @@ The workflow runs on pull requests when **any** of these conditions is met:
 2. **Contract file detection** — PR adds a new file to `.egg-state/contracts/` (detected via the PR files diff API)
 3. **Slice-PR trigger** — the PR's head branch is a slice branch (`egg/<pipeline_id>/slice-<N>`) and the pipeline's work branch (`egg/<pipeline_id>/work`) carries a contract file
 
-This multi-trigger approach ensures contract verification runs for both the work→main context PR (which *adds* the contract, condition 2) and every slice→work PR (condition 3). Slice PRs inherit the contract from the work branch rather than adding it, and they carry `agent:<role>` labels rather than `sdlc:pr`, so neither of the first two conditions fires for them (#3040). Detection keys off the slice-branch *topology* — not bare contract presence, since every PR inherits the contracts accumulated on the default branch (#1134) — so docs-only and other normal PRs are never matched.
+This multi-trigger approach ensures contract verification runs for single-slice/monolithic work→main PRs (condition 2, the only GitHub-level review they get) and every slice→work PR (condition 3). Multi-slice work→main PRs are skipped: when a pipeline has more than one slice, implementation is delivered through the stacked slice PRs (each verified individually), so the work→main PR is a pure `.egg-state/` context roll-up and running implementation verification on it is a false positive. The discriminator is the slice count in the contract on the work branch (mirroring the orchestrator's `_is_slice_dag_mode`: `len(slices) > 1`), not topology alone — a single-slice/monolithic work→main PR shares the same `egg/<id>/work -> main` topology but must still be verified. Slice PRs inherit the contract from the work branch rather than adding it, and they carry `agent:<role>` labels rather than `sdlc:pr`, so neither of the first two conditions fires for them (#3040). Detection keys off the slice-branch *topology* — not bare contract presence, since every PR inherits the contracts accumulated on the default branch (#1134) — so docs-only and other normal PRs are never matched.
 
 ### How It Works
 
 1. **Trigger check** — Determines if verification should run:
-   - Fetches PR metadata (labels and branch name) in a single API call
+   - Fetches PR metadata (labels, head branch, base branch, and body) in a single API call
+   - **Multi-slice context PR skip** — If the head branch matches `egg/<id>/work` targeting `main`/`master`, reads the contract on the work branch and counts slices. If the pipeline has more than one slice (`len(slices) > 1`), the work→main PR is a pure `.egg-state/` roll-up (implementation was delivered through reviewed slice PRs) and is skipped. Single-slice/monolithic pipelines commit implementation directly onto the work branch, so their work→main PR is not skipped and falls through to normal gating. Fetch failures leave slice count at 0 (fail-open — verification runs).
    - Extracts issue number from branch name, PR body, or contract filename (used downstream for contract lookup)
    - For labeled PRs, runs immediately
    - For unlabeled PRs, queries the PR files API to check if any new file was added under `.egg-state/contracts/`
