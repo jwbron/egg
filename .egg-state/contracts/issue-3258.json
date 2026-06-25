@@ -10,9 +10,97 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "slice-10 (#3258) AC-1 says to derive metrics from the \"already-merged\" slice-1 AgentResult window-occupancy field and slice-8 reseed signals \u2014 but both are UNMERGED open PRs (slice-1 #3236 base=egg/issue-3200/work; slice-8 #3251 base=egg/issue-3200/slice-7, UNSTABLE), and origin/main (this pipeline's base) has no occupancy field and no reseed code. How should slice-10 obtain its input signals?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "A) Stack #3258 on the #3200 slice-8/9 branch tip so the merged-substrate premise holds (matches the #3245 stacked-slice proof-of-fix intent)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "B) Vendor a minimal slice-1 occupancy field + slice-8 reseed signal into this pipeline as a prerequisite, then build emit surfaces on top",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "C) Block until #3200 slices 1-9 merge to main, then run slice-10 against main",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "D) Emit-only against existing AgentResult fields plus defined adapter seams that degrade gracefully (null/zero) until the real fields land \u2014 keeps slice-10 self-contained on main today",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-06-25T20:18:04.413331Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "slice-10 (#3258) AC-1 says to derive metrics from the \"already-merged\" slice-1 AgentResult window-occupancy field and slice-8 reseed signals \u2014 but both are UNMERGED open PRs (slice-1 #3236 base=egg/issue-3200/work; slice-8 #3251 base=egg/issue-3200/slice-7, UNSTABLE), and origin/main (this pipeline's base) has no occupancy field and no reseed code. How should slice-10 obtain its input signals?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "A) Stack #3258 on the #3200 slice-8/9 branch tip so the merged-substrate premise holds (matches the #3245 stacked-slice proof-of-fix intent)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "B) Vendor a minimal slice-1 occupancy field + slice-8 reseed signal into this pipeline as a prerequisite, then build emit surfaces on top",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "C) Block until #3200 slices 1-9 merge to main, then run slice-10 against main",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "D) Emit-only against existing AgentResult fields plus defined adapter seams that degrade gracefully (null/zero) until the real fields land \u2014 keeps slice-10 self-contained on main today",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: slice-10 (#3258) AC-1 says to derive metrics from ...",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
