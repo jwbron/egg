@@ -177,16 +177,46 @@ Orchestrator
 | `validate_anchor(anchor)` | Validate against JSON Schema. Returns list of error strings (empty = valid). |
 | `check_size_budget(anchor, is_team=False)` | Check size limits. Returns `SizeBudgetResult`. |
 
+### Protected Root Renderer (`egg_anchor.protected_root`)
+
+Assembles the byte-stable protected root injected at the top of an event-pump BRC agent's context. The render is byte-identical for identical input — which makes it a cacheable prompt prefix (warm resume, #3186) and a deterministic reseed source (#3200).
+
+| Symbol | Description |
+|--------|-------------|
+| `render_protected_root(*, role, role_contract, task_description=None, derived=None, directives=None, caps=None)` | Render the four-section protected root as a single string. Returns byte-identical output for identical input. |
+| `RootCaps` | Frozen dataclass of per-section character/count caps. Override to tighten or relax limits; defaults are deliberately generous. |
+
+**Section order** (fixed, deterministic):
+1. **ROLE CONTRACT** — behavioural spec for the role (capped at `RootCaps.role_contract_chars`)
+2. **TASK** — task anchor from `compose_task_description` (#3163, capped at `task_chars`)
+3. **BRC ANCHORS (#3189)** — last-reviewed SHA, latest verdicts, open NACKs, conditional-ACK obligations; all collections sorted by deterministic key
+4. **NON-NEGOTIABLE DIRECTIVES** — ordered bullet list or raw string (capped at `directives_chars`)
+
+```python
+from egg_anchor import RootCaps, render_protected_root
+from egg_anchor import BRCDerivedAnchors  # from models
+
+root = render_protected_root(
+    role="reviewer_code",
+    role_contract="You are a code reviewer...",
+    task_description=task_desc,   # from compose_task_description()
+    derived=derived_anchors,      # BRCDerivedAnchors from derive_brc_anchors()
+    directives=["Never approve without citing a line number."],
+    caps=RootCaps(task_chars=6000),  # tighten if needed
+)
+```
+
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `__init__.py` | Public API exports (models, loader, validator) |
+| `__init__.py` | Public API exports (models, loader, validator, protected root renderer) |
 | `models.py` | Pydantic models with field validators for array size constraints |
 | `loader.py` | Atomic file I/O (temp-then-rename), API sync via HTTP POST |
 | `validator.py` | JSON Schema validation, size budget checking (SizeBudgetResult) |
 | `constants.py` | Re-exports anchor constants from egg_config (with fallback defaults) |
-| `tests/` | Unit tests for models, loader, validator |
+| `protected_root.py` | Deterministic byte-stable protected-root renderer for event-pump BRC agents |
+| `tests/` | Unit tests for models, loader, validator, protected root renderer |
 
 ## Integration Points
 
