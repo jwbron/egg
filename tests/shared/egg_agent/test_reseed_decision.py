@@ -50,7 +50,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from egg_agent.session import SessionState
+from egg_agent.session import SessionState, session_resume_enabled
 
 # The slice-2 threshold helpers live in ``orchestrator/agent_model_resolution.py``.
 # The shared test conftest adds ``shared`` / ``sandbox`` to sys.path but not
@@ -409,3 +409,33 @@ def test_reseed_does_not_yield_a_resume_session_id():
                 leaked = val
                 break
     assert not leaked, f"reseed verdict leaked a resume session id: {leaked!r}"
+
+
+# --------------------------------------------------------------------------- #
+# Master-flag subsumption: EGG_CONTEXT_DISCIPLINE drives session_resume_enabled
+# even with the narrower EGG_SESSION_RESUME knob unset (#3200 slice-9, task-9-1).
+# This one-line OR in session.py is the warm-resume half of the master flag and
+# rides no other test — a regression reverting it to the EGG_SESSION_RESUME-only
+# check would otherwise pass every other test in the slice.
+# --------------------------------------------------------------------------- #
+
+
+def test_context_discipline_master_flag_enables_resume(monkeypatch):
+    """``EGG_CONTEXT_DISCIPLINE=1`` alone turns warm resume on (subsumes the knob)."""
+    monkeypatch.delenv("EGG_SESSION_RESUME", raising=False)
+    monkeypatch.setenv("EGG_CONTEXT_DISCIPLINE", "1")
+    assert session_resume_enabled() is True
+
+
+def test_both_flags_unset_keeps_resume_off(monkeypatch):
+    """Rollout default: neither flag set -> warm resume stays OFF."""
+    monkeypatch.delenv("EGG_SESSION_RESUME", raising=False)
+    monkeypatch.delenv("EGG_CONTEXT_DISCIPLINE", raising=False)
+    assert session_resume_enabled() is False
+
+
+def test_narrow_knob_still_enables_resume_independently(monkeypatch):
+    """The narrower ``EGG_SESSION_RESUME`` knob still enables resume on its own."""
+    monkeypatch.delenv("EGG_CONTEXT_DISCIPLINE", raising=False)
+    monkeypatch.setenv("EGG_SESSION_RESUME", "1")
+    assert session_resume_enabled() is True

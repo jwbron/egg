@@ -287,15 +287,20 @@ shared/
 │   ├── tool_interceptor.py # Pre-execution file write checks (Write/Edit/NotebookEdit) against role restrictions
 │   ├── tool_output_cap.py  # Predictive PreToolUse cap for built-in CC tools (Read/Grep): denies calls whose model-bound result is likely to be excessive (cost/context discipline, NOT the buffer-crash fix — that's the raised reader buffer in client.py, #2884); tunable via EGG_TOOL_OUTPUT_CAP / EGG_READ_CAP_BYTES (#2876); agents can raise their own session's Read cap by writing the byte size to /tmp/egg-read-cap-bytes (#3175)
 │   ├── midturn_messages.py # Throttled PostToolUse hook that polls the message bus mid-turn and injects new operator-authored messages as additionalContext; backed by EGG_MIDTURN_MESSAGES_INTERVAL_SECS (default 60 s) and EGG_MIDTURN_MESSAGES=false escape hatch (#3123)
-│   ├── reseed.py           # Resume-vs-reseed decision gate (#3200 slice-8): at BRC event-pump re-invocation, compares the prior session's window_occupancy against EGG_RESEED_THRESHOLD (or orchestrator.agent_model_resolution.reseed_threshold when importable) and resumes the warm session only when occupancy is known and below threshold; every ambiguous case (no state, unknown occupancy, no threshold, EGG_SESSION_RESUME off) biases to a safe reseed
-│   └── route_guidance.py   # Advisory system-prompt addendum appended only on LiteLLM (non-Claude) routes: steers toward batched tool calls, filtered output, and subagent-isolated bulk reads to cut turns × context cost; gated on ANTHROPIC_CUSTOM_MODEL_OPTION, kill switch EGG_ROUTE_PROMPT_GUIDANCE=false (#3175)
+│   ├── route_guidance.py   # Advisory system-prompt addendum appended only on LiteLLM (non-Claude) routes: steers toward batched tool calls, filtered output, and subagent-isolated bulk reads to cut turns × context cost; gated on ANTHROPIC_CUSTOM_MODEL_OPTION, kill switch EGG_ROUTE_PROMPT_GUIDANCE=false (#3175)
+│   ├── context_discipline.py # Master feature flag for the #3200 BRC context discipline (slice-9): single EGG_CONTEXT_DISCIPLINE switch that enables the whole discipline (protected-root/queryable-env split + JIT pull + threshold reseed); subsumes the narrower EGG_SESSION_RESUME knob; default OFF (#3200)
+│   ├── session.py          # Session-state round-trip for BRC event-pump warm-resume substrate: persists session_id + window_occupancy between one-shot invocations, gated on EGG_SESSION_RESUME or EGG_CONTEXT_DISCIPLINE (#3200 slice-6)
+│   ├── reseed.py           # Resume-vs-reseed decision gate: compares resumed session occupancy against threshold (min(400_000, 0.80 × real_backend_window)) and chooses resume or reseed; bias-to-reseed on uncertainty (#3200 slice-8)
+│   ├── queryable_env.py    # JIT-pull queryable-environment renderers: renders pointers (git log recipe + read_peer_artifact / brc-transcript handles) instead of inlining bulk diffs and memory excerpts (#3200 slice-5)
+│   └── _logging.py         # Shared logger resolution: returns egg structured logger when egg_logging is available, falls back to a kwargs-dropping stdlib logger outside the sandbox
 ├── egg_anchor/             # Agent anchor mechanism for post-compaction state recovery
 │   ├── __init__.py         # Public API exports
 │   ├── models.py           # Pydantic models (AgentAnchor, AnchorMeta, ProgressItem, Decision, BRCState)
 │   ├── loader.py           # Atomic file read/write (temp-then-rename), API sync helper
 │   ├── validator.py        # Schema validation, size budget enforcement (soft/hard limits)
 │   ├── constants.py        # Re-exports anchor constants from egg_config
-│   └── tests/              # Unit tests for models, loader, validator
+│   ├── protected_root.py   # Deterministic byte-stable protected-root renderer for event-pump BRC agents (RootCaps, render_protected_root)
+│   └── tests/              # Unit tests for models, loader, validator, protected root renderer
 ├── egg_config/             # Configuration utilities
 │   ├── constants.py        # Centralized constants (ports, networks, container names, infrastructure branch names, anchor size limits)
 │   ├── compose_config.py   # Bridges config.yaml settings to docker-compose environment variables
