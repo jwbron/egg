@@ -468,7 +468,7 @@
       "id": "slice-7",
       "name": "Mid-phase BRC message-record persistence",
       "goal": "Make the BRC message record survive a mid-phase restart so a reseeded session can re-pull it and re-derive the phase-3 anchors (_write_brc_history persists at phase transitions only today). Logical dep: none; serialized after slice 6 (#3046). Must land before the reseed (slice 8) is trusted across restarts.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -521,11 +521,11 @@
         "slice-6"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3200/slice-6",
+      "integration_base_sha": "11606eb592a9ecb526a79423fbfe7d03ffcfa65d",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3248,
+      "pr_url": "https://github.com/jwbron/egg/pull/3248",
       "review_feedback": []
     },
     {
@@ -817,10 +817,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"1) Bare opus/sonnet/haiku -> 1_000_000 (threshold 400k), == opus[1m]. Upholds the RATIFIED contract task-2-1 AC and the already-merged coder impl (55387ff1f) + tester test (v1). reviewer_code_holistic withdraws its NACK. Any default-agent compaction concern is logged as out-of-scope follow-up.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-25T16:44:28.651691Z",
       "debounce_until": null
     }
   ],
