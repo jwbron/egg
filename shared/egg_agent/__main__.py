@@ -13,6 +13,7 @@ import argparse
 import sys
 
 from egg_agent.client import run_agent
+from egg_agent.measurement import record_measurement
 from egg_agent.reseed import decide_resume_session
 from egg_agent.session import write_session_state
 
@@ -111,6 +112,18 @@ def main() -> int:
         result.session_id,
         result.window_occupancy,
         path=args.session_state_file,
+    )
+
+    # Emit-only per-event measurement (#3249 / #3200 phase 10). Agent-side,
+    # after the SDK call, routed through the existing progress + heartbeat
+    # surfaces. Pure observation: the return value is intentionally discarded
+    # and nothing here touches the exit code — the six metrics are consumed
+    # offline to tune the route-aware reseed cap. Default OFF behind
+    # EGG_CONTEXT_MEASUREMENT; a no-op (byte-identical legacy path) otherwise.
+    record_measurement(
+        result=result,
+        resume_decision=resume_decision,
+        model=args.model,
     )
 
     if result.stderr:
