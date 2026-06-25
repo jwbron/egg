@@ -106,7 +106,7 @@ _ALLOWLIST: tuple[tuple[str, str, int], ...] = (
     # block on ``egg-orch message wait-loop`` yourself: the wrapper
     # owns the wait and the heartbeat (#2908 slice-2)". The token is
     # present precisely to forbid the call.
-    ("orchestrator/routes/event_prompt.py", "egg-orch message wait-loop", 762),
+    ("orchestrator/routes/event_prompt.py", "egg-orch message wait-loop", 811),
 )
 
 

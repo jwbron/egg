@@ -613,27 +613,38 @@ def _maybe_reopen_confirmed_producer(
     return rows
 
 
-def _build_iteration_feedback(pipeline_id: str, repo_path: Path | None) -> dict[str, Any] | None:
-    """Build the ``iteration_feedback`` block for a ``propose`` event (#3231).
+def _build_iteration_feedback(
+    pipeline_id: str, repo_path: Path | None, *, audience: str = "producer"
+) -> dict[str, Any] | None:
+    """Build the ``iteration_feedback`` block for a BRC event (#3231).
 
-    Under ``EGG_EVENT_LOOP_OWNER=orchestrator`` the re-spawned producer's
+    Under ``EGG_EVENT_LOOP_OWNER=orchestrator`` the re-spawned agent's
     prompt is composed by ``orchestrator/routes/event_prompt.py`` (not the
     in-pod ``_build_phase_iteration_context`` path that already carries
-    #2795's iteration context). Without this block the producer re-reads
-    its own prior on-disk draft and re-proposes it byte-for-byte — the
-    operator's ``request_changes`` / ``change_approach`` silently no-ops
-    (the #1283 / #1915 fake-cycle class, regressed for the orchestrator-
-    owned event loop).
+    #2795's iteration context). Without this block:
+
+    * the **producer** (``propose`` arm) re-reads its own prior on-disk
+      draft and re-proposes it byte-for-byte — the operator's
+      ``request_changes`` / ``change_approach`` silently no-ops (the
+      #1283 / #1915 fake-cycle class); and
+    * the **reviewer** (``ack`` arm) re-reviews the producer's
+      directive-driven change against the default rubric with no
+      visibility into the directive that authorised it — risking a NACK
+      that fights the operator's steering and re-stalls the cycle (the
+      reviewer-side staleness #2795 fixed for the in-pod path).
 
     Loads the current phase execution's ``operator_directives``
-    (chronological, oldest→newest) and the latest ``iteration_history``
-    summary straight off the persisted pipeline state and returns a
-    serializable dict the ``next-action`` route attaches onto the
-    ``propose`` event_payload. Uses the loaded pipeline's own
-    ``current_phase`` (a ``PipelinePhase``) to resolve the phase
-    execution — no string→enum coercion needed. ``None`` (section
-    omitted) when there are no directives and no prior-iteration
-    summary — the no-kickback golden-stable path. Best-effort: a
+    (chronological, oldest→newest) and — for ``audience="producer"`` —
+    the latest ``iteration_history`` summary straight off the persisted
+    pipeline state and returns a serializable dict the ``next-action``
+    route attaches onto the event_payload. ``audience="reviewer"`` omits
+    the prior-iteration verdict/NACK matrix (the reviewer needs the
+    directive, not the producer's own scorecard) and tags the block so
+    the renderer frames it for review rather than re-propose. Uses the
+    loaded pipeline's own ``current_phase`` (a ``PipelinePhase``) to
+    resolve the phase execution — no string→enum coercion needed.
+    ``None`` (section omitted) when there is nothing to surface for the
+    audience — the no-kickback golden-stable path. Best-effort: a
     store/parse failure returns ``None`` rather than 500-ing the
     route, so a transient read glitch degrades to the pre-fix prompt
     shape rather than wedging BRC.
@@ -659,11 +670,14 @@ def _build_iteration_feedback(pipeline_id: str, repo_path: Path | None) -> dict[
         return None
     phase_execution = get_phase_execution(phase_enum)
     directives = list(phase_execution.operator_directives or [])
-    history = list(phase_execution.iteration_history or [])
+    # The reviewer arm gets directives only — the prior-iteration verdict
+    # matrix is the producer's scorecard, not review context.
+    include_prior = audience != "reviewer"
+    history = list(phase_execution.iteration_history or []) if include_prior else []
     if not directives and not history:
         return None
 
-    payload: dict[str, Any] = {}
+    payload: dict[str, Any] = {"audience": audience}
     if directives:
         payload["directives"] = [
             {
@@ -681,7 +695,7 @@ def _build_iteration_feedback(pipeline_id: str, repo_path: Path | None) -> dict[
             "nack_reasons": list(latest.nack_reasons or []),
             "final_proposal_commit": dict(latest.final_proposal_commit or {}),
         }
-    return payload or None
+    return payload
 
 
 def _resolve_repo_path_for_next_action(pipeline_id: str) -> Path | None:
@@ -784,17 +798,28 @@ def handle_next_action(pipeline_id: str) -> tuple[Response, int]:
             "after it confirmed — deliver them, mark them complete, and re-propose"
         )
 
-    # Per-iteration operator kickback (#3231): the ``propose`` arm is the
-    # only one where a kicked-back producer re-runs, so thread the
-    # operator's ``request_changes`` / ``change_approach`` feedback onto
-    # the event_payload there. Under ``EGG_EVENT_LOOP_OWNER=orchestrator``
-    # the re-spawned producer's prompt is composed from this payload; without
-    # this block the producer re-reads its own prior draft and re-proposes it
-    # unchanged (the #1283 / #1915 fake-cycle class). Best-effort: a read
-    # failure degrades to the pre-fix shape rather than wedging BRC.
-    if action == "propose":
+    # Per-iteration operator kickback (#3231): thread the operator's
+    # ``request_changes`` / ``change_approach`` feedback onto the
+    # event_payload so the re-spawned agent sees it under
+    # ``EGG_EVENT_LOOP_OWNER=orchestrator`` (its prompt is composed from
+    # this payload). Two arms carry it:
+    #   * ``propose`` — the kicked-back producer must address (or rebut)
+    #     the directive before re-proposing, else it re-reads its own
+    #     prior draft and re-proposes it unchanged (the #1283 / #1915
+    #     fake-cycle class). Full block: directives + prior-iteration
+    #     summary.
+    #   * ``ack`` — the reviewer re-reviewing the producer's
+    #     directive-driven change needs the directive that authorised it,
+    #     else it NACKs against a stale default rubric and re-stalls the
+    #     cycle (the reviewer-side staleness #2795 fixed in-pod).
+    #     Directives only — no producer scorecard.
+    # Best-effort: a read failure degrades to the pre-fix shape rather
+    # than wedging BRC.
+    if action in ("propose", "ack"):
         iteration_feedback = _build_iteration_feedback(
-            pipeline_id, _resolve_repo_path_for_next_action(pipeline_id)
+            pipeline_id,
+            _resolve_repo_path_for_next_action(pipeline_id),
+            audience="producer" if action == "propose" else "reviewer",
         )
         if iteration_feedback:
             event_payload = dict(event_payload or {})

@@ -208,3 +208,61 @@ def test_next_action_omits_iteration_feedback_when_no_kickback(client, simple_tr
     assert resp.status_code == 200
     payload = resp.get_json().get("event_payload") or {}
     assert "iteration_feedback" not in payload
+
+
+def _propose(tracker, role: str = "coder") -> None:
+    tracker.handle_propose(
+        role,
+        {
+            "summary": (
+                "Proposal with substantive content describing the work, "
+                "tests run, and tasks satisfied for review."
+            ),
+            "artifacts": ["a.py"],
+            "commit_sha": "abc1234",
+        },
+    )
+
+
+def test_build_iteration_feedback_reviewer_audience_drops_prior_iteration() -> None:
+    """``audience="reviewer"`` surfaces directives only — no producer
+    scorecard — and tags the block for review framing (#3231 review item 1).
+    """
+    from routes.consensus import _build_iteration_feedback
+
+    store = MagicMock()
+    store.load_pipeline.return_value = _pipeline_state(_phase_execution_with_directives())
+    with patch("routes.consensus.get_state_store", return_value=store):
+        block = _build_iteration_feedback(PIPELINE_ID, Path("/repo"), audience="reviewer")
+    assert block is not None
+    assert block["audience"] == "reviewer"
+    assert [d["iteration_n"] for d in block["directives"]] == [0, 1]
+    assert "prior_iteration" not in block
+
+
+def test_next_action_attaches_directives_only_on_reviewer_ack(client, simple_tracker) -> None:
+    """A reviewer's ``ack`` event_payload carries directives-only
+    ``iteration_feedback`` so it evaluates the producer's directive-driven
+    change against the operator's steering, not a stale rubric (#3231
+    review item 1).
+    """
+    _propose(simple_tracker, "coder")
+    store = MagicMock()
+    store.load_pipeline.return_value = _pipeline_state(_phase_execution_with_directives())
+    with (
+        patch("routes.consensus.get_peer_consensus_tracker", return_value=simple_tracker),
+        patch("routes.consensus.get_state_store", return_value=store),
+        patch(
+            "routes.consensus._resolve_repo_path_for_next_action",
+            return_value=Path("/repo"),
+        ),
+    ):
+        resp = _post(client, "reviewer_code")
+    assert resp.status_code == 200, resp.data
+    data = resp.get_json()
+    assert data["action"] == "ack"
+    fb = data["event_payload"]["iteration_feedback"]
+    assert fb["audience"] == "reviewer"
+    assert "Drop cq-2" in fb["directives"][-1]["feedback_text"]
+    # Reviewer side gets directives only — no producer scorecard.
+    assert "prior_iteration" not in fb

@@ -2942,3 +2942,126 @@ def test_cli_renders_iteration_feedback_from_event_payload(tmp_path) -> None:
     out = out_buf.getvalue()
     assert "## Operator feedback on the prior draft" in out
     assert "Address the scope correction." in out
+
+
+def test_iteration_feedback_reviewer_audience_frames_for_review() -> None:
+    """A reviewer-audience block frames the directive as steering to
+    evaluate the producer's draft AGAINST, not feedback to re-propose
+    against (#3231 review item 1).
+    """
+    prompt = compose_event_prompt(
+        "reviewer_code",
+        {"action": "ack"},
+        "",
+        [],
+        [],
+        "main",
+        iteration_feedback={
+            "audience": "reviewer",
+            "directives": [
+                {"iteration_n": 1, "feedback_text": "Build for ALL roles."},
+            ],
+        },
+    )
+
+    assert "## Operator feedback steering this phase" in prompt
+    assert "Build for ALL roles." in prompt
+    # Reviewer framing — evaluate against, don't NACK back to the rubric.
+    assert "Evaluate the draft AGAINST the directive" in prompt
+    assert "re-stalls the cycle" in prompt
+    # The producer-only "unchanged re-propose is a defect" framing is absent.
+    assert "content_changed: false" not in prompt
+
+
+def test_iteration_feedback_prior_iteration_only_guards_directive_prose() -> None:
+    """When only a prior-iteration summary is present (no directive), the
+    intro does not assert a directive exists (#3231 review item 4).
+    """
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose"},
+        "",
+        [],
+        [],
+        "main",
+        iteration_feedback={
+            "prior_iteration": {
+                "iteration_n": 0,
+                "verdict_matrix": {"reviewer_code->coder": "nacked"},
+                "nack_reasons": ["reviewer_code->coder: too narrow"],
+            },
+        },
+    )
+
+    assert "## Operator feedback on the prior draft" in prompt
+    assert "### Prior iteration summary" in prompt
+    # No dangling "directive(s) below are the operator's authoritative
+    # feedback" prose when there is no directive to point at.
+    assert "directive(s) below are the operator's authoritative" not in prompt
+    # Still tells the producer an unchanged re-propose is a defect.
+    assert "defect" in prompt
+
+
+def test_iteration_feedback_renders_final_proposal_commit() -> None:
+    """The prior iteration's final proposal commit(s) render for parity
+    with the in-pod renderer (#3231 review item 2).
+    """
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose"},
+        "",
+        [],
+        [],
+        "main",
+        iteration_feedback={
+            "directives": [{"iteration_n": 0, "feedback_text": "Reframe."}],
+            "prior_iteration": {
+                "iteration_n": 0,
+                "verdict_matrix": {},
+                "nack_reasons": [],
+                "final_proposal_commit": {"coder": "abc123", "tester": "def456"},
+            },
+        },
+    )
+
+    assert "Final proposal commit(s):" in prompt
+    assert "coder: abc123" in prompt
+    assert "tester: def456" in prompt
+
+
+def test_iteration_feedback_section_truncates_when_no_nacks_to_cut() -> None:
+    """A maximal task + maximal iteration feedback with NO NACKs honours
+    the envelope cap by truncating the iteration-feedback section itself
+    (#3231 review item 3 — NACKs are no longer the only truncation lever).
+    """
+    from orchestrator.routes.event_prompt import (
+        _ITERATION_FEEDBACK_TRUNCATION_SENTINEL,
+        ITERATION_FEEDBACK_MAX_CHARS,
+        MEMORY_EXCERPT_MAX_CHARS,
+        TASK_DESCRIPTION_MAX_CHARS,
+    )
+
+    # Maximal task + maximal memory + maximal iteration feedback and NO
+    # NACKs: the fixed floor overshoots the cap with nothing in NACKs to
+    # cut, so the iteration-feedback section must absorb the truncation.
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose"},
+        "m" * MEMORY_EXCERPT_MAX_CHARS,
+        [],  # no NACKs — nothing for the prior path to cut
+        [],
+        "main",
+        task_description="t" * TASK_DESCRIPTION_MAX_CHARS,
+        iteration_feedback={
+            "directives": [
+                {"iteration_n": 0, "feedback_text": "y" * ITERATION_FEEDBACK_MAX_CHARS},
+            ],
+        },
+    )
+
+    envelope = _strip_git_log_blocks(prompt)
+    assert len(envelope.encode("utf-8")) <= PROMPT_ENVELOPE_MAX_BYTES
+    # The section header survives (truncation keeps the prefix); the
+    # iteration-feedback sentinel (not the NACK one) marks the cut.
+    assert "## Operator feedback on the prior draft" in prompt
+    assert _ITERATION_FEEDBACK_TRUNCATION_SENTINEL.strip() in prompt
