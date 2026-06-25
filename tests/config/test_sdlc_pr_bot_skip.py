@@ -145,17 +145,48 @@ def test_autofix_gate_allows_manual_dispatch() -> None:
 # SAME patterns the workflows embed — combined with the bash `||` the gates use —
 # so the actual match/no-match behavior is locked in, not just the spelling.
 #
-# Both gates skip when the head ref matches SLICE_RE *or* WORK_RE. We compile the
-# pinned constants (which `test_*_skips_both_pipeline_shapes` proves are the ones
-# actually present in the scripts) and assert the resulting decision per ref.
+# Crucially, the table runs against the regexes *extracted from the YAML run:
+# script*, not the SLICE_RE/WORK_RE constants. A substring pin (`SLICE_RE in
+# script`) would accept a typo'd workflow regex with a stray trailing character
+# (e.g. `^egg/.+/slice-[0-9]+$X`) — that string contains SLICE_RE as a substring,
+# so the pin passes, yet it matches different refs in bash. Parsing the actual
+# `=~` operands out of the script and feeding *those* through the table closes
+# that gap: a trailing-char regression changes the operand and trips a case here.
 
 
-def _is_skipped(ref: str) -> bool:
-    """True when a head ref matches either pipeline shape — i.e. the bot skips it.
+def _extract_branch_regexes(job: dict, step_id: str) -> list[str]:
+    """Recover the bash ``=~`` regex operands from a should-run check script.
 
-    Mirrors the workflows' ``[[ "$REF" =~ SLICE_RE || "$REF" =~ WORK_RE ]]``.
+    Both gates embed ``[[ "$REF" =~ <slice-re> || "$REF" =~ <work-re> ]]``. The
+    operands are unquoted (bash requires this for ``=~`` to treat the RHS as a
+    regex rather than a literal) and are therefore whitespace-terminated, so a
+    simple ``=~ <non-space-run>`` scan recovers the exact regexes the workflow
+    applies at runtime — including any stray trailing character a typo would
+    introduce, which a substring pin against the constants would silently accept.
     """
-    return bool(re.search(SLICE_RE, ref)) or bool(re.search(WORK_RE, ref))
+    script = _step_run(job, step_id)
+    operands = re.findall(r"=~\s+(\S+)", script)
+    assert operands, (
+        f"no bash `=~` regex operands found in step (id: {step_id}) — the "
+        "branch-topology check is not gating on the head ref at all"
+    )
+    return operands
+
+
+# The two pipeline-PR gates whose embedded regexes drive the behavioral table.
+_BEHAVIORAL_GATES = [
+    pytest.param(REVIEW_CALLER, "should-run", "check", id="review-caller"),
+    pytest.param(AUTOFIX_CALLER, "should-run", "check", id="autofix-caller"),
+]
+
+
+def _is_skipped(ref: str, patterns: list[str]) -> bool:
+    """True when a head ref matches any pipeline shape — i.e. the bot skips it.
+
+    Mirrors the workflows' ``[[ "$REF" =~ <re1> || "$REF" =~ <re2> ]]`` over the
+    regexes actually extracted from the gate's ``run:`` script.
+    """
+    return any(re.search(pattern, ref) for pattern in patterns)
 
 
 # (ref, should_be_skipped). Comments note why, including the deliberate
@@ -186,11 +217,19 @@ _REF_CASES = [
 ]
 
 
+@pytest.mark.parametrize(("workflow", "job_id", "step_id"), _BEHAVIORAL_GATES)
 @pytest.mark.parametrize(("ref", "skipped"), _REF_CASES)
-def test_skip_patterns_match_expected_refs(ref: str, skipped: bool) -> None:
-    """The pinned regexes skip exactly the pipeline branch shapes (and the
-    documented multi-segment over-match), and let everything else through."""
-    assert _is_skipped(ref) is skipped, (
-        f"ref {ref!r}: expected skipped={skipped}, got {_is_skipped(ref)} — "
-        f"SLICE_RE={SLICE_RE!r} WORK_RE={WORK_RE!r}"
+def test_skip_patterns_match_expected_refs(
+    workflow: Path, job_id: str, step_id: str, ref: str, skipped: bool
+) -> None:
+    """Each gate's *embedded* regexes skip exactly the pipeline branch shapes
+    (and the documented multi-segment over-match), and let everything else
+    through. Runs against the operands parsed out of the YAML run: script, so a
+    trailing-char anchor regression that survives the substring pins is caught.
+    """
+    patterns = _extract_branch_regexes(_job(workflow, job_id), step_id)
+    decision = _is_skipped(ref, patterns)
+    assert decision is skipped, (
+        f"{workflow.name} ref {ref!r}: expected skipped={skipped}, got "
+        f"{decision} — extracted patterns={patterns!r}"
     )
