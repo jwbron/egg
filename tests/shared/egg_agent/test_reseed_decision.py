@@ -105,8 +105,7 @@ def _decision_fn():
             if callable(fn):
                 return fn
     pytest.skip(
-        "resume-vs-reseed decision fn not yet implemented "
-        "(waiting on coder, slice-8 task-8-1)"
+        "resume-vs-reseed decision fn not yet implemented (waiting on coder, slice-8 task-8-1)"
     )
 
 
@@ -189,7 +188,7 @@ def _invoke(
     threshold = _threshold_for(model)
     try:
         sig = inspect.signature(fn)
-    except (TypeError, ValueError):  # pragma: no cover - builtins etc.
+    except TypeError, ValueError:  # pragma: no cover - builtins etc.
         return fn(state, model)
 
     kwargs: dict[str, Any] = {}
@@ -295,13 +294,12 @@ def _verdict(result: Any, *, session_id: str) -> str:
     )
 
 
-def _decide(
-    *, model: str, occupancy: int | None, session_id: str, enabled: bool = True
-) -> str:
+def _decide(*, model: str, occupancy: int | None, session_id: str, enabled: bool = True) -> str:
     fn = _decision_fn()
-    return _verdict(_invoke(
-        fn, model=model, occupancy=occupancy, session_id=session_id, enabled=enabled
-    ), session_id=session_id)
+    return _verdict(
+        _invoke(fn, model=model, occupancy=occupancy, session_id=session_id, enabled=enabled),
+        session_id=session_id,
+    )
 
 
 # Models used across the boundary tests.
