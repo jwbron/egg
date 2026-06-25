@@ -330,6 +330,12 @@ class TestRestartPhasePersistsInFlightBrcHistory:
     to the mid-phase restart path, which is the slice-7 gap.
     """
 
+    @pytest.mark.xfail(
+        reason="task-7-1 (coder) wires restart_phase -> persist; assumed seam "
+        "_persist_phase_brc_history, mechanism (a Redis-survival vs b durable persist) "
+        "pending architect confirmation. HANDOFF sent; xfail removed on convergence.",
+        strict=False,
+    )
     @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines._persist_phase_brc_history")
     @patch("routes.pipelines.get_container_spawner")
@@ -362,6 +368,11 @@ class TestRestartPhasePersistsInFlightBrcHistory:
             f"restart must persist the in-flight phase's record, got phase={phase_arg!r}"
         )
 
+    @pytest.mark.xfail(
+        reason="task-7-1 (coder) wires restart_phase -> persist before teardown; "
+        "mechanism pending architect confirmation. HANDOFF sent; xfail removed on convergence.",
+        strict=False,
+    )
     @patch("routes.pipelines.agent_salvage.enumerate_agent_worktrees")
     @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines._persist_phase_brc_history")
