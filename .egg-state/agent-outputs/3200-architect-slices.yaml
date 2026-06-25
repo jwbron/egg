@@ -1,0 +1,133 @@
+slices:
+  - id: 1
+    name: |-
+      Token-occupancy capture in AgentResult (AC-1, foundational prerequisite)
+    goal: |-
+      Stop dropping ResultMessage.usage. Add window-occupancy fields to
+      AgentResult (shared/egg_agent/result.py): window_occupancy_tokens plus
+      components input_tokens / cache_read_tokens / cache_creation_tokens and
+      output_tokens (Optional[int], default None). In
+      shared/egg_agent/client.py (~L717-751) read message.usage on BOTH the
+      success and error ResultMessage return paths; window_occupancy_tokens =
+      cache_read + cache_creation + input (NOT billed/effective input — under
+      resume cache_read is the bulk and counts toward the window). A missing/None
+      usage block leaves occupancy None (older SDK, errors, non-Claude LiteLLM
+      routes). Tests: populated usage -> correct sum on both paths; absent usage
+      -> None, no exception. Head of the serialized chain.
+    # root slice — head of the serialized chain
+  - id: 2
+    name: |-
+      Real-backend-window resolver + threshold (AC-3 foundation)
+    goal: |-
+      Add real_backend_window(alias_or_id) -> int to
+      orchestrator/agent_model_resolution.py, reusing _SUB_1M_CONTEXT_MODELS, the
+      [1m]-suffix semantics and the Claude alias set: opus[1m]->1_000_000;
+      opus/sonnet/haiku without [1m]->200_000; sub-1M registry (kimi 262_144;
+      future Qwen-class 131_072). CRITICAL: never use the [1m] alias value when
+      the backend is smaller (the mis-trigger bug). Add threshold(model) =
+      min(400_000, 0.80 * real_backend_window). UNKNOWN-model default must be the
+      SMALLEST known window (conservative), not 200K, so an unregistered sub-200K
+      backend cannot mis-trigger. Expose for Python import by the gate (slice 6).
+      Tests assert worked examples: opus[1m]->400k; 200K->160k; Qwen-128K->~102k.
+    dependencies: slice-1
+  - id: 3
+    name: |-
+      Protected root: deterministic, byte-stable, cacheable (AC-2 part 1)
+    goal: |-
+      Implement a protected-root renderer in fixed order: role contract + task
+      anchor (compose_task_description, #3163) + #3189 deterministic anchors
+      (last-reviewed SHA/producer, latest verdicts, open NACKs, conditional-ACK
+      obligations) + non-negotiable directives. SOURCE the #3189 anchors from
+      their EXISTING derivation — orchestrator/routes/event_prompt.py
+      (_render_producer_delta_section, _render_nacks_section) and
+      orchestrator/routes/consensus.py (PeerConsensusTracker.matrix) — NOT from
+      shared/egg_anchor, whose BRCState (models.py:96-103) carries only
+      acks/nacks + last_message_id and lacks these four fields; if any are
+      underived today, derive them here (this is the #3189 substrate). Render to
+      STABLE BYTES: sorted keys, bounded counts, hard per-section caps, NO
+      timestamps/sequence numbers (project around egg_anchor's timestamp-heavy
+      model, do not serialize it). Byte-stability test: identical anchor input ->
+      identical bytes across runs.
+    dependencies: slice-2
+  - id: 4
+    name: |-
+      Queryable environment: stop inlining bulk, pull JIT (AC-2 part 2)
+    goal: |-
+      Remove the UNBOUNDED per-producer git-log delta
+      (event_prompt.py:_render_producer_delta_section) and the 2KB memory excerpt
+      (_render_memory_section) from the inlined event prompt. Replace with JIT
+      POINTERS in the protected root: the last-reviewed + proposal SHAs, the exact
+      `git log A..B --not origin/base -p` recipe, and the read_peer_artifact /
+      GET /<pipeline>/brc-transcript handles. Move #3188 agent-authored enrichment
+      (sandbox/egg_agent_tools/handlers/brc_memory.py) INTO the queryable
+      environment, SHA-stamped (claims not ground truth; the deterministic layer +
+      git-log delta stay authoritative). Honest-limit comment: JIT pull lowers the
+      resident root cost but does NOT bound the window — the reseed (slice 6)
+      bounds; the pull makes reseed re-pull-able. Tests: prompt excludes bulk; the
+      pull recipe is present and resolvable.
+    dependencies: slice-3
+  - id: 5
+    name: |-
+      Persistence timing: session-state + message record survive mid-phase restart
+    goal: |-
+      The gate's per-(role[,slice]) session-state file
+      {session_id, window_occupancy_tokens, real_window, last_event_ts,
+      pipeline_id} is the durable event-to-event link. _write_brc_history persists
+      only at PHASE TRANSITIONS today, and restart_phase previously deleted
+      per-role worktrees + durable memory (#3183 mass cold re-review). Persist the
+      state file under a restart-STABLE .egg-state path (alongside durable BRC
+      memory / the message record — NOT inside a per-role worktree restart_phase
+      nukes); reuse shared/egg_anchor's atomic temp-then-rename + validation.
+      Validate on read; treat missing/invalid/cross-pipeline as 'fresh'. Tests: a
+      mid-phase restart preserves the record + state file; a corrupt file -> fresh,
+      never a wrong resume.
+    dependencies: slice-4
+  - id: 6
+    name: |-
+      Resume-vs-reseed gate (Python) + minimal resume substrate (AC-3) — resolves OQ1
+    goal: |-
+      The gate lives in PYTHON, not bash: the bash wrapper sees only the exit code
+      and the --model alias, so it cannot compute occupancy/real-window/session_id.
+      New shared/egg_agent/session_discipline.py: read the slice-5 state file; if
+      prior occupancy < threshold(model) AND session_id present -> warm resume;
+      else fresh from the protected root (reseed/cold start). occupancy None biases
+      to RESEED (never 'below threshold' — under-reseeding the sub-200K non-Claude
+      routes is the lossy-compaction trap). BUILD THE RESUME ARM (OQ1, corroborated
+      by risk_analyst R1): session resume (#3186) is unimplemented — ClaudeAgentOptions
+      has no resume= and __main__.py no --resume. This slice wires resume=<session_id>
+      into ClaudeAgentOptions (shared/egg_agent/client.py) and the session-state
+      round-trip into __main__.py; consensus_wrapper.py change is limited to an
+      enable flag + ensuring role/slice/pipeline env (already present). SPIKE the
+      installed SDK's resume= support first (OQ2); if absent, report_impasse and
+      fall back to orchestrator-seeded fresh-from-root. Tests: occupancy just under
+      threshold -> resume; just over -> reseed; None -> reseed.
+    dependencies: slice-5
+  - id: 7
+    name: |-
+      Generalize to ALL BRC roles behind a kill-switch flag (operator scope)
+    goal: |-
+      Wire the full mechanism (occupancy capture + protected-root/queryable-env
+      split + Python gate) uniformly for every event-pump role — producers AND
+      reviewers — with a role-parameterized root render (each role's contract + its
+      own #3189 anchors). Ship behind a FEATURE FLAG whose OFF state retains today's
+      full-context inline path (risk_analyst R9): AC-5 forbids measurement, not
+      reversibility — a flag makes the operator's end-to-end test a one-toggle
+      revert and the deferred A/B a toggle, not a code revert. Do NOT remove the
+      full-context path in this pipeline. Integration tests exercise at least one
+      producer and one reviewer with the flag ON and OFF (OFF == byte-identical to
+      today, golden-file).
+    dependencies: slice-6
+  - id: 8
+    name: |-
+      Measurement surfaces — emit only, no measurement run (AC-4, AC-5)
+    goal: |-
+      Emit per-event measurement surfaces from the occupancy field + gate decision
+      via existing progress/heartbeat/AgentResult.metadata channels: peak
+      utilization under resume, reseed frequency per phase, root-cache hit rate,
+      tokens/event, and single-event working set vs real window (the recursion-
+      escalation signal for the deferred follow-up). EMIT ONLY — no aggregation,
+      A/B, status-quo comparison, or gating (AC-5). The measurement pass, go/no-go,
+      gated generalization, recursion escalation, and preserved fallback are
+      explicit FOLLOW-UP. Tests: surfaces emitted with correct values for a
+      synthetic occupancy + reseed event. File-light; ordered last.
+    dependencies: slice-7
