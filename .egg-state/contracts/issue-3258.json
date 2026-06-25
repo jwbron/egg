@@ -43,10 +43,33 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "D) Emit-only against existing AgentResult fields plus defined adapter seams that degrade gracefully (null/zero) until the real fields land \u2014 keeps slice-10 self-contained on main today\n\nBinding direction: build all input reads (occupancy + reseed) through a SINGLE adapter seam that binds to the real fields when present and returns null/zero when absent (the case on main today); real values flow automatically once #3236/#3251 merge \u2014 no rework. Do NOT stack on egg/issue-3200/* (reject A), do NOT vendor a duplicate substrate (reject B), do NOT block (reject C). Emit the six metrics only through existing progress/heartbeat/metrics surfaces; emit-only is hard scope (nothing gated; ship the AC-2 structural no-decision-branch test); AC-3 tests drive a synthetic \u22651-reseed event sequence through the seam.",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-25T20:46:20.168838Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "approve",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-25T20:45:35.941815Z",
       "debounce_until": null
     }
   ],

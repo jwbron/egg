@@ -143,3 +143,10 @@ seam that degrades gracefully (null/zero) until the real fields land. Options A 
 
 The measurement pass itself, go/no-go decision, generalization beyond slices 1–9, sub-agent
 recursion, and the preserved fallback.
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the refine phase gate:
+
+approve
