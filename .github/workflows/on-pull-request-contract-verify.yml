@@ -51,6 +51,35 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Count the implementation slices in a pipeline's contract on a given
+          # ref. Mirrors the orchestrator's _is_slice_dag_mode discriminator
+          # (len(slices) > 1) so the work->main gate below can tell a multi-slice
+          # context roll-up apart from a single-slice/monolithic implementation
+          # PR (#3254 review). The contract is fetched by the pipeline's OWN key
+          # (egg/<id>/work -> id -> id.json, with a legacy bare-number fallback
+          # for pre-unification issue contracts) — never the whole contracts/
+          # dir, which inherits historical multi-slice contracts from main and
+          # would cause a false skip. Echoes the slice count; 0 on any
+          # fetch/parse failure so the caller fails open (review runs).
+          __egg_work_slice_count() {
+            local pid="$1" ref="$2" b64 count cf candidates
+            candidates="${pid}.json"
+            if [[ "$pid" == issue-* ]]; then
+              candidates="${candidates} ${pid#issue-}.json"
+            fi
+            for cf in $candidates; do
+              b64=$(gh api "repos/${{ github.repository }}/contents/.egg-state/contracts/${cf}?ref=${ref}" \
+                --jq '.content // ""' 2>/dev/null || echo "")
+              if [[ -n "$b64" ]]; then
+                count=$(printf '%s' "$b64" | base64 -d 2>/dev/null \
+                  | jq '((.slices // .phases) // []) | length' 2>/dev/null || echo 0)
+                echo "${count:-0}"
+                return 0
+              fi
+            done
+            echo 0
+          }
+
           # Fetch PR metadata (labels, head + base branch, body) in a single API call
           pr_data=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '{labels: [.labels[].name], branch: .head.ref, base: .base.ref, body: .body}')
           branch_name=$(echo "$pr_data" | jq -r '.branch')
@@ -101,19 +130,39 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
-            # Context/state PR (egg/<id>/work -> main) carries ONLY .egg-state/
-            # orchestration artifacts (contract, BRC history, drafts,
-            # agent-outputs) and never implementation code — that is delivered
-            # incrementally through the stacked slice PRs. Running
-            # implementation verification here is a false positive by
-            # construction (#3254), so skip deterministically on the head/base
-            # topology BEFORE the sdlc:pr / added-contract triggers can fire
-            # (the work->main diff *adds* the contract relative to main, which
-            # would otherwise trip the added-contract trigger below).
-            if [[ "$branch_name" =~ ^egg/.+/work$ && ( "$base_name" == "main" || "$base_name" == "master" ) ]]; then
-              echo "Context PR ${branch_name} -> ${base_name}: only .egg-state/ artifacts, skipping contract verification"
-              echo "run=false" >> "$GITHUB_OUTPUT"
-              exit 0
+            # The work->main PR (egg/<id>/work -> main) shares ONE head/base
+            # topology across two very different cases, and topology ALONE
+            # cannot tell them apart (#3254 review):
+            #
+            #   * Multi-slice pipeline — implementation is delivered through
+            #     stacked slice PRs (egg/<id>/slice-N -> egg/<id>/work), each
+            #     verified on its own (see the slice trigger below). The
+            #     work->main PR is then a pure context/state roll-up carrying
+            #     only .egg-state/ artifacts, so verifying it is a false
+            #     positive by construction. SKIP.
+            #   * Single-slice / monolithic pipeline — no slice PR is ever
+            #     opened (the orchestrator routes the implement phase through
+            #     the slice loop only when the contract has >1 slice; see
+            #     _is_slice_dag_mode). Implementation is committed directly onto
+            #     egg/<id>/work, so work->main IS the implementation PR and is
+            #     the ONLY GitHub-level verification it gets. DO NOT SKIP.
+            #
+            # Discriminate on the same key the orchestrator uses: the slice
+            # count in the contract on the work branch (len(slices) > 1). This
+            # must run BEFORE the sdlc:pr / added-contract triggers, since the
+            # work->main diff *adds* the contract relative to main and would
+            # otherwise trip the added-contract trigger below for the multi-slice
+            # roll-up too. A failed contract fetch yields 0 -> falls through to
+            # normal gating (fail-open — the safe direction).
+            if [[ "$branch_name" =~ ^egg/(.+)/work$ && ( "$base_name" == "main" || "$base_name" == "master" ) ]]; then
+              pipeline_id="${BASH_REMATCH[1]}"
+              slice_count=$(__egg_work_slice_count "$pipeline_id" "$branch_name")
+              if [[ "${slice_count:-0}" -gt 1 ]]; then
+                echo "Context PR ${branch_name} -> ${base_name}: multi-slice contract (${slice_count} slices) — implementation delivered via slice PRs, skipping contract verification (#3254)"
+                echo "run=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "PR ${branch_name} -> ${base_name}: ${slice_count} slice(s) — single-slice/monolithic implementation PR, not a context roll-up; continuing to normal gating (#3254)"
             fi
 
             # Check if PR has sdlc:pr label
