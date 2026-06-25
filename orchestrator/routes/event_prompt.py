@@ -102,6 +102,28 @@ _TASK_TRUNCATION_SENTINEL: str = (
     "reimplement decisions)\n"
 )
 
+# Cap on the inline copy of the per-iteration operator feedback (#3231).
+# The orchestrator-owned event-loop respawn path threads the operator's
+# ``request_changes`` / ``change_approach`` kickback — recorded on
+# ``PhaseExecution.operator_directives`` (#2795) — into the re-spawned
+# producer's prompt via the ``next-action`` event_payload so the
+# producer addresses (or explicitly rebuts) it before re-proposing,
+# rather than re-reading its own prior draft and re-proposing it
+# unchanged (the #1283 / #1915 fake-cycle class). The full directive
+# history stays in ``PhaseExecution.operator_directives``; this inline
+# excerpt carries the most recent directive (the one the producer must
+# answer THIS round) plus a frozen summary of the prior iteration's
+# verdicts/NACKs. 4 KB inside the 10 KB envelope leaves room for the
+# event payload, the task section, and the (separately truncatable)
+# NACKs section.
+ITERATION_FEEDBACK_MAX_CHARS: int = 4000
+
+_ITERATION_FEEDBACK_TRUNCATION_SENTINEL: str = (
+    "\n…(operator feedback truncated — pull the full directive history "
+    "with ``egg-orch brc get-state`` if you need every prior round before "
+    "re-proposing)\n"
+)
+
 
 def _truncate(text: str, max_chars: int) -> str:
     """Trim ``text`` to ``max_chars`` characters with an ellipsis sentinel.
@@ -431,6 +453,181 @@ def _render_task_section(task_description: str) -> str:
     )
 
 
+def _directive_meta_tag(directive: dict[str, Any]) -> str:
+    """Format a directive's iteration + timestamp as a parenthetical tag.
+
+    Surfaces both the ``iteration_n`` ordering signal and the
+    ``created_at`` wall-clock timestamp the route collects (#3231
+    re-review note 1 — the timestamp was packed into the payload but
+    never rendered). Returns ``""`` when neither is present so callers
+    can append unconditionally without a dangling ``()``.
+    """
+    parts: list[str] = []
+    it = directive.get("iteration_n")
+    if it is not None:
+        parts.append(f"iteration {it}")
+    created = str(directive.get("created_at") or "").strip()
+    if created:
+        parts.append(created)
+    return f" ({', '.join(parts)})" if parts else ""
+
+
+def _render_iteration_feedback_section(iteration_feedback: dict[str, Any] | None) -> str:
+    """Render the per-iteration operator kickback as a pushed section (#3231).
+
+    Under ``EGG_EVENT_LOOP_OWNER=orchestrator`` the re-spawned producer's
+    prompt is composed here (not via the in-pod ``_build_phase_iteration_context``
+    path that already carries #2795's iteration context). Without this
+    section the producer re-reads its own prior on-disk draft and
+    re-proposes it byte-for-byte — the operator's ``request_changes`` /
+    ``change_approach`` silently no-ops (the #1283 / #1915 fake-cycle
+    class, regressed for the orchestrator-owned event loop).
+
+    The orchestrator's ``next-action`` route attaches the current phase
+    execution's ``operator_directives`` (chronological) + — for the
+    producer ``propose`` arm — the latest ``iteration_history`` summary
+    onto the event_payload as a serializable ``iteration_feedback`` dict;
+    this renderer turns it into the markdown the agent sees. The
+    ``audience`` key (``"producer"`` / ``"reviewer"``) selects the
+    framing: the producer is told to address-or-rebut every directive
+    before re-proposing (an unchanged re-propose is a defect); the
+    reviewer (re-reviewing the producer's directive-driven change, #2795)
+    is told to evaluate the draft *against* the directive rather than
+    NACK it back toward the pre-directive default rubric. Only the most
+    recent directive is rendered in full; earlier directives are
+    summarised one line each so the precedence chain is visible without
+    re-reading the whole history.
+
+    Truncated at ``ITERATION_FEEDBACK_MAX_CHARS`` with an explicit
+    sentinel — the full directive history lives on
+    ``PhaseExecution.operator_directives`` (one ``egg-orch brc get-state``
+    call away). Returns ``""`` when the block carries no directives and
+    no prior-iteration summary so the caller can omit the section
+    entirely (golden-stable for the no-kickback path).
+    """
+    if not isinstance(iteration_feedback, dict):
+        return ""
+    directives = iteration_feedback.get("directives") or []
+    prior_iteration = iteration_feedback.get("prior_iteration")
+    if not directives and not prior_iteration:
+        return ""
+    for_reviewer = iteration_feedback.get("audience") == "reviewer"
+
+    if for_reviewer:
+        title = "## Operator feedback steering this phase — evaluate the draft against it"
+    else:
+        title = "## Operator feedback on the prior draft — address before re-proposing"
+    lines: list[str] = [title, ""]
+
+    # Frame the intro by audience, and only assert directive authority
+    # when a directive is actually present (#3231 review item 4 — the
+    # renderer also fires with a prior-iteration summary and no
+    # directive, e.g. the legacy ``hitl_feedback`` migration path).
+    if directives and for_reviewer:
+        lines.append(
+            "The operator kicked this phase back through a HITL phase gate; "
+            "the directive(s) below are the operator's authoritative "
+            "steering, and the producer's current draft is their response "
+            "to it. Evaluate the draft AGAINST the directive: a faithful "
+            "implementation of the operator's instruction is not grounds "
+            "for a NACK even where it departs from the default rubric. Do "
+            "NOT NACK the change back toward the pre-directive state — that "
+            "fights the operator's steering and re-stalls the cycle."
+        )
+        lines.append("")
+    elif directives:
+        lines.append(
+            "The operator kicked this phase back through a HITL phase gate. "
+            "The directive(s) below are the operator's authoritative feedback "
+            "on your prior proposal; they OVERRIDE prompt-template defaults "
+            "and the contract's submit-time task framing where they conflict. "
+            "You MUST address (or explicitly rebut) every point before "
+            "re-proposing. **An unchanged re-propose after this feedback is a "
+            "defect, not a valid cycle** — re-reading your own prior draft and "
+            "re-proposing it verbatim will re-trip the gate with "
+            "``content_changed: false``."
+        )
+        lines.append("")
+    else:
+        # Prior-iteration summary only (no directive to assert authority
+        # over) — frame the summary without dangling directive prose.
+        lines.append(
+            "The prior iteration's BRC outcome is summarised below. Address "
+            "what tripped the rubric before re-proposing. **An unchanged "
+            "re-propose is a defect, not a valid cycle.**"
+        )
+        lines.append("")
+
+    if isinstance(directives, list) and directives:
+        # Render the most recent directive in full; earlier ones one line
+        # each so the precedence chain is visible without re-bloating the
+        # prompt. The orchestrator emits directives oldest→newest.
+        latest = directives[-1] if isinstance(directives[-1], dict) else {}
+        earlier = directives[:-1]
+        if earlier:
+            lines.append("### Earlier directives (chronological, for precedence)")
+            lines.append("")
+            for idx, d in enumerate(earlier, start=1):
+                if not isinstance(d, dict):
+                    continue
+                text = str(d.get("feedback_text") or "").strip().replace("\n", " ")
+                tag = _directive_meta_tag(d)
+                if text:
+                    lines.append(f"{idx}. {text}{tag}")
+                else:
+                    lines.append(f"{idx}. (no text recorded){tag}")
+            lines.append("")
+
+        meta = _directive_meta_tag(latest)
+        header = "### Most recent directive"
+        if meta:
+            header += f"{meta} — address THIS round"
+        lines.append(header)
+        lines.append("")
+        latest_text = str(latest.get("feedback_text") or "").strip()
+        if latest_text:
+            lines.append(latest_text)
+        else:
+            lines.append("(no text recorded)")
+        lines.append("")
+
+    if isinstance(prior_iteration, dict) and prior_iteration:
+        lines.append("### Prior iteration summary")
+        lines.append("")
+        it_n = prior_iteration.get("iteration_n")
+        if it_n is not None:
+            lines.append(f"Frozen snapshot of iteration {it_n}'s BRC outcome:")
+            lines.append("")
+        verdict_matrix = prior_iteration.get("verdict_matrix") or {}
+        if isinstance(verdict_matrix, dict) and verdict_matrix:
+            verdicts = "; ".join(
+                f"{edge}: {state}" for edge, state in sorted(verdict_matrix.items())
+            )
+            lines.append(f"- Verdict matrix: {verdicts}")
+        nack_reasons = prior_iteration.get("nack_reasons") or []
+        if isinstance(nack_reasons, list) and nack_reasons:
+            lines.append(f"- NACK reasons ({len(nack_reasons)}):")
+            for reason in nack_reasons:
+                lines.append(f"  - {reason}")
+        # Surface the prior iteration's final proposal commit(s) for parity
+        # with the in-pod renderer (#3231 review item 2) — the producer can
+        # diff against this SHA to see exactly what it last proposed.
+        final_commits = prior_iteration.get("final_proposal_commit") or {}
+        if isinstance(final_commits, dict) and final_commits:
+            commits = "; ".join(
+                f"{producer}: {sha}" for producer, sha in sorted(final_commits.items())
+            )
+            lines.append(f"- Final proposal commit(s): {commits}")
+        if not verdict_matrix and not nack_reasons and not final_commits:
+            lines.append("- (no verdict/NACK detail recorded for the prior iteration)")
+        lines.append("")
+
+    rendered = "\n".join(lines)
+    if len(rendered) > ITERATION_FEEDBACK_MAX_CHARS:
+        rendered = rendered[:ITERATION_FEEDBACK_MAX_CHARS] + _ITERATION_FEEDBACK_TRUNCATION_SENTINEL
+    return rendered
+
+
 def _issue_anchor_fallback(contract_data: dict[str, Any]) -> str:
     """Build a minimal task anchor from the contract's ``issue`` info (#3163).
 
@@ -537,6 +734,7 @@ def compose_event_prompt(
     base_branch: str,
     *,
     task_description: str = "",
+    iteration_feedback: dict[str, Any] | None = None,
 ) -> str:
     """Compose the per-event one-shot prompt the wrapper hands the agent.
 
@@ -579,6 +777,23 @@ def compose_event_prompt(
             section so every one-shot invocation carries the operator's
             framing; pass ``""`` to omit (GitHub-issue pipelines, or a
             worktree without the contract file).
+        iteration_feedback: The current phase's operator kickback
+            (#3231) — the per-iteration ``request_changes`` /
+            ``change_approach`` feedback the re-spawned agent must act on,
+            threaded in by the orchestrator's ``next-action`` route from
+            ``PhaseExecution.operator_directives`` / ``iteration_history``
+            (#2795). A dict with an ``audience`` tag (``"producer"`` /
+            ``"reviewer"``), ``directives`` (list of
+            ``{feedback_text, iteration_n}``, oldest→newest) and — for the
+            producer arm — an optional ``prior_iteration`` summary
+            (``{iteration_n, verdict_matrix, nack_reasons,
+            final_proposal_commit}``). Rendered right after the task
+            section. The producer is told to address-or-rebut every
+            directive before re-proposing; the reviewer (re-reviewing the
+            producer's directive-driven change) is told to evaluate the
+            draft against the directive rather than NACK it back toward
+            the pre-directive rubric. Pass ``None`` / empty to omit (no
+            kickback yet — the no-op golden-stable path).
 
     Returns:
         Rendered prompt string suitable for passing as the positional
@@ -596,6 +811,7 @@ def compose_event_prompt(
 
     event_section = _render_event_section(role, event_payload)
     task_section = _render_task_section(task_description)
+    iteration_section = _render_iteration_feedback_section(iteration_feedback)
     delta_section, _delta_bytes = _render_producer_delta_section(git_log_delta, base_branch)
     nacks_section = _render_nacks_section(nacks)
     memory_section = _render_memory_section(memory_excerpt)
@@ -618,35 +834,87 @@ def compose_event_prompt(
 
     # Enforce the envelope cap (architect plan acceptance: "per-event
     # prompt envelope (excluding delta) ≤ 10 KB"). The envelope is the
-    # sum of all sections EXCLUDING the rendered delta; if it would
-    # overflow we truncate the NACKs section (the variable-size driver
-    # — event/contract are bounded, memory is already 2 KB capped, and
-    # the task section is pre-capped at TASK_DESCRIPTION_MAX_CHARS)
-    # while preserving the architect's od-6 tail-position contract for
-    # memory. The truncation is byte-exact with ``errors="replace"`` so
-    # a UTF-8 multibyte sequence split at the boundary doesn't crash;
+    # sum of all sections EXCLUDING the rendered delta. We truncate the
+    # variable-size sections in priority order: the NACKs section first
+    # (the largest driver), then the iteration-feedback section if the
+    # prompt still overshoots — a maximal task + maximal iteration
+    # feedback with no/minimal NACKs can exceed the cap with nothing left
+    # in NACKs to cut (#3231 review item 3). event/contract are bounded,
+    # memory is already 2 KB capped and tail-positioned (od-6 contract),
+    # and the task section carries the operator's submit-time framing we
+    # keep intact. The truncation is byte-exact with ``errors="replace"``
+    # so a UTF-8 multibyte sequence split at the boundary doesn't crash;
     # the sentinel's own byte length is subtracted from the per-section
     # budget so the post-truncation envelope honours the cap.
-    envelope_sections = [
-        s for s in (event_section, task_section, nacks_section, contract, memory_section) if s
-    ]
-    envelope_bytes = sum(len(s.encode("utf-8")) for s in envelope_sections) + max(
-        0, len(envelope_sections) - 1
-    )
-    if envelope_bytes > PROMPT_ENVELOPE_MAX_BYTES and nacks_section:
-        non_nacks_bytes = envelope_bytes - len(nacks_section.encode("utf-8"))
-        sentinel_bytes = len(_ENVELOPE_TRUNCATION_SENTINEL.encode("utf-8"))
-        nacks_budget = max(0, PROMPT_ENVELOPE_MAX_BYTES - non_nacks_bytes - sentinel_bytes)
-        nacks_raw = nacks_section.encode("utf-8")
-        if len(nacks_raw) > nacks_budget:
-            nacks_section = (
-                nacks_raw[:nacks_budget].decode("utf-8", errors="replace")
-                + _ENVELOPE_TRUNCATION_SENTINEL
+    def _envelope_bytes() -> int:
+        present = [
+            s
+            for s in (
+                event_section,
+                task_section,
+                iteration_section,
+                nacks_section,
+                contract,
+                memory_section,
             )
+            if s
+        ]
+        return sum(len(s.encode("utf-8")) for s in present) + max(0, len(present) - 1)
+
+    def _shrink_to_fit(section: str, sentinel: str) -> str:
+        """Byte-exact trim of ``section`` so the envelope honours the cap.
+
+        ``sentinel`` is appended after the cut and its own byte length is
+        reserved from the budget, so the post-truncation envelope still
+        honours the cap. Each truncation candidate passes its own
+        section-appropriate sentinel wording.
+        """
+        sentinel_bytes = len(sentinel.encode("utf-8"))
+        others_bytes = _envelope_bytes() - len(section.encode("utf-8"))
+        budget = max(0, PROMPT_ENVELOPE_MAX_BYTES - others_bytes - sentinel_bytes)
+        raw = section.encode("utf-8")
+        if len(raw) <= budget:
+            return section
+        return raw[:budget].decode("utf-8", errors="replace") + sentinel
+
+    # Shrink the *largest* present truncation candidate first, re-measuring
+    # after each cut. Cutting NACKs before iteration unconditionally (the
+    # earlier two-`if` form) collapsed a small NACKs section to a bare
+    # sentinel — losing the reviewer's actual NACK reasons — while the real
+    # bloat (a ~4 KB iteration section) went untrimmed until the second pass
+    # (#3231 re-review note 1). Picking the larger section each round cuts
+    # the actual driver and only touches the smaller section if trimming the
+    # larger one alone isn't enough.
+    def _largest_candidate() -> str | None:
+        candidates: list[tuple[str, int]] = []
+        if nacks_section:
+            candidates.append(("nacks", len(nacks_section.encode("utf-8"))))
+        if iteration_section:
+            candidates.append(("iteration", len(iteration_section.encode("utf-8"))))
+        if not candidates:
+            return None
+        return max(candidates, key=lambda c: c[1])[0]
+
+    while _envelope_bytes() > PROMPT_ENVELOPE_MAX_BYTES:
+        which = _largest_candidate()
+        if which == "nacks":
+            shrunk = _shrink_to_fit(nacks_section, _ENVELOPE_TRUNCATION_SENTINEL)
+            if shrunk == nacks_section:
+                break  # already at its sentinel floor — nothing left to cut
+            nacks_section = shrunk
+        elif which == "iteration":
+            shrunk = _shrink_to_fit(iteration_section, _ITERATION_FEEDBACK_TRUNCATION_SENTINEL)
+            if shrunk == iteration_section:
+                break
+            iteration_section = shrunk
+        else:
+            break  # no truncation candidates left; fixed sections alone overshoot
 
     parts: list[str] = [event_section]
     if task_section:
         parts.append(task_section)
+    if iteration_section:
+        parts.append(iteration_section)
     if delta_section:
         parts.append(delta_section)
     if nacks_section:
@@ -1231,6 +1499,26 @@ def _extract_nacks(event_payload: Any) -> list[dict[str, Any]]:
     return out
 
 
+def _extract_iteration_feedback(event_payload: Any) -> dict[str, Any] | None:
+    """Pull the per-iteration operator kickback off the event payload (#3231).
+
+    The orchestrator's ``next-action`` route attaches the current phase
+    execution's ``operator_directives`` (chronological) + the latest
+    ``iteration_history`` summary onto the ``propose`` event_payload as a
+    serializable ``iteration_feedback`` dict. This reader is the hop the
+    ``_cli`` composer subprocess uses to pull it back out — defensive
+    against schema drift so a missing/malformed block yields ``None``
+    (section omitted) rather than crashing the wrapper's fallback to the
+    slice-2 stub prompt.
+    """
+    if not isinstance(event_payload, dict):
+        return None
+    raw = event_payload.get("iteration_feedback")
+    if not isinstance(raw, dict):
+        return None
+    return raw
+
+
 def _cli(argv: list[str] | None = None) -> int:
     """Render the per-event prompt for the wrapper bash (TASK-3-2).
 
@@ -1341,6 +1629,20 @@ def _cli(argv: list[str] | None = None) -> int:
     # worktree lacks the contract file entirely (fail-soft).
     task_description = _read_task_description(repo_path)
 
+    # Per-iteration operator kickback (#3231) — the orchestrator's
+    # ``next-action`` route attaches ``iteration_feedback`` onto the
+    # ``propose`` event_payload (sourced from
+    # ``PhaseExecution.operator_directives`` / ``iteration_history``,
+    # #2795) so the re-spawned producer under
+    # ``EGG_EVENT_LOOP_OWNER=orchestrator`` addresses the operator's
+    # ``request_changes`` / ``change_approach`` before re-proposing
+    # instead of re-reading its own prior draft and re-proposing it
+    # unchanged. Read straight off the event payload the wrapper pipes
+    # on stdin — the composer subprocess has no orchestrator-package
+    # context (see ``_read_task_description``) so the payload is the
+    # only hop, mirroring how NACKs already flow.
+    iteration_feedback = _extract_iteration_feedback(event_payload)
+
     prompt = compose_event_prompt(
         role,
         event_payload if isinstance(event_payload, dict) else {"raw": event_payload},
@@ -1349,6 +1651,7 @@ def _cli(argv: list[str] | None = None) -> int:
         delta_entries,
         base_branch,
         task_description=task_description,
+        iteration_feedback=iteration_feedback,
     )
     sys.stdout.write(prompt)
     return 0
