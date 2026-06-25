@@ -663,12 +663,21 @@ def _build_iteration_feedback(
     phase_enum = getattr(pipeline_state, "current_phase", None)
     if phase_enum is None:
         return None
-    get_phase_execution = getattr(pipeline_state, "get_phase_execution", None)
-    if get_phase_execution is None:
-        # No phase-execution accessor (e.g. a stripped test double) —
-        # degrade to the pre-fix prompt shape rather than 500-ing.
+    # Read the phase execution directly off the persisted ``phases`` map
+    # rather than via ``get_phase_execution`` — that accessor is
+    # get-or-create (models.py:1253) and would append an empty
+    # ``PhaseExecution`` to this freshly-loaded, never-saved state for a
+    # phase that never ran (#3231 re-review note 3). A plain dict read has
+    # no such side effect; a missing phase degrades to the no-kickback path.
+    phases = getattr(pipeline_state, "phases", None)
+    if not isinstance(phases, dict):
+        # No phases map (e.g. a stripped test double) — degrade to the
+        # pre-fix prompt shape rather than 500-ing.
         return None
-    phase_execution = get_phase_execution(phase_enum)
+    phase_key = getattr(phase_enum, "value", phase_enum)
+    phase_execution = phases.get(phase_key)
+    if phase_execution is None:
+        return None
     directives = list(phase_execution.operator_directives or [])
     # The reviewer arm gets directives only — the prior-iteration verdict
     # matrix is the producer's scorecard, not review context.

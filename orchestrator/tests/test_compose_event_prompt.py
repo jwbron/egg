@@ -3065,3 +3065,51 @@ def test_iteration_feedback_section_truncates_when_no_nacks_to_cut() -> None:
     # iteration-feedback sentinel (not the NACK one) marks the cut.
     assert "## Operator feedback on the prior draft" in prompt
     assert _ITERATION_FEEDBACK_TRUNCATION_SENTINEL.strip() in prompt
+
+
+def test_truncation_cuts_larger_iteration_section_before_small_nacks() -> None:
+    """When the iteration section is the real bloat and NACKs are small,
+    the iteration section is trimmed first so the reviewer's actual NACK
+    reasons survive intact (#3231 re-review note 1).
+
+    The earlier always-NACKs-first order collapsed a small NACKs section
+    to a bare sentinel — losing the reasons the producer most needs —
+    before touching the ~4 KB iteration section that was actually
+    overshooting the cap.
+    """
+    from orchestrator.routes.event_prompt import (
+        _ENVELOPE_TRUNCATION_SENTINEL,
+        _ITERATION_FEEDBACK_TRUNCATION_SENTINEL,
+        ITERATION_FEEDBACK_MAX_CHARS,
+        MEMORY_EXCERPT_MAX_CHARS,
+        TASK_DESCRIPTION_MAX_CHARS,
+    )
+
+    # A short, distinctive NACK reason and a maximal iteration section:
+    # the iteration section is the larger truncation candidate, so it must
+    # absorb the cut while the small NACK survives whole.
+    distinctive = "SENTINEL-NACK-must-survive-the-cut"
+    nacks = [{"reviewer": "reviewer_code", "version": 2, "reason": distinctive}]
+
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose"},
+        "m" * MEMORY_EXCERPT_MAX_CHARS,
+        nacks,
+        [],
+        "main",
+        task_description="t" * TASK_DESCRIPTION_MAX_CHARS,
+        iteration_feedback={
+            "directives": [
+                {"iteration_n": 0, "feedback_text": "y" * ITERATION_FEEDBACK_MAX_CHARS},
+            ],
+        },
+    )
+
+    envelope = _strip_git_log_blocks(prompt)
+    assert len(envelope.encode("utf-8")) <= PROMPT_ENVELOPE_MAX_BYTES
+    # The iteration section (the larger candidate) is the one cut...
+    assert _ITERATION_FEEDBACK_TRUNCATION_SENTINEL.strip() in prompt
+    # ...and the small NACK reason survives whole, un-collapsed.
+    assert distinctive in prompt
+    assert _ENVELOPE_TRUNCATION_SENTINEL.strip() not in prompt

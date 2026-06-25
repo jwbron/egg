@@ -68,14 +68,18 @@ def _phase_execution_with_directives(phase: str = "refine") -> PhaseExecution:
 
 
 def _pipeline_state(phase_execution: PhaseExecution | None = None) -> MagicMock:
-    """Build a fake pipeline state object exposing ``current_phase`` and
-    ``get_phase_execution``.
+    """Build a fake pipeline state object exposing ``current_phase`` and a
+    real ``phases`` dict.
+
+    ``_build_iteration_feedback`` reads the phase execution directly off the
+    persisted ``phases`` map (not the get-or-create ``get_phase_execution``
+    accessor — see #3231 re-review note 3), so the fake exposes a plain
+    dict keyed by the phase value. ``current_phase`` is the string the real
+    code's ``getattr(phase_enum, "value", phase_enum)`` collapses to.
     """
     pipeline = MagicMock()
-    # current_phase is a PipelinePhase enum; the route only needs
-    # get_phase_execution to accept it and return the PhaseExecution.
     pipeline.current_phase = "refine"
-    pipeline.get_phase_execution = MagicMock(return_value=phase_execution)
+    pipeline.phases = {"refine": phase_execution} if phase_execution is not None else {}
     return pipeline
 
 
@@ -266,3 +270,30 @@ def test_next_action_attaches_directives_only_on_reviewer_ack(client, simple_tra
     assert "Drop cq-2" in fb["directives"][-1]["feedback_text"]
     # Reviewer side gets directives only — no producer scorecard.
     assert "prior_iteration" not in fb
+
+
+def test_next_action_omits_iteration_feedback_on_reviewer_ack_when_no_kickback(
+    client, simple_tracker
+) -> None:
+    """No kickback → a reviewer's ``ack`` event_payload carries no
+    ``iteration_feedback`` key either (locks the reviewer golden path,
+    symmetric with the producer omission test — #3231 re-review note 4).
+    """
+    _propose(simple_tracker, "coder")
+    empty_pe = PhaseExecution(phase="refine")  # type: ignore[arg-type]
+    store = MagicMock()
+    store.load_pipeline.return_value = _pipeline_state(empty_pe)
+    with (
+        patch("routes.consensus.get_peer_consensus_tracker", return_value=simple_tracker),
+        patch("routes.consensus.get_state_store", return_value=store),
+        patch(
+            "routes.consensus._resolve_repo_path_for_next_action",
+            return_value=Path("/repo"),
+        ),
+    ):
+        resp = _post(client, "reviewer_code")
+    assert resp.status_code == 200, resp.data
+    data = resp.get_json()
+    assert data["action"] == "ack"
+    payload = data.get("event_payload") or {}
+    assert "iteration_feedback" not in payload

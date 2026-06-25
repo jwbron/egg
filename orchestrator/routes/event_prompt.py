@@ -859,12 +859,38 @@ def compose_event_prompt(
             return section
         return raw[:budget].decode("utf-8", errors="replace") + sentinel
 
-    if _envelope_bytes() > PROMPT_ENVELOPE_MAX_BYTES and nacks_section:
-        nacks_section = _shrink_to_fit(nacks_section, _ENVELOPE_TRUNCATION_SENTINEL)
-    if _envelope_bytes() > PROMPT_ENVELOPE_MAX_BYTES and iteration_section:
-        iteration_section = _shrink_to_fit(
-            iteration_section, _ITERATION_FEEDBACK_TRUNCATION_SENTINEL
-        )
+    # Shrink the *largest* present truncation candidate first, re-measuring
+    # after each cut. Cutting NACKs before iteration unconditionally (the
+    # earlier two-`if` form) collapsed a small NACKs section to a bare
+    # sentinel — losing the reviewer's actual NACK reasons — while the real
+    # bloat (a ~4 KB iteration section) went untrimmed until the second pass
+    # (#3231 re-review note 1). Picking the larger section each round cuts
+    # the actual driver and only touches the smaller section if trimming the
+    # larger one alone isn't enough.
+    def _largest_candidate() -> str | None:
+        candidates: list[tuple[str, int]] = []
+        if nacks_section:
+            candidates.append(("nacks", len(nacks_section.encode("utf-8"))))
+        if iteration_section:
+            candidates.append(("iteration", len(iteration_section.encode("utf-8"))))
+        if not candidates:
+            return None
+        return max(candidates, key=lambda c: c[1])[0]
+
+    while _envelope_bytes() > PROMPT_ENVELOPE_MAX_BYTES:
+        which = _largest_candidate()
+        if which == "nacks":
+            shrunk = _shrink_to_fit(nacks_section, _ENVELOPE_TRUNCATION_SENTINEL)
+            if shrunk == nacks_section:
+                break  # already at its sentinel floor — nothing left to cut
+            nacks_section = shrunk
+        elif which == "iteration":
+            shrunk = _shrink_to_fit(iteration_section, _ITERATION_FEEDBACK_TRUNCATION_SENTINEL)
+            if shrunk == iteration_section:
+                break
+            iteration_section = shrunk
+        else:
+            break  # no truncation candidates left; fixed sections alone overshoot
 
     parts: list[str] = [event_section]
     if task_section:
