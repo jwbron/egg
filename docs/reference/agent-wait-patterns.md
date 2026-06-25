@@ -20,21 +20,22 @@ links here rather than duplicating the contract.
 
 ## 0. The Agent Contract: Agents Never Wait on the Bus
 
-**Agents do not wait. The wrapper does.** Since #2908 the in-pod consensus
-wrapper (`orchestrator/consensus_wrapper.py`) is a deterministic event
-pump: it polls `egg-orch brc next-action`, blocks in `egg-orch message
-wait-loop` between actionable events, and invokes the agent **one-shot per
-event**. The agent handles the single event in its prompt (propose, ACK,
-NACK, or confirm) and exits naturally; the wrapper owns every blocking
-read on the bus and the heartbeats emitted while blocked. The
-authoritative agent-facing wording is the per-event prompt composed in
-`orchestrator/routes/event_prompt.py`:
+**Agents do not wait. The orchestrator does.** Since #2908 the BRC loop
+has been deterministic; [#3164](https://github.com/jwbron/egg/issues/3164)
+retired the in-pod wait arm and moved ownership to the orchestrator. The
+orchestrator (`orchestrator/event_loop.py`) derives `egg-orch brc
+next-action` in-process and spawns a **one-shot pod per actionable event**.
+The agent handles the single event in its prompt (propose, ACK, NACK, or
+confirm) and exits naturally; the orchestrator owns all waiting — there is
+no in-pod blocking wait and no in-pod background heartbeat (both retired in
+#3164). The authoritative agent-facing wording is the per-event prompt
+composed in `orchestrator/routes/event_prompt.py`:
 
 > "When you have acted (proposed, ACKed, NACKed, or confirmed), exit
-> naturally — the wrapper polls `egg-orch brc next-action` and re-invokes
-> you with the next actionable event. Do NOT block on `egg-orch message
-> wait-loop` yourself: the wrapper owns the wait and the heartbeat
-> (#2908 slice-2)."
+> naturally — the orchestrator derives `egg-orch brc next-action`
+> in-process and re-spawns you one-shot with the next actionable event.
+> Do NOT block on `egg-orch message wait-loop` yourself: the orchestrator
+> owns the wait and spawns you one-shot per event (#3164)."
 
 Consequences for anyone writing or revising prompts, role contracts, or
 agent rules:
@@ -47,13 +48,19 @@ agent rules:
   the one-shot model keeps turns bounded, with the
   [BRC memory file](../architecture/brc-memory.md) as the cross-turn state
   carrier.
-- Everything below this section documents the **wrapper-tier** mechanics.
-  It is reference material for maintainers of the wrapper and the
-  orchestrator wait routes, not instructions for agents.
+- Everything below this section documents the **wait-tier** mechanics.
+  Post-#3164 the orchestrator owns the loop (`orchestrator/event_loop.py`)
+  and the in-pod wait-loop + 30 s background heartbeat are retired; the
+  detailed `egg-orch message wait-loop` idiom below is retained as
+  reference material for the wait surface itself (still driven server-side
+  for the overseer/tooling and the historical in-pod path), not as
+  instructions for agents.
 
-[#3064](https://github.com/jwbron/egg/issues/3064) lifts the event loop
-out of the pod entirely (orchestrator-driven on-demand spawning); the
-invariant — agents never block on the bus — holds at every tier.
+[#3064](https://github.com/jwbron/egg/issues/3064) lifted the event loop
+out of the pod (orchestrator-driven on-demand spawning) and
+[#3164](https://github.com/jwbron/egg/issues/3164) retired the in-pod wait
+arm so orchestrator ownership is the only mode; the invariant — agents
+never block on the bus — holds at every tier.
 
 ## 1. The Canonical Idiom
 
@@ -1338,19 +1345,23 @@ the configured thread count, raise it.
 > the architecture doc covers the *why* and the cross-slice rollout
 > plan, this section covers the *wait* surface contract.
 >
-> The event-pump model is now the only path: slice-4 deleted the
+> The event-pump model is the only path: slice-4 deleted the
 > legacy capped-restart wrapper template, the `_RECOVERY_SYSTEM_PROMPT`,
 > the SSE `consensus.reached` machinery, and the `MAX_CONSENSUS_RESTARTS`
 > cap, and removed the agent-side heartbeat + gateway-session keep-alive
-> from `sandbox/egg_agent_tools/handlers/message.py`. The wrapper holds
-> the BRC wait, dispatches the agent one-shot per actionable event, and
-> emits heartbeats / refreshes the gateway session from background
-> subshells inside the wrapper bash. The §1–§9 contracts above still
-> apply at the `egg-orch message wait-loop` call site itself; what
-> changed is *who calls it* (the wrapper, not the agent's
-> `message_wait_loop`). See [Rollback plan](../architecture/orchestrator.md#rollback-plan)
-> for the `git revert` regression path if production traffic ever
-> needs to fall back to the legacy capped-restart model.
+> from `sandbox/egg_agent_tools/handlers/message.py`.
+> **[#3164](https://github.com/jwbron/egg/issues/3164) then retired the
+> in-pod wait arm entirely:** the orchestrator (`orchestrator/event_loop.py`)
+> now owns the BRC wait — it derives the next action in-process and spawns
+> a one-shot pod per actionable event. There is no longer an in-pod
+> `egg-orch message wait-loop` between events and no 30 s background
+> heartbeat subshell. The §1–§9 contracts below still describe the
+> `egg-orch message wait-loop` surface itself (still server-side, still
+> used by the overseer/tooling, and the shape the orchestrator's in-process
+> derivation mirrors); §10.1–§10.9 below describe the **historical** in-pod
+> wrapper mechanics, kept for lineage. #3164 retired the in-pod arm and the
+> `EGG_EVENT_LOOP_OWNER` flag with no rollback flag — orchestrator
+> ownership is the only mode.
 
 ### 10.1 The shape in one diagram
 
@@ -1375,13 +1386,15 @@ STEADY STATE (event-pump, the only path after slice-4):
                            INVOKE: python3 -m egg_agent <one-shot event>
 ```
 
-The wait still happens — it just moves out of the agent and into the
-wrapper bash. The §1 idiom is what the wrapper runs; the agent no
-longer runs it directly. The model is invoked **once per actionable
-event**, so the seam where Claude / qwen3.7-max / future-LLM could
-decline to re-enter the wait (the #2906 fall-out) is gone — only the
-deterministic bash loop decides when to wait, when to invoke, and
-when to confirm.
+The wait still happens — historically (pre-#3164) it moved out of the
+agent and into the wrapper bash; post-#3164 it moved further out, into
+the orchestrator's in-process event loop (`orchestrator/event_loop.py`),
+which derives the next action and spawns a one-shot pod per actionable
+event rather than running an in-pod `wait-loop`. Either way the model is
+invoked **once per actionable event**, so the seam where Claude /
+qwen3.7-max / future-LLM could decline to re-enter the wait (the #2906
+fall-out) is gone — only a deterministic loop decides when to wait, when
+to invoke, and when to confirm.
 
 ### 10.2 Wait-filter construction is conditional on `is_role_confirmed`
 
@@ -1405,19 +1418,22 @@ HTTP 400 rejection at `/messages/wait` (see
 [#2482](https://github.com/jwbron/egg/issues/2482)) cannot land here
 silently.
 
-### 10.3 Heartbeat ownership lives in the wrapper (#2036 migration completed in slice-4)
+### 10.3 Heartbeat ownership (#2036 migration completed in slice-4; in-pod heartbeat retired by #3164)
 
-The wrapper owns BRC heartbeating: a background subshell fires
-`egg-orch message heartbeat` every 30 s while the wrapper's own
-`egg-orch message wait-loop` call is blocking, in parallel with the
-wait. The pre-#2908 agent-side path — `message_wait_loop` in
+**Retired by [#3164](https://github.com/jwbron/egg/issues/3164).** Historically
+(post-#2036, pre-#3164) the in-pod wrapper owned BRC heartbeating: a
+background subshell fired `egg-orch message heartbeat` every 30 s while the
+wrapper's own `egg-orch message wait-loop` call was blocking, in parallel
+with the wait. The pre-#2908 agent-side path — `message_wait_loop` in
 `sandbox/egg_agent_tools/handlers/message.py` self-emitting
 `WAITING_FOR_EVENT` once on entry plus every 60 s while blocked
 (see §4 — "the wait primitive owns its lifecycle") — was **deleted
 in slice-4 task-4-2** alongside the legacy capped-restart wrapper
-template. The agent is now one-shot per actionable event, so there
-is no in-pod loop left to emit heartbeats between events; the
-wrapper is the only process alive across the full BRC cycle.
+template. #3164 then removed the in-pod wait arm and the 30 s background
+heartbeat subshell entirely: with the orchestrator spawning a one-shot pod
+per actionable event, there is no long-lived in-pod process to emit
+heartbeats between events. The gateway session is refreshed at spawn time
+(see §10.4), not via a between-events heartbeat fan-out.
 
 The schema in §4 is unchanged across the #2036 migration; only the
 *emitter* moved. The
@@ -1685,13 +1701,14 @@ production pipelines run the adversarial re-review path; operators
 that need to fall back to the slice-1 inert-reader behaviour can
 still set `EGG_BRC_MEMORY=write-only` explicitly.
 
-#### 10.9.5 The server-side BRC preamble is collapsed; the wrapper owns the lifecycle now
+#### 10.9.5 The server-side BRC preamble is collapsed; the orchestrator owns the lifecycle now
 
 `_build_brc_preamble` at `orchestrator/routes/pipelines.py:12180` (or
 look up by function name — the line drifts as the file edits) is
 **collapsed** in slice-3. The agent no longer has to be re-taught
-the lifecycle on every spawn — the wrapper bash now drives the
-sequencing deterministically (§10.1) and constructs the
+the lifecycle on every spawn — the orchestrator now drives the
+sequencing deterministically (post-#3164 it derives the next action
+in-process and spawns a one-shot pod per event) and constructs the
 filter set conditionally (§10.2), so the preamble pieces that used
 to teach `egg-orch message wait-loop`, cursor threading, the
 STAY-ALIVE post-confirm loop, and the pre-confirm `CONSENSUS_CONFIRMED`
@@ -1699,7 +1716,7 @@ exclusion are all removed from the prompt the agent sees.
 
 | Removed | Why |
 |---------|-----|
-| Producer Lifecycle step 4 wait-loop plumbing | Wrapper holds the wait (§10.1). |
+| Producer Lifecycle step 4 wait-loop plumbing | The orchestrator owns the wait (post-#3164; §10.1). |
 | Producer Lifecycle step 6 STAY-ALIVE loop | Wrapper loops to the next `brc next-action` instead of the agent re-entering a wait. |
 | Cursor / `--since` threading guidance | Cursor threading is automatic and wrapper-internal under the event-pump path. |
 | Pre-confirm-wait foot-gun guidance (anti-pattern 5, §10.2) | Wrapper's conditional filter prevents the regression at the emission site. |

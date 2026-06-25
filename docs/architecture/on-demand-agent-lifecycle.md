@@ -1,55 +1,43 @@
 # On-Demand Agent Lifecycle
 
-> Event-loop ownership modes, the per-event spawn dedupe contract, failure
-> supervision semantics, and the monitor matrix that supports both the legacy
-> long-lived-pod path and the orchestrator's on-demand path. Introduced by
-> [#3064](https://github.com/jwbron/egg/issues/3064).
+> The orchestrator-owned BRC event loop, the per-event spawn dedupe contract,
+> failure supervision semantics, and the monitor matrix for the on-demand
+> one-shot-pod path. The mechanism was introduced by
+> [#3064](https://github.com/jwbron/egg/issues/3064); the in-pod wait arm and
+> the `EGG_EVENT_LOOP_OWNER` mode toggle were retired by
+> [#3164](https://github.com/jwbron/egg/issues/3164) after the live proving
+> run on issue #3200 passed. **Orchestrator ownership is now the only mode.**
 
-## The #3023 Post-Mortem Constraint
+## History & the #3023 Post-Mortem Lesson
 
-The first attempt at on-demand agent spawning landed the `EGG_EVENT_LOOP_OWNER`
-guard alone. The guard silenced the in-pod event loop, leaving nothing to
-service BRC events — deadlock.
+> This section is **lineage**. The current state is single-mode (orchestrator
+> ownership); the history below explains why the rollout was staged.
 
-Since #2908 slice-4 deleted the legacy `EGG_BRC_EVENT_PUMP` rollback flag,
-there is **no rollback path** to the pre-#3064 behavior.
+The first attempt at on-demand agent spawning ([#3023](https://github.com/jwbron/egg/issues/3023))
+landed the `EGG_EVENT_LOOP_OWNER` guard alone. The guard silenced the in-pod
+event loop, leaving nothing to service BRC events — deadlock. Since #2908
+slice-4 had already deleted the legacy `EGG_BRC_EVENT_PUMP` rollback flag,
+there was no runtime fallback.
 
-The hard constraint:
+The lesson drove a staged rollout under #3064:
 
-- The flag **must default** to the in-pod loop (`pod`).
-- The guard and spawner **must land together** (or spawner first) in a single PR.
-- The follow-up default-flip is a **separate, gated** step that runs a live
-  BRC proving run with `EGG_EVENT_LOOP_OWNER=orchestrator` BEFORE committing
-  to retiring the in-pod path.
+- The flag (`EGG_EVENT_LOOP_OWNER`) **defaulted** to the in-pod loop (`pod`)
+  so the mechanism could land dark.
+- The guard and spawner **landed together** in #3064.
+- The default-flip was a **separate, gated** step: a live BRC proving run with
+  `EGG_EVENT_LOOP_OWNER=orchestrator` on issue #3200 had to pass the
+  acceptance checklist (see [Live Proving-Run Procedure](#live-proving-run-procedure),
+  retained below as history) BEFORE retiring the in-pod path.
 
-See [Live Proving-Run Procedure](#live-proving-run-procedure) and
-[Prepared Follow-Up Issue Body](#prepared-follow-up-issue-body) below.
+[#3164](https://github.com/jwbron/egg/issues/3164) completed that sequence:
+the proving run passed, the default flipped, and the in-pod wait arm + the
+`EGG_EVENT_LOOP_OWNER` flag were removed. There is **no rollback flag** — the
+only regression path is `git revert` of the #3164 change.
 
-## Event-Loop Ownership: Two Modes
+## Event-Loop Ownership: Orchestrator-Only
 
-`EGG_EVENT_LOOP_OWNER` ∈ {`pod` (default), `orchestrator`} controls who
-runs the consensus event loop and spawns agent pods.
-
-### `pod` — Long-Lived Pods (Production Default)
-
-This is the historical mode, unchanged by #3064. The orchestrator spawns the
-full agent team up front at phase start. Each agent pod runs the BRC
-consensus wrapper in a long-lived in-pod event pump:
-
-- **Who runs the loop:** the pod's wrapper (`orchestrator/consensus_wrapper.py`).
-- **Who spawns:** `concurrent_executor.spawn_all()` → `kubernetes_spawner.spawn_agent_job()` at phase start.
-- **Verb→pod mapping:** every role gets a pod. Confirm and complete verbs are
-  handled agent-free by the wrapper — no agent subprocess is invoked.
-- **Lifecycle:** pod lives for the full phase; idle pods reserve CPU/memory
-  and a gateway session for the duration.
-- **Supervision:** in-pod background heartbeat at 30 s interval; idle-budget
-  alert at `EGG_BRC_IDLE_BUDGET_MIN` (default 30 min) via `OVERSEER_ALERT`.
-- **Worktree:** created once at spawn; persists on disk across the pod lifetime.
-
-### `orchestrator` — On-Demand One-Shot Pods
-
-Under orchestrator ownership the in-process event loop at the
-`concurrent_executor` completion-poll site consumes `_derive_next_action`
+The orchestrator owns the consensus event loop. The in-process event loop at
+the `concurrent_executor` completion-poll site consumes `_derive_next_action`
 per role and spawns an agent pod **only** when that role has an actionable
 event (`propose` | `ack` | `nack`). Each pod handles a single event and
 exits.
@@ -73,8 +61,6 @@ exits.
         ┌───────────────────────────────┐
         │  one-shot agent pod           │
         │                             │
-        │  EGG_EVENT_LOOP_OWNER        │
-        │      = orchestrator          │
         │  EGG_EVENT_ACTION             │
         │      = propose|ack|nack      │
         │  EGG_EVENT_DEDUPE_KEY        │
@@ -88,6 +74,11 @@ exits.
         └─────────────────────────────┘
 ```
 
+The wrapper around each pod is **one-shot-only**: it requires `EGG_EVENT_ACTION`
+to be set, handles exactly that single event, then exits. There is no in-pod
+wait-loop between events and no 30 s background heartbeat subshell — both were
+retired in #3164.
+
 **Verb → Pod mapping:**
 
 | Verb | Action | Pod spawned? |
@@ -100,8 +91,8 @@ exits.
 | `wait` | No peer action | ❌ Nothing |
 
 **Key design decisions:**
-- `confirm`/`complete` never reach a pod — the wrapper already handles them
-  agent-free, and the orchestrator-side path mirrors that.
+- `confirm`/`complete` never reach a pod — the orchestrator handles them
+  agent-free.
 - The orchestrator's poll interval is env-tunable (default **5 s**).
 
 ## Dedupe-Key Contract
@@ -162,9 +153,9 @@ values, no fork.
 - Legitimate BRC protocol steps of any kind
 
 **AGENT_FAILED engagement:** Producer propose-arm exhaustion engages the existing
-`AGENT_FAILED` path (#2806) relocated for orchestrator mode — same phase-level
-HITL escalation as pod mode. Wrapper-side #2806 code is untouched and will be
-deleted in the follow-up cleanup PR.
+`AGENT_FAILED` path (#2806) on the orchestrator side — phase-level HITL
+escalation. (The wrapper-side #2806 in-pod code was removed in #3164 when the
+in-pod wait arm was retired.)
 
 ## Worktree Re-attach & Session Reuse (Hot-Path Latency)
 
@@ -184,31 +175,39 @@ Under orchestrator ownership the worktree becomes a hot path.
 **Session reuse:**
 - Re-register against the gateway only when no live session exists or the token
   has aged out.
-- Session teardown moves to **phase end** or **streak exhaustion** in orchestrator
-  mode.
-- Pod-mode session lifecycle unchanged.
+- Session teardown happens at **phase end** or **streak exhaustion**.
+- The gateway session is refreshed **at spawn time**, not via a between-events
+  heartbeat fan-out (the 30 s background heartbeat was retired in #3164).
 
 **Latency budget:** p50 spawn→invoke **< 60 s** (asserted in a simulated-clock test).
 
-## Monitor Matrix (Tripwire × Ownership Mode)
+## Monitor Matrix
 
-| Tripwire | `pod` mode | `orchestrator` mode |
-|----------|-----------|---------------------|
-| "Role has no pod" | Trip (pod died) | **Normal** — never alerts |
-| Heartbeat timeout (120 s default, 600 s implement) | Active | **Active only while a Job is running** |
-| Container exit | Trip on unexpected exit | **Trips only if a Job was active** |
-| Silent mid-event pod | — | **Trips** (one-shot pod that goes silent mid-invocation triggers) |
-| Idle-budget alert (`EGG_BRC_IDLE_BUDGET_MIN`) | In-pod alert (wrapper-side) | **Convergence-stall judgment** from tracker timestamps — same knob, same anomaly name — orchestrator-side |
+Orchestrator ownership is the only mode (#3164). Tripwires are active **only
+while a role's one-shot Job is live**; between dispatched events a role has no
+running pod, and that silence is normal.
 
-**HeartbeatCoordinator mode guard:** In orchestrator mode, session refresh happens
-at spawn (not via a background heartbeat subprocess). Absent senders between events
-trip nothing.
+| Tripwire | Behaviour |
+|----------|-----------|
+| "Role has no pod" | **Normal** — never alerts (between-events silence is expected) |
+| Heartbeat timeout (120 s default, 600 s implement) | **Active only while a Job is running** |
+| Container exit | **Trips only if a Job was active** |
+| Silent mid-event pod | **Trips** — a one-shot pod that goes silent mid-invocation (Job active, no heartbeat) alerts normally |
+| Idle-budget alert (`EGG_BRC_IDLE_BUDGET_MIN`) | **Convergence-stall judgment** from tracker timestamps, orchestrator-side — same knob, same anomaly name as the retired in-pod budget check |
+
+**HeartbeatCoordinator:** session refresh happens at spawn time (not via a
+background heartbeat subprocess). Absent senders between events trip nothing.
+The active-Job set is refreshed every poll tick by the event loop via
+`set_active_roles(roles)`, so coverage is current.
 
 ## Live Proving-Run Procedure
 
-Before the production default can be flipped from `pod` to `orchestrator`,
-a live BRC pipeline must run through all phases with
-`EGG_EVENT_LOOP_OWNER=orchestrator` and pass this acceptance checklist:
+> **History.** This checklist gated the #3164 default-flip. The proving run
+> ran on issue #3200 and passed; the default flipped and the in-pod arm was
+> retired. Retained for the acceptance criteria of record.
+
+A live BRC pipeline ran through all phases with the orchestrator owning the
+event loop and passed this acceptance checklist:
 
 1. **All phases converge** — BRC consensus completes in refine, plan,
    implement (all slices), and PR; no phase stalls or deadlocks.
@@ -222,40 +221,37 @@ a live BRC pipeline must run through all phases with
 4. **Latency budget held** — measured p50 spawn→invoke latency across all
    events ≤ 60 s.
 
-## Prepared Follow-Up Issue Body
+## Follow-Up Sequence (completed by #3164)
 
-The follow-up issue is filed **immediately post-merge** (manual action
-referenced from the PR description) and encodes the operator-mandated
-sequence:
+> **History.** The #3064 PR filed [#3164](https://github.com/jwbron/egg/issues/3164)
+> post-merge to carry out the operator-mandated retirement sequence. #3164
+> has since landed; the sequence below is the record of what it did.
 
-1. **Live BRC proving run** with `EGG_EVENT_LOOP_OWNER=orchestrator` to
-   pass the [acceptance checklist](#live-proving-run-procedure).
-2. **Flip the default** to `orchestrator`.
-3. **One cleanup PR** deleting:
-   - The in-pod wait arm (≈`consensus_wrapper.py:379` event-pump loop)
-   - The background heartbeat subprocess (≈`209-230`)
-   - Wrapper-side #3138 streak code (≈`897-901`)
-   - Wrapper-side #2806 failure-code path (≈`134`+)
-   - The `EGG_EVENT_LOOP_OWNER` flag itself
-   - **End state: no dead/deprecated code.**
+The sequence #3164 executed:
 
-Filing the issue is an immediate post-merge manual step. The follow-up PR
-body should be a copy-paste from this section. **Issue [#3164](https://github.com/jwbron/egg/issues/3164)
-is reserved for this purpose** (the operator directed filing during the
-plan phase gate review).
+1. **Live BRC proving run** (issue #3200) with the orchestrator owning the
+   event loop, passing the [acceptance checklist](#live-proving-run-procedure).
+2. **Flipped the default** to orchestrator ownership.
+3. **Retired the in-pod path**, deleting:
+   - The in-pod wait arm (the `consensus_wrapper.py` event-pump loop)
+   - The 30 s background heartbeat subprocess
+   - Wrapper-side #3138 streak code
+   - Wrapper-side #2806 failure-code path
+   - The `EGG_EVENT_LOOP_OWNER` flag itself (and `get_event_loop_owner`)
+   - **End state: no dead/deprecated code; orchestrator ownership is the only mode.**
 
 ## References
 
 - [#3064](https://github.com/jwbron/egg/issues/3064) — orchestrator-owned event loop
 - [#3023](https://github.com/jwbron/egg/issues/3023) — scrapped first attempt (post-mortem)
-- [#3164](https://github.com/jwbron/egg/issues/3164) — flip follow-up issue (post-merge filing)
+- [#3164](https://github.com/jwbron/egg/issues/3164) — default-flip + in-pod-arm retirement (orchestrator ownership is the only mode)
 - [#2908](https://github.com/jwbron/egg/issues/2908) — BRC consensus wrapper (foundation)
 - [#3138](https://github.com/jwbron/egg/issues/3138) — streak/backoff supervision semantics
 - [#2806](https://github.com/jwbron/egg/issues/2806) — AGENT_FAILED path
 - [#2761](https://github.com/jwbron/egg/issues/2761) — tracker rebuild from message store
 - `orchestrator/supervision_policy.py` — shared streak constants (NEW, slices 3–6)
 - `orchestrator/event_loop.py` — orchestrator-side event loop + dedupe + supervision (NEW, slices 2–5)
-- `orchestrator/consensus_wrapper.py` — wrapper template (one-shot arm, ~line 379 wait-loop)
+- `orchestrator/consensus_wrapper.py` — wrapper template (one-shot-only per-event arm; the in-pod wait-loop was retired in #3164)
 - `orchestrator/kubernetes_spawner.py` — one-shot Job spawning (NEW entry, slices 2, 4)
 - `orchestrator/health_monitor.py` — lifecycle-aware tripwires
 - `orchestrator/heartbeat.py` — HeartbeatCoordinator mode guard

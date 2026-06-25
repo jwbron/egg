@@ -22,8 +22,9 @@ as ephemeral, regardless of any "durable" framing in older design notes.
 
 A consensus reviewer's lifecycle before #2908 was a long-running session
 that held a blocking `egg-orch message wait-loop` between events. Issue
-#2908 removed that seam: the wrapper holds the wait, and the agent is
-invoked one-shot per actionable event. A stateless one-shot has no working
+#2908 removed that seam, and #3164 retired the in-pod wait arm: the
+orchestrator now owns the wait and spawns the agent one-shot per
+actionable event. A stateless one-shot has no working
 memory across invocations, so something else has to carry the reviewer's
 distilled understanding of the codebase, the change under review, and the
 verdicts already issued on each producer. That something is this file.

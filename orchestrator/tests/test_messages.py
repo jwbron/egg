@@ -6,7 +6,6 @@ long-polling behavior in the messages route.
 
 import json
 import sys
-import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -2750,238 +2749,6 @@ class TestHeartbeatRoute:
                 data = json.loads(resp.data)
                 assert data["data"]["message"]["metadata"]["since"] == ("2026-04-23T07:00:00Z")
 
-    def test_heartbeat_refreshes_gateway_session(self, client, app):
-        """A real heartbeat fans out to the gateway to refresh the agent's session.
-
-        Regression guard for #2068: without this, an agent in
-        ``WAITING_FOR_EVENT`` for >60 min has its gateway session pruned
-        as idle even though it's actively heartbeating.
-        """
-        with app.test_request_context():
-            mock_gw_client = MagicMock()
-            with (
-                patch(
-                    "routes.messages.get_state_store_for_pipeline"
-                ) as mock_get_store_for_pipeline,
-                patch(
-                    "gateway_client.get_gateway_client",
-                    return_value=mock_gw_client,
-                ),
-            ):
-                mock_get_store_for_pipeline.return_value = (
-                    MagicMock(),
-                    _make_pipeline_mock(),
-                )
-                resp = client.post(
-                    "/api/v1/pipelines/test-pipeline/heartbeat",
-                    json={
-                        "from_role": "fanout-role-coder",
-                        "state": "WAITING_FOR_EVENT",
-                    },
-                )
-                assert resp.status_code == 200
-                mock_gw_client.heartbeat_session_by_container.assert_called_once_with(
-                    "egg-agent-test-pipeline-fanout-role-coder"
-                )
-
-    def test_heartbeat_swallows_gateway_failure(self, client, app):
-        """Gateway fan-out failures must not fail the heartbeat call."""
-        with app.test_request_context():
-            mock_gw_client = MagicMock()
-            mock_gw_client.heartbeat_session_by_container.side_effect = RuntimeError("gateway down")
-            with (
-                patch(
-                    "routes.messages.get_state_store_for_pipeline"
-                ) as mock_get_store_for_pipeline,
-                patch(
-                    "gateway_client.get_gateway_client",
-                    return_value=mock_gw_client,
-                ),
-            ):
-                mock_get_store_for_pipeline.return_value = (
-                    MagicMock(),
-                    _make_pipeline_mock(),
-                )
-                resp = client.post(
-                    "/api/v1/pipelines/test-pipeline/heartbeat",
-                    json={
-                        "from_role": "fanout-role-tester",
-                        "state": "WORKING",
-                    },
-                )
-                assert resp.status_code == 200
-
-    def test_heartbeat_fan_out_fires_on_deduped_state(self, client, app):
-        """Deduped heartbeats still refresh the gateway session.
-
-        Reviewer NB3 (#2068): the original fix only ran the fan-out
-        *after* dedup, so an agent stuck in ``WORKING`` through a long
-        compute (e.g. a slow ``make test``) would emit identical
-        heartbeats that were dropped before refreshing the session.  The
-        fan-out now runs *between* dedup and rate-limit (see
-        ``routes/messages.py``): the dedup early-return invokes it so
-        unchanged-state heartbeats still count as gateway-session
-        liveness, while rate-limited heartbeats do not amplify into the
-        gateway.
-
-        The ``_GATEWAY_FANOUT_MIN_INTERVAL_SECONDS`` cooldown (#2076 NB2)
-        is patched to ``0`` here so the test stays focused on the
-        dedup-fan-out invariant; the throttle's caps are pinned by
-        ``test_heartbeat_fan_out_throttle_*`` below.
-        """
-        with app.test_request_context():
-            mock_gw_client = MagicMock()
-            with (
-                patch(
-                    "routes.messages.get_state_store_for_pipeline"
-                ) as mock_get_store_for_pipeline,
-                patch(
-                    "gateway_client.get_gateway_client",
-                    return_value=mock_gw_client,
-                ),
-                patch(
-                    "routes.messages._GATEWAY_FANOUT_MIN_INTERVAL_SECONDS",
-                    0.0,
-                ),
-            ):
-                mock_get_store_for_pipeline.return_value = (
-                    MagicMock(),
-                    _make_pipeline_mock(),
-                )
-                # First WORKING heartbeat — recorded, not deduped.
-                resp1 = client.post(
-                    "/api/v1/pipelines/test-pipeline/heartbeat",
-                    json={
-                        "from_role": "fanout-dedup-role",
-                        "state": "WORKING",
-                    },
-                )
-                assert resp1.status_code == 200
-                # Second identical heartbeat — dedup gate should drop it.
-                resp2 = client.post(
-                    "/api/v1/pipelines/test-pipeline/heartbeat",
-                    json={
-                        "from_role": "fanout-dedup-role",
-                        "state": "WORKING",
-                    },
-                )
-                assert resp2.status_code == 200
-                assert json.loads(resp2.data)["data"]["deduped"] is True
-                # Both calls fan out — that's the bug fix.
-                assert mock_gw_client.heartbeat_session_by_container.call_count == 2
-
-    @pytest.mark.parametrize(
-        "from_role,expected_container_id",
-        [
-            ("reviewer_refine", "egg-agent-test-pipeline-reviewer-refine"),
-            ("reviewer_code", "egg-agent-test-pipeline-reviewer-code"),
-            ("reviewer_agent_design", "egg-agent-test-pipeline-reviewer-agent-design"),
-            ("task_planner", "egg-agent-test-pipeline-task-planner"),
-            ("conflict_resolver", "egg-agent-test-pipeline-conflict-resolver"),
-            ("coder", "egg-agent-test-pipeline-coder"),
-        ],
-    )
-    def test_heartbeat_fan_out_normalizes_underscores_to_hyphens(
-        self, client, app, from_role, expected_container_id
-    ):
-        """Fan-out container_id must mirror kubernetes_spawner's role hyphenation.
-
-        Reviewer blocker (#2068 follow-up): k8s names are RFC-1123
-        labels (no underscores), so ``kubernetes_spawner.JOB_NAME_FORMAT``
-        is filled with ``role.replace("_", "-")``.  ``from_role`` arrives
-        from ``EGG_AGENT_ROLE`` which is the underscore form, so the
-        fan-out must apply the same normalization — otherwise reviewer
-        roles like ``reviewer_refine`` build a container_id that never
-        matches the registered session and the gateway returns 404,
-        making the fan-out a silent no-op for exactly the BRC reviewer
-        roles that #2068 most acutely affects.
-        """
-        with app.test_request_context():
-            mock_gw_client = MagicMock()
-            with (
-                patch(
-                    "routes.messages.get_state_store_for_pipeline"
-                ) as mock_get_store_for_pipeline,
-                patch(
-                    "gateway_client.get_gateway_client",
-                    return_value=mock_gw_client,
-                ),
-            ):
-                mock_get_store_for_pipeline.return_value = (
-                    MagicMock(),
-                    _make_pipeline_mock(),
-                )
-                resp = client.post(
-                    "/api/v1/pipelines/test-pipeline/heartbeat",
-                    json={
-                        "from_role": from_role,
-                        "state": "WAITING_FOR_EVENT",
-                    },
-                )
-                assert resp.status_code == 200
-                mock_gw_client.heartbeat_session_by_container.assert_called_once_with(
-                    expected_container_id
-                )
-
-    @pytest.mark.parametrize(
-        "from_role,slice_id,expected_container_id",
-        [
-            (
-                "reviewer_contract",
-                "slice-2",
-                "egg-agent-test-pipeline-slice-2-reviewer-contract",
-            ),
-            (
-                "reviewer_code_holistic",
-                "slice-12",
-                "egg-agent-test-pipeline-slice-12-reviewer-code-holistic",
-            ),
-            ("tester", "slice-5", "egg-agent-test-pipeline-slice-5-tester"),
-            ("coder", "slice-1", "egg-agent-test-pipeline-slice-1-coder"),
-        ],
-    )
-    def test_heartbeat_fan_out_includes_slice_id(
-        self, client, app, from_role, slice_id, expected_container_id
-    ):
-        """Slice-scoped heartbeats fan out to the slice-scoped container_id (#2451).
-
-        Slice-DAG agents register gateway sessions under
-        ``egg-agent-{pid}-{slice_id}-{role}`` per
-        ``kubernetes_spawner.JOB_NAME_FORMAT_SLICE``. The orchestrator
-        must thread the agent's ``slice_id`` (forwarded via the
-        heartbeat body from ``EGG_SLICE_ID``) into the fan-out's
-        container_id, otherwise every slice-scoped reviewer/tester
-        emits warnings ("Session not found for container") and the
-        gateway session never has its idle timer refreshed.
-        """
-        with app.test_request_context():
-            mock_gw_client = MagicMock()
-            with (
-                patch(
-                    "routes.messages.get_state_store_for_pipeline"
-                ) as mock_get_store_for_pipeline,
-                patch(
-                    "gateway_client.get_gateway_client",
-                    return_value=mock_gw_client,
-                ),
-            ):
-                mock_get_store_for_pipeline.return_value = (
-                    MagicMock(),
-                    _make_pipeline_mock(),
-                )
-                resp = client.post(
-                    "/api/v1/pipelines/test-pipeline/heartbeat",
-                    json={
-                        "from_role": from_role,
-                        "state": "WAITING_FOR_EVENT",
-                        "slice_id": slice_id,
-                    },
-                )
-                assert resp.status_code == 200
-                mock_gw_client.heartbeat_session_by_container.assert_called_once_with(
-                    expected_container_id
-                )
-
     @pytest.mark.parametrize(
         "bad_slice_id",
         [
@@ -3007,16 +2774,9 @@ class TestHeartbeatRoute:
         security intent of the regex is explicit in the test corpus.
         """
         with app.test_request_context():
-            mock_gw_client = MagicMock()
-            with (
-                patch(
-                    "routes.messages.get_state_store_for_pipeline"
-                ) as mock_get_store_for_pipeline,
-                patch(
-                    "gateway_client.get_gateway_client",
-                    return_value=mock_gw_client,
-                ),
-            ):
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
                 mock_get_store_for_pipeline.return_value = (
                     MagicMock(),
                     _make_pipeline_mock(),
@@ -3032,14 +2792,13 @@ class TestHeartbeatRoute:
                 # Empty-string ``slice_id`` is treated as "no slice" by
                 # the orchestrator's ``extract_slice_id`` (matches the
                 # agent-side ``or`` fallback) — the request still
-                # succeeds but pipeline-level fan-out semantics apply.
+                # succeeds but pipeline-level semantics apply.
                 if bad_slice_id == "":
                     assert resp.status_code == 200
                     return
                 assert resp.status_code == 400, (
                     f"slice_id={bad_slice_id!r} must reject with 400; got {resp.status_code}"
                 )
-                mock_gw_client.heartbeat_session_by_container.assert_not_called()
 
     def test_heartbeat_message_metadata_carries_slice_id(self, client, app):
         """Slice-scoped HEARTBEATs land on the bus with ``slice_id`` in
@@ -3055,16 +2814,9 @@ class TestHeartbeatRoute:
         store = get_message_store()
 
         with app.test_request_context():
-            mock_gw_client = MagicMock()
-            with (
-                patch(
-                    "routes.messages.get_state_store_for_pipeline"
-                ) as mock_get_store_for_pipeline,
-                patch(
-                    "gateway_client.get_gateway_client",
-                    return_value=mock_gw_client,
-                ),
-            ):
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
                 mock_get_store_for_pipeline.return_value = (
                     MagicMock(),
                     _make_pipeline_mock(),
@@ -3098,16 +2850,9 @@ class TestHeartbeatRoute:
         store = get_message_store()
 
         with app.test_request_context():
-            mock_gw_client = MagicMock()
-            with (
-                patch(
-                    "routes.messages.get_state_store_for_pipeline"
-                ) as mock_get_store_for_pipeline,
-                patch(
-                    "gateway_client.get_gateway_client",
-                    return_value=mock_gw_client,
-                ),
-            ):
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
                 mock_get_store_for_pipeline.return_value = (
                     MagicMock(),
                     _make_pipeline_mock(),
@@ -3124,160 +2869,6 @@ class TestHeartbeatRoute:
         assert "slice_id" not in heartbeats[-1].metadata, (
             f"Pipeline-level HEARTBEAT must omit slice_id key, got: {heartbeats[-1].metadata}"
         )
-
-    def test_heartbeat_sibling_slices_do_not_share_throttle(self, client, app):
-        """Sibling slices with the same role each fan out independently (#2451).
-
-        The dedup-amplification cap (#2076 NB2) is keyed per role to
-        bound a single hot-looping agent. Without slice-scoping the
-        throttle key, slice-2 reviewer-code's fan-out would suppress
-        slice-3 reviewer-code's fan-out for 30 s, leaving slice-3's
-        gateway session unrefreshed even though they are independent
-        agents in independent pods.
-        """
-        with app.test_request_context():
-            mock_gw_client = MagicMock()
-            with (
-                patch(
-                    "routes.messages.get_state_store_for_pipeline"
-                ) as mock_get_store_for_pipeline,
-                patch(
-                    "gateway_client.get_gateway_client",
-                    return_value=mock_gw_client,
-                ),
-                patch(
-                    "routes.messages._GATEWAY_FANOUT_MIN_INTERVAL_SECONDS",
-                    300.0,
-                ),
-            ):
-                mock_get_store_for_pipeline.return_value = (
-                    MagicMock(),
-                    _make_pipeline_mock(),
-                )
-                for slice_id in ("slice-2", "slice-3"):
-                    resp = client.post(
-                        "/api/v1/pipelines/test-pipeline/heartbeat",
-                        json={
-                            "from_role": "reviewer_code",
-                            "state": "WORKING",
-                            "slice_id": slice_id,
-                        },
-                    )
-                    assert resp.status_code == 200
-                assert mock_gw_client.heartbeat_session_by_container.call_count == 2
-                fan_out_calls = [
-                    call.args[0]
-                    for call in mock_gw_client.heartbeat_session_by_container.call_args_list
-                ]
-                assert fan_out_calls == [
-                    "egg-agent-test-pipeline-slice-2-reviewer-code",
-                    "egg-agent-test-pipeline-slice-3-reviewer-code",
-                ]
-
-    def test_heartbeat_fan_out_throttle_caps_dedup_amplification(self, client, app):
-        """#2076 NB2: dedup'd hot-loops cannot amplify into the gateway.
-
-        The dedup early-return path bypasses the per-role rate limit by
-        design (#1897 NB1: dedup'd heartbeats are no-ops and must not
-        consume rate budget).  Without a separate cap, a misbehaving
-        agent hot-looping with identical state could fan out a gateway
-        session refresh on every call.  ``_refresh_gateway_session``
-        applies a per-role cooldown via
-        ``HeartbeatCoordinator.should_fan_out_gateway_session`` to bound
-        amplification.
-
-        Five back-to-back identical heartbeats (1 fresh + 4 dedup'd)
-        within the cooldown window MUST produce exactly one fan-out.
-        """
-        with app.test_request_context():
-            mock_gw_client = MagicMock()
-            with (
-                patch(
-                    "routes.messages.get_state_store_for_pipeline"
-                ) as mock_get_store_for_pipeline,
-                patch(
-                    "gateway_client.get_gateway_client",
-                    return_value=mock_gw_client,
-                ),
-                # Cooldown well above realistic test wall-clock so all
-                # five posts fall inside the same window.
-                patch(
-                    "routes.messages._GATEWAY_FANOUT_MIN_INTERVAL_SECONDS",
-                    300.0,
-                ),
-            ):
-                mock_get_store_for_pipeline.return_value = (
-                    MagicMock(),
-                    _make_pipeline_mock(),
-                )
-                role = "fanout-throttle-hotloop-role"
-                for _ in range(5):
-                    resp = client.post(
-                        "/api/v1/pipelines/test-pipeline/heartbeat",
-                        json={"from_role": role, "state": "WORKING"},
-                    )
-                    assert resp.status_code == 200
-                assert mock_gw_client.heartbeat_session_by_container.call_count == 1
-
-    def test_heartbeat_fan_out_throttle_resumes_after_window(self, client, app):
-        """#2076 NB2: cooldown is a throttle, not a one-shot mute.
-
-        After the per-role cooldown elapses, the next heartbeat MUST
-        fan out again — otherwise a long-running agent in a single
-        state would fan out exactly once and then silently age out of
-        the gateway's 60-minute idle window.
-
-        Uses a tiny cooldown + ``time.sleep`` rather than mocking
-        ``time.time`` so the patch doesn't ripple through unrelated
-        callers (Flask internals, gateway client) inside the request
-        scope.  Uses ``WAITING_FOR_EVENT`` (dedup-exempt) so this
-        exercise also pins the throttle on the post-rate-limit fan-out
-        site, not just the dedup early-return.
-        """
-        with app.test_request_context():
-            mock_gw_client = MagicMock()
-            with (
-                patch(
-                    "routes.messages.get_state_store_for_pipeline"
-                ) as mock_get_store_for_pipeline,
-                patch(
-                    "gateway_client.get_gateway_client",
-                    return_value=mock_gw_client,
-                ),
-                patch(
-                    "routes.messages._GATEWAY_FANOUT_MIN_INTERVAL_SECONDS",
-                    0.05,
-                ),
-            ):
-                mock_get_store_for_pipeline.return_value = (
-                    MagicMock(),
-                    _make_pipeline_mock(),
-                )
-                role = "fanout-throttle-window-role"
-                # First heartbeat — fans out.
-                resp1 = client.post(
-                    "/api/v1/pipelines/test-pipeline/heartbeat",
-                    json={"from_role": role, "state": "WAITING_FOR_EVENT"},
-                )
-                assert resp1.status_code == 200
-                assert mock_gw_client.heartbeat_session_by_container.call_count == 1
-
-                # Inside the 50 ms cooldown — no additional fan-out.
-                resp2 = client.post(
-                    "/api/v1/pipelines/test-pipeline/heartbeat",
-                    json={"from_role": role, "state": "WAITING_FOR_EVENT"},
-                )
-                assert resp2.status_code == 200
-                assert mock_gw_client.heartbeat_session_by_container.call_count == 1
-
-                # Past the cooldown — fan-out fires again.
-                time.sleep(0.07)
-                resp3 = client.post(
-                    "/api/v1/pipelines/test-pipeline/heartbeat",
-                    json={"from_role": role, "state": "WAITING_FOR_EVENT"},
-                )
-                assert resp3.status_code == 200
-                assert mock_gw_client.heartbeat_session_by_container.call_count == 2
 
 
 class TestWaitTimeoutFloorRegression:

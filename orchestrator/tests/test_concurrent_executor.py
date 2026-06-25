@@ -282,7 +282,14 @@ class TestRolesOverride:
         # Without override, should return all default implement roles
         assert len(roles) > 2
 
-    def test_spawn_all_with_roles_override_only_spawns_overridden_roles(self):
+    def test_spawn_all_with_roles_override_only_registers_overridden_roles(self):
+        """The ``roles`` override scopes which roles the event loop covers.
+
+        Post-#3164 ``spawn_all`` no longer fans out up-front pods (the
+        orchestrator event loop spawns one-shot per event), so the override's
+        effect is on which roles are *registered* with the tracker — exactly
+        the cohort the loop derives against. No up-front ``spawn_fn`` calls.
+        """
         from concurrent_executor import ConcurrentPhaseExecutor
         from egg_orchestrator.types import AgentRole
 
@@ -293,22 +300,27 @@ class TestRolesOverride:
         override = [AgentRole.CODER, AgentRole.REVIEWER_CODE]
         executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn, roles=override)
 
-        with (
-            patch("concurrent_executor.create_peer_consensus_tracker") as mock_tracker,
-            patch("concurrent_executor.emit_event"),
-        ):
-            mock_tracker_instance = MagicMock()
-            mock_tracker.return_value = mock_tracker_instance
+        try:
+            with (
+                patch("concurrent_executor.create_peer_consensus_tracker") as mock_tracker,
+                patch("concurrent_executor.emit_event"),
+            ):
+                mock_tracker_instance = MagicMock()
+                mock_tracker.return_value = mock_tracker_instance
 
-            executor.spawn_all()
+                result = executor.spawn_all()
+        finally:
+            executor.stop_event_loop()
 
-            # Only 2 agents should be spawned and registered (coder + reviewer_code)
-            assert mock_spawn.call_count == 2
-            assert mock_tracker_instance.register_agent.call_count == 2
-            registered_roles = [
-                call.args[0] for call in mock_tracker_instance.register_agent.call_args_list
-            ]
-            assert set(registered_roles) == {"coder", "reviewer_code"}
+        # No up-front pods; the event loop owns spawning.
+        assert result == []
+        assert mock_spawn.call_count == 0
+        # Only the 2 overridden roles are registered with the tracker.
+        assert mock_tracker_instance.register_agent.call_count == 2
+        registered_roles = [
+            call.args[0] for call in mock_tracker_instance.register_agent.call_args_list
+        ]
+        assert set(registered_roles) == {"coder", "reviewer_code"}
 
 
 class TestIsTransientAgentError:
@@ -1461,20 +1473,12 @@ class TestResolverMissingRepoConfigDoesNotCrash:
 
 
 class TestEventLoopOwnershipSpawnGating:
-    """Slice-2 (#3064 TASK-2-3): EGG_EVENT_LOOP_OWNER gates up-front spawning.
+    """#3164: the orchestrator unconditionally owns up-front spawning.
 
-    Test-first contract for TASK-2-1's hook into the concurrent executor:
-
-      * ``pod`` (default): ``spawn_all`` fans out exactly as today — one
-        ``spawn_fn`` call per agent role. Existing pod-mode tests stay green
-        because this path is untouched.
-      * ``orchestrator``: ``spawn_all`` spawns NO up-front pods (the event
-        loop owns the lifecycle and spawns one-shot Jobs per derived event
-        from the completion-poll site instead).
-
-    The executor is expected to consult ``env_config.get_event_loop_owner()``
-    at ``spawn_all`` time. These tests fail until the coder's parallel hook
-    lands; convergence makes them green.
+    ``spawn_all`` spawns NO up-front pods — the orchestrator event loop owns
+    the lifecycle and spawns one-shot Jobs per derived event. The
+    ``EGG_EVENT_LOOP_OWNER`` ownership flag (and the pod-mode fan-out it used
+    to gate) was retired in #3164, so there is a single behavior here.
     """
 
     def _executor(self, mock_spawn):
@@ -1483,48 +1487,15 @@ class TestEventLoopOwnershipSpawnGating:
         pipeline = _make_pipeline()
         return ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
 
-    def test_pod_default_fans_out_one_spawn_per_role(self, monkeypatch):
-        """Flag unset ⇒ pod mode ⇒ spawn_all fans out every role up front."""
-        monkeypatch.delenv("EGG_EVENT_LOOP_OWNER", raising=False)
-        mock_spawn = MagicMock(return_value=MagicMock(container_id="c"))
-        executor = self._executor(mock_spawn)
-
-        with (
-            patch("concurrent_executor.create_peer_consensus_tracker") as mock_tracker,
-            patch("concurrent_executor.emit_event"),
-        ):
-            mock_tracker.return_value = MagicMock()
-            executor.spawn_all()
-
-        assert mock_spawn.call_count == len(executor.get_agent_roles()), (
-            "pod-default spawn_all must spawn every role up front (unchanged)"
-        )
-
-    def test_pod_explicit_fans_out_one_spawn_per_role(self, monkeypatch):
-        """Explicit EGG_EVENT_LOOP_OWNER=pod behaves identically to unset."""
-        monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", "pod")
-        mock_spawn = MagicMock(return_value=MagicMock(container_id="c"))
-        executor = self._executor(mock_spawn)
-
-        with (
-            patch("concurrent_executor.create_peer_consensus_tracker") as mock_tracker,
-            patch("concurrent_executor.emit_event"),
-        ):
-            mock_tracker.return_value = MagicMock()
-            executor.spawn_all()
-
-        assert mock_spawn.call_count == len(executor.get_agent_roles())
-
-    def test_orchestrator_mode_spawns_no_up_front_pods(self, monkeypatch):
-        """EGG_EVENT_LOOP_OWNER=orchestrator ⇒ spawn_all spawns no pods up
-        front; the event loop drives per-event spawns instead.
+    def test_spawn_all_spawns_no_up_front_pods(self):
+        """``spawn_all`` spawns no pods up front; the event loop drives
+        per-event spawns instead.
 
         Asserts the loop was actually started (``owns_event_loop()`` /
         ``_event_loop``) rather than relying on the daemon thread's
         first-poll sleep to mask premature behavior, and tears the loop down
         deterministically so the test leaves no live thread behind.
         """
-        monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", "orchestrator")
         mock_spawn = MagicMock(return_value=MagicMock(container_id="c"))
         executor = self._executor(mock_spawn)
 
@@ -1540,13 +1511,9 @@ class TestEventLoopOwnershipSpawnGating:
             # depend on the poll-interval timing window.
             executor.stop_event_loop()
 
-        assert mock_spawn.call_count == 0, (
-            "orchestrator mode must not spawn any up-front agent pods"
-        )
-        assert result == [], "orchestrator mode spawn_all returns no executions"
-        assert executor.owns_event_loop(), (
-            "orchestrator mode must start the orchestrator-owned event loop"
-        )
+        assert mock_spawn.call_count == 0, "must not spawn any up-front agent pods"
+        assert result == [], "spawn_all returns no executions"
+        assert executor.owns_event_loop(), "must start the orchestrator-owned event loop"
         assert executor._event_loop is not None
 
 

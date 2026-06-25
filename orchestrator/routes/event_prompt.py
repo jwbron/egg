@@ -475,9 +475,7 @@ def _directive_meta_tag(directive: dict[str, Any]) -> str:
 def _render_iteration_feedback_section(iteration_feedback: dict[str, Any] | None) -> str:
     """Render the per-iteration operator kickback as a pushed section (#3231).
 
-    Under ``EGG_EVENT_LOOP_OWNER=orchestrator`` the re-spawned producer's
-    prompt is composed here (not via the in-pod ``_build_phase_iteration_context``
-    path that already carries #2795's iteration context). Without this
+    The re-spawned producer's prompt is composed here. Without this
     section the producer re-reads its own prior on-disk draft and
     re-proposes it byte-for-byte — the operator's ``request_changes`` /
     ``change_approach`` silently no-ops (the #1283 / #1915 fake-cycle
@@ -823,11 +821,12 @@ def compose_event_prompt(
             "Handle THIS single event per your role contract. Reuse the "
             "durable BRC memory below to keep your verdict consistent "
             "across one-shot invocations. When you have acted (proposed, "
-            "ACKed, NACKed, or confirmed), exit naturally — the wrapper "
-            "polls ``egg-orch brc next-action`` and re-invokes you with "
-            "the next actionable event. Do NOT block on "
-            "``egg-orch message wait-loop`` yourself: the wrapper owns "
-            "the wait and the heartbeat (#2908 slice-2).",
+            "ACKed, NACKed, or confirmed), exit naturally — the "
+            "orchestrator derives ``egg-orch brc next-action`` in-process "
+            "and re-spawns you one-shot with the next actionable event. "
+            "Do NOT block on ``egg-orch message wait-loop`` yourself: the "
+            "orchestrator owns the wait and spawns you one-shot per event "
+            "(#3164).",
             "",
         ]
     )
@@ -1633,8 +1632,7 @@ def _cli(argv: list[str] | None = None) -> int:
     # ``next-action`` route attaches ``iteration_feedback`` onto the
     # ``propose`` event_payload (sourced from
     # ``PhaseExecution.operator_directives`` / ``iteration_history``,
-    # #2795) so the re-spawned producer under
-    # ``EGG_EVENT_LOOP_OWNER=orchestrator`` addresses the operator's
+    # #2795) so the re-spawned producer addresses the operator's
     # ``request_changes`` / ``change_approach`` before re-proposing
     # instead of re-reading its own prior draft and re-proposing it
     # unchanged. Read straight off the event payload the wrapper pipes

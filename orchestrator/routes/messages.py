@@ -138,17 +138,6 @@ def _track_long_poll_end() -> None:
 # Rate-limit (20/min per slice+role; #2471) still applies.
 _DEDUP_EXEMPT_HEARTBEAT_STATES: frozenset[str] = frozenset({"WAITING_FOR_EVENT"})
 
-# Minimum seconds between gateway-session fan-outs per (pipeline_id,
-# slice_id, role) (#2076 NB2, slice-scoped per #2471).  The dedup
-# early-return path bypasses the per-(slice, role) heartbeat rate limit
-# by design (#1897 NB1: dedup'd heartbeats are no-ops and must not
-# consume rate budget), so without a separate cap a misbehaving agent
-# hot-looping with identical state could amplify into the gateway at
-# the agent's emission rate.  The gateway's idle window
-# is 60 minutes, so fanning out every 30 s is far more than enough to
-# keep the session alive; the cap exists purely to bound amplification.
-_GATEWAY_FANOUT_MIN_INTERVAL_SECONDS: float = 30.0
-
 
 messages_bp = Blueprint("messages", __name__, url_prefix="/api/v1/pipelines")
 
@@ -867,20 +856,15 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
     # ``_DEDUP_EXEMPT_HEARTBEAT_STATES`` skip this check; see the
     # constant's docstring for the rationale.
     #
-    # Note: the gateway-session fan-out below runs *after* dedup but
-    # *before* rate-limit.  Dedup'd heartbeats still fan out so an agent
-    # stuck in a single state (e.g. ``WORKING`` through a slow
-    # ``make test``) keeps its gateway session alive even when its BRC
-    # state hasn't changed.  Rate-limited heartbeats do not fan out: by
-    # definition the agent already got plenty of refreshes in the last
-    # minute, and a hot-looping agent shouldn't amplify into the
-    # gateway.  ``_refresh_gateway_session`` itself applies a separate
-    # per-role cooldown (#2076 NB2) to bound dedup-path amplification
-    # without consuming rate budget.
+    # #3164: the gateway-session fan-out that used to run here was
+    # retired with the in-pod wait arm. Under the orchestrator-owned
+    # event loop a pod is one-shot per BRC event, so its gateway session
+    # is refreshed at spawn time (worktree re-attach) and never needs a
+    # heartbeat-driven keep-alive — the resident-pod long-session model
+    # the fan-out existed for is gone.
     if state not in _DEDUP_EXEMPT_HEARTBEAT_STATES and coordinator.is_duplicate(
         pipeline_id, slice_id, from_role, state, waiting_on
     ):
-        _refresh_gateway_session(pipeline_id, from_role, slice_id)
         return _make_success(
             "HEARTBEAT deduped (unchanged state)",
             data={"deduped": True},
@@ -912,13 +896,11 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
         resp.headers["Retry-After"] = str(retry_after)
         return resp, 429
 
-    # Refresh the agent's gateway session liveness (#2068).  Runs after
-    # dedup and rate-limit gates: every accepted-or-deduped heartbeat
-    # fans out (dedup'd path above), but rate-limited ones do not.
-    # Best-effort: the gateway may be unreachable (tests, dev runs
-    # without a gateway) and a missing session is a 404; never fail the
-    # heartbeat on this path.
-    _refresh_gateway_session(pipeline_id, from_role, slice_id)
+    # #3164: the gateway-session fan-out that used to run here was retired
+    # with the in-pod wait arm. Under the orchestrator-owned event loop a
+    # pod is one-shot per BRC event, so its gateway session is refreshed at
+    # spawn time (worktree re-attach) and never needs a heartbeat-driven
+    # keep-alive.
 
     # Emit as a normal HEARTBEAT message on the bus so downstream
     # consumers (HealthMonitor, overseer, UI) see it.
@@ -964,81 +946,6 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
         "HEARTBEAT stored",
         data={"message": msg.to_dict(), "deduped": False},
     )
-
-
-def _refresh_gateway_session(pipeline_id: str, from_role: str, slice_id: str | None = None) -> None:
-    """Best-effort POST to the gateway so the BRC heartbeat counts as session liveness.
-
-    Container-id normalization: k8s names are RFC-1123 labels (no
-    underscores), so ``kubernetes_spawner.JOB_NAME_FORMAT`` is filled
-    with ``agent_role.value.replace("_", "-")``.  ``from_role`` arrives
-    from ``EGG_AGENT_ROLE`` which is the underscore form, so we mirror
-    the same normalization here — otherwise roles like
-    ``reviewer_refine`` build a container_id that never matches the
-    registered session and the gateway returns 404.  See
-    ``orchestrator/kubernetes_spawner.py:370-375`` for the reference
-    pattern.
-
-    Slice scope (#2451): slice-scoped agents register sessions under
-    ``egg-agent-{pid}-{slice_id}-{role}`` (``JOB_NAME_FORMAT_SLICE``);
-    pipeline-level agents register under ``egg-agent-{pid}-{role}``.
-    When ``slice_id`` is supplied (forwarded from the heartbeat body
-    via ``EGG_SLICE_ID``) the slice segment is embedded so the lookup
-    matches; without it every slice-scoped agent's heartbeat fan-out
-    would silently 404. The throttle key is also slice-aware so a
-    sibling slice's fan-out does not suppress this slice's refresh.
-
-    Trust model: ``from_role`` is taken at face value from the request
-    body and is **not** correlated against the calling container's
-    session.  This matches the existing message-bus trust model — any
-    agent in any container can already post messages claiming to be
-    another role — but with this fan-out a misbehaving agent can keep
-    a sibling's gateway session alive past the idle timeout.  Tracked
-    as a follow-up; spoofing here doesn't grant any new capability,
-    only extends an existing session's lifetime.
-
-    Throttle: per-role cooldown via
-    ``HeartbeatCoordinator.should_fan_out_gateway_session`` (#2076 NB2)
-    bounds amplification on the dedup early-return path, which bypasses
-    the heartbeat rate limiter by design.  The cooldown is well below
-    the gateway's 60-minute idle window so it does not risk session
-    expiry under any realistic heartbeat cadence.
-    """
-    coordinator = get_heartbeat_coordinator()
-    # The coordinator's throttle key is now ``(pipeline_id, slice_id,
-    # role)`` (#2471) so concurrent slices that share a role (e.g. two
-    # reviewer-code agents in different slices of the same wave) do not
-    # suppress each other's fan-outs. Pass ``slice_id`` directly — no
-    # synthetic role-string composition needed.
-    if not coordinator.should_fan_out_gateway_session(
-        pipeline_id, slice_id, from_role, _GATEWAY_FANOUT_MIN_INTERVAL_SECONDS
-    ):
-        return
-    try:
-        try:
-            from gateway_client import get_gateway_client
-        except ImportError:  # pragma: no cover
-            from ..gateway_client import (
-                get_gateway_client,  # type: ignore[no-redef,import-not-found]
-            )
-
-        # Mirror kubernetes_spawner.JOB_NAME_FORMAT's role normalization
-        # — k8s labels disallow underscores, so the registered
-        # container_id uses hyphens.
-        normalized_role = from_role.replace("_", "-")
-        if slice_id:
-            container_id = f"egg-agent-{pipeline_id}-{slice_id}-{normalized_role}"
-        else:
-            container_id = f"egg-agent-{pipeline_id}-{normalized_role}"
-        get_gateway_client().heartbeat_session_by_container(container_id)
-    except Exception as exc:  # pragma: no cover - logging only
-        logger.warning(
-            "Gateway session heartbeat fan-out failed",
-            pipeline_id=pipeline_id,
-            from_role=from_role,
-            slice_id=slice_id,
-            error=str(exc),
-        )
 
 
 @messages_bp.route("/<pipeline_id>/messages/status", methods=["GET"])

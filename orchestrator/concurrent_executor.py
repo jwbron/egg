@@ -149,7 +149,10 @@ class _ExecutorEventSpawner:
     ) -> Any:
         agent_role = self._agent_role(role)
         branch = self._ex.get_worktree_branch(agent_role, slice_id=self._slice_id)
-        env = {**self._ex.get_agent_env(agent_role), "EGG_EVENT_LOOP_OWNER": "orchestrator"}
+        # The one-shot wrapper keys on EGG_EVENT_ACTION (injected by
+        # ``spawn_event_job`` via ``event_action`` below), not on an
+        # ownership flag — the EGG_EVENT_LOOP_OWNER env was retired in #3164.
+        env = self._ex.get_agent_env(agent_role)
         command, upstream, upstream_model = self._ex._build_event_spawn_params(agent_role)
         return self._ex.spawn_fn(
             role=agent_role,
@@ -422,38 +425,15 @@ class ConcurrentPhaseExecutor:
         for role in roles:
             tracker.register_agent(role.value)
 
-        # #3064 slice-2: in orchestrator-ownership mode the orchestrator owns
-        # the BRC event loop and spawns a one-shot pod per actionable event
-        # — NO agents are spawned up front. The tracker is still registered
-        # above (the event loop derives against it). With the flag unset /
-        # ``pod`` (the default) this branch is skipped and behavior is
-        # byte-identical to before.
-        if self._event_loop_owner() == "orchestrator":
-            self._start_event_loop(roles, tracker)
-            return []
-
-        # A producer with no work in this slice (e.g. a documenter on a
-        # code-only slice) is no longer pre-seeded here (#3027 retired the
-        # #2581 pre-seed). Instead it stays spawned and submits a generic
-        # no-op propose (``no_changes_needed=true``) at runtime, which the
-        # consensus protocol accepts as a non-blocking, durable no-op —
-        # robust to restart / reconstruction in a way the in-memory seed
-        # never was.
-        return self._spawn_roles(roles, agent_prompts or {})
-
-    @staticmethod
-    def _event_loop_owner() -> str:
-        """Return the BRC event-loop ownership mode (``pod`` | ``orchestrator``).
-
-        Lazy dual-path import (repo root vs ``orchestrator/`` on sys.path),
-        mirroring ``consensus_wrapper._event_loop_owner``. An invalid value
-        raises loudly (the #3023 no-silent-fallback contract).
-        """
-        try:
-            from orchestrator.env_config import get_event_loop_owner
-        except ImportError:
-            from env_config import get_event_loop_owner  # type: ignore[no-redef]
-        return get_event_loop_owner()
+        # #3164: the orchestrator unconditionally owns the BRC event loop
+        # and spawns a one-shot pod per actionable event — NO agents are
+        # spawned up front. The tracker is registered above (the event loop
+        # derives against it). ``agent_prompts`` is accepted for caller
+        # compatibility but unused: the wrapper composes its own per-event
+        # prompt via ``compose_event_prompt``.
+        del agent_prompts
+        self._start_event_loop(roles, tracker)
+        return []
 
     def _start_event_loop(self, roles: list[AgentRole], tracker: Any) -> OrchestratorEventLoop:
         """Construct and start the orchestrator-owned event loop (#3064 slice-2).
@@ -519,13 +499,6 @@ class ConcurrentPhaseExecutor:
             roles=[r.value for r in roles],
         )
 
-        # #3064 slice-5: set orchestrator mode on the health monitor and
-        # heartbeat coordinator so their tripwire/refresh behavior reflects
-        # the ownership mode (roles with no active Job are normal in
-        # orchestrator mode; gateway-session refresh via heartbeat fan-out
-        # is suppressed).
-        self._enable_orchestrator_mode_surfaces()
-
         return loop
 
     def _publish_active_roles(self, roles: set[str]) -> None:
@@ -550,35 +523,6 @@ class ConcurrentPhaseExecutor:
         except Exception:  # noqa: BLE001 — best-effort
             pass
 
-    def _enable_orchestrator_mode_surfaces(self) -> None:
-        """Propagate orchestrator mode to downstream surfaces.
-
-        In orchestrator mode:
-        - The health monitor suppresses alerts for roles with no active Job.
-        - The heartbeat coordinator suppresses gateway-session fan-out
-          (refresh happens at spawn time from slice-4 worktree re-attach).
-        - Absent-sender heartbeats between events trip nothing.
-
-        Best-effort: a missing health monitor or coordinator is tolerated
-        (unit tests often stand up only the component under test).
-        """
-        try:
-            from health_monitor import get_health_monitor
-
-            hm = get_health_monitor()
-            if hm is not None:
-                hm.set_orchestrator_mode(True)
-        except Exception:  # noqa: BLE001 — best-effort
-            pass
-
-        try:
-            from heartbeat import get_heartbeat_coordinator
-
-            hc = get_heartbeat_coordinator()
-            hc.set_orchestrator_mode(True)
-        except Exception:  # noqa: BLE001 — best-effort
-            pass
-
     def owns_event_loop(self) -> bool:
         """True when the orchestrator-owned BRC event loop drives this phase.
 
@@ -590,8 +534,7 @@ class ConcurrentPhaseExecutor:
         incomplete-consensus HITL escalation (``return 1``) on this method so
         an orchestrator-owned slice that never converged is treated as the
         failure it is, rather than falling through to a bare ``return 0``. Set
-        only when ``spawn_all`` took the orchestrator-ownership branch and
-        started the loop.
+        once ``spawn_all`` started the loop (always, post-#3164).
         """
         return self._event_loop is not None
 
@@ -600,8 +543,9 @@ class ConcurrentPhaseExecutor:
 
         Called by the completion-poll site on every exit path so the daemon
         thread does not outlive the phase (and stops requesting one-shot
-        spawns) once consensus is reached, times out, or fails. A no-op in
-        pod mode, where no loop was started.
+        spawns) once consensus is reached, times out, or fails. A no-op if
+        the loop was never started (e.g. a phase that short-circuited before
+        ``spawn_all``).
         """
         loop = self._event_loop
         if loop is None:

@@ -868,43 +868,13 @@ class TestSupervisionPolicyConstants:
             == supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT
         )
 
-    def test_wrapper_template_renders_supervision_policy_values(self):
-        """The rendered pod wrapper embeds the supervision_policy constants.
-
-        Slice-3 AC4: the wrapper template and the loop must read identical
-        constants. ``consensus_wrapper`` re-exports them from
-        ``supervision_policy`` and interpolates them into the bash template,
-        so the rendered guards/backoff must reflect the single-source values.
-        A fork (hardcoded literal that diverges from supervision_policy) makes
-        one of these substrings disappear from the render.
-        """
-        import supervision_policy
-        from consensus_wrapper import (
-            SUPERVISION_BACKOFF_CAP_SECONDS,
-            SUPERVISION_BACKOFF_FACTOR,
-            SUPERVISION_FAILURE_STREAK_ALERT,
-            SUPERVISION_FAILURE_STREAK_WARN,
-            build_consensus_wrapped_command,
-        )
-
-        # The wrapper's re-exports are the same single source as the loop's.
-        assert SUPERVISION_BACKOFF_FACTOR == supervision_policy.SUPERVISION_BACKOFF_FACTOR
-        assert SUPERVISION_BACKOFF_CAP_SECONDS == supervision_policy.SUPERVISION_BACKOFF_CAP_SECONDS
-        assert SUPERVISION_FAILURE_STREAK_WARN == supervision_policy.SUPERVISION_FAILURE_STREAK_WARN
-        assert (
-            SUPERVISION_FAILURE_STREAK_ALERT == supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT
-        )
-
-        script = build_consensus_wrapped_command("x")[2]
-        warn = supervision_policy.SUPERVISION_FAILURE_STREAK_WARN
-        alert = supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT
-        factor = supervision_policy.SUPERVISION_BACKOFF_FACTOR
-        cap = supervision_policy.SUPERVISION_BACKOFF_CAP_SECONDS
-        # Guards interpolate the constants verbatim into the bash template.
-        assert f'-ge {warn} ] && [ "$AGENT_FAIL_ALERTED_5"' in script
-        assert f'-ge {alert} ] && [ "$AGENT_FAIL_ALERTED_10"' in script
-        assert f"AGENT_FAIL_STREAK * {factor}" in script
-        assert f'"$agent_backoff_secs" -gt {cap}' in script
+    # #3164 retired ``test_wrapper_template_renders_supervision_policy_values``:
+    # the failure-streak backoff/escalation machinery was deleted from the
+    # in-pod wrapper template (the orchestrator event loop's ``JobSupervisor``
+    # owns it now). The wrapper no longer interpolates the supervision_policy
+    # constants, so the loop's re-export equality
+    # (``test_loop_reexports_equal_supervision_policy`` above) is the remaining
+    # single-source guard.
 
 
 # ---------------------------------------------------------------------------

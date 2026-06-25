@@ -216,12 +216,12 @@ _PROTECTED_ENV_KEYS: frozenset[str] = frozenset(
 LABEL_EVENT_DEDUPE = "egg.event.dedupe-key"
 LABEL_EVENT_ACTION = "egg.event.action"
 
-# Env keys read by the consensus wrapper's one-shot arm
-# (``consensus_wrapper.py``). ``EGG_EVENT_LOOP_OWNER=orchestrator`` +
-# ``EGG_EVENT_ACTION`` engage the arm; ``EGG_EVENT_DEDUPE_KEY`` is the
-# stale-event backstop / reconciliation handle. None are in
-# ``_PROTECTED_ENV_KEYS`` — the one-shot entry is their only writer.
-ENV_EVENT_LOOP_OWNER = "EGG_EVENT_LOOP_OWNER"
+# Env keys read by the consensus wrapper's one-shot event handler
+# (``consensus_wrapper.py``). ``EGG_EVENT_ACTION`` engages the handler;
+# ``EGG_EVENT_DEDUPE_KEY`` is the stale-event backstop / reconciliation
+# handle. None are in ``_PROTECTED_ENV_KEYS`` — the one-shot spawn is
+# their only writer. (The ``EGG_EVENT_LOOP_OWNER`` ownership flag was
+# retired in #3164 — the orchestrator always owns the event loop.)
 ENV_EVENT_ACTION = "EGG_EVENT_ACTION"
 ENV_EVENT_DEDUPE_KEY = "EGG_EVENT_DEDUPE_KEY"
 ENV_EVENT_PAYLOAD_REFS = "EGG_EVENT_PAYLOAD_REFS"
@@ -1934,10 +1934,10 @@ class KubernetesSpawner:
         """Spawn (or adopt) a one-shot Job for a single BRC event (#3064).
 
         The Job's env carries the full event identity so the consensus
-        wrapper's one-shot arm engages (``EGG_EVENT_LOOP_OWNER=orchestrator``
-        + ``EGG_EVENT_ACTION`` ∈ ``propose|ack|nack`` + ``EGG_EVENT_DEDUPE_KEY``)
-        and the dedupe key rides as a Job *label* — the reconciliation handle
-        the event loop rebuilds its live set from on restart.
+        wrapper's one-shot event handler engages (``EGG_EVENT_ACTION`` ∈
+        ``propose|ack|nack`` + ``EGG_EVENT_DEDUPE_KEY``) and the dedupe key
+        rides as a Job *label* — the reconciliation handle the event loop
+        rebuilds its live set from on restart.
 
         **Adoption**: requesting a spawn for an already-live dedupe key
         returns ``None`` (the existing Job is adopted) rather than creating a
@@ -2042,7 +2042,6 @@ class KubernetesSpawner:
                 )
 
         event_env: dict[str, str] = {
-            ENV_EVENT_LOOP_OWNER: "orchestrator",
             ENV_EVENT_ACTION: action,
             ENV_EVENT_DEDUPE_KEY: dedupe_key,
         }
@@ -2385,6 +2384,74 @@ class KubernetesSpawner:
 
         return removed
 
+    def _apply_restart_budget(
+        self,
+        restart_key: tuple[str, str, str | None],
+        max_restarts: int,
+    ) -> int:
+        """Check + increment the restart budget for ``restart_key``.
+
+        The caller MUST already hold ``_get_restart_lock(restart_key)`` so
+        the read-modify-write of ``_restart_counts`` is atomic. Raises
+        :class:`KubernetesSpawnError` when the budget is already exhausted;
+        otherwise increments the count and returns the new value.
+        """
+        pipeline_id, agent_role_value, _slice_id = restart_key
+        current_count = self._restart_counts.get(restart_key, 0)
+        if current_count >= max_restarts:
+            raise KubernetesSpawnError(
+                f"Restart limit ({max_restarts}) exceeded for {agent_role_value} "
+                f"in pipeline {pipeline_id} (restarted {current_count} times)"
+            )
+        self._restart_counts[restart_key] = current_count + 1
+        return current_count + 1
+
+    def check_and_increment_restart_count(
+        self,
+        pipeline_id: str,
+        agent_role: AgentRole,
+        slice_id: str | None = None,
+        max_restarts: int = 2,
+    ) -> int:
+        """Atomically enforce + bump the per-(pipeline, role, slice) budget.
+
+        Extracted from :meth:`restart_agent_job` (#3244). After #3164 moved
+        respawn ownership to the orchestrator event loop, the
+        ``restart_agent`` route no longer calls ``restart_agent_job`` and so
+        must enforce the restart budget itself before delegating the respawn.
+        Acquires the per-key restart lock, raises
+        :class:`KubernetesSpawnError` when the budget is exhausted, otherwise
+        increments and returns the new count. The increment-before-respawn
+        semantics match the in-band check ``restart_agent_job`` performs, so
+        an operator/overseer cannot reset consensus an unbounded number of
+        times on a converging phase.
+
+        Args:
+            pipeline_id: Pipeline ID.
+            agent_role: Agent role being restarted.
+            slice_id: Optional slice scope (#2410). Slice-scoped restarts get
+                an independent budget bucket keyed on the slice.
+            max_restarts: Maximum restart attempts per agent per phase.
+
+        Returns:
+            The new restart count after incrementing.
+
+        Raises:
+            KubernetesSpawnError: If the budget is exhausted or the per-key
+                restart lock cannot be acquired.
+        """
+        restart_key = (pipeline_id, agent_role.value, slice_id)
+        lock = self._get_restart_lock(restart_key)
+        if not lock.acquire(timeout=120):
+            raise KubernetesSpawnError(
+                f"Timed out waiting to acquire restart lock for "
+                f"{agent_role.value} in pipeline {pipeline_id}"
+            )
+        try:
+            return self._apply_restart_budget(restart_key, max_restarts)
+        finally:
+            lock.release()
+
     def restart_agent_job(
         self,
         pipeline_id: str,
@@ -2477,16 +2544,11 @@ class KubernetesSpawner:
                 f"{agent_role.value} in pipeline {pipeline_id}"
             )
         try:
-            current_count = self._restart_counts.get(restart_key, 0)
-
-            if current_count >= max_restarts:
-                raise KubernetesSpawnError(
-                    f"Restart limit ({max_restarts}) exceeded for {agent_role.value} "
-                    f"in pipeline {pipeline_id} (restarted {current_count} times)"
-                )
-
-            # Increment count before spawn so failed attempts burn a restart budget slot
-            self._restart_counts[restart_key] = current_count + 1
+            # Increment count before spawn so failed attempts burn a restart
+            # budget slot. Shared with the orchestrator-native ``restart_agent``
+            # route via ``check_and_increment_restart_count`` (#3244) so both
+            # paths enforce the same per-(pipeline, role, slice) cap.
+            new_count = self._apply_restart_budget(restart_key, max_restarts)
 
             # ``job_name`` matches the gateway session container_id used at
             # spawn time (hyphenated, no JOB_PREFIX); ``actual_k8s_job_name``
@@ -2503,7 +2565,7 @@ class KubernetesSpawner:
                 "Restarting agent Job",
                 pipeline_id=pipeline_id,
                 role=agent_role.value,
-                restart_count=current_count + 1,
+                restart_count=new_count,
                 max_restarts=max_restarts,
                 reason=reason,
             )
@@ -2624,7 +2686,7 @@ class KubernetesSpawner:
                 pipeline_id=pipeline_id,
                 role=agent_role.value,
                 new_job_name=spawned.container_info.job_name,
-                restart_count=current_count + 1,
+                restart_count=new_count,
             )
 
             return spawned

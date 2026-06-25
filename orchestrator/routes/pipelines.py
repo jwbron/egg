@@ -290,6 +290,7 @@ try:
         _rebase_with_agent_output_autoresolve,
     )
     from ..kubernetes_client import (
+        LABEL_AGENT_ROLE,
         LABEL_PIPELINE_ID,
         LABEL_SLICE_ID,
         JobOperationError,
@@ -345,6 +346,7 @@ except ImportError:
         _rebase_with_agent_output_autoresolve,
     )
     from kubernetes_client import (  # type: ignore
+        LABEL_AGENT_ROLE,
         LABEL_PIPELINE_ID,
         LABEL_SLICE_ID,
         JobOperationError,
@@ -1229,7 +1231,7 @@ def _guard_live_pods_or_force(
     return None
 
 
-from routes import get_repo_path, resolve_worktree_repo_path  # noqa: E402 — shared helpers
+from routes import get_repo_path  # noqa: E402 — shared helpers
 
 try:
     from gateway_client import get_gateway_client
@@ -2646,11 +2648,35 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
 @pipelines_bp.route("/<pipeline_id>/agents/<agent_role>/restart", methods=["POST"])
 @require_lifecycle_secret
 def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
-    """Restart a single agent in a pipeline.
+    """Restart a single agent in a pipeline (orchestrator-native).
 
-    Stops the existing container, resets its consensus state, and respawns
-    it with the same configuration.  The agent's per-agent worktree is
-    preserved so committed work is retained.
+    After #3164 the orchestrator unconditionally owns the BRC event
+    loop: agent work runs as one-shot Jobs spawned per actionable
+    event by the event loop, and the in-pod wait arm is gone. A
+    resident pod spawned here without ``EGG_EVENT_ACTION`` would
+    immediately log FATAL and ``exit 64``, so ``restart_agent`` no
+    longer spawns anything itself. Instead it:
+
+      0. Enforces the per-(pipeline, role, slice) restart budget
+         (``check_and_increment_restart_count``); a request over budget is
+         rejected with HTTP 429 before any state is mutated (#3244).
+      1. Best-effort deletes the role's live one-shot Job(s) (to kill a
+         stuck pod). One-shot Jobs carry an event-discriminator suffix
+         in their name, so they are found by label
+         (``LABEL_PIPELINE_ID`` + ``LABEL_AGENT_ROLE`` [+ ``LABEL_SLICE_ID``
+         when slice-scoped]), not by name.
+      2. Resets the role's consensus state and health-monitor anchor.
+      3. Marks the agent record RUNNING with ``container_id = None``.
+
+    For a pipeline that is already RUNNING, the live event loop (polling
+    ~every 5s during the concurrent phase) spawns a fresh one-shot pod once
+    the role's consensus state is reset — that is the respawn. For a pipeline
+    that was FAILED/CANCELLED the event loop and its ``_run_pipeline`` driver
+    thread are already dead, so the route also relaunches a fresh driver
+    thread (mirroring ``restart_phase``) to restart the event loop; otherwise
+    the reset would leave the pipeline RUNNING-but-idle with nothing to
+    respawn it (#3244). The agent's per-agent worktree is preserved so
+    committed work is retained.
 
     URL params:
         pipeline_id: Pipeline ID
@@ -2686,8 +2712,9 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
         {
             "success": true,
             "data": {
-                "container_id": "abc123...",
                 "agent_role": "coder",
+                "slice_id": "slice-2",
+                "respawn": "delegated to orchestrator event loop",
                 "restart_count": 1
             }
         }
@@ -2812,31 +2839,9 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     # contract not yet populated, filesystem error) so we don't
     # regress legitimate restarts on the existing pipeline-level path.
     #
-    # The contract is also consulted to resolve the slice's parent
-    # edge (#2439) so the spawner's ``base_branch`` matches the
-    # parent slice's integration branch on a worktree-absent restart.
-    parent_slice_id: str | None = None
-    # ``parent_branch_recorded`` captures ``Slice.parent_branch_at_creation``
-    # — the literal branch the parent slice's integration branch was forked
-    # off of when its worktree was provisioned (#2137 TASK-4-2). Preferring
-    # the recorded value over reconstructing
-    # ``f"{_issue_branch}/{parent_slice_id}"`` is more robust: if a future
-    # qualifier-suffix or namespacing change lands in
-    # ``_run_one_slice_inner`` but not here, the reconstruction would
-    # silently drift while the recorded value would not (#2460 review).
-    # ``None`` for slices whose worktree has not been provisioned yet, in
-    # which case we fall through to reconstruction.
-    parent_branch_recorded: str | None = None
-    # ``parent_slice_complete`` is set when the parent slice has reached
-    # ``SliceStatus.COMPLETE`` per the contract — i.e. its PR has plausibly
-    # been merged. GitHub's standard branch-auto-cleanup deletes the head
-    # branch on merge, so the gateway's per-repo ``git fetch origin
-    # <parent_branch>`` would wedge the restart on a missing-branch fetch
-    # error. When ``True``, we fall back to ``pipeline.base_branch`` rather
-    # than depend on a (likely deleted) parent ref — matching the
-    # contract-unloadable fall-through policy: prefer letting the restart
-    # proceed over over-strict gating (#2470).
-    parent_slice_complete: bool = False
+    # After #3164 ``restart_agent`` no longer spawns a worktree itself,
+    # so the slice's parent-edge / base-branch resolution that used to
+    # feed the spawn is gone. Only the existence check below remains.
     if slice_id is not None:
         if not pipeline.has_contract:
             return make_error_response(
@@ -2886,9 +2891,6 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                     error=str(exc),
                 )
             if contract is not None:
-                # Single-pass slice lookup: the existence check and the
-                # parent-edge read both need the same record, so do them
-                # together (#2460 review observation 4).
                 slice_obj = next((s for s in contract.slices if s.id == slice_id), None)
                 if slice_obj is None:
                     return make_error_response(
@@ -2900,40 +2902,53 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                             "known_slices": sorted(s.id for s in contract.slices),
                         },
                     )
-                # Resolve the slice's parent edge (#2439). The forest
-                # constraint enforced by contract ingestion guarantees
-                # at most one DAG parent per slice, so taking the first
-                # dependency is sufficient. Root slices (no parent)
-                # leave ``parent_slice_id`` as ``None``.
-                if slice_obj.dependencies:
-                    parent_slice_id = slice_obj.dependencies[0]
-                    parent_branch_recorded = slice_obj.parent_branch_at_creation
-                    # #2470: if the parent slice is complete, its PR has
-                    # plausibly been merged and its branch deleted by
-                    # GitHub auto-cleanup. Detect that here so the
-                    # base-branch selection below can fall back to
-                    # ``pipeline.base_branch`` rather than wedge the
-                    # restart on a missing-branch fetch.
-                    from egg_contracts.models import SliceStatus
 
-                    parent_obj = next(
-                        (s for s in contract.slices if s.id == parent_slice_id),
-                        None,
-                    )
-                    if parent_obj is not None and parent_obj.status == SliceStatus.COMPLETE:
-                        parent_slice_complete = True
-
-    # Restart the container via spawner
     spawner = _get_spawner()
 
-    # Gather spawn parameters from pipeline state
     current_phase = pipeline.current_phase.value
     phase_exec = pipeline.phases.get(current_phase)
 
-    # Early status update: transition FAILED/CANCELLED -> RUNNING before the
-    # slow container restart so that get_status returns "running" immediately,
-    # even if the MCP call times out (see #1594, #1725).
-    if pipeline.status in (PipelineStatus.FAILED, PipelineStatus.CANCELLED):
+    # Enforce the per-(pipeline, role, slice) restart budget BEFORE any
+    # destructive action (#3244 review). Pre-#3164 this cap lived inside
+    # ``restart_agent_job``, which the route no longer calls — without
+    # re-enforcing it here an operator/overseer could call ``restart_agent``
+    # without bound, each call resetting consensus and actively preventing a
+    # live phase from converging. ``check_and_increment_restart_count`` raises
+    # when the budget is exhausted; reject loudly (429) instead of flipping
+    # status / resetting consensus and returning a misleading success. The
+    # returned count is the source of truth for the ``restart_count``
+    # telemetry below (the old read-only ``get_restart_count`` read always
+    # reported 0 on this path since nothing incremented it).
+    try:
+        new_restart_count = spawner.check_and_increment_restart_count(
+            pipeline_id, role, slice_id=slice_id
+        )
+    except KubernetesSpawnError as budget_err:
+        logger.warning(
+            "restart_agent rejected: restart budget exhausted",
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+            slice_id=slice_id,
+            error=str(budget_err),
+        )
+        return make_error_response(str(budget_err), status_code=429)
+
+    # Early status update: transition FAILED/CANCELLED -> RUNNING so that
+    # get_status returns "running" immediately. Unlike a RUNNING pipeline —
+    # whose live event loop picks up the consensus reset below and respawns
+    # within one poll — a FAILED/CANCELLED pipeline has NO live event loop:
+    # ``_run_concurrent_phase`` already returned and ``stop_event_loop()``
+    # tore the loop down on its way out, and the ``_run_pipeline`` driver
+    # thread has exited. Resetting consensus alone would leave the pipeline
+    # RUNNING-but-idle with nothing to respawn it (#3244 review). So when we
+    # make this transition we record it and relaunch a fresh ``_run_pipeline``
+    # driver thread at the end of the route (mirroring ``restart_phase`` step
+    # 7) — that restarts the event loop, which then performs the respawn.
+    pipeline_was_inactive = pipeline.status in (
+        PipelineStatus.FAILED,
+        PipelineStatus.CANCELLED,
+    )
+    if pipeline_was_inactive:
         early_lock = get_pipeline_state_lock(pipeline_id)
         with early_lock:
             pipeline = store.load_pipeline(pipeline_id)
@@ -2942,336 +2957,84 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                 _phase_exec = pipeline.phases.get(current_phase)
                 if _phase_exec is not None:
                     _phase_exec.status = PipelineStatus.RUNNING
+                # Bump run_epoch so the relaunched driver thread (below) owns a
+                # fresh epoch namespace and any stale thread that observes the
+                # transition detects itself as superseded (mirrors
+                # ``restart_phase`` / ``advance_phase``).
+                pipeline.run_epoch = datetime.now(UTC)
                 pipeline.updated_at = datetime.now(UTC)
                 store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
-
-    # Compute gateway mode from pipeline config (not hardcoded "public")
-    gateway_mode, _ = _compute_gateway_mode(pipeline)
-
-    # Resolve the per-agent worktree path and the default branch once,
-    # so the pipeline-level / root-slice / parent-complete branches of
-    # the slice-aware fallback below can substitute a concrete branch
-    # name when ``pipeline.base_branch`` is ``None`` (auto-detect).
-    # Without this, the spawner's ``EGG_BASE_BRANCH`` env-injection guard
-    # (``if base_branch:``) skips the export, the BRC event-pump's
-    # per-producer ``git log {sha}..HEAD --not origin/<base>`` delta
-    # falls back to ``origin/main`` in both consumers, and the diff
-    # errors out on every non-``main`` repo (#2967) — the exact failure
-    # mode the initial-spawn path was fixed for, surfacing on every
-    # health-monitor-triggered or operator-driven restart. The resolved
-    # value is also threaded into the prompt's ``base_branch=`` argument
-    # below so the prompt's diff base and the spawner's worktree base
-    # cannot diverge within the restart path.
-    #
-    # ``worktree_repo_path`` and the default-branch lookup can fail on a
-    # pipeline with no resolvable repo (e.g. ``pipeline.repo`` is ``None``
-    # or the worktree was pruned). Preserve pre-#2967 restart availability
-    # by catching and falling back to the raw ``pipeline.base_branch`` —
-    # restart was unconditional before this resolution was added, so
-    # failing the resolution must not regress that.
-    _restart_env_path = os.environ.get("EGG_REPO_PATH", "/home/egg/repos")
-    _restart_base_path = Path(_restart_env_path)
-    _restart_repo_name = (pipeline.repo or "").split("/")[-1]
-    worktree_repo_path: Path | None
-    try:
-        worktree_repo_path = resolve_worktree_repo_path(_restart_base_path, _restart_repo_name)
-    except Exception as _wt_err:
-        logger.warning(
-            "Could not resolve worktree repo path for restart base-branch "
-            "resolution; falling back to raw pipeline.base_branch",
-            pipeline_id=pipeline_id,
-            agent_role=agent_role,
-            error=str(_wt_err),
-        )
-        worktree_repo_path = None
-    _resolved_base_branch_for_restart: str | None = pipeline.base_branch
-    if not _resolved_base_branch_for_restart and worktree_repo_path is not None:
-        try:
-            _resolved_base_branch_for_restart = get_default_branch(worktree_repo_path)
-        except Exception:
-            _resolved_base_branch_for_restart = None
-
-    # Slice-aware restart branch (#2428). When the restart targets a
-    # slice agent, the spawner must register the gateway session
-    # against the slice integration branch (``<root>/<slice_id>``); the
-    # pipeline tip (``<root>/work``) is the wrong target and every
-    # subsequent push from the restarted agent would be rejected by
-    # the gateway's branch allowlist. Mirror the slice scheduler's
-    # derivation in :func:`_run_implement_phase_slices` so a restarted
-    # slice agent lands on the same integration branch its peers are
-    # using.
-    #
-    # The spawner's ``base_branch`` is the ref the per-agent worktree
-    # is forked off of when the worktree must be (re)created (#2439).
-    # ``pipeline.branch`` (the integration tip) is the wrong target —
-    # if the worktree is absent at restart time, forking from the
-    # pipeline tip pulls sibling slices' commits into the rebuilt
-    # worktree. The right base depends on context:
-    #   - Pipeline-level restart: ``_resolved_base_branch_for_restart``
-    #     (``pipeline.base_branch`` if explicit, else the worktree's
-    #     ``get_default_branch`` so the spawner exports a concrete
-    #     ``EGG_BASE_BRANCH`` on master-default repos — #2967 follow-up).
-    #   - Slice restart with a parent in the contract's slice forest:
-    #     the parent slice's integration branch
-    #     (``<root>/<parent_slice_id>``), mirroring ``parent_branch``
-    #     in :func:`_run_one_slice_inner`.
-    #   - Root-slice restart, or slice restart when the contract
-    #     can't be loaded: ``_resolved_base_branch_for_restart`` (fallback,
-    #     same resolution as the pipeline-level case).
-    #
-    # Note: this intentionally diverges from the initial-spawn path at
-    # :func:`_run_concurrent_phase` for the parent-slice cases —
-    # ``_run_concurrent_phase`` now passes the resolved
-    # ``_resolved_base_branch`` (the same shape this path uses for
-    # pipeline-level / root-slice / parent-complete restarts), but #2439
-    # specifically asks for the parent-slice fork on the *restart* path
-    # so a worktree-absent restart of a child slice rebuilds atop its
-    # parent slice rather than re-forking from
-    # ``pipeline.base_branch`` and losing the parent's commits. Don't
-    # "fix" this asymmetry by aligning the two paths without first
-    # re-reading #2439.
-    if slice_id is not None:
-        _pipeline_branch = pipeline.branch or (
-            f"egg/issue-{pipeline.issue_number}/work"
-            if pipeline.issue_number is not None
-            else f"egg/{pipeline_id}/work"
-        )
-        _issue_branch = _slice_namespace_root(_pipeline_branch)
-        # Defense-in-depth: re-validate the slice id shape before
-        # embedding it in a git ref. ``extract_slice_id`` (above)
-        # already enforces ``^slice-[0-9]+$`` on the request payload,
-        # but the helper is part of the gateway-facing surface — a
-        # future caller that forgets upstream validation must not be
-        # able to smuggle path separators or shell metacharacters in
-        # via this seam. Mirrors the check at
-        # ``concurrent_executor.get_worktree_branch`` so both spawn
-        # entrypoints share the same canonical pattern.
-        if not SLICE_ID_PATTERN.fullmatch(slice_id):
-            raise ValueError(
-                f"slice_id={slice_id!r} does not match the canonical shape ``slice-<N>``"
-            )
-        agent_branch = f"{_issue_branch}/{slice_id}"
-        if parent_slice_id is not None and parent_slice_complete:
-            # #2470: parent slice's PR has plausibly been merged and its
-            # branch deleted by GitHub auto-cleanup. Falling back to
-            # ``_resolved_base_branch_for_restart`` is safe: ``complete``
-            # means the parent's commits have been integrated upstream
-            # (either via PR merge or via the cascade), and prefer
-            # letting the restart proceed over wedging on a missing-
-            # branch fetch. Resolved (rather than raw
-            # ``pipeline.base_branch``) so the spawner exports
-            # ``EGG_BASE_BRANCH`` on auto-detect repos (#2967 follow-up).
-            base_branch_for_restart = _resolved_base_branch_for_restart
-        elif parent_slice_id is not None:
-            if parent_branch_recorded:
-                # Prefer the literal branch the parent slice was
-                # provisioned against (#2460 review observation 2).
-                # Set by ``_run_one_slice_inner`` at slice creation
-                # time; per the docstring on
-                # ``Slice.parent_branch_at_creation``, it is *the*
-                # recorded fact about how the slice was provisioned.
-                # We trust our own writer here — no extra ref-shape
-                # validation, just the gateway's per-repo ``git
-                # fetch`` will surface a malformed value.
-                base_branch_for_restart = parent_branch_recorded
             else:
-                # Fallback: contract has the dependency edge but no
-                # provisioning record. Reconstruct from the slice
-                # namespace root and the parent's id.
-                #
-                # Defense-in-depth: ``parent_slice_id`` came from the
-                # contract loader (whose ``Slice.id`` regex permits
-                # both canonical ``slice-<N>`` and legacy
-                # ``phase-<N>``), so accept either shape before
-                # embedding into a git ref. Anything outside that
-                # envelope is a corrupt-contract smell — fail loudly
-                # rather than synthesising a malformed ref the
-                # gateway would reject anyway.
-                if not _SLICE_OR_PHASE_ID_PATTERN.fullmatch(parent_slice_id):
-                    raise ValueError(
-                        f"parent_slice_id={parent_slice_id!r} does not match "
-                        f"the canonical shape ``slice-<N>`` (or legacy ``phase-<N>``)"
-                    )
-                base_branch_for_restart = f"{_issue_branch}/{parent_slice_id}"
-        else:
-            # Root slice (no parent edge): same shape as the pipeline-level
-            # case below — resolved so a ``None`` ``pipeline.base_branch``
-            # still reaches the spawner as a concrete branch name
-            # (#2967 follow-up).
-            base_branch_for_restart = _resolved_base_branch_for_restart
-    else:
-        agent_branch = pipeline.branch
-        # Pipeline-level restart: resolved so the spawner exports
-        # ``EGG_BASE_BRANCH`` and the BRC delta works on auto-detect repos
-        # (master-default), matching the initial-spawn path's behavior at
-        # ``_run_concurrent_phase`` (#2967 follow-up).
-        base_branch_for_restart = _resolved_base_branch_for_restart
+                # Lost the race — another writer already moved it off
+                # FAILED/CANCELLED, so its driver thread / event loop is
+                # live and will own the respawn. Don't relaunch a duplicate.
+                pipeline_was_inactive = False
 
-    # Reconstruct command and extra_env for concurrent agents.
-    # In concurrent mode, agents need a consensus-wrapped prompt command
-    # and role-specific environment variables to function properly.
-    command = None
-    extra_env: dict[str, str] = {}
+    # #3164: ``restart_agent`` no longer spawns a resident pod. The
+    # orchestrator event loop owns the BRC respawn — once the role's
+    # consensus state is reset (below), it spawns a fresh one-shot pod
+    # within one ~5s poll. Here we only (1) kill any live one-shot Job
+    # for the role so a stuck pod is torn down, then (2) reset consensus
+    # + health so the event loop reschedules.
 
-    # Per-agent model resolution for the restart path (#2769 task-2-5).
-    # The default Anthropic decision keeps every restart kwarg byte-
-    # identical to the pre-#2769 wire shape; non-default decisions wire
-    # the right ``--model`` into the consensus wrapper and the right
-    # upstream/upstream_model into the gateway session.
+    # Delete the role's live one-shot Job(s), best-effort. One-shot
+    # event Jobs carry an event-discriminator SUFFIX in their name (one
+    # Job per actionable BRC event), so they can't be addressed by a
+    # deterministic name — find them by LABEL. Match on pipeline +
+    # role (and slice when scoped). Zero matches is fine (the role may
+    # have already exited cleanly); the event loop will respawn either
+    # way once consensus is reset. Wrap broadly so a k8s/list failure
+    # never fails the restart.
+    job_labels = {
+        LABEL_PIPELINE_ID: pipeline_id,
+        # The role label value is the underscore form (e.g.
+        # ``reviewer_code``), which is exactly ``agent_role`` / ``role.value``.
+        LABEL_AGENT_ROLE: role.value,
+    }
+    if slice_id is not None:
+        job_labels[LABEL_SLICE_ID] = slice_id
     try:
-        try:
-            from agent_model_resolution import (
-                UPSTREAM_ANTHROPIC,
-                resolve_agent_model,
-            )
-        except ImportError:
-            from ..agent_model_resolution import (  # type: ignore[import-not-found, no-redef]
-                UPSTREAM_ANTHROPIC,
-                resolve_agent_model,
-            )
-        _model_decision = resolve_agent_model(
-            role=role,
-            pipeline_config=pipeline.config,
-            repo=pipeline.repo,
-        )
-    except Exception as resolve_err:
-        # Resolution is pure data over already-validated inputs; logging
-        # and falling back to the built-in opus default preserves restart
-        # availability even if a future regression breaks the resolver.
-        logger.warning(
-            "Failed to resolve per-agent model decision for restart, "
-            "falling back to built-in opus default",
-            pipeline_id=pipeline_id,
-            agent_role=agent_role,
-            error=str(resolve_err),
-        )
-        try:
-            from agent_model_resolution import UPSTREAM_ANTHROPIC, classify_model
-        except ImportError:
-            from ..agent_model_resolution import (  # type: ignore[import-not-found, no-redef]
-                UPSTREAM_ANTHROPIC,
-                classify_model,
-            )
-
-        _model_decision = classify_model("opus")
-
-    try:
-        try:
-            from concurrent_executor import ConcurrentPhaseExecutor, is_concurrent_execution
-        except ImportError:
-            from ..concurrent_executor import ConcurrentPhaseExecutor, is_concurrent_execution
-
-        if is_concurrent_execution(pipeline, phase=current_phase):
-            # Reconstruct extra_env via ConcurrentPhaseExecutor
-            executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=lambda **kw: None)  # type: ignore[arg-type]
-            extra_env = executor.get_agent_env(role)
-
-            # Reconstruct the agent prompt and wrap it for consensus.
-            # ``worktree_repo_path`` and ``_resolved_base_branch_for_restart``
-            # were already computed above the slice-aware fallback so the
-            # prompt's diff base, the spawner's ``base_branch`` argument
-            # (and thus the exported ``EGG_BASE_BRANCH``), and the worktree
-            # base cannot diverge within this restart path (#2967 follow-up).
-            # ``worktree_repo_path`` is ``None`` only when the hoisted
-            # resolution failed (logged above); skip prompt reconstruction
-            # in that case rather than passing ``"None"`` as ``repo_path``.
+        live_jobs = spawner.k8s.list_containers(labels=job_labels)
+        removed_jobs = 0
+        for job in live_jobs:
             try:
-                if worktree_repo_path is None:
-                    raise RuntimeError(
-                        "worktree_repo_path unavailable; skipping prompt reconstruction"
-                    )
-                prompt_text = _build_agent_prompt(
-                    role_value=agent_role,
-                    phase=current_phase,
-                    pipeline_id=pipeline_id,
-                    pipeline_mode=pipeline.mode.value if pipeline.mode else "issue",
-                    prompt=pipeline.prompt,
-                    issue_number=pipeline.issue_number,
-                    repo=pipeline.repo,
-                    branch=pipeline.branch,
-                    base_branch=_resolved_base_branch_for_restart,
-                    repo_path=str(worktree_repo_path),
-                    concurrent=True,
-                    network_mode=gateway_mode,
-                )
-                if prompt_text:
-                    from consensus_wrapper import build_consensus_wrapped_command
-
-                    command = build_consensus_wrapped_command(
-                        prompt_text,
-                        model=_model_decision.claude_code_alias,
-                        effort=_model_decision.effort,
-                    )
-            except Exception as prompt_err:
+                # Mirror the cleanup call sites: prefer the explicit
+                # ``job_name`` (already Job-prefixed), fall back to the
+                # container id which ``remove_agent_job`` -> ``remove_container``
+                # resolves to a Job name.
+                spawner.remove_agent_job(job.job_name or job.container_id, force=True)
+                removed_jobs += 1
+            except Exception as job_err:  # noqa: BLE001 - best-effort teardown
                 logger.warning(
-                    "Failed to reconstruct agent prompt for restart "
-                    "(agent will start without a prompt command)",
+                    "Failed to delete live one-shot Job during restart (best-effort)",
                     pipeline_id=pipeline_id,
                     agent_role=agent_role,
-                    error=str(prompt_err),
+                    slice_id=slice_id,
+                    job_name=getattr(job, "job_name", None),
+                    error=str(job_err),
                 )
-    except ImportError:
-        logger.debug("Concurrent executor not available for restart prompt reconstruction")
-    except Exception as e:
-        logger.warning(
-            "Failed to reconstruct concurrent env for restart",
+        logger.info(
+            "restart_agent: deleted live one-shot Job(s) for role",
             pipeline_id=pipeline_id,
             agent_role=agent_role,
-            error=str(e),
-        )
-
-    # Forward upstream/upstream_model only on non-default decisions so a
-    # restart on the Claude default keeps the spawner kwargs byte-
-    # identical to today's pre-#2769 shape (regression guard).
-    restart_upstream_kwargs: dict[str, str | None] = {}
-    if _model_decision.upstream != UPSTREAM_ANTHROPIC or _model_decision.upstream_model is not None:
-        restart_upstream_kwargs["upstream"] = _model_decision.upstream
-        restart_upstream_kwargs["upstream_model"] = _model_decision.upstream_model
-
-    # Merge the model-decision env vars so the restarted agent matches the
-    # initial spawn. On the LiteLLM path these include the
-    # ANTHROPIC_CUSTOM_MODEL_OPTION vars (#2832) for custom-model registration;
-    # every route also picks up the context-guardrail caps (#3175), so this is
-    # non-empty on the Anthropic path too — restarted Anthropic agents inherit
-    # the same guardrails as the initial spawn (matches concurrent_executor).
-    extra_env = {**extra_env, **_model_decision.env_vars()}
-
-    try:
-        spawned = spawner.restart_agent_container(
-            pipeline_id=pipeline_id,
-            agent_role=role,
-            issue_number=pipeline.issue_number,
-            mode=gateway_mode,
-            extra_env=extra_env or None,
-            repos=[pipeline.repo] if pipeline.repo else None,
-            phase=current_phase,
-            command=command,
-            branch=agent_branch,
-            base_branch=base_branch_for_restart,
-            reason=reason,
-            spawn_max_retries=pipeline.config.spawn_max_retries,
-            spawn_retry_initial_backoff_seconds=pipeline.config.spawn_retry_initial_backoff_seconds,
             slice_id=slice_id,
-            **restart_upstream_kwargs,
+            removed=removed_jobs,
         )
-    except (ContainerSpawnError, KubernetesSpawnError) as e:
-        # Revert early status update — the agent is not actually running.
-        # Consensus state is intentionally NOT reset here so a failed spawn
-        # preserves the agent's prior consensus participation.
-        revert_lock = get_pipeline_state_lock(pipeline_id)
-        with revert_lock:
-            pipeline = store.load_pipeline(pipeline_id)
-            pipeline.status = PipelineStatus.FAILED
-            _phase_exec = pipeline.phases.get(current_phase)
-            if _phase_exec is not None:
-                _phase_exec.status = PipelineStatus.FAILED
-            pipeline.updated_at = datetime.now(UTC)
-            store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
-        return make_error_response(f"Failed to restart agent: {e}", status_code=500)
+    except Exception as list_err:  # noqa: BLE001 - best-effort teardown
+        logger.warning(
+            "Failed to list live one-shot Jobs during restart (best-effort)",
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+            slice_id=slice_id,
+            error=str(list_err),
+        )
 
-    # Spawn succeeded — now reset consensus state for this agent.
-    # If consensus reset fails, log a warning but don't fail the restart:
-    # the restarted agent will re-enter consensus on its own.
+    # Reset consensus state for this agent so the event loop reschedules
+    # a fresh one-shot pod for it. If consensus reset fails, log a
+    # warning but don't fail the restart: the agent will re-enter
+    # consensus on its own. Slice-scoped restarts (#2410) target the
+    # per-slice tracker; the pipeline-level tracker has no record of the
+    # slice agent.
     # Slice-scoped restarts (#2410) target the per-slice tracker; the
     # pipeline-level tracker has no record of the slice agent.
     try:
@@ -3323,34 +3086,29 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             error=str(e),
         )
 
-    # Update pipeline state with new container/agent info
+    # Update pipeline state. No resident container is spawned (#3164) —
+    # the event loop will respawn a one-shot pod within one poll once the
+    # consensus reset above takes effect. We mark the agent RUNNING with
+    # ``container_id = None`` (the live pod is set by the event loop) and
+    # refresh ``started_at`` so the overseer's
+    # phase_minimum_working_window suppression on the
+    # ``agent-heartbeat-stall`` trigger anchors on the restart (#2084).
     lock = get_pipeline_state_lock(pipeline_id)
     with lock:
         pipeline = store.load_pipeline(pipeline_id)
         if phase_exec is not None:
             # Re-fetch from the freshly loaded pipeline (the outer check gates
-            # on "did the phase exist before the spawn?").
+            # on "did the phase exist before the restart?").
             fresh_phase_exec = pipeline.phases.get(current_phase)
             if fresh_phase_exec is not None:
-                # Add new container info
-                fresh_phase_exec.containers.append(spawned.container_info)
-
-                # Update or add agent execution entry
                 from models import AgentExecution  # type: ignore
 
-                # Refresh ``started_at`` to the new container's spawn time so
-                # ``_get_concurrent_status`` reports an ``elapsed_seconds``
-                # anchored on the live container.  Without this the field
-                # carries the original spawn timestamp and the overseer's
-                # phase_minimum_working_window suppression on the
-                # ``agent-heartbeat-stall`` trigger is structurally dead on
-                # the ``restart_agent`` path (issue #2084).
                 respawn_started_at = datetime.now(UTC)
                 # Match on ``(role, slice_id)`` — without the slice tiebreaker
                 # the first matching role wins, which on a multi-slice phase
                 # mutates the wrong slice's record (#2422). ``slice_id`` is
-                # the route-level scope already plumbed into the spawner and
-                # consensus tracker above.
+                # the route-level scope already plumbed into the consensus
+                # tracker above.
                 found = False
                 for agent in fresh_phase_exec.agents:
                     if not hasattr(agent, "role"):
@@ -3362,51 +3120,67 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                         continue
                     if getattr(agent, "slice_id", None) != slice_id:
                         continue
-                    agent.container_id = spawned.container_info.container_id
+                    agent.container_id = None
                     agent.status = AgentExecutionStatus.RUNNING
                     agent.started_at = respawn_started_at
-                    agent.resolved_model = _model_decision.claude_code_alias
                     found = True
                     break
                 if not found:
                     fresh_phase_exec.agents.append(
                         AgentExecution(
                             role=role,
-                            container_id=spawned.container_info.container_id,
+                            container_id=None,
                             status=AgentExecutionStatus.RUNNING,
                             started_at=respawn_started_at,
                             slice_id=slice_id,
-                            resolved_model=_model_decision.claude_code_alias,
                         )
                     )
 
         pipeline.updated_at = datetime.now(UTC)
         store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
 
-    # Slice-scoped restarts (#2410) bumped the per-slice budget bucket
-    # ``(pipeline_id, agent_role, slice_id)``; the pipeline-level
-    # ``(pipeline_id, agent_role, None)`` bucket is untouched. Reading
-    # without ``slice_id`` here would return the pipeline-level count
-    # (typically zero) and the audit log + JSON response below would
-    # misreport the operator's "you've burned N of M restarts" telemetry.
-    restart_count = spawner.get_restart_count(pipeline_id, agent_role, slice_id=slice_id)
+    # ``restart_count`` is the value just incremented by
+    # ``check_and_increment_restart_count`` above (#3244). It is scoped to the
+    # same ``(pipeline_id, agent_role, slice_id)`` bucket the cap is enforced
+    # on, so it correctly reports the operator's "you've burned N of M
+    # restarts" telemetry — the pre-fix read-only ``get_restart_count`` read
+    # always reported 0 here because nothing on this path incremented it.
+    response_data: dict[str, object] = {
+        "agent_role": agent_role,
+        "slice_id": slice_id,
+        "respawn": "delegated to orchestrator event loop",
+        "restart_count": new_restart_count,
+    }
+
+    # When the pipeline was FAILED/CANCELLED its event loop and driver thread
+    # are dead (see the early-status comment above), so the consensus reset
+    # alone has nothing to act on it. Relaunch a fresh ``_run_pipeline`` driver
+    # thread — exactly as ``restart_phase`` step 7 does — to restart the event
+    # loop, which then respawns the role's one-shot Job within one poll. For a
+    # pipeline that was already RUNNING we skip this: its live event loop owns
+    # the respawn and a second driver thread would race it (#3244 review).
+    if pipeline_was_inactive:
+        _spawn_pipeline_run_thread(pipeline_id, store.repo_path, pipeline.run_epoch)
+        logger.info(
+            "restart_agent: relaunched driver thread for inactive pipeline",
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+            slice_id=slice_id,
+            run_epoch=pipeline.run_epoch.isoformat() if pipeline.run_epoch else None,
+        )
 
     logger.info(
-        "Agent restarted",
+        "Agent restart requested (respawn delegated to event loop)",
         pipeline_id=pipeline_id,
         agent_role=agent_role,
-        container_id=spawned.container_info.container_id[:12],
-        restart_count=restart_count,
+        slice_id=slice_id,
+        restart_count=response_data.get("restart_count"),
         reason=reason,
     )
 
     return make_success_response(
         f"Agent {agent_role} restarted",
-        data={
-            "container_id": spawned.container_info.container_id,
-            "agent_role": agent_role,
-            "restart_count": restart_count,
-        },
+        data=response_data,
     )
 
 

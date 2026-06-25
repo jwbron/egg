@@ -1,74 +1,4 @@
-"""Build consensus-wrapped commands for concurrent agent containers.
-
-ONE-SHOT EVENT MODEL (#3164)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-The orchestrator owns the BRC event loop (``orchestrator/event_loop.py``)
-and spawns this wrapper ONCE per actionable BRC event, injecting the
-event identity via env (``EGG_EVENT_ACTION`` ∈ ``propose|ack|nack``,
-``EGG_EVENT_DEDUPE_KEY``, payload refs). The wrapper does no waiting of
-its own — it re-derives ``egg-orch brc next-action`` once as a
-stale-event backstop, invokes the agent exactly once via
-``python3 -m egg_agent`` with the per-event prompt composed by
-``orchestrator/routes/event_prompt.py:compose_event_prompt``, and exits
-with the agent's rc. The orchestrator-side supervisor / convergence-stall
-notifier (``event_loop.py``) owns respawn, backoff, idle-budget alerting,
-and the failure-streak escalation that the retired in-pod loop carried.
-
-History
-~~~~~~~
-* #2908 introduced the in-pod event-pump: a deterministic bash loop that
-  blocked on ``egg-orch message wait-loop`` between events while a 30 s
-  background heartbeat refreshed the slice-scoped gateway session.
-* #3064/#3229 added the orchestrator-owned event loop behind an
-  ``EGG_EVENT_LOOP_OWNER`` flag (dormant one-shot arm spliced into the
-  wrapper) and proved it on a live BRC cycle.
-* #3164 (this change) retired the in-pod wait arm, the 30 s background
-  heartbeat, the wrapper-side idle-budget alert, the failure-streak
-  escalation, and the ownership flag itself. The one-shot event handler
-  is now the only path — there is no in-pod loop and no rollback flag.
-"""
-
-import shlex
-
-from egg_contracts.agent_roles import REVIEWER_CHECKOUT_ROLE_VALUES
-
-# Space-separated role values for which ``sync_to_proposals`` performs a
-# working-tree merge (#3216, WS1 of #3209). Rendered into the wrapper
-# template as the ``checkout_roles`` field; the bash gate skips the merge
-# for any role not in this list. Sorted for a deterministic, golden-stable
-# render. The policy itself lives in ``egg_contracts.agent_roles`` so role
-# semantics stay in one place.
-EVENT_PUMP_CHECKOUT_ROLES = " ".join(sorted(str(r) for r in REVIEWER_CHECKOUT_ROLE_VALUES))
-
-
-# Default idle budget for the BRC convergence-stall alert (#2908 od-4).
-# The in-pod wrapper that originally owned this was retired in #3164; the
-# orchestrator-side convergence-stall check (``event_loop.py``) now owns
-# the alert, but the default lives here as the single source the health
-# monitor's ``_IDLE_BUDGET_MIN_DEFAULT`` and the event loop both read.
-# 30 min is well above the WS7-observed 10-13 min legitimate-idle ceiling.
-EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT = 30
-
-# OVERSEER_ALERT anomaly name raised when the idle budget is exceeded.
-# Single-sourced here and imported by ``event_loop`` for its
-# orchestrator-side convergence-stall OVERSEER_ALERT emission.
-EVENT_PUMP_IDLE_BUDGET_ANOMALY = "stuck-phase-transition"
-
-# One-shot event wrapper bash template (#3164). Composed by
-# ``build_consensus_wrapped_command``. The orchestrator owns the BRC
-# event loop and spawns this wrapper once per actionable event with
-# ``EGG_EVENT_ACTION`` injected; the wrapper re-derives next-action once
-# as a stale-event backstop, invokes the agent one-shot, and exits with
-# the agent's rc. There is no blocking wait-loop, no background
-# heartbeat, and no idle budget — the orchestrator owns all waiting and
-# the convergence-stall / failure-streak escalation (see
-# ``event_loop.py``).
-#
-# Placeholders interpolated by ``str.format``:
-#   {agent_command_prefix}   -- ``python3 -m egg_agent --model X --max-turns N``
-#   {checkout_roles}         -- space-separated roles whose ack/nack arm
-#                               performs a working-tree merge (#3216)
-_EVENT_PUMP_WRAPPER_TEMPLATE = r"""#!/bin/bash
+#!/bin/bash
 set -uo pipefail
 
 # One-shot event wrapper (#3164). The orchestrator spawns this wrapper
@@ -77,9 +7,9 @@ set -uo pipefail
 # appended at the end. No blocking wait-loop and no background heartbeat:
 # the orchestrator owns all waiting.
 
-cw_log() {{
+cw_log() {
     echo "[event-pump] $*" >&2
-}}
+}
 
 # Emit one heartbeat. The CLI's ``message heartbeat`` handler auto-
 # attaches ``slice_id`` from ``$EGG_SLICE_ID`` via
@@ -90,15 +20,15 @@ cw_log() {{
 # one-shot pod. We also echo the slice tag in the ``--body`` so a
 # snapshot test can grep for the slice_id propagation without
 # intercepting the HTTP POST.
-emit_heartbeat() {{
+emit_heartbeat() {
     local state="$1"
     local body_text="$2"
-    local slice_tag="${{EGG_SLICE_ID:-none}}"
+    local slice_tag="${EGG_SLICE_ID:-none}"
     timeout 5 egg-orch message heartbeat \
         --state "$state" \
         --body "$body_text (slice=$slice_tag)" \
         >/dev/null 2>&1 || true
-}}
+}
 
 # Ask the orchestrator route what to do next. Returns a JSON document
 # with ``action`` ('wait'|'propose'|'ack'|'nack'|'confirm'|'complete')
@@ -108,12 +38,12 @@ emit_heartbeat() {{
 # HTTP 409 from the route (409 stale_version, 409 aggregated-NACK
 # barrier) is a signal, not a crash: the CLI surfaces it as a non-zero
 # exit code with an empty/invalid JSON. We fall back to
-# ``{{"action":"wait"}}`` and propagate the original ``rc`` so the
+# ``{"action":"wait"}`` and propagate the original ``rc`` so the
 # one-shot handler can tell an inconclusive re-check (exit 75) from a
 # positively-derived action.
-fetch_next_action() {{
+fetch_next_action() {
     local out rc
-    out=$(egg-orch brc next-action --role "${{EGG_AGENT_ROLE:-unknown}}" --json 2>/dev/null)
+    out=$(egg-orch brc next-action --role "${EGG_AGENT_ROLE:-unknown}" --json 2>/dev/null)
     rc=$?
     if [ "$rc" -eq 0 ] && [ -n "$out" ]; then
         echo "$out"
@@ -126,15 +56,15 @@ fetch_next_action() {{
     # (worth checking). We always echo the fallback JSON so the parser
     # doesn't crash, and propagate the original ``rc`` as the function's
     # exit code (the caller reads ``$?`` after the ``$(...)`` capture).
-    cw_log "brc next-action returned rc=$rc / empty body; falling back to {{\"action\":\"wait\"}}."
-    echo '{{"action":"wait"}}'
+    cw_log "brc next-action returned rc=$rc / empty body; falling back to {\"action\":\"wait\"}."
+    echo '{"action":"wait"}'
     return "$rc"
-}}
+}
 
 # Extract a top-level scalar field from a next-action JSON document.
 # Nested objects (event_payload) are re-serialised as JSON so the
 # bash caller can pass them downstream verbatim.
-next_action_field() {{
+next_action_field() {
     local action_json="$1"
     local field="$2"
     echo "$action_json" | python3 -c "
@@ -152,13 +82,13 @@ elif v is None:
 else:
     print(v)
 " "$field" 2>/dev/null || echo ""
-}}
+}
 
 # Invoke the agent one-shot with the per-event prompt. Slice-3
 # (TASK-3-1 / TASK-3-2) replaces the slice-2 stub with the full
 # ``compose_event_prompt`` payload: memory excerpt (when
 # ``EGG_BRC_MEMORY=full``) + per-producer
-# ``git log {{sha}}..HEAD --not origin/{{base}} -p`` delta + NACK
+# ``git log {sha}..HEAD --not origin/{base} -p`` delta + NACK
 # payload + the contract's ``task_description`` (#3123, read from the
 # worktree contract file via the pod-inherited ``EGG_PIPELINE_ID`` /
 # ``EGG_ISSUE_NUMBER``). The composer lives at
@@ -172,13 +102,13 @@ else:
 # event-pump keeps running rather than failing the agent invocation.
 # This is symmetric with the rest of the wrapper's "block, alert,
 # continue" stance under the idle-budget safety net.
-invoke_agent_for_event() {{
+invoke_agent_for_event() {
     local action="$1"
     local event_payload="$2"
-    local role="${{EGG_AGENT_ROLE:-unknown}}"
-    local slice="${{EGG_SLICE_ID:-none}}"
-    local base_branch="${{EGG_BASE_BRANCH:-main}}"
-    local script_path="${{EGG_EVENT_PROMPT_SCRIPT:-/opt/egg-runtime/orchestrator/routes/event_prompt.py}}"
+    local role="${EGG_AGENT_ROLE:-unknown}"
+    local slice="${EGG_SLICE_ID:-none}"
+    local base_branch="${EGG_BASE_BRANCH:-main}"
+    local script_path="${EGG_EVENT_PROMPT_SCRIPT:-/opt/egg-runtime/orchestrator/routes/event_prompt.py}"
     local prompt prompt_rc=1
 
     if [ -r "$script_path" ]; then
@@ -205,8 +135,8 @@ invoke_agent_for_event() {{
         prompt=$(printf '%s' "$event_payload" \
             | EGG_AGENT_ROLE="$role" \
                 EGG_BASE_BRANCH="$base_branch" \
-                EGG_REPO_PATH="${{EGG_REPO_PATH:-$PWD}}" \
-                EGG_BRC_MEMORY="${{EGG_BRC_MEMORY:-full}}" \
+                EGG_REPO_PATH="${EGG_REPO_PATH:-$PWD}" \
+                EGG_BRC_MEMORY="${EGG_BRC_MEMORY:-full}" \
                 python3 "$script_path" "$action" 2>"$err_tmp")
         prompt_rc=$?
     fi
@@ -218,7 +148,7 @@ invoke_agent_for_event() {{
         # The idle-budget safety net catches a wedged event-pump even
         # under a degraded composer; failing here would defeat that.
         local err_head=""
-        if [ -n "${{err_tmp:-}}" ] && [ -r "$err_tmp" ]; then
+        if [ -n "${err_tmp:-}" ] && [ -r "$err_tmp" ]; then
             err_head=$(head -1 "$err_tmp" 2>/dev/null)
         fi
         if [ -n "$err_head" ]; then
@@ -232,7 +162,7 @@ invoke_agent_for_event() {{
     # Best-effort cleanup of the stderr capture file. The trap on the
     # outer wrapper handles SIGTERM cleanup; this cleanup keeps a busy
     # event-pump from accumulating stale per-invocation temp files.
-    if [ -n "${{err_tmp:-}}" ] && [ -e "$err_tmp" ]; then
+    if [ -n "${err_tmp:-}" ] && [ -e "$err_tmp" ]; then
         rm -f "$err_tmp" 2>/dev/null || true
     fi
     # #3077 slice-1 task-1-1: prepend any sync-to-proposal failure
@@ -243,12 +173,12 @@ invoke_agent_for_event() {{
     # agent is byte-identical to the slice-0 prompt. Re-clear after
     # consumption so a subsequent ``propose`` arm (which intentionally
     # skips the sync per R11a) can never inherit stale banners.
-    if [ -n "${{SYNC_FAILURE_BANNERS:-}}" ]; then
-        prompt="${{SYNC_FAILURE_BANNERS}}${{prompt}}"
+    if [ -n "${SYNC_FAILURE_BANNERS:-}" ]; then
+        prompt="${SYNC_FAILURE_BANNERS}${prompt}"
         SYNC_FAILURE_BANNERS=""
     fi
-    {agent_command_prefix} "$prompt"
-}}
+    python3 -m egg_agent --model opus --max-turns 1000 "$prompt"
+}
 
 # Sync-to-proposal (#3076 / #3077 clause 2): before a review invocation
 # (ack/nack), merge each pending producer's proposed commit into this
@@ -286,7 +216,7 @@ invoke_agent_for_event() {{
 # empty.
 SYNC_FAILURE_BANNERS=""
 
-sync_to_proposals() {{
+sync_to_proposals() {
     # #3216 (WS1 of #3209): only reviewers that EXECUTE the proposal (run
     # the test suite / build against the merged tree) need a working-tree
     # merge. Every other reviewer reads peer artifacts via this prompt's
@@ -298,8 +228,8 @@ sync_to_proposals() {{
     # yaml fence / a "File modified since read" livelock). Allowed roles are
     # rendered from ``REVIEWER_CHECKOUT_ROLE_VALUES``; default-deny so an
     # unset/unknown role reads via git-show (the safe, non-replicating side).
-    local _role="${{EGG_AGENT_ROLE:-}}"
-    case " {checkout_roles} " in
+    local _role="${EGG_AGENT_ROLE:-}"
+    case " tester " in
         *" $_role "*) : ;;  # role runs the proposal; a real merged checkout is required
         *)
             SYNC_FAILURE_BANNERS=""
@@ -308,7 +238,7 @@ sync_to_proposals() {{
             ;;
     esac
     local event_payload="$1"
-    local repo="${{EGG_REPO_PATH:-$PWD}}"
+    local repo="${EGG_REPO_PATH:-$PWD}"
     local shas sha
     # Reset the per-event failure accumulator at the top of each call
     # so banners from a prior event never leak into the next prompt.
@@ -327,7 +257,7 @@ try:
     d = json.load(sys.stdin)
 except Exception:
     sys.exit(0)
-pat = re.compile(r'[0-9a-fA-F]{{7,64}}')
+pat = re.compile(r'[0-9a-fA-F]{7,64}')
 out = []
 for pr in (d.get('pending_reviews') or []):
     if not isinstance(pr, dict):
@@ -340,13 +270,13 @@ print('\n'.join(out))
     [ -z "$shas" ] && return 0
     while IFS= read -r sha; do
         [ -z "$sha" ] && continue
-        if ! git -C "$repo" cat-file -e "$sha^{{commit}}" 2>/dev/null; then
+        if ! git -C "$repo" cat-file -e "$sha^{commit}" 2>/dev/null; then
             # Per-role worktrees share the host repo's object store, so
             # the SHA normally resolves without network; a best-effort
             # fetch covers split-object-store runtimes.
             git -C "$repo" fetch --quiet origin >/dev/null 2>&1 || true
         fi
-        if ! git -C "$repo" cat-file -e "$sha^{{commit}}" 2>/dev/null; then
+        if ! git -C "$repo" cat-file -e "$sha^{commit}" 2>/dev/null; then
             cw_log "sync-to-proposal: $sha unresolvable in $repo; reviewer falls back to the prompt's git-show reads."
             cw_log "sync-to-proposal: outcome=unresolvable sha=$sha"
             # ``unresolvable`` failure: append a NOT-synced banner so
@@ -374,33 +304,9 @@ print('\n'.join(out))
         fi
     done <<< "$shas"
     return 0
-}}
+}
 
-"""
-
-
-# One-shot event handler (#3164). Appended verbatim after
-# ``_EVENT_PUMP_WRAPPER_TEMPLATE.format(...)`` runs, so it uses LITERAL
-# braces (no ``{{``/``}}`` doubling) and is NOT passed through
-# ``str.format``. It relies on the helper functions defined above
-# (``fetch_next_action``, ``next_action_field``, ``sync_to_proposals``,
-# ``invoke_agent_for_event``, ``emit_heartbeat``, ``cw_log``).
-#
-# The orchestrator spawns this wrapper ONCE per actionable BRC event with
-# ``EGG_EVENT_ACTION`` (in propose|ack|nack) injected. The handler:
-#   * Refuses loudly (exit 64) if no action was injected -- under the
-#     orchestrator-owned loop every pod is a one-shot event spawn, so a
-#     missing action is a caller bug, not a fall-through to an in-pod loop
-#     (which no longer exists).
-#   * Refuses ``confirm``/``complete`` (exit 64) -- those run
-#     orchestrator-side with no pod and must never reach a wrapper.
-#   * Re-checks next-action ONCE as a stale-event backstop, with three
-#     distinct exit codes the orchestrator supervisor reads:
-#       - inconclusive re-check (fetch rc != 0) -> exit 75 (EX_TEMPFAIL)
-#         WITHOUT invoking; the supervisor re-derives.
-#       - derived action moved on -> exit 0 WITHOUT invoking (stale dedupe).
-#       - re-check confirms the event -> invoke once, exit the agent rc.
-_ONE_SHOT_EVENT_HANDLER = r"""# --- one-shot event handler (#3164) ------------------------------------
+# --- one-shot event handler (#3164) ------------------------------------
 ONE_SHOT_ACTION="${EGG_EVENT_ACTION:-}"
 if [ -z "$ONE_SHOT_ACTION" ]; then
     cw_log "FATAL: no EGG_EVENT_ACTION injected. Under the orchestrator-owned event loop (#3164) every agent pod is spawned one-shot per BRC event; a wrapper with no injected action is a caller bug. Refusing (exit 64)."
@@ -476,89 +382,3 @@ cw_log "One-shot invocation done (action=$ONE_SHOT_ACTION, rc=$one_shot_rc, dura
 # not be confirmed, re-derive next-action"). Agent passthrough rcs do not
 # include 75, so the two meanings never collide.
 exit "$one_shot_rc"
-"""
-
-
-def build_event_pump_wrapped_command(
-    prompt_text: str,
-    model: str = "opus",
-    max_turns: int = 1000,
-    effort: str | None = None,
-) -> list[str]:
-    """Compose the one-shot event wrapper bash command (#3164).
-
-    Public entry-point shared by ``build_consensus_wrapped_command``.
-
-    The ``prompt_text`` argument is accepted for signature parity with the
-    historical entry-point; the wrapper emits its own per-event prompt
-    inside ``invoke_agent_for_event`` from the rendered
-    ``compose_event_prompt`` output, so the initial prompt is not
-    interpolated into the bash directly.
-    """
-    del prompt_text  # interface parity; per-event prompts are composed in-wrapper
-
-    agent_prefix_parts = [
-        "python3",
-        "-m",
-        "egg_agent",
-        "--model",
-        model,
-        "--max-turns",
-        str(max_turns),
-    ]
-    if effort is not None:
-        # Pin the reasoning effort instead of inheriting the installed
-        # Claude Code build's per-model default (AgentModelDecision.effort).
-        agent_prefix_parts.extend(["--effort", effort])
-    agent_command_prefix = " ".join(shlex.quote(p) for p in agent_prefix_parts)
-
-    script = _EVENT_PUMP_WRAPPER_TEMPLATE.format(
-        agent_command_prefix=agent_command_prefix,
-        checkout_roles=EVENT_PUMP_CHECKOUT_ROLES,
-    )
-    # The triple-quoted template opens with a newline (so the source reads
-    # cleanly); strip it so ``#!/bin/bash`` lands on line 1.
-    script = script.lstrip("\n")
-    # The orchestrator owns the event loop (#3164): every spawn is one-shot,
-    # so the one-shot event handler is always appended. There is no in-pod
-    # wait loop and no ownership flag to branch on.
-    script = script.rstrip("\n") + "\n\n" + _ONE_SHOT_EVENT_HANDLER
-    return ["bash", "-c", script]
-
-
-def build_consensus_wrapped_command(
-    prompt_text: str,
-    model: str = "opus",
-    max_turns: int = 1000,
-    effort: str | None = None,
-) -> list[str]:
-    """Build a shell command that runs the agent under the one-shot BRC wrapper.
-
-    A thin alias for :func:`build_event_pump_wrapped_command`, retained so
-    call sites in ``concurrent_executor.py`` and ``kubernetes_spawner.py``
-    do not have to be renamed. The orchestrator owns the event loop
-    (#3164): the wrapper is spawned one-shot per BRC event and there is no
-    in-pod wait loop.
-
-    Args:
-        prompt_text: Initial prompt (reserved — the wrapper emits its own
-            per-event prompts inside ``invoke_agent_for_event`` from the
-            rendered ``compose_event_prompt`` output, so the initial prompt
-            is not interpolated into the bash directly. Accepted for
-            interface parity with the historical signature).
-        model: Agent model to use.
-        max_turns: Maximum number of tool-call turns per agent
-            invocation.
-        effort: Reasoning effort to pin via ``--effort`` (e.g.
-            ``"high"``), or ``None`` to inherit Claude Code's
-            per-model default.
-
-    Returns:
-        Command list suitable for container spawning (``bash -c "..."``).
-    """
-    return build_event_pump_wrapped_command(
-        prompt_text,
-        model=model,
-        max_turns=max_turns,
-        effort=effort,
-    )
