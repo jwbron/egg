@@ -928,24 +928,26 @@ class TestSpawnAgentJob:
 
 
 # ---------------------------------------------------------------------------
-# TestContextDisciplineFlagForward (#3200 / #3249)
+# TestContextDisciplineFlagForward (#3200)
 # ---------------------------------------------------------------------------
 
 
 class TestForwardedDisciplineEnvHelper:
     """The pure ``_forwarded_discipline_env`` selector."""
 
-    def test_selects_only_set_truthy_flags(self):
+    def test_selects_only_set_non_blank_flags(self):
         from kubernetes_spawner import _forwarded_discipline_env
 
+        # Non-blank filter, not truthiness: a "false" value is forwarded as-is
+        # (and parsed OFF in-pod), while unrelated keys are dropped.
         source = {
             "EGG_CONTEXT_DISCIPLINE": "true",
-            "EGG_CONTEXT_MEASUREMENT": "1",
+            "EGG_SESSION_RESUME": "false",
             "UNRELATED": "x",
         }
         assert _forwarded_discipline_env(source) == {
             "EGG_CONTEXT_DISCIPLINE": "true",
-            "EGG_CONTEXT_MEASUREMENT": "1",
+            "EGG_SESSION_RESUME": "false",
         }
 
     def test_omits_unset_and_blank(self):
@@ -973,7 +975,7 @@ class TestContextDisciplineFlagForward:
         self, spawner, mock_k8s_client, mock_gateway, monkeypatch
     ):
         monkeypatch.setenv("EGG_CONTEXT_DISCIPLINE", "true")
-        monkeypatch.setenv("EGG_CONTEXT_MEASUREMENT", "1")
+        monkeypatch.setenv("EGG_SESSION_RESUME", "1")
         result = spawner.spawn_agent_job(
             pipeline_id="pipe-cd",
             agent_role=AgentRole.CODER,
@@ -983,11 +985,10 @@ class TestContextDisciplineFlagForward:
         )
         env = result.environment
         assert env["EGG_CONTEXT_DISCIPLINE"] == "true"
-        assert env["EGG_CONTEXT_MEASUREMENT"] == "1"
+        assert env["EGG_SESSION_RESUME"] == "1"
 
     def test_flags_absent_when_unset(self, spawner, mock_k8s_client, mock_gateway, monkeypatch):
         monkeypatch.delenv("EGG_CONTEXT_DISCIPLINE", raising=False)
-        monkeypatch.delenv("EGG_CONTEXT_MEASUREMENT", raising=False)
         monkeypatch.delenv("EGG_SESSION_RESUME", raising=False)
         result = spawner.spawn_agent_job(
             pipeline_id="pipe-cd2",
@@ -998,7 +999,7 @@ class TestContextDisciplineFlagForward:
         )
         env = result.environment
         assert "EGG_CONTEXT_DISCIPLINE" not in env
-        assert "EGG_CONTEXT_MEASUREMENT" not in env
+        assert "EGG_SESSION_RESUME" not in env
 
     def test_extra_env_overrides_forwarded_flag(
         self, spawner, mock_k8s_client, mock_gateway, monkeypatch
