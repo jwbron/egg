@@ -8,7 +8,14 @@ event-pump BRC agent in a FIXED four-section order:
   (c) #3189 deterministic anchors — last-reviewed SHA per producer, latest
                                     verdicts, open NACKs, conditional-ACK
                                     obligations (``BRCDerivedAnchors``, slice-3)
-  (d) non-negotiable directives
+  (d) queryable-environment POINTERS — the JIT-pull recipe + served-read
+                                    handles that REPLACE the inlined bulk
+                                    (delta + memory excerpt) so only small
+                                    pointers stay resident (slice-5,
+                                    optional). The bulk is pulled
+                                    just-in-time; the pull does NOT bound
+                                    the window — the slice-6 reseed does.
+  (e) non-negotiable directives
 
 **Byte stability.** The render is byte-identical for identical input: every
 collection is sorted by a deterministic key, list counts are bounded, each
@@ -49,6 +56,7 @@ class RootCaps:
 
     role_contract_chars: int = 6000
     task_chars: int = 8000
+    queryable_env_chars: int = 4000
     directives_chars: int = 4000
     reason_chars: int = 300
     condition_chars: int = 300
@@ -168,6 +176,7 @@ def render_protected_root(
     role_contract: str,
     task_description: str | None = None,
     derived: BRCDerivedAnchors | None = None,
+    queryable_env: str | None = None,
     directives: str | Sequence[str] | None = None,
     caps: RootCaps | None = None,
 ) -> str:
@@ -184,7 +193,16 @@ def render_protected_root(
             ``caps.task_chars``. ``None`` renders ``(none)``.
         derived: The mechanically-derived #3189 anchors (section c). ``None``
             renders a "no reviewed proposals yet" placeholder.
-        directives: Non-negotiable directives (section d) as a single string or
+        queryable_env: The queryable-environment pointer block (section d) —
+            the JIT-pull recipe + served-read handles + honest-limit notice
+            rendered by
+            :func:`egg_agent.queryable_env.render_queryable_env_section`.
+            Passed in already-composed (same purity contract as
+            ``task_description``) so ``egg_anchor`` takes on no new package
+            dependency. ``None`` omits the section entirely so callers that
+            do not yet wire the queryable environment render a root with no
+            empty placeholder. Hard-capped at ``caps.queryable_env_chars``.
+        directives: Non-negotiable directives (section e) as a single string or
             an ordered sequence of bullet items. Hard-capped at
             ``caps.directives_chars``.
         caps: Optional override of the per-section caps.
@@ -201,9 +219,22 @@ def render_protected_root(
         _section("ROLE CONTRACT", _truncate(role_contract or "", caps.role_contract_chars)),
         _section("TASK", _truncate(task_description or "", caps.task_chars)),
         _section("BRC ANCHORS (#3189)", _render_anchors(derived, caps)),
+    ]
+    # Section (d): the queryable-environment pointers. Omitted entirely
+    # when the caller passes no block (``None``) — callers that have not
+    # wired the JIT pull yet render a root with no empty placeholder, and
+    # the section is byte-stable for identical input when present.
+    if queryable_env is not None and queryable_env.strip():
+        sections.append(
+            _section(
+                "QUERYABLE ENVIRONMENT (JIT pull)",
+                _truncate(queryable_env, caps.queryable_env_chars),
+            )
+        )
+    sections.append(
         _section(
             "NON-NEGOTIABLE DIRECTIVES",
             _truncate(_normalize_directives(directives), caps.directives_chars),
-        ),
-    ]
+        )
+    )
     return "\n\n".join([header, *sections]) + "\n"

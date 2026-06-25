@@ -415,6 +415,131 @@ def _render_memory_section(memory_excerpt: str) -> str:
     )
 
 
+def _render_delta_pointer_section(
+    git_log_delta: list[dict[str, Any]] | None,
+    base_branch: str,
+    pipeline_id: str = "",
+) -> str:
+    """Render the re-review delta as JIT-pull POINTERS (#3200 slice-5).
+
+    The new-discipline counterpart of :func:`_render_producer_delta_section`,
+    which INLINES the full per-producer ``git log`` diff (potentially
+    hundreds of KB) into every one-shot prompt. Under the #3200 context
+    discipline that bulk moves into the *queryable environment*: the
+    prompt carries only the exact ``git log
+    <last_reviewed>..<proposal> --not origin/<base> -p`` recipe (scoped
+    by the #3189 anchors already in the payload) plus the served-read
+    handles (``mcp__brc__read_peer_artifact`` /
+    ``GET /<pipeline_id>/brc-transcript``), and the agent pulls the diff
+    just-in-time only for the producer THIS event names.
+
+    Honest limit (recorded here and in the rendered prose): JIT pull does
+    NOT bound the context window — a pulled slice stays resident until the
+    next reseed; the slice-6 reseed bounds the window, the pull only
+    lowers the resident root cost and makes the reseed re-pull-able.
+
+    Self-contained (no ``egg_agent`` import) because this module runs
+    standalone via the wrapper bash — the same constraint that forces
+    :func:`_issue_anchor_fallback` to duplicate
+    ``compose_task_description``. The canonical renderer lives in
+    ``egg_agent.queryable_env``; the wording is kept in sync deliberately.
+
+    ADDITIVE: :func:`_render_producer_delta_section` is left byte-for-byte
+    unchanged so slice-9's feature flag preserves the OFF (inline) path.
+    """
+    if not git_log_delta:
+        return ""
+    pid = (pipeline_id or "<pipeline_id>").strip() or "<pipeline_id>"
+    base_branch = (base_branch or "main").strip() or "main"
+    lines: list[str] = [
+        "## Per-producer re-review delta (pull on demand)",
+        "",
+        "The full diff is NOT inlined. Pull it just-in-time with the "
+        "exact recipe below, only for the producer(s) THIS event names:",
+        "",
+    ]
+    for entry in sorted(git_log_delta, key=lambda e: str(e.get("producer") or "")):
+        producer = str(entry.get("producer") or "(unknown)").strip() or "(unknown)"
+        sha = str(entry.get("last_reviewed_commit_sha") or "").strip()
+        proposal_sha = str(entry.get("proposal_commit_sha") or "").strip() or "<proposal_commit_sha>"
+        if sha:
+            recipe = f"git log {sha}..{proposal_sha} --not origin/{base_branch} -p"
+        else:
+            recipe = f"git log {proposal_sha} --not origin/{base_branch} -p"
+        lines.append(f"### Producer: ``{producer}``")
+        lines.append(f"- Pull the delta: `{recipe}`")
+        lines.append("")
+    lines.extend(
+        [
+            "Bulk BRC history and peer-artifact content are also NOT "
+            "inlined — pull on demand:",
+            "",
+            "- Peer artifacts + message transcript: "
+            "``mcp__brc__read_peer_artifact``.",
+            f"- Live in-flight transcript: ``GET /{pid}/brc-transcript?"
+            "phase=implement&role=<your-role>``.",
+            "",
+            "Honest limit: pulling the delta/transcript does NOT bound "
+            "your context window — a pulled slice stays resident until the "
+            "next reseed. The reseed bounds the window; the pull only "
+            "lowers the resident root cost and makes the reseed "
+            "re-pull-able. Pull only what THIS event needs.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _render_memory_pointer_section(memory_rel_path: str) -> str:
+    """Render the durable BRC memory as a JIT-pull POINTER (#3200 slice-5).
+
+    The new-discipline counterpart of :func:`_render_memory_section`,
+    which INLINES a 2 KB memory excerpt into every one-shot prompt. Under
+    the #3200 context discipline the memory file is #3188 agent-authored
+    enrichment — CLAIMS, not ground truth — so it moves into the
+    *queryable environment*: the prompt carries only a small pointer to
+    the on-disk path and the agent reads it just-in-time, instead of the
+    excerpt riding resident in every invocation.
+
+    The pointer states the honest limit explicitly (a pulled excerpt
+    stays resident until the slice-6 reseed — the pull does not bound the
+    window) and the claims-not-ground-truth caveat (the file's summaries
+    are SHA-stamped; a summary whose ``enrichment_sha`` predates the
+    producer's current proposal SHA is stale and must be re-verified
+    against the live ``git log`` delta, per
+    ``egg_agent.queryable_env.enrichment_is_stale``).
+
+    This is ADDITIVE: the legacy ``_render_memory_section`` is left
+    byte-for-byte unchanged so slice-9's feature flag can preserve the
+    OFF (full-context inline) path exactly. ``memory_rel_path`` empty ->
+    section omitted.
+    """
+    rel = (memory_rel_path or "").strip()
+    if not rel:
+        return ""
+    return "\n".join(
+        [
+            "## Durable BRC memory (pull on demand)",
+            "",
+            "Your distilled state across prior BRC events for this slice "
+            "is NOT inlined — read it just-in-time only if you need it:",
+            "",
+            f"- Path: `{rel}`",
+            "",
+            "It is #3188 agent-authored enrichment: treat the "
+            "``codebase / change model`` prose and each producer's "
+            "``summary_of_assessment`` as CLAIMS, not ground truth. Each "
+            "summary is SHA-stamped (``enrichment_sha``); when it predates "
+            "the producer's current proposal SHA the claim is stale — "
+            "re-verify against the live ``git log`` delta. The "
+            "deterministic #3189 anchors are authoritative. Honest limit: "
+            "reading this file makes its bytes resident until the next "
+            "reseed; the pull does not bound the window, the reseed does.",
+            "",
+        ]
+    )
+
+
 def _render_task_section(task_description: str) -> str:
     """Render the contract's ``task_description`` as a pushed section (#3123).
 
@@ -735,6 +860,9 @@ def compose_event_prompt(
     *,
     task_description: str = "",
     iteration_feedback: dict[str, Any] | None = None,
+    jit_pull: bool = False,
+    memory_rel_path: str = "",
+    pipeline_id: str = "",
 ) -> str:
     """Compose the per-event one-shot prompt the wrapper hands the agent.
 
@@ -794,6 +922,25 @@ def compose_event_prompt(
             draft against the directive rather than NACK it back toward
             the pre-directive rubric. Pass ``None`` / empty to omit (no
             kickback yet — the no-op golden-stable path).
+        jit_pull: #3200 slice-5 queryable-environment toggle. ``False``
+            (default) renders the legacy full-context INLINE path
+            byte-for-byte unchanged — the per-producer ``git log`` diff
+            and the 2 KB memory excerpt are inlined. ``True`` renders the
+            bulk as JIT-pull POINTERS instead (the ``git log`` recipe +
+            ``read_peer_artifact`` / ``brc-transcript`` handles for the
+            delta; the memory file as an on-demand path), so only small
+            pointers stay resident. The bulk stays reachable via the
+            existing pull tools; the pull does NOT bound the window — the
+            slice-6 reseed does. slice-9 sets this from its feature flag;
+            until then the live CLI keeps the default so production
+            behaviour is unchanged.
+        memory_rel_path: Repo-relative path of the durable BRC memory
+            file, rendered as the on-demand pointer when ``jit_pull`` is
+            ``True``. Ignored on the legacy path (which inlines
+            ``memory_excerpt`` instead). Empty omits the memory pointer.
+        pipeline_id: Pipeline id interpolated into the ``brc-transcript``
+            pull handle when ``jit_pull`` is ``True``. Empty renders a
+            ``<pipeline_id>`` placeholder. Ignored on the legacy path.
 
     Returns:
         Rendered prompt string suitable for passing as the positional
@@ -812,9 +959,19 @@ def compose_event_prompt(
     event_section = _render_event_section(role, event_payload)
     task_section = _render_task_section(task_description)
     iteration_section = _render_iteration_feedback_section(iteration_feedback)
-    delta_section, _delta_bytes = _render_producer_delta_section(git_log_delta, base_branch)
     nacks_section = _render_nacks_section(nacks)
-    memory_section = _render_memory_section(memory_excerpt)
+    # #3200 slice-5: when the queryable-environment discipline is enabled
+    # (``jit_pull``), render the delta + memory as JIT-pull POINTERS
+    # instead of inlining the bulk. The default (``False``) renders the
+    # legacy inline path byte-for-byte unchanged so slice-9's feature
+    # flag can preserve the OFF path exactly; slice-9 sets ``jit_pull``
+    # from that flag. The live CLI keeps the default until then.
+    if jit_pull:
+        delta_section = _render_delta_pointer_section(git_log_delta, base_branch, pipeline_id)
+        memory_section = _render_memory_pointer_section(memory_rel_path)
+    else:
+        delta_section, _delta_bytes = _render_producer_delta_section(git_log_delta, base_branch)
+        memory_section = _render_memory_section(memory_excerpt)
 
     contract = "\n".join(
         [

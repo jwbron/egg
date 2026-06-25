@@ -42,6 +42,20 @@ the **last 20 entries** on every write (distill-on-write). An
 unbounded log eventually pushes the memory file past the cacheable
 prefix of a per-event handler invocation — the very cost the artifact
 exists to avoid.
+
+**Enrichment is claims, not ground truth (#3200 slice-5, task-5-2).**
+The agent-authored prose this file carries — the ``codebase / change
+model`` section and each producer's ``summary_of_assessment`` — is the
+#3188 enrichment. Under the #3200 context discipline that enrichment
+moves into the *queryable environment* (pulled on demand, not inlined)
+and is **SHA-stamped**: each per-producer assessment is tagged with the
+``last_reviewed_commit_sha`` it was authored against, so a consumer can
+detect when the producer has re-proposed past the stamp and the claim
+is stale. A stale enrichment claim (e.g. a ``verified`` summary written
+against an older SHA) must NOT suppress re-checking — the deterministic
+#3189 anchor layer and the live ``git log`` delta stay authoritative;
+the enrichment only seeds, never overrides. The staleness test lives
+consumer-side in :func:`egg_agent.queryable_env.enrichment_is_stale`.
 """
 
 from __future__ import annotations
@@ -343,11 +357,28 @@ def _normalize_single_line(raw: str, max_chars: int) -> str:
 
 
 def _render_assessment(assessment: ProducerAssessment) -> list[str]:
-    """Render one ``### <producer>`` block."""
+    """Render one ``### <producer>`` block.
+
+    ``summary_of_assessment`` is agent-authored #3188 enrichment, so it
+    is rendered as a SHA-stamped CLAIM (#3200 slice-5 task-5-2): the
+    ``enrichment_sha`` bullet pins the ``last_reviewed_commit_sha`` the
+    summary was authored against. A consumer compares it against the
+    producer's current proposal SHA (via
+    :func:`egg_agent.queryable_env.enrichment_is_stale`) and re-verifies
+    against the live ``git log`` delta when they differ — the stamp lets
+    a re-propose invalidate a stale claim instead of having it trusted
+    blindly.
+    """
     nacks = "; ".join(assessment.prior_nack_reasons[:_MAX_NACK_REASONS])
     nacks_line = nacks if nacks else "-"
     obligation = assessment.prior_conditional_obligation or "-"
     summary = _normalize_single_line(assessment.summary_of_assessment, _ASSESSMENT_PROSE_MAX_CHARS)
+    # The enrichment stamp is the SHA the agent-authored summary was made
+    # against; identical to ``last_reviewed_commit_sha`` by construction
+    # (the summary is recorded in the same ``record_review`` call that
+    # advances the reviewed SHA), surfaced as its own bullet so the
+    # claims-vs-ground-truth staleness check reads one explicit field.
+    enrichment_sha = assessment.last_reviewed_commit_sha or "-"
     lines = [
         f"### {assessment.producer}",
         "",
@@ -356,6 +387,11 @@ def _render_assessment(assessment: ProducerAssessment) -> list[str]:
         _bullet_value("prior_verdict", assessment.prior_verdict or "-"),
         _bullet_value("prior_nack_reasons", nacks_line),
         _bullet_value("prior_conditional_obligation", obligation),
+        # ``enrichment_sha`` is rendered immediately before the claim it
+        # stamps so a reader sees the staleness anchor adjacent to the
+        # agent-authored prose. The ``summary_of_assessment`` bullet key
+        # is left UNCHANGED so :func:`parse_memory` round-trips it.
+        _bullet_value("enrichment_sha", enrichment_sha),
         _bullet_value("summary_of_assessment", summary or "-"),
     ]
     return lines
@@ -371,9 +407,20 @@ def render_memory(memory: BRCMemory) -> str:
     lines: list[str] = [
         "## Codebase / change model",
         "",
+        # #3200 slice-5: this section is agent-authored #3188 enrichment —
+        # CLAIMS, not ground truth. Re-verify against the live delta; the
+        # deterministic #3189 anchors are authoritative.
+        "<!-- enrichment (claims, not ground truth); re-verify vs the live "
+        "git-log delta — #3189 anchors are authoritative -->",
         codebase if codebase else "-",
         "",
         "## Per-producer assessment",
+        "",
+        # Each ``summary_of_assessment`` below is a SHA-stamped claim
+        # (``enrichment_sha``); a re-propose past that SHA makes it stale
+        # (see egg_agent.queryable_env.enrichment_is_stale).
+        "<!-- summaries are SHA-stamped claims; stale when enrichment_sha "
+        "!= the producer's current proposal SHA -->",
         "",
     ]
     # Deterministic ordering — sorted by producer role so two writers
@@ -475,9 +522,13 @@ def parse_memory(content: str) -> BRCMemory:
         return lines[start + 1 : end]
 
     # Codebase / change model — collect non-blank lines until the next
-    # section.
+    # section. HTML-comment lines (the #3200 slice-5 claims-not-ground-
+    # truth banner) are framing, not prose, so they are skipped here to
+    # keep render -> parse -> render idempotent.
     codebase_lines = [
-        ln for ln in _section_body("codebase", ["producers", "decisions"]) if ln.strip()
+        ln
+        for ln in _section_body("codebase", ["producers", "decisions"])
+        if ln.strip() and not ln.strip().startswith("<!--")
     ]
     if codebase_lines:
         # The renderer writes a single line; tolerate multi-line files
