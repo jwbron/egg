@@ -191,7 +191,8 @@ The `egg_agent` client (`shared/egg_agent/client.py`) emits structured log event
 | `tool_use` | Agent invokes a tool | `tool_name`, `tool_use_id`, `input` |
 | `tool_result` | Tool returns a result | `tool_use_id`, `is_error`, `content` |
 | `assistant` | Agent emits a text block | `event_subtype: "text"`, `text` |
-| `system` | Broad category for SDK/lifecycle events. Subtypes include `init`, `result`, `mcp_tools_enabled`/`mcp_tools_error`/`mcp_nudge_skipped`, `route_guidance_enabled`/`route_guidance_skipped`, `output_cap_deny`, `midturn_message_injection`, and the session-resume pair (#3200 slice-6): `session_resume` (resuming prior session) or `session_resume_skipped` (resume requested but `EGG_SESSION_RESUME` is off) | `event_subtype`; the resume subtypes also carry `session_id` |
+| `system` | Broad category for SDK/lifecycle events. Subtypes include `init`, `result`, `mcp_tools_enabled`/`mcp_tools_error`/`mcp_nudge_skipped`, `route_guidance_enabled`/`route_guidance_skipped`, `ddg_mcp_enabled`, `midturn_message_injection`, and the session-resume pair (#3200 slice-6): `session_resume` (resuming prior session) or `session_resume_skipped` (resume requested but `EGG_SESSION_RESUME` is off) | `event_subtype`; the resume subtypes also carry `session_id` |
+| `tool_intercepted` | A built-in tool call was blocked/denied before execution — role-based file-write restrictions, or `event_subtype: "output_cap_deny"` for a predictive output-cap denial | `tool_name`, `tool_use_id`, `event_subtype` (when set) |
 
 Tool input, output, and assistant text content is truncated to 2000 characters in log events to avoid log bloat; a `... (N chars)` suffix is appended when truncation occurs.
 
