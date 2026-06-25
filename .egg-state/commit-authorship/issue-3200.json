@@ -447,6 +447,14 @@
       "registered_at": "2026-06-15T05:36:43.086716+00:00",
       "repo": null,
       "role": "task_planner"
+    },
+    "fdcdf9d3e7fca11b9c4687a8cbde887442c9588e": {
+      "branch": "egg/issue-3200/slice-4",
+      "patch_id": "1ad41d1690de44186f2c7c89ffaa95483d874976",
+      "pipeline_id": "issue-3200",
+      "registered_at": "2026-06-25T06:47:01.376958+00:00",
+      "repo": null,
+      "role": "tester"
     }
   },
   "version": 2
