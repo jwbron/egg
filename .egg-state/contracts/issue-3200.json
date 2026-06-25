@@ -14,7 +14,7 @@
       "id": "slice-1",
       "name": "Token-occupancy capture (prerequisite, AC-1)",
       "goal": "Capture cumulative window occupancy (cache_read+cache_creation+input) in AgentResult from ResultMessage.usage. Depends on: none. Blocks phases 8 and 10.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -23,8 +23,8 @@
         {
           "id": "task-1-1",
           "description": "Extend `AgentResult` (`shared/egg_agent/result.py:24-33`) with an optional cumulative window-occupancy field (default None, non-breaking). Docstring defines occupancy = cache_read + cache_creation + input and states it is NOT billed/effective input. Optionally retain raw component counts for downstream breakout; the single total is the load-bearing field.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "d0705780defdfc9ee78cb58d1b450db3a636f378",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Optional occupancy field defaults None; docstring defines occupancy and excludes billed input; existing constructors still build.",
@@ -44,8 +44,8 @@
         {
           "id": "task-1-2",
           "description": "In `shared/egg_agent/client.py` stop dropping `message.usage` on the ResultMessage branch (717-751). Read usage, compute occupancy defensively (missing/None sub-fields -> 0), thread it into result_meta and EVERY AgentResult build site in the file (~733/~747/~760/~782/~804/~825). Guard against SDK shapes with no usage.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "d0705780defdfc9ee78cb58d1b450db3a636f378",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "usage read on the ResultMessage branch; occupancy=cache_read+cache_creation+input computed defensively; populated on all AgentResult return sites; absent usage -> None, no exception.",
@@ -86,11 +86,11 @@
       ],
       "dependencies": [],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3200/work",
+      "integration_base_sha": "f0a76124b17c24faa74ff15875f1350969a16036",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3236,
+      "pr_url": "https://github.com/jwbron/egg/pull/3236",
       "review_feedback": []
     },
     {
@@ -883,6 +883,50 @@
       },
       "reason": "Created HITL decision: Which reviewer role should the #3200 prototype run...",
       "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T05:57:50.306947Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "d0705780defdfc9ee78cb58d1b450db3a636f378",
+      "reason": "Linked commit d070578 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T05:57:50.912305Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "d0705780defdfc9ee78cb58d1b450db3a636f378",
+      "reason": "Linked commit d070578 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T05:57:56.724880Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T05:57:56.761177Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
     }
   ],
   "refine_review_cycles": 0,
@@ -894,7 +938,7 @@
     "description": "Build the full context-discipline mechanism for event-pump BRC agents, wired for\nALL roles (producers AND reviewers): capture cumulative window occupancy in\nAgentResult; derive the #3189 deterministic anchors from the BRC message record;\nsplit each event into a small deterministic protected root (resident, cacheable)\nplus a queryable environment pulled just-in-time; land the #3186 session-resume\nsubstrate; and bound the session with a deterministic threshold reseed at\nmin(400k, 0.80 x real_backend_window) that pre-empts Claude Code's ~95% lossy\nauto-compaction. The whole discipline is gated behind one feature flag (OFF =\ntoday's full-context path). Also build the measurement TOOLING (per-event\noccupancy + metric surfaces), emit-only.\n\nScope is operator-decided (resolved HITL cq-1/cq-2): full build across all roles +\nmeasurement tooling only. NO measurement run, no A/B, no status-quo comparison, and\nnothing gated on measured results. The measurement pass, the go/no-go, the gated\ngeneralization, the sub-agent recursion escalation, and the preserved verbatim\nfull-context fallback are explicit FOLLOW-UP work, out of scope. Implements #3200.",
     "test_plan": "- Automated: unit tests for token-occupancy capture (full/absent/partial usage,\n  cache-dominated case); real-window + threshold helpers (worked examples\n  opus[1m]->400k, 200K->160k, 128K->~102k, plus the [1m] mis-trigger regression);\n  #3189 anchor derivation from a fixture message record (four fields + obligation\n  resolved/unresolved + legacy-field non-regression); protected-root deterministic\n  byte-stability + per-section caps + role-parameterization; queryable-env\n  bulk-exclusion + JIT retrievability + enrichment SHA-stamp invalidation; #3186\n  resume-by-id + cold-start fallback + default-off; mid-phase restart message-record\n  survival; resume-vs-reseed decision boundary incl. None-occupancy->reseed and\n  no-warm-session->reseed; feature-flag ON/OFF (OFF retains legacy path); emit-only\n  metric surfaces (no decision branches on metrics).\n- Integration: >=1 producer and >=1 reviewer driven end-to-end through the new path\n  with the flag ON (resident root, JIT bulk pull, reseed at threshold), plus a\n  flag-OFF assertion that the legacy full-context path is unchanged.\n- Run with `make test` (changeset-aware); full suite via `make test-all`.",
     "manual_steps": "Pre-merge: none\nPost-merge: roll the feature flag ON for a subset of roles, then operator runs the\ndeferred measurement pass end-to-end (separate follow-up issue).",
-    "context_pr_number": null,
+    "context_pr_number": 3234,
     "deferred_actions": []
   },
   "feedback": null,
