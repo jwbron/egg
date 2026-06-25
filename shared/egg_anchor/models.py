@@ -57,6 +57,19 @@ class ProgressState(StrEnum):
     BLOCKED = "blocked"
 
 
+class ReviewVerdict(StrEnum):
+    """Latest verdict on a reviewer->producer review edge (#3189).
+
+    Derived mechanically from the BRC message record, never transcribed by
+    an agent. ``CONDITIONAL_ACK`` is an ACK that carries a
+    ``pre_merge_condition`` pre-merge obligation (#1998).
+    """
+
+    ACK = "ack"
+    NACK = "nack"
+    CONDITIONAL_ACK = "conditional_ack"
+
+
 class AnchorMeta(BaseModel):
     """Anchor metadata for versioning and ordering."""
 
@@ -93,6 +106,81 @@ class Decision(BaseModel):
     timestamp: datetime = Field(..., description="When this decision was recorded")
 
 
+class ReviewEdgeVerdict(BaseModel):
+    """Latest verdict on a single reviewer->producer edge (#3189).
+
+    ``version`` is the producer proposal version the verdict applies to;
+    ``reviewed_sha`` is that proposal's ``proposal_commit_sha`` — the SHA the
+    reviewer actually reviewed — so a git-log delta against the producer's
+    current HEAD reveals exactly what changed since the last review.
+    """
+
+    reviewer: str = Field(..., description="Reviewer role")
+    producer: str = Field(..., description="Producer role")
+    verdict: ReviewVerdict = Field(..., description="Latest verdict on the edge")
+    version: int = Field(..., ge=0, description="Producer proposal version reviewed")
+    reviewed_sha: str = Field(default="", description="proposal_commit_sha reviewed")
+
+
+class OpenNack(BaseModel):
+    """An unresolved NACK against the producer's CURRENT proposal version (#3189).
+
+    A NACK whose ``version`` is older than the producer's current proposal
+    version is historical — superseded by a re-propose — and is NOT listed
+    here. This is the obligation a threshold reseed must never drop.
+    """
+
+    reviewer: str = Field(..., description="Reviewer role that NACKed")
+    producer: str = Field(..., description="Producer role NACKed")
+    version: int = Field(..., ge=0, description="Producer proposal version NACKed")
+    reason: str = Field(default="", description="Blocking reason cited in the NACK")
+
+
+class ConditionalAckObligation(BaseModel):
+    """A pre-merge obligation attached to a conditional ACK (#1998, #3189).
+
+    Carries ``resolved`` so the protected root distinguishes an obligation
+    still owed to the merger from one already satisfied in-cycle (#2338).
+    Only obligations against the producer's current proposal version are
+    listed — a re-propose clears prior obligations.
+    """
+
+    reviewer: str = Field(..., description="Reviewer role that conditionally ACKed")
+    producer: str = Field(..., description="Producer role the obligation is on")
+    version: int = Field(..., ge=0, description="Producer proposal version")
+    condition: str = Field(..., description="The pre_merge_condition text")
+    resolved: bool = Field(default=False, description="Whether satisfied in-cycle")
+
+
+class BRCDerivedAnchors(BaseModel):
+    """The four #3189 deterministic BRC anchors derived from the message record.
+
+    Every field is computed MECHANICALLY from the CONSENSUS_PROPOSE / ACK /
+    NACK / OBLIGATION_RESOLVED message record (see
+    :func:`egg_anchor.brc_derive.derive_brc_anchors`) — no agent-authored
+    content enters this layer, so it cannot drift from the record. These are
+    the authoritative anchors a threshold reseed must preserve: dropping them
+    would re-review settled SHAs or lose NACK obligations.
+    """
+
+    last_reviewed_sha: dict[str, str] = Field(
+        default_factory=dict,
+        description=("producer -> commit SHA of the latest proposal any reviewer has verdicted on"),
+    )
+    latest_verdicts: list[ReviewEdgeVerdict] = Field(
+        default_factory=list,
+        description="Latest verdict per reviewer->producer edge",
+    )
+    open_nacks: list[OpenNack] = Field(
+        default_factory=list,
+        description="Current-version NACKs not yet resolved by a re-propose",
+    )
+    conditional_ack_obligations: list[ConditionalAckObligation] = Field(
+        default_factory=list,
+        description="Live pre-merge obligations with resolved/unresolved status",
+    )
+
+
 class BRCState(BaseModel):
     """Broadcast-Review-Converge protocol state."""
 
@@ -101,6 +189,17 @@ class BRCState(BaseModel):
     acks: list[str] = Field(default_factory=list, description="Agent IDs that acknowledged")
     nacks: list[str] = Field(default_factory=list, description="Agent IDs that rejected")
     last_message_id: str | None = Field(default=None, description="Last message ID processed")
+    # Additive #3189 layer (default None on legacy anchors). Mechanically
+    # derived from the BRC message record; NEVER replaces acks/nacks/
+    # last_message_id above — those keep their original agent-id-list meaning.
+    derived: BRCDerivedAnchors | None = Field(
+        default=None,
+        description=(
+            "Mechanically-derived #3189 anchors: last-reviewed SHA per producer, "
+            "latest verdict per edge, open NACKs, conditional-ACK obligations. "
+            "Additive and optional — None on legacy anchors."
+        ),
+    )
 
 
 class KeyContext(BaseModel):
