@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from io import StringIO
 from types import ModuleType
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from egg_agent.result import AgentResult
 
@@ -183,13 +183,22 @@ class TestSessionStatePlumbing:
     """
 
     @patch("egg_agent.__main__.write_session_state")
+    @patch("egg_agent.__main__.decide_resume_session")
     @patch("egg_agent.__main__.run_agent")
-    def test_resume_arg_threads_to_run_agent(self, mock_run_agent, _mock_write):
+    def test_resume_arg_threads_through_gate_to_run_agent(
+        self, mock_run_agent, mock_decide, _mock_write
+    ):
+        """``--resume`` is handed to the slice-8 resume-vs-reseed gate as
+        ``explicit_resume``; the gate's *decision* (not the raw arg) drives
+        ``run_agent``'s ``resume`` kwarg (#3200 slice-8). With the gate
+        electing to resume, that session id reaches ``run_agent``."""
+        mock_decide.return_value = MagicMock(session_id="sess-prior")
         mock_run_agent.return_value = AgentResult(
             success=True, stdout="", stderr="", returncode=0, session_id="sess-1"
         )
         with patch("sys.argv", ["egg_agent", "--resume", "sess-prior", "do work"]):
             main()
+        assert mock_decide.call_args.kwargs["explicit_resume"] == "sess-prior"
         assert mock_run_agent.call_args.kwargs["resume"] == "sess-prior"
 
     @patch("egg_agent.__main__.write_session_state")
