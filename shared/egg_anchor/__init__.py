@@ -22,6 +22,7 @@ from .models import (
     ReviewVerdict,
     TaskInfo,
 )
+from .protected_root import RootCaps, render_protected_root
 from .validator import check_size_budget, validate_anchor
 
 __all__ = [
@@ -37,10 +38,12 @@ __all__ = [
     "ProgressItem",
     "ReviewEdgeVerdict",
     "ReviewVerdict",
+    "RootCaps",
     "TaskInfo",
     "check_size_budget",
     "derive_brc_anchors",
     "load_anchor",
+    "render_protected_root",
     "save_anchor",
     "sync_anchor_to_api",
     "validate_anchor",
