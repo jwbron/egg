@@ -33,7 +33,7 @@ emitted values (emit-only — AC-5 of #3200).
 | Metrics surface | exists | `get_metrics_registry()` (counters/gauges/histograms); exposed at `GET /api/v1/metrics` + `/prometheus`. **Aggregated/queried post-hoc — no per-event emit today** | `orchestrator/routes/metrics.py:1-81` |
 | Per-event seam (event pump) | — | orchestrator-owned one-shot loop spawns agent per event; AgentResult is **not** read back / token usage **not** reconstructed by orchestrator post-event | `orchestrator/event_loop.py`; `orchestrator/consensus_wrapper.py:93-100,~429`; `orchestrator/kubernetes_spawner.py` |
 
-### CRITICAL STRUCTURAL FINDING — substrate is unmerged
+### CRITICAL STRUCTURAL FINDING — substrate is unmerged (RESOLVED → Option D)
 
 The issue and the operator `task_description` both state slice-10 "builds on the
 **already-merged** slice-1 `AgentResult` window-occupancy capture and slice-8 reseed
@@ -45,17 +45,38 @@ decisions (both merged)". **This premise is false for this pipeline's base branc
 - All of #3200 slices 1–9 are open PRs (#3234, #3236–#3240, #3243, #3248, #3251, #3252); the
   "issue-3200 (complete)" git entries are pipeline-state-branch commits, not slice merges.
 
-**Consequence:** the two inputs AC-1 says to *derive from* do not exist on the base. slice-10
-cannot be implemented as a pure "emit derived from merged fields" change against `main`. The
-resolution materially changes plan + implementation, so it is escalated as a HITL decision
-(§6) rather than silently assumed. The proof-of-fix note's reference to #3245 ("slice
-integration-branch rebase on a **stacked** slice") suggests stacking on the #3200 branches may
-be the intended base — but #3258 is a separate pipeline rooted on `main`, so this must be
-confirmed, not assumed.
+**Operator resolution (iteration 0, HITL gate):** OQ-1 is resolved → **Option D — emit
+against existing `AgentResult` fields plus a single adapter/seam that degrades gracefully
+(null/zero) until the real fields land.** The operator's binding rationale:
 
-## 3. Metrics to emit (each derived from slice-1 occupancy + slice-8 reseed)
+- #3258 is a **standalone pipeline rooted on `main`** and must stay **self-contained**.
+- Confirmed UNMERGED on main: slice-1 occupancy (PR #3236) and slice-8 reseed (PR #3251).
+  Therefore: **do NOT** take a hard dependency on them; **do NOT** stack on the
+  `egg/issue-3200/*` branches; **do NOT** vendor a duplicate substrate.
+- Define **one** adapter/seam where occupancy and reseed signals are read. Bind it to the real
+  fields **when present**; degrade to **null/zero when absent** (the case on `main` today).
+  When PRs #3236/#3251 later merge, the real values flow through this seam automatically — **no
+  rework**.
 
-Per event, routed through the existing surfaces (§2):
+**Consequence:** slice-10 is deliverable on `main` now. The emit surfaces read all input
+signals exclusively through the adapter seam; on `main` the seam returns null/zero, and the
+six metrics are still emitted (with null/zero payloads) so the surface wiring, emit-only
+invariant, and tests are fully exercised today. Options A (stack), B (vendor substrate), and C
+(block until merge) are **rejected** by the operator resolution above.
+
+## 3. Metrics to emit (each read through the single adapter seam)
+
+**The adapter seam (Option D).** Per the operator resolution, all input signals — window
+occupancy and reseed — are read through **one** adapter/seam, never directly off `AgentResult`
+or reseed internals scattered across the emit code. The seam exposes a small, typed read API
+(e.g. `occupancy_for(result) -> int | None`, `reseed_signals_for(event) -> ReseedInfo | None`).
+On `main` today the seam returns `None`/`0` (substrate absent); once slice-1 (#3236) /
+slice-8 (#3251) merge, the same seam binds to the real fields and live values flow through
+with no change to the emit code. Plan phase fixes the seam's exact signature and the
+field-to-surface binding; refine asserts the seam is the **sole** read point and that every
+metric has a real source field behind it and a real existing surface in front of it.
+
+Per event, routed through the existing surfaces (§2), each value sourced via the seam:
 
 1. **Window occupancy** = `cache_read + cache_creation + input` tokens (from slice-1 field).
 2. **Peak context utilization under resume** — max occupancy observed across a resumed run.
@@ -81,30 +102,42 @@ job is to assert each metric HAS a real source and a real surface, and that none
 
 ## 5. Acceptance criteria (refined, inherited from the issue)
 
-- **AC-1** — each of the six metrics (§3) is emitted **per event**, derived from the slice-1
-  occupancy field + slice-8 reseed signals, through the existing progress/heartbeat/metrics
-  surfaces. No new external surface invented.
+- **AC-1** — each of the six metrics (§3) is emitted **per event**, sourced **through the
+  single adapter seam** (§3) from the slice-1 occupancy field + slice-8 reseed signals, through
+  the existing progress/heartbeat/metrics surfaces. No new external surface invented. On `main`
+  the seam returns null/zero, and the metrics are still emitted with those payloads.
 - **AC-2** — emit-only / nothing gated: no code path consumes the metrics for a decision; a
-  test asserts no decision branches on them (proves AC-4 + AC-5 of #3200).
-- **AC-3** — tests: surfaces emit correct values for a synthetic event sequence including ≥1
-  reseed; the no-decision-branch assertion passes; `make test` green.
+  test **structurally asserts no decision branches** read any emitted metric value (proves
+  AC-4 + AC-5 of #3200). The emit functions are write-only sinks; no `if`/branch/early-return/
+  threshold/flag anywhere binds an emitted value into a conditional.
+- **AC-3** — tests: surfaces emit correct values for a **synthetic event sequence including ≥1
+  reseed, fed through the adapter seam** (so the emit logic is fully validated even though
+  production values are null on `main` until the substrate lands); the no-decision-branch
+  assertion passes; `make test` green.
 
-## 6. Open questions for the operator (HITL)
+## 6. Substrate dependency — RESOLVED (Option D)
 
-**OQ-1 (BLOCKING) — substrate dependency.** slice-1 occupancy + slice-8 reseed are unmerged
-(§2). How should slice-10 obtain its inputs? Options registered as a decision:
-- **(A) Stack on the #3200 slice branches** — base #3258 on the slice-8/slice-9 tip so the
-  merged-substrate premise holds (matches the #3245 "stacked slice" proof-of-fix intent).
-- **(B) Vendor a minimal substrate in this pipeline** — add the slice-1 occupancy field +
-  slice-8 reseed signal here as a prerequisite, then the emit surfaces on top.
-- **(C) Block until #3200 slices 1–9 merge to main**, then run slice-10 against main.
-- **(D) Emit against existing `AgentResult` fields + adapter seams** — bind occupancy/reseed to
-  defined adapter points that degrade gracefully (emit nulls/zeros) until the real fields land.
+**OQ-1 (was BLOCKING) — substrate dependency.** slice-1 occupancy + slice-8 reseed are
+unmerged on this pipeline's base (`main`); see §2. **Operator resolution (iteration 0 HITL
+gate): Option D.** Build emit-only against existing `AgentResult` fields plus a single adapter
+seam that degrades gracefully (null/zero) until the real fields land. Options A (stack on
+`egg/issue-3200/*`), B (vendor a duplicate substrate), and C (block until merge) are
+**rejected** — they would make #3258 non-self-contained or non-deliverable on `main`.
 
-Recommendation: **(A)** if #3200 is landing imminently and stacking is supported by the
-proof-of-fix tooling; otherwise **(D)** to keep slice-10 truly self-contained and emit-only
-without taking a hard dependency on unmerged code. (D) keeps the slice deliverable on `main`
-today; the real values flow through automatically once slices 1/8 merge.
+**Direction for plan + implement (binding):**
+1. **Single seam.** One adapter is the sole read point for occupancy and reseed signals. Bind
+   to the real fields when present; return null/zero when absent. Real values flow through
+   automatically once #3236/#3251 merge — no rework, no second integration point.
+2. **Six metrics, existing surfaces only.** Window occupancy (`cache_read + cache_creation +
+   input`), peak utilization under resume, single-event working set vs real backend window,
+   reseed frequency per phase, root-cache hit rate, tokens/event — each routed ONLY through the
+   existing progress / heartbeat / metrics surfaces. Invent no new external surface.
+3. **EMIT-ONLY is hard scope.** No measurement run, no A/B, no comparison, no
+   aggregation-to-verdict, and NOTHING gated — no control-flow path may read an emitted metric
+   to choose behavior. Ship the AC-2 structural test that asserts this.
+4. **AC-3 synthetic sequence.** Tests drive a synthetic event sequence (≥1 reseed) through the
+   seam so emit logic is fully validated on `main` despite null production values. `make test`
+   green.
 
 ## 7. Out of scope (owned by #3249, unchanged from #3200)
 
