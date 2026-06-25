@@ -1,0 +1,400 @@
+{
+  "issue": 3200,
+  "phase": "plan",
+  "agent": "architect",
+  "title": "BRC context discipline: protected directive root + queryable environment, bounded by a deterministic threshold reseed",
+  "summary": "Architecture for a context discipline across ALL BRC event-pump roles (producers AND reviewers): (1) capture per-call window occupancy from ResultMessage.usage into AgentResult; (2) formalize a small, deterministic, cacheable PROTECTED ROOT (role contract + task anchor + #3189 anchors + non-negotiable directives) and move the bulk (unbounded git-log delta, peer artifacts, enrichment, transcript) to a QUERYABLE ENVIRONMENT pulled JIT via existing tools; (3) a PYTHON-SIDE resume-vs-reseed gate at min(400k, 0.80 x real_backend_window) keyed off a per-(role,slice) session-state file; (4) emit measurement surfaces only. Decisive grounding finding: session resume (#3186) is NOT implemented today, the bash wrapper cannot observe AgentResult, and no model->real-window map exists \u2014 so AC-3's gate intrinsically requires building the minimal resume substrate and a real-window resolver. Measurement, go/no-go, generalization gate, recursion escalation, and the preserved fallback remain explicit FOLLOW-UP per operator scope.",
+  "problem_statement": {
+    "description": "Event-pump BRC agents are invoked once per actionable event. The motivating failure (#3183) and the issue framing assume context accumulates across a phase and hits Claude Code's ~95% lossy self-summary, dropping exactly the anchors BRC continuity needs (reviewed SHAs, NACK obligations) and rotting judgment below the wall. The remedy is a discipline: a permanently-resident small deterministic root, the bulk pulled JIT, and the window bounded by a proactive deterministic reseed that pre-empts CC compaction. This pipeline builds that discipline in full, wired for every BRC role, plus the measurement TOOLING a later pass consumes \u2014 but runs NO measurement and gates NOTHING on measured results (operator scope, 2026-06-25).",
+    "goals": [
+      "Capture cumulative window OCCUPANCY (cache_read + cache_creation + input), not billed input, into AgentResult \u2014 the reseed trigger signal and the primary metric.",
+      "Make the directives structurally salient by keeping the resident prompt small: a deterministic, byte-stable, cacheable protected root; bulk history exposed via existing query tools and pulled just-in-time.",
+      "Bound the resumed-session window with a deterministic reseed at min(400k, 0.80 x real_backend_window) computed against the REAL backend window, pre-empting CC's ~95% compaction.",
+      "Wire the mechanism uniformly across ALL event-pump roles (producers AND reviewers); the root render is role-parameterized but the mechanism is uniform.",
+      "Emit per-event occupancy + metric surfaces so a deferred measurement pass can compute peak utilization / reseed frequency / cache-hit / tokens-per-event / single-event-working-set-vs-real-window."
+    ],
+    "non_goals": [
+      "No measurement, A/B, or status-quo comparison run; nothing gated on measured outcomes (AC-5).",
+      "No recursion build \u2014 gated escalation, deferred follow-up.",
+      "No go/no-go and no decision to retire the preserved fallback framing.",
+      "No new git/prompt choreography for state exchange beyond the served-state tools that already exist."
+    ]
+  },
+  "current_architecture": {
+    "verified_against_tree_on": "2026-06-25",
+    "event_pump_wrapper": {
+      "file": "orchestrator/consensus_wrapper.py",
+      "loop": "Deterministic bash event loop (~L273-984); polls egg-orch brc next-action (~L814); dispatches propose|ack|nack|confirm|wait|complete (~L853-981).",
+      "invoke_fn": "invoke_agent_for_event() (~L453-529); composes the per-event prompt via orchestrator/routes/event_prompt.py then spawns the agent at ~L528 as `{agent_command_prefix} \"$prompt\"`.",
+      "command_prefix": "Built at ~L1167-1180 as `python3 -m egg_agent --model {model} --max-turns {N} [--effort L]`; model is the Claude Code ALIAS baked at wrapper-build time (concurrent_executor.py:631-640 via _resolve_model_decision).",
+      "result_capture": "The wrapper captures ONLY the agent exit code (agent_rc=$?, ~L936-970). AgentResult (session_id, cost, usage) stays in Python memory and is never surfaced to bash. No per-session state file is written; AGENT_OUTPUT_LOG is an inactive legacy fragment.",
+      "env_passed_to_agent": [
+        "EGG_AGENT_ROLE",
+        "EGG_BASE_BRANCH",
+        "EGG_REPO_PATH",
+        "EGG_BRC_MEMORY",
+        "EGG_SLICE_ID",
+        "EGG_PIPELINE_ID"
+      ]
+    },
+    "agent_entrypoint": {
+      "file": "shared/egg_agent/__main__.py",
+      "flags": "--model (default opus[1m]), --max-turns, --system-prompt, --timeout, --effort. Reads prompt from stdin when omitted. Returns result.returncode ONLY (~L58-71) \u2014 never prints/persists session_id, cost, or usage.",
+      "no_resume_flag": "No --resume / --session-id / --output-file flag exists."
+    },
+    "agent_client": {
+      "file": "shared/egg_agent/client.py",
+      "options": "ClaudeAgentOptions built ~L326-349 with permission_mode, model, cwd, env, setting_sources, disallowed_tools, can_use_tool, max_buffer_size; conditionally max_turns/system_prompt/effort. NO resume/session_id argument is set today.",
+      "usage_drop": "ResultMessage handled ~L717-751: result_meta captures total_cost_usd/num_turns/duration_ms/session_id and DROPS message.usage entirely (both success and error return paths). This is the AC-1 blocker."
+    },
+    "agent_result": {
+      "file": "shared/egg_agent/result.py",
+      "fields": [
+        "success",
+        "stdout",
+        "stderr",
+        "returncode",
+        "error",
+        "metadata",
+        "cost_usd",
+        "num_turns",
+        "duration_ms",
+        "session_id"
+      ],
+      "missing": "No token/occupancy fields."
+    },
+    "model_resolution": {
+      "file": "orchestrator/agent_model_resolution.py",
+      "facts": "_CONTEXT_1M_SUFFIX='[1m]' (~L106); _SUB_1M_CONTEXT_MODELS={'kimi-k2.7-code': 262144} (~L106-123); _CLAUDE_EXACT_ALIASES includes opus/sonnet/haiku/fable with/without [1m] (~L128-139). There is NO comprehensive model-alias -> real_backend_window map for computing 0.80 x real_window; only the sub-1M registry and the [1m]-withholding hack exist.",
+      "compaction_profile": "CC auto-compacts at ~95% of the window; DISABLE_COMPACT never set; sub-1M models withhold [1m] so CC's 200K default compacts below their real limit. No sub-200K models in the registry today -> the sub-200K gap is latent, not biting."
+    },
+    "protected_root_today": {
+      "composer": "orchestrator/routes/event_prompt.py:compose_event_prompt() (~L728-927). Per-event sections: event (_render_event_section ~L176-226), task (_render_task_section ~L418-453, cap 4KB), iteration feedback (~L475-628, cap 4KB), per-producer git-log delta (_render_producer_delta_section ~L229-334, UNTRUNCATED, scales with change size), open NACKs (_render_nacks_section ~L337-381), durable BRC memory excerpt (_render_memory_section ~L384-415, cap 2KB, tail). 10KB envelope cap EXCLUDING the git-log delta (~L75, L849-911); NACKs truncated first when oversized.",
+      "anchors_3189_partial": "#3189 anchors are PARTIALLY present already: last-reviewed SHA per producer + proposal SHA + the verbatim `git log A..B --not origin/base -p` command are rendered in the delta section; open NACK reasons + verbatim re-propose obligations rendered in the NACKs section; verdict matrix derived in orchestrator/routes/consensus.py (_producer_has_open_barrier ~L226-265, _derive_next_action ~L296-400 via PeerConsensusTracker.matrix). They are derived per-event and inlined, NOT yet packaged as a stable cacheable root.",
+      "task_anchor": "compose_task_description() at shared/egg_contracts/loader.py:204-266 (#3163, CLOSED) produces the binding task/role anchor stored in Contract.task_description and inlined per event."
+    },
+    "queryable_environment_today": {
+      "brc_transcript_route": "GET /<pipeline_id>/brc-transcript at orchestrator/routes/messages.py:415+; params phase (req), role, slice_id, include_unattributed, limit; merges the live in-flight message store with on-disk .egg-state/brc-history/<identifier>-<phase>.json; filters to CONSENSUS_* types.",
+      "read_peer_artifact": "MCP tool that resolves artifact content at a proposal_commit_sha (gateway-side) \u2014 the JIT pull for peer artifacts.",
+      "enrichment_3188": "sandbox/egg_agent_tools/handlers/brc_memory.py writes durable markdown (.egg-state/agent-outputs/<role>/brc-memory-<pipeline>.md): codebase_change_model (<=2KB), per_producer ProducerAssessment (<=1KB, <=10 NACK reasons), decision_log (<=20). Currently INLINED at prompt tail; #3200 moves it INTO the queryable environment.",
+      "anchor_subsystem": "shared/egg_anchor/ (models.py AgentAnchor/BRCState, loader.py atomic write + Redis sync, constants.py size budgets, validator.py) \u2014 existing post-compaction recovery scaffolding, reusable for state-file rendering/validation."
+    },
+    "within_event_caps": {
+      "file": "shared/egg_agent/tool_output_cap.py",
+      "purpose": "PreToolUse hook denying whole-file Read >256KB and unbounded content Grep; instructs offset/limit/head_limit. Within-event discipline only; NOT the re-invocation threshold."
+    },
+    "persistence_timing": {
+      "fact": "_write_brc_history persists BRC history at PHASE TRANSITIONS only. Mid-phase restarts (restart_phase, pod death) need the message record (live Redis stream) and any new per-session state to survive \u2014 a real constraint on where the session-state file lives."
+    }
+  },
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "CRITICAL",
+      "title": "AC-3 (threshold reseed) has a hard dependency on a resume substrate that does NOT exist today; the gate cannot be a pure bash decision.",
+      "description": "Session resume (#3186) is unimplemented: ClaudeAgentOptions sets no resume= (client.py:326-349), __main__.py has no --resume flag, and the SDK session_id is captured for audit only. Consequence: every BRC event today is a FRESH agent process \u2014 there is NO cross-event context accumulation yet, so the reseed only becomes meaningful once a warm resume exists. A resume-vs-reseed gate is, by definition, the choice between `resume=<session_id>` and `fresh`; building only the 'fresh' arm reproduces today's behavior (a no-op gate). Therefore the minimal resume wiring is INTRINSIC to AC-3, not a separable prerequisite.",
+      "evidence": "client.py:326-349 (no resume arg); __main__.py:29-71 (no resume flag, exit-code-only); consensus_wrapper.py:936-970 (wrapper sees exit code only).",
+      "risk": "If #3186 is treated as a separate open prerequisite, AC-3 is unbuildable/vacuous in this pipeline. Scope must explicitly absorb the minimal resume substrate (SDK resume= + --resume CLI + session_id round-trip).",
+      "recommendation": "Build the minimal resume substrate inside #3200 as the 'resume' arm of the gate. Surface as OQ1 for operator confirmation since it widens what 'this pipeline' touches versus the '#3186 OPEN, paired' framing."
+    },
+    {
+      "id": "F2",
+      "severity": "HIGH",
+      "title": "The decision needs occupancy + real-window + session_id \u2014 none of which bash can see \u2014 so the resume-vs-reseed gate must live in PYTHON.",
+      "description": "The threshold needs (a) prior-session window occupancy [from AgentResult.usage, AC-1], (b) the REAL backend window for the resolved alias [no map exists], and (c) the prior session_id. The bash wrapper has none of these: it sees only the exit code and the --model alias string. Teaching bash to parse usage and resolve windows is brittle. The clean seam is a small Python session-discipline module consulted at agent startup that reads a per-(role,slice) state file, computes the threshold, decides resume-vs-fresh, and persists {session_id, occupancy} on exit. The bash wrapper stays essentially unchanged (it already passes EGG_AGENT_ROLE/EGG_SLICE_ID/EGG_PIPELINE_ID).",
+      "evidence": "consensus_wrapper.py:1167-1180 (alias baked at build time); concurrent_executor.py:631-640; agent_model_resolution.py:106-139 (no real-window map).",
+      "risk": "Putting the gate in bash duplicates model resolution and occupancy parsing in a second language and cannot survive provider/alias nuances.",
+      "recommendation": "Implement the gate in shared/egg_agent (Python). Add real_backend_window(alias) to agent_model_resolution.py. Wrapper change limited to an enable flag + ensuring role/slice env is present (already is)."
+    },
+    {
+      "id": "F3",
+      "severity": "HIGH",
+      "title": "AC-1 occupancy must be window occupancy (cache_read + cache_creation + input), captured at BOTH ResultMessage return paths.",
+      "description": "client.py:717-751 drops message.usage on both the success and error return paths. Capturing only uncached input would make the reseed trigger fire far too late (under resume, cache_read IS the bulk and counts toward the window). Add the three components plus a derived window_occupancy_tokens (and output_tokens for the metrics surface) to AgentResult.",
+      "evidence": "client.py:717-751; result.py:7-34.",
+      "risk": "Wrong occupancy definition silently breaks the trigger; partial capture (one return path) yields nulls on the error path.",
+      "recommendation": "Add fields to AgentResult; populate from message.usage at both paths; tolerate a missing/None usage block (older SDK / errors) by leaving occupancy None and treating None as 'cannot resume -> fresh'."
+    },
+    {
+      "id": "F4",
+      "severity": "MEDIUM",
+      "title": "AC-2 is mostly: stop inlining the UNBOUNDED git-log delta and the memory excerpt; keep pointers; the lean prefix already half-exists.",
+      "description": "compose_event_prompt already enforces a 10KB envelope (excluding the delta). The genuinely unbounded inline is the per-producer git-log delta (_render_producer_delta_section), which scales with change size \u2014 the prime candidate to move to JIT pull. The protected root should carry the ANCHORS (last-reviewed SHA, proposal SHA, the exact `git log A..B` command, read_peer_artifact / brc-transcript handles) and the agent pulls the diff/transcript/enrichment JIT. The 2KB memory excerpt likewise moves to a JIT read of the #3188 artifact. The root must render to STABLE BYTES (sorted keys, bounded counts, hard per-section caps) to be a cacheable prefix, and is delivered as the stable prefix (system prompt on a cold/reseed start; already resident under warm resume).",
+      "evidence": "event_prompt.py:229-334 (delta untruncated), 384-415 (memory inline), 75/849-911 (envelope cap); messages.py:415+ and read_peer_artifact (pull tools).",
+      "risk": "Honest limit (carried, not gated): JIT pull reduces what is inlined up front but does NOT bound the window \u2014 a pulled slice stays resident until reseed. The reseed bounds; the pull makes the root cheap and reseed re-pull-able.",
+      "recommendation": "Move delta + memory out of the inline; emit JIT pointers in the deterministic root; keep NACKs + last-reviewed SHA + verdicts + obligations in the root (small, load-bearing for consensus correctness)."
+    },
+    {
+      "id": "F5",
+      "severity": "MEDIUM",
+      "title": "Session-state file must survive mid-phase restarts; place it where restart_phase preservation is explicit.",
+      "description": "The gate's state file {session_id, cumulative_occupancy, real_window, last_event_ts} keyed by (role[,slice]) is the durable link between events. _write_brc_history persists only at phase transitions, and #3183 was caused by restart_phase deleting per-role worktrees + durable memory. The state file must live where it survives a mid-phase restart (alongside the durable BRC memory / message record, NOT inside a per-role worktree that restart_phase nukes), and a stale/missing file must fail safe to 'fresh'.",
+      "evidence": "Persistence-timing constraint (_write_brc_history at phase transitions); #3183 motivating incident; shared/egg_anchor loader.py atomic-write pattern is reusable.",
+      "risk": "A state file in an ephemeral worktree resurrects #3183 (mass cold re-review); a corrupt/partial file must never cause a wrong resume.",
+      "recommendation": "Persist under a restart-stable .egg-state path (mirror egg_anchor's atomic temp-then-rename); validate on read; treat missing/invalid/cross-pipeline as 'fresh'."
+    },
+    {
+      "id": "F6",
+      "severity": "LOW",
+      "title": "Provider stickiness amplifies reseed cost; deterministic root render is what makes resume cheap.",
+      "description": "Single-pin deepseek-v4-pro: a provider bounce reprices the whole accumulated history per call until routing returns to the caching provider \u2014 a reseed mid-bounce is expensive. The cost case for the whole design rests on (a) high root-cache hit rate (requires byte-stable root) and (b) low reseed frequency (an assumption the deferred measurement must confirm, not assert).",
+      "evidence": "Carried constraint (LiteLLM route stickiness); issue framing 'reseed assumed to fire rarely'.",
+      "risk": "If reseed fires often, JIT re-pull + lost root cache erodes savings \u2014 but that verdict belongs to the deferred measurement pass.",
+      "recommendation": "Render root deterministically (sorted, bounded); emit reseed-frequency + cache-hit surfaces so the follow-up can falsify the 'rare reseed' assumption."
+    }
+  ],
+  "recommended_approach": {
+    "name": "Python-side resume-vs-reseed gate over a byte-stable protected root, occupancy-driven, all roles",
+    "summary": "Four coupled components landed together: (1) capture window occupancy in AgentResult; (2) formalize a deterministic byte-stable protected root + move the unbounded delta/memory to JIT pull via existing query tools, role-parameterized for all roles; (3) a Python session-discipline gate that, per (role,slice), reads prior {session_id, occupancy}, computes min(400k, 0.80 x real_backend_window) against the REAL window, and either passes resume=<session_id> (warm) or starts fresh from the root (reseed) \u2014 this is also the minimal resume substrate; (4) emit measurement surfaces only.",
+    "rationale": [
+      "The gate must be in Python because the decision inputs (occupancy, real window, session_id) are invisible to the bash wrapper; this also keeps the wrapper a thin, unchanged spawner.",
+      "Building the resume arm is unavoidable: a resume-vs-reseed gate with no resume is a no-op. Absorbing the minimal #3186 wiring is the only coherent way to satisfy AC-3.",
+      "Occupancy as window occupancy (cache_read+cache_creation+input) is both the trigger and the primary metric; capturing it first unblocks everything.",
+      "Most of AC-2 already exists (lean envelope + derived #3189 anchors); the high-leverage change is removing the unbounded git-log delta from the inline and replacing it with JIT pointers, applied uniformly across roles.",
+      "Byte-stable deterministic root render is the precondition for the >=90% root-cache hit the cost case depends on."
+    ],
+    "constraints": [
+      "Occupancy MUST be window occupancy, not billed/effective input.",
+      "Threshold uses the REAL backend window, never the [1m] alias value (the mis-trigger bug).",
+      "Root renders to stable bytes: sorted, bounded counts, hard per-section caps.",
+      "Agent-authored enrichment is claims not ground truth: SHA-stamp it; the deterministic #3189 layer + git-log delta stay authoritative.",
+      "Session-state file survives mid-phase restart and fails safe to 'fresh'.",
+      "Uniform across ALL event-pump roles (producers AND reviewers); root render is role-parameterized.",
+      "No measurement, no A/B, nothing gated on measured outcomes (AC-5)."
+    ],
+    "alternatives_considered": [
+      {
+        "name": "Threshold gate in the bash wrapper",
+        "description": "Compute the resume-vs-reseed decision in consensus_wrapper.py before spawning the agent.",
+        "rejected_because": "Bash sees only the exit code and the --model alias; it would have to parse usage and re-derive real windows, duplicating agent_model_resolution in a second language and missing the SDK resume API entirely."
+      },
+      {
+        "name": "Depend on #3186 landing first; build only token capture + JIT split + reseed-on-fresh here",
+        "description": "Leave the resume arm to #3186; #3200 builds occupancy, the root split, and a reseed that always cold-starts.",
+        "rejected_because": "Without a resume arm there is nothing to bound \u2014 the gate is a no-op and AC-3 cannot be demonstrated. Viable only if the operator explicitly wants #3186 sequenced first (see OQ1)."
+      },
+      {
+        "name": "Adopt sub-agent recursion now (true 'window never fills')",
+        "description": "Reviewers spawn sub-agents over diff/transcript slices so bulk lands in throwaway contexts.",
+        "rejected_because": "Explicitly deferred by operator scope: per-event working set fits the window today; recursion forfeits the root cache, adds latency, imports decomposition-error risk. Gated escalation only."
+      },
+      {
+        "name": "Keep inlining; rely on CC compaction + egg_anchor recovery",
+        "description": "Status quo.",
+        "rejected_because": "CC's ~95% self-summary drops the exact anchors BRC needs and rots judgment below the wall \u2014 the failure this issue targets."
+      }
+    ]
+  },
+  "implementation_plan": {
+    "workstreams": [
+      {
+        "id": "WS1",
+        "title": "Token-occupancy capture in AgentResult (AC-1, foundational prerequisite)",
+        "description": "Stop dropping ResultMessage.usage; add window-occupancy fields to AgentResult and populate them at both the success and error ResultMessage return paths. Window occupancy = cache_read_input_tokens + cache_creation_input_tokens + input_tokens. Keep components + output_tokens for the metrics surface. Tolerate a missing usage block (None -> 'cannot resume').",
+        "files_to_modify": [
+          {
+            "path": "shared/egg_agent/result.py",
+            "change": "Add fields: window_occupancy_tokens, input_tokens, cache_read_tokens, cache_creation_tokens, output_tokens (all Optional[int], default None)."
+          },
+          {
+            "path": "shared/egg_agent/client.py",
+            "change": "At ~L717-751 read message.usage on both return paths; compute window_occupancy_tokens; populate AgentResult. Guard for None usage."
+          }
+        ],
+        "depends_on": []
+      },
+      {
+        "id": "WS2",
+        "title": "Real-backend-window resolver (AC-3 input)",
+        "description": "Add a function mapping a Claude Code model alias / model id to its REAL backend context window (e.g. opus[1m]->1_000_000; opus/sonnet/haiku (no [1m])->200_000; sub-1M registry e.g. kimi 262_144; future Qwen-128K->131_072). Worked thresholds: opus[1m]->min(400k,800k)=400k; 200K profile->160k; Qwen-128K->~102k. Never use the [1m] alias value when the backend is smaller.",
+        "files_to_modify": [
+          {
+            "path": "orchestrator/agent_model_resolution.py",
+            "change": "Add real_backend_window(alias_or_id)->int reusing _SUB_1M_CONTEXT_MODELS, the [1m] suffix semantics, and the Claude alias set; default conservatively. Expose for import by the Python gate."
+          }
+        ],
+        "depends_on": []
+      },
+      {
+        "id": "WS3",
+        "title": "Protected-root / queryable-environment split, byte-stable, all roles (AC-2)",
+        "description": "Refactor compose_event_prompt so the deterministic protected root (role contract + task anchor + #3189 anchors: last-reviewed SHA/producer, latest verdicts, open NACKs, conditional-ACK obligations + non-negotiable directives) is a small, sorted, bounded, hard-capped, byte-stable block. Remove the UNBOUNDED git-log delta and the 2KB memory excerpt from the inline; replace with JIT pointers (SHAs + exact `git log A..B` command + read_peer_artifact / brc-transcript handles). #3188 enrichment surfaced on demand, SHA-stamped. Role-parameterized render; uniform mechanism for producers AND reviewers.",
+        "files_to_modify": [
+          {
+            "path": "orchestrator/routes/event_prompt.py",
+            "change": "Split render into protected_root (stable) vs JIT-pointer sections; drop inline delta + memory; keep anchors. Ensure deterministic ordering + caps. Provide root as the stable prefix used on cold/reseed starts."
+          },
+          {
+            "path": "sandbox/egg_agent_tools/handlers/brc_memory.py",
+            "change": "Mark enrichment as queryable (SHA-stamped) rather than inlined; ensure the read path is exposed to the agent."
+          }
+        ],
+        "depends_on": []
+      },
+      {
+        "id": "WS4",
+        "title": "Python session-discipline gate = the resume-vs-reseed decision + minimal resume substrate (AC-3)",
+        "description": "New module in shared/egg_agent (e.g. session_discipline.py). At invocation: locate per-(role,slice) state file; if prior occupancy < threshold AND session_id present -> pass resume=<session_id> to ClaudeAgentOptions (warm resume); else start fresh from the protected root (reseed/cold). threshold = min(400_000, 0.80 x real_backend_window(model)). On exit, atomically persist {session_id, window_occupancy_tokens, real_window, last_event_ts, pipeline_id}. Wire resume= into ClaudeAgentOptions and a --resume / session-state path into __main__.py. Fail safe to 'fresh' on missing/invalid/cross-pipeline state or None occupancy.",
+        "files_to_modify": [
+          {
+            "path": "shared/egg_agent/session_discipline.py",
+            "change": "NEW: state-file read/write (reuse egg_anchor atomic temp-then-rename + validation), threshold computation, resume-vs-reseed decision."
+          },
+          {
+            "path": "shared/egg_agent/client.py",
+            "change": "Thread resume=<session_id> into ClaudeAgentOptions when the gate selects warm resume (verify SDK supports resume; if the installed SDK lacks it, this is an OQ/impasse \u2014 see risks)."
+          },
+          {
+            "path": "shared/egg_agent/__main__.py",
+            "change": "Consult the gate at startup; surface session_id/occupancy back to the state file on exit."
+          },
+          {
+            "path": "orchestrator/consensus_wrapper.py",
+            "change": "Minimal: ensure EGG role/slice/pipeline env present (already is); add an enable flag/env if feature-gating is desired. No threshold logic in bash."
+          }
+        ],
+        "depends_on": [
+          "WS1",
+          "WS2",
+          "WS3"
+        ]
+      },
+      {
+        "id": "WS5",
+        "title": "Measurement surfaces (emit-only) (AC-4); no measurement run (AC-5)",
+        "description": "Emit per-event window occupancy + derived signals via existing progress/heartbeat/AgentResult.metadata surfaces: peak utilization under resume, reseed frequency per phase, root-cache hit rate, tokens/event, and single-event working set vs real window (the recursion-escalation signal). Emit ONLY \u2014 no aggregation, A/B, or gating here.",
+        "files_to_modify": [
+          {
+            "path": "shared/egg_agent/result.py",
+            "change": "Occupancy fields (from WS1) double as the metric carrier."
+          },
+          {
+            "path": "shared/egg_agent/session_discipline.py",
+            "change": "Emit reseed/resume decisions + computed threshold + occupancy as structured progress/metadata."
+          }
+        ],
+        "depends_on": [
+          "WS1",
+          "WS4"
+        ]
+      }
+    ],
+    "implementation_order": [
+      "WS1 (occupancy capture) + WS2 (real-window resolver) \u2014 independent foundations, parallelizable.",
+      "WS3 (protected-root/queryable split) \u2014 independent of WS1/WS2, parallelizable; load-bearing for cheap resume + reseed re-pull.",
+      "WS4 (Python gate + minimal resume substrate) \u2014 depends on WS1+WS2+WS3.",
+      "WS5 (measurement surfaces) \u2014 depends on WS1+WS4; emit-only."
+    ],
+    "key_files_touched": [
+      "shared/egg_agent/result.py (MODIFY \u2014 occupancy fields)",
+      "shared/egg_agent/client.py (MODIFY \u2014 capture usage; thread resume=)",
+      "shared/egg_agent/__main__.py (MODIFY \u2014 consult gate; round-trip session state)",
+      "shared/egg_agent/session_discipline.py (NEW \u2014 gate + state file + threshold)",
+      "orchestrator/agent_model_resolution.py (MODIFY \u2014 real_backend_window resolver)",
+      "orchestrator/routes/event_prompt.py (MODIFY \u2014 protected-root/JIT split)",
+      "sandbox/egg_agent_tools/handlers/brc_memory.py (MODIFY \u2014 enrichment to queryable)",
+      "orchestrator/consensus_wrapper.py (MINOR \u2014 enable flag/env only)"
+    ]
+  },
+  "open_questions": [
+    {
+      "id": "OQ1",
+      "severity": "HIGH",
+      "question": "AC-3's resume-vs-reseed gate cannot exist without a 'resume' arm, and session resume (#3186) is unimplemented. Confirm #3200 absorbs the MINIMAL resume substrate (SDK resume= + --resume CLI + session_id round-trip) as part of the gate, rather than depending on #3186 landing first.",
+      "recommendation": "Absorb the minimal resume substrate into #3200 \u2014 it is intrinsic to the gate and the operator scope says 'build the full mechanism.' If the operator instead wants #3186 sequenced first, the task_planner DAG and AC-3 demonstrability change materially.",
+      "owner": "operator / task_planner"
+    },
+    {
+      "id": "OQ2",
+      "severity": "MEDIUM",
+      "question": "Does the installed Claude Agent SDK's ClaudeAgentOptions actually support resume=<session_id>? client.py imports the SDK but never sets resume today.",
+      "recommendation": "Verify the SDK version's resume API during WS4 spike. If absent, this is a plan_bug/external_blocker (report_impasse) \u2014 the whole warm-resume arm depends on it. Fallback: orchestrator-seeded fresh session from the protected root (the preserved-fallback direction), which still satisfies the reseed half.",
+      "owner": "coder / architect"
+    },
+    {
+      "id": "OQ3",
+      "severity": "MEDIUM",
+      "question": "Exact restart-stable location + schema for the per-(role,slice) session-state file so it survives mid-phase restart_phase (which previously deleted per-role worktrees + durable memory, #3183).",
+      "recommendation": "Persist alongside durable BRC memory under a restart-preserved .egg-state path (NOT a per-role worktree); reuse egg_anchor atomic write/validate; fail safe to 'fresh' on missing/invalid/cross-pipeline.",
+      "owner": "architect / coder"
+    },
+    {
+      "id": "OQ4",
+      "severity": "LOW",
+      "question": "Is hardcoding the alias->real_window map acceptable as the initial knob, and is the 400k floor / 0.80 margin tunable via config/env?",
+      "recommendation": "Hardcode the map initially (only a handful of aliases) and expose the 400k floor + 0.80 margin as overridable constants/env; they are explicitly initial knobs to tune, not derived."
+    }
+  ],
+  "risk_assessment": [
+    {
+      "risk": "AC-3 unbuildable if resume substrate is out of scope (F1).",
+      "severity": "CRITICAL",
+      "mitigation": "Resolve OQ1 up front; absorb minimal resume wiring. The 'fresh-only' reseed alone reproduces today's behavior."
+    },
+    {
+      "risk": "SDK lacks a resume= API (OQ2).",
+      "severity": "HIGH",
+      "mitigation": "Spike SDK capability in WS4 before committing the warm-resume arm; fallback to orchestrator-seeded fresh-from-root (preserved fallback) which still delivers the reseed half + occupancy + the root split."
+    },
+    {
+      "risk": "Wrong occupancy definition (billed input vs window occupancy) fires the trigger too late (F3).",
+      "severity": "HIGH",
+      "mitigation": "AC-1 fixes window occupancy = cache_read+cache_creation+input; assert in tests with a synthetic usage block."
+    },
+    {
+      "risk": "Threshold computed against the [1m] alias instead of the real window (the mis-trigger bug).",
+      "severity": "HIGH",
+      "mitigation": "WS2 real_backend_window resolver; unit tests for opus[1m]->400k, 200K->160k, Qwen-128K->~102k."
+    },
+    {
+      "risk": "Session-state file lost on mid-phase restart -> mass cold re-review (#3183 redux) (F5).",
+      "severity": "MEDIUM",
+      "mitigation": "Restart-stable path + atomic write + fail-safe-to-fresh."
+    },
+    {
+      "risk": "Reseed fires more often than assumed; JIT re-pull + lost root cache erodes savings (F6).",
+      "severity": "MEDIUM",
+      "mitigation": "Byte-stable root for cache hits; emit reseed-frequency surface; the verdict is the deferred measurement's job (out of scope here)."
+    },
+    {
+      "risk": "Moving the git-log delta to JIT pull degrades review quality if agents under-pull.",
+      "severity": "MEDIUM",
+      "mitigation": "Keep authoritative anchors (SHAs + exact git log command) in the root; the agent has a deterministic pull recipe; quality comparison is deferred measurement."
+    }
+  ],
+  "metrics": {
+    "acceptance_criteria_covered": 5,
+    "workstreams": 5,
+    "files_to_create": 1,
+    "files_to_modify": 7,
+    "components": [
+      "token-occupancy capture",
+      "real-window resolver",
+      "protected-root/queryable split",
+      "python resume-vs-reseed gate + minimal resume substrate",
+      "measurement surfaces (emit-only)"
+    ],
+    "threshold_formula": "min(400000, 0.80 * real_backend_window)",
+    "worked_thresholds": {
+      "opus[1m]_1M": 400000,
+      "profile_200K": 160000,
+      "qwen_128K": 102000
+    },
+    "open_questions": 4,
+    "critical_findings": 1,
+    "high_findings": 2
+  },
+  "plan_reconciliation": {
+    "note": "Written after the task_planner plan (3200-plan.md / 3200-plan-task-planner.json, 8 phases / 19 tasks + DAG) and the risk_analyst output were merged into the work branch and read. The DAG aligns with this architecture's WS1-WS5 ordering. Three architectural-correctness items the merged plan must close before implement:",
+    "agree": [
+      "phase-2 real-window resolver + threshold + mis-trigger regression tests == WS2; phase-3 byte-stable root render == WS3; phase-6 resume-vs-reseed tier == WS4; phase-8 emit-only metrics == WS5; phase-1 occupancy capture == WS1.",
+      "risk_analyst R1/R5/R9 independently corroborate my F1 (resume substrate) and findings; we converge."
+    ],
+    "must_close": {
+      "resume_substrate_unbuilt": "No plan task lands the #3186 warm-resume plumbing (client.py has no resume= today); phase-6 reads as if warm resume pre-exists. Resolve OQ1: add an explicit task building the minimal resume substrate (the gate's 'resume' arm) OR mark phase-6 blocked-by external #3186 and define gate behavior when no session is resumable. This is my F1/OQ1.",
+      "3189_anchor_content_not_in_egg_anchor": "The four #3189 anchors (last-reviewed SHA/producer, latest verdicts, open NACKs, conditional-ACK obligations) are derived TODAY in orchestrator/routes/event_prompt.py (delta/NACKs) + consensus.py (PeerConsensutracker.matrix) \u2014 NOT in shared/egg_anchor (BRCState carries only acks/nacks + last_message_id). Any plan task that 'renders #3189 from existing egg_anchor' overstates what exists: the root renderer must source anchors from the event-prompt/consensus derivation (or an explicit #3189 task), else a reseed drops conditional-ACK obligations and re-reviews settled SHAs.",
+      "no_kill_switch": "Recommend the protected-root/JIT split + reseed ship behind a feature flag whose OFF state retains today's full-context inline path. AC-5 forbids measurement, not reversibility; a flag makes the operator's end-to-end test a one-toggle revert and the deferred A/B a toggle rather than a code revert."
+    },
+    "occupancy_none_policy": "Reaffirming WS1/F3: when ResultMessage.usage is absent/None (older SDK, errors, or non-Claude LiteLLM routes), occupancy is None and the gate must bias toward reseed/fresh (cheap, safe), NEVER treat None as 'below threshold' \u2014 under-reseeding on exactly the sub-200K non-Claude routes is the lossy-compaction trap."
+  }
+}
