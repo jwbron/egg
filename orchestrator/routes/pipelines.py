@@ -238,6 +238,13 @@ def _slice_produced_commits(slice_obj: Any) -> bool:
     stale (#3245). The contract's task-commit record is the durable signal
     that survives that ambiguity: no task commit + no slice PR ⇒ the slice
     never ran and must be re-run, not completed.
+
+    A slice with *no tasks* returns ``False`` here (``any([])``). Paired with
+    "origin-detected merged, no PR" that would force such a slice to re-run
+    indefinitely — but a zero-task slice is unreachable in practice:
+    plan-derived slices always carry at least one task. The safe direction is
+    re-run over silently-dropped work, so the edge needs no special-casing
+    (#3253).
     """
     tasks = getattr(slice_obj, "tasks", None) or []
     return any(getattr(t, "commit", None) for t in tasks)
@@ -16564,6 +16571,21 @@ def _run_implement_phase_slices(
     # detection), so a current-code slice whose base-SHA write failed also
     # falls through to Layer-B and self-corrects identically to the legacy
     # case above.
+    #
+    # Known limitation (#3253): a slice that pre-fix code *already* persisted
+    # COMPLETE basis="merged" with a stale ``integration_base_sha`` and no
+    # produced commits / PR is still trusted here — Layer-A validates with no
+    # ``basis`` (the #3253 merged-empty guard keys on ``basis == "merged"``,
+    # which Layer-A never supplies), so the ``forked`` free-pass below accepts
+    # the stale fork base. This is deliberately *not* fixed by broadening the
+    # guard to the basis-less path: a legitimate ``basis="consensus_complete"``
+    # slice can also have no PR and no recorded task commit (best-effort agent
+    # recording + ``pr_number`` None on an unparseable PR URL, #3122), so
+    # re-running on "no commit + no PR" alone here would re-run genuinely
+    # completed work. The #3253 fix prevents the corrupt write going forward;
+    # a pipeline already wedged by this exact bug *before* the upgrade needs a
+    # manual contract touch-up (clear the slice's COMPLETE status) rather than
+    # self-healing on restart.
     layer_b_candidates = []
     for s in slices:
         if s.status == SliceStatus.COMPLETE:
