@@ -140,12 +140,13 @@ def _make_slice(
     )
 
 
-def _make_task(task_id: str, description: str = "") -> Task:
+def _make_task(task_id: str, description: str = "", *, commit: str | None = None) -> Task:
     return Task(
         id=task_id,
         description=description or f"Task {task_id}",
         status=TaskStatus.PENDING,
         files_affected=[],
+        commit=commit,
     )
 
 
@@ -1292,7 +1293,11 @@ class TestSliceMergedDetection:
         complete, persists ``status=COMPLETE``, and the run loop
         proceeds with slice-2 alone."""
         pipeline = _make_pipeline()
-        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        # slice-1 is genuinely merged — its producer recorded a commit
+        # (#3253: a real merge leaves produced task commits, which is what
+        # distinguishes it from an empty/never-implemented branch that
+        # origin ancestry would also report as merged).
+        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1", commit="a" * 40)])
         slice2 = _make_slice("slice-2", deps=["slice-1"], tasks=[_make_task("task-2-1")])
         contract = _make_contract(slices=[slice1, slice2])
 
@@ -1346,6 +1351,82 @@ class TestSliceMergedDetection:
         assert slice1.status == SliceStatus.COMPLETE, (
             "step (B) must persist slice.status=COMPLETE so subsequent restarts "
             "skip the GitHub round-trip"
+        )
+
+    def test_bootstrap_never_completes_never_implemented_slice_as_merged(self) -> None:
+        """#3253 — a slice whose producers never committed (no produced
+        task commit, no PR, tasks ``commit=None``) has an empty
+        integration branch whose tip is still its fork base, so origin
+        ancestry trivially reports it ``merged``. The bootstrap must NOT
+        mark it COMPLETE basis=merged (which would silently drop the
+        slice and let the pipeline complete with its work missing — the
+        slice-10 incident). It must re-run instead.
+
+        This is the restart-to-retry path: a producer fails (e.g. #3138
+        model-quota exhaustion), the operator restarts, and the empty
+        branch must be re-run, not false-completed.
+        """
+        pipeline = _make_pipeline()
+        # slice-1 completed normally; slice-2 is the never-implemented one:
+        # IN_PROGRESS with an empty integration branch (it was created — its
+        # branch exists on origin — but no producer ever committed, so every
+        # task.commit is None), mirroring the slice-10 incident.
+        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1", commit="a" * 40)])
+        slice2 = _make_slice(
+            "slice-2",
+            deps=["slice-1"],
+            tasks=[_make_task("task-2-1")],  # commit=None
+        )
+        slice2.status = SliceStatus.IN_PROGRESS
+        contract = _make_contract(slices=[slice1, slice2])
+
+        # Origin ancestry reports BOTH slices merged — but slice-2's
+        # "merged" is the empty/ancestor false positive.
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch(
+                "routes.pipelines._run_concurrent_phase", return_value=(0, "ok")
+            ) as mock_run_phase,
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = self._make_spawner()
+            spawner.gateway.is_slice_branch_merged_into_parent.return_value = True
+            # slice-2's integration branch exists on origin (forked but
+            # empty) — Layer-C sees a non-None tip…
+            spawner.gateway.get_remote_branch_sha.return_value = "c" * 40
+            # …but no live agents (the failed producers exited), so the
+            # #2914 resume-guard reclassifies it fresh and it re-runs.
+            spawner.backend = MagicMock()
+            spawner.backend.list_containers.return_value = []
+            exit_code, _ = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert exit_code == 0
+        # The discrimination: slice-1 (real produced commit) is accepted as
+        # merged and skipped; slice-2 (never implemented) is NOT skipped as
+        # merged — it is re-run via _run_concurrent_phase. (It then legitimately
+        # completes off the back of that successful re-run — that's the
+        # correct outcome, distinct from the bug, which false-completed it at
+        # bootstrap basis=merged without ever running it.)
+        invoked = {c.kwargs["slice_id"] for c in mock_run_phase.call_args_list}
+        assert "slice-2" in invoked, (
+            "a never-implemented slice that origin reports merged must be re-run, "
+            "not false-completed as merged at bootstrap (#3253)"
+        )
+        assert "slice-1" not in invoked, (
+            "a genuinely-merged slice (produced commit) is still skipped as merged"
         )
 
     def test_bootstrap_does_nothing_when_pipeline_repo_unset(self) -> None:
@@ -1408,7 +1489,10 @@ class TestSliceMergedDetection:
         re-check before push and skip cleanly — no agent spawn, no
         slice-PR creation, no integration-branch push."""
         pipeline = _make_pipeline()
-        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        # slice-1 produced a commit — required for the merged-skip paths to
+        # engage at all (#3253: a slice with no produced commit and no PR is
+        # treated as never-implemented and is never skipped as merged).
+        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1", commit="a" * 40)])
         contract = _make_contract(slices=[slice1])
 
         # First call (bootstrap): not merged. Second call (race
@@ -1700,8 +1784,11 @@ class TestSliceBoundaryStatefileCommit:
         produce ONE batched commit, not one per slice — and no
         per-slice-close commits (nothing ran)."""
         pipeline = _make_pipeline()
-        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
-        slice2 = _make_slice("slice-2", tasks=[_make_task("task-2-1")])
+        # Both slices are genuinely merged — each producer recorded a commit
+        # (#3253: the produced-commit record is what lets the merged-detection
+        # mark them COMPLETE rather than treating them as never-implemented).
+        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1", commit="a" * 40)])
+        slice2 = _make_slice("slice-2", tasks=[_make_task("task-2-1", commit="b" * 40)])
         contract = _make_contract(slices=[slice1, slice2])
         commit_mock = MagicMock(return_value=True)
         spawner = self._make_spawner()
