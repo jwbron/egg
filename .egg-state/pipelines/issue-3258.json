@@ -198,10 +198,28 @@
       "resolution": "D) Emit-only against existing AgentResult fields plus defined adapter seams that degrade gracefully (null/zero) until the real fields land — keeps slice-10 self-contained on main today\n\nBinding direction: build all input reads (occupancy + reseed) through a SINGLE adapter seam that binds to the real fields when present and returns null/zero when absent (the case on main today); real values flow automatically once #3236/#3251 merge — no rework. Do NOT stack on egg/issue-3200/* (reject A), do NOT vendor a duplicate substrate (reject B), do NOT block (reject C). Emit the six metrics only through existing progress/heartbeat/metrics surfaces; emit-only is hard scope (nothing gated; ship the AC-2 structural no-decision-branch test); AC-3 tests drive a synthetic ≥1-reseed event sequence through the seam.",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Consensus timed out; consensus incomplete; agents never confirmed: unknown. Committed work is preserved on the per-role branch — 'Retry phase' restarts with artifacts intact. How to proceed?",
+      "context": "",
+      "options": [
+        "Retry phase",
+        "Accept current state",
+        "Abort phase"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-06-25T21:46:27.621104Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "plan",
+      "content_changed": null
     }
   ],
   "created_at": "2026-06-25T20:12:55.980282Z",
-  "updated_at": "2026-06-25T20:50:29.537917Z",
+  "updated_at": "2026-06-25T21:46:27.621285Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -214,7 +232,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-25T20:46:22.941976Z",
-  "version": 29,
+  "version": 30,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
