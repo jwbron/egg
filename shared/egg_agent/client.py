@@ -719,7 +719,18 @@ async def run_agent_async(
                         actual_model = message.model
                     # Keep the latest per-turn usage; the final one is the
                     # session's resident window occupancy (#3200).
-                    if message.usage is not None:
+                    #
+                    # Only top-level turns count. Sub-agent (Task tool) messages
+                    # carry a non-None ``parent_tool_use_id`` and report the
+                    # sub-agent's window, not the main session's — letting one be
+                    # the last-seen usage would report the wrong window when a
+                    # session's terminal turn happens to be a sub-agent's. Filter
+                    # to ``parent_tool_use_id is None`` at the source so occupancy
+                    # always reflects the main session (#3200).
+                    if (
+                        message.usage is not None
+                        and getattr(message, "parent_tool_use_id", None) is None
+                    ):
                         last_assistant_usage = message.usage
                     for block in message.content:
                         if isinstance(block, ToolUseBlock):

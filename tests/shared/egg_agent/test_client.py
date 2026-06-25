@@ -58,6 +58,7 @@ except ImportError:
         content: list[Any] = field(default_factory=list)
         model: str | None = None
         usage: Any = None
+        parent_tool_use_id: str | None = None
 
     @dataclass
     class UserMessage:  # type: ignore[no-redef]
@@ -1919,6 +1920,43 @@ class TestOccupancyCapture:
         assert result.window_occupancy == 150_000
         # Guard against regressing to the ResultMessage aggregate.
         assert result.window_occupancy != 373_000
+        assert result.token_usage["cache_read_input_tokens"] == 145_000
+
+    @patch("claude_agent_sdk.query")
+    def test_subagent_turns_excluded_from_occupancy(self, mock_query):
+        """Sub-agent (Task tool) turns must not pollute the resident window.
+
+        Sub-agent AssistantMessages carry a non-None ``parent_tool_use_id`` and
+        report the sub-agent's window, not the main session's. If the terminal
+        turn before the ResultMessage is a sub-agent's, occupancy must still
+        reflect the last TOP-LEVEL turn, not the sub-agent's window (#3200).
+        """
+
+        async def gen(**kwargs):
+            # Main-session turn -> the resident window we care about: 150_000.
+            yield AssistantMessage(
+                content=[TextBlock(text="main step")],
+                model="claude-opus-4-6-20250313",
+                usage=_usage(input_tokens=5_000, cache_read_input_tokens=145_000),
+            )
+            # Sub-agent turn (Task tool) -> different window, must be ignored.
+            yield AssistantMessage(
+                content=[TextBlock(text="sub step")],
+                model="claude-opus-4-6-20250313",
+                usage=_usage(input_tokens=1_000, cache_read_input_tokens=29_000),
+                parent_tool_use_id="task-abc",
+            )
+            yield _make_result_msg(
+                usage=_usage(input_tokens=10_000, cache_read_input_tokens=363_000)
+            )
+
+        mock_query.side_effect = gen
+        result = _run_async(run_agent_async("test prompt"))
+
+        assert result.success is True
+        # Last top-level turn's window, not the trailing sub-agent's (30_000).
+        assert result.window_occupancy == 150_000
+        assert result.window_occupancy != 30_000
         assert result.token_usage["cache_read_input_tokens"] == 145_000
 
     @patch("claude_agent_sdk.query")
