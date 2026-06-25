@@ -132,6 +132,7 @@ Top-level anchor model:
 | `AnchorStatus` | `initializing`, `working`, `proposed`, `confirmed`, `blocked`, `failed` |
 | `BRCPhase` | `orient`, `working`, `proposed`, `reviewing`, `confirmed` |
 | `ProgressState` | `pending`, `working`, `complete`, `blocked` |
+| `ReviewVerdict` | `ack`, `nack`, `conditional_ack` — latest verdict on a reviewer→producer edge |
 
 ### Key Sub-Models
 
@@ -142,6 +143,10 @@ Top-level anchor model:
 - **`BRCState`**: `phase` (BRCPhase), `proposed_at`, `acks`, `nacks`, `last_message_id`
 - **`KeyContext`**: `label` (max 50 chars), `value` (max 500 chars)
 - **`ErrorEncountered`**: `error` (max 200 chars), `resolution` (max 200 chars), `timestamp`
+- **`BRCDerivedAnchors`**: four deterministic BRC anchor fields derived from the message record — `last_reviewed_sha` (producer → SHA of the latest proposal any reviewer has verdicted on — a per-producer max-across-reviewers aggregate, not a per-edge value; the per-edge reviewed SHA lives in `latest_verdicts[].reviewed_sha`), `latest_verdicts` (list of `ReviewEdgeVerdict`), `open_nacks` (list of `OpenNack`), `conditional_ack_obligations` (list of `ConditionalAckObligation`)
+- **`ReviewEdgeVerdict`**: `reviewer`, `producer`, `verdict` (ReviewVerdict), `version`, `reviewed_sha` — latest verdict on a single reviewer→producer edge
+- **`OpenNack`**: `reviewer`, `producer`, `version`, `reason` — unresolved NACK against the producer's current proposal version
+- **`ConditionalAckObligation`**: `reviewer`, `producer`, `version`, `condition`, `resolved` — pre-merge obligation from a conditional ACK (#1998)
 
 ## Architecture
 
@@ -161,6 +166,12 @@ Orchestrator
 - **Gateway enforcement**: Session-scoped — agents can only write their own anchor file.
 
 ## Functions
+
+### Derivation (`egg_anchor.brc_derive`)
+
+| Function | Description |
+|----------|-------------|
+| `derive_brc_anchors(messages)` | Derive the four `BRCDerivedAnchors` fields from a BRC message record (list of dicts as produced by `read_peer_artifact` / `_write_brc_history`). Purely mechanical — reads only structured message fields, never agent-authored prose. The caller is responsible for passing a pre-scoped record (one slice, one phase). |
 
 ### Loader (`egg_anchor.loader`)
 
@@ -210,13 +221,14 @@ root = render_protected_root(
 
 | File | Purpose |
 |------|---------|
-| `__init__.py` | Public API exports (models, loader, validator, protected root renderer) |
+| `__init__.py` | Public API exports (models, loader, validator, derivation, protected root renderer) |
 | `models.py` | Pydantic models with field validators for array size constraints |
+| `brc_derive.py` | Mechanical derivation of BRC anchor fields from the message record (`derive_brc_anchors`) |
 | `loader.py` | Atomic file I/O (temp-then-rename), API sync via HTTP POST |
 | `validator.py` | JSON Schema validation, size budget checking (SizeBudgetResult) |
 | `constants.py` | Re-exports anchor constants from egg_config (with fallback defaults) |
 | `protected_root.py` | Deterministic byte-stable protected-root renderer for event-pump BRC agents |
-| `tests/` | Unit tests for models, loader, validator, protected root renderer |
+| `tests/` | Unit tests for models, loader, validator, BRC anchor derivation, and protected root renderer |
 
 ## Integration Points
 
