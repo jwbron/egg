@@ -191,6 +191,7 @@ The `egg_agent` client (`shared/egg_agent/client.py`) emits structured log event
 | `tool_use` | Agent invokes a tool | `tool_name`, `tool_use_id`, `input` |
 | `tool_result` | Tool returns a result | `tool_use_id`, `is_error`, `content` |
 | `assistant` | Agent emits a text block | `event_subtype: "text"`, `text` |
+| `system` | Session resume substrate (#3200 slice-6) | `event_subtype: "session_resume"` (resuming prior session) or `"session_resume_skipped"` (resume requested but `EGG_SESSION_RESUME` is off); `session_id` |
 
 Tool input, output, and assistant text content is truncated to 2000 characters in log events to avoid log bloat; a `... (N chars)` suffix is appended when truncation occurs.
 

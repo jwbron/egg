@@ -281,9 +281,11 @@ shared/
 ├── egg_agent/              # Claude Agent SDK wrapper
 │   ├── __init__.py         # Public API: AgentResult, build_agent_command
 │   ├── __main__.py         # CLI entry point (python3 -m egg_agent)
+│   ├── _logging.py         # Logger resolution: returns egg_logging structured logger or a kwarg-dropping stdlib fallback when egg_logging is absent (shared by client.py and session.py)
 │   ├── client.py           # run_agent(), run_agent_async()
 │   ├── command.py          # build_agent_command() for orchestrator-spawned containers
 │   ├── result.py           # AgentResult dataclass
+│   ├── session.py          # Session-state round-trip for BRC warm resume (#3200 slice-6): write_session_state(), read_session_state(), session_resume_enabled(); gated on EGG_SESSION_RESUME (default OFF); path via EGG_SESSION_STATE_FILE or --session-state-file
 │   ├── tool_interceptor.py # Pre-execution file write checks (Write/Edit/NotebookEdit) against role restrictions
 │   ├── tool_output_cap.py  # Predictive PreToolUse cap for built-in CC tools (Read/Grep): denies calls whose model-bound result is likely to be excessive (cost/context discipline, NOT the buffer-crash fix — that's the raised reader buffer in client.py, #2884); tunable via EGG_TOOL_OUTPUT_CAP / EGG_READ_CAP_BYTES (#2876); agents can raise their own session's Read cap by writing the byte size to /tmp/egg-read-cap-bytes (#3175)
 │   ├── midturn_messages.py # Throttled PostToolUse hook that polls the message bus mid-turn and injects new operator-authored messages as additionalContext; backed by EGG_MIDTURN_MESSAGES_INTERVAL_SECS (default 60 s) and EGG_MIDTURN_MESSAGES=false escape hatch (#3123)
