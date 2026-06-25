@@ -38,6 +38,52 @@ def _truncate(value: str, max_len: int = _MAX_TOOL_CONTENT_LOG_LEN) -> str:
     return value[:max_len] + f"... ({len(value)} chars)"
 
 
+# SDK usage sub-fields that sum to window occupancy. Occupancy measures how
+# much of the real backend window the turn consumed; unlike billed input it
+# INCLUDES cache reads (the bulk of a warm-resumed session) and cache writes.
+_OCCUPANCY_USAGE_KEYS = (
+    "input_tokens",
+    "cache_read_input_tokens",
+    "cache_creation_input_tokens",
+)
+
+
+def _usage_components(usage: dict[str, Any] | None) -> dict[str, int] | None:
+    """Extract raw occupancy + output token counts from an SDK usage dict.
+
+    Returns None when ``usage`` is absent or not a mapping (SDK shapes with no
+    usage block, e.g. some non-Claude/LiteLLM routes). Missing or non-integer
+    sub-fields default to 0 so a partial usage dict still yields a usable
+    breakout.
+    """
+    if not isinstance(usage, dict):
+        return None
+
+    def _coerce(key: str) -> int:
+        value = usage.get(key)
+        return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+    return {
+        "input_tokens": _coerce("input_tokens"),
+        "cache_read_input_tokens": _coerce("cache_read_input_tokens"),
+        "cache_creation_input_tokens": _coerce("cache_creation_input_tokens"),
+        "output_tokens": _coerce("output_tokens"),
+    }
+
+
+def _compute_occupancy(usage: dict[str, Any] | None) -> int | None:
+    """Compute cumulative window occupancy from an SDK usage dict.
+
+    Occupancy = cache_read + cache_creation + input (NOT billed input). Returns
+    None when no usage is reported so callers bias to a safe reseed rather than
+    a lossy resume (#3200). Missing sub-fields are treated as 0.
+    """
+    components = _usage_components(usage)
+    if components is None:
+        return None
+    return sum(components[key] for key in _OCCUPANCY_USAGE_KEYS)
+
+
 class _StdlibLoggerAdapter:
     """Thin adapter so stdlib logger ignores structured-log kwargs."""
 
@@ -719,11 +765,18 @@ async def run_agent_async(
                         stdout_parts.append(message.result)
                         if on_output:
                             on_output(message.result)
+                    # Do NOT drop message.usage: it carries the cache_read /
+                    # cache_creation / input counts that sum to window
+                    # occupancy — the load-bearing signal for the threshold
+                    # reseed (#3200). Compute defensively so SDK shapes with
+                    # no usage block yield None (-> safe reseed) not an error.
                     result_meta = {
                         "cost_usd": message.total_cost_usd,
                         "num_turns": message.num_turns,
                         "duration_ms": message.duration_ms,
                         "session_id": message.session_id,
+                        "window_occupancy": _compute_occupancy(message.usage),
+                        "token_usage": _usage_components(message.usage),
                     }
                     if message.is_error:
                         logger.info(
@@ -749,6 +802,8 @@ async def run_agent_async(
                             num_turns=message.num_turns,
                             duration_ms=message.duration_ms,
                             session_id=message.session_id,
+                            window_occupancy=result_meta.get("window_occupancy"),
+                            token_usage=result_meta.get("token_usage"),
                         )
 
     except TimeoutError:
@@ -771,6 +826,8 @@ async def run_agent_async(
             returncode=-1,
             error=f"Timed out after {timeout} seconds",
             metadata={"model": actual_model} if actual_model else None,
+            window_occupancy=result_meta.get("window_occupancy"),
+            token_usage=result_meta.get("token_usage"),
         )
 
     except (ProcessError, CLINotFoundError, ClaudeSDKError) as e:
@@ -793,6 +850,8 @@ async def run_agent_async(
             returncode=-1,
             error=str(e),
             metadata={"model": actual_model} if actual_model else None,
+            window_occupancy=result_meta.get("window_occupancy"),
+            token_usage=result_meta.get("token_usage"),
         )
 
     except Exception as e:
@@ -815,6 +874,8 @@ async def run_agent_async(
             returncode=-1,
             error=str(e),
             metadata={"model": actual_model} if actual_model else None,
+            window_occupancy=result_meta.get("window_occupancy"),
+            token_usage=result_meta.get("token_usage"),
         )
 
     logger.info(
@@ -839,6 +900,8 @@ async def run_agent_async(
         num_turns=result_meta.get("num_turns"),
         duration_ms=result_meta.get("duration_ms"),
         session_id=result_meta.get("session_id"),
+        window_occupancy=result_meta.get("window_occupancy"),
+        token_usage=result_meta.get("token_usage"),
     )
 
 
