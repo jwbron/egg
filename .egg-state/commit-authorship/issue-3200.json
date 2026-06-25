@@ -80,6 +80,14 @@
       "repo": null,
       "role": "tester"
     },
+    "200ad7ed6bccd2ed6066ad9877ff3fdbc5c492cf": {
+      "branch": "egg/issue-3200/slice-7",
+      "patch_id": "639c1ecc254c7d1c31fded9fe5c0d40fdb8af6d4",
+      "pipeline_id": "issue-3200",
+      "registered_at": "2026-06-25T07:59:42.037138+00:00",
+      "repo": null,
+      "role": "tester"
+    },
     "211d99189bfbddee841a24f23cd6123f706bbd17": {
       "branch": "egg/issue-3200/work",
       "patch_id": null,
