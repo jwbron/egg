@@ -8,7 +8,25 @@
   "overall_risk_level": "MEDIUM-HIGH",
   "recommendation": "PROCEED_WITH_MITIGATIONS",
 
-  "scope_note": "Grounded against the confirmed refine analysis (.egg-state/drafts/3200-analysis.md, AC-1..AC-5) and the working tree on 2026-06-25. The architect plan and task_planner breakdown propose in parallel with this artifact and were not yet available; risks are therefore framed against the acceptance criteria and the real code touchpoints, and several risks are explicit asks the task_planner/architect must encode (sequencing, flag, fallback). Re-check on review of their proposals.",
+  "scope_note": "Grounded against the confirmed refine analysis (.egg-state/drafts/3200-analysis.md, AC-1..AC-5) and the working tree on 2026-06-25. Risks were first framed against the acceptance criteria and real code touchpoints; the peer plan (3200-plan.md / 3200-plan-task-planner.json) was then merged in and reconciled — see plan_reconciliation below.",
+
+  "plan_reconciliation": {
+    "note": "After drafting, the task_planner plan (8 phases / 19 tasks) and DAG were merged into the work branch and read in full. Reconciliation by risk:",
+    "addressed_by_plan": {
+      "R3_real_window": "Closed by phase-2 (task-2-1 resolver keyed on bare model name, task-2-2 threshold, task-2-3 worked-example + mis-trigger regression tests). Residual: unregistered sub-200K backends resolve to 200K -> threshold 160k > a 128K real window; latent only (no sub-200K model registered today), but the resolver's unknown-model default to 200K — rather than the smallest known window — leaves that one mis-trigger open if such a model is ever added.",
+      "R4_determinism": "Addressed by task-3-1/3-2 (stable bytes, no timestamps, byte-stability tests). My grounding sharpens it: task-3-1 says render FROM shared/egg_anchor, whose current model IS timestamp-heavy (created_at/updated_at/sequence + per-item timestamps) — the renderer must project AROUND those fields, not serialize the model; the byte-stability test must guard exactly this.",
+      "R6_within_event": "Acknowledged (plan risk #1, task-4-1 honest-limit comment) and the single-event-working-set signal is emitted by task-8-1.",
+      "R7_persistence": "Closed by phase-5 (task-5-1/5-2 mid-phase restart survival).",
+      "R10_tests": "Strong coverage across task-1-3/2-3/3-2/4-3/5-2/6-2/7-2/8-2.",
+      "R8_provider_stickiness": "Carried as plan risk #4; observability via the root-cache-hit-rate surface (task-8-1)."
+    },
+    "gaps_the_plan_does_NOT_close": {
+      "R1_resume_substrate": "Phase-6 task-6-1 reads 'occupancy < threshold -> resume the cached session (#3186)', but NO task in the plan builds the resume/continue plumbing — client.py has none today and #3186 is OPEN. The plan treats the warm-resume tier as pre-existing. Either add a task to land #3186 resume (refine §8 places it in-pipeline) or make phase-6 explicitly blocked-by an external #3186, and define what the trigger does when no warm session can be resumed.",
+      "R5_3189_anchor_content": "SHARPEST GAP. task-3-1 renders '#3189 deterministic anchors (last-reviewed SHA/producer, latest verdicts, open NACKs, conditional-ACK obligations) from shared/egg_anchor' as if present, but the current egg_anchor BRCState (models.py:96-103) carries only acks/nacks (agent-id lists) + last_message_id — none of those four — and #3189 is OPEN. Phase-3's dependency note even says 'renders from the EXISTING shared/egg_anchor #3189 substrate', overstating what exists. Without a task deriving these fields from the message record, a reseed silently drops conditional-ACK obligations and re-reviews settled SHAs (consensus-integrity break). The plan needs an explicit #3189-content task as a hard prerequisite of task-3-1, OR the protected-root rollout must stay disabled until #3189 lands.",
+      "R9_no_feature_flag": "task-7-1 mandates 'no bulk-inlining path remains' — the full-context path is REMOVED, not gated. Combined with AC-5 (no measurement) this means an unmeasured, all-roles change ships with NO cheap rollback: if the operator's end-to-end test fails, recovery is a code revert, not a flag flip. The plan's non-goal 'no build of the preserved full-context FALLBACK' refers to the follow-up's verbatim backstop framing — it does NOT substitute for a kill-switch. Recommend a feature flag whose OFF state retains the current full-context path, so rollout is reversible and a later A/B is a toggle."
+    },
+    "refinement_R2": "task-1-2/1-3 handle absent/partial usage as '-> None, no exception' — good, but the plan does not say what the RESEED does when occupancy is None. If None is treated as 'below threshold', the trigger goes blind on exactly the non-Claude LiteLLM sub-200K routes it most needs to protect, silently falling back to CC compaction. Phase-6 should bias None/unknown occupancy toward over-reseeding (cheap, safe), never under (the lossy-compaction trap)."
+  },
 
   "risks": [
     {
