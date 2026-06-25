@@ -1273,6 +1273,34 @@ class TestGetStatusSyncHandler:
         resp["data"]["pipeline"]["pr_url"] = pr_url
         return resp
 
+    def _pipeline_response_no_persisted_agents(self):
+        """Pipeline fixture whose phase records NO persisted agents (#3230).
+
+        This is the steady state under the orchestrator-owned event loop
+        (#3164): role pods are on-demand one-shots that are never written
+        into ``phase_exec.agents``, so the persisted list is empty.
+        """
+        resp = self._pipeline_response()
+        resp["data"]["pipeline"]["phases"]["implement"]["agents"] = []
+        return resp
+
+    def _status_response_with_live_agents(self):
+        """``/status`` fixture whose ``concurrent.agents`` carries live pods.
+
+        Mirrors what ``routes.pipelines._get_concurrent_status`` returns once
+        it backfills the running-pod cohort from live Job labels.
+        """
+        return {
+            "data": {
+                "concurrent": {
+                    "agents": [
+                        {"role": "refiner", "status": "running", "elapsed_seconds": 152},
+                        {"role": "reviewer_refine", "status": "running"},
+                    ]
+                }
+            }
+        }
+
     def _messages_response(self):
         return {"data": {"messages": []}}
 
@@ -1563,6 +1591,62 @@ class TestGetStatusSyncHandler:
         # Should be a valid ISO 8601 string
         parsed = datetime.fromisoformat(result["phase_started_at"])
         assert parsed.tzinfo is not None  # timezone-aware
+
+    def test_running_agents_backfilled_from_live_status_when_persisted_empty(self, handler):
+        """Empty persisted agents are backfilled from /status live cohort (#3230).
+
+        Under the orchestrator-owned event loop the persisted agent list is
+        empty even while role pods are Running; ``get_status`` must fall back
+        to the ``/status`` endpoint's live ``concurrent.agents`` so the
+        dashboard is not blind. Request order: pipeline → /status → messages.
+        """
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[
+                self._pipeline_response_no_persisted_agents(),
+                self._status_response_with_live_agents(),
+                self._messages_response(),
+            ],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        roles = {a["role"] for a in result["running_agents"]}
+        assert roles == {"refiner", "reviewer_refine"}
+
+    def test_running_agents_no_fallback_when_persisted_present(self, handler):
+        """Persisted running agents short-circuit the /status fallback (#3230).
+
+        Only two requests (pipeline + messages) are issued — no /status call —
+        when the persisted list already has a running agent.
+        """
+        mock_make = MagicMock(side_effect=[self._pipeline_response(), self._messages_response()])
+        with patch.object(handler, "_make_request", mock_make):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        assert [a["role"] for a in result["running_agents"]] == ["coder"]
+        # No /status request was made — exactly pipeline + messages.
+        assert mock_make.call_count == 2
+
+    def test_running_agents_empty_when_no_live_pods(self, handler):
+        """Quiescence (no live pods) stays empty — not misreported (#3230).
+
+        A backfill that finds no live pods must leave ``running_agents``
+        empty so legitimate between-spawn idle is not dressed up as a cohort.
+        """
+        empty_status = {"data": {"concurrent": {"agents": []}}}
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[
+                self._pipeline_response_no_persisted_agents(),
+                empty_status,
+                self._messages_response(),
+            ],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        assert result["running_agents"] == []
 
 
 class TestGetStatusWedgedNoSuccessor:
