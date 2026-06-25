@@ -76,7 +76,7 @@ pass either.
 |-------|------|---------|---------|
 | `serialized_chain_order` | `list[str]` | `[]` | Architect-emitted ordering for would-be multi-parent slices (#2809). When the architect identifies a slice that would naturally have >1 parents, it serialises the upstream cluster into a chain and records the chosen order on the downstream slice. |
 | `parent_branch_at_creation` | `str \| None` | `None` | Git branch the slice's integration branch was forked off when its worktree was provisioned. Eager-persisted under the per-pipeline state lock in the same contract write that flips `SliceStatus.PENDING → IN_PROGRESS` ([#2777](https://github.com/jwbron/egg/issues/2777) slice-4 TASK-4-2, cq-9), so Layer-C bootstrap reconciliation has a single signal that distinguishes a fresh slice from an interrupted one and the value is durable across orchestrator restarts. Read by the stacked-PR reconciler when the parent's branch has been deleted by a merge so it can compute the correct rebase target. Empty on legacy/orphaned slices that pre-date the eager-persist contract — in that case `_resolve_slice_base_branch` falls back to a merge-base probe (TASK-4-3) against the dependency-derived parent before routing onto `pipeline_branch`. |
-| `integration_base_sha` | `str \| None` | `None` | Origin SHA the slice's integration branch was forked at when first created (#2871). Recorded once, right after branch creation and before any agent is spawned, so the tip still equals this SHA. Lets `is_slice_branch_merged_into_parent` distinguish an *empty, un-started* branch (tip still equals this SHA → trivially an ancestor of any advanced parent, but not merged work) from a *genuinely merged* one (tip has moved past this SHA). Slices provisioned before this field existed fall back to the prior ancestor-only check. |
+| `integration_base_sha` | `str \| None` | `None` | Origin SHA the slice's integration branch was forked at when first created (#2871). Written right after branch creation and before any agent is spawned (so the tip still equals this SHA at that point), but can be overwritten by out-of-band actors such as `restart_phase`, `salvage_agent_commits`, or manual contract edits. Lets `is_slice_branch_merged_into_parent` distinguish an *empty, un-started* branch (tip still equals this SHA → trivially an ancestor of any advanced parent, but not merged work) from a *genuinely merged* one (tip has moved past this SHA). Also used by `create_slice_integration_branch` to verify that an existing integration branch is a resumable additive fork (#2947); when this field is absent or corrupted (e.g. overwritten to the advanced parent tip by a restart actor), that method re-derives the fork point via a runtime `git merge-base` (executed on the gateway) and adopts the branch in place rather than non-fast-forward-failing the slice (#3245). Slices provisioned before this field existed fall back to the prior ancestor-only check. |
 
 ## Plan Parser & Forest Validation
 
@@ -426,7 +426,14 @@ avoids local-ref resolution failures in the orchestrator's per-pipeline
 worktree, which is checked out on `<branch>/work` and carries no local
 ref matching `<parent_branch>` (#2393). On creation failure the run
 loop calls `record_failure(slice_id)` and returns early — agents are
-not spawned against a missing integration branch.
+not spawned against a missing integration branch. When the branch already
+exists (e.g. after an orchestrator-pod restart or a `restart_phase` that
+preserves the shared integration branch on origin),
+`create_slice_integration_branch` verifies it is a resumable additive
+fork using the recorded `integration_base_sha` (#2947); if that recorded
+base is absent or corrupted, it re-derives the fork point via a runtime
+`git merge-base` (executed on the gateway) and adopts the branch in place
+rather than failing with a non-fast-forward rejection (#3245).
 
 The BRC tracker layer (`orchestrator/peer_consensus.py`) was extended so
 `create/get/remove_peer_consensus_tracker(pipeline_id, slice_id=None)` keys
