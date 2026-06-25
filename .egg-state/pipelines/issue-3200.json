@@ -235,10 +235,29 @@
       "resolution": "{\"action\": \"approve\"}",
       "phase": "refine",
       "content_changed": true
+    },
+    {
+      "id": "decision-5",
+      "question": "Pipeline scope for #3200 (BRC context discipline). The issue mandates \"build + measure with a preserved fallback.\" What should THIS pipeline deliver?",
+      "context": "Open contract question cq-1, registered by an agent during the refine phase.",
+      "options": [
+        "A: Token-occupancy capture only (AgentResult from ResultMessage.usage) — minimal prerequisite that unblocks everything, defers the discipline itself",
+        "B (recommended): Full build+measure prototype on ONE reviewer role — steps 1-4: token capture + protected-root/queryable-env split + threshold reseed + measurement harness; generalization (step 5) and recursion escalation explicitly deferred/gated on measurement",
+        "C: B plus generalize to all roles/producers now — contradicts the issue's measure-first mandate, not recommended",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-06-25T04:53:11.032025Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-06-24T21:43:07.252603Z",
-  "updated_at": "2026-06-25T04:53:06.700207Z",
+  "updated_at": "2026-06-25T04:53:11.040777Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -251,7 +270,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-25T04:45:40.679208Z",
-  "version": 38,
+  "version": 39,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
