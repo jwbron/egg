@@ -46,12 +46,12 @@ and via `workflow_dispatch` with a PR number.
 
 ### How It Works
 
-1. **Skip checks** — Skips draft PRs, PRs with `[skip-review]` in the title, PRs where
-   the current HEAD commit has already been reviewed by the same bot, and multi-slice
-   work→main context PRs (`egg/<id>/work -> main` with more than one contract slice — implementation
-   is delivered through reviewed slice PRs, so this PR carries only `.egg-state/` artifacts).
-   Single-slice/monolithic work→main PRs are not skipped. This prevents redundant
-   reviews when a draft PR is marked as ready for review without new commits.
+1. **Skip checks** — Skips draft PRs, PRs with `[skip-review]` in the title, and PRs where
+   the current HEAD commit has already been reviewed by the same bot — this prevents redundant
+   reviews when a draft PR is marked as ready for review without new commits. It also skips
+   multi-slice work→main context PRs (`egg/<id>/work -> main` with more than one contract slice —
+   implementation is delivered through reviewed slice PRs, so this PR carries only `.egg-state/`
+   artifacts); single-slice/monolithic work→main PRs are not skipped.
 2. **Wait for CI checks** — Waits for all non-review checks (e.g., lint, tests) to complete
    before starting the review. Skips checks matching `egg-review /` (the standard reviewer
    job prefix), `egg-reviewer-` (nested reviewer jobs), `SDLC Pipeline`, or `SDLC HITL` to
@@ -332,8 +332,8 @@ This multi-trigger approach ensures contract verification runs for single-slice/
 
 1. **Trigger check** — Determines if verification should run:
    - Fetches PR metadata (labels, head branch, base branch, and body) in a single API call
-   - **Multi-slice context PR skip** — If the head branch matches `egg/<id>/work` targeting `main`/`master`, reads the contract on the work branch and counts slices. If the pipeline has more than one slice (`len(slices) > 1`), the work→main PR is a pure `.egg-state/` roll-up (implementation was delivered through reviewed slice PRs) and is skipped. Single-slice/monolithic pipelines commit implementation directly onto the work branch, so their work→main PR is not skipped and falls through to normal gating. Fetch failures leave slice count at 0 (fail-open — verification runs).
    - Extracts issue number from branch name, PR body, or contract filename (used downstream for contract lookup)
+   - **Multi-slice context PR skip** — If the head branch matches `egg/<id>/work` targeting `main`/`master`, reads the contract on the work branch and counts slices (legacy contracts serialize the same list under `phases`, so the jq reads `(.slices // .phases)`). If the pipeline has more than one slice (`len(slices) > 1`), the work→main PR is a pure `.egg-state/` roll-up (implementation was delivered through reviewed slice PRs) and is skipped. Single-slice/monolithic pipelines commit implementation directly onto the work branch, so their work→main PR is not skipped and falls through to normal gating. Fetch failures leave slice count at 0 (fail-open — verification runs).
    - For labeled PRs, runs immediately
    - For unlabeled PRs, queries the PR files API to check if any new file was added under `.egg-state/contracts/`
    - For unlabeled slice PRs (head `egg/<pipeline_id>/slice-<N>`), derives the work branch and runs if a contract is present on it
