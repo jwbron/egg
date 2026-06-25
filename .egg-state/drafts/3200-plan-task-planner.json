@@ -3,47 +3,51 @@
   "phase": "plan",
   "agent": "task_planner",
   "title": "BRC context discipline: protected root + queryable environment + threshold reseed",
-  "summary": "Task breakdown for #3200. Builds the full context-discipline mechanism wired for ALL BRC event-pump roles (producers AND reviewers), plus the measurement TOOLING (token-occupancy capture + metric surfaces). Per the operator's resolved HITL scope (cq-1/cq-2, 2026-06-25): runs NO measurement, no A/B, no status-quo comparison, and gates nothing on measured results. The measurement pass, go/no-go, gated generalization, the recursion escalation, and the preserved full-context fallback are explicit FOLLOW-UP work, out of scope here. 8 phases, 19 tasks. Phase 1 (token-occupancy capture) is the hard prerequisite that unblocks the reseed trigger and every metric surface; phases 2-5 build the independent components in parallel; phase 6 assembles the reseed; phase 7 generalizes to all roles; phase 8 emits the metric surfaces. Acceptance criteria AC-1..AC-5 are carried verbatim from the refine analysis (.egg-state/drafts/3200-analysis.md).",
+  "version": 2,
+  "summary": "v2 task breakdown for #3200. Builds the full context-discipline mechanism wired for ALL BRC event-pump roles (producers AND reviewers), plus the measurement TOOLING (token-occupancy capture + metric surfaces). Per resolved HITL cq-1/cq-2 (2026-06-25): runs NO measurement, no A/B, no status-quo comparison, gates nothing on measured results. v2 resolves the v1 open-NACK barrier (reviewer_plan BLOCKER-1/2 + recommendation; risk_analyst B1-B4): the two OPEN substrates the v1 plan assumed exist (#3189 anchor content, #3186 resume) are now BUILT IN-PIPELINE as explicit prerequisites, the grounding table is corrected, the reseed gains a None/unknown-occupancy -> bias-to-reseed rule, and the all-roles rollout is gated behind one feature flag whose OFF state retains today's full-context path. 10 phases, 23 tasks, serialized into one linear dependency chain (1->2->...->10, <=1 parent each) because nearly every slice edits shared/egg_agent(+tests), orchestrator(+tests), and/or shared/egg_anchor(+tests) and independent branches would collide at integration (#3046). AC-1..AC-5 carried verbatim from the refine analysis.",
 
   "scope_notes": {
-    "in_scope": "Full mechanism for every BRC event-pump role (producers + reviewers): token-occupancy capture in AgentResult; protected-root/queryable-environment split; threshold reseed at min(400k, 0.80 x real_backend_window) computed against the REAL backend window; measurement tooling/surfaces (emit only).",
-    "out_of_scope_followup": "Running the measurement / A-B / status-quo comparison; the go/no-go decision; the gated generalization decision (build is already all-roles); the sub-agent recursion escalation (B is gated on A); and the preserved verbatim full-context reseed-backstop FALLBACK. These do not gate this pipeline.",
-    "binding_decisions": "HITL cq-1 resolved: full build across ALL roles, measurement tooling only, measurement deferred. HITL cq-2 resolved: moot under all-roles scope (no single-role prototype, no per-role selection)."
+    "in_scope": "Full mechanism for every BRC event-pump role (producers + reviewers): token-occupancy capture in AgentResult; #3189 deterministic anchor-content derivation from the BRC message record; protected-root/queryable-environment split; #3186 session-resume substrate + cold-start fallback; threshold reseed at min(400k, 0.80 x real_backend_window) computed against the REAL backend window (None/unknown occupancy biases to reseed); a single feature flag gating the whole discipline (OFF = today's full-context path); measurement tooling/surfaces (emit only).",
+    "out_of_scope_followup": "Running the measurement / A-B / status-quo comparison; the go/no-go decision; the gated generalization decision (build is already all-roles); the sub-agent recursion escalation (B is gated on A); and the preserved verbatim full-context reseed-backstop FALLBACK build (distinct from the phase-9 kill-switch flag). These do not gate this pipeline.",
+    "binding_decisions": "HITL cq-1 resolved: full build across ALL roles, measurement tooling only, measurement deferred. HITL cq-2 resolved: moot under all-roles scope (no single-role prototype, no per-role selection).",
+    "v2_changes": "Closes v1 open-NACK barrier. B1 (reviewer_plan BLOCKER-2 / risk_analyst B1): NEW phase 3 derives the four #3189 anchor fields from the BRC message record (hard prereq of the protected root); grounding corrected. B2 (reviewer_plan BLOCKER-1 / risk_analyst B2): NEW phase 6 lands the #3186 resume=<session_id> substrate + defined no-warm-session cold-start fallback (hard prereq of the reseed). B3 (risk_analyst): phase-8 None/unknown occupancy biases to reseed, never resume-below-threshold. B4 (risk_analyst / reviewer_plan recommendation): phase-9 single feature flag, OFF state retains today's full-context path (kill-switch, not the out-of-scope verbatim fallback build)."
   },
 
   "grounding": {
     "AgentResult": "shared/egg_agent/result.py:24-33 (fields: success/stdout/stderr/returncode/error/metadata/cost_usd/num_turns/duration_ms/session_id; NO token counts).",
-    "ResultMessage_usage_dropped": "shared/egg_agent/client.py:717-751 — result_meta is built from total_cost_usd/num_turns/duration_ms/session_id; message.usage is never read. Multiple AgentResult construction sites (lines ~733, ~747, ~760, ~782, ~804, ~825) must all carry the new field.",
+    "ResultMessage_usage_dropped": "shared/egg_agent/client.py:717-751 — result_meta is built from total_cost_usd/num_turns/duration_ms/session_id; message.usage is never read. Multiple AgentResult construction sites must all carry the new field.",
     "real_window_profiles": "orchestrator/agent_model_resolution.py:101-131 — _CONTEXT_1M_SUFFIX='[1m]'; _SUB_1M_CONTEXT_MODELS={'kimi-k2.7-code':262144}; Claude aliases get the 1M profile, sub-1M models withhold [1m] and take CC's 200K default. Real window != the [1m] alias.",
     "within_event_caps": "shared/egg_agent/tool_output_cap.py — existing predictive PreToolUse caps; handles within-event growth (NOT the re-invocation threshold).",
     "queryable_tools": "read_peer_artifact (BRC MCP) + GET /<pipeline_id>/brc-transcript at orchestrator/routes/messages.py:415.",
-    "deterministic_anchor_layer": "shared/egg_anchor/ (loader.py/models.py/validator.py/constants.py) — the #3189 deterministic-anchor substrate the protected root renders from; shared/egg_anchor exists for post-compaction recovery.",
-    "persistence_gap": "_write_brc_history persists at phase transitions only; mid-phase restart needs the live message record to survive (Redis stream across restart, or a history-persist step in the restart route)."
+    "3189_anchor_content_absent_CORRECTED": "shared/egg_anchor/models.py:96-103 (BRCState) carries ONLY acks/nacks (agent-id LISTS) + last_message_id — NONE of the four fields the protected root needs (last-reviewed SHA/producer, latest verdicts, open NACK reasons, conditional-ACK obligations). shared/egg_anchor exists for post-compaction recovery but does NOT derive those four fields; #3189 is OPEN. v2 phase 3 derives them from the BRC message record in-pipeline. (v1 grounding claimed this substrate existed — FALSE; corrected.)",
+    "3186_resume_absent_CORRECTED": "shared/egg_agent/client.py — grep resume|continue = 0 hits; session_id is captured on every ResultMessage but never fed back into ClaudeAgentOptions; #3186 is OPEN. v2 phase 6 lands the resume=<session_id> substrate + cold-start fallback in-pipeline. (v1 phase-6 resumed a #3186 cached session as if it existed — FALSE; corrected.)",
+    "persistence_gap": "_write_brc_history persists at phase transitions only; mid-phase restart needs the live message record to survive (Redis stream across restart, or a history-persist step in the restart route).",
+    "in_pipeline_rationale": "Operator scope (cq-1) is the full build across all roles. The issue's Constituent-work section names #3189 as 'the keeper in every branch' (authoritative layer of the root) and #3186 as 'the warm substrate, paired with the threshold reseed ... owns the reset policy + the AgentResult token-usage-capture prereq.' Both are inside this pipeline's mandate, so v2 builds them here rather than declaring an external blocked-by."
   },
 
   "phases": [
     {
       "id": "phase-1",
       "name": "Capture cumulative token occupancy in AgentResult (prerequisite, AC-1)",
-      "description": "Step zero. The wrapper cannot see token usage today, so neither the reseed trigger nor any metric surface can exist without this. Stop dropping ResultMessage.usage; carry window OCCUPANCY (cache_read + cache_creation + input), NOT billed/effective input — capturing only uncached input makes the reseed trigger fire too late. This phase blocks the reseed (phase 6) and the metric surfaces (phase 8).",
+      "description": "Step zero. The wrapper cannot see token usage today, so neither the reseed trigger nor any metric surface can exist without this. Stop dropping ResultMessage.usage; carry window OCCUPANCY (cache_read + cache_creation + input), NOT billed/effective input — capturing only uncached input makes the reseed trigger fire too late. Blocks the reseed (phase 8) and the metric surfaces (phase 10). Also the #3186 token-capture prereq.",
       "dependency": null,
       "tasks": [
         {
           "id": "task-1-1",
-          "description": "Extend AgentResult (shared/egg_agent/result.py) with a cumulative window-occupancy field. Define it explicitly as occupancy = cache_read + cache_creation + input tokens from the SDK ResultMessage.usage, and document in the dataclass docstring that it is window occupancy (the reseed trigger signal + primary metric), NOT billed/effective input. Default to None to stay backward-compatible with existing constructors. Consider also retaining the raw component counts (cache_read/cache_creation/input) so downstream metric surfaces can break them out, but the single occupancy total is the load-bearing field.",
+          "description": "Extend AgentResult (shared/egg_agent/result.py) with a cumulative window-occupancy field. Define it explicitly as occupancy = cache_read + cache_creation + input tokens from the SDK ResultMessage.usage, document in the docstring that it is window occupancy (the reseed trigger signal + primary metric), NOT billed/effective input. Default None to stay backward-compatible. Optionally retain raw component counts; the single occupancy total is the load-bearing field.",
           "acceptance_criteria": "AgentResult carries a non-breaking optional occupancy field (default None); docstring states occupancy = cache_read + cache_creation + input and that it is NOT billed input; existing call sites that omit it still construct successfully.",
           "files_affected": ["shared/egg_agent/result.py"]
         },
         {
           "id": "task-1-2",
-          "description": "In shared/egg_agent/client.py stop dropping message.usage on the ResultMessage branch (currently lines 717-751: result_meta only captures cost_usd/num_turns/duration_ms/session_id). Read ResultMessage.usage, compute occupancy = cache_read + cache_creation + input (tolerating missing/None sub-fields by treating them as 0), and thread it into result_meta and into EVERY AgentResult construction site in this file (the error-path return ~733, the success path ~747, and the fallthrough builders ~760/~782/~804/~825). Guard against SDK shapes where usage is absent.",
-          "acceptance_criteria": "message.usage is read on the ResultMessage branch; occupancy = cache_read + cache_creation + input is computed defensively (None sub-fields -> 0); the occupancy value is populated on all AgentResult return sites in client.py; when usage is absent the field is None and no exception is raised.",
+          "description": "In shared/egg_agent/client.py stop dropping message.usage on the ResultMessage branch (717-751). Read ResultMessage.usage, compute occupancy = cache_read + cache_creation + input (tolerating missing/None sub-fields by treating them as 0), and thread it into result_meta and into EVERY AgentResult construction site in this file. Guard against SDK shapes where usage is absent.",
+          "acceptance_criteria": "message.usage is read on the ResultMessage branch; occupancy computed defensively (None sub-fields -> 0); populated on all AgentResult return sites in client.py; when usage is absent the field is None and no exception is raised.",
           "files_affected": ["shared/egg_agent/client.py"]
         },
         {
           "id": "task-1-3",
-          "description": "Unit tests for occupancy capture: a ResultMessage with a populated usage block yields occupancy = cache_read + cache_creation + input; a ResultMessage with no usage yields None without raising; partial usage (some sub-fields missing) sums the present components. Assert billed/effective input alone is NOT what is captured (a case where cache_read dominates must be reflected).",
-          "acceptance_criteria": "Tests cover full-usage, absent-usage, and partial-usage cases; a cache-dominated case proves occupancy includes cache_read (not just input); tests pass under `make test`.",
+          "description": "Unit tests for occupancy capture: a populated usage block yields occupancy = cache_read + cache_creation + input; no usage yields None without raising; partial usage sums the present components; a cache-dominated case proves cache_read is included (not just input / billed input).",
+          "acceptance_criteria": "full-usage, absent-usage, and partial-usage covered; cache-dominated case asserts occupancy != billed input; tests pass under make test.",
           "files_affected": ["shared/egg_agent/tests/"]
         }
       ]
@@ -51,43 +55,63 @@
     {
       "id": "phase-2",
       "name": "Real-backend-window resolution + threshold computation (AC-3 foundation)",
-      "description": "Pure, deterministic helpers with no runtime state — independent of phase 1, can run in parallel. Resolves the REAL backend window for a model alias (NOT the [1m] alias) and computes the reseed threshold. Isolating this avoids the mis-trigger bug (computing 80% of opus[1m]=1M when the backend is a 128K model).",
-      "dependency": null,
+      "description": "Pure deterministic helpers, no runtime state. Resolves the REAL backend window for a model alias (NOT the [1m] alias) and computes the reseed threshold. Isolates the mis-trigger bug (computing 80% of opus[1m]=1M when the backend is a 128K model).",
+      "dependency": "phase-1",
       "tasks": [
         {
           "id": "task-2-1",
-          "description": "Add a real-backend-window resolver in orchestrator/agent_model_resolution.py that returns the model's TRUE upstream context window: Claude aliases -> 1M; members of _SUB_1M_CONTEXT_MODELS -> their registered size (e.g. kimi-k2.7-code -> 262144); all other non-Claude/200K-profile models -> 200_000. The resolver must key on the bare model name, not the [1m] alias suffix. Reuse the existing _SUB_1M_CONTEXT_MODELS / _CLAUDE_EXACT_ALIASES tables rather than duplicating them.",
-          "acceptance_criteria": "Resolver returns 1_000_000 for opus/opus[1m]; 262_144 for kimi-k2.7-code; 200_000 for an unregistered non-Claude model; never returns the [1m]-implied 1M for a sub-1M backend.",
+          "description": "Add a real-backend-window resolver in orchestrator/agent_model_resolution.py: Claude aliases -> 1M; members of _SUB_1M_CONTEXT_MODELS -> registered size (kimi-k2.7-code -> 262144); other non-Claude/200K-profile -> 200_000. Key on the bare model name, not the [1m] suffix. Reuse existing tables.",
+          "acceptance_criteria": "Returns 1_000_000 for opus/opus[1m]; 262_144 for kimi-k2.7-code; 200_000 for an unregistered non-Claude model; never the [1m]-implied 1M for a sub-1M backend.",
           "files_affected": ["orchestrator/agent_model_resolution.py"]
         },
         {
           "id": "task-2-2",
-          "description": "Add a reseed-threshold function threshold = min(400_000, 0.80 * real_backend_window) that consumes the resolver from task-2-1. Expose the 400_000 floor as a named, overridable constant (it is an initial knob to tune, not a derived value). The 0.80 margin sits below CC's ~95% compaction so the reseed pre-empts it.",
-          "acceptance_criteria": "Function returns min(400_000, 0.80*real_window); the 400k floor is a named constant (env- or config-overridable); margin documented as pre-empting CC ~95% compaction.",
+          "description": "Add a threshold function threshold = min(400_000, 0.80 * real_backend_window) consuming task-2-1. Expose 400_000 as a named, overridable constant (initial knob, not derived). The 0.80 margin pre-empts CC's ~95% compaction.",
+          "acceptance_criteria": "Returns min(400_000, 0.80*real_window); the 400k floor is a named overridable constant; margin documented as pre-empting CC ~95% compaction.",
           "files_affected": ["orchestrator/agent_model_resolution.py"]
         },
         {
           "id": "task-2-3",
-          "description": "Unit tests asserting the worked examples from the issue: opus[1m] (1M real) -> min(400k,800k)=400k; 200K profile -> min(400k,160k)=160k; Qwen/sub-200K 128K-class -> min(400k,102.4k)=102k. Include a regression test that the threshold for a sub-1M backend is computed against the real window, NOT the [1m] alias (the mis-trigger bug).",
-          "acceptance_criteria": "Tests assert 400k / 160k / ~102k for the three worked cases; a regression test proves the sub-1M threshold is below the real window and not derived from the 1M alias; tests pass.",
+          "description": "Unit tests for the worked examples: opus[1m]->400k; 200K->160k; Qwen/128K-class->~102k. Regression test: the sub-1M threshold is computed against the real window, NOT the [1m] alias (the mis-trigger bug).",
+          "acceptance_criteria": "400k / 160k / ~102k asserted; mis-trigger regression asserted; tests pass.",
           "files_affected": ["orchestrator/tests/"]
         }
       ]
     },
     {
       "id": "phase-3",
-      "name": "Protected root: deterministic, cacheable, permanently resident (AC-2 part 1)",
-      "description": "The small resident root that the reseed rebuilds from and that keeps directive salience a structural property of low utilization. Renders role contract + task anchor (compose_task_description, #3163) + #3189 deterministic anchors (last-reviewed SHA per producer, latest verdicts, open NACKs, conditional-ACK obligations) + non-negotiable directives. Must render to STABLE BYTES (sorted, bounded, hard per-section caps) so the cacheable prefix stays stable, and must be role-parameterized so every role gets its own contract + its own anchors. Depends on the #3189 anchor substrate in shared/egg_anchor.",
-      "dependency": null,
+      "name": "Derive #3189 deterministic anchors from the BRC message record (NEW — fixes B1; hard prereq of phase 4)",
+      "description": "Closes the substrate gap the NACK flagged. BRCState (shared/egg_anchor/models.py:96-103) today carries only acks/nacks agent-id lists + last_message_id — none of the four fields the protected root must contain. #3189 is OPEN, so this pipeline derives them FROM THE BRC MESSAGE RECORD (the authoritative, agent-untranscribed source). This is the authoritative layer of the protected root and the guard that a reseed does NOT drop NACK obligations or re-review settled SHAs.",
+      "dependency": "phase-2",
       "tasks": [
         {
           "id": "task-3-1",
-          "description": "Implement a protected-root renderer that assembles, in a fixed order: (a) the role contract, (b) the task anchor via compose_task_description (#3163), (c) the #3189 deterministic anchors from shared/egg_anchor (last-reviewed SHA per producer, latest verdicts, open NACKs, conditional-ACK obligations), and (d) the non-negotiable directives. The renderer is role-parameterized (each role's own contract + its own anchors). It must emit STABLE BYTES: deterministic key ordering (sorted), bounded sections with hard per-section caps, no timestamps/nondeterministic ordering that would bust the cache prefix.",
-          "acceptance_criteria": "Renderer produces the four sections in fixed order; output is byte-stable across repeated renders of identical input (sorted, bounded, hard per-section caps); root is role-parameterized; the deterministic #3189 layer is the authoritative content (no agent-authored claims inlined here).",
-          "files_affected": ["shared/egg_anchor/", "shared/egg_agent/"]
+          "description": "Implement a deterministic derivation that, from the BRC message record (CONSENSUS_PROPOSE/ACK/NACK/conditional-ACK messages — the same record read_peer_artifact and _write_brc_history serialize), computes: (i) last-reviewed SHA per producer (latest reviewed proposal_commit_sha per producer edge); (ii) latest verdict per reviewer->producer edge (ACK/NACK/conditional-ACK); (iii) open NACK reasons (current-version NACKs not yet resolved); (iv) conditional-ACK obligations (pre_merge_condition, with resolved/unresolved status). Derivation is mechanical (never agent-transcribed) so it cannot drift from the record. Extend the shared/egg_anchor model(s) to carry these four fields additively (do not break BRCState.acks/nacks/last_message_id).",
+          "acceptance_criteria": "The four fields derive purely from the message record; the egg_anchor model carries them additively without breaking existing fields; against a fixture message record the derived anchors match exactly; no agent-authored content enters this layer.",
+          "files_affected": ["shared/egg_anchor/", "orchestrator/"]
         },
         {
           "id": "task-3-2",
+          "description": "Tests: a fixture message stream (multiple producers; an ACK then re-propose + NACK; a conditional-ACK with an unresolved obligation) yields the correct last-reviewed SHA per producer, latest verdict per edge, open NACK reason, and unresolved obligation; a resolved obligation is marked resolved; the legacy acks/nacks/last_message_id fields are untouched.",
+          "acceptance_criteria": "Derivation correctness for all four fields asserted against a realistic fixture; obligation resolved/unresolved distinguished; legacy-field non-regression asserted; tests pass.",
+          "files_affected": ["shared/egg_anchor/tests/", "orchestrator/tests/"]
+        }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "name": "Protected root: deterministic, cacheable, permanently resident (AC-2 part 1)",
+      "description": "Renders the small resident root from the phase-3 derived #3189 anchors. Keeps directive salience a structural property of low utilization. Must render to STABLE BYTES (sorted, bounded, hard per-section caps) and be role-parameterized so every role gets its own contract + its own anchors.",
+      "dependency": "phase-3",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Implement a protected-root renderer assembling, in fixed order: (a) the role contract, (b) the task anchor via compose_task_description (#3163), (c) the #3189 deterministic anchors derived in phase 3 (last-reviewed SHA/producer, latest verdicts, open NACKs, conditional-ACK obligations), (d) the non-negotiable directives. Role-parameterized; emits STABLE BYTES: deterministic key ordering (sorted), bounded sections with hard per-section caps, no timestamps/nondeterministic ordering that would bust the cache prefix.",
+          "acceptance_criteria": "Renderer produces the four sections in fixed order; output is byte-stable across repeated renders of identical input; root is role-parameterized; the phase-3 deterministic layer is the authoritative content for section (c) (no agent-authored claims inlined here).",
+          "files_affected": ["shared/egg_anchor/", "shared/egg_agent/"]
+        },
+        {
+          "id": "task-4-2",
           "description": "Tests for deterministic rendering: identical anchor input renders identical bytes; oversized sections are truncated at the documented per-section cap; key ordering is stable regardless of input dict order; two distinct roles render distinct but each-internally-stable roots.",
           "acceptance_criteria": "Byte-stability, per-section-cap truncation, sort-stability, and role-parameterization are each asserted; tests pass.",
           "files_affected": ["shared/egg_anchor/tests/", "shared/egg_agent/tests/"]
@@ -95,25 +119,25 @@
       ]
     },
     {
-      "id": "phase-4",
+      "id": "phase-5",
       "name": "Queryable environment: stop inlining bulk, pull JIT (AC-2 part 2)",
-      "description": "Move the bulk (full BRC history, peer artifacts, diffs, prior reviews) OUT of the inlined event prompt and into a just-in-time pull via tools that already exist (read_peer_artifact, GET /brc-transcript). #3188 agent-authored enrichment moves into this layer, surfaced on demand and SHA-stamped so the git-log delta can invalidate stale claims. Depends on phase 3 (the protected root must exist before the bulk can be removed from the prompt).",
-      "dependency": "phase-3",
+      "description": "Move the bulk (full BRC history, peer artifacts, diffs, prior reviews) OUT of the inlined event prompt and into a just-in-time pull via tools that already exist (read_peer_artifact, GET /brc-transcript). #3188 agent-authored enrichment moves into this layer, surfaced on demand and SHA-stamped so the git-log delta can invalidate stale claims. Depends on phase 4 (the protected root must exist before the bulk can be removed from the prompt).",
+      "dependency": "phase-4",
       "tasks": [
         {
-          "id": "task-4-1",
-          "description": "Stop inlining bulk BRC history / peer artifacts / diffs into the event-pump prompt. Pre-stage only the deterministic delta (the #3189 layer in the protected root); leave the bulk to JIT pull via read_peer_artifact and the GET /<pipeline_id>/brc-transcript route (orchestrator/routes/messages.py:415). Document the honest limit in code comments: JIT pull reduces what is inlined up front but does NOT bound the window — a pulled slice stays resident until reseed/compaction; the reseed (phase 6) is what bounds it.",
+          "id": "task-5-1",
+          "description": "Stop inlining bulk BRC history / peer artifacts / diffs into the event-pump prompt. Pre-stage only the deterministic delta (the phase-3 #3189 layer in the protected root); leave the bulk to JIT pull via read_peer_artifact and the GET /<pipeline_id>/brc-transcript route (orchestrator/routes/messages.py:415). Document the honest limit in code comments: JIT pull reduces what is inlined up front but does NOT bound the window — a pulled slice stays resident until reseed/compaction; the reseed (phase 8) is what bounds it.",
           "acceptance_criteria": "Event prompt no longer inlines bulk history/artifacts/diffs; bulk is reachable only via read_peer_artifact / /brc-transcript; a code comment records that pull does not bound the window (the reseed does).",
           "files_affected": ["sandbox/", "shared/egg_agent/"]
         },
         {
-          "id": "task-4-2",
-          "description": "Move #3188 agent-authored enrichment into the queryable environment: surfaced on demand rather than inlined into every event prompt, and SHA-stamped so the deterministic git-log delta can invalidate stale claims. Treat enrichment as claims, not ground truth — the deterministic #3189 layer and git-log delta remain authoritative; a wrong 'verified' claim must not suppress re-checking.",
+          "id": "task-5-2",
+          "description": "Move #3188 agent-authored enrichment into the queryable environment: surfaced on demand rather than inlined, and SHA-stamped so the deterministic git-log delta can invalidate stale claims. Treat enrichment as claims, not ground truth — the phase-3 deterministic layer and git-log delta remain authoritative; a wrong 'verified' claim must not suppress re-checking.",
           "acceptance_criteria": "Enrichment is pulled on demand (not inlined); each enrichment record carries a SHA stamp; stale enrichment (SHA older than the current delta) is detectable/invalidatable; the deterministic layer stays authoritative.",
           "files_affected": ["shared/egg_agent/", "orchestrator/"]
         },
         {
-          "id": "task-4-3",
+          "id": "task-5-3",
           "description": "Tests: the event prompt excludes bulk history; JIT-pulled content is retrievable via the existing tools; enrichment SHA-stamping and stale-claim invalidation behave as specified.",
           "acceptance_criteria": "Tests assert bulk-exclusion from the prompt, JIT retrievability, and SHA-stamp invalidation; tests pass.",
           "files_affected": ["shared/egg_agent/tests/", "orchestrator/tests/"]
@@ -121,79 +145,99 @@
       ]
     },
     {
-      "id": "phase-5",
-      "name": "Persistence timing: mid-phase BRC message record survives restart",
-      "description": "Constraint carried from the children. The reseed restarts a session mid-phase, but _write_brc_history persists at phase transitions only, so a mid-phase restart can lose the message record the reseeded session must re-pull. Make the BRC message record survive a mid-phase restart — via the live Redis stream across the restart, or by adding a history-persist step to the restart route. Independent of phases 1-4; can run in parallel, but must land before the reseed (phase 6) is trusted across restarts.",
-      "dependency": null,
-      "tasks": [
-        {
-          "id": "task-5-1",
-          "description": "Ensure the BRC message record survives a mid-phase restart so a reseeded/resumed session can re-pull it. Choose between (a) reading the live Redis message stream across the restart, or (b) adding a history-persist step to the restart route so _write_brc_history (currently phase-transition-only) also fires mid-phase. (Architect to confirm the mechanism; this task owns the requirement and its test.)",
-          "acceptance_criteria": "After a simulated mid-phase restart, the BRC message record for the phase is retrievable (via Redis stream or persisted history); no message loss across the restart boundary.",
-          "files_affected": ["orchestrator/"]
-        },
-        {
-          "id": "task-5-2",
-          "description": "Tests: a mid-phase restart preserves the message record (proposals, verdicts, open NACKs) so the post-restart session can reconstruct the queryable environment.",
-          "acceptance_criteria": "Test simulates mid-phase restart and asserts the message record is intact afterwards; tests pass.",
-          "files_affected": ["orchestrator/tests/"]
-        }
-      ]
-    },
-    {
       "id": "phase-6",
-      "name": "Threshold reseed: resume-vs-reseed at re-invocation (AC-3)",
-      "description": "The bound. At each re-invocation the wrapper compares the resumed session's cumulative occupancy (phase 1) against the threshold (phase 2): under -> resume the cached session (#3186 warm substrate); at/over -> reseed a fresh session from the protected root (phase 3) + JIT re-pull (phase 4), discarding accumulated history BEFORE CC's ~95% lossy compaction fires. Within-event growth is handled by existing tool_output_cap.py, NOT here. Depends on phases 1, 2, 3, and 5.",
-      "dependency": "phase-1,phase-2,phase-3,phase-5",
+      "name": "Session-resume substrate (#3186) + cold-start fallback (NEW — fixes B2; hard prereq of phase 8)",
+      "description": "Closes the second substrate gap the NACK flagged. The reseed's 'under threshold -> resume the cached session (#3186)' branch needs resume=<session_id> plumbing that does NOT exist today (grep resume|continue in client.py = 0 hits; #3186 OPEN). This phase lands it in-pipeline and defines what happens when NO warm session can be resumed (first invocation, expired session, consensus reset, pod death) — that case falls through to a fresh seed from the protected root, the same path the reseed takes. Never a hard failure.",
+      "dependency": "phase-5",
       "tasks": [
         {
           "id": "task-6-1",
-          "description": "Implement the resume-vs-reseed decision in the event-pump wrapper. At re-invocation: read the resumed session's cumulative occupancy (phase 1); compute the threshold from the model's real window (phase 2); if occupancy < threshold, resume the cached session (#3186); if occupancy >= threshold, start a FRESH session seeded only from the protected root (phase 3) and rely on JIT re-pull (phase 4). The reseed must fire below CC's ~95% compaction so it pre-empts lossy auto-summary. Reseed is expected to fire rarely; do not couple it to within-event growth (that is tool_output_cap.py's job).",
-          "acceptance_criteria": "Wrapper resumes when occupancy < min(400k, 0.80*real_window) and reseeds from the protected root when occupancy >= threshold; reseed produces a fresh session containing the protected root and nothing of the discarded bulk except what is re-pulled; the trigger uses occupancy (cache_read+cache_creation+input), not billed input.",
-          "files_affected": ["sandbox/", "shared/egg_agent/"]
+          "description": "Add session-resume plumbing to the event-pump path: thread a resume=<session_id> (continue-conversation) option through shared/egg_agent/client.py so a re-invocation can re-enter the prior session by session_id (already on AgentResult). Define the no-warm-session fallback explicitly: when no resumable session_id exists (first invocation, expired session, consensus reset, pod death), seed a fresh session from the protected root (phase 4) — never a hard failure. (Architect confirms the SDK option surface; this task owns the requirement + tests.)",
+          "acceptance_criteria": "client.py exposes a resume-by-session_id option threaded through the event-pump path; when no resumable session exists the path seeds fresh from the protected root rather than erroring; resume is opt-in (default off) so rollout is staged.",
+          "files_affected": ["shared/egg_agent/client.py", "sandbox/"]
         },
         {
           "id": "task-6-2",
-          "description": "Tests for the decision boundary: occupancy just under threshold -> resume; at/over threshold -> reseed from protected root; the reseeded session carries the protected root and re-pulls bulk on demand; the threshold used is computed against the real backend window (not the [1m] alias).",
-          "acceptance_criteria": "Boundary tests cover under/at/over threshold; reseed-from-root and JIT-re-pull are asserted; real-window threshold is asserted (no [1m] mis-trigger); tests pass.",
-          "files_affected": ["sandbox/tests/", "shared/egg_agent/tests/"]
+          "description": "Tests: a valid session_id resumes the prior conversation; an absent/expired session_id cold-starts from the protected root without raising; resume defaults off unless explicitly enabled.",
+          "acceptance_criteria": "resume-by-id, cold-start-fallback, and default-off each asserted; no exception on the missing-session path; tests pass.",
+          "files_affected": ["shared/egg_agent/tests/", "sandbox/tests/"]
         }
       ]
     },
     {
       "id": "phase-7",
-      "name": "Generalize the mechanism to ALL BRC roles (producers AND reviewers)",
-      "description": "Operator-decided scope: this is NOT a single-reviewer prototype. Wire the protected-root/queryable-environment split (phases 3-4), token-occupancy capture (phase 1), and the threshold reseed (phase 6) for EVERY event-pump role the pump drives — producers and reviewers alike. The root render is role-parameterized (each role's contract + its own #3189 anchors); the mechanism itself is uniform across roles. Depends on phases 3, 4, and 6.",
-      "dependency": "phase-3,phase-4,phase-6",
+      "name": "Persistence timing: mid-phase BRC message record survives restart",
+      "description": "The reseed restarts a session mid-phase, but _write_brc_history persists at phase transitions only, so a mid-phase restart can lose the record the reseeded session (and the phase-3 anchor derivation) must re-pull. Make the BRC message record survive a mid-phase restart — via the live Redis stream across the restart, or by adding a history-persist step to the restart route. Must land before the reseed (phase 8) is trusted across restarts.",
+      "dependency": "phase-6",
       "tasks": [
         {
           "id": "task-7-1",
-          "description": "Wire the full mechanism (token capture + protected-root/queryable-env split + threshold reseed) into the event-pump path for every role: producers (e.g. coder/architect/task_planner/risk_analyst) and reviewers (e.g. reviewer_code/reviewer_plan/reviewer_refine). Use the role-parameterized protected-root renderer from phase 3 so each role inlines only its own contract + its own anchors. No role keeps the old bulk-inlining path.",
-          "acceptance_criteria": "Every event-pump role drives through the protected-root/queryable-env split + threshold reseed; root is role-parameterized; no role retains a bulk-inlining code path; producers and reviewers are both covered.",
-          "files_affected": ["sandbox/", "shared/egg_agent/", "orchestrator/"]
+          "description": "Ensure the BRC message record survives a mid-phase restart so a reseeded/resumed session can re-pull it and re-derive the phase-3 anchors. Choose between (a) reading the live Redis message stream across the restart, or (b) adding a history-persist step to the restart route so _write_brc_history (currently phase-transition-only) also fires mid-phase. (Architect confirms the mechanism; this task owns the requirement + test.)",
+          "acceptance_criteria": "After a simulated mid-phase restart, the BRC message record for the phase is retrievable (via Redis stream or persisted history); no message loss across the restart boundary.",
+          "files_affected": ["orchestrator/"]
         },
         {
           "id": "task-7-2",
-          "description": "Integration tests exercising at least one producer role and one reviewer role end-to-end through the new path: protected root resident, bulk pulled JIT, reseed firing at threshold. Assert the mechanism is uniform and only the root content differs by role.",
-          "acceptance_criteria": "Integration test covers >=1 producer and >=1 reviewer through the full path; asserts role-parameterized root + uniform mechanism; tests pass.",
-          "files_affected": ["integration_tests/", "sandbox/tests/"]
+          "description": "Tests: a mid-phase restart preserves the message record (proposals, verdicts, open NACKs, conditional-ACK obligations) so the post-restart session can reconstruct the queryable environment and re-derive the phase-3 anchors.",
+          "acceptance_criteria": "Test simulates mid-phase restart and asserts the message record (incl. obligations) is intact afterwards; tests pass.",
+          "files_affected": ["orchestrator/tests/"]
         }
       ]
     },
     {
       "id": "phase-8",
-      "name": "Measurement tooling/surfaces — emit only, no measurement run (AC-4, AC-5)",
-      "description": "Build the surfaces a LATER measurement pass will consume; run no measurement here and gate nothing on measured results. Emit per-event window occupancy plus the metric surfaces: peak context utilization under resume, single-event working set vs real window (the recursion-escalation signal), reseed frequency per phase, root-cache hit rate, and tokens/event. Depends on phase 1 (occupancy) and phase 6 (reseed events).",
-      "dependency": "phase-1,phase-6",
+      "name": "Threshold reseed: resume-vs-reseed at re-invocation (AC-3)",
+      "description": "The bound. At each re-invocation the wrapper compares cumulative occupancy (phase 1) against the threshold (phase 2): under -> resume the cached session (phase-6 #3186 substrate); at/over -> reseed a fresh session from the protected root (phase 4) + JIT re-pull (phase 5), discarding accumulated history BEFORE CC's ~95% lossy compaction fires. None/unknown occupancy and no-warm-session both bias to reseed (safe). Within-event growth is handled by tool_output_cap.py, NOT here. Depends on phases 1, 2, 4, 6, 7.",
+      "dependency": "phase-1,phase-2,phase-4,phase-6,phase-7",
       "tasks": [
         {
           "id": "task-8-1",
-          "description": "Emit per-event measurement surfaces from the occupancy field and reseed decisions: window occupancy per event; peak utilization under resume; single-event working set vs real window (recursion-escalation signal); reseed frequency per phase; root-cache hit rate; tokens/event. Route them through the existing progress/heartbeat/metrics surfaces. EMIT ONLY — no aggregation into a verdict, no A/B harness, no status-quo comparison, nothing gated on the values.",
-          "acceptance_criteria": "All listed surfaces are emitted per event; values derive from the phase-1 occupancy + phase-6 reseed signals; NO measurement/A-B/comparison runs and no control flow branches on the measured values; emit-only is documented.",
-          "files_affected": ["shared/egg_agent/", "orchestrator/"]
+          "description": "Implement the resume-vs-reseed decision in the event-pump wrapper. At re-invocation: read the resumed session's cumulative occupancy (phase 1); compute the threshold from the model's real window (phase 2); if occupancy is a known value < threshold, resume the cached session via the phase-6 substrate; if occupancy >= threshold, start a FRESH session seeded only from the protected root (phase 4) and rely on JIT re-pull (phase 5). None/unknown occupancy -> bias to RESEED (cheap, safe), NEVER resume-below-threshold (covers non-Claude / sub-200K LiteLLM routes whose usage may be partial/absent — B3). If the phase-6 resume path reports no warm session, fall through to the reseed seed. The reseed must fire below CC's ~95% compaction. Reseed expected to fire rarely; do not couple it to within-event growth (tool_output_cap.py's job).",
+          "acceptance_criteria": "Wrapper resumes when occupancy is known and < min(400k, 0.80*real_window); reseeds from the protected root when occupancy >= threshold OR occupancy is None/unknown OR no warm session; reseeded session contains the protected root and nothing of the discarded bulk except what is re-pulled; the trigger uses occupancy (cache_read+cache_creation+input), not billed input; None-occupancy and no-warm-session both resolve to a safe reseed, never a lossy resume.",
+          "files_affected": ["sandbox/", "shared/egg_agent/"]
         },
         {
           "id": "task-8-2",
+          "description": "Tests for the decision boundary: occupancy just under threshold -> resume; at/over threshold -> reseed from protected root; None/unknown occupancy -> reseed (not resume); no-warm-session -> reseed; the reseeded session carries the protected root and re-pulls bulk on demand; the threshold used is computed against the real backend window (not the [1m] alias).",
+          "acceptance_criteria": "Boundary tests cover under/at/over + None-occupancy->reseed + no-warm-session->reseed; reseed-from-root and JIT-re-pull are asserted; real-window threshold is asserted (no [1m] mis-trigger); tests pass.",
+          "files_affected": ["sandbox/tests/", "shared/egg_agent/tests/"]
+        }
+      ]
+    },
+    {
+      "id": "phase-9",
+      "name": "Generalize to ALL BRC roles behind a feature flag (producers AND reviewers; fixes B4)",
+      "description": "Operator-decided scope: NOT a single-reviewer prototype. Wire the protected-root/queryable-environment split (phases 4-5), token-occupancy capture (phase 1), and the threshold reseed (phase 8) for EVERY event-pump role. The root render is role-parameterized; the mechanism is uniform. The whole discipline is gated behind ONE feature flag whose OFF state retains today's full-context inlining path — so an operator can A/B by toggle and revert a bad fleet-wide rollout with one flag flip rather than a code revert. This is a kill-switch, NOT the preserved verbatim full-context fallback build the non-goals exclude. Depends on phases 4, 5, 8.",
+      "dependency": "phase-4,phase-5,phase-8",
+      "tasks": [
+        {
+          "id": "task-9-1",
+          "description": "Introduce a single feature flag (env/config) gating the context discipline (protected-root/queryable-env split + threshold reseed + JIT pull). ON -> the new path for every event-pump role: producers (coder/architect/task_planner/risk_analyst ...) and reviewers (reviewer_code/reviewer_plan/reviewer_refine ...), each inlining only its own contract + its own anchors via the phase-4 role-parameterized renderer. OFF (and default during rollout) -> today's full-context inlining path, byte-for-byte unchanged. The flag is read in one place; no role hard-codes the new path.",
+          "acceptance_criteria": "One flag gates the whole discipline; OFF preserves the current full-context path unchanged; ON drives every event-pump role through the split + threshold reseed with a role-parameterized root; producers and reviewers both covered; the OFF path retains no dependency on the new code.",
+          "files_affected": ["sandbox/", "shared/egg_agent/", "orchestrator/"]
+        },
+        {
+          "id": "task-9-2",
+          "description": "Integration tests exercising >=1 producer role and >=1 reviewer role end-to-end with the flag ON (protected root resident, bulk pulled JIT, reseed firing at threshold; mechanism uniform, only root content differs by role) AND a test that with the flag OFF the legacy full-context path is taken unchanged.",
+          "acceptance_criteria": "Flag-ON integration covers >=1 producer + >=1 reviewer (role-parameterized root + uniform mechanism); flag-OFF test asserts the legacy path is unchanged; tests pass.",
+          "files_affected": ["integration_tests/", "sandbox/tests/"]
+        }
+      ]
+    },
+    {
+      "id": "phase-10",
+      "name": "Measurement tooling/surfaces — emit only, no measurement run (AC-4, AC-5)",
+      "description": "Build the surfaces a LATER measurement pass will consume; run no measurement here and gate nothing on measured results. Emit per-event window occupancy plus the metric surfaces: peak context utilization under resume, single-event working set vs real window (the recursion-escalation signal), reseed frequency per phase, root-cache hit rate, and tokens/event. Depends on phase 1 (occupancy) and phase 8 (reseed events).",
+      "dependency": "phase-1,phase-8",
+      "tasks": [
+        {
+          "id": "task-10-1",
+          "description": "Emit per-event measurement surfaces from the occupancy field and reseed decisions: window occupancy per event; peak utilization under resume; single-event working set vs real window (recursion-escalation signal); reseed frequency per phase; root-cache hit rate; tokens/event. Route them through the existing progress/heartbeat/metrics surfaces. EMIT ONLY — no aggregation into a verdict, no A/B harness, no status-quo comparison, nothing gated on the values.",
+          "acceptance_criteria": "All listed surfaces are emitted per event; values derive from the phase-1 occupancy + phase-8 reseed signals; NO measurement/A-B/comparison runs and no control flow branches on the measured values; emit-only is documented.",
+          "files_affected": ["shared/egg_agent/", "orchestrator/"]
+        },
+        {
+          "id": "task-10-2",
           "description": "Tests asserting the surfaces are emitted with correct values for a synthetic event sequence (including at least one reseed), and that no code path consumes the metrics to make a decision (proving emit-only / nothing-gated).",
           "acceptance_criteria": "Tests assert each surface emits expected values across a multi-event sequence with a reseed; a test or assertion confirms no decision branches on the metrics; tests pass.",
           "files_affected": ["shared/egg_agent/tests/", "orchestrator/tests/"]
@@ -214,14 +258,15 @@
     "No measurement / A-B / status-quo comparison run, and nothing gated on measured outcomes (follow-up).",
     "No sub-agent recursion escalation build (gated; B is a strict downstream of A).",
     "No go/no-go decision and no generalization GATE (the build is already all-roles).",
-    "No build of the preserved verbatim full-context reseed-backstop FALLBACK.",
+    "No build of the preserved verbatim full-context reseed-backstop FALLBACK. (The phase-9 feature flag is a kill-switch toggling the new discipline OFF to the EXISTING full-context path — it is NOT a build of the preserved verbatim backstop framing.)",
     "No new git/prompt choreography for state exchange beyond the existing served-state direction (#3077)."
   ],
 
   "risks_for_reviewers": [
-    "Central tension (carried, not resolved here): JIT pull does not bound the window; only the reseed does. A resumed session accumulates pulled slices. The build makes this measurable (phase 8) but does not prove the bet — that is the deferred measurement's job.",
-    "Provider stickiness: single-pin deepseek-v4-pro; a provider bounce is amplified under resume (full price on accumulated history until routing returns to the caching provider). Reseed interacts with this.",
-    "Occupancy correctness is load-bearing: if occupancy captures billed input instead of cache_read+cache_creation+input, the reseed trigger fires too late — phase 1 tests must lock this down.",
-    "Reseed-from-root must not silently drop NACK obligations / reviewed SHAs: the #3189 deterministic layer in the protected root is what preserves them across a reseed; phase 3 byte-stability + phase 5 persistence are the guards."
+    "Central tension (carried, not resolved here): JIT pull does not bound the window; only the reseed does. A resumed session accumulates pulled slices. The build makes this measurable (phase 10) but does not prove the bet — that is the deferred measurement's job.",
+    "Occupancy correctness is load-bearing: if occupancy captures billed input instead of cache_read+cache_creation+input, the reseed trigger fires too late — phase 1 tests must lock this down. None/unknown occupancy biases to reseed (phase 8) so a missing usage block fails safe.",
+    "Reseed must not drop NACK obligations / reviewed SHAs: the phase-3 #3189 derivation (from the message record) + phase-4 byte-stability + phase-7 mid-phase persistence are the guards; this is why phase 3 is a hard prereq, not an assumed substrate.",
+    "Two substrates are built in-pipeline (#3189 anchors phase 3, #3186 resume phase 6), both OPEN upstream: architect should confirm the shared/egg_anchor model extension and the SDK resume-option surface land cleanly without forking the upstream tickets.",
+    "Provider stickiness: single-pin deepseek-v4-pro; a provider bounce is amplified under resume (full price on accumulated history until routing returns to the caching provider). The reseed interacts with this."
   ]
 }
