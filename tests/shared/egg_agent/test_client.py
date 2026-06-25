@@ -57,6 +57,8 @@ except ImportError:
     class AssistantMessage:  # type: ignore[no-redef]
         content: list[Any] = field(default_factory=list)
         model: str | None = None
+        usage: Any = None
+        parent_tool_use_id: str | None = None
 
     @dataclass
     class UserMessage:  # type: ignore[no-redef]
@@ -190,10 +192,11 @@ async def _collect_async_iter(ait) -> list:
     return items
 
 
-def _make_assistant_msg(text: str) -> AssistantMessage:
+def _make_assistant_msg(text: str, usage: Any = None) -> AssistantMessage:
     return AssistantMessage(
         content=[TextBlock(text=text)],
         model="claude-opus-4-6-20250313",
+        usage=usage,
     )
 
 
@@ -201,6 +204,7 @@ def _make_result_msg(
     result: str | None = "Final result",
     is_error: bool = False,
     total_cost_usd: float | None = 0.05,
+    usage: Any = None,
 ) -> ResultMessage:
     return ResultMessage(
         subtype="result",
@@ -211,7 +215,7 @@ def _make_result_msg(
         session_id="sess-123",
         stop_reason="end_turn",
         total_cost_usd=total_cost_usd,
-        usage=None,
+        usage=usage,
         result=result,
         structured_output=None,
     )
@@ -1626,3 +1630,354 @@ class TestExitCodeSurfaceExcludesExTempfail:
             assert returned != self._EX_TEMPFAIL, (
                 f"main() returned EX_TEMPFAIL ({self._EX_TEMPFAIL}) for agent rc {rc}"
             )
+
+
+# ── Window-occupancy capture (#3200 slice-1, AC-1) ───────────────────────────
+#
+# Contract under test (plan task-1-1 / task-1-2/3); field name ``window_occupancy``
+# matches shared/egg_agent/result.py:
+#   * AgentResult carries an OPTIONAL cumulative window-occupancy field,
+#     default None, non-breaking for existing constructors.
+#   * window_occupancy == input_tokens + cache_read_input_tokens
+#     + cache_creation_input_tokens  -- i.e. WINDOW occupancy, NOT billed/
+#     effective input and NOT output_tokens. (A cache-dominated turn bills
+#     almost nothing but the window is nearly full; the reseed trigger must see
+#     the full window.)
+#   * Computation is defensive: absent/non-dict usage -> None (no raise);
+#     missing/None/non-int sub-fields count as 0.
+#   * Every AgentResult build site on the ResultMessage path (success AND
+#     error) is populated.
+#   * An optional ``token_usage`` breakout dict mirrors the raw components
+#     (input/cache_read/cache_creation/output) for the phase-10 measurement
+#     surfaces; None exactly when occupancy is None.
+#
+# Written against the observable AgentResult surface (not the private
+# _compute_occupancy helper) so they pin the behaviour, not the factoring.
+
+
+def _usage(
+    *,
+    input_tokens: int | None = None,
+    cache_creation_input_tokens: int | None = None,
+    cache_read_input_tokens: int | None = None,
+    output_tokens: int | None = None,
+) -> dict[str, Any]:
+    """Build a Claude-shaped usage dict with only the requested keys present.
+
+    Keys whose value is None are omitted entirely, so the same helper covers
+    both the "key absent" and "key explicitly None" partial-usage cases.
+    """
+    raw = {
+        "input_tokens": input_tokens,
+        "cache_creation_input_tokens": cache_creation_input_tokens,
+        "cache_read_input_tokens": cache_read_input_tokens,
+        "output_tokens": output_tokens,
+    }
+    return {k: v for k, v in raw.items() if v is not None}
+
+
+class TestAgentResultOccupancyField:
+    """task-1-1: the dataclass field itself (default + non-breaking)."""
+
+    def test_window_occupancy_defaults_to_none(self):
+        """A freshly built AgentResult has window_occupancy == None by default."""
+        result = AgentResult(success=True, stdout="ok", stderr="", returncode=0)
+        assert result.window_occupancy is None
+
+    def test_token_usage_defaults_to_none(self):
+        """The raw-breakout field also defaults to None (non-breaking)."""
+        result = AgentResult(success=True, stdout="ok", stderr="", returncode=0)
+        assert result.token_usage is None
+
+    def test_existing_positional_construction_still_builds(self):
+        """The four legacy positional args still construct without occupancy.
+
+        Pins the non-breaking requirement: the new fields must be appended as
+        optional trailing fields, never inserted among the existing ones.
+        """
+        result = AgentResult(True, "out", "err", 0)
+        assert result.success is True
+        assert result.stdout == "out"
+        assert result.window_occupancy is None
+        assert result.token_usage is None
+
+    def test_window_occupancy_is_settable(self):
+        """The field accepts an int when supplied explicitly."""
+        result = AgentResult(
+            success=True, stdout="", stderr="", returncode=0, window_occupancy=12_345
+        )
+        assert result.window_occupancy == 12_345
+
+
+class TestOccupancyCapture:
+    """task-1-2/task-1-3: client threads occupancy off the final turn's usage.
+
+    Occupancy is sourced from the last ``AssistantMessage.usage`` (the resident
+    window for that turn), NOT ``ResultMessage.usage`` (which is cumulative
+    across every turn and would overcount by ~num_turns). Where it sharpens the
+    test, the ResultMessage carries a deliberately larger cumulative usage to
+    prove the aggregate is ignored (#3200).
+    """
+
+    @patch("claude_agent_sdk.query")
+    def test_full_usage_sums_window_components(self, mock_query):
+        """Populated final-turn usage -> occupancy is the sum of the three parts."""
+
+        async def gen(**kwargs):
+            yield _make_assistant_msg(
+                "hi",
+                usage=_usage(
+                    input_tokens=1_000,
+                    cache_creation_input_tokens=2_000,
+                    cache_read_input_tokens=70_000,
+                ),
+            )
+            # Cumulative aggregate is much larger; it must NOT be used.
+            yield _make_result_msg(
+                usage=_usage(
+                    input_tokens=3_000,
+                    cache_creation_input_tokens=6_000,
+                    cache_read_input_tokens=210_000,
+                )
+            )
+
+        mock_query.side_effect = gen
+        result = _run_async(run_agent_async("test prompt"))
+
+        assert result.success is True
+        assert result.window_occupancy == 73_000
+
+    @patch("claude_agent_sdk.query")
+    def test_absent_usage_yields_none_without_raising(self, mock_query):
+        """No per-turn usage -> occupancy None, and no exception is raised."""
+
+        async def gen(**kwargs):
+            yield _make_assistant_msg("hi", usage=None)
+            yield _make_result_msg(usage=None)
+
+        mock_query.side_effect = gen
+        result = _run_async(run_agent_async("test prompt"))
+
+        assert result.success is True
+        assert result.window_occupancy is None
+        # token_usage tracks occupancy: both None when the SDK reports no usage.
+        assert result.token_usage is None
+
+    @patch("claude_agent_sdk.query")
+    def test_partial_usage_sums_present_components(self, mock_query):
+        """Missing sub-fields count as 0; the present ones still sum."""
+
+        async def gen(**kwargs):
+            # cache_creation absent entirely; only input + cache_read present.
+            yield _make_assistant_msg(
+                "hi", usage=_usage(input_tokens=500, cache_read_input_tokens=4_500)
+            )
+            yield _make_result_msg()
+
+        mock_query.side_effect = gen
+        result = _run_async(run_agent_async("test prompt"))
+
+        assert result.window_occupancy == 5_000
+
+    @patch("claude_agent_sdk.query")
+    def test_explicit_none_subfield_treated_as_zero(self, mock_query):
+        """A present-but-None sub-field is coerced to 0, not a TypeError."""
+
+        async def gen(**kwargs):
+            yield _make_assistant_msg(
+                "hi",
+                usage={
+                    "input_tokens": 100,
+                    "cache_creation_input_tokens": None,
+                    "cache_read_input_tokens": 900,
+                },
+            )
+            yield _make_result_msg()
+
+        mock_query.side_effect = gen
+        result = _run_async(run_agent_async("test prompt"))
+
+        assert result.window_occupancy == 1_000
+
+    @patch("claude_agent_sdk.query")
+    def test_cache_dominated_turn_includes_cache_read(self, mock_query):
+        """Cache-dominated case: occupancy reflects the full window, not input.
+
+        billed/effective input here is ~50 tokens, but the resident window is
+        ~120k. If occupancy only counted input_tokens the reseed trigger would
+        fire far too late -- this is the core reason occupancy != billed input.
+        """
+
+        async def gen(**kwargs):
+            yield _make_assistant_msg(
+                "hi",
+                usage=_usage(
+                    input_tokens=50,
+                    cache_creation_input_tokens=0,
+                    cache_read_input_tokens=120_000,
+                ),
+            )
+            yield _make_result_msg()
+
+        mock_query.side_effect = gen
+        result = _run_async(run_agent_async("test prompt"))
+
+        assert result.window_occupancy == 120_050
+        # The whole point: occupancy is dominated by cache_read, not input.
+        assert result.window_occupancy != 50
+
+    @patch("claude_agent_sdk.query")
+    def test_output_tokens_excluded_from_occupancy(self, mock_query):
+        """output_tokens is billed but is NOT part of window occupancy."""
+
+        async def gen(**kwargs):
+            yield _make_assistant_msg(
+                "hi",
+                usage=_usage(
+                    input_tokens=1_000,
+                    cache_creation_input_tokens=0,
+                    cache_read_input_tokens=0,
+                    output_tokens=9_999,
+                ),
+            )
+            yield _make_result_msg()
+
+        mock_query.side_effect = gen
+        result = _run_async(run_agent_async("test prompt"))
+
+        # Only input is a window component here; output_tokens must be ignored.
+        assert result.window_occupancy == 1_000
+        # ...but the raw breakout still preserves output for measurement.
+        assert result.token_usage is not None
+        assert result.token_usage["output_tokens"] == 9_999
+
+    @patch("claude_agent_sdk.query")
+    def test_token_usage_breakout_preserves_raw_components(self, mock_query):
+        """token_usage mirrors the raw component counts for phase-10 surfaces."""
+
+        async def gen(**kwargs):
+            yield _make_assistant_msg(
+                "hi",
+                usage=_usage(
+                    input_tokens=1_000,
+                    cache_creation_input_tokens=2_000,
+                    cache_read_input_tokens=70_000,
+                    output_tokens=300,
+                ),
+            )
+            yield _make_result_msg()
+
+        mock_query.side_effect = gen
+        result = _run_async(run_agent_async("test prompt"))
+
+        assert result.token_usage == {
+            "input_tokens": 1_000,
+            "cache_read_input_tokens": 70_000,
+            "cache_creation_input_tokens": 2_000,
+            "output_tokens": 300,
+        }
+        # The breakout's three window components reconcile with the total.
+        assert result.window_occupancy == (
+            result.token_usage["input_tokens"]
+            + result.token_usage["cache_read_input_tokens"]
+            + result.token_usage["cache_creation_input_tokens"]
+        )
+
+    @patch("claude_agent_sdk.query")
+    def test_multistep_uses_final_turn_not_cumulative_aggregate(self, mock_query):
+        """A multi-step session: occupancy == the LAST turn's window.
+
+        This is the case the original (ResultMessage-sourced) implementation got
+        wrong. Each AssistantMessage carries its own growing per-turn window; the
+        ResultMessage reports the session-cumulative sum, which is far larger.
+        Occupancy must equal the final AssistantMessage's window (~150k), not the
+        cumulative aggregate (~373k) -- otherwise the reseed threshold would fire
+        after a couple of steps regardless of the true resident window.
+        """
+
+        async def gen(**kwargs):
+            # Three turns, each with a growing per-turn window.
+            yield _make_assistant_msg(
+                "step 1", usage=_usage(input_tokens=2_000, cache_read_input_tokens=98_000)
+            )
+            yield _make_assistant_msg(
+                "step 2", usage=_usage(input_tokens=3_000, cache_read_input_tokens=120_000)
+            )
+            # Final turn -> the resident window we care about: 150_000.
+            yield _make_assistant_msg(
+                "step 3", usage=_usage(input_tokens=5_000, cache_read_input_tokens=145_000)
+            )
+            # ResultMessage usage is cumulative across all three turns (~373k).
+            yield _make_result_msg(
+                usage=_usage(input_tokens=10_000, cache_read_input_tokens=363_000)
+            )
+
+        mock_query.side_effect = gen
+        result = _run_async(run_agent_async("test prompt"))
+
+        assert result.success is True
+        # Final turn's window, not the cumulative aggregate.
+        assert result.window_occupancy == 150_000
+        # Guard against regressing to the ResultMessage aggregate.
+        assert result.window_occupancy != 373_000
+        assert result.token_usage["cache_read_input_tokens"] == 145_000
+
+    @patch("claude_agent_sdk.query")
+    def test_subagent_turns_excluded_from_occupancy(self, mock_query):
+        """Sub-agent (Task tool) turns must not pollute the resident window.
+
+        Sub-agent AssistantMessages carry a non-None ``parent_tool_use_id`` and
+        report the sub-agent's window, not the main session's. If the terminal
+        turn before the ResultMessage is a sub-agent's, occupancy must still
+        reflect the last TOP-LEVEL turn, not the sub-agent's window (#3200).
+        """
+
+        async def gen(**kwargs):
+            # Main-session turn -> the resident window we care about: 150_000.
+            yield AssistantMessage(
+                content=[TextBlock(text="main step")],
+                model="claude-opus-4-6-20250313",
+                usage=_usage(input_tokens=5_000, cache_read_input_tokens=145_000),
+            )
+            # Sub-agent turn (Task tool) -> different window, must be ignored.
+            yield AssistantMessage(
+                content=[TextBlock(text="sub step")],
+                model="claude-opus-4-6-20250313",
+                usage=_usage(input_tokens=1_000, cache_read_input_tokens=29_000),
+                parent_tool_use_id="task-abc",
+            )
+            yield _make_result_msg(
+                usage=_usage(input_tokens=10_000, cache_read_input_tokens=363_000)
+            )
+
+        mock_query.side_effect = gen
+        result = _run_async(run_agent_async("test prompt"))
+
+        assert result.success is True
+        # Last top-level turn's window, not the trailing sub-agent's (30_000).
+        assert result.window_occupancy == 150_000
+        assert result.window_occupancy != 30_000
+        assert result.token_usage["cache_read_input_tokens"] == 145_000
+
+    @patch("claude_agent_sdk.query")
+    def test_error_result_also_captures_occupancy(self, mock_query):
+        """The error build site populates occupancy too (every site, task-1-2).
+
+        Occupancy is the last AssistantMessage's window even when the run ends in
+        an error ResultMessage.
+        """
+
+        async def gen(**kwargs):
+            yield _make_assistant_msg(
+                "partial", usage=_usage(input_tokens=10, cache_read_input_tokens=40)
+            )
+            yield _make_result_msg(
+                result="Rate limit exceeded",
+                is_error=True,
+            )
+
+        mock_query.side_effect = gen
+        result = _run_async(run_agent_async("test prompt"))
+
+        assert result.success is False
+        assert result.window_occupancy == 50

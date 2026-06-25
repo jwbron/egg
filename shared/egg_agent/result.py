@@ -19,6 +19,25 @@ class AgentResult:
         num_turns: Number of conversation turns
         duration_ms: Total duration in milliseconds
         session_id: Claude session ID
+        window_occupancy: Context-window occupancy for the final turn, defined
+            as the sum of the three window sub-components ``cache_read_input_tokens
+            + cache_creation_input_tokens + input_tokens`` from that turn's SDK
+            usage block. Sourced from the last ``AssistantMessage.usage``
+            (per-turn), NOT the ``ResultMessage.usage`` aggregate — the latter
+            is cumulative across all turns and would overcount by ~num_turns
+            (#3200). This is the load-bearing field for the threshold-reseed
+            decision: it measures how much of the real backend window the
+            resumed session is consuming. It is NOT the billed/effective
+            input — billing excludes cache reads and discounts cache writes,
+            so occupancy is typically much larger than the billed input. None
+            when the SDK reports no usage (e.g. non-Claude/LiteLLM routes with
+            partial or absent usage), in which case callers must bias to a
+            safe reseed rather than a lossy resume.
+        token_usage: Optional raw component counts (input/cache_read/
+            cache_creation/output) preserved for downstream breakout and
+            measurement surfaces (#3200 phase 10). The single
+            ``window_occupancy`` total is the load-bearing field; this dict is
+            purely informational and may be None.
     """
 
     success: bool
@@ -31,3 +50,5 @@ class AgentResult:
     num_turns: int | None = None
     duration_ms: int | None = None
     session_id: str | None = None
+    window_occupancy: int | None = None
+    token_usage: dict[str, int] | None = None
