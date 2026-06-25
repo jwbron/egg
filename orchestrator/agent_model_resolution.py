@@ -457,11 +457,7 @@ def real_backend_window(model: str) -> int:
       conservative unknown window (:func:`_conservative_unknown_window`),
       which is 200_000 under the current registry.
     """
-    bare = (
-        model.removesuffix(_CONTEXT_1M_SUFFIX)
-        if model.endswith(_CONTEXT_1M_SUFFIX)
-        else model
-    )
+    bare = model.removesuffix(_CONTEXT_1M_SUFFIX) if model.endswith(_CONTEXT_1M_SUFFIX) else model
     # Registry first: authoritative over the [1m] alias for sub-1M backends, so
     # a stray ``[1m]`` suffix can never inflate a sub-1M window to the implied 1M.
     if bare in _SUB_1M_CONTEXT_MODELS:
