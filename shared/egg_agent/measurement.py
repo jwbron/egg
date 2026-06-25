@@ -211,11 +211,14 @@ def _resolve_real_window(model: str) -> int | None:
     Resolution order, mirroring :func:`egg_agent.reseed.resolve_reseed_threshold`:
 
     1. ``$EGG_REAL_BACKEND_WINDOW`` — an explicit positive-int override, the
-       cross-boundary channel for the sandbox. **This is the path that runs in
-       production**: the agent process runs with ``orchestrator`` off
-       ``PYTHONPATH`` (``sandbox/Dockerfile``), so the import below always fails
-       in-pod. Without this override ``real_backend_window`` / ``window_utilization``
-       would be ``None`` on every production event.
+       **only** cross-boundary channel that can populate this field in the
+       sandbox: the agent process runs with ``orchestrator`` off ``PYTHONPATH``
+       (``sandbox/Dockerfile``), so the import below always fails in-pod. The
+       orchestrator does not yet export this variable at spawn time, so today
+       the override is unset in-pod and resolution falls through to ``None`` —
+       ``real_backend_window`` / ``window_utilization`` are ``None`` on every
+       production event until that spawn-time export lands. Once it does, this
+       is the path that populates the field in production.
     2. :func:`orchestrator.agent_model_resolution.real_backend_window` when that
        module is importable (tests + orchestrator runtime).
 
