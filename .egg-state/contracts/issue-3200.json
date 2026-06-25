@@ -38,10 +38,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other: Full build of the mechanism across ALL BRC roles (producers AND reviewers) in this pipeline; build the measurement TOOLING only (token-occupancy capture in AgentResult + per-event occupancy/metrics surfaces); run NO measurement, no A/B, no status-quo comparison, and gate NOTHING on measured results. The measurement pass, go/no-go, gated generalization, recursion escalation, and the preserved full-context fallback are all FOLLOW-UP work, out of scope here. Operator-decided \u2014 this supersedes options A/B/C.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-25T04:54:51.402290Z",
       "debounce_until": null
     },
     {
@@ -71,10 +71,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other: Moot under the all-roles scope. This pipeline is NOT a single-role prototype, so there is no single reviewer to pick \u2014 build the mechanism for every BRC role (producers and reviewers). No per-role selection is needed.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-25T04:54:56.425535Z",
       "debounce_until": null
     }
   ],
