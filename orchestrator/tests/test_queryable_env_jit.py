@@ -94,8 +94,17 @@ _GIANT_DELTA = f"diff --git a/huge.py b/huge.py\n{_BULK_SENTINEL}\n" + "+" + ("x
 _JIT_POINTER_TOKENS: tuple[str, ...] = ("read_peer_artifact", "brc-transcript")
 
 
-def _render_review_prompt(delta: str) -> str | None:
+def _render_review_prompt(delta: str, *, jit_pull: bool = True) -> str | None:
     """Render a reviewer ACK prompt carrying ``delta`` for one producer.
+
+    ``jit_pull`` selects the path under test: ``True`` (the default, what the
+    bulk-exclusion tests exercise) flips the queryable-environment toggle so the
+    composer renders the bulk as JIT-pull pointers and excludes the inlined
+    delta; ``False`` pins the legacy inline path. The keyword-only
+    queryable-environment inputs (``jit_pull`` / ``memory_rel_path`` /
+    ``pipeline_id``) are passed in every call shape so the new path actually
+    renders rather than silently falling back to the default-off inline path
+    (the gap flagged in slice-5 review).
 
     Returns the rendered prompt, or ``None`` if no known call shape of the
     located composer accepts the canonical inputs (signature drift) — the
@@ -112,13 +121,24 @@ def _render_review_prompt(delta: str) -> str | None:
     ]
     event_payload = {"action": "ack", "producer": "coder", "version": 2}
 
+    # Keyword-only queryable-environment inputs (#3200 slice-5). These are
+    # passed on every call shape so the JIT-pull path is actually rendered;
+    # without them the composer falls back to the default-off inline path and
+    # the bulk-exclusion assertions never run.
+    qenv_kwargs: dict[str, Any] = {
+        "jit_pull": jit_pull,
+        "memory_rel_path": ".egg-state/agent-outputs/coder/brc-memory-test.md",
+        "pipeline_id": "test-pipeline",
+    }
+
     # Preferred: the documented positional signature
-    # (role, event_payload, memory_excerpt, nacks, git_log_delta, base_branch).
+    # (role, event_payload, memory_excerpt, nacks, git_log_delta, base_branch),
+    # with the queryable-env toggle threaded through as keyword-only args.
     attempts: tuple[tuple[tuple[Any, ...], dict[str, Any]], ...] = (
-        (("reviewer_code", event_payload, "", [], git_log_delta, "main"), {}),
+        (("reviewer_code", event_payload, "", [], git_log_delta, "main"), qenv_kwargs),
         (
             ("reviewer_code", event_payload),
-            {"git_log_delta": git_log_delta, "base_branch": "main"},
+            {"git_log_delta": git_log_delta, "base_branch": "main", **qenv_kwargs},
         ),
         (
             (),
@@ -127,6 +147,7 @@ def _render_review_prompt(delta: str) -> str | None:
                 "event_payload": event_payload,
                 "git_log_delta": git_log_delta,
                 "base_branch": "main",
+                **qenv_kwargs,
             },
         ),
     )
@@ -152,25 +173,24 @@ def _render_review_prompt(delta: str) -> str | None:
 
 
 def test_event_prompt_excludes_inlined_bulk_diff() -> None:
-    """A multi-KB producer delta is NOT inlined verbatim into the prompt.
+    """A multi-KB producer delta is NOT inlined verbatim into the JIT prompt.
 
-    Skip-guard: while the legacy inline path is active the giant delta is
-    rendered verbatim — that is the pre-slice-5 behaviour, so we skip. Once the
-    bulk-exclusion change lands the sentinel is absent and the assertion
-    activates: the bulk must not be inlined and the envelope must be bounded far
-    below the raw bulk size.
+    ``_render_review_prompt`` forces ``jit_pull=True`` so the queryable-
+    environment path is exercised here, in this PR — not deferred to slice-9
+    flipping the default. The only legitimate skips left are locator skips
+    (composer absent / signature drift). Once the composer renders, the giant
+    payload must be gone and the surrounding envelope bounded far below the raw
+    bulk size; a sentinel that survives the JIT path is a real regression and
+    fails loudly rather than being masked by a skip.
     """
     prompt = _render_review_prompt(_GIANT_DELTA)
     if prompt is None:
         pytest.skip("composer did not return a prompt for the review event")
-    if _BULK_SENTINEL in prompt:
-        pytest.skip(
-            "legacy inline path active — bulk delta still inlined "
-            "(coder task-5-1 unmerged on this branch)"
-        )
-    # Bulk-exclusion has landed: the giant payload is gone and the surrounding
-    # envelope is bounded well below the raw bulk it replaced.
-    assert _BULK_SENTINEL not in prompt
+    # Bulk-exclusion is active (jit_pull=True): the giant payload must be gone
+    # and the surrounding envelope bounded well below the raw bulk it replaced.
+    assert _BULK_SENTINEL not in prompt, (
+        "jit_pull path still inlined the bulk delta verbatim — bulk-exclusion regression"
+    )
     assert len(prompt.encode("utf-8")) < len(_GIANT_DELTA) / 20, (
         f"prompt not bounded below the raw bulk size after exclusion ({len(prompt)} bytes)"
     )
@@ -182,20 +202,102 @@ def test_bulk_excluded_prompt_points_at_jit_pull_tools() -> None:
     Bulk-exclusion is only safe if the bulk stays *reachable*: the prompt must
     name at least one of the queryable-environment tools
     (``read_peer_artifact`` / ``brc-transcript``) so the agent can pull the
-    delta on demand. Skips on the legacy inline path (bulk still present).
+    delta on demand. ``_render_review_prompt`` forces ``jit_pull=True`` so this
+    runs against the JIT path in this PR; only locator skips remain.
     """
     prompt = _render_review_prompt(_GIANT_DELTA)
     if prompt is None:
         pytest.skip("composer did not return a prompt for the review event")
-    if _BULK_SENTINEL in prompt:
-        pytest.skip(
-            "legacy inline path active — bulk delta still inlined "
-            "(coder task-5-1 unmerged on this branch)"
-        )
+    assert _BULK_SENTINEL not in prompt, (
+        "jit_pull path still inlined the bulk delta verbatim — bulk-exclusion regression"
+    )
     assert any(token in prompt for token in _JIT_POINTER_TOKENS), (
         "bulk-excluded prompt names no JIT-pull tool; expected one of "
         f"{_JIT_POINTER_TOKENS} so the excluded bulk stays retrievable"
     )
+
+
+def test_legacy_inline_path_still_inlines_bulk() -> None:
+    """The default-off (``jit_pull=False``) path keeps inlining the bulk verbatim.
+
+    Pins the legacy path the slice-9 feature flag preserves: with the toggle
+    OFF the composer must still inline the full delta (sentinel present) so the
+    OFF branch stays byte-for-byte the pre-slice-5 behaviour. Guards against an
+    accidental flip of the default. Only locator skips remain.
+    """
+    prompt = _render_review_prompt(_GIANT_DELTA, jit_pull=False)
+    if prompt is None:
+        pytest.skip("composer did not return a prompt for the review event")
+    assert _BULK_SENTINEL in prompt, (
+        "legacy jit_pull=False path no longer inlines the bulk delta — the "
+        "default-off path must preserve pre-slice-5 inline behaviour"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 1b. Drift guard — the duplicated event_prompt pointer renderers stay in sync
+#     with the canonical egg_agent.queryable_env renderers on the load-bearing
+#     tokens. event_prompt cannot import egg_agent (it runs standalone via the
+#     wrapper bash), so the two implementations are hand-synced; this pins the
+#     "kept in sync deliberately" contract the docstrings claim so they cannot
+#     silently drift apart.
+# ---------------------------------------------------------------------------
+
+
+def test_event_prompt_pointers_match_canonical_renderers() -> None:
+    """The event_prompt pointer renderers agree with the canonical ones.
+
+    Both implementations must emit the same JIT-pull contract: the exact
+    ``git log <start>..<end> --not origin/<base> -p`` recipe, both pull-tool
+    handles (``read_peer_artifact`` + the interpolated ``brc-transcript``
+    route), and the honest-limit phrasing. The headers/structure differ by
+    design, but these load-bearing tokens must stay identical or the agent gets
+    a different pull contract depending on which path rendered.
+    """
+    try:
+        from orchestrator.routes import event_prompt as ep
+    except ImportError:
+        try:
+            from routes import event_prompt as ep  # type: ignore[no-redef]
+        except ImportError:
+            pytest.skip("event_prompt module not importable")
+    try:
+        from egg_agent import queryable_env as qe
+    except ImportError:
+        pytest.skip("egg_agent.queryable_env not importable")
+
+    git_log_delta = [
+        {
+            "producer": "coder",
+            "last_reviewed_commit_sha": "abc1234",
+            "proposal_commit_sha": "def5678",
+            "delta": "irrelevant — pointers never inline the delta",
+        }
+    ]
+    ep_delta = ep._render_delta_pointer_section(git_log_delta, "main", "pipe-123")
+    qe_section = qe.render_queryable_env_section(
+        pipeline_id="pipe-123",
+        base_branch="main",
+        pointers=[qe.ProducerPullPointer("coder", "abc1234", "def5678")],
+    )
+
+    # The exact pull recipe must be identical across both renderers.
+    recipe = "git log abc1234..def5678 --not origin/main -p"
+    assert recipe in ep_delta, f"event_prompt recipe drifted; got: {ep_delta!r}"
+    assert recipe in qe_section, f"canonical recipe drifted; got: {qe_section!r}"
+
+    # Both pull-tool handles must be named by both renderers.
+    for token in _JIT_POINTER_TOKENS:
+        assert token in ep_delta, f"event_prompt dropped JIT handle {token!r}"
+        assert token in qe_section, f"canonical renderer dropped JIT handle {token!r}"
+
+    # The honest-limit contract (pull does not bound the window; reseed does)
+    # must be present in both.
+    for text, label in ((ep_delta, "event_prompt"), (qe_section, "canonical")):
+        lowered = text.lower()
+        assert "reseed" in lowered and "bound" in lowered, (
+            f"{label} pointer section dropped the honest-limit contract"
+        )
 
 
 # ---------------------------------------------------------------------------

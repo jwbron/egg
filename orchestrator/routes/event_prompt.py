@@ -469,7 +469,7 @@ def _render_delta_pointer_section(
         else:
             recipe = f"git log {proposal_sha} --not origin/{base_branch} -p"
         lines.append(f"### Producer: ``{producer}``")
-        lines.append(f"- Pull the delta: `{recipe}`")
+        lines.append(f"- Pull the delta: ``{recipe}``")
         lines.append("")
     lines.extend(
         [

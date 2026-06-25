@@ -27,6 +27,7 @@ from __future__ import annotations
 import importlib
 import inspect
 from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -90,3 +91,87 @@ def test_layer_routes_bulk_to_jit_pull_tools() -> None:
     assert any(token in source for token in _JIT_POINTER_TOKENS), (
         f"queryable-environment layer names no JIT-pull tool; expected one of {_JIT_POINTER_TOKENS}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Behavioural: actually CALL the renderers (not just grep the source) so the
+# tests would fail if a renderer returned "" or raised — the locator tests
+# above only assert text presence in the module source.
+# ---------------------------------------------------------------------------
+
+
+def _renderer(name: str) -> Any:  # noqa: ANN401 — located dynamically
+    """Return ``name`` from the located layer module, or skip if absent."""
+    module = _layer_module()
+    fn = getattr(module, name, None)
+    if not callable(fn):
+        pytest.skip(f"{name} not present on the queryable-environment layer")
+    return fn
+
+
+def test_review_pull_recipe_emits_the_git_log_command() -> None:
+    """``render_review_pull_recipe`` emits the exact ``git log`` pull recipe.
+
+    Call-and-assert (not a source grep): a pointer for one producer must render
+    the ``git log <start>..<end> --not origin/<base> -p`` command verbatim so
+    the agent can pull the delta just-in-time.
+    """
+    pointer_cls = _renderer("ProducerPullPointer")
+    render = _renderer("render_review_pull_recipe")
+    out = render([pointer_cls("coder", "abc", "def")], "main")
+    assert "git log abc..def --not origin/main -p" in out, (
+        f"pull recipe did not render the expected git log command; got: {out!r}"
+    )
+    assert "coder" in out
+
+
+def test_pull_handles_name_both_jit_pull_tools() -> None:
+    """``render_pull_handles`` names both served-read JIT-pull handles.
+
+    The excluded bulk stays reachable only through these handles, so a real
+    call must surface both ``read_peer_artifact`` and the interpolated
+    ``brc-transcript`` route for the given pipeline id.
+    """
+    render = _renderer("render_pull_handles")
+    out = render("pipe-123")
+    assert "read_peer_artifact" in out
+    assert "/pipe-123/brc-transcript" in out, (
+        f"pull handles did not interpolate the pipeline id into the route; got: {out!r}"
+    )
+
+
+def test_queryable_env_section_carries_recipe_handles_and_honest_limit() -> None:
+    """``render_queryable_env_section`` assembles recipe + handles + honest limit.
+
+    The full pointer block the protected root embeds: a real call must contain
+    the per-producer recipe, both pull handles, and the honest-limit contract
+    (pull does not bound the window; the reseed does).
+    """
+    pointer_cls = _renderer("ProducerPullPointer")
+    render = _renderer("render_queryable_env_section")
+    out = render(
+        pipeline_id="pipe-123",
+        base_branch="main",
+        pointers=[pointer_cls("coder", "abc", "def")],
+    )
+    assert "git log abc..def --not origin/main -p" in out
+    assert "read_peer_artifact" in out
+    assert "/pipe-123/brc-transcript" in out
+    lowered = out.lower()
+    assert "reseed" in lowered and "bound" in lowered, (
+        "queryable-env section did not carry the honest-limit contract"
+    )
+
+
+def test_enrichment_is_stale_round_trips_on_sha_match() -> None:
+    """``enrichment_is_stale`` is fresh on a SHA match and stale otherwise.
+
+    Behavioural call (not a source grep): a stamp equal to the current proposal
+    SHA is fresh; a differing stamp, a missing stamp, and a missing current SHA
+    are all stale (fail-safe).
+    """
+    fn = _renderer("enrichment_is_stale")
+    assert fn("abc123", "abc123") is False, "matching SHA wrongly flagged stale"
+    assert fn("old456", "abc123") is True, "differing SHA not flagged stale"
+    assert fn("", "abc123") is True, "missing stamp not flagged stale (fail-safe)"
+    assert fn("abc123", "") is True, "missing current SHA not flagged stale (fail-safe)"

@@ -211,15 +211,15 @@ def enrichment_is_stale(enrichment_sha: str, current_proposal_sha: str) -> bool:
     fresh ``git log`` delta rather than trusted — a stale ``verified``
     claim must NOT suppress re-checking.
 
-    A claim is stale when both SHAs are present and differ. A missing
-    stamp (``""``) is treated as stale (fail-safe: an unstamped claim
-    cannot be proven current, so re-verify). A missing current SHA is
-    treated as NOT stale only when the enrichment has a stamp but we
-    have nothing to compare against — but to stay fail-safe we bias to
-    stale whenever we cannot positively confirm the stamp matches the
-    live delta. The deterministic #3189 layer + the git-log delta remain
-    authoritative either way; this helper only decides whether to TRUST
-    the enrichment or re-derive.
+    A claim is stale when both SHAs are present and differ. The two
+    fail-safe cases both return stale: a missing stamp (``""``) — an
+    unstamped claim cannot be proven current — and a missing current SHA
+    — with no live delta to compare against the stamp's currency cannot
+    be positively confirmed. The rule is uniform: the claim is fresh
+    only when we can positively confirm the stamp equals the live delta
+    SHA; in every other case we re-verify. The deterministic #3189 layer
+    + the git-log delta remain authoritative either way; this helper only
+    decides whether to TRUST the enrichment or re-derive.
     """
     stamp = (enrichment_sha or "").strip()
     current = (current_proposal_sha or "").strip()

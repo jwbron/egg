@@ -224,6 +224,57 @@ def test_oversized_anchor_section_is_truncated() -> None:
 
 
 # ---------------------------------------------------------------------------
+# 2b. Queryable-environment section (d) — slice-5 #3200, optional + capped.
+# ---------------------------------------------------------------------------
+
+_QUERYABLE_ENV_HEADER = "QUERYABLE ENVIRONMENT (JIT pull)"
+
+
+def test_queryable_env_section_renders_when_block_passed() -> None:
+    """A passed ``queryable_env`` block renders under its section header.
+
+    The slice-5 section (d) is optional; when the caller supplies a composed
+    pointer block it must appear under the ``QUERYABLE ENVIRONMENT (JIT pull)``
+    header, between the #3189 anchors and the directives.
+    """
+    sentinel = "QENV-POINTER-SENTINEL git log abc..def --not origin/main -p"
+    text = _render(queryable_env=sentinel)
+    assert _QUERYABLE_ENV_HEADER in text, "queryable-env section header not rendered"
+    assert sentinel in text, "queryable-env block content not rendered"
+    # Section order: (c) #3189 anchors -> (d) queryable env -> (e) directives.
+    anchors_pos = text.find(SHA_CODER)
+    qenv_pos = text.find(sentinel)
+    directives_pos = text.find(DIRECTIVE_SENTINEL)
+    assert anchors_pos < qenv_pos < directives_pos, (
+        f"queryable-env section is out of order: {(anchors_pos, qenv_pos, directives_pos)}"
+    )
+
+
+def test_queryable_env_section_omitted_when_absent() -> None:
+    """No ``queryable_env`` block -> the section header is omitted entirely.
+
+    Callers that have not wired the JIT pull (the default ``None``) must render
+    a root with no empty placeholder — the canonical inputs pass no block.
+    """
+    text = _render()
+    assert _QUERYABLE_ENV_HEADER not in text, (
+        "queryable-env header rendered despite no block being passed"
+    )
+
+
+def test_oversized_queryable_env_section_is_truncated() -> None:
+    """A multi-megabyte ``queryable_env`` block is hard-capped, not inlined whole."""
+    head = "QENV-OVERSIZE-HEAD-SENTINEL"
+    giant = f"{head} " + ("x" * _OVERSIZE)
+    text = _render(queryable_env=giant)
+    assert giant not in text, "oversized queryable-env section was inlined verbatim (no cap)"
+    assert len(text) < _OVERSIZE / 20, (
+        f"rendered root len {len(text)} not bounded below the queryable_env cap"
+    )
+    assert head in text, "capped queryable-env section dropped entirely instead of truncating"
+
+
+# ---------------------------------------------------------------------------
 # 3. Sort-stability — element/key ordering does not depend on input order.
 # ---------------------------------------------------------------------------
 
