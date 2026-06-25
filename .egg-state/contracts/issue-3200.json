@@ -248,7 +248,7 @@
       "id": "slice-4",
       "name": "Protected root (deterministic, resident, AC-2 part 1)",
       "goal": "Small, byte-stable, role-parameterized resident root rendered from the phase-3 #3189 anchors. Logical dep: slice 3 (the anchors it renders). Feeds slices 5, 8, 9.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -257,10 +257,10 @@
         {
           "id": "task-4-1",
           "description": "Implement a protected-root renderer assembling, in fixed order: (a) role contract, (b) task anchor via compose_task_description (#3163), (c) the #3189 deterministic anchors derived in phase 3 (last-reviewed SHA/producer, latest verdicts, open NACKs, conditional-ACK obligations), (d) non-negotiable directives. Role-parameterized; emits STABLE BYTES (sorted keys, bounded sections, hard per-section caps, no timestamps/nondeterministic ordering).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "a3dc986c395473c26b72366891c721a3170e0a5b",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Implemented shared/egg_anchor/protected_root.py: render_protected_root(role, role_contract, task_description, derived, directives, caps) assembling the fixed four-section root (role contract / task anchor / #3189 BRCDerivedAnchors / non-negotiable directives). Byte-stable: keyed collections sorted, list counts bounded by RootCaps, free-form sections char-capped, no timestamps. Role-parameterized. Pure (no new egg_anchor dep; task_description composed by caller via compose_task_description #3163). Section (c) sourced only from mechanically-derived BRCDerivedAnchors. Exported render_protected_root + RootCaps. ruff + mypy clean; 105 existing egg_anchor tests pass. Tests for byte-stability/cap-truncation/sort-stability/role-parameterization are task-4-2 (tester).",
           "acceptance_criteria": "Four sections in fixed order; byte-stable across repeated identical renders; role-parameterized; the phase-3 deterministic layer is authoritative for section (c) (no agent claims inlined here).",
           "files_affected": [
             "shared/egg_anchor/",
@@ -280,9 +280,9 @@
           "id": "task-4-2",
           "description": "Tests for deterministic rendering: identical input -> identical bytes; oversized sections truncated at the documented per-section cap; key ordering stable regardless of input dict order; two roles render distinct-but-each-stable roots.",
           "status": "pending",
-          "commit": null,
+          "commit": "1f4b9167a",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Tests in shared/egg_anchor/tests/test_protected_root.py (proposed tester v1, commit 1f4b9167a; coder renderer task-4-1 merged at a3dc986c3). 6 tests, all PASS against the real renderer; full shared/egg_anchor suite 111 passed; ruff clean.\n\nCoverage maps 1:1 to task-4-2 ACs:\n- byte-stability: two identical renders -> identical bytes; non-empty; all four sections present (role contract / task anchor / #3189 anchors / directives) in fixed a->b->c->d order.\n- per-section-cap truncation: a ~4MB free-text role_contract is hard-capped (not inlined verbatim, output < input/20, head survives -> truncated not omitted); a 5000-entry open_nacks flood (~5MB) is bounded by the cap.\n- sort-stability: same logical anchors with reversed dict-insertion + list-element order render to IDENTICAL bytes (renderer sorts its own content; does not trust caller pre-sort).\n- role-parameterization: reviewer_code vs coder render distinct roots, each individually byte-stable; role name present in its own root.\n\nParallel-BRC-producer convention: flexible locators (11 module/symbol candidates), signature-introspecting kwarg mapping with name aliases, model-as-object-or-dict + directives-as-list-or-string tolerance, function-or-class result handling. Skipped pre-merge; converged on the coder's API with NO test edits after merge. Validated 6/6 PASS against a throwaway reference renderer before merge (since removed; protected_root.py is coder-owned).",
           "acceptance_criteria": "Byte-stability, per-section-cap truncation, sort-stability, role-parameterization each asserted; tests pass.",
           "files_affected": [
             "shared/egg_anchor/tests/",
@@ -303,11 +303,11 @@
         "slice-3"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3200/slice-3",
+      "integration_base_sha": "dcfe077a7d2f1a09e3e1c027e115548c173c25d2",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3239,
+      "pr_url": "https://github.com/jwbron/egg/pull/3239",
       "review_feedback": []
     },
     {
@@ -1212,6 +1212,72 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-3-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:44:35.046710Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.commit",
+      "old_value": null,
+      "new_value": "a3dc986c395473c26b72366891c721a3170e0a5b",
+      "reason": "Linked commit a3dc986 to task-4-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:44:38.923800Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.notes",
+      "old_value": "",
+      "new_value": "Implemented shared/egg_anchor/protected_root.py: render_protected_root(role, role_contract, task_description, derived, directives, caps) assembling the fixed four-section root (role contract / task anchor / #3189 BRCDerivedAnchors / non-negotiable directives). Byte-stable: keyed collections sorted, list counts bounded by RootCaps, free-form sections char-capped, no timestamps. Role-parameterized. Pure (no new egg_anchor dep; task_description composed by caller via compose_task_description #3163). Section (c) sourced only from mechanically-derived BRCDerivedAnchors. Exported render_protected_root + RootCaps. ruff + mypy clean; 105 existing egg_anchor tests pass. Tests for byte-stability/cap-truncation/sort-stability/role-parameterization are task-4-2 (tester).",
+      "reason": "Updated notes for task-4-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:44:43.182339Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.commit",
+      "old_value": "a3dc986c395473c26b72366891c721a3170e0a5b",
+      "new_value": "a3dc986c395473c26b72366891c721a3170e0a5b",
+      "reason": "Linked commit a3dc986 to task-4-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:44:43.201803Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:48:49.503027Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.commit",
+      "old_value": null,
+      "new_value": "1f4b9167a",
+      "reason": "Linked commit 1f4b916 to task-4-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:48:56.808688Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.notes",
+      "old_value": "",
+      "new_value": "Tests in shared/egg_anchor/tests/test_protected_root.py (proposed tester v1, commit 1f4b9167a; coder renderer task-4-1 merged at a3dc986c3). 6 tests, all PASS against the real renderer; full shared/egg_anchor suite 111 passed; ruff clean.\n\nCoverage maps 1:1 to task-4-2 ACs:\n- byte-stability: two identical renders -> identical bytes; non-empty; all four sections present (role contract / task anchor / #3189 anchors / directives) in fixed a->b->c->d order.\n- per-section-cap truncation: a ~4MB free-text role_contract is hard-capped (not inlined verbatim, output < input/20, head survives -> truncated not omitted); a 5000-entry open_nacks flood (~5MB) is bounded by the cap.\n- sort-stability: same logical anchors with reversed dict-insertion + list-element order render to IDENTICAL bytes (renderer sorts its own content; does not trust caller pre-sort).\n- role-parameterization: reviewer_code vs coder render distinct roots, each individually byte-stable; role name present in its own root.\n\nParallel-BRC-producer convention: flexible locators (11 module/symbol candidates), signature-introspecting kwarg mapping with name aliases, model-as-object-or-dict + directives-as-list-or-string tolerance, function-or-class result handling. Skipped pre-merge; converged on the coder's API with NO test edits after merge. Validated 6/6 PASS against a throwaway reference renderer before merge (since removed; protected_root.py is coder-owned).",
+      "reason": "Updated notes for task-4-2",
       "checkpoint_id": null
     }
   ],
