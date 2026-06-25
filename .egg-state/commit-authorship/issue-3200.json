@@ -160,6 +160,14 @@
       "repo": null,
       "role": "architect"
     },
+    "9560f2dfe5e56017c87c8f8a98047df211ef3a86": {
+      "branch": "egg/issue-3200/work",
+      "patch_id": null,
+      "pipeline_id": "issue-3200",
+      "registered_at": "2026-06-25T05:03:33.855544+00:00",
+      "repo": null,
+      "role": "risk_analyst"
+    },
     "9e3eea6197755372f57efa50a66178bd4a5a6c16": {
       "branch": "egg/issue-3200/slice-1",
       "patch_id": null,
