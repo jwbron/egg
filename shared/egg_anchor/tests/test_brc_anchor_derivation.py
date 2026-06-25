@@ -29,6 +29,8 @@ must survive the additive extension, and therefore runs today.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -325,3 +327,122 @@ def test_derivation_is_deterministic() -> None:
     first = _derive(_scenario_messages())
     second = _derive(_scenario_messages())
     assert _flatten(first) == _flatten(second)
+
+
+# ---------------------------------------------------------------------------
+# Real-record regression — feed an *actual* captured BRC message record, not a
+# hand-built fixture, so a future rename of an orchestrator metadata key breaks
+# a test here rather than silently turning the derivation into a no-op on live
+# data (egg-reviewer suggestion, PR #3238).
+# ---------------------------------------------------------------------------
+
+# A verbatim copy of a real ``.egg-state/brc-history/<id>-<phase>.json`` record
+# (this very slice's implement phase), committed under ``tests/data/`` so the
+# test is self-contained and does not depend on the transient state directory.
+_REAL_RECORD_PATH = Path(__file__).parent / "data" / "brc_record_real.json"
+
+
+def _real_record() -> list[dict[str, Any]]:
+    if not _REAL_RECORD_PATH.exists():  # pragma: no cover - fixture is committed
+        pytest.skip(f"real BRC record fixture missing: {_REAL_RECORD_PATH}")
+    return json.loads(_REAL_RECORD_PATH.read_text())
+
+
+def test_real_record_locks_live_message_shape() -> None:
+    """Derive against a real captured record (37 messages incl. HEARTBEAT/STATUS).
+
+    The hand-built fixtures above mirror the orchestrator's message shape by
+    hand. This feeds the real serialized record through the derivation and pins
+    the exact output, so any drift in the field names the derivation reads
+    (``metadata.version`` / ``metadata.commit_sha`` / ``to_role`` / …) surfaces
+    as a failing assertion instead of a silently-empty anchor on live data.
+    """
+    anchors = _derive(_real_record())
+
+    # Both producers' reviewed heads surface; the no-op documenter (no proposal
+    # commit) is correctly absent. Non-consensus messages are ignored.
+    last_reviewed = dict(_last_reviewed(anchors))
+    assert last_reviewed == {"coder": "34278c681", "tester": "3c0c9ad5a"}, last_reviewed
+
+    # 6 reviewers ACK coder + 5 ACK tester == 11 edges in this real pipeline.
+    assert len(list(_verdicts(anchors))) == 11
+
+    # That pipeline reached clean consensus — no open NACK, no obligation.
+    assert list(_open_nacks(anchors)) == []
+    assert list(_obligations(anchors)) == []
+
+
+# ---------------------------------------------------------------------------
+# Timestamp-ordering path — the hand-built fixtures omit ``timestamp`` and so
+# take the input-order fallback in ``_ordered``. Real records always carry
+# timestamps and take the ``(timestamp, id)`` sort path; this exercises it
+# directly (egg-reviewer suggestion, PR #3238).
+# ---------------------------------------------------------------------------
+
+
+def _ts_msg(
+    message_type: str,
+    from_role: str,
+    seq: int,
+    timestamp: str,
+    *,
+    to_role: str = "all",
+    **metadata: Any,
+) -> dict[str, Any]:
+    msg = _msg(message_type, from_role, seq, to_role=to_role, **metadata)
+    msg["timestamp"] = timestamp
+    return msg
+
+
+def test_timestamp_sort_path_recovers_chronology() -> None:
+    """A timestamped record delivered out of order is replayed chronologically.
+
+    Messages are handed to the derivation newest-first; only the ``_ordered``
+    ``(timestamp, id)`` sort recovers the real sequence. The assertions below
+    fail under the input-order fallback (the edge would settle on the earlier
+    v1 ACK), so this test genuinely pins the timestamp path the unit fixtures
+    never reach.
+    """
+    out_of_order = [
+        _ts_msg(
+            "CONSENSUS_NACK",
+            "reviewer_code",
+            4,
+            "2026-06-25T00:00:40+00:00",
+            to_role="coder",
+            version=2,
+            reason="missing guard",
+        ),
+        _ts_msg(
+            "CONSENSUS_PROPOSE",
+            "coder",
+            3,
+            "2026-06-25T00:00:30+00:00",
+            version=2,
+            commit_sha=SHA_CODER_V2,
+        ),
+        _ts_msg(
+            "CONSENSUS_ACK",
+            "reviewer_code",
+            2,
+            "2026-06-25T00:00:20+00:00",
+            to_role="coder",
+            version=1,
+            commit_sha=SHA_CODER_V1,
+        ),
+        _ts_msg(
+            "CONSENSUS_PROPOSE",
+            "coder",
+            1,
+            "2026-06-25T00:00:10+00:00",
+            version=1,
+            commit_sha=SHA_CODER_V1,
+        ),
+    ]
+    anchors = _derive(out_of_order)
+
+    # Chronology recovered: the current verdict is the v2 NACK, not the v1 ACK.
+    assert "missing guard" in _flatten(_open_nacks(anchors))
+    last_reviewed = _flatten(_last_reviewed(anchors))
+    assert SHA_CODER_V2 in last_reviewed, last_reviewed
+    assert SHA_CODER_V1 not in last_reviewed, last_reviewed

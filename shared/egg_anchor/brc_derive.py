@@ -21,6 +21,15 @@ orchestrator package.
 This is the authoritative layer of the protected root: a threshold reseed
 that re-derives these anchors from the record provably does not re-review a
 settled SHA or drop a NACK obligation.
+
+**Caller scoping responsibility.** :func:`derive_brc_anchors` does NO slice
+or phase filtering — unlike the orchestrator's
+``reconstruct_tracker_from_messages``, which filters by ``slice_id`` +
+``phase`` to avoid cross-slice state conflation (#2761). The contract is that
+the caller passes a *pre-scoped* record: one slice's one phase. The
+``.egg-state/brc-history/<identifier>-<phase>.json`` files are already
+per-slice/per-phase, so reading one of those satisfies the contract; passing
+an unscoped, multi-slice stream would conflate versions across slices.
 """
 
 from __future__ import annotations
@@ -208,7 +217,10 @@ def _assemble(
     edge_keys = sorted(edges, key=lambda k: (k[1], k[0]))
 
     # (i) last-reviewed SHA per producer: SHA of the highest version any
-    #     reviewer has verdicted on for that producer.
+    #     reviewer has verdicted on for that producer. NOTE this is a
+    #     per-producer *max-across-reviewers* aggregate — NOT a per-edge value.
+    #     The per-edge reviewed SHA (what a specific reviewer signed off on)
+    #     lives in ``latest_verdicts[].reviewed_sha`` instead.
     max_reviewed_version: dict[str, int] = {}
     for (_reviewer, producer), state in edges.items():
         version = state["version"]
