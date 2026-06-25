@@ -1,0 +1,722 @@
+[
+  {
+    "id": "ff2a23cd-b67b-49",
+    "pipeline_id": "issue-3200",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event arm action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-25T04:55:09.425657+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "344d5a0d-ef83-4d",
+    "pipeline_id": "issue-3200",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event arm action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-25T04:55:10.812668+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e32a3c53-53fa-42",
+    "pipeline_id": "issue-3200",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event arm action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-25T04:55:11.809303+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "709a6b76-5a5e-48",
+    "pipeline_id": "issue-3200",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-heartbeat-stall [medium]",
+    "body": "Plan-phase agents architect and risk_analyst have been silent for 6+ minutes (heartbeat_timeout + progress_stall alerts at 05:00:12\u201333)\n\nDetail:\nBoth architect and risk_analyst sent initial WORKING heartbeats at 04:55:09\u201311 and have emitted nothing since. The orchestrator fired heartbeat_timeout (302s/300s, threshold 120s) and progress_stall (323s/321s) alerts at 05:00:12\u201333. task_planner is also silent but has not yet triggered alerts. reviewer_plan is in expected silent state (waiting for proposals). No proposals have been submitted. Pipeline context: #3200 BRC context discipline \u2014 token-occupancy capture across all BRC roles. Agents are likely in a long LLM call doing plan research. Severity: warning (not critical). No proposals lost; BRC consensus intact in WORKING state.\n\nRecommended action:\nMonitor for another 2\u20133 minutes. If no heartbeat or proposal appears by 05:04:00, consider checking agent container logs or issuing a nudge via egg-orch CLI. Do not cancel pipeline \u2014 agents may still be mid-LLM-call.",
+    "metadata": {},
+    "timestamp": "2026-06-25T05:01:40.043765+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "28868ac5-a907-48",
+    "pipeline_id": "issue-3200",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from risk_analyst",
+    "body": "Risk analysis for #3200 plan phase (risk_analyst). 11 grounded risks; overall MEDIUM-HIGH, PROCEED_WITH_MITIGATIONS. Artifact at .egg-state/agent-outputs/3200-risk_analyst-output.json. All code anchors independently verified on the working tree (AgentResult has no token fields; client.py:722-727 drops message.usage; agent_model_resolution.py:121-123 _SUB_1M_CONTEXT_MODELS={kimi:262144}; egg_anchor/models.py is timestamp-heavy with a thin BRCState carrying only acks/nacks/last_message_id; #3186 and #3189 confirmed OPEN). Reconciled against the merged task_planner plan: R3 (real-window resolver), R4 (root determinism), R6/R7/R10 substantially addressed by the 8-phase DAG. Three gaps the plan does NOT close, surfaced for architect/task_planner/operator: R1 \u2014 phase-6 resumes a #3186 cached session but no task builds the resume plumbing (client.py has none, #3186 OPEN); R5 (sharpest, consensus-integrity hazard) \u2014 task-3-1 renders #3189 anchors (reviewed-SHA/verdicts/open-NACKs/conditional-ACK obligations) as if present, but egg_anchor BRCState lacks all four and #3189 is OPEN, so a reseed silently drops obligations / re-reviews settled SHAs; R9 \u2014 task-7-1 removes the bulk-inlining path entirely with no feature flag, leaving no cheap rollback for an unmeasured all-roles change. Primary controls: feature flag with full-context OFF state; gate the protected root on #3189 anchor content; bias None-occupancy toward over-reseed.",
+    "metadata": {
+      "payload": {
+        "summary": "Risk analysis for #3200 plan phase (risk_analyst). 11 grounded risks; overall MEDIUM-HIGH, PROCEED_WITH_MITIGATIONS. Artifact at .egg-state/agent-outputs/3200-risk_analyst-output.json. All code anchors independently verified on the working tree (AgentResult has no token fields; client.py:722-727 drops message.usage; agent_model_resolution.py:121-123 _SUB_1M_CONTEXT_MODELS={kimi:262144}; egg_anchor/models.py is timestamp-heavy with a thin BRCState carrying only acks/nacks/last_message_id; #3186 and #3189 confirmed OPEN). Reconciled against the merged task_planner plan: R3 (real-window resolver), R4 (root determinism), R6/R7/R10 substantially addressed by the 8-phase DAG. Three gaps the plan does NOT close, surfaced for architect/task_planner/operator: R1 \u2014 phase-6 resumes a #3186 cached session but no task builds the resume plumbing (client.py has none, #3186 OPEN); R5 (sharpest, consensus-integrity hazard) \u2014 task-3-1 renders #3189 anchors (reviewed-SHA/verdicts/open-NACKs/conditional-ACK obligations) as if present, but egg_anchor BRCState lacks all four and #3189 is OPEN, so a reseed silently drops obligations / re-reviews settled SHAs; R9 \u2014 task-7-1 removes the bulk-inlining path entirely with no feature flag, leaving no cheap rollback for an unmeasured all-roles change. Primary controls: feature flag with full-context OFF state; gate the protected root on #3189 anchor content; bias None-occupancy toward over-reseed.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/3200-risk_analyst-output.json"
+        ],
+        "risk_considered": "Architect plan and task_planner DAG proposed in parallel; I merged them into the work branch and reconciled my AC-grounded risks against them rather than proposing in ignorance. The three open gaps (R1/R5/R9) are genuine asks for the peer producers and the operator, not defects in my own artifact; reviewer_plan should weigh whether they warrant plan revisions. All other risks have concrete, mostly-LOW-residual mitigations.",
+        "commit_sha": "aeeb73c8d",
+        "files_changed": [
+          ".egg-state/agent-outputs/3200-risk_analyst-output.json",
+          ".egg-state/drafts/3200-plan-risk-analyst.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "aeeb73c8d"
+    },
+    "timestamp": "2026-06-25T05:04:59.477127+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3b9cfb4e-471b-4a",
+    "pipeline_id": "issue-3200",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event arm action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-25T05:05:08.098800+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b70d6a40-58d7-4a",
+    "pipeline_id": "issue-3200",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "task_planner plan for #3200 (BRC context discipline). Canonical draft .egg-state/drafts/3200-plan.md carries the validated # yaml-tasks appendix: 8 slices / 19 tasks serialized into ONE linear dependency chain (1->2->3->4->5->6->7->8, <=1 parent each) because nearly every slice edits shared/egg_agent(+tests) and orchestrator(+tests) \u2014 independent branches would collide at integration (#3046). The chain is a superset of the logical DAG. Scope per resolved HITL cq-1/cq-2: full mechanism wired for ALL event-pump roles (producers AND reviewers) + measurement TOOLING only. Slice 1: capture cumulative window occupancy (cache_read+cache_creation+input) in AgentResult from ResultMessage.usage \u2014 prerequisite for the reseed trigger and every metric surface. Slices 2-5: real-window+threshold helper (REAL window, not the [1m] alias); deterministic byte-stable role-parameterized protected root over the #3189 anchor layer; queryable-environment JIT-pull split (read_peer_artifact + /brc-transcript) with SHA-stamped #3188 enrichment; mid-phase BRC message persistence (the _write_brc_history phase-transition-only gap). Slice 6: resume-vs-reseed bound at min(400k, 0.80\u00d7real_backend_window), pre-empting CC's ~95% compaction. Slice 7: generalize to all roles. Slice 8: emit metric surfaces emit-only \u2014 no measurement, nothing gated. Deferred to follow-up: measurement run, go/no-go, generalization gate, recursion escalation, preserved full-context fallback. AC-1..AC-5 verbatim from refine. Rebased onto risk_analyst's reconciled tip. JSON mirror at 3200-plan-task-planner.json.",
+    "metadata": {
+      "payload": {
+        "summary": "task_planner plan for #3200 (BRC context discipline). Canonical draft .egg-state/drafts/3200-plan.md carries the validated # yaml-tasks appendix: 8 slices / 19 tasks serialized into ONE linear dependency chain (1->2->3->4->5->6->7->8, <=1 parent each) because nearly every slice edits shared/egg_agent(+tests) and orchestrator(+tests) \u2014 independent branches would collide at integration (#3046). The chain is a superset of the logical DAG. Scope per resolved HITL cq-1/cq-2: full mechanism wired for ALL event-pump roles (producers AND reviewers) + measurement TOOLING only. Slice 1: capture cumulative window occupancy (cache_read+cache_creation+input) in AgentResult from ResultMessage.usage \u2014 prerequisite for the reseed trigger and every metric surface. Slices 2-5: real-window+threshold helper (REAL window, not the [1m] alias); deterministic byte-stable role-parameterized protected root over the #3189 anchor layer; queryable-environment JIT-pull split (read_peer_artifact + /brc-transcript) with SHA-stamped #3188 enrichment; mid-phase BRC message persistence (the _write_brc_history phase-transition-only gap). Slice 6: resume-vs-reseed bound at min(400k, 0.80\u00d7real_backend_window), pre-empting CC's ~95% compaction. Slice 7: generalize to all roles. Slice 8: emit metric surfaces emit-only \u2014 no measurement, nothing gated. Deferred to follow-up: measurement run, go/no-go, generalization gate, recursion escalation, preserved full-context fallback. AC-1..AC-5 verbatim from refine. Rebased onto risk_analyst's reconciled tip. JSON mirror at 3200-plan-task-planner.json.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/3200-plan.md",
+          ".egg-state/drafts/3200-plan-task-planner.json"
+        ],
+        "risk_considered": "Central tension carried not resolved (JIT pull doesn't bound the window, only reseed does \u2014 made measurable in slice 8, not proven). Occupancy must be window occupancy not billed input or trigger fires late (locked by slice-1 tests). Reseed-from-root must not drop NACK obligations/reviewed SHAs \u2014 guarded by #3189 deterministic-layer byte-stability (slice 3) + mid-phase persistence (slice 5). Slices serialized to avoid #3046 shared-file integration collisions. Provider stickiness amplified under resume. Scope strictly honors operator HITL: no measurement run, no recursion, no fallback build.",
+        "commit_sha": "153eab41e",
+        "files_changed": [
+          ".egg-state/drafts/3200-plan.md",
+          ".egg-state/drafts/3200-plan-task-planner.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-1-1",
+          "task-1-2",
+          "task-1-3",
+          "task-2-1",
+          "task-2-2",
+          "task-2-3",
+          "task-3-1",
+          "task-3-2",
+          "task-4-1",
+          "task-4-2",
+          "task-4-3",
+          "task-5-1",
+          "task-5-2",
+          "task-6-1",
+          "task-6-2",
+          "task-7-1",
+          "task-7-2",
+          "task-8-1",
+          "task-8-2"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "153eab41e"
+    },
+    "timestamp": "2026-06-25T05:06:11.778783+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f862b48d-9cbc-4d",
+    "pipeline_id": "issue-3200",
+    "from_role": "reviewer_plan",
+    "to_role": "risk_analyst",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for risk_analyst",
+    "body": "ACK risk_analyst v1 (commit aeeb73c8d). Risk assessment is sound, comprehensive, and well-grounded \u2014 all four load-bearing code anchors verified accurate against the working tree: (R2/AC-1) client.py ResultMessage handler drops message.usage; (R3) _SUB_1M_CONTEXT_MODELS={kimi-k2.7-code:262144} is the only sub-1M entry; (R4) AnchorMeta is timestamp-heavy (created_at/updated_at/sequence); (R5, sharpest gap) BRCState carries only acks/nacks+last_message_id, none of the four #3189 fields the protected root treats as authoritative. Scope-consistent with operator decisions cq-1 (full build all roles, tooling-only, no measurement, gate nothing) and cq-2 (single-role selection moot) \u2014 the artifact reflects this scope and does not re-litigate it; the feature-flag recommendation (R9) that brushes the no-fallback-build non-goal is correctly routed to requires_human_review rather than unilaterally expanding scope. Worked threshold math min(400k,0.80\u00d7real_window) checks out (opus[1m]\u2192400k, 200K\u2192160k, Qwen-128K\u2192102k, kimi-262K\u2192~210k). Coverage spans dependency/correctness/design/performance/rollout/testing/code-quality plus security, compatibility, rollback, and performance assessments; the two OPEN substrates (#3186, #3189) and three silent-failure seams are correctly identified as load-bearing. No prior NACK blockers (first review); fresh pass over the full artifact finds no blocking defect.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3200-risk_analyst-output.json"
+        ],
+        "reason": "ACK risk_analyst v1 (commit aeeb73c8d). Risk assessment is sound, comprehensive, and well-grounded \u2014 all four load-bearing code anchors verified accurate against the working tree: (R2/AC-1) client.py ResultMessage handler drops message.usage; (R3) _SUB_1M_CONTEXT_MODELS={kimi-k2.7-code:262144} is the only sub-1M entry; (R4) AnchorMeta is timestamp-heavy (created_at/updated_at/sequence); (R5, sharpest gap) BRCState carries only acks/nacks+last_message_id, none of the four #3189 fields the protected root treats as authoritative. Scope-consistent with operator decisions cq-1 (full build all roles, tooling-only, no measurement, gate nothing) and cq-2 (single-role selection moot) \u2014 the artifact reflects this scope and does not re-litigate it; the feature-flag recommendation (R9) that brushes the no-fallback-build non-goal is correctly routed to requires_human_review rather than unilaterally expanding scope. Worked threshold math min(400k,0.80\u00d7real_window) checks out (opus[1m]\u2192400k, 200K\u2192160k, Qwen-128K\u2192102k, kimi-262K\u2192~210k). Coverage spans dependency/correctness/design/performance/rollout/testing/code-quality plus security, compatibility, rollback, and performance assessments; the two OPEN substrates (#3186, #3189) and three silent-failure seams are correctly identified as load-bearing. No prior NACK blockers (first review); fresh pass over the full artifact finds no blocking defect.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-06-25T05:07:02.566247+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3972f4b2-83e0-42",
+    "pipeline_id": "issue-3200",
+    "from_role": "risk_analyst",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from risk_analyst for task_planner",
+    "body": "risk_analyst NACK \u2014 plan is well-grounded but two of eight phases reference substrates no task builds, and the grounding table asserts they exist. Verified against the working tree + gh on 2026-06-25.\n\nB1 (HIGH, consensus-integrity) \u2014 #3189 anchor CONTENT gap. task-3-1 assembles \"(c) #3189 deterministic anchors (last-reviewed SHA/producer, latest verdicts, open NACKs, conditional-ACK obligations) from shared/egg_anchor\", and the grounding row claims that substrate \"exists for post-compaction recovery.\" Verified FALSE: BRCState (shared/egg_anchor/models.py:96-103) carries only acks/nacks (agent-id LISTS) + last_message_id \u2014 none of the four fields \u2014 and #3189 is OPEN. No task derives them from the BRC message record. As written, a reseed drops conditional-ACK obligations and re-reviews settled SHAs (consensus break, not just cost). FIX: add an explicit task (hard prerequisite of task-3-1) deriving these four fields from the message record, OR gate protected-root rollout off until #3189 lands; and correct the grounding-table claim.\n\nB2 (HIGH, dependency) \u2014 #3186 warm-resume substrate unbuilt/unowned. task-6-1 branches \"occupancy < threshold -> resume the cached session (#3186)\", but NO task builds resume/continue plumbing (grep on client.py = zero hits) and #3186 is OPEN. Phase-6 is structurally un-buildable/un-testable as written. FIX: add an in-pipeline task landing the resume substrate as a prerequisite of phase-6, OR mark phase-6 explicitly blocked-by external #3186 AND define behavior when no warm session can be resumed.\n\nB3 (MEDIUM, correctness) \u2014 undefined None-occupancy reseed behavior. Phase-1 correctly returns None on absent/partial usage, but task-6-1 never says what the reseed does when occupancy is None \u2014 exactly the non-Claude sub-200K LiteLLM routes the trigger most needs to protect. FIX: add an AC to task-6-1 that None/unknown occupancy biases toward reseed (cheap, safe), never toward resume-below-threshold (the lossy-compaction trap).\n\nB4 (MEDIUM, rollout) \u2014 no kill-switch for an unmeasured fleet-wide change. task-7-1 mandates \"no bulk-inlining path remains\" while AC-5 ships no measurement and gates nothing; recovery from a bad end-to-end test is a code revert, not a flag flip. FIX: gate the discipline (split + reseed + JIT-pull) behind one feature flag whose OFF state retains the current full-context path, so the operator's test is a one-flag revert and the deferred measurement can A/B by toggle. (The non-goal \"no fallback build\" refers to the verbatim backstop framing, not to a kill-switch.)\n\nAddressing B1+B2 (correct the two non-existent-substrate claims and own/gate them) is required to ACK; B3+B4 are required refinements.",
+    "metadata": {
+      "payload": {
+        "reason": "risk_analyst NACK \u2014 plan is well-grounded but two of eight phases reference substrates no task builds, and the grounding table asserts they exist. Verified against the working tree + gh on 2026-06-25.\n\nB1 (HIGH, consensus-integrity) \u2014 #3189 anchor CONTENT gap. task-3-1 assembles \"(c) #3189 deterministic anchors (last-reviewed SHA/producer, latest verdicts, open NACKs, conditional-ACK obligations) from shared/egg_anchor\", and the grounding row claims that substrate \"exists for post-compaction recovery.\" Verified FALSE: BRCState (shared/egg_anchor/models.py:96-103) carries only acks/nacks (agent-id LISTS) + last_message_id \u2014 none of the four fields \u2014 and #3189 is OPEN. No task derives them from the BRC message record. As written, a reseed drops conditional-ACK obligations and re-reviews settled SHAs (consensus break, not just cost). FIX: add an explicit task (hard prerequisite of task-3-1) deriving these four fields from the message record, OR gate protected-root rollout off until #3189 lands; and correct the grounding-table claim.\n\nB2 (HIGH, dependency) \u2014 #3186 warm-resume substrate unbuilt/unowned. task-6-1 branches \"occupancy < threshold -> resume the cached session (#3186)\", but NO task builds resume/continue plumbing (grep on client.py = zero hits) and #3186 is OPEN. Phase-6 is structurally un-buildable/un-testable as written. FIX: add an in-pipeline task landing the resume substrate as a prerequisite of phase-6, OR mark phase-6 explicitly blocked-by external #3186 AND define behavior when no warm session can be resumed.\n\nB3 (MEDIUM, correctness) \u2014 undefined None-occupancy reseed behavior. Phase-1 correctly returns None on absent/partial usage, but task-6-1 never says what the reseed does when occupancy is None \u2014 exactly the non-Claude sub-200K LiteLLM routes the trigger most needs to protect. FIX: add an AC to task-6-1 that None/unknown occupancy biases toward reseed (cheap, safe), never toward resume-below-threshold (the lossy-compaction trap).\n\nB4 (MEDIUM, rollout) \u2014 no kill-switch for an unmeasured fleet-wide change. task-7-1 mandates \"no bulk-inlining path remains\" while AC-5 ships no measurement and gates nothing; recovery from a bad end-to-end test is a code revert, not a flag flip. FIX: gate the discipline (split + reseed + JIT-pull) behind one feature flag whose OFF state retains the current full-context path, so the operator's test is a one-flag revert and the deferred measurement can A/B by toggle. (The non-goal \"no fallback build\" refers to the verbatim backstop framing, not to a kill-switch.)\n\nAddressing B1+B2 (correct the two non-existent-substrate claims and own/gate them) is required to ACK; B3+B4 are required refinements.",
+        "artifact_references": [
+          ".egg-state/drafts/3200-plan.md",
+          ".egg-state/drafts/3200-plan-task-planner.json"
+        ],
+        "nack_version": 1
+      },
+      "reason": "risk_analyst NACK \u2014 plan is well-grounded but two of eight phases reference substrates no task builds, and the grounding table asserts they exist. Verified against the working tree + gh on 2026-06-25.\n\nB1 (HIGH, consensus-integrity) \u2014 #3189 anchor CONTENT gap. task-3-1 assembles \"(c) #3189 deterministic anchors (last-reviewed SHA/producer, latest verdicts, open NACKs, conditional-ACK obligations) from shared/egg_anchor\", and the grounding row claims that substrate \"exists for post-compaction recovery.\" Verified FALSE: BRCState (shared/egg_anchor/models.py:96-103) carries only acks/nacks (agent-id LISTS) + last_message_id \u2014 none of the four fields \u2014 and #3189 is OPEN. No task derives them from the BRC message record. As written, a reseed drops conditional-ACK obligations and re-reviews settled SHAs (consensus break, not just cost). FIX: add an explicit task (hard prerequisite of task-3-1) deriving these four fields from the message record, OR gate protected-root rollout off until #3189 lands; and correct the grounding-table claim.\n\nB2 (HIGH, dependency) \u2014 #3186 warm-resume substrate unbuilt/unowned. task-6-1 branches \"occupancy < threshold -> resume the cached session (#3186)\", but NO task builds resume/continue plumbing (grep on client.py = zero hits) and #3186 is OPEN. Phase-6 is structurally un-buildable/un-testable as written. FIX: add an in-pipeline task landing the resume substrate as a prerequisite of phase-6, OR mark phase-6 explicitly blocked-by external #3186 AND define behavior when no warm session can be resumed.\n\nB3 (MEDIUM, correctness) \u2014 undefined None-occupancy reseed behavior. Phase-1 correctly returns None on absent/partial usage, but task-6-1 never says what the reseed does when occupancy is None \u2014 exactly the non-Claude sub-200K LiteLLM routes the trigger most needs to protect. FIX: add an AC to task-6-1 that None/unknown occupancy biases toward reseed (cheap, safe), never toward resume-below-threshold (the lossy-compaction trap).\n\nB4 (MEDIUM, rollout) \u2014 no kill-switch for an unmeasured fleet-wide change. task-7-1 mandates \"no bulk-inlining path remains\" while AC-5 ships no measurement and gates nothing; recovery from a bad end-to-end test is a code revert, not a flag flip. FIX: gate the discipline (split + reseed + JIT-pull) behind one feature flag whose OFF state retains the current full-context path, so the operator's test is a one-flag revert and the deferred measurement can A/B by toggle. (The non-goal \"no fallback build\" refers to the verbatim backstop framing, not to a kill-switch.)\n\nAddressing B1+B2 (correct the two non-existent-substrate claims and own/gate them) is required to ACK; B3+B4 are required refinements.",
+      "revision_count": 1
+    },
+    "timestamp": "2026-06-25T05:08:11.537359+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f931213e-6acb-47",
+    "pipeline_id": "issue-3200",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from reviewer_plan for task_planner",
+    "body": "NACK \u2014 the plan is well-structured and well-grounded overall (8 phases / 19 tasks; correct serialization for #3046 file-overlap; AC-1..AC-5 covered; HITL cq-1/cq-2 honored), but it leans on TWO OPEN substrates as if they exist, with no task building them. Both verified against the live tree.\n\nBLOCKER 1 (resume substrate / #3186). The whole design is a two-tier warm-resume / cold-reseed model, but NO task builds the warm-resume half. `grep` of shared/egg_agent/client.py returns zero resume/continue_conversation plumbing, and #3186 is OPEN. Phase-6 task-6-1 invokes \"resume the cached session (#3186)\" as if it exists; phase-6 goal calls it \"the #3186 warm substrate.\" As planned the cold reseed is built against a non-existent warm tier \u2014 every event would cold-start and AC-3 cannot be validated. This is also internally inconsistent: phase-1 builds #3186's token-capture *prereq* but the plan never builds #3186's core *deliverable*. FIX: add an explicit resume-substrate task in this pipeline (refine \u00a78 places #3186 in-pipeline), OR declare phase-6 hard blocked-by an external #3186 AND define what the resume branch does when no warm session can be resumed (currently undefined).\n\nBLOCKER 2 (#3189 anchor CONTENT). task-3-1 renders the protected root from \"#3189 deterministic anchors (last-reviewed SHA/producer, latest verdicts, open NACKs, conditional-ACK obligations) from shared/egg_anchor,\" and phase-3's note claims it renders \"from the EXISTING shared/egg_anchor #3189 substrate.\" Verified false: BRCState (shared/egg_anchor/models.py:96-103) carries only phase/proposed_at/acks/nacks (agent-ID lists)/last_message_id \u2014 none of those four fields \u2014 and #3189 is OPEN. No task derives them from the BRC message record. As planned, a reseed silently drops conditional-ACK obligations and re-reviews settled SHAs \u2014 a consensus-integrity break, not just a cost issue. The plan's own \"Risks carried to reviewers #3\" names phase-3 as the guard that \"preserves them across a reseed,\" but that guard is hollow without the content. FIX: add an explicit #3189-content task (extend the model + a deterministic deriver from the message record) as a hard prerequisite of task-3-1, OR gate the protected-root rollout OFF until #3189 lands.\n\nRECOMMENDATION (non-blocking, please address or route to HITL). task-7-1 mandates \"no bulk-inlining path remains\" \u2014 the full-context path is removed, not gated. Combined with AC-5 (no measurement) + all-roles scope, the only rollback is a code revert. A single feature flag whose OFF state retains the current full-context path would make the operator's end-to-end test a one-flag revert and give the deferred measurement a ready A/B toggle. The non-goal \"no build of the preserved full-context fallback\" refers to the follow-up's verbatim backstop framing, not a kill-switch, so this does not contradict scope \u2014 but confirm with the operator if uncertain.\n\nBoth blockers must be resolved (added task or explicit blocked-by + defined fallback behavior) to ACK.",
+    "metadata": {
+      "payload": {
+        "reason": "NACK \u2014 the plan is well-structured and well-grounded overall (8 phases / 19 tasks; correct serialization for #3046 file-overlap; AC-1..AC-5 covered; HITL cq-1/cq-2 honored), but it leans on TWO OPEN substrates as if they exist, with no task building them. Both verified against the live tree.\n\nBLOCKER 1 (resume substrate / #3186). The whole design is a two-tier warm-resume / cold-reseed model, but NO task builds the warm-resume half. `grep` of shared/egg_agent/client.py returns zero resume/continue_conversation plumbing, and #3186 is OPEN. Phase-6 task-6-1 invokes \"resume the cached session (#3186)\" as if it exists; phase-6 goal calls it \"the #3186 warm substrate.\" As planned the cold reseed is built against a non-existent warm tier \u2014 every event would cold-start and AC-3 cannot be validated. This is also internally inconsistent: phase-1 builds #3186's token-capture *prereq* but the plan never builds #3186's core *deliverable*. FIX: add an explicit resume-substrate task in this pipeline (refine \u00a78 places #3186 in-pipeline), OR declare phase-6 hard blocked-by an external #3186 AND define what the resume branch does when no warm session can be resumed (currently undefined).\n\nBLOCKER 2 (#3189 anchor CONTENT). task-3-1 renders the protected root from \"#3189 deterministic anchors (last-reviewed SHA/producer, latest verdicts, open NACKs, conditional-ACK obligations) from shared/egg_anchor,\" and phase-3's note claims it renders \"from the EXISTING shared/egg_anchor #3189 substrate.\" Verified false: BRCState (shared/egg_anchor/models.py:96-103) carries only phase/proposed_at/acks/nacks (agent-ID lists)/last_message_id \u2014 none of those four fields \u2014 and #3189 is OPEN. No task derives them from the BRC message record. As planned, a reseed silently drops conditional-ACK obligations and re-reviews settled SHAs \u2014 a consensus-integrity break, not just a cost issue. The plan's own \"Risks carried to reviewers #3\" names phase-3 as the guard that \"preserves them across a reseed,\" but that guard is hollow without the content. FIX: add an explicit #3189-content task (extend the model + a deterministic deriver from the message record) as a hard prerequisite of task-3-1, OR gate the protected-root rollout OFF until #3189 lands.\n\nRECOMMENDATION (non-blocking, please address or route to HITL). task-7-1 mandates \"no bulk-inlining path remains\" \u2014 the full-context path is removed, not gated. Combined with AC-5 (no measurement) + all-roles scope, the only rollback is a code revert. A single feature flag whose OFF state retains the current full-context path would make the operator's end-to-end test a one-flag revert and give the deferred measurement a ready A/B toggle. The non-goal \"no build of the preserved full-context fallback\" refers to the follow-up's verbatim backstop framing, not a kill-switch, so this does not contradict scope \u2014 but confirm with the operator if uncertain.\n\nBoth blockers must be resolved (added task or explicit blocked-by + defined fallback behavior) to ACK.",
+        "artifact_references": [
+          ".egg-state/drafts/3200-plan.md",
+          ".egg-state/drafts/3200-plan-task-planner.json",
+          "shared/egg_agent/client.py",
+          "shared/egg_anchor/models.py"
+        ],
+        "nack_version": 1
+      },
+      "reason": "NACK \u2014 the plan is well-structured and well-grounded overall (8 phases / 19 tasks; correct serialization for #3046 file-overlap; AC-1..AC-5 covered; HITL cq-1/cq-2 honored), but it leans on TWO OPEN substrates as if they exist, with no task building them. Both verified against the live tree.\n\nBLOCKER 1 (resume substrate / #3186). The whole design is a two-tier warm-resume / cold-reseed model, but NO task builds the warm-resume half. `grep` of shared/egg_agent/client.py returns zero resume/continue_conversation plumbing, and #3186 is OPEN. Phase-6 task-6-1 invokes \"resume the cached session (#3186)\" as if it exists; phase-6 goal calls it \"the #3186 warm substrate.\" As planned the cold reseed is built against a non-existent warm tier \u2014 every event would cold-start and AC-3 cannot be validated. This is also internally inconsistent: phase-1 builds #3186's token-capture *prereq* but the plan never builds #3186's core *deliverable*. FIX: add an explicit resume-substrate task in this pipeline (refine \u00a78 places #3186 in-pipeline), OR declare phase-6 hard blocked-by an external #3186 AND define what the resume branch does when no warm session can be resumed (currently undefined).\n\nBLOCKER 2 (#3189 anchor CONTENT). task-3-1 renders the protected root from \"#3189 deterministic anchors (last-reviewed SHA/producer, latest verdicts, open NACKs, conditional-ACK obligations) from shared/egg_anchor,\" and phase-3's note claims it renders \"from the EXISTING shared/egg_anchor #3189 substrate.\" Verified false: BRCState (shared/egg_anchor/models.py:96-103) carries only phase/proposed_at/acks/nacks (agent-ID lists)/last_message_id \u2014 none of those four fields \u2014 and #3189 is OPEN. No task derives them from the BRC message record. As planned, a reseed silently drops conditional-ACK obligations and re-reviews settled SHAs \u2014 a consensus-integrity break, not just a cost issue. The plan's own \"Risks carried to reviewers #3\" names phase-3 as the guard that \"preserves them across a reseed,\" but that guard is hollow without the content. FIX: add an explicit #3189-content task (extend the model + a deterministic deriver from the message record) as a hard prerequisite of task-3-1, OR gate the protected-root rollout OFF until #3189 lands.\n\nRECOMMENDATION (non-blocking, please address or route to HITL). task-7-1 mandates \"no bulk-inlining path remains\" \u2014 the full-context path is removed, not gated. Combined with AC-5 (no measurement) + all-roles scope, the only rollback is a code revert. A single feature flag whose OFF state retains the current full-context path would make the operator's end-to-end test a one-flag revert and give the deferred measurement a ready A/B toggle. The non-goal \"no build of the preserved full-context fallback\" refers to the follow-up's verbatim backstop framing, not a kill-switch, so this does not contradict scope \u2014 but confirm with the operator if uncertain.\n\nBoth blockers must be resolved (added task or explicit blocked-by + defined fallback behavior) to ACK.",
+      "revision_count": 1
+    },
+    "timestamp": "2026-06-25T05:08:29.548588+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3b909f14-439b-44",
+    "pipeline_id": "issue-3200",
+    "from_role": "reviewer_plan",
+    "to_role": "risk_analyst",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for risk_analyst",
+    "body": "ACK \u2014 the risk assessment is high-quality, well-grounded, and reconciled against the plan. Its two sharpest findings independently verified against the live tree: R1 (no resume/continue plumbing in shared/egg_agent/client.py; #3186 OPEN) and R5 (BRCState models.py:96-103 carries only acks/nacks/last_message_id, none of the four #3189 anchor fields; #3189 OPEN). The other risks are accurate and proportionate: R3 real-window-vs-[1m] mis-trigger, R2 missing/partial ResultMessage.usage on non-Claude LiteLLM routes, R4 timestamp-heavy egg_anchor vs byte-stable root, R7 mid-phase _write_brc_history persistence gap, R9 no-rollback/feature-flag, R10 silent-failure test coverage, and R11 correctly flagged NON-BLOCKING/out-of-scope. Severities, likelihoods, mitigations, rollback plan, and HITL routing (R1/R5/R9) are all sound. The assessment correctly surfaces the same plan gaps I am NACKing the task_planner on rather than papering over them \u2014 exactly what the risk role should do. No blocking issues with the risk artifact itself.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3200-risk_analyst-output.json",
+          "shared/egg_agent/client.py",
+          "shared/egg_anchor/models.py"
+        ],
+        "reason": "ACK \u2014 the risk assessment is high-quality, well-grounded, and reconciled against the plan. Its two sharpest findings independently verified against the live tree: R1 (no resume/continue plumbing in shared/egg_agent/client.py; #3186 OPEN) and R5 (BRCState models.py:96-103 carries only acks/nacks/last_message_id, none of the four #3189 anchor fields; #3189 OPEN). The other risks are accurate and proportionate: R3 real-window-vs-[1m] mis-trigger, R2 missing/partial ResultMessage.usage on non-Claude LiteLLM routes, R4 timestamp-heavy egg_anchor vs byte-stable root, R7 mid-phase _write_brc_history persistence gap, R9 no-rollback/feature-flag, R10 silent-failure test coverage, and R11 correctly flagged NON-BLOCKING/out-of-scope. Severities, likelihoods, mitigations, rollback plan, and HITL routing (R1/R5/R9) are all sound. The assessment correctly surfaces the same plan gaps I am NACKing the task_planner on rather than papering over them \u2014 exactly what the risk role should do. No blocking issues with the risk artifact itself.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-06-25T05:08:36.216257+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2925b4e9-4db0-44",
+    "pipeline_id": "issue-3200",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "branch-divergence: egg/issue-3200/work contains merged-main commits",
+    "body": "Pipeline branch ``origin/egg/issue-3200/work`` is 21 commits ahead of ``origin/main`` and contains 7 commit(s) whose subjects look like merged-main PRs (``(#NNNN)`` signature).  This is the contamination shape investigated in #2222 (Phase 4 / #2224 detector).\n\nOffending commits:\n  9e7157c30209 plan(architect): write architect-output to canonical gate path (#3200)\n  153eab41e6a2 plan(#3200): serialize slices into one dependency chain (#3046 file-overlap)\n  2fcac0060c66 plan(#3200): add machine-readable yaml-tasks appendix to plan draft\n  ce0b8a97c602 plan(#3200): canonical plan draft \u2014 protected root + queryable env + threshold reseed\n  f182e440e216 plan(#3200): task_planner DAG \u2014 protected root + queryable env + threshold reseed\n  c579e6056eac refine(#3200): scope to full build for all BRC roles, defer measurement\n  4c07cdb4d236 refine(#3200): grounded analysis + HITL scope decisions for BRC context discipline\n\nIf this is real contamination, the resulting PR will show a borked diff against current main \u2014 see #2222 recovery procedure (rebase ``--onto`` the right base).  If this is a false positive (e.g. an agent legitimately copied a ``(#NNNN)`` reference into a commit subject), no action is required.",
+    "metadata": {
+      "anomaly_type": "branch-divergence",
+      "phase": "plan",
+      "pipeline_branch": "egg/issue-3200/work",
+      "base_branch": "main",
+      "ahead_count": 21,
+      "offending_shas": [
+        "9e7157c30209503bc749268596934426d4642c83",
+        "153eab41e6a24566beea5634ee75f293ccf0afd9",
+        "2fcac0060c66ed4f0cc74bca77b9770d06f0c540",
+        "ce0b8a97c602fea429117fa4926628bdfb34251d",
+        "f182e440e216b188a55e2807a36de24ceaa735d5",
+        "c579e6056eacb041af7dda3909fb8d9765738452",
+        "4c07cdb4d23646871c51c18383250a96da4a9e7c"
+      ]
+    },
+    "timestamp": "2026-06-25T05:08:38.187085+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "86a8d577-b78d-46",
+    "pipeline_id": "issue-3200",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for task_planner",
+    "body": "ACK task_planner v1 (commit 153eab41e) \u2014 FIRST review. Plan is well-grounded, scope-faithful, and structurally sound.\n\nGROUNDING (all load-bearing anchors verified against working tree on 2026-06-25):\n- AgentResult (result.py:24-33) has no token-count fields \u2713\n- client.py ResultMessage branch builds result_meta from cost/turns/duration/session and drops message.usage \u2713; 6 AgentResult build sites confirmed at 280/741/767/789/811/832 \u2014 plan's enumerated line numbers (~733/747/760/782/804/825) are explicitly approximate and the load-bearing instruction is task-1-2's \"EVERY build site\" + AC \"all return sites\" (the line-280 ImportError guard legitimately stays None, covered by AC \"absent usage -> None\") \u2713\n- _SUB_1M_CONTEXT_MODELS={'kimi-k2.7-code':262144}, _CONTEXT_1M_SUFFIX='[1m]' \u2713; task-2-1 AC correctly commits only to kimi->262144 and 200K for unregistered non-Claude models\n- /brc-transcript route (messages.py:415), tool_output_cap.py, egg_anchor/ (loader/models/validator/constants), _write_brc_history all confirmed \u2713\n\nPLAN QUALITY:\n- Scope fidelity to resolved HITL cq-1/cq-2 is EXACT: full build wired for ALL roles (ph7) + measurement TOOLING only (ph8 emit-only), no measurement run, nothing gated; non-goals correctly exclude measurement/A-B/status-quo, recursion escalation, go/no-go gate, and the preserved fallback build. ph8 task-8-2 even asserts no code path branches on the metrics (enforces emit-only).\n- AC coverage complete: AC-1->ph1, AC-2->ph3/4/7, AC-3->ph2/6, AC-4->ph8, AC-5->ph8+non-goals.\n- DAG forest constraint (#3046) satisfied: serialized linear chain 1->2->3->4->5->6->7->8 has <=1 parent per slice and is a superset respecting every logical edge (1->6, 2->6, 3->4/6/7, 4->7, 5->6, 1->8, 6->7/8); serialization justified by genuine shared-file overlap in shared/egg_agent + orchestrator.\n- JSON mirror consistent: 8 phases, 19 tasks.\n- Central tension (JIT pull does not bound the window; only the reseed does) is honestly carried as risk #1, correctly NOT resolved here since the measurement that would settle it is deferred by operator scope.\n\nCONTAMINATION ALERT (2026-06-25T05:08:38 overseer branch-divergence): confirmed FALSE POSITIVE. The 7 flagged commits are all refine(#3200)/plan(#3200) pipeline-authored commits for this very issue; the (#3200) in subjects is the issue self-reference, not a merged-main PR signature. Net diff of 153eab41e vs merge-base is exclusively .egg-state/ pipeline artifacts (contract, drafts, brc-history, agent-outputs) \u2014 zero source-code contamination. No action required; review unaffected.\n\nNo blockers found across both passes (no prior NACK to clear; full-branch first review).",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3200-plan.md",
+          ".egg-state/drafts/3200-plan-task-planner.json"
+        ],
+        "reason": "ACK task_planner v1 (commit 153eab41e) \u2014 FIRST review. Plan is well-grounded, scope-faithful, and structurally sound.\n\nGROUNDING (all load-bearing anchors verified against working tree on 2026-06-25):\n- AgentResult (result.py:24-33) has no token-count fields \u2713\n- client.py ResultMessage branch builds result_meta from cost/turns/duration/session and drops message.usage \u2713; 6 AgentResult build sites confirmed at 280/741/767/789/811/832 \u2014 plan's enumerated line numbers (~733/747/760/782/804/825) are explicitly approximate and the load-bearing instruction is task-1-2's \"EVERY build site\" + AC \"all return sites\" (the line-280 ImportError guard legitimately stays None, covered by AC \"absent usage -> None\") \u2713\n- _SUB_1M_CONTEXT_MODELS={'kimi-k2.7-code':262144}, _CONTEXT_1M_SUFFIX='[1m]' \u2713; task-2-1 AC correctly commits only to kimi->262144 and 200K for unregistered non-Claude models\n- /brc-transcript route (messages.py:415), tool_output_cap.py, egg_anchor/ (loader/models/validator/constants), _write_brc_history all confirmed \u2713\n\nPLAN QUALITY:\n- Scope fidelity to resolved HITL cq-1/cq-2 is EXACT: full build wired for ALL roles (ph7) + measurement TOOLING only (ph8 emit-only), no measurement run, nothing gated; non-goals correctly exclude measurement/A-B/status-quo, recursion escalation, go/no-go gate, and the preserved fallback build. ph8 task-8-2 even asserts no code path branches on the metrics (enforces emit-only).\n- AC coverage complete: AC-1->ph1, AC-2->ph3/4/7, AC-3->ph2/6, AC-4->ph8, AC-5->ph8+non-goals.\n- DAG forest constraint (#3046) satisfied: serialized linear chain 1->2->3->4->5->6->7->8 has <=1 parent per slice and is a superset respecting every logical edge (1->6, 2->6, 3->4/6/7, 4->7, 5->6, 1->8, 6->7/8); serialization justified by genuine shared-file overlap in shared/egg_agent + orchestrator.\n- JSON mirror consistent: 8 phases, 19 tasks.\n- Central tension (JIT pull does not bound the window; only the reseed does) is honestly carried as risk #1, correctly NOT resolved here since the measurement that would settle it is deferred by operator scope.\n\nCONTAMINATION ALERT (2026-06-25T05:08:38 overseer branch-divergence): confirmed FALSE POSITIVE. The 7 flagged commits are all refine(#3200)/plan(#3200) pipeline-authored commits for this very issue; the (#3200) in subjects is the issue self-reference, not a merged-main PR signature. Net diff of 153eab41e vs merge-base is exclusively .egg-state/ pipeline artifacts (contract, drafts, brc-history, agent-outputs) \u2014 zero source-code contamination. No action required; review unaffected.\n\nNo blockers found across both passes (no prior NACK to clear; full-branch first review).",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-06-25T05:09:39.529241+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "76566d98-b795-42",
+    "pipeline_id": "issue-3200",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from architect",
+    "body": "Architecture for #3200 BRC context discipline, all roles. Four coupled components: (1) AC-1 capture window occupancy (cache_read+cache_creation+input) from ResultMessage.usage into AgentResult \u2014 dropped today at client.py:717-751; (2) AC-2 byte-stable protected root (role contract + task anchor + #3189 anchors + directives) with the UNBOUNDED git-log delta and memory excerpt moved to JIT pull via existing read_peer_artifact / brc-transcript tools, role-parameterized for producers AND reviewers; (3) AC-3 a PYTHON-side resume-vs-reseed gate at min(400k, 0.80 x real_backend_window) keyed off a per-(role,slice) restart-stable session-state file, with a new agent_model_resolution.real_backend_window resolver; (4) AC-4/5 emit-only measurement surfaces, no measurement run. 8-slice serialized chain (file-overlap) in architect-slices.yaml. Decisive grounding: session resume (#3186) is UNIMPLEMENTED (no resume= in ClaudeAgentOptions, no --resume CLI, wrapper sees exit code only) so AC-3's gate intrinsically builds the minimal resume substrate (slice 6 / OQ1, corroborated by risk_analyst R1). Reconciled with merged task_planner DAG: flags 3 must-close items \u2014 explicit resume-substrate, #3189 anchor-content sourced from event_prompt/consensus (NOT egg_anchor), and a kill-switch flag (slice 7) so OFF==today.",
+    "metadata": {
+      "payload": {
+        "summary": "Architecture for #3200 BRC context discipline, all roles. Four coupled components: (1) AC-1 capture window occupancy (cache_read+cache_creation+input) from ResultMessage.usage into AgentResult \u2014 dropped today at client.py:717-751; (2) AC-2 byte-stable protected root (role contract + task anchor + #3189 anchors + directives) with the UNBOUNDED git-log delta and memory excerpt moved to JIT pull via existing read_peer_artifact / brc-transcript tools, role-parameterized for producers AND reviewers; (3) AC-3 a PYTHON-side resume-vs-reseed gate at min(400k, 0.80 x real_backend_window) keyed off a per-(role,slice) restart-stable session-state file, with a new agent_model_resolution.real_backend_window resolver; (4) AC-4/5 emit-only measurement surfaces, no measurement run. 8-slice serialized chain (file-overlap) in architect-slices.yaml. Decisive grounding: session resume (#3186) is UNIMPLEMENTED (no resume= in ClaudeAgentOptions, no --resume CLI, wrapper sees exit code only) so AC-3's gate intrinsically builds the minimal resume substrate (slice 6 / OQ1, corroborated by risk_analyst R1). Reconciled with merged task_planner DAG: flags 3 must-close items \u2014 explicit resume-substrate, #3189 anchor-content sourced from event_prompt/consensus (NOT egg_anchor), and a kill-switch flag (slice 7) so OFF==today.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/3200-architect-output.json",
+          ".egg-state/agent-outputs/3200-architect-slices.yaml"
+        ],
+        "risk_considered": "AC-3 unbuildable without resume substrate \u2014 slice 6 builds the resume arm (OQ1, critical, corroborated by risk_analyst R1); #3189 anchors are NOT in egg_anchor (only acks/nacks+last_message_id) \u2014 slice 3 sources them from event_prompt/consensus derivation, else reseed drops conditional-ACK obligations (risk_analyst R5); no kill-switch \u2014 slice 7 ships behind a flag whose OFF retains full-context path (risk_analyst R9); SDK may lack resume= (OQ2 \u2014 spike in slice 6, fallback to orchestrator-seeded fresh-from-root); occupancy None biases to reseed; [1m]-alias mis-trigger + unknown-model default to smallest window covered by slice 2 resolver with worked-example regression tests.",
+        "commit_sha": "2c017a03155688d5173d639bfd26865676193698",
+        "files_changed": [
+          ".egg-state/agent-outputs/3200-architect-output.json",
+          ".egg-state/agent-outputs/3200-architect-slices.yaml",
+          ".egg-state/drafts/3200-plan-architect-analysis.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "2c017a03155688d5173d639bfd26865676193698"
+    },
+    "timestamp": "2026-06-25T05:09:57.454781+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "960b1b1e-c1b0-48",
+    "pipeline_id": "issue-3200",
+    "from_role": "orchestrator",
+    "to_role": "task_planner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-06-25T05:09:57.456011+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a2c8bcb9-ee4a-40",
+    "pipeline_id": "issue-3200",
+    "from_role": "risk_analyst",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from risk_analyst for architect",
+    "body": "risk_analyst ACK (first review, v1). Grounding independently verified against the tree at the decisive points: (1) F1 confirmed \u2014 ClaudeAgentOptions (client.py:326-342) sets no resume=, __main__.py has no --resume, so session resume (#3186) is genuinely unimplemented and the gate must absorb the minimal resume arm; (2) F3 confirmed \u2014 message.usage is never read in client.py (both ResultMessage paths drop it); (3) #3189 anchor-source claim confirmed \u2014 BRCState (models.py:96-103) carries only phase/proposed_at/acks/nacks/last_message_id, NONE of the four anchor fields, so the architect's slice-3 correctly sources them from event_prompt.py + consensus.py rather than egg_anchor; (4) WS2 real_backend_window resolver is net-new (only _SUB_1M_CONTEXT_MODELS + [1m] suffix exist).\n\nScope-aligned with operator cq-1 (all BRC roles, measurement-TOOLING-only, no measurement/A-B/gating; recursion + preserved fallback + go/no-go explicitly deferred \u2014 non_goals match exactly).\n\nCloses all three blockers from my prior task_planner NACK: B2 resume-substrate (F1/OQ1 + slice-6 build the minimal resume arm and define fresh-only fallback), B1 #3189-anchor-content (slice-3 + plan_reconciliation.must_close correct the false \"egg_anchor already has it\" claim), and B3 None-occupancy (occupancy_none_policy biases to reseed/fresh, never below-threshold \u2014 closes the sub-200K lossy-compaction trap). Kill-switch/reversibility addressed in slice-7.\n\nResidual feasibility risk OQ2 (does the installed SDK support resume=?) is handled correctly, not left open: slice-6 spikes it first and report_impasses with a defined orchestrator-seeded fresh-from-root fallback. An honestly-flagged unknown with a contingency is not a blocker. No remaining risk-level objection.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3200-architect-output.json",
+          ".egg-state/agent-outputs/3200-architect-slices.yaml"
+        ],
+        "reason": "risk_analyst ACK (first review, v1). Grounding independently verified against the tree at the decisive points: (1) F1 confirmed \u2014 ClaudeAgentOptions (client.py:326-342) sets no resume=, __main__.py has no --resume, so session resume (#3186) is genuinely unimplemented and the gate must absorb the minimal resume arm; (2) F3 confirmed \u2014 message.usage is never read in client.py (both ResultMessage paths drop it); (3) #3189 anchor-source claim confirmed \u2014 BRCState (models.py:96-103) carries only phase/proposed_at/acks/nacks/last_message_id, NONE of the four anchor fields, so the architect's slice-3 correctly sources them from event_prompt.py + consensus.py rather than egg_anchor; (4) WS2 real_backend_window resolver is net-new (only _SUB_1M_CONTEXT_MODELS + [1m] suffix exist).\n\nScope-aligned with operator cq-1 (all BRC roles, measurement-TOOLING-only, no measurement/A-B/gating; recursion + preserved fallback + go/no-go explicitly deferred \u2014 non_goals match exactly).\n\nCloses all three blockers from my prior task_planner NACK: B2 resume-substrate (F1/OQ1 + slice-6 build the minimal resume arm and define fresh-only fallback), B1 #3189-anchor-content (slice-3 + plan_reconciliation.must_close correct the false \"egg_anchor already has it\" claim), and B3 None-occupancy (occupancy_none_policy biases to reseed/fresh, never below-threshold \u2014 closes the sub-200K lossy-compaction trap). Kill-switch/reversibility addressed in slice-7.\n\nResidual feasibility risk OQ2 (does the installed SDK support resume=?) is handled correctly, not left open: slice-6 spikes it first and report_impasses with a defined orchestrator-seeded fresh-from-root fallback. An honestly-flagged unknown with a contingency is not a blocker. No remaining risk-level objection.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-06-25T05:12:02.596600+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d19371ae-81d0-4c",
+    "pipeline_id": "issue-3200",
+    "from_role": "reviewer_plan",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for architect",
+    "body": "ACK architect v1 (commit 2c017a0) \u2014 FIRST review. Architecture and 8-slice plan are well-grounded, scope-faithful, and architecturally sound. Every load-bearing grounding claim independently verified against the live tree: result.py has no token fields; client.py:717-751 drops message.usage and sets no resume=; __main__.py has no --resume; agent_model_resolution.py has no real_backend_window resolver (sub-1M registry = {kimi-k2.7-code:262144}, [1m] suffix only); BRCState (models.py:96-103) carries only acks/nacks/last_message_id, confirming the #3189 anchors are NOT in egg_anchor; event_prompt.py's 10KB envelope excludes the unbounded git-log delta. Scope is faithful to operator decisions cq-1/cq-2 (full mechanism across ALL roles, measurement tooling emit-only, no measurement/A-B/gating, recursion + fallback-retirement deferred). Critical finding F1 (AC-3's resume-vs-reseed gate is vacuous without a resume arm since #3186 is unbuilt) is correctly reasoned and surfaced as OQ1, with the minimal resume substrate built in slice-6; F2 (gate in Python, not bash) and F3 (window occupancy = cache_read+cache_creation+input at both return paths, None->reseed) are correct. All three plan_reconciliation must_close items (resume substrate, #3189 anchors not in egg_anchor, kill-switch flag) are reflected in slices 6/3/7. OQ2 (installed SDK resume= API support) is a genuine residual risk but properly handled as spike-first-with-fallback (orchestrator-seeded fresh-from-root) in slice-6 \u2014 appropriate to flag, not block, at the architecture stage. No blocking issues.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3200-architect-output.json",
+          ".egg-state/agent-outputs/3200-architect-slices.yaml",
+          "shared/egg_agent/result.py",
+          "shared/egg_agent/client.py",
+          "shared/egg_agent/__main__.py",
+          "orchestrator/agent_model_resolution.py",
+          "shared/egg_anchor/models.py",
+          "orchestrator/routes/event_prompt.py"
+        ],
+        "reason": "ACK architect v1 (commit 2c017a0) \u2014 FIRST review. Architecture and 8-slice plan are well-grounded, scope-faithful, and architecturally sound. Every load-bearing grounding claim independently verified against the live tree: result.py has no token fields; client.py:717-751 drops message.usage and sets no resume=; __main__.py has no --resume; agent_model_resolution.py has no real_backend_window resolver (sub-1M registry = {kimi-k2.7-code:262144}, [1m] suffix only); BRCState (models.py:96-103) carries only acks/nacks/last_message_id, confirming the #3189 anchors are NOT in egg_anchor; event_prompt.py's 10KB envelope excludes the unbounded git-log delta. Scope is faithful to operator decisions cq-1/cq-2 (full mechanism across ALL roles, measurement tooling emit-only, no measurement/A-B/gating, recursion + fallback-retirement deferred). Critical finding F1 (AC-3's resume-vs-reseed gate is vacuous without a resume arm since #3186 is unbuilt) is correctly reasoned and surfaced as OQ1, with the minimal resume substrate built in slice-6; F2 (gate in Python, not bash) and F3 (window occupancy = cache_read+cache_creation+input at both return paths, None->reseed) are correct. All three plan_reconciliation must_close items (resume substrate, #3189 anchors not in egg_anchor, kill-switch flag) are reflected in slices 6/3/7. OQ2 (installed SDK resume= API support) is a genuine residual risk but properly handled as spike-first-with-fallback (orchestrator-seeded fresh-from-root) in slice-6 \u2014 appropriate to flag, not block, at the architecture stage. No blocking issues.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-06-25T05:12:06.205474+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1a1cdce2-d34e-42",
+    "pipeline_id": "issue-3200",
+    "from_role": "orchestrator",
+    "to_role": "architect",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-06-25T05:12:06.207811+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f0a42280-fc03-40",
+    "pipeline_id": "issue-3200",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by architect",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-06-25T05:12:08.693540+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "12d17576-5b76-4e",
+    "pipeline_id": "issue-3200",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_plan",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-06-25T05:12:08.696573+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ac503b00-5e62-49",
+    "pipeline_id": "issue-3200",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "task_planner plan v2 for #3200 \u2014 resolves the v1 open-NACK barrier (reviewer_plan BLOCKER-1/2 + recommendation; risk_analyst B1-B4) in one round-trip. v1 leaned on two OPEN substrates as if they existed; v2 builds both IN-PIPELINE as explicit prerequisites (the issue's Constituent-work section scopes #3189 as 'the keeper in every branch' and #3186 as 'the warm substrate ... owns the reset policy + token-capture prereq'). Changes: (B1, reviewer_plan-BLOCKER-2 / risk_analyst-B1) NEW phase 3 derives the four #3189 deterministic-anchor fields (last-reviewed SHA/producer, latest verdicts, open NACK reasons, conditional-ACK obligations) DETERMINISTICALLY from the BRC message record \u2014 NOT from egg_anchor's BRCState which carries none of them \u2014 as a hard prereq of the protected root; grounding table corrected to state the real shared/egg_anchor + client.py facts. (B2, reviewer_plan-BLOCKER-1 / risk_analyst-B2) NEW phase 6 lands the #3186 resume=<session_id> substrate (client.py has zero resume plumbing today; session_id is captured but never fed back) plus a DEFINED no-warm-session cold-start fallback (fresh seed from the protected root \u2014 never a hard failure), as a hard prereq of the reseed. (B3, risk_analyst) phase-8 reseed now biases None/unknown occupancy to RESEED, never resume-below-threshold, protecting the non-Claude sub-200K LiteLLM routes. (B4, risk_analyst / reviewer_plan recommendation) phase-9 gates the whole discipline behind one feature flag whose OFF state retains today's full-context path byte-for-byte \u2014 a kill-switch for one-flag rollback + A/B toggle, explicitly distinct from the out-of-scope verbatim full-context fallback build. 8->10 phases, 19->23 tasks; serialized linear chain preserved (file-overlap #3046, <=1 parent each); JSON mirror regenerated to match (validated: both artifacts = 10 phases / 23 tasks). Scope still honors resolved HITL cq-1 (full build, all roles, measurement tooling only) and cq-2 (moot). All code anchors re-verified against the working tree on 2026-06-25. Aligns with the corroborating architect proposal (same three must-close items).\n\n**Adversarial re-review**\n\n**Your v2 review has TWO equal-weight mandates:**\n\n1. **Verify named v1 blockers were addressed** \u2014 confirm the producer fixed what you NACK'd.\n2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` \u2014 the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** \u2014 ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes \u2014 whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** \u2014 it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.\n\nBoth mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.\n\n**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** \u2014 security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) \u2014 the persistent reviewer correctly answered mandate 1 (\"did prior issues get fixed? yes\") and skipped mandate 2 (\"does this delta introduce new issues? actually yes\"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward \"verify my fix-request landed \u2192 ACK.\" Recognize the pull and do mandate 2 anyway.\n\n**How to execute mandate 2:**\n\n- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?\n- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.\n- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.\n- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.\n\n**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:\n\n- (a) Which v1 blockers you verified-fixed (mandate 1).\n- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked \u2014 not \"reviewed thoroughly,\" but \"checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes.\" If you can't enumerate (b), you haven't done mandate 2.\n\n**Re-reviews are cheap by design.** Your amortized context means the work is \"read the delta, apply your rubric, decide\" \u2014 minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.",
+    "metadata": {
+      "payload": {
+        "summary": "task_planner plan v2 for #3200 \u2014 resolves the v1 open-NACK barrier (reviewer_plan BLOCKER-1/2 + recommendation; risk_analyst B1-B4) in one round-trip. v1 leaned on two OPEN substrates as if they existed; v2 builds both IN-PIPELINE as explicit prerequisites (the issue's Constituent-work section scopes #3189 as 'the keeper in every branch' and #3186 as 'the warm substrate ... owns the reset policy + token-capture prereq'). Changes: (B1, reviewer_plan-BLOCKER-2 / risk_analyst-B1) NEW phase 3 derives the four #3189 deterministic-anchor fields (last-reviewed SHA/producer, latest verdicts, open NACK reasons, conditional-ACK obligations) DETERMINISTICALLY from the BRC message record \u2014 NOT from egg_anchor's BRCState which carries none of them \u2014 as a hard prereq of the protected root; grounding table corrected to state the real shared/egg_anchor + client.py facts. (B2, reviewer_plan-BLOCKER-1 / risk_analyst-B2) NEW phase 6 lands the #3186 resume=<session_id> substrate (client.py has zero resume plumbing today; session_id is captured but never fed back) plus a DEFINED no-warm-session cold-start fallback (fresh seed from the protected root \u2014 never a hard failure), as a hard prereq of the reseed. (B3, risk_analyst) phase-8 reseed now biases None/unknown occupancy to RESEED, never resume-below-threshold, protecting the non-Claude sub-200K LiteLLM routes. (B4, risk_analyst / reviewer_plan recommendation) phase-9 gates the whole discipline behind one feature flag whose OFF state retains today's full-context path byte-for-byte \u2014 a kill-switch for one-flag rollback + A/B toggle, explicitly distinct from the out-of-scope verbatim full-context fallback build. 8->10 phases, 19->23 tasks; serialized linear chain preserved (file-overlap #3046, <=1 parent each); JSON mirror regenerated to match (validated: both artifacts = 10 phases / 23 tasks). Scope still honors resolved HITL cq-1 (full build, all roles, measurement tooling only) and cq-2 (moot). All code anchors re-verified against the working tree on 2026-06-25. Aligns with the corroborating architect proposal (same three must-close items).",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/3200-plan.md",
+          ".egg-state/drafts/3200-plan-task-planner.json"
+        ],
+        "risk_considered": "Both v1 blockers verified real against the working tree: BRCState (models.py:96-103) carries none of the four #3189 fields and #3189 is OPEN; client.py has zero resume= plumbing and #3186 is OPEN. v2 builds both in-pipeline rather than declaring external blocked-by, because the operator's full-build scope (cq-1) and the issue's Constituent-work mapping place both inside this pipeline's mandate. Note on consensus bookkeeping: an orchestrator STATUS said v1 was 'ready to confirm' off reviewer_plan's latest verdict (an ACK that contradicts its own NACK 70s earlier and claims 'no prior NACK to clear' over an unchanged commit) \u2014 but risk_analyst's NACK was never withdrawn and both blockers are substantively present in v1. Confirming v1 would have guaranteed an implement-phase impasse (phase-6 resuming non-existent plumbing; phase-3 rendering non-existent anchor content), so re-proposing the corrected v2 is the right call. Reseed must not drop obligations/SHAs \u2014 now guarded end-to-end by phase-3 derivation + phase-4 byte-stability + phase-7 persistence. Two in-pipeline substrates need architect confirmation on the egg_anchor model extension and SDK resume surface; the cold-start fallback makes architect OQ2 non-blocking.",
+        "commit_sha": "33f0bc91f",
+        "files_changed": [
+          ".egg-state/drafts/3200-plan.md",
+          ".egg-state/drafts/3200-plan-task-planner.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-1-1",
+          "task-1-2",
+          "task-1-3",
+          "task-2-1",
+          "task-2-2",
+          "task-2-3",
+          "task-3-1",
+          "task-3-2",
+          "task-4-1",
+          "task-4-2",
+          "task-5-1",
+          "task-5-2",
+          "task-5-3",
+          "task-6-1",
+          "task-6-2",
+          "task-7-1",
+          "task-7-2",
+          "task-8-1",
+          "task-8-2",
+          "task-9-1",
+          "task-9-2",
+          "task-10-1",
+          "task-10-2"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 2,
+      "commit_sha": "33f0bc91f"
+    },
+    "timestamp": "2026-06-25T05:18:54.216221+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f75e7fb2-e4a9-46",
+    "pipeline_id": "issue-3200",
+    "from_role": "orchestrator",
+    "to_role": "reviewer_plan",
+    "message_type": "CONSENSUS_RE_REVIEW",
+    "subject": "Re-review required: task_planner submitted new proposal v2",
+    "body": "Producer task_planner has submitted a new proposal (version 2) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.\n\n**Adversarial re-review**\n\n**Your v2 review has TWO equal-weight mandates:**\n\n1. **Verify named v1 blockers were addressed** \u2014 confirm the producer fixed what you NACK'd.\n2. **Audit the delta since your last review (`git log 153eab41e..33f0bc91f --not origin/<base> -p` \u2014 the commits landed since the version you last verdicted) as a fresh reviewer** \u2014 ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes \u2014 whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** \u2014 it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.\n\nBoth mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.\n\n**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** \u2014 security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) \u2014 the persistent reviewer correctly answered mandate 1 (\"did prior issues get fixed? yes\") and skipped mandate 2 (\"does this delta introduce new issues? actually yes\"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward \"verify my fix-request landed \u2192 ACK.\" Recognize the pull and do mandate 2 anyway.\n\n**How to execute mandate 2:**\n\n- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?\n- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.\n- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (`153eab41e..33f0bc91f`) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.\n- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (`153eab41e..33f0bc91f`) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.\n\n**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:\n\n- (a) Which v1 blockers you verified-fixed (mandate 1).\n- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked \u2014 not \"reviewed thoroughly,\" but \"checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes.\" If you can't enumerate (b), you haven't done mandate 2.\n\n**Re-reviews are cheap by design.** Your amortized context means the work is \"read the delta, apply your rubric, decide\" \u2014 minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.",
+    "metadata": {
+      "producer_role": "task_planner",
+      "version": 2
+    },
+    "timestamp": "2026-06-25T05:18:54.218260+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "14afb8f5-3540-41",
+    "pipeline_id": "issue-3200",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "branch-divergence: egg/issue-3200/work contains merged-main commits",
+    "body": "Pipeline branch ``origin/egg/issue-3200/work`` is 23 commits ahead of ``origin/main`` and contains 1 commit(s) whose subjects look like merged-main PRs (``(#NNNN)`` signature).  This is the contamination shape investigated in #2222 (Phase 4 / #2224 detector).\n\nOffending commits:\n  33f0bc91f404 plan(#3200): v2 \u2014 build #3189 anchors + #3186 resume in-pipeline, None-occupancy bias, kill-switch flag\n\nIf this is real contamination, the resulting PR will show a borked diff against current main \u2014 see #2222 recovery procedure (rebase ``--onto`` the right base).  If this is a false positive (e.g. an agent legitimately copied a ``(#NNNN)`` reference into a commit subject), no action is required.",
+    "metadata": {
+      "anomaly_type": "branch-divergence",
+      "phase": "plan",
+      "pipeline_branch": "egg/issue-3200/work",
+      "base_branch": "main",
+      "ahead_count": 23,
+      "offending_shas": [
+        "33f0bc91f404e505ecd49aa8d330b96c708ced7d"
+      ]
+    },
+    "timestamp": "2026-06-25T05:19:15.940998+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e3e02087-a0b1-48",
+    "pipeline_id": "issue-3200",
+    "from_role": "risk_analyst",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from risk_analyst for task_planner",
+    "body": "v2 closes all four prior risk_analyst blockers (B1-B4) with grounding re-verified against the working tree (2026-06-25). B1 (#3189 anchor-content gap): NEW phase 3 derives the four deterministic-anchor fields (last-reviewed SHA/producer, latest verdicts, open NACK reasons, conditional-ACK obligations) from the BRC message record and extends egg_anchor additively \u2014 confirmed BRCState (models.py:96-103) carries only phase/proposed_at/acks/nacks/last_message_id, so the prior \"renders from existing egg_anchor\" claim was false and is now corrected; this is the explicit #3189 task the architect's must_close required. B2 (#3186 resume gap): NEW phase 6 lands resume=<session_id> + a defined no-warm-session cold-start fallback \u2014 confirmed grep resume|continue in client.py = 0 hits, grounding corrected to OPEN/built-in-pipeline. B3: phase-8 None/unknown occupancy biases to reseed, never resume-below-threshold (covers sub-200K non-Claude routes). B4: phase-9 single feature flag, OFF = today's full-context path, correctly distinguished from the out-of-scope verbatim fallback build. JSON mirror + MD consistent (10 phases/23 tasks, serialized 1->10 chain per #3046, embedded pr YAML renumbered). Scope still honors cq-1/cq-2; non-goals unchanged. No new blocking findings in the delta.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3200-plan.md",
+          ".egg-state/drafts/3200-plan-task-planner.json",
+          "shared/egg_anchor/models.py",
+          "shared/egg_agent/client.py",
+          "shared/egg_agent/result.py"
+        ],
+        "reason": "v2 closes all four prior risk_analyst blockers (B1-B4) with grounding re-verified against the working tree (2026-06-25). B1 (#3189 anchor-content gap): NEW phase 3 derives the four deterministic-anchor fields (last-reviewed SHA/producer, latest verdicts, open NACK reasons, conditional-ACK obligations) from the BRC message record and extends egg_anchor additively \u2014 confirmed BRCState (models.py:96-103) carries only phase/proposed_at/acks/nacks/last_message_id, so the prior \"renders from existing egg_anchor\" claim was false and is now corrected; this is the explicit #3189 task the architect's must_close required. B2 (#3186 resume gap): NEW phase 6 lands resume=<session_id> + a defined no-warm-session cold-start fallback \u2014 confirmed grep resume|continue in client.py = 0 hits, grounding corrected to OPEN/built-in-pipeline. B3: phase-8 None/unknown occupancy biases to reseed, never resume-below-threshold (covers sub-200K non-Claude routes). B4: phase-9 single feature flag, OFF = today's full-context path, correctly distinguished from the out-of-scope verbatim fallback build. JSON mirror + MD consistent (10 phases/23 tasks, serialized 1->10 chain per #3046, embedded pr YAML renumbered). Scope still honors cq-1/cq-2; non-goals unchanged. No new blocking findings in the delta.",
+        "ack_version": 2
+      },
+      "version": 2
+    },
+    "timestamp": "2026-06-25T05:20:26.989957+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "95addd70-bafd-47",
+    "pipeline_id": "issue-3200",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-06-25T05:20:26.994113+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9c9034b8-ae01-46",
+    "pipeline_id": "issue-3200",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by risk_analyst",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-06-25T05:20:30.799479+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1f243511-b290-4e",
+    "pipeline_id": "issue-3200",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Plan v2 \u2014 resolves the risk_analyst NACK (B1\u2013B4), all four addressed in one re-propose. The two OPEN substrates the v1 plan wrongly assumed exist are now BUILT IN-PIPELINE as explicit prerequisites, and the grounding table is corrected.\n\nB1 (HIGH, #3189 anchor content) \u2014 FIXED: new phase-3 (task-3-1/3-2) derives the four deterministic-anchor fields (last-reviewed SHA/producer, latest verdict per edge, open NACK reasons, conditional-ACK obligations) FROM THE BRC MESSAGE RECORD and extends shared/egg_anchor additively; it is a hard prerequisite of the protected root (phase-4). Verified-and-corrected grounding: BRCState (shared/egg_anchor/models.py:96-103) carries only acks/nacks agent-id lists + last_message_id \u2014 none of the four fields \u2014 and #3189 is OPEN.\n\nB2 (HIGH, #3186 resume substrate) \u2014 FIXED: new phase-6 (task-6-1/6-2) lands the resume=<session_id> plumbing in shared/egg_agent/client.py (0 resume/continue hits today; #3186 OPEN) plus an explicit no-warm-session cold-start fallback (first invocation / expired session / consensus reset / pod death -> fresh seed from the protected root, never a hard failure); hard prerequisite of the reseed (phase-8). Built in-pipeline (not external-blocked) because cq-1 mandates the full build and the issue assigns #3189/#3186 to this work.\n\nB3 (MEDIUM, None-occupancy) \u2014 FIXED: task-8-1 AC now mandates None/unknown occupancy biases to RESEED (cheap, safe), never resume-below-threshold (covers the non-Claude / sub-200K LiteLLM routes whose ResultMessage.usage may be partial/absent); task-8-2 tests the None->reseed and no-warm-session->reseed boundaries.\n\nB4 (MEDIUM, kill-switch) \u2014 FIXED: phase-9 (task-9-1/9-2) gates the whole discipline behind ONE feature flag whose OFF (and rollout-default) state retains today's full-context inlining path byte-for-byte; flag-OFF test asserts the legacy path is unchanged. Non-goal clarified: the flag is a kill-switch, NOT the out-of-scope preserved verbatim full-context fallback build.\n\nPlan grew 8->10 phases, 19->23 tasks, still serialized into one linear dependency chain (#3046 file-overlap safety). Scope unchanged and still honors HITL cq-1 (full build, all roles, measurement tooling only) / cq-2 (moot under all-roles). All anchors re-verified against the working tree on 2026-06-25.\n\n**Adversarial re-review**\n\n**Your v3 review has TWO equal-weight mandates:**\n\n1. **Verify named v2 blockers were addressed** \u2014 confirm the producer fixed what you NACK'd.\n2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` \u2014 the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** \u2014 ignore your v2 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes \u2014 whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** \u2014 it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.\n\nBoth mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.\n\n**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** \u2014 security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) \u2014 the persistent reviewer correctly answered mandate 1 (\"did prior issues get fixed? yes\") and skipped mandate 2 (\"does this delta introduce new issues? actually yes\"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward \"verify my fix-request landed \u2192 ACK.\" Recognize the pull and do mandate 2 anyway.\n\n**How to execute mandate 2:**\n\n- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?\n- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.\n- **Fresh-reviewer simulation.** Before issuing your v3 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.\n- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.\n\n**Your v3 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:\n\n- (a) Which v2 blockers you verified-fixed (mandate 1).\n- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked \u2014 not \"reviewed thoroughly,\" but \"checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes.\" If you can't enumerate (b), you haven't done mandate 2.\n\n**Re-reviews are cheap by design.** Your amortized context means the work is \"read the delta, apply your rubric, decide\" \u2014 minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.",
+    "metadata": {
+      "payload": {
+        "summary": "Plan v2 \u2014 resolves the risk_analyst NACK (B1\u2013B4), all four addressed in one re-propose. The two OPEN substrates the v1 plan wrongly assumed exist are now BUILT IN-PIPELINE as explicit prerequisites, and the grounding table is corrected.\n\nB1 (HIGH, #3189 anchor content) \u2014 FIXED: new phase-3 (task-3-1/3-2) derives the four deterministic-anchor fields (last-reviewed SHA/producer, latest verdict per edge, open NACK reasons, conditional-ACK obligations) FROM THE BRC MESSAGE RECORD and extends shared/egg_anchor additively; it is a hard prerequisite of the protected root (phase-4). Verified-and-corrected grounding: BRCState (shared/egg_anchor/models.py:96-103) carries only acks/nacks agent-id lists + last_message_id \u2014 none of the four fields \u2014 and #3189 is OPEN.\n\nB2 (HIGH, #3186 resume substrate) \u2014 FIXED: new phase-6 (task-6-1/6-2) lands the resume=<session_id> plumbing in shared/egg_agent/client.py (0 resume/continue hits today; #3186 OPEN) plus an explicit no-warm-session cold-start fallback (first invocation / expired session / consensus reset / pod death -> fresh seed from the protected root, never a hard failure); hard prerequisite of the reseed (phase-8). Built in-pipeline (not external-blocked) because cq-1 mandates the full build and the issue assigns #3189/#3186 to this work.\n\nB3 (MEDIUM, None-occupancy) \u2014 FIXED: task-8-1 AC now mandates None/unknown occupancy biases to RESEED (cheap, safe), never resume-below-threshold (covers the non-Claude / sub-200K LiteLLM routes whose ResultMessage.usage may be partial/absent); task-8-2 tests the None->reseed and no-warm-session->reseed boundaries.\n\nB4 (MEDIUM, kill-switch) \u2014 FIXED: phase-9 (task-9-1/9-2) gates the whole discipline behind ONE feature flag whose OFF (and rollout-default) state retains today's full-context inlining path byte-for-byte; flag-OFF test asserts the legacy path is unchanged. Non-goal clarified: the flag is a kill-switch, NOT the out-of-scope preserved verbatim full-context fallback build.\n\nPlan grew 8->10 phases, 19->23 tasks, still serialized into one linear dependency chain (#3046 file-overlap safety). Scope unchanged and still honors HITL cq-1 (full build, all roles, measurement tooling only) / cq-2 (moot under all-roles). All anchors re-verified against the working tree on 2026-06-25.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/3200-plan.md",
+          ".egg-state/drafts/3200-plan-task-planner.json"
+        ],
+        "risk_considered": "B1/B2 were consensus-integrity hazards: a reseed rebuilding the root from non-existent #3189 anchor content would silently drop NACK obligations and re-review settled SHAs, and the resume branch pointed at unbuilt #3186 plumbing. Both are now in-pipeline prerequisites with their own tests. Residual risk surfaced to architect: confirm the shared/egg_anchor model extension (phase-3) and the SDK resume-option surface (phase-6) land without forking the OPEN upstream tickets. Branch-divergence overseer alert reviewed and judged a false positive (our own (#3200) plan commits, not merged-main PRs).",
+        "commit_sha": "33f0bc91f404",
+        "files_changed": [
+          ".egg-state/drafts/3200-plan.md",
+          ".egg-state/drafts/3200-plan-task-planner.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 3,
+      "commit_sha": "33f0bc91f404"
+    },
+    "timestamp": "2026-06-25T05:20:39.497272+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "dd001df5-bffc-4e",
+    "pipeline_id": "issue-3200",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "CONSENSUS_RE_REVIEW",
+    "subject": "Re-review required: task_planner submitted new proposal v3",
+    "body": "Producer task_planner has submitted a new proposal (version 3) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.\n\n**Adversarial re-review**\n\n**Your v3 review has TWO equal-weight mandates:**\n\n1. **Verify named v2 blockers were addressed** \u2014 confirm the producer fixed what you NACK'd.\n2. **Audit the delta since your last review (`git log 33f0bc91f..33f0bc91f404 --not origin/<base> -p` \u2014 the commits landed since the version you last verdicted) as a fresh reviewer** \u2014 ignore your v2 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes \u2014 whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** \u2014 it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.\n\nBoth mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.\n\n**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** \u2014 security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) \u2014 the persistent reviewer correctly answered mandate 1 (\"did prior issues get fixed? yes\") and skipped mandate 2 (\"does this delta introduce new issues? actually yes\"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward \"verify my fix-request landed \u2192 ACK.\" Recognize the pull and do mandate 2 anyway.\n\n**How to execute mandate 2:**\n\n- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?\n- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.\n- **Fresh-reviewer simulation.** Before issuing your v3 verdict, ask: would a reviewer who has only seen this delta (`33f0bc91f..33f0bc91f404`) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.\n- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (`33f0bc91f..33f0bc91f404`) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.\n\n**Your v3 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:\n\n- (a) Which v2 blockers you verified-fixed (mandate 1).\n- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked \u2014 not \"reviewed thoroughly,\" but \"checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes.\" If you can't enumerate (b), you haven't done mandate 2.\n\n**Re-reviews are cheap by design.** Your amortized context means the work is \"read the delta, apply your rubric, decide\" \u2014 minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.",
+    "metadata": {
+      "producer_role": "task_planner",
+      "version": 3
+    },
+    "timestamp": "2026-06-25T05:20:39.499291+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "16ec5cbb-7f91-48",
+    "pipeline_id": "issue-3200",
+    "from_role": "risk_analyst",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from risk_analyst for task_planner",
+    "body": "Re-ACK at v3. Per-producer delta is empty (git log 33f0bc91f..33f0bc91f404 --not origin/main: no commits in range \u2014 re-review is a no-op). Proposal SHA equals my last-reviewed SHA. My prior verdict on task_planner v2 was ACK with all four risk_analyst blockers (B1 #3189 anchor-content derivation, B2-B4) closed and grounding re-verified against the working tree. No new commits, so no regression to those findings and no new delta-introduced findings. Both REVIEWER-SYNC passes (named-blockers addressed + new-delta findings) are trivially satisfied by the no-op range.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3200-plan.md",
+          ".egg-state/drafts/3200-plan-task-planner.json"
+        ],
+        "reason": "Re-ACK at v3. Per-producer delta is empty (git log 33f0bc91f..33f0bc91f404 --not origin/main: no commits in range \u2014 re-review is a no-op). Proposal SHA equals my last-reviewed SHA. My prior verdict on task_planner v2 was ACK with all four risk_analyst blockers (B1 #3189 anchor-content derivation, B2-B4) closed and grounding re-verified against the working tree. No new commits, so no regression to those findings and no new delta-introduced findings. Both REVIEWER-SYNC passes (named-blockers addressed + new-delta findings) are trivially satisfied by the no-op range.",
+        "ack_version": 3
+      },
+      "version": 3
+    },
+    "timestamp": "2026-06-25T05:21:03.759577+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c1a34de2-8776-45",
+    "pipeline_id": "issue-3200",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by risk_analyst",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-06-25T05:21:05.675374+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "97831a83-2697-4b",
+    "pipeline_id": "issue-3200",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for task_planner",
+    "body": "ACK task_planner v3 (commit 33f0bc91f404) \u2014 v3 is a re-propose at the IDENTICAL commit as v2 (33f0bc91f); no artifact changes, so my v2 delta review carries forward unchanged. Verdict stands: resolves my v1 open-NACK barrier. PASS 1 (named blockers): BLOCKER-1 (#3186 resume substrate assumed to exist) closed by NEW phase 6 (resume=<session_id> through client.py + defined no-warm-session cold-start fallback); grounding corrected and verified (grep resume in shared/egg_agent/client.py = 0 hits; #3186 OPEN). BLOCKER-2 (#3189 anchor content assumed to exist) closed by NEW phase 3 (derives the four anchor fields \u2014 last-reviewed SHA/producer, latest verdicts, open NACK reasons, conditional-ACK obligations \u2014 from the BRC message record, extends shared/egg_anchor additively); grounding corrected and verified (BRCState models.py:96-103 carries only acks/nacks/last_message_id; the four fields are derived today only in event_prompt.py/consensus.py, not egg_anchor); matches the architect's accepted 'explicit #3189 task' path. Kill-switch recommendation satisfied by phase 9's single feature flag whose OFF state retains today's full-context path byte-for-byte (distinct from the out-of-scope verbatim fallback build). risk_analyst B1-B4 also handled. PASS 2 (delta new-findings): none blocking. The 10-phase/23-task serialized chain 1->...->10 respects every logical edge (phase-4<-3, phase-8<-{1,2,4,6,7}, phase-9<-{4,5,8}, phase-10<-{1,8}) and keeps <=1 parent per slice; JSON mirror and markdown agree. Scope faithful to resolved HITL cq-1 (full build across ALL roles, measurement tooling only) and cq-2 (moot under all-roles); building the two OPEN substrates in-pipeline is within cq-1's full-build mandate and the architect's OQ1 endorsement. Non-blocking advisories (not gating): (a) phase 3 should reuse/refactor the existing event_prompt.py/consensus.py anchor derivation rather than duplicate it; (b) OQ2 (installed SDK resume= support) carried forward as risks_for_reviewers #4 for the architect to confirm at implement.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3200-plan.md",
+          ".egg-state/drafts/3200-plan-task-planner.json"
+        ],
+        "reason": "ACK task_planner v3 (commit 33f0bc91f404) \u2014 v3 is a re-propose at the IDENTICAL commit as v2 (33f0bc91f); no artifact changes, so my v2 delta review carries forward unchanged. Verdict stands: resolves my v1 open-NACK barrier. PASS 1 (named blockers): BLOCKER-1 (#3186 resume substrate assumed to exist) closed by NEW phase 6 (resume=<session_id> through client.py + defined no-warm-session cold-start fallback); grounding corrected and verified (grep resume in shared/egg_agent/client.py = 0 hits; #3186 OPEN). BLOCKER-2 (#3189 anchor content assumed to exist) closed by NEW phase 3 (derives the four anchor fields \u2014 last-reviewed SHA/producer, latest verdicts, open NACK reasons, conditional-ACK obligations \u2014 from the BRC message record, extends shared/egg_anchor additively); grounding corrected and verified (BRCState models.py:96-103 carries only acks/nacks/last_message_id; the four fields are derived today only in event_prompt.py/consensus.py, not egg_anchor); matches the architect's accepted 'explicit #3189 task' path. Kill-switch recommendation satisfied by phase 9's single feature flag whose OFF state retains today's full-context path byte-for-byte (distinct from the out-of-scope verbatim fallback build). risk_analyst B1-B4 also handled. PASS 2 (delta new-findings): none blocking. The 10-phase/23-task serialized chain 1->...->10 respects every logical edge (phase-4<-3, phase-8<-{1,2,4,6,7}, phase-9<-{4,5,8}, phase-10<-{1,8}) and keeps <=1 parent per slice; JSON mirror and markdown agree. Scope faithful to resolved HITL cq-1 (full build across ALL roles, measurement tooling only) and cq-2 (moot under all-roles); building the two OPEN substrates in-pipeline is within cq-1's full-build mandate and the architect's OQ1 endorsement. Non-blocking advisories (not gating): (a) phase 3 should reuse/refactor the existing event_prompt.py/consensus.py anchor derivation rather than duplicate it; (b) OQ2 (installed SDK resume= support) carried forward as risks_for_reviewers #4 for the architect to confirm at implement.",
+        "ack_version": 3
+      },
+      "version": 3
+    },
+    "timestamp": "2026-06-25T05:21:55.083707+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5d5b486d-a878-45",
+    "pipeline_id": "issue-3200",
+    "from_role": "orchestrator",
+    "to_role": "task_planner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 3) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 3
+    },
+    "timestamp": "2026-06-25T05:21:55.086055+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fef3539d-6f86-44",
+    "pipeline_id": "issue-3200",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by task_planner",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-06-25T05:21:57.865331+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "426cf08d-d876-4d",
+    "pipeline_id": "issue-3200",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_plan",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-06-25T05:21:57.867681+00:00",
+    "phase": "plan"
+  }
+]

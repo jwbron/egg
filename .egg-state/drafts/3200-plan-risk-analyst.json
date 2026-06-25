@@ -1,0 +1,351 @@
+{
+  "issue": 3200,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "title": "Risk Assessment: BRC context discipline — protected root + queryable environment + threshold reseed (full build, all roles; measurement tooling only)",
+  "summary": "Technical risk assessment for #3200 as scoped by the operator: build the full context-discipline mechanism (token-occupancy capture, protected-root / queryable-environment split, threshold reseed) wired for ALL BRC roles, plus measurement TOOLING, with NO measurement run and NOTHING gated on measured results. Overall risk is MEDIUM-HIGH. The design is sound and well-grounded, but it ships an unmeasured, fleet-wide behavioral change whose two load-bearing substrates (#3186 session-resume, #3189 deterministic anchors) are still OPEN/unbuilt, and whose correctness hinges on three silent-failure seams: (a) resolving the REAL backend window (not the [1m] alias) for the reseed trigger, (b) obtaining window occupancy from ResultMessage.usage even on non-Claude LiteLLM routes — exactly the sub-200K backends the trigger targets, and (c) rendering the protected root to byte-stable, timestamp-free bytes despite the existing egg_anchor model being timestamp-heavy and agent-authored. Because no A/B gate exists, the single most important safeguard is a feature flag whose OFF state is the preserved full-context path, making the operator's end-to-end test a one-flag revert.",
+
+  "overall_risk_level": "MEDIUM-HIGH",
+  "recommendation": "PROCEED_WITH_MITIGATIONS",
+
+  "scope_note": "Grounded against the confirmed refine analysis (.egg-state/drafts/3200-analysis.md, AC-1..AC-5) and the working tree on 2026-06-25. Risks were first framed against the acceptance criteria and real code touchpoints; the peer plan (3200-plan.md / 3200-plan-task-planner.json) was then merged in and reconciled — see plan_reconciliation below.",
+
+  "plan_reconciliation": {
+    "note": "After drafting, the task_planner plan (8 phases / 19 tasks) and DAG were merged into the work branch and read in full. Reconciliation by risk:",
+    "addressed_by_plan": {
+      "R3_real_window": "Closed by phase-2 (task-2-1 resolver keyed on bare model name, task-2-2 threshold, task-2-3 worked-example + mis-trigger regression tests). Residual: unregistered sub-200K backends resolve to 200K -> threshold 160k > a 128K real window; latent only (no sub-200K model registered today), but the resolver's unknown-model default to 200K — rather than the smallest known window — leaves that one mis-trigger open if such a model is ever added.",
+      "R4_determinism": "Addressed by task-3-1/3-2 (stable bytes, no timestamps, byte-stability tests). My grounding sharpens it: task-3-1 says render FROM shared/egg_anchor, whose current model IS timestamp-heavy (created_at/updated_at/sequence + per-item timestamps) — the renderer must project AROUND those fields, not serialize the model; the byte-stability test must guard exactly this.",
+      "R6_within_event": "Acknowledged (plan risk #1, task-4-1 honest-limit comment) and the single-event-working-set signal is emitted by task-8-1.",
+      "R7_persistence": "Closed by phase-5 (task-5-1/5-2 mid-phase restart survival).",
+      "R10_tests": "Strong coverage across task-1-3/2-3/3-2/4-3/5-2/6-2/7-2/8-2.",
+      "R8_provider_stickiness": "Carried as plan risk #4; observability via the root-cache-hit-rate surface (task-8-1)."
+    },
+    "gaps_the_plan_does_NOT_close": {
+      "R1_resume_substrate": "Phase-6 task-6-1 reads 'occupancy < threshold -> resume the cached session (#3186)', but NO task in the plan builds the resume/continue plumbing — client.py has none today and #3186 is OPEN. The plan treats the warm-resume tier as pre-existing. Either add a task to land #3186 resume (refine §8 places it in-pipeline) or make phase-6 explicitly blocked-by an external #3186, and define what the trigger does when no warm session can be resumed.",
+      "R5_3189_anchor_content": "SHARPEST GAP. task-3-1 renders '#3189 deterministic anchors (last-reviewed SHA/producer, latest verdicts, open NACKs, conditional-ACK obligations) from shared/egg_anchor' as if present, but the current egg_anchor BRCState (models.py:96-103) carries only acks/nacks (agent-id lists) + last_message_id — none of those four — and #3189 is OPEN. Phase-3's dependency note even says 'renders from the EXISTING shared/egg_anchor #3189 substrate', overstating what exists. Without a task deriving these fields from the message record, a reseed silently drops conditional-ACK obligations and re-reviews settled SHAs (consensus-integrity break). The plan needs an explicit #3189-content task as a hard prerequisite of task-3-1, OR the protected-root rollout must stay disabled until #3189 lands.",
+      "R9_no_feature_flag": "task-7-1 mandates 'no bulk-inlining path remains' — the full-context path is REMOVED, not gated. Combined with AC-5 (no measurement) this means an unmeasured, all-roles change ships with NO cheap rollback: if the operator's end-to-end test fails, recovery is a code revert, not a flag flip. The plan's non-goal 'no build of the preserved full-context FALLBACK' refers to the follow-up's verbatim backstop framing — it does NOT substitute for a kill-switch. Recommend a feature flag whose OFF state retains the current full-context path, so rollout is reversible and a later A/B is a toggle."
+    },
+    "refinement_R2": "task-1-2/1-3 handle absent/partial usage as '-> None, no exception' — good, but the plan does not say what the RESEED does when occupancy is None. If None is treated as 'below threshold', the trigger goes blind on exactly the non-Claude LiteLLM sub-200K routes it most needs to protect, silently falling back to CC compaction. Phase-6 should bias None/unknown occupancy toward over-reseeding (cheap, safe), never under (the lossy-compaction trap)."
+  },
+
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Load-bearing substrate #3186 (session resume) is OPEN — the threshold reseed pre-empts a warm-resume tier that is not yet plumbed",
+      "category": "dependency",
+      "severity": "HIGH",
+      "likelihood": "CERTAIN",
+      "impact": "AC-3 (threshold reseed) is defined as the cold half of a two-tier warm-resume/cold-reseed model: under threshold -> resume cached session (#3186); at/over -> reseed fresh. shared/egg_agent/client.py has NO resume/continue_conversation plumbing today (grep: zero hits). If the reseed lands without the resume substrate, every event cold-starts and the 'warm resume keeps it cheap' premise — and the whole cost case — evaporates; AC-3 cannot be meaningfully validated.",
+      "description": "The refine analysis (§4, §8) assigns #3186 (session resume + the AgentResult token-capture prereq + reset policy) INTO this pipeline as the warm substrate paired with the reseed. gh confirms #3186 OPEN and client.py builds ClaudeAgentOptions (L326) with no resume/continue path. The reseed trigger is only sensible relative to a session that is otherwise resumed; without resume, there is no warm tier to pre-empt.",
+      "affected_files": [
+        "shared/egg_agent/client.py",
+        "orchestrator/event_loop.py"
+      ],
+      "mitigation": {
+        "strategy": "The task_planner must encode an explicit ordering: (1) token-occupancy capture (AC-1) -> (2) session resume substrate (#3186) -> (3) threshold reseed (AC-3) -> (4) protected-root/queryable-env split (AC-2) -> (5) measurement surfaces (AC-4). AC-3's acceptance must be gated on #3186 resume existing in client.py; an AC-3 task that lands before resume is structurally un-testable. Make the resume substrate an in-pipeline deliverable (per refine §8) or, if it is treated as external, a hard blocked-by dependency surfaced to the operator.",
+        "effort": "MEDIUM",
+        "residual_risk": "MEDIUM — sequencing is plannable, but if #3186 is larger than expected it becomes the pipeline's critical path."
+      },
+      "requires_human_review": true,
+      "review_reason": "Confirm whether #3186 session-resume is in-scope for this pipeline or an external prerequisite; the answer reorders the entire plan DAG."
+    },
+    {
+      "id": "R2",
+      "title": "Occupancy source blind exactly where it matters: ResultMessage.usage may be absent/incomplete on non-Claude LiteLLM routes — the sub-200K backends the real-window trigger targets",
+      "category": "correctness",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "If usage is None or omits cache_read/cache_creation on the route, occupancy is unknown, the reseed trigger cannot fire, and the system silently falls back to CC's ~95% lossy compaction — the precise failure the issue exists to prevent. The genuine residual compaction gap (refine §narrowed) is sub-200K REAL backends, which are non-Claude LiteLLM routes — the most likely to have missing or differently-shaped usage accounting. The trigger risks being blind on exactly the models that most need it.",
+      "description": ".usage is referenced NOWHERE in shared/egg_agent (grep: zero hits); client.py:722-727 builds result_meta from total_cost_usd/num_turns/duration_ms/session_id and drops message.usage entirely. The SDK's ResultMessage.usage shape under LiteLLM passthrough (deepseek-v4-pro, kimi, future Qwen-class) is unverified. AC-1 requires window occupancy = cache_read + cache_creation + input; if any term is absent the formula silently under-counts and the trigger fires too late (or never).",
+      "affected_files": [
+        "shared/egg_agent/client.py",
+        "shared/egg_agent/result.py"
+      ],
+      "mitigation": {
+        "strategy": "Treat missing/partial usage as a first-class case, not a silent zero. On None/partial usage: log a WARNING and apply a deterministic fail-safe (conservative over-estimate or forced reseed at re-invocation) so the failure mode is 'reseed too eagerly' (cheap, safe) not 'never reseed' (the lossy-compaction trap). Add a unit test asserting occupancy = cache_read + cache_creation + input (NOT billed/effective input) and a test for the None/partial-usage fallback. Verify the usage shape against at least one real LiteLLM-routed model before relying on it.",
+        "effort": "MEDIUM",
+        "residual_risk": "MEDIUM — fail-safe bounds the damage, but until the LiteLLM usage shape is empirically confirmed the trigger fidelity on non-Claude routes is unproven."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R3",
+      "title": "Real-backend-window resolution is the central correctness seam — resolving the [1m] alias instead of the true window is the documented mis-trigger bug",
+      "category": "correctness",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "Threshold = min(400_000, 0.80 × real_backend_window). If the resolver reads the alias (opus[1m]=1M) when the backend is e.g. Qwen-128K, the threshold computes to 800k and the reseed never fires before the 128K backend overflows / CC compacts. A wrong real-window lookup defeats AC-3 entirely and silently.",
+      "description": "There is no single authoritative 'real window for resolved model' source today. agent_model_resolution.py:121-123 has _SUB_1M_CONTEXT_MODELS = {kimi-k2.7-code: 262144} as the only non-1M entry, and the [1m] suffix is explicitly an alias stripped before send (L101-118). A naive resolver keyed on the alias or defaulting unknown models to 1M reproduces the exact mis-trigger the issue names. Worked targets: opus[1m]->1M->400k; 200K profile->160k; kimi-262K->~210k; hypothetical Qwen-128K->102k.",
+      "affected_files": [
+        "orchestrator/agent_model_resolution.py",
+        "shared/egg_agent/client.py"
+      ],
+      "mitigation": {
+        "strategy": "Introduce ONE authoritative real-window resolver keyed on the resolved UPSTREAM model name (post-alias-strip), reusing _SUB_1M_CONTEXT_MODELS as the source of truth for sub-1M backends and defaulting Claude-family to their real window — never to the [1m] alias. Fail SAFE on unknown models: assume the smaller (200K) window so the trigger errs toward firing, not deferring. Unit-test the resolver across opus[1m], the 200K profile, kimi-262K, and a synthetic sub-200K entry, asserting the worked thresholds.",
+        "effort": "MEDIUM",
+        "residual_risk": "LOW — once a single resolver with a fail-safe default exists and is tested, this class of bug is closed."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R4",
+      "title": "Protected-root determinism vs the existing timestamp-heavy, agent-authored egg_anchor model — cache-prefix churn would invert the cost case",
+      "category": "design",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "The cost case rests on a 90%+ root-cache hit rate (stable cacheable prefix). The existing egg_anchor (shared/egg_anchor/models.py) is the OPPOSITE of stable bytes: AnchorMeta carries created_at/updated_at/sequence, and ProgressItem/Decision/ErrorEncountered each carry a timestamp. If the protected root is rendered from this model as-is, every event mutates timestamps -> the cache prefix changes every render -> near-zero cache hits -> the discipline costs MORE than the status quo, not less, and the central benefit is silently lost.",
+      "description": "egg_anchor is the post-compaction recovery system, not the #3189 deterministic layer. The refine analysis's 'deterministic rendering: stable bytes, sorted, bounded, hard per-section caps' constraint (§8) is in direct tension with the current model. The root must be a DIFFERENT, deterministic projection: no timestamps, no monotonic sequence, sorted keys, bounded sections. Agent-authored enrichment (#3188) belongs in the queryable environment, SHA-stamped — never in the cacheable root.",
+      "affected_files": [
+        "shared/egg_anchor/models.py",
+        "shared/egg_anchor/loader.py"
+      ],
+      "mitigation": {
+        "strategy": "Render the protected root from a deterministic projection that EXCLUDES created_at/updated_at/sequence and all per-item timestamps, sorts deterministically (e.g. by producer role / SHA), and enforces hard per-section caps. Add a golden byte-stability test: render the root twice from the same logical state and assert byte-identical output; render across two events with only enrichment changing and assert the root prefix is unchanged. Keep #3188 agent-authored enrichment strictly in the queryable env.",
+        "effort": "MEDIUM",
+        "residual_risk": "LOW-MEDIUM — a golden test closes regressions, but every future field added to the root is a re-introduction risk; the test must be a ratchet."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R5",
+      "title": "#3189 anchor CONTENT gap — the current BRCState model lacks the per-producer reviewed-SHA / NACK-obligation / conditional-ACK fields the protected root treats as authoritative",
+      "category": "dependency",
+      "severity": "HIGH",
+      "likelihood": "HIGH",
+      "impact": "AC-2's protected root is specified to carry #3189 deterministic anchors: last-reviewed SHA per producer, latest verdicts, open NACKs, conditional-ACK obligations. The current egg_anchor BRCState (models.py:96-103) carries only acks/nacks (agent-id lists) and last_message_id — NONE of those four. If the root ships against today's model, a reseed discards exactly the BRC anchors it exists to preserve: the agent re-reviews already-reviewed SHAs and silently drops conditional-ACK obligations -> a consensus-integrity break, not just a cost issue.",
+      "description": "gh confirms #3189 ('Deterministic BRC memory: derive review anchors, verdicts, NACK reasons, obligations from the message record') is OPEN. The refine analysis names #3189 as 'the authoritative layer of the permanent root; the keeper in every branch.' The root's correctness is therefore strictly downstream of #3189 delivering these fields, derived from the message record (not agent transcription).",
+      "affected_files": [
+        "shared/egg_anchor/models.py",
+        "orchestrator/routes/messages.py"
+      ],
+      "mitigation": {
+        "strategy": "Make the #3189 deterministic-anchor fields (reviewed-SHA-per-producer, latest verdict, open NACKs, conditional-ACK obligations, derived from the message record) a hard prerequisite of AC-2's root. Either land them in this pipeline (extend the model + a deterministic deriver from the BRC message record) or gate the protected-root rollout on #3189. Until then, the reseed MUST preserve conditional-ACK obligations and reviewed-SHA state by some authoritative path, or it is unsafe to enable. Add a test: reseed preserves open obligations and last-reviewed SHA per producer.",
+        "effort": "HIGH",
+        "residual_risk": "MEDIUM-HIGH — this is the sharpest correctness coupling; if #3189 content is not present, the reseed is a consensus-safety hazard and must stay flagged-off."
+      },
+      "requires_human_review": true,
+      "review_reason": "Consensus-integrity hazard: confirm #3189 deterministic anchor content (reviewed SHAs, conditional-ACK obligations) is present before any role's protected-root reseed is enabled."
+    },
+    {
+      "id": "R6",
+      "title": "The honest limit is a live hazard: JIT pull does not bound the window, and within-event pull growth can hit CC compaction before the re-invocation threshold ever checks",
+      "category": "design",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "The threshold reseed is evaluated at re-invocation (between events). A single event that pulls large slices (full /brc-transcript, multi-file diff) can climb to CC's ~95% wall MID-EVENT, triggering exactly the lossy compaction the design fights, with no threshold check in between. tool_output_cap.py caps individual tool outputs, not cumulative pulls within one event. Recursion (the only true 'window never fills' mechanism) is deferred.",
+      "description": "Refine §4 carries this as 'the central tension the prototype must falsify': a pulled slice stays resident until compaction; what bounds the window is the reseed, not the pull. With measurement deferred, this pipeline ships the mechanism without the data that would tell us how often within-event growth bites. The single-event-working-set-vs-real-window signal (AC-4) is the recursion-escalation trigger and must actually be emitted.",
+      "affected_files": [
+        "shared/egg_agent/tool_output_cap.py",
+        "sandbox/egg_agent_tools/handlers/brc.py"
+      ],
+      "mitigation": {
+        "strategy": "Ensure AC-4 emits the single-event working-set occupancy (peak within one event), not just per-event-boundary occupancy, so the deferred recursion gate has real data. Consider a cumulative within-event pull budget (sum of pulled-slice sizes) that warns/caps before CC's wall, independent of per-output caps. Document explicitly (in the artifact and code) that AC-3 does NOT protect within-event growth — that is the deferred recursion escalation's job — so no one mistakes the threshold for a within-event bound.",
+        "effort": "MEDIUM",
+        "residual_risk": "MEDIUM — without measurement, the frequency of within-event overflow is unknown by design; the mitigation makes it observable rather than eliminating it."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R7",
+      "title": "Persistence timing — a mid-phase reseed re-pulls BRC history that _write_brc_history only persists at phase transitions",
+      "category": "correctness",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "A reseed firing mid-phase rebuilds context by re-pulling history. If the re-pull reads the phase-transition-persisted file (.egg-state/brc-history/<id>-<phase>.json), it gets STALE or EMPTY data for the in-flight phase, because _write_brc_history persists at phase transitions only today. The reseeded session would then be blind to peer proposals/verdicts that occurred earlier in the same phase — a silent context loss that defeats the reseed.",
+      "description": "Confirmed: _write_brc_history lives in orchestrator/routes/messages.py and routes/pipelines.py; refine §8 names this exact constraint ('mid-phase restarts need the message record to survive — live Redis stream across the restart, or a history-persist step added to the restart route'). read_peer_artifact's own docs note the live source vs. the phase-transition file distinction (#3076).",
+      "affected_files": [
+        "orchestrator/routes/messages.py",
+        "orchestrator/routes/pipelines.py"
+      ],
+      "mitigation": {
+        "strategy": "The reseed re-pull MUST read the LIVE source (the orchestrator message store / Redis stream exposed by the /brc-transcript live route and read_peer_artifact's live merge), not the phase-transition file. Verify the live stream survives the agent restart the reseed performs. Add a test: mid-phase reseed re-pulls all in-phase peer proposals/verdicts emitted before the reseed point. If the live stream is not durable across restart, add a history-persist step to the restart path as refine §8 anticipates.",
+        "effort": "MEDIUM",
+        "residual_risk": "LOW-MEDIUM — the live route exists (#3076); the residual is verifying restart-durability of the stream."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R8",
+      "title": "Provider stickiness / root-cache invalidation under resume — a LiteLLM route bounce reprices accumulated history and voids the root cache",
+      "category": "performance",
+      "severity": "MEDIUM",
+      "likelihood": "LOW",
+      "impact": "Refine §8 carries this from the children: single-pin deepseek-v4-pro; a provider bounce is amplified under resume — the entire accumulated, otherwise-cached history is re-billed at full uncached rate and the 90%+ root cache is invalidated. Under the new resident-root design the blast radius of a bounce is larger (the whole point is a big stable cached prefix), so a stickiness failure is more costly than before.",
+      "description": "The cost case depends on prompt-cache hits on a stable provider. If routing leaves the caching provider mid-phase, both the root cache and the resumed-session cache miss. This interacts with R4 (the root must produce a stable prefix) and the resume substrate (R1).",
+      "affected_files": [
+        "config/litellm",
+        "orchestrator/agent_model_resolution.py"
+      ],
+      "mitigation": {
+        "strategy": "Confirm LiteLLM route stickiness holds across a reseed/restart (same upstream pin re-selected). Ensure the root-cache key is stable across reseed for the same provider. Emit root-cache-hit-rate as part of AC-4 surfaces so a stickiness regression is observable. This is largely a verification + observability ask, not new mechanism.",
+        "effort": "LOW",
+        "residual_risk": "LOW — pre-existing constraint; the design amplifies cost-on-bounce but does not create the bounce."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R9",
+      "title": "No measurement gate + fleet-wide rollout across ALL roles at once — a latent quality/cost regression would land everywhere simultaneously with no A/B safety net",
+      "category": "rollout",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "The operator deliberately scoped this as full build across all producers AND reviewers with NO measurement and nothing gated on results (AC-5), to be tested end-to-end by the operator. The consequence: if JIT-pull review quality is worse than full-inline, or the cost case fails to materialize, the regression ships across every BRC role at once. Without an A/B control there is no graceful degradation — only detection after the fact.",
+      "description": "This is an accepted scope decision (cq-1 resolved by the operator), not a defect — but it concentrates risk. The honest-limit (R6), the determinism risk (R4), and the anchor-content risk (R5) all become fleet-wide the moment the mechanism is enabled. The mitigation is not to re-litigate scope but to make the accepted risk cheaply reversible.",
+      "affected_files": [
+        "orchestrator/event_loop.py",
+        "shared/egg_agent/client.py"
+      ],
+      "mitigation": {
+        "strategy": "STRONGEST RECOMMENDATION: gate the entire discipline (split + reseed + JIT-pull) behind a single feature flag whose OFF state is the preserved full-context path. This makes the operator's end-to-end test a one-flag revert rather than a code revert, and lets the eventual measurement follow-up run A/B by toggling the flag per role. Preserve the original full-context framing (refine §10 fallback) as the literal off-state, not just as documentation. Default the flag conservatively for the first rollout.",
+        "effort": "MEDIUM",
+        "residual_risk": "LOW — a flag converts an unmeasured fleet-wide change into a reversible one; this single control retires most of the rollout risk."
+      },
+      "requires_human_review": true,
+      "review_reason": "Confirm the discipline must ship behind a feature flag with the full-context path as the OFF state; this is the primary safeguard given no measurement gate."
+    },
+    {
+      "id": "R10",
+      "title": "Silent-failure modes need explicit unit tests — occupancy formula, threshold math, root byte-stability, and the None-usage fallback all fail quietly if untested",
+      "category": "testing",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "Every primary risk in this assessment (R2 occupancy formula, R3 real-window resolution, R4 root determinism, R7 history re-pull) shares the property that it fails SILENTLY — wrong number, stale cache, missing anchor — with no exception thrown. Without targeted tests these regressions are invisible until the operator's end-to-end pass, and some (cost, anchor-fidelity) are hard to spot even then.",
+      "description": "AC-4 specifies surfaces 'present and emitting' but tooling-only; the surfaces must themselves be tested to emit the right numbers. The occupancy formula must be asserted as cache_read+cache_creation+input (not billed input). The threshold worked examples (opus[1m]->400k; 200K->160k; Qwen-128K->102k) are ready-made test vectors.",
+      "affected_files": [
+        "shared/egg_agent/result.py",
+        "orchestrator/agent_model_resolution.py"
+      ],
+      "mitigation": {
+        "strategy": "Require, as plan deliverables: (1) occupancy-formula test (asserts the three-term sum, rejects billed-input shape); (2) real-window resolver test across the four worked profiles with fail-safe-on-unknown; (3) golden root byte-stability test (R4); (4) None/partial-usage fallback test (R2); (5) mid-phase reseed history-fidelity test (R7). Run via `make test` (changeset-aware). These convert silent failures into CI failures.",
+        "effort": "MEDIUM",
+        "residual_risk": "LOW — standard, high-leverage; the worked examples make the vectors trivial to encode."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R11",
+      "title": "Pre-existing oddity adjacent to the AC-1 edit site — except clause at client.py:699 (NON-BLOCKING, out of #3200 scope, verify-and-report)",
+      "category": "code_quality",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "AC-1 modifies the ResultMessage handler at client.py:717-727. Immediately above it, line 699 reads `except TypeError, ValueError:` — the Python-2 tuple-comma form, which is a SyntaxError in Python 3 (the valid form, used elsewhere in the same file at the ProcessError handler, is `except (TypeError, ValueError):`). Whoever implements AC-1 will be editing within a few lines of this; if it is a genuine defect it will surface at import, if it is a snapshot/transcription artifact it is harmless.",
+      "description": "Flagged only because it is adjacent to the in-scope edit site, not because it is part of #3200. I did not modify it and make no claim it must be fixed here. The implementer should simply confirm the file imports cleanly when touching it and, if the syntax is genuinely present, raise a separate ticket — do NOT fold an unrelated fix into the #3200 changeset.",
+      "affected_files": [
+        "shared/egg_agent/client.py"
+      ],
+      "mitigation": {
+        "strategy": "When implementing AC-1, verify `python -c 'import shared.egg_agent.client'` (or the equivalent import path) succeeds. If line ~699 genuinely uses the tuple-comma form, open a separate issue rather than expanding #3200's scope. Treat as informational.",
+        "effort": "NEGLIGIBLE",
+        "residual_risk": "NEGLIGIBLE — informational, explicitly out of scope."
+      },
+      "requires_human_review": false
+    }
+  ],
+
+  "areas_requiring_human_review": [
+    {
+      "area": "#3186 session-resume scope & sequencing (R1)",
+      "reason": "Whether session resume is an in-pipeline deliverable or an external prerequisite determines the entire plan DAG. The reseed (AC-3) is un-testable without it.",
+      "suggested_reviewer": "Architect / pipeline owner"
+    },
+    {
+      "area": "#3189 deterministic-anchor content as a hard gate on the protected root (R5)",
+      "reason": "Consensus-integrity hazard: if the root ships without reviewed-SHA / conditional-ACK-obligation anchors, a reseed silently drops obligations and re-reviews settled SHAs. The root must stay flagged-off until #3189 content exists.",
+      "suggested_reviewer": "BRC/consensus owner"
+    },
+    {
+      "area": "Feature-flag rollout with the full-context path as the OFF state (R9)",
+      "reason": "Given the operator's no-measurement scope, a flag is the primary safeguard that makes the end-to-end test a one-flag revert and enables a later A/B. Confirm this is required.",
+      "suggested_reviewer": "Operator / pipeline owner"
+    }
+  ],
+
+  "rollback_plan": {
+    "strategy": "If the discipline is gated behind the feature flag recommended in R9, rollback is flipping the flag to its OFF state, which restores the preserved full-context path (refine §10 fallback) with no code revert. Absent the flag, rollback is reverting the changeset; because token-capture (AC-1), #3186 resume, and #3189 anchors are additive keepers in every branch, only the split + reseed wiring needs reverting.",
+    "steps": [
+      "1. Flip the context-discipline feature flag to OFF (or revert the split/reseed changeset if no flag).",
+      "2. Agents resume the prior full-context behavior on next invocation (prompt-assembly change, takes effect per-invocation, no mid-execution impact).",
+      "3. Token-occupancy capture (AC-1) and any landed #3186/#3189 work remain — they are safe to keep and are independently useful.",
+      "4. No state migration: BRC history, contract, and message records are untouched by the discipline.",
+      "5. Confirm root-cache and route pins return to the pre-change steady state."
+    ],
+    "data_loss_risk": "NONE for persistent data (contract / BRC history / message records are not mutated by the discipline). The one in-flight risk is anchor-fidelity (R5): a reseed that drops conditional-ACK obligations loses consensus state for the live phase — which is precisely why the root must stay flagged-off until #3189 content exists.",
+    "downtime_risk": "NONE — prompt-assembly and reseed changes take effect on the next agent invocation, not mid-execution."
+  },
+
+  "implementation_recommendations": [
+    {
+      "id": "REC1",
+      "priority": "HIGH",
+      "recommendation": "Gate the entire discipline behind a single feature flag whose OFF state is the preserved full-context path (R9). This is the most important single control given the no-measurement scope.",
+      "rationale": "Converts an unmeasured, fleet-wide, all-roles behavioral change into a one-flag reversible one, and gives the deferred measurement follow-up a ready A/B toggle."
+    },
+    {
+      "id": "REC2",
+      "priority": "HIGH",
+      "recommendation": "Encode the dependency order explicitly in the task breakdown: AC-1 token capture -> #3186 resume -> AC-3 reseed -> AC-2 split -> AC-4 surfaces. Gate AC-3 acceptance on #3186 resume and AC-2 root on #3189 anchor content (R1, R5).",
+      "rationale": "Two load-bearing substrates are OPEN; AC-3 is un-testable without resume and AC-2's root is a consensus hazard without #3189 content."
+    },
+    {
+      "id": "REC3",
+      "priority": "HIGH",
+      "recommendation": "Build ONE authoritative real-backend-window resolver keyed on the post-alias-strip upstream name, fail-safe to the smaller window on unknown models, unit-tested across the four worked profiles (R3).",
+      "rationale": "Resolving the [1m] alias instead of the real window is the documented mis-trigger bug; a single fail-safe resolver closes the class."
+    },
+    {
+      "id": "REC4",
+      "priority": "HIGH",
+      "recommendation": "Handle missing/partial ResultMessage.usage as a first-class fail-safe (warn + conservative over-estimate / forced reseed), not a silent zero; verify the usage shape on a real LiteLLM route before relying on it (R2).",
+      "rationale": "The trigger must not be blind on the non-Claude sub-200K backends it most needs to protect; bias the failure toward over-reseeding, never under."
+    },
+    {
+      "id": "REC5",
+      "priority": "MEDIUM",
+      "recommendation": "Render the protected root from a deterministic, timestamp-free projection (sorted, bounded, hard caps); add a golden byte-stability ratchet test. Keep #3188 agent-authored enrichment in the queryable env, SHA-stamped (R4).",
+      "rationale": "The existing egg_anchor model is timestamp-heavy; rendering the root from it as-is would churn the cache prefix and invert the cost case."
+    },
+    {
+      "id": "REC6",
+      "priority": "MEDIUM",
+      "recommendation": "Ensure the reseed re-pull reads the LIVE message source (not the phase-transition history file) and verify the stream survives the restart; test mid-phase reseed history fidelity (R7). Emit single-event peak working-set in AC-4 surfaces (R6).",
+      "rationale": "Mid-phase reseed must not be blind to in-phase peer proposals; the within-event signal feeds the deferred recursion gate."
+    },
+    {
+      "id": "REC7",
+      "priority": "MEDIUM",
+      "recommendation": "Add the silent-failure unit tests as plan deliverables: occupancy-formula, real-window resolver, root byte-stability, None-usage fallback, mid-phase reseed fidelity (R10).",
+      "rationale": "Every primary risk fails silently; tests convert them into CI failures the worked examples make trivial to encode."
+    }
+  ],
+
+  "performance_assessment": {
+    "intended_win": "Lower peak context utilization under resume + a 90%+ root-cache hit rate, yielding cheaper, less-rotted long-running roles.",
+    "primary_cost_risks": "Root-cache churn from non-deterministic rendering (R4) and provider-bounce repricing under resume (R8) could invert the cost case; both are observable via the AC-4 root-cache-hit-rate surface.",
+    "unmeasured_by_design": "AC-5 forbids measurement in this pipeline; the actual peak-utilization / reseed-frequency / cost outcomes are a deferred follow-up. The tooling (AC-4) must emit them but does not judge them here.",
+    "note": "Reseed is assumed to fire rarely — an explicitly unmeasured assumption (refine §4). If it fires often, cost climbs (cold starts forfeit the resumed-session cache); the AC-4 reseed-frequency surface is what later confirms or falsifies this."
+  },
+
+  "security_assessment": {
+    "threat_model": "Primarily an integrity / agent-authored-content concern rather than an external-attacker one. The sharpest integrity risk is agent-authored enrichment masquerading as ground truth: a stale 'verified' claim in the queryable env that suppresses a needed re-check (refine §8).",
+    "controls": [
+      "SHA-stamp agent-authored enrichment so the git-log delta can invalidate stale claims; keep the deterministic #3189 layer + git-log delta authoritative.",
+      "Derive #3189 anchors from the message record, not agent transcription (R5) — removes the agent as a trust intermediary for reviewed-SHA / obligation state.",
+      "Note: the refine phase recorded an unrelated prompt-injection OVERSEER_ALERT (5dd065f5) against a user-turn channel; not part of this changeset but a reminder that provenance of agent-authored context matters."
+    ],
+    "residual_risk": "LOW-MEDIUM — contingent on enrichment being SHA-stamped and the authoritative layer being message-record-derived; a wrong-but-trusted 'verified' claim that suppresses re-review is the failure mode to design against."
+  },
+
+  "compatibility_assessment": {
+    "breaking_changes": "None intended if gated behind the R9 flag (OFF = current behavior). Ungated, AC-2's change to prompt assembly is a behavioral change for every BRC role at once.",
+    "backward_compatibility": "Preserved via the full-context OFF state (refine §10 fallback) — provided the flag is implemented.",
+    "forward_compatibility": "Good — token capture (AC-1), #3186 resume, and #3189 anchors are additive keepers reused by the deferred measurement and recursion follow-ups.",
+    "affected_systems": [
+      "All event-pump BRC roles (producers AND reviewers) — prompt assembly + session lifecycle",
+      "shared/egg_agent (AgentResult occupancy, client.py usage capture + resume)",
+      "orchestrator (real-window resolution, reseed wiring, BRC history persistence timing)",
+      "LiteLLM routing / prompt-cache economics (root-cache stability, provider stickiness)"
+    ]
+  },
+
+  "overall_assessment": "The design is coherent and unusually well-grounded — the refine analysis verified its code anchors and both refine reviewers ACKed. The risk is not in the idea but in the execution surface: three correctness seams that fail silently (real-window resolution R3, occupancy source R2, root determinism R4), two OPEN substrates the design leans on (#3186 R1, #3189 R5), and an accepted no-measurement scope that concentrates an unmeasured change across every role at once (R9). PROCEED is warranted because every risk has a concrete, mostly-LOW-residual mitigation, and the two highest-leverage controls are cheap: a single feature flag with the full-context OFF state (R9/REC1), and gating AC-2's root on #3189 anchor content so a reseed cannot silently drop conditional-ACK obligations (R5/REC2). With those two controls and the silent-failure test suite (R10), the residual fleet-wide risk is acceptable for an operator-tested end-to-end rollout."
+}
