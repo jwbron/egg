@@ -153,10 +153,30 @@
       "resolution": "approve",
       "phase": "refine",
       "content_changed": true
+    },
+    {
+      "id": "decision-3",
+      "question": "slice-10 (#3258) AC-1 says to derive metrics from the \"already-merged\" slice-1 AgentResult window-occupancy field and slice-8 reseed signals — but both are UNMERGED open PRs (slice-1 #3236 base=egg/issue-3200/work; slice-8 #3251 base=egg/issue-3200/slice-7, UNSTABLE), and origin/main (this pipeline's base) has no occupancy field and no reseed code. How should slice-10 obtain its input signals?",
+      "context": "Open contract question cq-1, registered by an agent during the refine phase.",
+      "options": [
+        "A) Stack #3258 on the #3200 slice-8/9 branch tip so the merged-substrate premise holds (matches the #3245 stacked-slice proof-of-fix intent)",
+        "B) Vendor a minimal slice-1 occupancy field + slice-8 reseed signal into this pipeline as a prerequisite, then build emit surfaces on top",
+        "C) Block until #3200 slices 1-9 merge to main, then run slice-10 against main",
+        "D) Emit-only against existing AgentResult fields plus defined adapter seams that degrade gracefully (null/zero) until the real fields land — keeps slice-10 self-contained on main today",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-06-25T20:45:39.983576Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-06-25T20:12:55.980282Z",
-  "updated_at": "2026-06-25T20:45:35.948741Z",
+  "updated_at": "2026-06-25T20:45:39.993540Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -169,7 +189,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 21,
+  "version": 22,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
