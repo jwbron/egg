@@ -1536,6 +1536,26 @@ class PipelineToolHandler:
         """
         return self._build_status_snapshot(args["task_id"])
 
+    def _live_running_agents_fallback(self, task_id: str) -> list[dict[str, Any]]:
+        """Live running-agent view from the ``/status`` concurrent block (#3230).
+
+        Used to backfill ``get_status.running_agents`` when the persisted
+        phase-agent list is empty under the orchestrator-owned event loop
+        (#3164). The ``/status`` endpoint's ``concurrent.agents`` is
+        server-side reconstructed from live Job labels (see
+        ``routes.pipelines._live_event_agents``), so it reflects role pods
+        that are actually ``Running``. ``task_id`` must already be URL-quoted
+        (the caller quotes it once for both requests). Best-effort: any
+        failure or a non-concurrent phase yields ``[]``.
+        """
+        try:
+            status_result = self._make_request(f"/api/v1/pipelines/{task_id}/status")
+            concurrent = status_result.get("data", {}).get("concurrent", {}) or {}
+        except Exception:
+            return []
+        agents = concurrent.get("agents", []) or []
+        return [a for a in agents if a.get("status") == "running"]
+
     def _build_status_snapshot(self, raw_task_id: str) -> dict[str, Any]:
         """Build the full enriched status snapshot for a pipeline.
 
@@ -1600,6 +1620,18 @@ class PipelineToolHandler:
         agents = phase_data.get("agents", [])
         status["running_agents"] = [a for a in agents if a.get("status") == "running"]
         status["completed_agents"] = [a for a in agents if a.get("status") == "complete"]
+
+        # Under the orchestrator-owned BRC event loop (#3164, unconditional)
+        # role pods are on-demand one-shots that are never persisted into the
+        # phase's agent list, so the persisted view above is empty even while
+        # role pods are Running — a blind dashboard (#3230). Backfill
+        # ``running_agents`` from the ``/status`` endpoint's live
+        # ``concurrent.agents`` view (server-side reconstructed from live Job
+        # labels) so the dashboard reflects the live cohort during
+        # event-loop-owned phases. Stays empty when no pod is live, so
+        # between-spawn quiescence is not misreported as running.
+        if not status["running_agents"]:
+            status["running_agents"] = self._live_running_agents_fallback(task_id)
 
         # Server-computed timing (#1702)
         now = datetime.now(UTC)

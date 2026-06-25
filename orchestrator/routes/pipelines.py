@@ -1125,6 +1125,73 @@ def _count_live_pods_for_pipeline(pipeline_id: str, *, quiet: bool = False) -> i
         return None
 
 
+def _live_event_agents(pipeline_id: str, slice_id: str | None) -> list[dict[str, Any]]:
+    """Running-agent view reconstructed from live Job labels (#3230).
+
+    Under the orchestrator-owned BRC event loop (#3164, now unconditional)
+    each role's pod is an on-demand one-shot the loop deliberately does NOT
+    persist into ``phase_exec.agents`` — ``event_loop.py`` treats the
+    consensus tracker plus live-Job labels as the only sources of truth. So
+    the persisted agent list is empty even while role pods are ``Running``,
+    which the dashboard (``get_status.running_agents``) and the overseer
+    (``concurrent.agents`` stall-duration math) both read as "0 running
+    agents" — a blind dashboard and false ``phase stalled`` alerts.
+
+    This reconstructs the running-pod cohort from the labels that ARE
+    authoritative. Live = ``status`` in :data:`_LIVE_POD_STATUSES`
+    (Pending / Creating / Running); terminal pods lingering in the
+    ``ttlSecondsAfterFinished`` window are excluded so between-spawn
+    quiescence reads as "no running agents" (the normal idle state, not a
+    stall). Scoped to ``slice_id`` when supplied so a slice-DAG implement
+    phase reports its own slice's pods rather than a cross-slice union;
+    refine/plan phases are unsliced and query by pipeline label alone.
+
+    Entry shape mirrors the persisted ``agents`` entries (``role`` /
+    ``status`` / ``started_at`` / ``elapsed_seconds`` / ``container_id``)
+    so consumers need no special-casing. ``status`` is reported as
+    ``"running"`` for every live pod — Pending/Creating pods are agents
+    spinning up, and the dashboard's running-agent filter keys on that
+    literal.
+
+    Best-effort: an absent/failed label query yields ``[]`` (callers treat
+    that identically to "no persisted agents", so there is no regression
+    versus the pre-fix behavior).
+    """
+    try:
+        spawner = _get_spawner()
+        labels = {LABEL_PIPELINE_ID: pipeline_id}
+        if slice_id:
+            labels[LABEL_SLICE_ID] = slice_id
+        pods = spawner.backend.list_containers(labels=labels)
+    except Exception as e:  # noqa: BLE001 — observability backfill is best-effort
+        logger.debug(
+            "Live event-agent backfill query failed (#3230)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            error=str(e),
+        )
+        return []
+
+    now = datetime.now(UTC)
+    entries: list[dict[str, Any]] = []
+    for pod in pods:
+        if pod.status not in _LIVE_POD_STATUSES:
+            continue
+        role = pod.agent_role.value if pod.agent_role is not None else None
+        if not role:
+            continue
+        entry: dict[str, Any] = {"role": role, "status": "running"}
+        if isinstance(pod.container_id, str) and pod.container_id:
+            entry["container_id"] = pod.container_id
+        started_at = pod.started_at
+        if isinstance(started_at, datetime):
+            started_dt = started_at if started_at.tzinfo else started_at.replace(tzinfo=UTC)
+            entry["started_at"] = started_dt.isoformat()
+            entry["elapsed_seconds"] = max(0, int((now - started_dt).total_seconds()))
+        entries.append(entry)
+    return entries
+
+
 def _slice_agents_alive(spawner: Any, pipeline_id: str, slice_id: str) -> bool:
     """Check if any live agents exist for a slice (#2914).
 
@@ -4516,9 +4583,9 @@ def _get_concurrent_status(pipeline: Pipeline, slice_id: str | None = None) -> d
     # ``started_at`` rather than pre-restart message-bus events (issue #2084).
     current_phase_name = pipeline.current_phase.value
     phase_exec = pipeline.phases.get(current_phase_name)
+    agents_info: list[dict[str, Any]] = []
     if phase_exec and hasattr(phase_exec, "agents"):
         now = datetime.now(UTC)
-        agents_info = []
         for agent in phase_exec.agents:
             if hasattr(agent, "role"):
                 role = agent.role.value if hasattr(agent.role, "value") else str(agent.role)
@@ -4551,6 +4618,17 @@ def _get_concurrent_status(pipeline: Pipeline, slice_id: str | None = None) -> d
                 entry["elapsed_seconds"] = max(0, int((now - started_dt).total_seconds()))
 
             agents_info.append(entry)
+
+        # When the persisted phase-agent list is empty, backfill the
+        # running-pod view from live Job labels (#3230). Under the
+        # orchestrator-owned event loop (#3164) on-demand one-shot pods are
+        # never persisted into ``phase_exec.agents``, so without this the
+        # overseer's stall-duration math and the dashboard see "0 running
+        # agents" while role pods are demonstrably ``Running``. Empty stays
+        # empty when no pod is live, so legitimate between-spawn quiescence is
+        # not misreported as a cohort.
+        if not agents_info:
+            agents_info = _live_event_agents(pipeline.id, slice_id)
         result["agents"] = agents_info
 
     return result

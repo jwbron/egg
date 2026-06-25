@@ -221,6 +221,128 @@ class TestGetConcurrentStatusUnit:
         assert result["agents"][0]["status"] == "unknown"
 
 
+class TestLiveEventAgentBackfill:
+    """Live running-agent backfill under the orchestrator-owned event loop (#3230).
+
+    Under the unconditional event loop (#3164) role pods are on-demand
+    one-shots that are never persisted into ``phase_exec.agents``, so the
+    persisted agent list is empty even while role pods are ``Running``.
+    ``_get_concurrent_status`` backfills the running-pod view from live Job
+    labels so the dashboard and the overseer's stall-duration math are not
+    blind. These tests pin that backfill: it fires only when the persisted
+    list is empty, filters terminal pods, maps role / elapsed, and scopes to
+    the slice when one is supplied.
+    """
+
+    @staticmethod
+    def _pod(role, status, *, started_offset_s=None, container_id="cid"):
+        from datetime import UTC, datetime, timedelta
+
+        from models import AgentRole, ContainerInfo, ContainerStatus
+
+        started_at = None
+        if started_offset_s is not None:
+            started_at = datetime.now(UTC) - timedelta(seconds=started_offset_s)
+        return ContainerInfo(
+            container_id=container_id,
+            container_name=f"job-{role}",
+            status=ContainerStatus(status),
+            started_at=started_at,
+            agent_role=AgentRole(role),
+        )
+
+    def test_backfill_populates_from_live_pods_when_persisted_empty(self):
+        """An empty persisted agent list is backfilled from live Running pods."""
+        pipeline = _make_concurrent_pipeline()
+
+        mock_phase_exec = MagicMock()
+        mock_phase_exec.agents = []  # event loop persists nothing
+        pipeline.phases["implement"] = mock_phase_exec
+
+        spawner = MagicMock()
+        spawner.backend.list_containers.return_value = [
+            self._pod("refiner", "running", started_offset_s=152),
+            self._pod("reviewer_refine", "pending"),
+        ]
+        with patch("routes.pipelines._get_spawner", return_value=spawner):
+            result = _get_concurrent_status(pipeline)
+
+        roles = {a["role"] for a in result["agents"]}
+        assert roles == {"refiner", "reviewer_refine"}
+        # All live pods (incl. Pending startup) report as "running" so the
+        # dashboard's running-agent filter surfaces them.
+        assert all(a["status"] == "running" for a in result["agents"])
+        refiner = next(a for a in result["agents"] if a["role"] == "refiner")
+        assert 150 <= refiner["elapsed_seconds"] <= 160
+
+    def test_backfill_excludes_terminal_pods(self):
+        """Pods lingering in the TTL window after exit must not count as live."""
+        pipeline = _make_concurrent_pipeline()
+        mock_phase_exec = MagicMock()
+        mock_phase_exec.agents = []
+        pipeline.phases["implement"] = mock_phase_exec
+
+        spawner = MagicMock()
+        spawner.backend.list_containers.return_value = [
+            self._pod("refiner", "exited"),
+            self._pod("reviewer_refine", "failed"),
+        ]
+        with patch("routes.pipelines._get_spawner", return_value=spawner):
+            result = _get_concurrent_status(pipeline)
+
+        # Terminal pods filtered → no live cohort (quiescence, not a stall).
+        assert result["agents"] == []
+
+    def test_persisted_agents_take_precedence_over_backfill(self):
+        """When the phase already records agents, the live query is not run."""
+        pipeline = _make_concurrent_pipeline()
+        mock_phase_exec = MagicMock()
+        mock_agent = MagicMock(spec=["role", "status"])
+        mock_agent.role = "coder"
+        mock_agent.status.value = "running"
+        mock_phase_exec.agents = [mock_agent]
+        pipeline.phases["implement"] = mock_phase_exec
+
+        spawner = MagicMock()
+        with patch("routes.pipelines._get_spawner", return_value=spawner):
+            result = _get_concurrent_status(pipeline)
+
+        assert [a["role"] for a in result["agents"]] == ["coder"]
+        spawner.backend.list_containers.assert_not_called()
+
+    def test_backfill_is_slice_scoped_when_slice_given(self):
+        """A slice-scoped query filters live pods to that slice's label."""
+        from kubernetes_client import LABEL_PIPELINE_ID, LABEL_SLICE_ID
+
+        pipeline = _make_concurrent_pipeline()
+        mock_phase_exec = MagicMock()
+        mock_phase_exec.agents = []
+        pipeline.phases["implement"] = mock_phase_exec
+
+        spawner = MagicMock()
+        spawner.backend.list_containers.return_value = []
+        with patch("routes.pipelines._get_spawner", return_value=spawner):
+            _get_concurrent_status(pipeline, slice_id="slice-2")
+
+        spawner.backend.list_containers.assert_called_once_with(
+            labels={LABEL_PIPELINE_ID: pipeline.id, LABEL_SLICE_ID: "slice-2"}
+        )
+
+    def test_backfill_best_effort_on_query_failure(self):
+        """A failed label query degrades to an empty cohort, never raises."""
+        pipeline = _make_concurrent_pipeline()
+        mock_phase_exec = MagicMock()
+        mock_phase_exec.agents = []
+        pipeline.phases["implement"] = mock_phase_exec
+
+        spawner = MagicMock()
+        spawner.backend.list_containers.side_effect = RuntimeError("k8s unreachable")
+        with patch("routes.pipelines._get_spawner", return_value=spawner):
+            result = _get_concurrent_status(pipeline)
+
+        assert result["agents"] == []
+
+
 class TestGetConcurrentStatusSliceAware:
     """_get_concurrent_status resolves the per-slice BRC tracker (#2761).
 
