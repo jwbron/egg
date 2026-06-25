@@ -573,6 +573,56 @@ jobs:
           ref: ${{ steps.pr-meta.outputs.head-sha }}
           persist-credentials: false
 
+      # #3255: a slice PR's .egg-state/contracts/ copy is frozen at the branch's
+      # fork point — the orchestrator is the sole contract writer and persists it
+      # to egg/<id>/work, never to slice branches (gateway phase_filter #2979).
+      # Now that the conflict bot no longer merges work into slice branches (so
+      # the slice's commit list stays clean), give contract verification the
+      # canonical, live contract by overlaying it from egg/<id>/work into the
+      # review checkout. Best-effort and working-tree only — never staged,
+      # committed, or pushed, so slice history is untouched. Uses the contents
+      # API rather than a git fetch+checkout so no PR-supplied .gitattributes
+      # smudge filter can execute against the bot token.
+      - name: Overlay canonical contract from work branch (slice PRs)
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          HEAD_REF: ${{ steps.pr-meta.outputs.head-ref }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$HEAD_REF" =~ ^egg/(.+)/slice-[0-9]+$ ]]; then
+            echo "PR head $HEAD_REF is not a slice branch; using the PR's own contract"
+            exit 0
+          fi
+          work_branch="egg/${BASH_REMATCH[1]}/work"
+          names=$(gh api "repos/${GITHUB_REPOSITORY}/contents/.egg-state/contracts?ref=${work_branch}" \
+            --jq '.[] | select(.name | endswith(".json")) | .name' 2>/dev/null || echo "")
+          if [[ -z "$names" ]]; then
+            echo "::warning::No contract found on ${work_branch}; leaving the PR branch contract in place (#3255)"
+            exit 0
+          fi
+          mkdir -p .egg-state/contracts
+          while IFS= read -r name; do
+            [[ -z "$name" ]] && continue
+            content=$(gh api "repos/${GITHUB_REPOSITORY}/contents/.egg-state/contracts/${name}?ref=${work_branch}" \
+              --jq '.content' 2>/dev/null || echo "")
+            if [[ -z "$content" ]]; then
+              echo "::warning::Empty content for ${name} on ${work_branch} (too large for contents API?); keeping PR-branch copy"
+              continue
+            fi
+            # Decode to a temp file and promote only on success. A raw
+            # `base64 -d > dest` under `set -euo pipefail` would hard-fail the
+            # whole review job if the payload ever fails to decode; this step is
+            # best-effort, so a bad decode must degrade to "keep the PR-branch
+            # copy", not abort the review (#3255 review note).
+            if ! echo "$content" | base64 -d > ".egg-state/contracts/${name}.tmp" 2>/dev/null; then
+              echo "::warning::Failed to base64-decode ${name} from ${work_branch}; keeping PR-branch copy"
+              rm -f ".egg-state/contracts/${name}.tmp"
+              continue
+            fi
+            mv ".egg-state/contracts/${name}.tmp" ".egg-state/contracts/${name}"
+            echo "Overlaid canonical .egg-state/contracts/${name} from ${work_branch}"
+          done <<< "$names"
+
       - name: Run egg to review and post feedback
         id: egg
         uses: jwbron/egg/action@main
