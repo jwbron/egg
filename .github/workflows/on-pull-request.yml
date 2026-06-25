@@ -25,9 +25,45 @@ jobs:
           fi
           echo "All required repository variables are configured"
 
+  # Skip the GitHub-level code reviewer on SDLC pipeline-produced PRs. The egg
+  # orchestrator opens exactly two branch shapes — egg/<id>/slice-<N> and
+  # egg/<id>/work — and both are already reviewed in-band by the pipeline's own
+  # BRC consensus, so this reviewer is redundant; worse, it pushes commits and
+  # so pollutes slice history (#3255). Human PRs (egg/<topic>) and the
+  # doc-updater bot (egg/doc-update-*) do NOT match and are reviewed normally.
+  # The gate lives here (the egg-reviewer caller) rather than in the shared
+  # reusable-review.yml because the contract-verification caller
+  # (on-pull-request-contract-verify.yml) also calls reusable-review.yml and
+  # MUST keep verifying slice PRs (#3040).
+  should-run:
+    name: Check if code review should run
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - name: Check branch topology
+        id: check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          # Manual dispatch always runs — explicit override of the skip below.
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$HEAD_REF" =~ ^egg/.+/slice-[0-9]+$ || "$HEAD_REF" =~ ^egg/.+/work$ ]]; then
+            echo "::notice::Skipping code review: SDLC pipeline PR branch ${HEAD_REF} is reviewed in-band by the pipeline"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
   review:
     name: egg-review / Code
-    needs: [validate-config]
+    needs: [validate-config, should-run]
+    if: needs.should-run.outputs.run == 'true'
     permissions:
       contents: read
       pull-requests: write

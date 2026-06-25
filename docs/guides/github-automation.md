@@ -49,9 +49,17 @@ and via `workflow_dispatch` with a PR number.
 1. **Skip checks** — Skips draft PRs, PRs with `[skip-review]` in the title, and PRs where
    the current HEAD commit has already been reviewed by the same bot — this prevents redundant
    reviews when a draft PR is marked as ready for review without new commits. It also skips
-   multi-slice work→main context PRs (`egg/<id>/work -> main` with more than one contract slice —
-   implementation is delivered through reviewed slice PRs, so this PR carries only `.egg-state/`
-   artifacts); single-slice/monolithic work→main PRs are not skipped.
+   **all SDLC pipeline-produced PRs** — both slice PRs (`egg/<id>/slice-<N>`) and work→main PRs
+   (`egg/<id>/work`). These are reviewed in-band by the pipeline's own BRC consensus, so the
+   GitHub-level reviewer is redundant and (because it pushes commits) pollutes slice history
+   (#3255). This skip is gated in `on-pull-request.yml`'s `should-run` job (the egg-reviewer
+   caller) by head-branch shape, **not** in the shared `reusable-review.yml`, because the
+   contract-verification caller (`on-pull-request-contract-verify.yml`) also calls
+   `reusable-review.yml` and must keep verifying slice PRs (#3040). Human PRs (`egg/<topic>`)
+   and the doc-updater bot (`egg/doc-update-*`) do not match and are reviewed normally;
+   `workflow_dispatch` forces a review regardless. (`reusable-review.yml` retains its own
+   narrower multi-slice context-PR skip for any other caller, but for the egg-reviewer path the
+   `on-pull-request.yml` gate supersedes it.)
 2. **Wait for CI checks** — Waits for all non-review checks (e.g., lint, tests) to complete
    before starting the review. Skips checks matching `egg-review /` (the standard reviewer
    job prefix), `egg-reviewer-` (nested reviewer jobs), `SDLC Pipeline`, or `SDLC HITL` to
@@ -283,6 +291,15 @@ Only runs on PRs that modify agent-related files:
 - `docs/guides/sdlc-pipeline.md` — SDLC pipeline operational guide
 - `docs/architecture/**` — Architecture documentation
 
+> **Note — pipeline PRs are not skipped here.** Unlike the code reviewer and autofixer
+> (which skip `egg/<id>/slice-<N>` and `egg/<id>/work` PRs), this design reviewer still
+> runs on pipeline PRs that touch the paths above. That is intentional: it pushes **no**
+> commits (its only output is a PR comment), so it does not pollute slice history — the
+> #3255 driver behind those skips does not apply. The in-band BRC agent-mode-design review
+> already covers pipeline PRs, so the GitHub-level run here is redundant but harmless; a
+> matching head-ref gate on this caller is an easy follow-on if the redundant comment noise
+> becomes unwanted.
+
 ### What It Reviews
 
 This is a **specialized** review, not a general code review. The base AI Code Review
@@ -362,6 +379,12 @@ Uses a per-check fixer loop where CI validates after each fix attempt.
 
 ### How It Works
 
+0. **SDLC pipeline-PR skip** — The `should-run` gate skips autofix on SDLC pipeline-produced
+   PRs — both slice PRs (`egg/<id>/slice-<N>`) and work→main PRs (`egg/<id>/work`), matched on
+   the triggering run's `head_branch`. These PRs fix their own checks in-band through the
+   pipeline; an external autofixer just pushes commits that pollute slice history (#3255). Human
+   PRs (`egg/<topic>`) and the doc-updater (`egg/doc-update-*`) do not match and are autofixed
+   normally; `workflow_dispatch` forces an autofix run regardless.
 1. **Skip check** — Skips PRs with `[skip-autofix]` in the title.
 2. **Identify failed jobs** — Queries the GitHub API for which specific jobs failed
    in the triggering workflow run (e.g., Python, Shell within Lint).

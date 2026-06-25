@@ -50,6 +50,7 @@ jobs:
           WORKFLOW_EVENT: ${{ github.event.workflow_run.event }}
           WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
           WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
           set -euo pipefail
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
@@ -62,12 +63,24 @@ jobs:
           elif [[ "$WORKFLOW_CONCLUSION" == "failure" && \
                   "$WORKFLOW_EVENT" == "pull_request" && \
                   -n "$PR_NUMBER" && "$PR_NUMBER" != "null" && "$PR_NUMBER" != "" ]]; then
-            {
-              echo "run=true"
-              echo "pr_number=${PR_NUMBER}"
-              echo "failed_workflow=${WORKFLOW_NAME}"
-              echo "failed_run_id=${WORKFLOW_RUN_ID}"
-            } >> "$GITHUB_OUTPUT"
+            # Skip SDLC pipeline-produced PRs. The egg orchestrator opens exactly
+            # two branch shapes — egg/<id>/slice-<N> and egg/<id>/work — and the
+            # pipeline fixes its own checks in-band; an external autofixer just
+            # pushes commits that pollute slice history (#3255). Human PRs
+            # (egg/<topic>) and the doc-updater (egg/doc-update-*) do not match
+            # and are autofixed normally. workflow_dispatch above still forces a
+            # manual autofix run when one is explicitly requested.
+            if [[ "$HEAD_BRANCH" =~ ^egg/.+/slice-[0-9]+$ || "$HEAD_BRANCH" =~ ^egg/.+/work$ ]]; then
+              echo "Skipping autofix: SDLC pipeline PR branch ${HEAD_BRANCH} is fixed in-band by the pipeline"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+            else
+              {
+                echo "run=true"
+                echo "pr_number=${PR_NUMBER}"
+                echo "failed_workflow=${WORKFLOW_NAME}"
+                echo "failed_run_id=${WORKFLOW_RUN_ID}"
+              } >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
           fi
