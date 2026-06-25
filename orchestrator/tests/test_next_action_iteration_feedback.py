@@ -101,6 +101,49 @@ def test_build_iteration_feedback_surfaces_directives_and_history() -> None:
     assert "prototype is single-role" in block["prior_iteration"]["nack_reasons"][0]
 
 
+def test_build_iteration_feedback_directive_created_at_round_trips_to_render() -> None:
+    """End-to-end ``datetime`` → ``.isoformat()`` → rendered string for a
+    directive's ``created_at`` (#3231 re-review note 2).
+
+    The renderer tests in ``test_compose_event_prompt.py`` feed hand-built
+    dicts with string timestamps, and the builder test above constructs
+    ``OperatorDirective``s without ``created_at`` — so neither half locks
+    the full round-trip. This drives a real ``datetime`` through
+    ``_build_iteration_feedback`` (which calls ``.isoformat()``) and on into
+    ``compose_event_prompt``, asserting the wall-clock signal survives both
+    hops and lands in the rendered prompt.
+    """
+    from datetime import UTC, datetime
+
+    from routes.consensus import _build_iteration_feedback
+
+    from orchestrator.routes.event_prompt import compose_event_prompt
+
+    issued_at = datetime(2026, 6, 24, 22, 40, 0, tzinfo=UTC)
+    pe = PhaseExecution(phase="refine")  # type: ignore[arg-type]
+    pe.operator_directives = [
+        OperatorDirective(
+            iteration_n=1,
+            feedback_text="Drop cq-2; reframe cq-1 around measurement tooling.",
+            created_at=issued_at,
+        ),
+    ]
+    store = MagicMock()
+    store.load_pipeline.return_value = _pipeline_state(pe)
+    with patch("routes.consensus.get_state_store", return_value=store):
+        block = _build_iteration_feedback(PIPELINE_ID, Path("/repo"))
+
+    assert block is not None
+    # The builder serialised the datetime via .isoformat().
+    assert block["directives"][0]["created_at"] == issued_at.isoformat()
+
+    prompt = compose_event_prompt(
+        "coder", {"action": "propose"}, "", [], [], "main", iteration_feedback=block
+    )
+    # The same timestamp the datetime produced lands in the rendered header.
+    assert f"iteration 1, {issued_at.isoformat()}" in prompt
+
+
 def test_build_iteration_feedback_none_when_no_kickback() -> None:
     """No directives and no iteration history → None (section omitted)."""
     from routes.consensus import _build_iteration_feedback
