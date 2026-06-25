@@ -453,6 +453,25 @@ def _render_task_section(task_description: str) -> str:
     )
 
 
+def _directive_meta_tag(directive: dict[str, Any]) -> str:
+    """Format a directive's iteration + timestamp as a parenthetical tag.
+
+    Surfaces both the ``iteration_n`` ordering signal and the
+    ``created_at`` wall-clock timestamp the route collects (#3231
+    re-review note 1 — the timestamp was packed into the payload but
+    never rendered). Returns ``""`` when neither is present so callers
+    can append unconditionally without a dangling ``()``.
+    """
+    parts: list[str] = []
+    it = directive.get("iteration_n")
+    if it is not None:
+        parts.append(f"iteration {it}")
+    created = str(directive.get("created_at") or "").strip()
+    if created:
+        parts.append(created)
+    return f" ({', '.join(parts)})" if parts else ""
+
+
 def _render_iteration_feedback_section(iteration_feedback: dict[str, Any] | None) -> str:
     """Render the per-iteration operator kickback as a pushed section (#3231).
 
@@ -552,18 +571,17 @@ def _render_iteration_feedback_section(iteration_feedback: dict[str, Any] | None
                 if not isinstance(d, dict):
                     continue
                 text = str(d.get("feedback_text") or "").strip().replace("\n", " ")
-                it = d.get("iteration_n")
-                tag = f" (iteration {it})" if it is not None else ""
+                tag = _directive_meta_tag(d)
                 if text:
                     lines.append(f"{idx}. {text}{tag}")
                 else:
                     lines.append(f"{idx}. (no text recorded){tag}")
             lines.append("")
 
-        it = latest.get("iteration_n")
+        meta = _directive_meta_tag(latest)
         header = "### Most recent directive"
-        if it is not None:
-            header += f" (iteration {it}) — address THIS round"
+        if meta:
+            header += f"{meta} — address THIS round"
         lines.append(header)
         lines.append("")
         latest_text = str(latest.get("feedback_text") or "").strip()

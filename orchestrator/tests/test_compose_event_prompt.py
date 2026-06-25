@@ -2788,6 +2788,66 @@ def test_iteration_feedback_section_rendered_with_directives() -> None:
     assert event_idx < feedback_idx < contract_idx
 
 
+def test_iteration_feedback_renders_directive_created_at() -> None:
+    """The directive ``created_at`` the route collects is rendered, not
+    dead weight in the (capped) payload (#3231 re-review note 1).
+
+    The most-recent directive surfaces its timestamp in the header and
+    the earlier directive surfaces its timestamp on the one-line summary,
+    so the precedence chain carries a wall-clock signal alongside
+    ``iteration_n``.
+    """
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose"},
+        "",
+        [],
+        [],
+        "main",
+        iteration_feedback={
+            "directives": [
+                {
+                    "iteration_n": 0,
+                    "feedback_text": "Build for ALL roles, not a single-role prototype.",
+                    "created_at": "2026-06-24T22:28:51+00:00",
+                },
+                {
+                    "iteration_n": 1,
+                    "feedback_text": "Drop cq-2; reframe cq-1 around measurement tooling.",
+                    "created_at": "2026-06-24T22:40:00+00:00",
+                },
+            ],
+        },
+    )
+
+    # Both directives' timestamps are rendered (earlier + most-recent).
+    assert "2026-06-24T22:28:51+00:00" in prompt
+    assert "2026-06-24T22:40:00+00:00" in prompt
+    # The most-recent directive header carries iteration + timestamp together.
+    assert "iteration 1, 2026-06-24T22:40:00+00:00" in prompt
+
+
+def test_iteration_feedback_directive_without_created_at_renders_cleanly() -> None:
+    """A directive lacking ``created_at`` (legacy ``hitl_feedback``
+    migration) renders the iteration tag without a dangling separator.
+    """
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose"},
+        "",
+        [],
+        [],
+        "main",
+        iteration_feedback={
+            "directives": [
+                {"iteration_n": 2, "feedback_text": "Reframe the scope."},
+            ],
+        },
+    )
+
+    assert "### Most recent directive (iteration 2) — address THIS round" in prompt
+
+
 def test_iteration_feedback_includes_prior_iteration_summary() -> None:
     """The prior iteration's verdict matrix + NACK reasons render so the
     producer knows what tripped the rubric last round.
