@@ -13,6 +13,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
+import pytest
+
 _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:
     sys.path.insert(0, str(_orchestrator_path))
@@ -29,6 +31,28 @@ sys.modules.setdefault("docker.types", MagicMock())
 from events import EventType
 from gateway_client import GatewayError, PushResult
 from models import Pipeline, PipelinePhase, PipelineStatus
+
+
+@pytest.fixture(autouse=True)
+def _stub_concurrent_phase():
+    """Stub the concurrent-phase poll loop to a fast failure outcome.
+
+    #3164: ``_run_pipeline``'s concurrent phases (refine/plan/implement) run
+    through the real ``_run_concurrent_phase``. Now that the orchestrator
+    unconditionally owns the BRC event loop, ``spawn_all`` returns ``[]`` and
+    the poll loop waits the full consensus timeout (≥60s floor) when agents
+    are mocked and never confirm — pod mode used to fast-fail on the
+    empty-container path. These tests exercise ``_run_pipeline``'s
+    orchestration (failure handling, worktree push/cleanup, network-mode
+    detection, base-branch forwarding, finally-cleanup), not the
+    concurrent-phase internals, so stub the phase to return immediately with
+    the failure outcome the suite's ``_spawn_and_wait`` mock intended. The
+    four ``TestZombiePipelineSyntheticEvent`` tests that patch
+    ``_run_concurrent_phase`` with their own side effect override this within
+    their scope.
+    """
+    with patch("routes.pipelines._run_concurrent_phase", return_value=(1, "error log")):
+        yield
 
 
 def _make_running_pipeline(branch="egg/issue-42"):

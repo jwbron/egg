@@ -169,6 +169,7 @@ class TestHeartbeatTimeout:
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
 
         _emit_heartbeat(bus, agent_id=AGENT_ID)
 
@@ -185,6 +186,7 @@ class TestHeartbeatTimeout:
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=120)
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
 
         _emit_heartbeat(bus, agent_id=AGENT_ID)
 
@@ -232,6 +234,7 @@ class TestContainerActivitySuppression:
             orchestrator_activity_quiet_seconds=120,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
 
         _emit_heartbeat(bus, agent_id=AGENT_ID)
 
@@ -263,6 +266,7 @@ class TestContainerActivitySuppression:
             orchestrator_activity_quiet_seconds=120,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
 
         _emit_progress(bus, agent_id=AGENT_ID)
 
@@ -283,6 +287,7 @@ class TestContainerActivitySuppression:
             orchestrator_activity_quiet_seconds=120,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
 
         _emit_heartbeat(bus, agent_id=AGENT_ID)
         _emit_container_activity(bus, agent_id=AGENT_ID)
@@ -304,6 +309,7 @@ class TestContainerActivitySuppression:
             orchestrator_activity_quiet_seconds=120,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
 
         _emit_heartbeat(bus, agent_id=AGENT_ID)
 
@@ -326,6 +332,7 @@ class TestContainerActivitySuppression:
             orchestrator_activity_quiet_seconds=0,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
 
         _emit_heartbeat(bus, agent_id=AGENT_ID)
 
@@ -348,6 +355,7 @@ class TestContainerActivitySuppression:
             orchestrator_activity_quiet_seconds=120,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
 
         _emit_heartbeat(bus, agent_id=AGENT_ID)
         _emit_container_activity(bus, agent_id=AGENT_ID, pipeline_id="some-other-pipeline")
@@ -374,6 +382,7 @@ class TestContainerActivitySuppression:
             orchestrator_alert_progress_gate_seconds=0,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID, AGENT_ID_2})
 
         _emit_heartbeat(bus, agent_id=AGENT_ID)
         _emit_heartbeat(bus, agent_id=AGENT_ID_2)
@@ -402,6 +411,7 @@ class TestResetAgent:
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
 
         _emit_heartbeat(bus, agent_id=AGENT_ID)
         assert AGENT_ID in monitor._last_heartbeat
@@ -416,6 +426,9 @@ class TestResetAgent:
         # Reset and verify the next check (with no fresh heartbeat) does not
         # synthesize an alert from the dead anchor.
         monitor.reset_agent(AGENT_ID)
+        # The respawned role no longer has a live one-shot Job until the loop
+        # re-spawns it, so it drops out of the active set too.
+        monitor.set_active_roles(set())
         assert AGENT_ID not in monitor._last_heartbeat
         assert AGENT_ID not in monitor._agents
 
@@ -467,6 +480,8 @@ class TestContainerExit:
         bus = _make_event_bus()
         monitor = _make_monitor(bus)
 
+        monitor.set_active_roles({AGENT_ID})
+
         escalations = []
         monitor.on_escalation(lambda e: escalations.append(e))
 
@@ -482,6 +497,8 @@ class TestContainerExit:
         """Even exit code 0 is unexpected if the pipeline is running."""
         bus = _make_event_bus()
         monitor = _make_monitor(bus)
+
+        monitor.set_active_roles({AGENT_ID})
 
         escalations = []
         monitor.on_escalation(lambda e: escalations.append(e))
@@ -600,6 +617,7 @@ class TestProgressStall:
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
 
         _emit_progress(bus, agent_id=AGENT_ID)
 
@@ -616,6 +634,7 @@ class TestProgressStall:
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
 
         _emit_progress(bus, agent_id=AGENT_ID)
 
@@ -644,6 +663,7 @@ class TestProgressStall:
 
         escalations: list[dict] = []
         monitor.on_escalation(lambda e: escalations.append(e))
+        monitor.set_active_roles({AGENT_ID})
 
         _emit_progress(bus, agent_id=AGENT_ID)
 
@@ -674,6 +694,7 @@ class TestProgressStall:
 
         escalations: list[dict] = []
         monitor.on_escalation(lambda e: escalations.append(e))
+        monitor.set_active_roles({AGENT_ID})
 
         _emit_progress(bus, agent_id=AGENT_ID)
 
@@ -747,6 +768,8 @@ class TestEscalationRouting:
         config = _make_config(overseer_enabled=True)
         monitor = _make_monitor(bus, config)
 
+        monitor.set_active_roles({AGENT_ID})
+
         escalations = []
         monitor.on_escalation(lambda e: escalations.append(e))
 
@@ -783,6 +806,7 @@ class TestAlertManagement:
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
 
         # Register agent
         _emit_heartbeat(bus, agent_id=AGENT_ID)
@@ -866,6 +890,7 @@ class TestMultiAgentTracking:
             orchestrator_alert_progress_gate_seconds=0,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID, AGENT_ID_2})
 
         # Both agents send heartbeats
         _emit_heartbeat(bus, agent_id=AGENT_ID)
@@ -925,6 +950,7 @@ class TestEscalationOnStall:
 
         escalations: list[dict] = []
         monitor.on_escalation(lambda e: escalations.append(e))
+        monitor.set_active_roles({AGENT_ID})
 
         _emit_heartbeat(bus, agent_id=AGENT_ID)
 
@@ -943,6 +969,7 @@ class TestEscalationOnStall:
 
         escalations: list[dict] = []
         monitor.on_escalation(lambda e: escalations.append(e))
+        monitor.set_active_roles({AGENT_ID})
 
         _emit_progress(bus, agent_id=AGENT_ID)
 
@@ -961,6 +988,7 @@ class TestEscalationOnStall:
 
         escalations: list[dict] = []
         monitor.on_escalation(lambda e: escalations.append(e))
+        monitor.set_active_roles({AGENT_ID})
 
         _emit_heartbeat(bus, agent_id=AGENT_ID)
 
@@ -985,6 +1013,7 @@ class TestEscalationOnStall:
 
         escalations: list[dict] = []
         monitor.on_escalation(lambda e: escalations.append(e))
+        monitor.set_active_roles({AGENT_ID})
 
         _emit_heartbeat(bus, agent_id=AGENT_ID)
 
@@ -1026,6 +1055,7 @@ class TestAlertResolution:
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
 
         _emit_heartbeat(bus, agent_id=AGENT_ID)
 
@@ -1131,6 +1161,7 @@ class TestImplementPhaseThreshold:
             orchestrator_implement_heartbeat_timeout_seconds=600,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
         monitor.set_current_phase("implement")
 
         _emit_heartbeat(bus, agent_id=AGENT_ID)
@@ -1152,6 +1183,7 @@ class TestImplementPhaseThreshold:
             orchestrator_implement_heartbeat_timeout_seconds=600,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
         monitor.set_current_phase("implement")
 
         _emit_heartbeat(bus, agent_id=AGENT_ID)
@@ -1172,6 +1204,7 @@ class TestImplementPhaseThreshold:
             orchestrator_implement_heartbeat_timeout_seconds=600,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
         monitor.set_current_phase("plan")
 
         _emit_heartbeat(bus, agent_id=AGENT_ID)
@@ -1191,6 +1224,7 @@ class TestImplementPhaseThreshold:
             orchestrator_implement_heartbeat_timeout_seconds=600,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
         # No set_current_phase call
 
         _emit_heartbeat(bus, agent_id=AGENT_ID)
@@ -1209,6 +1243,7 @@ class TestImplementPhaseThreshold:
             orchestrator_implement_heartbeat_timeout_seconds=600,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
         monitor.set_current_phase("implement")
 
         _emit_progress(bus, agent_id=AGENT_ID)
@@ -1227,6 +1262,7 @@ class TestImplementPhaseThreshold:
             orchestrator_implement_heartbeat_timeout_seconds=600,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
         monitor.set_current_phase("implement")
 
         _emit_progress(bus, agent_id=AGENT_ID)
@@ -1246,6 +1282,7 @@ class TestImplementPhaseThreshold:
             orchestrator_implement_heartbeat_timeout_seconds=600,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
 
         # Start in implement phase - no escalation at 200s
         monitor.set_current_phase("implement")
@@ -1357,6 +1394,8 @@ class TestBRCIdleSuppression:
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = _make_monitor(bus, config)
 
+        monitor.set_active_roles({REVIEWER_ID})
+
         mock_tracker = self._make_mock_tracker(
             reviewer_roles=[REVIEWER_ID],
             producer_roles=[PRODUCER_ID],
@@ -1398,6 +1437,7 @@ class TestBRCIdleSuppression:
             proposal_timestamps={PRODUCER_ID: now - 400},  # well past 300s grace
         )
 
+        monitor.set_active_roles({REVIEWER_ID})
         _emit_heartbeat(bus, agent_id=REVIEWER_ID)
 
         with (
@@ -1428,6 +1468,7 @@ class TestBRCIdleSuppression:
             producers_for_reviewer={dual_role_id: [PRODUCER_ID]},
         )
 
+        monitor.set_active_roles({dual_role_id})
         _emit_heartbeat(bus, agent_id=dual_role_id)
 
         with (
@@ -1457,6 +1498,7 @@ class TestBRCIdleSuppression:
             producers_for_reviewer={REVIEWER_ID: [PRODUCER_ID]},
         )
 
+        monitor.set_active_roles({REVIEWER_ID})
         _emit_progress(bus, agent_id=REVIEWER_ID)
 
         with (
@@ -1476,6 +1518,7 @@ class TestBRCIdleSuppression:
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({REVIEWER_ID})
 
         _emit_heartbeat(bus, agent_id=REVIEWER_ID)
 
@@ -1515,6 +1558,7 @@ class TestBRCIdleSuppression:
             proposal_timestamps={PRODUCER_ID: now - 400},  # past grace
         )
 
+        monitor.set_active_roles({REVIEWER_ID})
         _emit_heartbeat(bus, agent_id=REVIEWER_ID)
 
         with (
@@ -1550,6 +1594,7 @@ class TestBRCIdleSuppression:
             producers_for_reviewer={REVIEWER_ID: [PRODUCER_ID, producer_2]},
         )
 
+        monitor.set_active_roles({REVIEWER_ID})
         _emit_heartbeat(bus, agent_id=REVIEWER_ID)
 
         with (
@@ -1579,6 +1624,7 @@ class TestBRCIdleSuppression:
             producers_for_reviewer={REVIEWER_ID: [PRODUCER_ID]},
         )
 
+        monitor.set_active_roles({PRODUCER_ID})
         _emit_heartbeat(bus, agent_id=PRODUCER_ID)
 
         with (
@@ -1614,6 +1660,7 @@ class TestBRCIdleSuppression:
             producers_for_reviewer={REVIEWER_ID: [PRODUCER_ID]},
         )
 
+        monitor.set_active_roles({REVIEWER_ID})
         _emit_heartbeat(bus, agent_id=REVIEWER_ID)
 
         with (
@@ -1655,6 +1702,7 @@ class TestCombinedPhaseAndBRCSuppression:
             orchestrator_implement_heartbeat_timeout_seconds=600,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({PRODUCER_ID, REVIEWER_ID})
         monitor.set_current_phase("implement")
 
         mock_tracker = _make_mock_tracker(
@@ -1688,6 +1736,7 @@ class TestCombinedPhaseAndBRCSuppression:
             orchestrator_implement_heartbeat_timeout_seconds=600,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({PRODUCER_ID, REVIEWER_ID})
         monitor.set_current_phase("implement")
 
         mock_tracker = _make_mock_tracker(
@@ -1761,6 +1810,7 @@ class TestPostProposeGrace:
         # Producer proposed 100s ago — within 300s grace
         mock_tracker = self._make_tracker_with_proposal(proposal_epoch=now - 100)
 
+        monitor.set_active_roles({REVIEWER_ID})
         _emit_heartbeat(bus, agent_id=REVIEWER_ID)
 
         with (
@@ -1787,6 +1837,7 @@ class TestPostProposeGrace:
         now = time.time()
         mock_tracker = self._make_tracker_with_proposal(proposal_epoch=now - 100)
 
+        monitor.set_active_roles({REVIEWER_ID})
         _emit_progress(bus, agent_id=REVIEWER_ID)
 
         with (
@@ -1814,6 +1865,7 @@ class TestPostProposeGrace:
         # Producer proposed 400s ago — past 300s grace
         mock_tracker = self._make_tracker_with_proposal(proposal_epoch=now - 400)
 
+        monitor.set_active_roles({REVIEWER_ID})
         _emit_heartbeat(bus, agent_id=REVIEWER_ID)
 
         with (
@@ -1841,6 +1893,7 @@ class TestPostProposeGrace:
         now = time.time()
         mock_tracker = self._make_tracker_with_proposal(proposal_epoch=now - 400)
 
+        monitor.set_active_roles({REVIEWER_ID})
         _emit_progress(bus, agent_id=REVIEWER_ID)
 
         with (
@@ -1873,6 +1926,7 @@ class TestPostProposeGrace:
         proposal_epoch = check_time - grace
         mock_tracker = self._make_tracker_with_proposal(proposal_epoch=proposal_epoch)
 
+        monitor.set_active_roles({REVIEWER_ID})
         _emit_heartbeat(bus, agent_id=REVIEWER_ID)
 
         with (
@@ -1901,6 +1955,7 @@ class TestPostProposeGrace:
         # Proposed 80s ago — past custom 60s grace
         mock_tracker = self._make_tracker_with_proposal(proposal_epoch=now - 80)
 
+        monitor.set_active_roles({REVIEWER_ID})
         _emit_heartbeat(bus, agent_id=REVIEWER_ID)
 
         with (
@@ -1935,6 +1990,7 @@ class TestPostProposeGrace:
             # No proposal_timestamps → returns None
         )
 
+        monitor.set_active_roles({REVIEWER_ID})
         _emit_heartbeat(bus, agent_id=REVIEWER_ID)
 
         with (
@@ -1971,6 +2027,7 @@ class TestPostProposeGrace:
             proposal_timestamps={PRODUCER_ID: now - 10},
         )
 
+        monitor.set_active_roles({dual_id})
         _emit_heartbeat(bus, agent_id=dual_id)
 
         with (
@@ -2851,6 +2908,7 @@ class TestGraceAndBRCProgressInteraction:
 
         escalations: list[dict] = []
         monitor.on_escalation(lambda e: escalations.append(e))
+        monitor.set_active_roles({REVIEWER_ID, PRODUCER_ID})
 
         _emit_heartbeat(bus, agent_id=REVIEWER_ID)
         _emit_heartbeat(bus, agent_id=PRODUCER_ID)
@@ -2906,6 +2964,7 @@ class TestHeartbeatMessageWiring:
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
 
         # Prime the agent state via a legacy heartbeat so the agent is
         # tracked.
@@ -2935,6 +2994,7 @@ class TestHeartbeatMessageWiring:
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
 
         _emit_heartbeat(bus, agent_id=AGENT_ID)
 
@@ -2962,6 +3022,8 @@ class TestHeartbeatMessageWiring:
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = _make_monitor(bus, config)
+
+        monitor.set_active_roles({AGENT_ID})
 
         # 1) agent is tracked.
         _emit_heartbeat(bus, agent_id=AGENT_ID)
@@ -3001,6 +3063,8 @@ class TestHeartbeatMessageWiring:
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = _make_monitor(bus, config)
+
+        monitor.set_active_roles({"coder"})
 
         # First tracking via legacy path so an entry exists.
         _emit_heartbeat(bus, agent_id="coder")
@@ -3045,6 +3109,7 @@ class TestAlertProgressGate:
             orchestrator_alert_progress_gate_seconds=300,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID, AGENT_ID_2})
 
         base = time.time()
 
@@ -3077,6 +3142,7 @@ class TestAlertProgressGate:
             orchestrator_alert_progress_gate_seconds=300,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID, AGENT_ID_2})
 
         base = time.time()
         _emit_heartbeat(bus, agent_id=AGENT_ID)
@@ -3098,6 +3164,7 @@ class TestAlertProgressGate:
             orchestrator_alert_progress_gate_seconds=300,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
 
         base = time.time()
         _emit_heartbeat(bus, agent_id=AGENT_ID)
@@ -3119,6 +3186,7 @@ class TestAlertProgressGate:
             orchestrator_alert_progress_gate_seconds=0,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID, AGENT_ID_2})
 
         base = time.time()
         _emit_heartbeat(bus, agent_id=AGENT_ID)
@@ -3143,6 +3211,7 @@ class TestAlertProgressGate:
             orchestrator_alert_progress_gate_seconds=300,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID, AGENT_ID_2})
 
         base = time.time()
         _emit_progress(bus, agent_id=AGENT_ID)
@@ -3169,6 +3238,7 @@ class TestAlertProgressGate:
             orchestrator_alert_progress_gate_seconds=300,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
 
         base = time.time()
         _emit_heartbeat(bus, agent_id=AGENT_ID)
@@ -3200,6 +3270,7 @@ class TestAlertProgressGate:
             orchestrator_alert_progress_gate_seconds=300,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
 
         base = time.time()
         _emit_heartbeat(bus, agent_id=AGENT_ID)
@@ -3224,6 +3295,8 @@ class TestAlertProgressGate:
             orchestrator_alert_progress_gate_seconds=300,
         )
         monitor = _make_monitor(bus, config)
+        # Only AGENT_ID has a live Job; AGENT_ID_2 lingers from a prior phase.
+        monitor.set_active_roles({AGENT_ID})
 
         base = time.time()
         _emit_heartbeat(bus, agent_id=AGENT_ID)
@@ -3280,6 +3353,7 @@ class TestOverseerSilenceExemption:
             orchestrator_alert_progress_gate_seconds=300,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({"overseer", AGENT_ID, AGENT_ID_2})
 
         base = time.time()
 
@@ -3312,6 +3386,7 @@ class TestOverseerSilenceExemption:
             orchestrator_alert_progress_gate_seconds=300,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({"overseer", AGENT_ID})
 
         base = time.time()
         _emit_progress(bus, agent_id="overseer")
@@ -3342,6 +3417,7 @@ class TestOverseerSilenceExemption:
         )
         monitor = _make_monitor(bus, config)
         monitor.on_escalation(escalations.append)
+        monitor.set_active_roles({"overseer"})
 
         base = time.time()
         _emit_heartbeat(bus, agent_id="overseer")
@@ -3364,6 +3440,7 @@ class TestOverseerSilenceExemption:
             orchestrator_alert_progress_gate_seconds=300,
         )
         monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID, AGENT_ID_2})
 
         base = time.time()
         _emit_heartbeat(bus, agent_id=AGENT_ID)
@@ -3392,6 +3469,7 @@ class TestOverseerSilenceExemption:
         )
         monitor = _make_monitor(bus, config)
         monitor.on_escalation(escalations.append)
+        monitor.set_active_roles({AGENT_ID})
 
         base = time.time()
         _emit_heartbeat(bus, agent_id=AGENT_ID)
@@ -3544,33 +3622,26 @@ class TestPlanPhasePostAckTimeout:
 
 
 # ---------------------------------------------------------------------------
-# Slice-5: ownership-mode awareness (#3064 TASK-5-2)
+# Active-Job-scoped tripwires (#3064 slice-5 / #3164)
 # ---------------------------------------------------------------------------
-# These tests are written test-first: they pin the slice-5 contract that the
-# coder's TASK-5-1 must satisfy. Per the plan (slice-5) the health monitor
-# becomes ownership-mode-aware:
-#
-#   * Orchestrator mode: a role with no active Job is normal — never alerts
-#     on heartbeat/progress timeout; heartbeat-timeout and container-exit
-#     tripwires apply ONLY while a one-shot Job is active for that role; a
-#     silent mid-event pod (Job alive, no heartbeats) still trips.
-#   * Pod mode (default): existing behavior unchanged.
-#
-# The monitor reads the ownership mode from ``env_config.get_event_loop_owner()``
-# (already landed in slice-1, task-1-1). Active-role awareness is injected via
-# ``set_active_roles()`` — the event loop (slice-2/3/4) or concurrent executor
-# calls this to tell the monitor which roles currently have a spawned Job.
-#
-# These tests remain RED until the coder lands TASK-5-1.
+# The heartbeat/progress/container-exit tripwires are gated unconditionally on
+# the active one-shot-Job set (#3164 retired the in-pod ownership mode): a role
+# is checked ONLY while a one-shot Job is active for it. With an EMPTY active
+# set (the default for a fresh monitor) ALL tripwires are skipped — a role with
+# no active Job is legitimately idle. A silent mid-event pod (Job in the active
+# set, no heartbeats) still trips. Active-role awareness is injected via
+# ``set_active_roles()`` — the event loop or concurrent executor calls this each
+# poll to tell the monitor which roles currently have a spawned Job.
 # ---------------------------------------------------------------------------
 
 
 class TestOwnershipModeHeartbeatMatrix:
-    """Ownership-mode matrix for heartbeat timeout tripwire (#3064 slice-5).
+    """Active-Job-scoped tripwire matrix (#3064 slice-5 / #3164).
 
-    Both ownership modes asserted side by side per tripwire scenario:
-    orchestrator: no-pod -> no alarm, active-Job-only scoping,
-    silent mid-event pod still trips. Pod mode: unchanged.
+    Tripwire scoping is unconditional now that the in-pod ownership mode is
+    retired: a role with no active Job never alarms; tripwires apply ONLY
+    while a one-shot Job is active for that role; a silent mid-event pod
+    (Job alive, no heartbeats) still trips.
     """
 
     PIPELINE = "issue-3064-slice-5-hb"
@@ -3581,35 +3652,33 @@ class TestOwnershipModeHeartbeatMatrix:
         return "coder"
 
     def test_orchestrator_mode_no_pod_no_alert(self):
-        """Orchestrator mode: a role with no active Job never alerts."""
-        with patch("env_config.get_event_loop_owner", return_value="orchestrator"):
-            bus = _make_event_bus()
-            config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
-            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+        """A role with no active Job never alerts."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
 
-            _emit_heartbeat(bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE)
+        _emit_heartbeat(bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE)
 
-            with patch("health_monitor.time") as mock_time:
-                mock_time.time.return_value = time.time() + 300
-                actions = monitor.check_heartbeats()
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 300
+            actions = monitor.check_heartbeats()
 
         # No alert — no active Job for this role.
         assert actions == []
 
     def test_orchestrator_mode_active_job_triggers_alert(self):
-        """Orchestrator mode: a role with an active Job alerts on timeout."""
-        with patch("env_config.get_event_loop_owner", return_value="orchestrator"):
-            bus = _make_event_bus()
-            config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
-            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+        """A role with an active Job alerts on timeout."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
 
-            # Register the role as having an active Job.
-            monitor.set_active_roles({self._orchestrator_role})
-            _emit_heartbeat(bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE)
+        # Register the role as having an active Job.
+        monitor.set_active_roles({self._orchestrator_role})
+        _emit_heartbeat(bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE)
 
-            with patch("health_monitor.time") as mock_time:
-                mock_time.time.return_value = time.time() + 300
-                actions = monitor.check_heartbeats()
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 300
+            actions = monitor.check_heartbeats()
 
         assert len(actions) == 1
         assert actions[0]["agent_id"] == self._orchestrator_role
@@ -3622,120 +3691,77 @@ class TestOwnershipModeHeartbeatMatrix:
         heartbeats should still trip the heartbeat timeout — the Job is
         running but its agent has stalled.
         """
-        with patch("env_config.get_event_loop_owner", return_value="orchestrator"):
-            bus = _make_event_bus()
-            config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
-            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
 
-            # Register the role as having an active Job but never emit a
-            # heartbeat — simulating a pod that was spawned but the agent
-            # inside never started.
-            monitor.set_active_roles({self._orchestrator_role})
+        # Register the role as having an active Job but never emit a
+        # heartbeat — simulating a pod that was spawned but the agent
+        # inside never started.
+        monitor.set_active_roles({self._orchestrator_role})
 
-            with patch("health_monitor.time") as mock_time:
-                mock_time.time.return_value = time.time() + 300
-                actions = monitor.check_heartbeats()
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 300
+            actions = monitor.check_heartbeats()
 
         # The agent is registered as active but has no heartbeat — trips alert.
         assert len(actions) == 1
         assert actions[0]["agent_id"] == self._orchestrator_role
 
     def test_orchestrator_mode_active_job_container_exit_still_trips(self):
-        """Orchestrator mode: a container exit for a role with an active Job
-        escalates — a live one-shot pod died mid-event.
+        """A container exit for a role with an active Job escalates — a live
+        one-shot pod died mid-event.
         """
-        with patch("env_config.get_event_loop_owner", return_value="orchestrator"):
-            bus = _make_event_bus()
-            config = _make_config()
-            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+        bus = _make_event_bus()
+        config = _make_config()
+        monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
 
-            # Role has a live Job — its container dying is a real failure.
-            monitor.set_active_roles({self._orchestrator_role})
-            _emit_container_stopped(
-                bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE, exit_code=137
-            )
+        # Role has a live Job — its container dying is a real failure.
+        monitor.set_active_roles({self._orchestrator_role})
+        _emit_container_stopped(
+            bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE, exit_code=137
+        )
 
-            monitor.check_tripwires()
+        monitor.check_tripwires()
 
         alerts = [a for a in monitor.get_active_alerts() if a.get("alert_type") == "container_exit"]
         assert len(alerts) == 1
 
     def test_orchestrator_mode_ghost_container_exit_suppressed(self):
-        """Orchestrator mode: a container exit for a role with NO active Job
-        is a ghost (a one-shot pod that finished its event and was reaped)
-        and must NOT escalate — the criterion scopes container-exit
-        tripwires to roles with a live Job, consistent with the heartbeat
-        path's empty-active-set suppression.
+        """A container exit for a role with NO active Job is a ghost (a
+        one-shot pod that finished its event and was reaped) and must NOT
+        escalate — the criterion scopes container-exit tripwires to roles
+        with a live Job, consistent with the heartbeat path's empty-active-set
+        suppression.
         """
-        with patch("env_config.get_event_loop_owner", return_value="orchestrator"):
-            bus = _make_event_bus()
-            config = _make_config()
-            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+        bus = _make_event_bus()
+        config = _make_config()
+        monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
 
-            # No active Job for this role — the exit is an expected reap.
-            _emit_container_stopped(
-                bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE, exit_code=0
-            )
+        # No active Job for this role — the exit is an expected reap.
+        _emit_container_stopped(
+            bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE, exit_code=0
+        )
 
-            monitor.check_tripwires()
+        monitor.check_tripwires()
 
         alerts = [a for a in monitor.get_active_alerts() if a.get("alert_type") == "container_exit"]
         assert alerts == []
 
-    def test_pod_mode_container_exit_always_trips(self):
-        """Pod mode: a container exit always escalates, active-role set
-        ignored (no one-shot Jobs in pod mode).
-        """
-        with patch("env_config.get_event_loop_owner", return_value="pod"):
-            bus = _make_event_bus()
-            config = _make_config()
-            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
-
-            # Empty active set is meaningless in pod mode — exit still trips.
-            monitor.set_active_roles(set())
-            _emit_container_stopped(
-                bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE, exit_code=137
-            )
-
-            monitor.check_tripwires()
-
-        alerts = [a for a in monitor.get_active_alerts() if a.get("alert_type") == "container_exit"]
-        assert len(alerts) == 1
-
-    def test_pod_mode_unchanged(self):
-        """Pod mode: heartbeat timeout fires regardless of active-role set."""
-        with patch("env_config.get_event_loop_owner", return_value="pod"):
-            bus = _make_event_bus()
-            config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
-            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
-
-            # Even with empty active roles (which is meaningless in pod mode),
-            # the monitor ignores the set and fires normally.
-            monitor.set_active_roles(set())
-            _emit_heartbeat(bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE)
-
-            with patch("health_monitor.time") as mock_time:
-                mock_time.time.return_value = time.time() + 300
-                actions = monitor.check_heartbeats()
-
-        assert len(actions) == 1
-        assert actions[0]["agent_id"] == self._orchestrator_role
-
     def test_orchestrator_mode_multiple_roles_independent(self):
         """Active-role scoping is per-role — mixed set has mixed outcomes."""
-        with patch("env_config.get_event_loop_owner", return_value="orchestrator"):
-            bus = _make_event_bus()
-            config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
-            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
 
-            # Only "coder" has an active Job; "tester" does not.
-            monitor.set_active_roles({"coder"})
-            for role in ("coder", "tester"):
-                _emit_heartbeat(bus, agent_id=role, pipeline_id=self.PIPELINE)
+        # Only "coder" has an active Job; "tester" does not.
+        monitor.set_active_roles({"coder"})
+        for role in ("coder", "tester"):
+            _emit_heartbeat(bus, agent_id=role, pipeline_id=self.PIPELINE)
 
-            with patch("health_monitor.time") as mock_time:
-                mock_time.time.return_value = time.time() + 300
-                actions = monitor.check_heartbeats()
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 300
+            actions = monitor.check_heartbeats()
 
         # Only coder (active Job) should alert; tester (no Job) should not.
         assert len(actions) == 1
@@ -3743,76 +3769,53 @@ class TestOwnershipModeHeartbeatMatrix:
 
     def test_orchestrator_mode_progress_stall_no_pod_no_alert(self):
         """Progress stall is also suppressed when no active Job exists."""
-        with patch("env_config.get_event_loop_owner", return_value="orchestrator"):
-            bus = _make_event_bus()
-            config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
-            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
 
-            _emit_progress(bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE)
+        _emit_progress(bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE)
 
-            with patch("health_monitor.time") as mock_time:
-                mock_time.time.return_value = time.time() + 300
-                actions = monitor.check_progress()
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 300
+            actions = monitor.check_progress()
 
         assert actions == []
 
     def test_orchestrator_mode_progress_stall_active_job_triggers(self):
         """Progress stall fires when role has an active Job."""
-        with patch("env_config.get_event_loop_owner", return_value="orchestrator"):
-            bus = _make_event_bus()
-            config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
-            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
 
-            monitor.set_active_roles({self._orchestrator_role})
-            _emit_progress(bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE)
+        monitor.set_active_roles({self._orchestrator_role})
+        _emit_progress(bus, agent_id=self._orchestrator_role, pipeline_id=self.PIPELINE)
 
-            with patch("health_monitor.time") as mock_time:
-                mock_time.time.return_value = time.time() + 300
-                actions = monitor.check_progress()
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 300
+            actions = monitor.check_progress()
 
         assert len(actions) == 1
         assert actions[0]["agent_id"] == self._orchestrator_role
 
     def test_set_active_roles_replace_not_accumulate(self):
         """set_active_roles replaces the prior set, it does not accumulate."""
-        with patch("env_config.get_event_loop_owner", return_value="orchestrator"):
-            bus = _make_event_bus()
-            config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
-            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
 
-            monitor.set_active_roles({"coder", "tester"})
-            # Second call replaces, removing "tester".
-            monitor.set_active_roles({"coder"})
+        monitor.set_active_roles({"coder", "tester"})
+        # Second call replaces, removing "tester".
+        monitor.set_active_roles({"coder"})
 
-            for role in ("coder", "tester"):
-                _emit_heartbeat(bus, agent_id=role, pipeline_id=self.PIPELINE)
+        for role in ("coder", "tester"):
+            _emit_heartbeat(bus, agent_id=role, pipeline_id=self.PIPELINE)
 
-            with patch("health_monitor.time") as mock_time:
-                mock_time.time.return_value = time.time() + 300
-                actions = monitor.check_heartbeats()
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 300
+            actions = monitor.check_heartbeats()
 
         assert len(actions) == 1
         assert actions[0]["agent_id"] == "coder"
-
-    def test_pod_mode_active_roles_set_ignored(self):
-        """In pod mode, the active-role set is ignored; all agents alert."""
-        with patch("env_config.get_event_loop_owner", return_value="pod"):
-            bus = _make_event_bus()
-            config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
-            monitor = _make_monitor(bus, config, pipeline_id=self.PIPELINE)
-
-            # Set active roles to a small subset — should be ignored in pod mode.
-            monitor.set_active_roles({"tester"})
-            for role in ("coder", "tester"):
-                _emit_heartbeat(bus, agent_id=role, pipeline_id=self.PIPELINE)
-
-            with patch("health_monitor.time") as mock_time:
-                mock_time.time.return_value = time.time() + 300
-                actions = monitor.check_heartbeats()
-
-        # Both agents alert despite active_roles only containing "tester".
-        agent_ids = {a["agent_id"] for a in actions}
-        assert agent_ids == {"coder", "tester"}
 
 
 class TestOwnershipModeIdleBudgetAnomaly:

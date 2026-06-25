@@ -227,8 +227,9 @@ quietly trade one for the other.
   illustrate clause-1 thinking applied to ephemeral coordination
   state.
 - [BRC Consensus Wrapper](orchestrator.md#brc-consensus-wrapper) —
-  the wrapper that holds the wait, performs deterministic sync, and
-  invokes the per-event agent.
+  the orchestrator owns the wait and spawns the per-event agent
+  one-shot (the in-pod wait arm was retired by #3164); the wrapper
+  around each pod performs deterministic sync at spawn time.
 - [Reviewer Sync Guide](../../shared/prompts/REVIEWER-SYNC.md) — the
   agent-facing reviewer contract; its delta-command row was rewritten
   in #3077 slice 5 from `git fetch` + `git log` instructions to

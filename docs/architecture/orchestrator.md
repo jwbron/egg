@@ -751,8 +751,21 @@ POST /api/v1/pipelines/{pipeline_id}/signal
 > event-pump path is the **only** consensus-wrapper path — the
 > legacy `_CONSENSUS_WRAPPER_TEMPLATE`, the `_RECOVERY_SYSTEM_PROMPT`,
 > the SSE `consensus.reached` machinery, and the
-> `MAX_CONSENSUS_RESTARTS = 3` cap are gone. The wait-side companion
-> is [agent-wait-patterns §10](../reference/agent-wait-patterns.md#10-brc-consensus-wrapper-event-pump-model).
+> `MAX_CONSENSUS_RESTARTS = 3` cap are gone.
+>
+> **[#3164](https://github.com/jwbron/egg/issues/3164) retired the in-pod
+> wait arm.** After the live proving run on issue #3200 passed, #3164
+> removed the in-pod `egg-orch message wait-loop` between events, the 30 s
+> background heartbeat subshell, and the `EGG_EVENT_LOOP_OWNER` ownership
+> flag (there is no "pod vs orchestrator" mode toggle anymore — orchestrator
+> ownership is the only mode). The **orchestrator** (`orchestrator/event_loop.py`)
+> now owns the BRC event loop: it derives the next action in-process and
+> spawns a one-shot pod per actionable event; the wrapper around each pod is
+> one-shot-only (it handles exactly the single `EGG_EVENT_ACTION` it was
+> spawned for, then exits). The section below describes the historical
+> in-pod loop for lineage; the current-state ownership is orchestrator-side.
+> The wait-side companion is
+> [agent-wait-patterns §10](../reference/agent-wait-patterns.md#10-brc-consensus-wrapper-event-pump-model).
 
 ### Why the wrapper drives the loop
 
@@ -838,19 +851,22 @@ The conditional inclusion is pinned by a snapshot test in
 `orchestrator/tests/test_consensus_wrapper.py` so the regression that
 spawned this whole lineage cannot land again silently.
 
-### Wrapper-side heartbeat (#2036 migration completed in slice-4)
+### Wrapper-side heartbeat (#2036 migration completed in slice-4; retired by #3164)
 
-Heartbeats are emitted from a **background subshell inside the
-wrapper bash** that fires `egg-orch message heartbeat` every 30 s
-while `egg-orch message wait-loop` is blocking. The wrapper owns
-this because the agent is one-shot per event: there is no in-pod
-loop left to emit heartbeats between events, so the wrapper is the
-only process alive across the full BRC cycle. The pre-#2908 agent-side
-heartbeat path in
+**Retired by [#3164](https://github.com/jwbron/egg/issues/3164).**
+Historically (post-#2036, pre-#3164) heartbeats were emitted from a
+**background subshell inside the wrapper bash** that fired
+`egg-orch message heartbeat` every 30 s while `egg-orch message wait-loop`
+was blocking. That subshell existed because the wrapper held a long-lived
+in-pod wait between events. The pre-#2908 agent-side heartbeat path in
 `sandbox/egg_agent_tools/handlers/message.py::message_wait_loop` was
 **deleted in slice-4 task-4-2** — agents no longer self-emit
-`WAITING_FOR_EVENT` while blocked, and the overseer's stall detector
-consumes the wrapper-side stream instead.
+`WAITING_FOR_EVENT` while blocked. #3164 then removed the in-pod wait arm
+and the 30 s background heartbeat subshell entirely: the orchestrator now
+spawns a one-shot pod per actionable event, so there is no long-lived
+in-pod process to heartbeat between events, and the overseer judges
+convergence stall from tracker timestamps orchestrator-side (see
+[Monitor Matrix in on-demand-agent-lifecycle.md](on-demand-agent-lifecycle.md#monitor-matrix)).
 
 **`slice_id` propagation invariant.** The wrapper-side heartbeat
 payload **must** include `slice_id` sourced from the
@@ -900,18 +916,17 @@ WS7-observed 10–13 min idle ceiling on real BRC phases).
 |---------------------------|-----------|
 | default `30` (minutes) | At budget threshold, wrapper emits `mcp__progress__overseer_alert` (anomaly `stuck-phase-transition`, priority `high`) **and keeps blocking**. At `2 ×` budget, the alert priority escalates and the wrapper still keeps blocking. Idleness is **not** a FAILED transition. |
 
-**Slice-5 re-homing (#3064):** In orchestrator mode
-(`EGG_EVENT_LOOP_OWNER=orchestrator`) the in-pod `check_idle_budget`
-no longer runs. Instead the orchestrator event loop judges convergence
-stall from tracker timestamps: when a role's derived actionable event
+**Re-homed to the orchestrator (#3064 slice-5, in-pod arm retired by #3164):**
+The in-pod `check_idle_budget` no longer runs — #3164 retired the in-pod
+wait arm. The orchestrator event loop judges convergence stall from tracker
+timestamps: when a role's derived actionable event
 (`propose`|`ack`|`nack`) has been pending longer than
 `EGG_BRC_IDLE_BUDGET_MIN` minutes with no BRC-bus activity, the event
-loop raises the same `stuck-phase-transition` anomaly the in-pod
-budget check uses. The threshold is single-sourced via
-`event_loop.get_idle_budget_minutes()` which reads the same env var;
+loop raises the `stuck-phase-transition` anomaly. The threshold is sourced
+via `event_loop.get_idle_budget_minutes()` which reads the same env var;
 the anomaly name is single-sourced via
-`consensus_wrapper.EVENT_PUMP_IDLE_BUDGET_ANOMALY` so orchestrator-side
-and in-pod alerts are classified identically by the overseer.
+`consensus_wrapper.EVENT_PUMP_IDLE_BUDGET_ANOMALY` so the alert is
+classified consistently by the overseer.
 
 The slice-2/-3 era also exposed an `EGG_BRC_EVENT_PUMP=false` escape
 to the legacy capped-restart wrapper; that escape is gone after
@@ -979,6 +994,15 @@ real behaviour. The current test surface:
   stance through slices 2/3 and now defines the steady-state contract.
 
 ### Rollback plan
+
+> **No in-pod rollback flag after [#3164](https://github.com/jwbron/egg/issues/3164).**
+> #3164 retired the in-pod wait arm and the `EGG_EVENT_LOOP_OWNER`
+> ownership flag with **no rollback flag** — there is no runtime toggle
+> back to a "pod" mode, because the in-pod wait loop and 30 s background
+> heartbeat no longer exist. The only regression path is `git revert` of
+> the #3164 change (and, for the deeper event-pump infrastructure, the
+> #2908 slice sequence below). The orchestrator-owned event loop
+> (`orchestrator/event_loop.py`) is the only mode after #3164.
 
 The supported regression path if production traffic shows
 event-pump regression is **`git revert` of the slice-4, slice-3,
@@ -1056,7 +1080,7 @@ above). It assembles, in order:
 |----------|---------|--------|-------|
 | Top | Role banner + one-line event description | `role` + `event_payload.kind` | A few hundred bytes; identifies the producer/reviewer side of the dispatch. |
 | Top | Task & operator directives (#3123/#3163) | The contract's `task_description`, read from the worktree contract file via the pod-inherited `EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER`; populated for all pipeline types since #3163 (issue anchor + submit description); omitted only when the contract carries no task statement and no issue identity | ≤ 4 KB (`TASK_DESCRIPTION_MAX_CHARS`), truncated with a pointer to `mcp__sdlc__show_contract`. Pushes the operator's submit-time directives into every invocation instead of relying on the agent pulling them per the rules file. |
-| Top | Operator feedback steering this phase (#3231) | The current phase execution's `operator_directives` (chronological) threaded onto the event_payload by the `next-action` route from persisted pipeline state. Carried on **both** the `propose` arm (kicked-back producer's re-run — directives **plus** the latest `iteration_history` verdict/NACK summary, #2795) and the `ack` arm (reviewer re-reviewing the producer's directive-driven change — directives only, no producer scorecard). The `audience` tag selects producer vs. reviewer framing. Rendered in full for the most-recent directive, one line each for earlier ones. | ≤ 4 KB (`ITERATION_FEEDBACK_MAX_CHARS`), truncated with a pointer to `egg-orch brc get-state`; also a second-stage envelope-truncation candidate after NACKs. Surfaced only under `EGG_EVENT_LOOP_OWNER=orchestrator` — the in-pod path already carries #2795's iteration context for both producers and reviewers. Omitted when there is no kickback (golden-stable). Makes an unchanged producer re-propose after `request_changes` a defect, and stops reviewers NACKing a directive-driven change back to a stale rubric. |
+| Top | Operator feedback steering this phase (#3231) | The current phase execution's `operator_directives` (chronological) threaded onto the event_payload by the `next-action` route from persisted pipeline state. Carried on **both** the `propose` arm (kicked-back producer's re-run — directives **plus** the latest `iteration_history` verdict/NACK summary, #2795) and the `ack` arm (reviewer re-reviewing the producer's directive-driven change — directives only, no producer scorecard). The `audience` tag selects producer vs. reviewer framing. Rendered in full for the most-recent directive, one line each for earlier ones. | ≤ 4 KB (`ITERATION_FEEDBACK_MAX_CHARS`), truncated with a pointer to `egg-orch brc get-state`; also a second-stage envelope-truncation candidate after NACKs. Surfaced via the orchestrator event loop (the only mode post-#3164). Omitted when there is no kickback (golden-stable). Makes an unchanged producer re-propose after `request_changes` a defect, and stops reviewers NACKing a directive-driven change back to a stale rubric. |
 | Middle | NACK payload (per-reviewer NACK with `reason` + `artifact_refs`) | `orchestrator/peer_consensus.py` `_open_nacks_barrier_response.nacks[]` (line numbers come from the slice-3 contract spec and are drift-prone — prefer the function-name reference; the function span is around lines 949–1046 in practice) — the same envelope the producer sees on the aggregated-NACK 409 (see [§10.6](../reference/agent-wait-patterns.md#106-409-stale_version--aggregated-nack-are-event-pump-signals-not-transient-errors)). | One section per reviewer that NACKed the current version; rendered with reason text + artifact references. |
 | Middle | Single expected action | `event_payload.kind` | A few hundred bytes; states whether the agent should review, fix, confirm, etc. |
 | Tail | Per-producer git-log delta | `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p` ← `last_reviewed_commit_sha` from the [BRC memory file](brc-memory.md) | Scaled by actual change size; **NOT** counted against the 10 KB envelope. |
@@ -1217,9 +1241,9 @@ spawn.
 
 | Removed from preamble | Why |
 |-----------------------|-----|
-| Producer Lifecycle step 4 wait-loop plumbing | Wrapper holds the wait. |
-| Producer Lifecycle step 6 STAY-ALIVE loop | Wrapper loops back to `brc next-action` instead. |
-| Cursor / `--since` threading guidance | Cursor threading is automatic and wrapper-internal under the event-pump path. |
+| Producer Lifecycle step 4 wait-loop plumbing | The orchestrator owns the wait (post-#3164). |
+| Producer Lifecycle step 6 STAY-ALIVE loop | The orchestrator derives `brc next-action` and re-spawns per event instead. |
+| Cursor / `--since` threading guidance | Cursor threading is automatic and not agent-facing under the event-pump path. |
 | Pre-confirm-wait foot-gun guidance (anti-pattern 5) | The wrapper's conditional filter (see [Wait-filter construction (pre-confirm vs post-confirm)](#wait-filter-construction-pre-confirm-vs-post-confirm)) prevents the regression at the source. |
 
 | Kept in preamble | Why |
@@ -1357,8 +1381,8 @@ if is_orchestrator_mode():
 | `EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS` | Slice-DAG: stacked-PR reconciler polling cadence for orphaned child PRs (#2137) | `30.0` |
 | `EGG_BRC_EVENT_PUMP` | **Removed in [#2908](https://github.com/jwbron/egg/issues/2908) slice-4 task-4-2.** During the slice-2/-3 rollout this flag selected between the legacy `_CONSENSUS_WRAPPER_TEMPLATE` (`false`) and the new `_EVENT_PUMP_WRAPPER_TEMPLATE` (`true`). Slice-4 deleted the legacy template, the surrounding selector logic, and the env var read itself — the orchestrator no longer consults this variable. Operators that referenced it in helm values / pod-spec env can drop the row. The supported regression path is `git revert` of slices 1–3 / slice-4 in reverse-merge order (see [Rollback plan](#rollback-plan)); reverting slice-4 restores the env var alongside the legacy template. | n/a (removed) |
 | `EGG_BRC_IDLE_BUDGET_MIN` | BRC consensus wrapper idle / no-progress safety budget in minutes ([#2908](https://github.com/jwbron/egg/issues/2908)). Replaced the legacy 3-restart FAIL cap with an overseer-alert escalation that does not transition the pipeline to FAILED. At budget threshold the wrapper emits `mcp__progress__overseer_alert` (anomaly `stuck-phase-transition`, priority `high`) and keeps blocking; at `2 ×` budget the priority escalates and the wrapper still keeps blocking. Default 30 min is well above the WS7-observed 10–13 min idle ceiling on real BRC phases. In orchestrator mode ([#3064](https://github.com/jwbron/egg/issues/3064) slice-5), the orchestrator event loop also reads this value for its convergence-stall check (re-homed from the in-pod wrapper) — see [Idle / no-progress safety budget](#idle--no-progress-safety-budget). | `30` |
-| `EGG_EVENT_LOOP_OWNER` | BRC event-loop ownership mode ([#3064](https://github.com/jwbron/egg/issues/3064) slice-2). `pod` (default) — each agent container runs the in-pod event-pump wait-loop in `consensus_wrapper.py`, matching the pre-#3064 behaviour. `orchestrator` — the orchestrator owns the BRC event loop and spawns a one-shot pod per actionable event (`propose`/`ack`/`nack`); `confirm`/`complete` execute orchestrator-side with no pod. Spawns are deduped on a SHA-256 key so orchestrator restarts never double-spawn. **An unrecognised value raises `ValueError` loudly** (no silent fallback — a misconfiguration would either deadlock BRC or duplicate pods). Read by `orchestrator/env_config.py::get_event_loop_owner`. | `pod` |
-| `EGG_EVENT_LOOP_POLL_INTERVAL_SECONDS` | Orchestrator-owned BRC event loop poll cadence in seconds ([#3064](https://github.com/jwbron/egg/issues/3064) slice-2). Only effective when `EGG_EVENT_LOOP_OWNER=orchestrator`. Malformed or non-positive values fall back to the default with a warning. Read by `orchestrator/event_loop.py::get_event_loop_poll_interval`. | `5.0` |
+| `EGG_EVENT_LOOP_OWNER` | **Removed in [#3164](https://github.com/jwbron/egg/issues/3164).** During the #3064 rollout this flag selected `pod` (in-pod event-pump wait-loop in `consensus_wrapper.py`) vs `orchestrator` (orchestrator-owned BRC event loop). #3164 retired the in-pod wait arm — orchestrator ownership is now the only mode — and removed `get_event_loop_owner` from `orchestrator/env_config.py`. Operators that set this in helm values / pod-spec env can drop the row; it is no longer read. | n/a (removed) |
+| `EGG_EVENT_LOOP_POLL_INTERVAL_SECONDS` | Orchestrator-owned BRC event loop poll cadence in seconds ([#3064](https://github.com/jwbron/egg/issues/3064) slice-2). Always effective post-#3164 (orchestrator ownership is the only mode). Malformed or non-positive values fall back to the default with a warning. Read by `orchestrator/event_loop.py::get_event_loop_poll_interval`. | `5.0` |
 
 ### Constants
 

@@ -992,6 +992,9 @@ class TestExistingFunctionalityPreserved:
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = _make_monitor(bus, config)
 
+        # #3164: tripwires are active-Job-scoped (orchestrator owns the loop);
+        # mark the role as having a live one-shot Job so its silence trips.
+        monitor.set_active_roles({AGENT_ID})
         _emit_heartbeat(bus, agent_id=AGENT_ID)
 
         with patch("health_monitor.time") as mock_time:
@@ -1005,6 +1008,10 @@ class TestExistingFunctionalityPreserved:
         """Container exit tripwire should still function."""
         bus = _make_event_bus()
         monitor = _make_monitor(bus)
+
+        # #3164: the container-exit tripwire is active-Job-scoped — the exiting
+        # role must have a live one-shot Job for the exit to escalate.
+        monitor.set_active_roles({AGENT_ID})
 
         escalations: list[dict] = []
         monitor.on_escalation(lambda e: escalations.append(e))
@@ -1056,6 +1063,8 @@ class TestExistingFunctionalityPreserved:
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = _make_monitor(bus, config)
 
+        # #3164: tripwires are active-Job-scoped; mark the role's Job live.
+        monitor.set_active_roles({AGENT_ID})
         _emit_progress(bus, agent_id=AGENT_ID)
 
         with patch("health_monitor.time") as mock_time:

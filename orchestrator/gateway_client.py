@@ -129,7 +129,22 @@ def _build_rebase_onto_args(
                 f"{label} must look like a git ref (alnum + . _ / + -); got {v!r}",
             )
 
-    return ["--onto", new_base.strip(), old_base.strip(), branch.strip()], True, ""
+    # ``--autostash`` is prepended so the rebase proceeds against a
+    # worktree carrying uncommitted ``.egg-state/agent-outputs/`` residue
+    # (BRC memory writes left uncommitted because post-agent auto-commit
+    # is disabled). Without it ``git rebase`` refuses with ``cannot
+    # rebase: You have unstaged changes`` even on conflict-free content,
+    # surfacing as the opaque ``"git rebase failed"`` (#3245) — the same
+    # refusal #2714 fixed on the push-reconcile rebase path. The gateway
+    # ``rebase`` allowlist permits ``--autostash`` (gateway/git_client.py),
+    # and the base-branch rebase guard (gateway.py) ignores it (it is
+    # neither a positional nor an ``--onto`` value), so the protected-ref
+    # check on ``new_base`` is unaffected.
+    return (
+        ["--autostash", "--onto", new_base.strip(), old_base.strip(), branch.strip()],
+        True,
+        "",
+    )
 
 
 @dataclass
@@ -2226,11 +2241,23 @@ class GatewayClient:
             )
             return True
         except Exception as exc:  # noqa: BLE001
+            # ``str(exc)`` is the gateway's flattened message (e.g. the
+            # opaque ``"git rebase failed"`` for a non-zero git exit).
+            # The real git stderr — which distinguishes a dirty-worktree
+            # refusal from a genuine content conflict from a transport
+            # error — rides in ``GatewayError.details`` (the gateway puts
+            # ``{stdout, stderr, returncode}`` there). Surface it so an
+            # operator can tell a recoverable mechanism failure apart from
+            # a real conflict without spelunking the gateway pod (#3245).
+            raw_details = getattr(exc, "details", None)
+            details = raw_details if isinstance(raw_details, dict) else {}
             logger.warning(
                 "rebase_onto: gateway request failed",
                 pipeline_id=pipeline_id,
                 branch=branch,
                 error=str(exc),
+                git_stderr=(details.get("stderr") or "").strip() or None,
+                git_returncode=details.get("returncode"),
             )
             return False
         finally:
@@ -2760,8 +2787,18 @@ class GatewayClient:
         (rather than non-fast-forward-rejected) by checking that the
         recorded base is still an ancestor of both the existing tip and
         the advanced parent. ``None`` (slices provisioned before #2871,
-        or whose base was never recorded) degrades to the prior
-        behaviour — the rejection surfaces.
+        or whose base was never recorded) does not gate this fast-path.
+
+        When that recorded-base fast-path does not fire — base absent, or
+        an out-of-band actor (restart/salvage/manual edit) rewrote it so
+        it no longer descends to the slice tip (#3245) — the method falls
+        back to re-deriving the fork point from git (``merge-base`` of the
+        existing tip and the advanced parent). A genuine shared fork point
+        that is strictly behind the existing tip means the branch is a
+        resumable additive fork: it is adopted in place rather than
+        non-fast-forward-rejected. Only a branch with no shared history,
+        or one sitting at/behind the fork with no own commits, still falls
+        through to the push (surfacing the rejection / fast-forwarding).
 
         Returns the fork-base SHA (``parent_sha``) on success, ``None``
         on any error (the caller logs and surfaces a clear error to the
@@ -2944,12 +2981,25 @@ class GatewayClient:
                 # destroyed.
                 #
                 # Gating on the slice's *own* recorded base (not a generic
-                # merge-base of the two tips) is what keeps this safe: a
-                # genuinely unrelated stale branch would not descend from
-                # this slice's recorded base, so it still falls through to
-                # the push and surfaces the rejection (preserving the
+                # merge-base of the two tips) is what keeps this *fast-path*
+                # safe: a genuinely unrelated stale branch would not descend
+                # from this slice's recorded base, so it still falls through
+                # to the push and surfaces the rejection (preserving the
                 # #2512/#2549 "don't silently overwrite unknown work"
-                # instinct). A true history rewrite of the parent (rebase)
+                # instinct). NOTE (#3245): the recorded-base invariant
+                # described here governs *this* check only. The #3245
+                # fall-through immediately below deliberately relaxes it —
+                # when the recorded base is untrusted/absent it re-derives a
+                # *generic* merge-base of the two tips and adopts on that.
+                # That widens adoption to the parent-rewrite class and any
+                # branch sharing some ancestor with the parent; it is safe
+                # because the slice branch name is slice-specific and
+                # gateway-restricted, adoption stays non-destructive, and a
+                # genuinely-unexpected branch surfaces as a CONFLICTING slice
+                # PR for a human rather than cascade-failing the phase. Do
+                # not read the "we gate on our own base" claim above as a
+                # whole-function invariant — see the #3245 block below.
+                # A true history rewrite of the parent (rebase)
                 # drops the base out of the parent's ancestry, so the
                 # second check fails and we likewise fall through — that
                 # harder class is deliberately left to the operator. The
@@ -2998,6 +3048,85 @@ class GatewayClient:
                     # recording this return value. Return ``parent_sha``
                     # so the caller treats the call as success.
                     return parent_sha
+                # #3245 — durable resume-in-place when the *recorded* base
+                # cannot be trusted. The #2947 fast-path above gates
+                # resume-in-place on ``integration_base_sha``, but that
+                # stored SHA is mutable by out-of-band actors: a
+                # ``restart_phase`` slice copy, a ``salvage_agent_commits``
+                # run, or a manual contract edit can rewrite it — in the
+                # observed incident (issue-3200 slice-7) it was overwritten
+                # to the *advanced parent tip*. A base that no longer is an
+                # ancestor of the slice's own tip fails the #2947 check, and
+                # we would otherwise fall through to a ``parent_sha`` push
+                # that is non-fast-forward → FAILS the slice → cascades the
+                # whole phase, even though the branch is a perfectly
+                # resumable additive fork whose committed work is intact.
+                #
+                # Re-derive the fork point straight from git instead of
+                # trusting the stored SHA: the merge-base of the existing
+                # tip and the advanced parent. We reach here only when the
+                # parent is NOT an ancestor of the existing tip (the #2512
+                # fast-forward path already returned above), so a real
+                # shared merge-base that is *strictly behind* the existing
+                # tip means the two have DIVERGED from a common fork point
+                # — i.e. the slice forked from the parent's lineage and
+                # carries its own commits while the parent advanced. Adopt
+                # the branch as-is and resume in place; the parent's new
+                # commits reconcile at slice-PR / merge time exactly as for
+                # a slice whose parent advanced while it ran normally. We
+                # never reset or force-push, so no committed work is
+                # destroyed. The re-derivation is idempotent, so a contract
+                # still carrying the corrupted base self-heals on every
+                # subsequent resume.
+                #
+                # Return value: ``fork_base`` (the re-derived true base), not
+                # ``parent_sha``. When the recorded base was *corrupted* the
+                # caller's ``recorded_base_sha is None`` write-back guard is
+                # already satisfied (a stored — if wrong — base exists) and
+                # skips the write, so the return value is inert there. But
+                # this path *also* fires when ``integration_base_sha`` was
+                # absent (the #2947 ``integration_base_sha and …`` short-
+                # circuit drops through to here): then ``recorded_base_sha is
+                # None`` and the caller *does* persist whatever we return. We
+                # return the true ``fork_base`` so it records the real base
+                # rather than the advanced parent tip — which would itself be
+                # exactly the corruption shape this path exists to tolerate,
+                # and would pin the slice on the slower re-derivation route
+                # forever. Recording ``fork_base`` instead lets the cheaper
+                # #2947 fast-path fire on the next resume.
+                #
+                # Safety: ``fork_base is None`` (no shared history at all —
+                # an unrelated/orphan branch sitting at this name) and
+                # ``fork_base == existing_sha`` (the branch is *behind* the
+                # parent with no unique commits — an un-started branch that
+                # should fast-forward, not resume) both fall through to the
+                # push below, preserving the "don't adopt unknown work /
+                # do fast-forward an empty branch" instincts of #2512/#2947.
+                fork_base = self.merge_base(
+                    pipeline_id,
+                    repo_path,
+                    existing_sha,
+                    parent_sha,
+                    bearer_token=session_token,
+                    mode=mode,
+                )
+                if fork_base and fork_base != existing_sha:
+                    logger.info(
+                        "Slice integration branch shares a fork point with "
+                        "the advanced parent and carries its own commits — "
+                        "adopting it and resuming in place via runtime "
+                        "merge-base re-derivation (#3245; recorded base "
+                        "untrusted/stale)",
+                        pipeline_id=pipeline_id,
+                        integration_branch=integration_branch,
+                        parent_branch=parent_branch,
+                        parent_sha=parent_sha,
+                        existing_sha=existing_sha,
+                        fork_base=fork_base,
+                        recorded_integration_base_sha=integration_base_sha,
+                    )
+                    return fork_base
+
                 # Could not verify ancestry: parent_sha is either not
                 # reachable from the existing tip (genuinely diverged
                 # history) or the merge-base call itself failed

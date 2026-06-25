@@ -742,6 +742,7 @@ def _ancestry_make_request(
     *,
     push_invoked: list[dict],
     merge_base_args: list[list[str]],
+    merge_bases: dict[tuple[str, str], str] | None = None,
 ):
     """Build a ``_make_request`` side effect that answers
     ``merge-base --is-ancestor`` from an ``(ancestor, descendant) -> bool``
@@ -751,6 +752,15 @@ def _ancestry_make_request(
     missing) mapping raises the ``returncode=1`` ``GatewayError`` that
     ``_sha_is_ancestor`` interprets as "not an ancestor" — exactly how the
     real gateway surfaces ``git merge-base --is-ancestor``'s non-zero exit.
+
+    ``merge_bases`` answers the bare ``git merge-base <ref_a> <ref_b>``
+    probe (the #3245 runtime fork-point re-derivation) from a
+    ``(ref_a, ref_b) -> fork_base_sha`` map. A missing entry surfaces the
+    same ``returncode=1`` ``GatewayError`` that ``merge_base`` maps to
+    ``None`` ("no shared history"). Only the ``--is-ancestor`` probes are
+    appended to ``merge_base_args`` so existing sequence assertions stay
+    pinned to the ancestry checks; the bare merge-base probe is asserted
+    via its own ``merge_bases`` wiring.
     """
 
     def fake_make_request(endpoint, method=None, data=None, **kwargs):
@@ -759,10 +769,21 @@ def _ancestry_make_request(
             return {"success": True, "data": {}}
         if endpoint == "/api/v1/git/execute":
             args = list((data or {}).get("args", []))
-            merge_base_args.append(args)
-            ancestor, descendant = args[1], args[2]
-            if ancestry.get((ancestor, descendant), False):
-                return {"success": True, "data": {"returncode": 0}}
+            if args and args[0] == "--is-ancestor":
+                merge_base_args.append(args)
+                ancestor, descendant = args[1], args[2]
+                if ancestry.get((ancestor, descendant), False):
+                    return {"success": True, "data": {"returncode": 0}}
+                raise GatewayError(
+                    "git merge-base failed",
+                    status_code=500,
+                    details={"returncode": 1, "stdout": "", "stderr": ""},
+                )
+            # Bare ``git merge-base <ref_a> <ref_b>`` — the #3245 fork-point
+            # re-derivation. args == [ref_a, ref_b].
+            fork = (merge_bases or {}).get((args[0], args[1])) if len(args) >= 2 else None
+            if fork:
+                return {"success": True, "data": {"stdout": fork + "\n", "returncode": 0}}
             raise GatewayError(
                 "git merge-base failed",
                 status_code=500,
@@ -891,14 +912,20 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
             "early ``return parent_sha``)"
         )
 
-    def test_parent_rebase_falls_through_to_push(self, gateway_client):
-        """If the parent was *rewritten* (rebase) rather than advanced
-        additively, the recorded base is no longer an ancestor of the
-        parent tip. The harder rewrite class is out of scope — fall
-        through to the push so the rejection surfaces."""
+    def test_parent_rewrite_resumes_in_place_via_rederivation(self, gateway_client):
+        """If the parent was *rewritten* (rebase) so the recorded base is
+        no longer an ancestor of the parent tip, the #2947 fast-path does
+        not fire. Pre-#3245 this fell through to a non-fast-forward push
+        that FAILED the slice and cascaded the phase. Now the #3245 runtime
+        re-derivation finds the genuine shared fork point (a rewrite still
+        leaves a common ancestor) and adopts the branch in place — the
+        committed work is preserved and the parent's commits reconcile at
+        slice-PR / merge time (surfacing as a CONFLICTING PR for human
+        review), which is strictly better than failing the whole phase."""
         base_sha = "b0b0b0b0" * 5
         existing_sha = "e1e1e1e1" * 5
         parent_sha = "a2a2a2a2" * 5
+        fork_sha = "c0c0c0c0" * 5  # real shared ancestor before the rewrite
         push_invoked: list[dict] = []
         merge_base_args: list[list[str]] = []
         ancestry = {
@@ -909,19 +936,114 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
         ok = self._create(
             gateway_client,
             _ancestry_make_request(
-                ancestry, push_invoked=push_invoked, merge_base_args=merge_base_args
+                ancestry,
+                push_invoked=push_invoked,
+                merge_base_args=merge_base_args,
+                merge_bases={(existing_sha, parent_sha): fork_sha},
             ),
             self._remotes(parent_sha, existing_sha),
             base_sha=base_sha,
         )
 
-        assert ok, "diverged push (here) succeeds in the stub"
-        assert len(push_invoked) == 1, "rebase class must fall through to the push"
-        assert push_invoked[0]["refspec"] == f"{parent_sha}:refs/heads/{self._INT}"
+        assert ok == fork_sha, (
+            "#3245 returns the re-derived true fork base, not the advanced "
+            "parent tip, so the caller records the real base"
+        )
+        assert push_invoked == [], (
+            "must NOT push — the branch is adopted in place; a parent-tip "
+            "push here is non-fast-forward and would fail the slice"
+        )
+        # The 3 is-ancestor probes still run (#2512, then #2947's two
+        # checks); the bare merge-base re-derivation then adopts.
         assert [a[1:] for a in merge_base_args] == [
             [parent_sha, existing_sha],
             [base_sha, existing_sha],
             [base_sha, parent_sha],
+        ]
+
+    def test_no_shared_history_falls_through_to_push(self, gateway_client):
+        """An existing branch that shares NO history with the parent (a
+        genuine orphan/unrelated branch sitting at this name) has no
+        merge-base, so #3245 re-derivation returns None and we fall
+        through to the push — preserving the "don't adopt unknown work"
+        instinct."""
+        base_sha = "b0b0b0b0" * 5
+        existing_sha = "e1e1e1e1" * 5
+        parent_sha = "a2a2a2a2" * 5
+        push_invoked: list[dict] = []
+        merge_base_args: list[list[str]] = []
+        ancestry = {
+            (parent_sha, existing_sha): False,
+            (base_sha, existing_sha): True,
+            (base_sha, parent_sha): False,
+        }
+        ok = self._create(
+            gateway_client,
+            _ancestry_make_request(
+                ancestry,
+                push_invoked=push_invoked,
+                merge_base_args=merge_base_args,
+                merge_bases={},  # no shared fork point
+            ),
+            self._remotes(parent_sha, existing_sha),
+            base_sha=base_sha,
+        )
+
+        assert ok, "no-shared-history push (here) succeeds in the stub"
+        assert len(push_invoked) == 1, "no shared fork point must fall through to the push"
+        assert push_invoked[0]["refspec"] == f"{parent_sha}:refs/heads/{self._INT}"
+
+    def test_corrupted_base_overwritten_to_parent_tip_resumes_in_place(self, gateway_client):
+        """Regression for the issue-3200 slice-7 incident (#3245): an
+        out-of-band actor (restart/salvage/manual edit) overwrote the
+        recorded ``integration_base_sha`` to the *advanced parent tip*.
+        That base then fails its own ancestor-of-slice-tip check, so the
+        #2947 fast-path can't fire — but the branch is a perfectly
+        resumable additive fork. The #3245 runtime re-derivation must
+        find the real fork point and adopt it in place rather than
+        non-fast-forward-failing the slice (which cascaded the phase)."""
+        # The corruption: recorded base == the current parent tip.
+        parent_sha = "a2a2a2a2" * 5
+        base_sha = parent_sha  # overwritten to parent tip by the restart actor
+        existing_sha = "e1e1e1e1" * 5  # slice tip, forked from the *real* base
+        real_fork = "8913746b" + "0" * 32  # the genuine fork point
+        push_invoked: list[dict] = []
+        merge_base_args: list[list[str]] = []
+        ancestry = {
+            # #2512: parent is NOT an ancestor of the slice tip.
+            (parent_sha, existing_sha): False,
+            # #2947: base==parent_sha is NOT an ancestor of the slice tip
+            # (this is the exact check the corruption defeats).
+            (base_sha, existing_sha): False,
+        }
+        ok = self._create(
+            gateway_client,
+            _ancestry_make_request(
+                ancestry,
+                push_invoked=push_invoked,
+                merge_base_args=merge_base_args,
+                merge_bases={(existing_sha, parent_sha): real_fork},
+            ),
+            self._remotes(parent_sha, existing_sha),
+            base_sha=base_sha,
+        )
+
+        assert ok == real_fork, (
+            "corrupted-base slice must resume in place via #3245 "
+            "re-derivation, returning the re-derived true fork base "
+            "(not the corrupt parent tip) so the caller persists the real "
+            "base and the next resume hits the cheaper #2947 fast-path"
+        )
+        assert push_invoked == [], (
+            "must NOT push — adopting the existing fork in place preserves "
+            "the slice's consensus-approved commits"
+        )
+        # #2512 (parent->existing) runs; #2947 short-circuits at its first
+        # ancestor check (base->existing False), so only two is-ancestor
+        # probes precede the merge-base re-derivation.
+        assert [a[1:] for a in merge_base_args] == [
+            [parent_sha, existing_sha],
+            [base_sha, existing_sha],
         ]
 
     def test_branch_not_descended_from_recorded_base_falls_through(self, gateway_client):
@@ -991,7 +1113,12 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
         (no slice commits yet) must take the fast-forward push path that
         advances it to the new parent tip — NOT resume-in-place, which
         would pin it to the stale base. The ``existing_sha != base`` guard
-        is what keeps it off the resume path."""
+        keeps it off the #2947 fast-path; and because the branch carries no
+        commits beyond the fork, the #3245 re-derivation's
+        ``fork_base != existing_sha`` guard also declines to adopt it (the
+        merge-base of an un-started branch and its advanced parent is the
+        branch tip itself), so it correctly falls through to the
+        fast-forward push."""
         base_sha = "b0b0b0b0" * 5
         existing_sha = base_sha  # un-started: tip still at the creation base
         parent_sha = "a2a2a2a2" * 5
@@ -1001,7 +1128,13 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
         ok = self._create(
             gateway_client,
             _ancestry_make_request(
-                ancestry, push_invoked=push_invoked, merge_base_args=merge_base_args
+                ancestry,
+                push_invoked=push_invoked,
+                merge_base_args=merge_base_args,
+                # Realistic: an un-started branch sits at the fork, so
+                # merge-base(existing, parent) == existing — the #3245
+                # guard must NOT adopt it.
+                merge_bases={(existing_sha, parent_sha): existing_sha},
             ),
             self._remotes(parent_sha, existing_sha),
             base_sha=base_sha,
@@ -1010,8 +1143,9 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
         assert ok
         assert len(push_invoked) == 1, "un-started branch must fast-forward to parent"
         assert push_invoked[0]["refspec"] == f"{parent_sha}:refs/heads/{self._INT}"
-        # Only the #2512 probe runs; the resume-in-place probes are gated
-        # off by ``existing_sha != integration_base_sha``.
+        # Only the #2512 is-ancestor probe runs; the resume-in-place
+        # is-ancestor probes are gated off by
+        # ``existing_sha != integration_base_sha``.
         assert [a[1:] for a in merge_base_args] == [[parent_sha, existing_sha]]
 
 

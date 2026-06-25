@@ -1928,8 +1928,9 @@ class TestCleanupPipelineSliceWorktrees:
 # Test-first contract for TASK-2-2's one-shot spawn entry. The orchestrator
 # event loop (TASK-2-1) drives per-event Jobs through a NEW spawner entry
 # pinned here as ``KubernetesSpawner.spawn_event_job(...)``. It must:
-#   * set EGG_EVENT_LOOP_OWNER=orchestrator plus the event identity
-#     (EGG_EVENT_ACTION, EGG_EVENT_DEDUPE_KEY, payload refs) in Job env;
+#   * set the event identity (EGG_EVENT_ACTION, EGG_EVENT_DEDUPE_KEY,
+#     payload refs) in Job env (the EGG_EVENT_LOOP_OWNER flag was retired
+#     in #3164 — the wrapper keys on EGG_EVENT_ACTION alone);
 #   * carry the dedupe key as a Job label (the reconciliation handle the
 #     loop uses for stateless restart);
 #   * derive the Job name from the existing
@@ -1962,8 +1963,10 @@ class TestSpawnEventJobOneShot:
             repos=["owner/repo"],
         )
         env = result.environment
-        # Owner flag flips the wrapper into its one-shot arm.
-        assert env["EGG_EVENT_LOOP_OWNER"] == "orchestrator"
+        # #3164 retired the EGG_EVENT_LOOP_OWNER ownership flag — the wrapper's
+        # one-shot handler keys on EGG_EVENT_ACTION alone, so the event job no
+        # longer injects an owner flag.
+        assert "EGG_EVENT_LOOP_OWNER" not in env
         # Full event identity is injected.
         assert env["EGG_EVENT_ACTION"] == "propose"
         assert env["EGG_EVENT_DEDUPE_KEY"] == self._KEY

@@ -1,13 +1,24 @@
 """Tests for the consensus wrapper module.
 
-Slice-4 task-4-2 deleted the legacy capped-restart template; the
-``TestBuildConsensusWrappedCommand`` / ``TestConsensusWrapperBehavior``
-/ ``TestBufferOverflowDetection`` / ``TestEventDrivenWait`` /
-``TestSSESigtermGrace`` classes that pinned its surface went with it,
-along with the ``_force_legacy_template`` fixture they shared. The
-buffer-overflow / transient-crash / startup-failure shell classifier
-helpers were preserved (relocated into ``_EVENT_PUMP_WRAPPER_TEMPLATE``);
-their coverage is folded into the event-pump test classes below.
+Issue #3164 retired the in-pod BRC event-loop "wait arm": the wrapper
+rendered by ``build_consensus_wrapped_command`` (and its delegate
+``build_event_pump_wrapped_command``) is now ONE-SHOT ONLY. The
+orchestrator spawns the wrapper once per actionable BRC event with
+``EGG_EVENT_ACTION`` injected; the wrapper handles that single event and
+exits. There is no blocking ``while true`` wait-loop, no background
+heartbeat emitter, no idle-budget machinery, and no agent-fail-streak
+machinery in the wrapper — those were either deleted or re-homed to the
+orchestrator event loop.
+
+The test classes that pinned the deleted in-pod-pump surface (the
+``while true`` loop, ``egg-orch message wait-loop``, the 30s background
+heartbeat, the idle-budget overseer alert, the wait-filter construction,
+the role-complete/consensus-confirmed loop arm, the agent-fail-streak
+escalation, the ownership-flag accessor) went with it. What survives:
+the shared helper functions (``cw_log`` / ``emit_heartbeat`` /
+``fetch_next_action`` / ``sync_to_proposals`` / ``invoke_agent_for_event``),
+the one-shot event handler, the per-event prompt composer wiring, the
+sync-to-proposal banner contract, and the ``--effort`` thread-through.
 """
 
 import os
@@ -15,1370 +26,7 @@ import shlex
 import subprocess
 import sys
 
-import pytest
 from consensus_wrapper import build_consensus_wrapped_command
-
-# Sentinel event types the event-pump wait filter must always cover.
-# Plan TASK-2-1 line 797-799 enumerates these six explicitly.
-_EXPECTED_EVENT_PUMP_WAIT_FILTERS = (
-    "CONSENSUS_PROPOSE",
-    "CONSENSUS_ACK",
-    "CONSENSUS_NACK",
-    "STATUS",
-    "CONSENSUS_RE_REVIEW",
-    "OVERSEER_ALERT",
-)
-
-
-class TestEventPumpTemplateSelection:
-    """(i) Template selection. Post slice-4 task-4-2 there is only one
-    template — the event-pump. The ``EGG_BRC_EVENT_PUMP`` env flag is
-    no longer read; any value (including ``false`` / ``0`` / ``no`` /
-    ``off``) is silently inert. The class survives task-4-2 so the
-    snapshot regression on the event-pump template + the wait-filter
-    composition keeps a dedicated home.
-    """
-
-    def test_flag_unset_emits_event_pump_template_by_default(self, monkeypatch):
-        """Slice-4 task-4-1 flipped the unset-env default to event-pump;
-        slice-4 task-4-2 then deleted the legacy template entirely. The
-        event-pump is the only production path; unset env must emit it.
-        """
-        monkeypatch.delenv("EGG_BRC_EVENT_PUMP", raising=False)
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # Event-pump template markers.
-        assert "Event-pump wrapper (#2908 slice-2)" in script
-        # Legacy markers MUST NOT appear — they were deleted by task-4-2.
-        assert "MAX_RESTARTS=" not in script
-        assert "BRC Consensus Recovery" not in script
-
-    def test_flag_false_is_silently_inert_after_task_4_2(self, monkeypatch):
-        """Slice-4 task-4-2 deleted the legacy template and the
-        ``EGG_BRC_EVENT_PUMP`` env-flag read along with it. Any value
-        (truthy or falsy) is silently ignored; operators with the var
-        lingering in k8s manifests can leave it set to ``false`` and
-        still get the event-pump template.
-
-        Pins the inertness so a future regression that re-introduces
-        a legacy-template branch trips this test.
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "false")
-        cmd_false = build_consensus_wrapped_command("Prompt")
-        monkeypatch.delenv("EGG_BRC_EVENT_PUMP", raising=False)
-        cmd_unset = build_consensus_wrapped_command("Prompt")
-        assert cmd_false[2] == cmd_unset[2], (
-            "EGG_BRC_EVENT_PUMP=false must be silently inert post "
-            "slice-4 task-4-2 — both must emit the event-pump template."
-        )
-        # Same check for the other falsy tokens.
-        for falsy in ("0", "no", "off", "False", "OFF"):
-            monkeypatch.setenv("EGG_BRC_EVENT_PUMP", falsy)
-            assert build_consensus_wrapped_command("Prompt")[2] == cmd_unset[2], (
-                f"EGG_BRC_EVENT_PUMP={falsy!r} must be silently inert."
-            )
-
-    def test_flag_unset_and_flag_true_emit_identical_scripts(self, monkeypatch):
-        """Sanity: unset and explicit-true cases emit the same script
-        post task-4-1. Pinned so a future regression that splits them
-        apart trips the test rather than silently bifurcating the
-        production path.
-        """
-        monkeypatch.delenv("EGG_BRC_EVENT_PUMP", raising=False)
-        cmd_unset = build_consensus_wrapped_command("Prompt")
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd_true = build_consensus_wrapped_command("Prompt")
-        assert cmd_unset[2] == cmd_true[2], (
-            "Unset env and explicit EGG_BRC_EVENT_PUMP=true must emit "
-            "the same script after the task-4-1 default flip — "
-            "otherwise the production path is bifurcated."
-        )
-
-    def test_flag_on_emits_event_pump_template(self, monkeypatch):
-        """With ``EGG_BRC_EVENT_PUMP=true``, the new event-pump template
-        is emitted in place of the legacy capped-restart template.
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # The new template MUST contain a wait-loop primitive over the
-        # six event types and handle the ``role_complete`` signal from
-        # ``brc next-action`` (plan line 783-792).
-        assert "egg-orch message wait-loop" in script
-        # The role_complete signal arrives from ``brc next-action`` as the
-        # action value ``complete``. The wrapper must branch on it (case
-        # arm or equivalent). Accept any of: literal ``role_complete``
-        # token (variable name), the ``complete)`` case arm in the action
-        # switch, or a ``ROLE_CONFIRMED`` boolean derived from
-        # ``brc get-state``.
-        assert any(
-            marker in script for marker in ("role_complete", "complete)", "ROLE_CONFIRMED")
-        ), (
-            "event-pump must check role_complete from brc get-state / "
-            "next-action (plan line 783-792); neither role_complete nor "
-            "ROLE_CONFIRMED nor a complete) case arm found in script."
-        )
-        # New template must call ``brc next-action`` (plan line 785).
-        assert "brc next-action" in script
-
-    def test_flag_on_wait_filter_contains_six_required_events(self, monkeypatch):
-        """(i) The flag-on path's wait-filter set must include all six event
-        types the plan enumerates (line 797-799).
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        for event_type in _EXPECTED_EVENT_PUMP_WAIT_FILTERS:
-            assert f"--for {event_type}" in script, (
-                f"event-pump wait filter missing --for {event_type}; "
-                f"plan TASK-2-1 line 797-799 requires all six."
-            )
-
-
-class TestEventPumpHeartbeatCadence:
-    """(ii)+(iii) Wrapper-side heartbeat emission migrated out of
-    ``sandbox/egg_agent_tools/handlers/message.py:267-429`` and into the
-    event-pump bash. The payload must include ``slice_id`` sourced from
-    ``EGG_SLICE_ID`` so a regression in slice_id propagation (risk_analyst
-    R9) is caught directly.
-
-    Cadence is verified with a mock subprocess fast-forward — we inspect
-    the generated script for the configured 30-second loop interval and
-    the existence of a backgrounded heartbeat subshell, rather than
-    sleeping in real wall-clock to keep the test deterministic.
-    """
-
-    def test_flag_on_emits_heartbeat_subshell(self, monkeypatch):
-        """The event-pump template must contain ``egg-orch message
-        heartbeat`` invoked in a backgrounded subshell while the
-        wait-loop is blocking (plan TASK-2-2 description, line 828-829).
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        assert "egg-orch message heartbeat" in script
-        # Background subshell shape: `( ... ) &` or a backgrounded
-        # subshell variant — flexible enough to match either.
-        # Heartbeat must run alongside the wait-loop, not block it.
-        # We pin the presence of the heartbeat command + the ``wait-loop``
-        # primitive in the same script so the migration cannot regress
-        # to agent-side-only heartbeating.
-        assert "wait-loop" in script
-
-    def test_flag_on_heartbeat_cadence_is_30_seconds(self, monkeypatch):
-        """The plan (TASK-2-2 description, line 828) names a 30-second
-        cadence. Pin the default in the script so a regression to a
-        different cadence is caught by this test. Accept either a
-        literal ``sleep 30`` or an env-var indirection that defaults to
-        30 (e.g. ``${EGG_BRC_HEARTBEAT_INTERVAL_SECS:-30}``).
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # Accept either form: literal ``sleep 30`` or an env-var
-        # default of 30 (``:-30}"`` etc.).
-        cadence_markers = (
-            "sleep 30",
-            ":-30}",
-            "INTERVAL_SECS=30",
-            "INTERVAL_SECS:-30",
-        )
-        assert any(m in script for m in cadence_markers), (
-            "wrapper-side heartbeat must default to a 30s cadence per "
-            "plan TASK-2-2 line 828; neither literal `sleep 30` nor an "
-            "env-var default of 30 found in the rendered bash."
-        )
-
-    def test_flag_on_heartbeat_payload_threads_slice_id_from_env(self, monkeypatch):
-        """(iii) The heartbeat payload MUST source ``slice_id`` from the
-        ``EGG_SLICE_ID`` env var. Plan TASK-2-2 line 831-834 names this
-        invariant directly: "The heartbeat payload MUST include
-        ``slice_id == os.environ['EGG_SLICE_ID']`` (or the equivalent
-        shell substitution ``${EGG_SLICE_ID:-}`` passed through the CLI)
-        so a regression in slice_id propagation is caught directly."
-
-        We assert the script references ``EGG_SLICE_ID`` adjacent to the
-        ``egg-orch message heartbeat`` invocation. A shell substitution
-        of the env var into the heartbeat command line satisfies the
-        "passed through the CLI" route from the plan.
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # The script must reference EGG_SLICE_ID; the message heartbeat
-        # CLI takes ``--slice-id`` or threads it through the request.
-        assert "EGG_SLICE_ID" in script, (
-            "heartbeat payload must source slice_id from EGG_SLICE_ID; "
-            "regression in slice_id propagation will not be caught "
-            "without this wiring (risk_analyst R9)."
-        )
-
-    # Note: slice-2's ``test_flag_off_heartbeat_path_unchanged`` was
-    # deleted by slice-4 task-4-2. The legacy template (and its
-    # "no wrapper-side heartbeat under flag-off" invariant) no longer
-    # exists; the agent-side ``handlers/message.py:_default_emit_wait_loop_heartbeat``
-    # was deleted alongside the legacy template, so the double-heartbeat
-    # bus-spam scenario that test guarded against is also gone. The
-    # wrapper now unconditionally emits the wrapper-owned heartbeat
-    # subshell (see ``test_flag_on_emits_heartbeat_subshell`` /
-    # ``test_flag_on_emits_heartbeat_subshell_template_marker`` for
-    # the post-deletion invariant).
-
-
-class TestEventPumpKeepAliveCadence:
-    """(iv) Wrapper-side gateway-session keep-alive (#2451) migrated out
-    of ``sandbox/egg_agent_tools/handlers/message.py`` and into the
-    event-pump bash. The wrapper performs the same lifecycle-secret-gated
-    session refresh as a background subshell alongside the heartbeat
-    emitter from TASK-2-2.
-    """
-
-    def test_flag_on_emits_keep_alive_subshell(self, monkeypatch):
-        """The event-pump template must perform a gateway-session
-        refresh while the wait-loop is blocking (plan TASK-2-4 line
-        875-881).
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # The keep-alive ping refreshes the lifecycle-secret-gated
-        # session. Either an explicit ``keep-alive``/``keepalive``
-        # subcommand call or a session-refresh marker must appear.
-        assert "keep-alive" in script or "keepalive" in script or "session" in script.lower(), (
-            "event-pump template must perform gateway-session keep-alive "
-            "(plan TASK-2-4); without it, long waits will lose their "
-            "lifecycle-secret-gated session and the next CLI call will "
-            "401."
-        )
-
-    # Note: slice-2's ``test_flag_off_keep_alive_remains_agent_side`` was
-    # deleted by slice-4 task-4-2. The legacy template is gone and the
-    # agent-side keep-alive (which lived inside ``message_wait_loop``'s
-    # heartbeat path) was deleted along with the legacy template, so
-    # the "old path unchanged" invariant no longer applies.
-
-
-class TestEventPumpIdleBudgetAlert:
-    """(v) Idle / no-progress safety budget driven by env
-    ``EGG_BRC_IDLE_BUDGET_MIN`` (default 30). When no actionable event
-    has arrived for the budget duration, the wrapper emits
-    ``mcp__progress__overseer_alert`` (anomaly
-    ``stuck-phase-transition``, priority ``high``) and continues
-    blocking. The legacy template that owned the historical restart
-    cap was deleted in slice-4 task-4-2; the idle budget is now the
-    only liveness ceiling in the wrapper.
-
-    NOTE: Per scope update on #2908 issue body and contract cq-3, the
-    durable server-side ``Pipeline.no_progress_budget`` is the binding
-    primary mechanism. The in-wrapper env-var budget tested here is the
-    slice-2 implementation gate; it must work AND must NOT replace the
-    durable server-side path (which lands in slice-1's orchestrator
-    route work, not here).
-    """
-
-    def test_flag_on_contains_idle_budget_alert(self, monkeypatch):
-        """Idle budget threshold triggers an overseer alert at the
-        configured duration (plan TASK-2-3 acceptance line 863-868).
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # Default budget: 30 minutes (plan line 854).
-        assert "EGG_BRC_IDLE_BUDGET_MIN" in script
-        # Alert payload (plan line 857-858) — overseer alert with the
-        # right anomaly + priority.
-        assert "overseer alert" in script or "overseer_alert" in script
-        assert "stuck-phase-transition" in script
-        # Priority "high" must be passed somewhere (either as
-        # ``--priority high`` literal, ``--priority "$priority"`` with
-        # ``"high"`` passed in, or an env-var default of "high"). We
-        # require both the ``--priority`` flag AND the ``high`` token
-        # appear in the script.
-        assert "--priority" in script, (
-            "overseer alert payload must include --priority flag (plan "
-            "TASK-2-3 line 857-858 — `priority high`)."
-        )
-        assert "high" in script, (
-            "overseer alert priority must be `high` per plan TASK-2-3 line 857-858."
-        )
-
-    def test_flag_on_idle_budget_default_30_minutes(self, monkeypatch):
-        """Default ``EGG_BRC_IDLE_BUDGET_MIN`` is 30 minutes per plan
-        line 853-854 (well above the WS7-observed 10-13 min idle ceiling).
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # Default value must appear as a literal in the rendered bash so
-        # an operator override flows through.
-        assert "${EGG_BRC_IDLE_BUDGET_MIN:-30}" in script or "EGG_BRC_IDLE_BUDGET_MIN=30" in script
-
-    def test_flag_on_idle_budget_continues_blocking_after_alert(self, monkeypatch):
-        """After the alert fires, the loop continues blocking (NOT exit
-        1 → FAILED). Plan line 867-868: "loop continues blocking after
-        alert (not exit 1 → FAILED)."
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # The alert dispatch must NOT be immediately followed by an
-        # ``exit 1``. We assert the pattern by checking that the script
-        # re-enters the wait-loop after the alert (continue / loop /
-        # re-block). The simplest pin: there is no immediate ``exit 1``
-        # adjacent to the ``stuck-phase-transition`` keyword.
-        alert_idx = script.find("stuck-phase-transition")
-        if alert_idx == -1:
-            # If the test for `test_flag_on_contains_idle_budget_alert`
-            # already failed, this test would also fail — but its scope
-            # is the continue-not-exit invariant, so we skip cleanly
-            # rather than double-report.
-            import pytest as _pytest
-
-            _pytest.skip(
-                "stuck-phase-transition keyword absent; covered by the "
-                "TestEventPumpIdleBudgetAlert.test_flag_on_contains_idle_budget_alert "
-                "failure"
-            )
-        # Look at the next 200 characters after the alert keyword — no
-        # adjacent ``exit 1`` must appear (the loop continues).
-        nearby = script[alert_idx : alert_idx + 200]
-        assert "exit 1" not in nearby, (
-            "idle-budget alert must NOT be followed by exit 1; the loop "
-            "MUST continue blocking (plan line 867-868)."
-        )
-
-    # Note: slice-2's ``test_flag_off_idle_budget_not_used`` was deleted
-    # by slice-4 task-4-2. The legacy template is gone; the unset-env
-    # path now emits the event-pump template, which DOES reference
-    # ``EGG_BRC_IDLE_BUDGET_MIN``. The "legacy template keeps the
-    # 3-restart cap verbatim" invariant no longer applies — see
-    # ``test_idle_budget_default_30_min_in_script`` for the post-deletion
-    # invariant.
-
-
-class TestEventPumpStaleVersionRefetch:
-    """(vi) 409 ``stale_version`` from ``brc next-action`` is an
-    event-pump signal (re-fetch state, re-invoke), NOT a transient crash
-    to retry with backoff.
-
-    Plan TASK-2-1 line 793-796: "Wrapper handles 409 ``stale_version``
-    and 409 aggregated-NACK from ``brc next-action`` as event-pump
-    signals (re-fetch state, re-invoke), NOT as transient crashes to
-    retry with backoff."
-    """
-
-    def test_flag_on_handles_409_stale_version_as_refetch(self, monkeypatch):
-        """The event-pump bash MUST treat HTTP 409 from ``brc
-        next-action`` as a re-fetch trigger — call ``brc get-state``
-        again and re-invoke, NOT retry the same call with backoff.
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # The script must explicitly match the 409 status code and
-        # call ``brc get-state`` again. Pin the literal "409" so a
-        # blanket "any error → retry" path is caught by this test.
-        assert "409" in script
-        # Re-fetch primitive must be present.
-        assert "brc get-state" in script
-
-    def test_flag_on_409_does_not_apply_backoff(self, monkeypatch):
-        """On 409, the wrapper must NOT enter the ``CRASH_BACKOFF`` /
-        sleep-then-retry path. This is the negative invariant of (vi).
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # The event-pump template should not be using CRASH_BACKOFF
-        # variables at all (those belong to the legacy template).
-        # If they DO leak in via copy-paste, the 409 handler might
-        # accidentally land in the wrong branch.
-        # Allow CRASH_BACKOFF only if it is decisively scoped away
-        # from the 409 handler.
-        idx = script.find("409")
-        if idx != -1:
-            nearby = script[max(0, idx - 200) : idx + 400]
-            assert "CRASH_BACKOFF" not in nearby, (
-                "409 stale_version handler must not be co-located with "
-                "CRASH_BACKOFF backoff — it is a re-fetch signal, NOT a "
-                "transient crash (plan TASK-2-1 line 793-796)."
-            )
-
-
-class TestEventPumpRoleCompleteConfirm:
-    """(vii) + (vii.b) ``role_complete=true`` path calls ``egg-orch
-    consensus confirmed`` and exits 0; the wrapper does NOT also call
-    ``egg-orch progress complete`` (defensive guard against the
-    pseudocode-typo the architect corrected — plan line 932-934).
-    """
-
-    def test_flag_on_role_complete_calls_consensus_confirmed(self, monkeypatch):
-        """On ``role_complete=true`` the event-pump bash calls
-        ``egg-orch consensus confirmed`` to mark consensus and exits 0.
-        Plan TASK-2-1 line 791-793: "the wrapper calls ``egg-orch
-        consensus confirmed`` (existing CLI at orch_cli.py:2753) — NOT a
-        new ``progress complete`` command — to mark the role's consensus
-        and exit 0."
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        assert "egg-orch consensus confirmed" in script
-        # Clean exit 0 must appear in the role_complete branch.
-        # We check by locating the consensus-confirmed call and asserting
-        # an ``exit 0`` follows somewhere in the rest of that branch.
-        idx = script.find("egg-orch consensus confirmed")
-        assert idx >= 0
-        tail = script[idx:]
-        assert "exit 0" in tail, (
-            "the role_complete branch that calls `egg-orch consensus "
-            "confirmed` must exit 0 (plan TASK-2-1 line 791-793)."
-        )
-
-    def test_flag_on_does_not_call_progress_complete(self, monkeypatch):
-        """(vii.b) Defensive guard: the wrapper template must NOT contain
-        ``progress complete`` — that would be the pseudocode-typo the
-        architect corrected and is NOT a valid CLI subcommand for marking
-        BRC consensus.
-
-        Plan TASK-2-6 acceptance line 949-950: "test (vii.b) asserts
-        ``rg 'progress complete'`` against the emitted bash returns
-        zero matches."
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        assert "progress complete" not in script, (
-            "wrapper must NOT call `egg-orch progress complete` — the "
-            "correct CLI is `egg-orch consensus confirmed`. This guard "
-            "catches the pseudocode-typo the architect corrected."
-        )
-
-    # Note: slice-2's ``test_flag_off_legacy_path_does_not_auto_call_consensus_confirmed``
-    # was deleted by slice-4 task-4-2. The legacy template is gone; the
-    # event-pump template DOES invoke ``egg-orch consensus confirmed``
-    # under the ``confirm`` / ``complete`` arms of the action loop (driven
-    # by ``brc next-action``, not auto-invoked on agent exit). The
-    # symmetry-guard concern (the wrapper auto-confirming on behalf of
-    # the agent) is now structurally impossible — the only invocations
-    # happen inside the ``case "$ACTION"`` arms which require an
-    # orchestrator-side derivation, not a wrapper-side timer or exit
-    # condition.
-
-
-class TestEventPumpWaitFilterConditional:
-    """(viii) Wait-filter construction OMITS ``CONSENSUS_CONFIRMED``
-    pre-confirm and INCLUDES it post-confirm.
-
-    Plan TASK-2-1 line 811-816: "the wait-filter set is **constructed
-    conditionally from ``consensus_status.is_role_confirmed``** —
-    pre-confirm waits OMIT ``CONSENSUS_CONFIRMED`` from the filter (per
-    risk_analyst R12 / orchestrator HTTP-400 rejection documented in
-    #2064/#2482), post-confirm STAY-ALIVE waits INCLUDE it."
-
-    The HTTP-400 rejection is real: the orchestrator's wait endpoint
-    returns 400 if a producer's pre-confirm wait names
-    ``CONSENSUS_CONFIRMED`` because its own confirm is what generates
-    that signal. So the wrapper bash MUST conditionally include the
-    filter or risk wedging every pre-confirm wait.
-    """
-
-    def test_flag_on_wait_filter_is_constructed_conditionally(self, monkeypatch):
-        """The event-pump bash MUST branch on ``is_role_confirmed`` (or
-        an equivalent boolean) when constructing the wait-loop filter
-        set so the pre-confirm path omits ``CONSENSUS_CONFIRMED``.
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # The conditional may take any of several shapes. The plan names
-        # ``consensus_status.is_role_confirmed`` as the input — at the
-        # bash level this is a boolean variable derived from the
-        # ``brc get-state`` response. Any of these markers proves the
-        # conditional shape exists:
-        markers = (
-            "is_role_confirmed",
-            "ROLE_CONFIRMED",
-            "is_confirmed",
-            "role_confirmed",
-        )
-        assert any(m in script for m in markers), (
-            "event-pump wait filter must be constructed conditionally "
-            "from a role-confirmed boolean derived from brc get-state; "
-            "pre-confirm waits must omit CONSENSUS_CONFIRMED per "
-            "risk_analyst R12 / orchestrator HTTP-400 rejection "
-            "(#2064/#2482)."
-        )
-
-    def test_flag_on_pre_confirm_wait_does_not_always_include_consensus_confirmed(
-        self, monkeypatch
-    ):
-        """Negative invariant: the script must NOT unconditionally pass
-        ``--for CONSENSUS_CONFIRMED`` to the wait-loop. If every
-        wait-loop invocation hard-codes that filter, the conditional
-        shape is missing and pre-confirm waits will wedge with HTTP 400.
-
-        The matching tactic: ensure that ``CONSENSUS_CONFIRMED`` does
-        NOT appear in the same line as ``wait-loop`` unconditionally.
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # Find every line containing ``wait-loop``. If any of them
-        # ALSO contains ``--for CONSENSUS_CONFIRMED`` directly,
-        # without a conditional gate, that's a regression.
-        # We detect this by checking that the script branches on a
-        # role-confirmed boolean somewhere near the wait-loop call.
-        wait_loop_lines = [
-            ln for ln in script.splitlines() if "wait-loop" in ln and "egg-orch" in ln
-        ]
-        # Allow at most one wait-loop call site, but require the script
-        # contains either an ``if`` branch around it or a variable that
-        # is conditionally extended.
-        if any("CONSENSUS_CONFIRMED" in ln for ln in wait_loop_lines):
-            # The literal --for CONSENSUS_CONFIRMED appears on the same
-            # line as wait-loop. This is only OK if the line is gated
-            # by a conditional; check for a same-region ``if``/``case``
-            # construct.
-            assert "if " in script and (
-                "is_role_confirmed" in script
-                or "ROLE_CONFIRMED" in script
-                or "is_confirmed" in script
-            ), (
-                "the wait-loop invocation includes --for "
-                "CONSENSUS_CONFIRMED unconditionally; this will wedge "
-                "pre-confirm waits with HTTP 400 (risk_analyst R12)."
-            )
-
-    def test_flag_on_post_confirm_wait_includes_consensus_confirmed(self, monkeypatch):
-        """Positive invariant: post-confirm STAY-ALIVE waits MUST
-        include ``CONSENSUS_CONFIRMED`` so the wrapper wakes when peer
-        producers confirm. Plan line 815-816: "post-confirm STAY-ALIVE
-        waits INCLUDE it."
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # The literal ``--for CONSENSUS_CONFIRMED`` MUST appear somewhere
-        # in the script (gated by the conditional from the previous
-        # test).
-        assert "--for CONSENSUS_CONFIRMED" in script, (
-            "post-confirm STAY-ALIVE wait must include "
-            "--for CONSENSUS_CONFIRMED (plan line 815-816)."
-        )
-
-
-class TestEventPumpSliceIdHeartbeatEdge:
-    """(ix) Unset-``EGG_SLICE_ID`` case (plan / refine phase) emits
-    either explicit-null or omitted slice_id on the heartbeat payload —
-    NOT empty-string.
-
-    Plan TASK-2-6 acceptance line 937-939: "unset-``EGG_SLICE_ID`` case
-    (plan/refine phase) emits either explicit-null or omitted slice_id
-    on the heartbeat payload (NOT empty-string)."
-
-    Empty-string is a known bug class: the orchestrator's slice scoping
-    treats "" as a match for "no slice" but also as a distinct value
-    from None, so a heartbeat with ``slice_id=""`` will mismatch
-    against a tracker reconstruction keyed on None. This test pins the
-    null / omission shape.
-    """
-
-    def test_unset_slice_id_does_not_emit_empty_string(self, monkeypatch):
-        """When ``EGG_SLICE_ID`` is unset, the rendered bash must NOT
-        pass an empty-string ``slice_id`` to the heartbeat CLI.
-
-        We assert by scanning the script for a literal ``--slice-id ""``
-        or ``"slice_id":""`` pattern, both of which are bug shapes.
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        monkeypatch.delenv("EGG_SLICE_ID", raising=False)
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # Neither of these bug patterns may appear in the rendered bash.
-        assert '--slice-id ""' not in script, (
-            'rendered bash must not emit `--slice-id ""` — plan/refine '
-            "phases run without a slice and the heartbeat payload must "
-            "omit slice_id (or send null), NOT empty-string."
-        )
-        assert '"slice_id":""' not in script
-        assert '"slice_id": ""' not in script
-
-    def test_slice_id_threaded_via_shell_substitution(self, monkeypatch):
-        """The plan names two acceptable threading shapes (TASK-2-2
-        line 831-834):
-
-        - ``slice_id == os.environ['EGG_SLICE_ID']`` (Python-side read), OR
-        - ``${EGG_SLICE_ID:-}`` shell substitution passed through the CLI.
-
-        For the bash template the substitution form is the natural
-        shape. Pin the presence of a ``${EGG_SLICE_ID...}`` substitution
-        anywhere in the script — the CLI's ``cmd_message_heartbeat``
-        already resolves the env var server-side, so even an
-        empty-string default would be filtered by the handler. But the
-        rendered bash MUST still reference the env var so the slice
-        scope makes it onto the wire.
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        assert "EGG_SLICE_ID" in script, (
-            "rendered bash must reference EGG_SLICE_ID so slice scoping "
-            "propagates onto the heartbeat payload (risk_analyst R9)."
-        )
-
-
-class TestEventPumpIdleBudgetCeiling:
-    """Post slice-4 task-4-2 the event-pump template is the only
-    template path and the ``EGG_BRC_EVENT_PUMP`` env flag is silently
-    inert (the legacy capped-restart template and the env-flag read
-    were both deleted). This class pins the surviving invariant: the
-    idle budget — not a restart cap — is the liveness ceiling for the
-    wrapper. Originally named ``TestEventPumpFlagIsolation`` (slice-2)
-    when the slice-2/3/4 split between event-pump and legacy paths
-    needed to be policed; renamed and trimmed in slice-4 task-4-2 to
-    match the post-deletion single-template world.
-    """
-
-    def test_event_pump_relies_on_idle_budget_not_legacy_restart_cap(self, monkeypatch):
-        """The event-pump path uses ``EGG_BRC_IDLE_BUDGET_MIN`` as the
-        liveness ceiling — the legacy restart cap was deleted by
-        slice-4 task-4-2 along with the ``max_restarts`` kwarg on
-        ``build_consensus_wrapped_command``.
-
-        Renamed and simplified from the original
-        ``test_flag_on_does_not_inherit_legacy_max_restarts``: the
-        kwarg is gone and the env flag is silently inert, so the test
-        no longer needs to drive either.
-        """
-        monkeypatch.delenv("EGG_BRC_EVENT_PUMP", raising=False)
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        assert "EGG_BRC_IDLE_BUDGET_MIN" in script, (
-            "event-pump path must rely on EGG_BRC_IDLE_BUDGET_MIN as the "
-            "liveness ceiling (slice-4 task-4-2 deleted the legacy "
-            "restart cap)."
-        )
-
-    def test_flag_on_does_not_re_invoke_recovery_system_prompt(self, monkeypatch):
-        """The new template does not need the legacy recovery system
-        prompt — the per-event invocation contract supplies its own
-        memory + delta context. Plan slice-3 owns the per-event prompt
-        composer.
-
-        Pin that the legacy ``BRC Consensus Recovery`` header does NOT
-        appear in the flag-on template; carrying it forward would
-        confuse a one-shot per-event invocation with a recovery from
-        crash.
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # The legacy recovery header text is a strong marker.
-        assert "BRC Consensus Recovery" not in script, (
-            "flag-on event-pump template must not carry the legacy "
-            "'BRC Consensus Recovery' header forward — the per-event "
-            "invocation contract supplies its own context."
-        )
-
-
-class TestEventPumpHeartbeatSubshellLifecycle:
-    """Adversarial probing: the wrapper-owned heartbeat subshell MUST be
-    killable by ``stop_background_heartbeat``. If the subshell
-    installs an empty ``trap '' TERM`` then a default ``kill`` (SIGTERM)
-    from the parent is IGNORED — the subshell continues forever, and
-    the subsequent ``wait $HB_BG_PID`` blocks indefinitely because the
-    process never exits. This wedges the entire wrapper loop after the
-    first ``wait_for_event`` call returns.
-
-    Issue lineage: this is exactly the bug class #2906 / #2451 were
-    trying to fix at the agent-side layer. Re-introducing it at the
-    wrapper layer would silently regress slice_id propagation AND wedge
-    the deterministic loop.
-
-    Note: behavioural verification of the kill semantics belongs in a
-    bash-harness integration test (where we can spawn a subshell with
-    the same trap and confirm that ``kill && wait`` does not return).
-    These tests pin the *static* invariant against the rendered bash:
-    if the subshell traps TERM, the corresponding ``stop`` path MUST
-    use a signal that the subshell does not trap (``SIGINT``,
-    ``SIGHUP``, or ``SIGKILL``); otherwise the lifecycle is broken.
-    """
-
-    def test_flag_on_heartbeat_subshell_can_be_stopped(self, monkeypatch):
-        """If the rendered bash installs ``trap '' TERM`` (or any
-        ignored-TERM equivalent) in the heartbeat subshell, the
-        corresponding ``stop`` path MUST send a non-TERM signal so the
-        subshell actually exits. Sending the default ``kill`` (= TERM)
-        against a TERM-ignoring trap is a silent no-op — the subshell
-        loops forever and the wait blocks indefinitely.
-
-        Verified by ad-hoc bash harness during slice-2 review:
-
-            $ bash -c '( trap "" TERM; while true; do sleep 1; echo tick; done ) &
-                        sleep 2; kill $!; wait $! 2>/dev/null'
-            tick
-            tick
-            (hang — never returns)
-
-        Therefore the invariant: if the rendered bash sets
-        ``trap '' TERM`` in the heartbeat subshell, the stop primitive
-        must NOT rely on a default-signal ``kill``. Use ``kill -INT``,
-        ``kill -HUP``, ``kill -KILL``, or do not install the empty
-        TERM trap in the first place.
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-
-        # Strip ``#``-prefixed comment content so a comment that *mentions*
-        # the buggy pattern (``# The earlier `trap '' TERM` form ...``)
-        # doesn't trip the detector. We use a per-line scan rather than
-        # full bash tokenisation — sufficient for the static invariant.
-        def _strip_comments(text: str) -> str:
-            out_lines = []
-            for ln in text.splitlines():
-                stripped = ln.lstrip()
-                if stripped.startswith("#"):
-                    continue
-                # Trim inline trailing comments (best-effort: ``#`` outside
-                # any quotes). False-positive risk is bounded because the
-                # pattern we look for has its own quote shape.
-                if " #" in ln:
-                    ln = ln.split(" #", 1)[0]
-                out_lines.append(ln)
-            return "\n".join(out_lines)
-
-        executable = _strip_comments(script)
-        # Two failure modes the test guards against:
-        #
-        #  (A) Heartbeat subshell installs `trap '' TERM` AND the
-        #      ``stop`` path issues a default-signal `kill $HB_BG_PID`
-        #      (with no explicit signal). This is the silent-wedge bug.
-        #
-        #  (B) Heartbeat subshell installs `trap '' TERM` AND the
-        #      ``stop`` path issues `kill -TERM`/`kill -15`. Same wedge,
-        #      different shape.
-        #
-        # If the subshell does NOT install an ignored-TERM trap (either
-        # absent or replaced with ``trap 'exit 0' TERM`` / equivalent
-        # handler), this test is automatically satisfied — the wrapper is
-        # free to use any kill primitive against a non-trapping (or
-        # cleanly-exiting) subshell.
-        installs_ignoring_term_trap = "trap '' TERM" in executable or 'trap "" TERM' in executable
-        if not installs_ignoring_term_trap:
-            # The subshell either does not trap TERM at all, or installs a
-            # handler that exits cleanly on TERM (e.g. ``trap 'exit 0'
-            # TERM``). Either way the default-signal kill / wait pair
-            # works as expected.
-            return
-        # The subshell installs an ignored-TERM trap. The stop path MUST
-        # use a non-TERM signal. Allowed primitives: ``kill -INT``,
-        # ``kill -HUP``, ``kill -KILL``, ``kill -9``, or
-        # ``kill -SIGINT``/-SIGHUP/-SIGKILL. Scan the script for any of
-        # these adjacent to the ``HB_BG_PID`` symbol.
-        allowed_stop_primitives = (
-            "kill -INT",
-            "kill -HUP",
-            "kill -KILL",
-            "kill -9",
-            "kill -SIGINT",
-            "kill -SIGHUP",
-            "kill -SIGKILL",
-        )
-        kill_lines = [ln for ln in executable.splitlines() if "kill " in ln and "HB_BG_PID" in ln]
-        # Detect a default-signal kill (no explicit -SIG flag).
-        default_kill_lines = [
-            ln
-            for ln in kill_lines
-            if not any(prim in ln for prim in allowed_stop_primitives) and "kill -" not in ln
-        ]
-        assert not default_kill_lines, (
-            "the heartbeat subshell installs `trap '' TERM` which "
-            "ignores the default SIGTERM signal. The corresponding "
-            "stop path uses a default-signal `kill` which is a silent "
-            "no-op against that trap — the subshell will never exit, "
-            "and the subsequent `wait` blocks indefinitely, wedging "
-            "the event-pump loop after the first wait_for_event call.\n"
-            "Fix options: (a) remove the `trap '' TERM` from the "
-            "subshell, (b) replace it with `trap 'exit 0' TERM` (or any "
-            "handler that exits the subshell), or (c) change the stop "
-            "path to `kill -INT`, `kill -HUP`, or `kill -KILL` so the "
-            "signal is not trapped.\n"
-            f"Offending kill line(s): {default_kill_lines}"
-        )
-
-    def test_flag_on_heartbeat_subshell_lifecycle_is_bounded(self, monkeypatch):
-        """Companion to the trap test: regardless of the trap shape,
-        the wrapper MUST have an ``EXIT``-time cleanup that stops the
-        background heartbeat so a clean exit doesn't leave a stray
-        subshell holding the gateway session open. (The orchestrator's
-        ``ScriptedProvider`` ban for E2E means we cannot verify this
-        end-to-end; this is the static guard.)
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # The cleanup must be wired into bash's EXIT trap so even an
-        # unexpected exit path tears the subshell down. Either
-        # ``trap cleanup EXIT`` or ``trap '<stop call>' EXIT`` is
-        # acceptable.
-        assert "trap " in script and "EXIT" in script, (
-            "wrapper must install an EXIT trap to clean up the "
-            "background heartbeat subshell on any exit path."
-        )
-
-
-class TestEventPumpIdleAlertBrcSnapshot:
-    """Adversarial regression for the v2 idle-alert BRC snapshot bug.
-
-    Plan TASK-2-3 acceptance line 866-867: "alert payload includes
-    anomaly type, priority, current BRC state". The v2 coder addressed
-    this by embedding a ``brc_snapshot`` line in the alert detail
-    sourced from ``${{STATE_JSON:-{}}}``. The bash parameter expansion
-    is broken: bash's ``${{VAR:-DEFAULT}}`` syntax ends at the FIRST
-    ``}}`` after ``${{``, so ``${{STATE_JSON:-{}}}`` is parsed as
-    ``${{STATE_JSON:-{}}`` (default ``{``) followed by a literal
-    trailing ``}``. When STATE_JSON IS unset the rendered text happens
-    to read as ``{}}}`` collapsed to a valid empty-object literal by
-    accident, but when STATE_JSON is populated (the common case during
-    the event-pump loop) the rendered text appends a STRAY ``}`` to
-    the JSON document, and ``json.load`` fails with
-    ``json.decoder.JSONDecodeError: Extra data`` — the snapshot falls
-    back to ``(unavailable)`` 100% of the time the alert actually has
-    state to show.
-
-    Verified end-to-end with the rendered bash (slice-2 v2):
-
-        $ STATE_JSON='{"consensus":{"agents":{...}}}'
-        $ echo "${STATE_JSON:-{}}" \
-            | python3 -c 'import sys, json; json.load(sys.stdin)'
-        json.decoder.JSONDecodeError: Extra data: line 1 column 110 (char 109)
-
-    This is an observability bug, not a correctness wedge: the alert
-    still fires, but the BRC-state field always reads "(unavailable)"
-    when state IS available. That defeats the entire point of the
-    snapshot (tester v1 non-blocker #2).
-
-    Fix: use a temp variable for the default so the bash parser sees
-    a balanced ``${{...}}``:
-
-        local state_default='{}'
-        echo "${{STATE_JSON:-$state_default}}" | python3 ...
-    """
-
-    def test_flag_on_state_json_default_does_not_corrupt_populated_json(self, monkeypatch):
-        """The idle-alert BRC snapshot extraction MUST work when
-        STATE_JSON is populated. Statically check that the rendered
-        bash does NOT use the broken ``${{STATE_JSON:-{}}}`` pattern.
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # The broken pattern. We pin against the exact literal because
-        # the bash parser fails the same way regardless of variable
-        # name; if any future code introduces a ``${VAR:-{}}`` it has
-        # the same bug.
-        assert "${STATE_JSON:-{}}" not in script, (
-            "rendered bash contains `${STATE_JSON:-{}}` which bash "
-            "parses as `${STATE_JSON:-{}` (default `{`) plus a "
-            "trailing `}` — populated STATE_JSON values get a stray "
-            "`}` appended, breaking the downstream `json.load`. The "
-            "idle-alert BRC-snapshot field will always read "
-            "`(unavailable)` in the common case. Fix: use a temp var "
-            "for the default, e.g.\n"
-            "    local state_default='{}'\n"
-            '    echo "${STATE_JSON:-$state_default}" | python3 ...'
-        )
-
-    def test_flag_on_state_json_snapshot_round_trips_populated_json(self, monkeypatch, tmp_path):
-        """Behavioral round-trip: render the bash, extract the
-        ``brc_snapshot=$(echo ... | python3 ...)`` block, drive it
-        with a populated STATE_JSON, and assert the output does NOT
-        say ``(unavailable)``.
-        """
-        import os
-        import re
-        import subprocess
-
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # Locate the brc_snapshot extraction. The shape evolved across
-        # cycles: v2 used ``brc_snapshot=$(echo "${STATE_JSON:-{}}" |
-        # python3 ...)`` (the broken form this test originally pinned);
-        # v3 uses a separate ``snapshot_input`` variable + explicit
-        # empty-string check, then ``printf '%s' "$snapshot_input" |
-        # python3 ...``. We extract from the start of the
-        # ``raise_idle_alert`` function definition through the
-        # ``(snapshot unavailable)`` literal so either shape round-
-        # trips through the harness.
-        match = re.search(
-            r"raise_idle_alert\(\) \{(.*?\(snapshot unavailable\)\"\))",
-            script,
-            flags=re.DOTALL,
-        )
-        if match is None:
-            import pytest as _pytest
-
-            _pytest.skip(
-                "raise_idle_alert / brc_snapshot extraction block not "
-                "present in rendered bash; behavioral test does not "
-                "apply."
-            )
-        # The captured group is the function body up through the
-        # snapshot extraction; trim the leading ``local`` declarations
-        # so the harness can supply its own STATE_JSON without
-        # collision.
-        snapshot_block = match.group(1)
-        # The captured block lives inside a function body; replace
-        # ``local`` declarations with plain assignments so the harness
-        # can run it at the top level of the wrapper script.
-        snapshot_block = re.sub(
-            r"^\s*local (\w+)(?: (\w+))?",
-            lambda m: " ".join(g for g in (m.group(1), m.group(2)) if g),
-            snapshot_block,
-            flags=re.MULTILINE,
-        )
-        # Build a minimal harness: define STATE_JSON, run the block,
-        # echo the result.
-        harness = (
-            'STATE_JSON=\'{"consensus":{"agents":'
-            '{"tester":{"confirmed":true,"producer_phase":"WORKING"}},'
-            '"blocking_agents":["coder"]}}\'\n'
-            + snapshot_block
-            + '\necho "RESULT=[$brc_snapshot]"\n'
-        )
-        env = os.environ.copy()
-        env["EGG_AGENT_ROLE"] = "tester"
-        result = subprocess.run(
-            ["bash", "-c", harness],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        # The snapshot MUST contain the role info from the populated
-        # STATE_JSON, NOT the "(unavailable)" fallback.
-        assert "RESULT=[" in result.stdout, (
-            f"harness did not produce a RESULT line; stdout={result.stdout!r} "
-            f"stderr={result.stderr!r}"
-        )
-        result_line = next(ln for ln in result.stdout.splitlines() if ln.startswith("RESULT="))
-        assert "(unavailable)" not in result_line, (
-            "idle-alert BRC snapshot reads `(unavailable)` even when "
-            "STATE_JSON IS populated — the `${STATE_JSON:-{}}` bash "
-            "parameter expansion corrupts the JSON with a stray `}` "
-            "before it reaches `json.load`. The snapshot enhancement "
-            "ships broken; operators will never see structured state "
-            "in the alert detail. See test docstring for the fix.\n"
-            f"Got: {result_line}"
-        )
-        # And the result should contain the role we set.
-        assert "tester" in result_line, (
-            f"snapshot does not contain the EGG_AGENT_ROLE; got {result_line!r}"
-        )
-
-
-class TestEventPumpConfirmFailureRaisesIdleAlert:
-    """(reviewer §1 lock-in) When ``egg-orch consensus confirmed``
-    persistently fails on the ``confirm`` arm, the wrapper must NOT
-    tight-retry. The idle-budget overseer alert is the replacement
-    for the legacy ``MAX_CONSENSUS_RESTARTS=3`` ceiling -- it MUST
-    fire when the underlying CLI keeps returning non-zero.
-
-    Pre-fix bug shape (slice-2 v1): the ``confirm)`` arm called
-    ``note_progress`` unconditionally after the CLI returned, which
-    reset ``LAST_PROGRESS`` and both ``ALERTED_AT_*`` latches every
-    iteration. ``check_idle_budget`` therefore never observed a
-    growing idle and the alert never fired -- a tight retry loop
-    with zero operator-visible signal.
-
-    Post-fix: ``note_progress`` only fires on rc==0. A persistent
-    non-zero rc lets the idle counter accrue; ``check_idle_budget``
-    fires the OVERSEER_ALERT at the configured budget.
-    """
-
-    def test_persistent_confirm_failure_fires_overseer_alert(self, tmp_path, monkeypatch):
-        """End-to-end behavioural test of the §1 + §6.2 lock-in.
-
-        Drive the rendered event-pump bash against stubbed
-        ``egg-orch`` / ``python3`` shims:
-          - ``brc get-state`` → role unconfirmed
-          - ``brc next-action`` → ``{"action":"confirm"}``
-          - ``consensus confirmed`` → exit 1 every call (persistent
-            failure)
-          - ``overseer alert`` → record the call to a log file
-          - everything else → noop / exit 0
-
-        With ``EGG_BRC_IDLE_BUDGET_MIN=0`` the very first
-        ``check_idle_budget`` after the failing confirm trips the
-        ``idle >= 2*budget`` (= 0) branch -- exactly once, post-fix.
-
-        Discrimination: per-iteration count of the alert is the
-        differential between the bug and the fix.
-
-          - Pre-fix (note_progress reset on every iteration AND
-            ALERTED_AT_DOUBLE reset every iteration -- the combined
-            §1 + §6.2 bug): every loop iter resets the latch so
-            ``check_idle_budget`` re-fires the 2x alert *every*
-            iteration. Within the 8s timeout below, observed count
-            is several.
-          - Post-fix (rc-gated note_progress AND sticky
-            ALERTED_AT_DOUBLE): alert fires once on the first
-            iteration; subsequent iterations see the sticky latch
-            and do not re-fire.
-
-        The ``count == 1`` assertion locks in the worst-case
-        regression where BOTH §1 and §6.2 regress together: the
-        action arm calls ``note_progress`` on every iteration AND
-        ``note_progress`` resets ``ALERTED_AT_DOUBLE``, so the
-        2x-budget alert re-fires every loop iteration, yielding
-        ``count >> 1``. The fix yields exactly 1.
-
-        Note: with ``EGG_BRC_IDLE_BUDGET_MIN=0`` either regression
-        in isolation still yields ``count == 1`` (a §1-only
-        regression rearms ``LAST_PROGRESS`` but ``ALERTED_AT_DOUBLE``
-        stays sticky after iter-1; a §6.2-only regression never
-        reaches the reset path because rc-gated ``note_progress``
-        is never called on persistent failure). The combined
-        regression is the alert-flood scenario worth catching here.
-        """
-        # ``EGG_BRC_EVENT_PUMP`` is silently inert after slice-4 task-4-2
-        # (the env-flag read was deleted along with the legacy template);
-        # this ``setenv`` is harmlessly retained so a future regression
-        # that re-introduces a flag-gated branch trips the test if it
-        # depends on the env. ``build_consensus_wrapped_command`` always
-        # emits the event-pump template body now.
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        # Stub directory on PATH ahead of the real egg-orch.
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        confirm_log = tmp_path / "confirm_calls.log"
-        alert_log = tmp_path / "alert_calls.log"
-        general_log = tmp_path / "egg_orch.log"
-
-        # Mock egg-orch: route on the first two positional words so we
-        # can recognise ``brc get-state`` / ``brc next-action`` /
-        # ``consensus confirmed`` / ``overseer alert`` etc.
-        mock_orch = bin_dir / "egg-orch"
-        mock_orch.write_text(
-            "#!/bin/bash\n"
-            f'echo "$@" >> {shlex.quote(str(general_log))}\n'
-            'sub="$1 $2"\n'
-            'case "$sub" in\n'
-            '    "brc get-state")\n'
-            '        echo \'{"consensus":{"agents":{"coder":{"confirmed":false,'
-            '"producer_phase":"WAITING_FOR_REVIEW"}},"is_complete":false}}\'\n'
-            "        ;;\n"
-            '    "brc next-action")\n'
-            '        echo \'{"action":"confirm"}\'\n'
-            "        ;;\n"
-            '    "consensus confirmed")\n'
-            f"        echo confirm_call >> {shlex.quote(str(confirm_log))}\n"
-            "        exit 1\n"
-            "        ;;\n"
-            '    "overseer alert")\n'
-            f'        echo "alert: $*" >> {shlex.quote(str(alert_log))}\n'
-            "        ;;\n"
-            "    *)\n"
-            "        # message heartbeat, message wait-loop, etc -- benign no-ops.\n"
-            "        ;;\n"
-            "esac\n"
-            "exit 0\n"
-        )
-        os.chmod(str(mock_orch), 0o755)  # nosec B103
-
-        # Stub python3 so the agent invocation arm (not exercised here
-        # because next-action == ``confirm``) doesn't accidentally run
-        # the real Agent SDK if a future regression flips the action.
-        # Forward inline ``python3 -c`` invocations (which the wrapper
-        # uses for JSON parsing) to the real interpreter.
-        real_python = sys.executable
-        mock_python = bin_dir / "python3"
-        mock_python.write_text(
-            "#!/bin/bash\n"
-            'if [ "$1" = "-c" ] || [ "$1" = "-" ]; then\n'
-            f'    exec {shlex.quote(real_python)} "$@"\n'
-            "fi\n"
-            "# Agent SDK invocation path -- treat as success no-op.\n"
-            "exit 0\n"
-        )
-        os.chmod(str(mock_python), 0o755)  # nosec B103
-
-        # Build the wrapper with the flag on; idle budget of 0 makes
-        # ``check_idle_budget`` fire on the first non-progress
-        # iteration.
-        env = os.environ.copy()
-        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
-        env["EGG_BRC_EVENT_PUMP"] = "true"
-        env["EGG_BRC_IDLE_BUDGET_MIN"] = "0"
-        env["EGG_AGENT_ROLE"] = "coder"
-        env["EGG_PIPELINE_ID"] = "test-pipeline"
-        env["EGG_CONCURRENT_MODE"] = "true"
-
-        cmd = build_consensus_wrapped_command("Prompt")
-        # The wrapper loops forever; bound the test with a short
-        # timeout. By that time, several confirm attempts and at
-        # least one overseer alert must have been recorded if the
-        # §1 fix is in place.
-        try:
-            subprocess.run(
-                cmd,
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=8,
-            )
-        except subprocess.TimeoutExpired:
-            pass  # expected — the wrapper loops; we bound it.
-
-        assert confirm_log.exists(), (
-            "wrapper did not call `egg-orch consensus confirmed` at "
-            "all on the confirm arm -- the event-pump loop may not "
-            "have reached the confirm action. egg-orch log:\n"
-            + (general_log.read_text() if general_log.exists() else "(empty)")
-        )
-        confirm_attempts = confirm_log.read_text().count("confirm_call")
-        assert confirm_attempts >= 1, f"expected >= 1 confirm attempts, got {confirm_attempts}"
-
-        assert alert_log.exists(), (
-            "§1 regression: `egg-orch consensus confirmed` failed "
-            f"{confirm_attempts} times but the overseer idle-budget "
-            "alert never fired. The pre-fix `note_progress` reset "
-            "ran unconditionally on every confirm-arm iteration, "
-            "resetting LAST_PROGRESS and the ALERTED_AT_* latches so "
-            "`check_idle_budget` never observed a growing idle. "
-            "Post-fix: `note_progress` only fires on rc==0; "
-            "persistent confirm failure must surface as an "
-            "OVERSEER_ALERT. egg-orch log:\n" + general_log.read_text()
-        )
-        alert_text = alert_log.read_text()
-        assert "stuck-phase-transition" in alert_text, (
-            f"overseer alert fired but with the wrong anomaly type. Got:\n{alert_text}"
-        )
-        # Lock-in for the combined §1 + §6.2 regression (reviewer
-        # follow-up on PR #2926, commit 022fad4): the bug fires the
-        # 2x-budget alert *every* loop iteration because (a) the
-        # action arm called ``note_progress`` regardless of rc and
-        # (b) ``note_progress`` itself reset ``ALERTED_AT_DOUBLE``.
-        # The fix gates ``note_progress`` on rc==0 AND keeps the 2x
-        # latch sticky for the loop lifetime -> exactly one alert.
-        alert_count = alert_text.count("stuck-phase-transition")
-        assert alert_count == 1, (
-            "§1 + §6.2 regression: persistent confirm failure produced "
-            f"{alert_count} overseer alerts, expected exactly 1. "
-            "Pre-fix, the action arm reset both LAST_PROGRESS and the "
-            "ALERTED_AT_DOUBLE latch on every iteration, so "
-            "`check_idle_budget` re-fired the 2x-budget alert each "
-            "loop. Post-fix, `note_progress` is gated on rc==0 (so "
-            "persistent failure does not reset state) AND "
-            "`ALERTED_AT_DOUBLE` is sticky (so transient progress "
-            "later in the loop's life cannot re-arm the page). "
-            f"Alert text:\n{alert_text}"
-        )
-
-
-class TestEventPumpAgentFailStreakEscalation:
-    """(#3138) The ``propose|ack|nack`` arm must not retry a
-    deterministic fast failure indefinitely at a flat 1 s cadence.
-
-    Pre-fix bug shape (first issue-3077 run, 2026-06-11): the refiner's
-    agent invocation failed pre-SDK-init (unknown model alias, rc=1 in
-    <1 s) and the arm retried it 160+ consecutive times, one every
-    ~2-3 s, with no backoff growth and no escalation. ``AGENT_FAIL_STREAK``
-    was computed and logged but nothing acted on it; the only detection
-    was the overseer's generic heartbeat-silence anomaly ~8 minutes in.
-
-    Post-fix, the arm has parity with its two siblings:
-      - backoff parity with the ``confirm`` arm: linear in the streak
-        (streak x 2 s), capped at 30 s;
-      - escalation parity beyond the ``fetch_next_action`` latches: a
-        sticky log warning at streak 5 and a sticky OVERSEER_ALERT
-        (anomaly ``agent-invocation-fail-streak``) at streak 10 whose
-        detail classifies sub-second failures as configuration-class.
-    The wrapper still never self-FAILs (post-#2908 design).
-    """
-
-    def test_template_has_agent_arm_backoff_and_streak_latches(self, monkeypatch):
-        """Render-level lock-in: the agent arm computes a capped linear
-        backoff from ``AGENT_FAIL_STREAK``, defines both sticky latches,
-        raises the streak alert, and no longer contains the flat
-        ``sleep 1`` retry floor as executable bash."""
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        script = build_consensus_wrapped_command("Prompt")[-1]
-
-        assert "agent_backoff_secs=$(( AGENT_FAIL_STREAK * 2 ))" in script, (
-            "agent arm must grow its retry sleep linearly with the "
-            "fail streak (parity with the confirm arm)"
-        )
-        assert 'sleep "$agent_backoff_secs"' in script
-        assert "AGENT_FAIL_ALERTED_5=false" in script
-        assert "AGENT_FAIL_ALERTED_10=false" in script
-        assert "raise_agent_fail_alert" in script
-        assert "agent-invocation-fail-streak" in script, (
-            "streak escalation must reach the overseer as a distinctly "
-            "named anomaly, not only a cw_log line"
-        )
-        # The pre-#3138 flat retry floor must not survive as executable
-        # bash (a backtick-quoted mention in a comment is fine).
-        executable_lines = [
-            line.strip() for line in script.splitlines() if not line.lstrip().startswith("#")
-        ]
-        assert "sleep 1" not in executable_lines, (
-            "#3138 regression: the agent arm's flat `sleep 1` retry "
-            "floor is back — a pre-SDK-init failure would again retry "
-            "indefinitely at the floor"
-        )
-
-    def test_persistent_agent_failure_backs_off_and_fires_streak_alert(self, tmp_path, monkeypatch):
-        """End-to-end behavioural test of the #3138 fix.
-
-        Drive the rendered event-pump bash against stubbed shims:
-          - ``brc get-state`` → role unconfirmed, consensus incomplete
-          - ``brc next-action`` → ``{"action":"propose"}`` every call
-          - ``python3 -m egg_agent ...`` → exit 1 immediately (the
-            pre-SDK-init fast-fail signature from #3136; inline
-            ``python3 -c`` JSON parsing forwards to the real
-            interpreter)
-          - ``overseer alert`` → record the call to a log file
-          - ``sleep`` → record the requested duration, then sleep a
-            scaled-down 0.05 s so the loop reaches a deep streak
-            within the test timeout without real waiting
-
-        Assertions:
-          - the recorded sleep durations are exactly the expected
-            capped-linear sequence (2, 4, 6, ... capped at 30) — i.e.
-            backoff grows with the streak and respects the cap;
-          - the streak reached at least 10 (so the escalation path ran);
-          - the ``agent-invocation-fail-streak`` overseer alert fired
-            EXACTLY once (sticky latch — pre-fix the signal never
-            fired; an unsticky latch would flood);
-          - the alert detail carries the sub-second
-            configuration-class classification.
-        """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        alert_log = tmp_path / "alert_calls.log"
-        sleep_log = tmp_path / "sleep_calls.log"
-        general_log = tmp_path / "egg_orch.log"
-
-        mock_orch = bin_dir / "egg-orch"
-        mock_orch.write_text(
-            "#!/bin/bash\n"
-            f'echo "$@" >> {shlex.quote(str(general_log))}\n'
-            'sub="$1 $2"\n'
-            'case "$sub" in\n'
-            '    "brc get-state")\n'
-            '        echo \'{"consensus":{"agents":{"coder":{"confirmed":false,'
-            '"producer_phase":"WAITING_FOR_REVIEW"}},"is_complete":false}}\'\n'
-            "        ;;\n"
-            '    "brc next-action")\n'
-            '        echo \'{"action":"propose"}\'\n'
-            "        ;;\n"
-            '    "overseer alert")\n'
-            f'        echo "alert: $*" >> {shlex.quote(str(alert_log))}\n'
-            "        ;;\n"
-            "    *)\n"
-            "        ;;\n"
-            "esac\n"
-            "exit 0\n"
-        )
-        os.chmod(str(mock_orch), 0o755)  # nosec B103
-
-        # Inline ``python3 -c`` / stdin parsing forwards to the real
-        # interpreter; the ``python3 -m egg_agent`` invocation path
-        # fast-fails like an unknown-model session-init crash (#3136).
-        real_python = sys.executable
-        mock_python = bin_dir / "python3"
-        mock_python.write_text(
-            "#!/bin/bash\n"
-            'if [ "$1" = "-c" ] || [ "$1" = "-" ]; then\n'
-            f'    exec {shlex.quote(real_python)} "$@"\n'
-            "fi\n"
-            "exit 1\n"
-        )
-        os.chmod(str(mock_python), 0o755)  # nosec B103
-
-        # Record requested sleep durations, then sleep a scaled-down
-        # constant so backoff growth is observable without real waiting.
-        # ``command -p`` resolves the real sleep from the default PATH
-        # (this stub shadows ``sleep`` on the test PATH, so a bare
-        # ``sleep`` here would recurse).
-        mock_sleep = bin_dir / "sleep"
-        mock_sleep.write_text(
-            "#!/bin/bash\n"
-            f'echo "$1" >> {shlex.quote(str(sleep_log))}\n'
-            "command -p sleep 0.05 2>/dev/null || exit 0\n"
-            "exit 0\n"
-        )
-        os.chmod(str(mock_sleep), 0o755)  # nosec B103
-
-        env = os.environ.copy()
-        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
-        env["EGG_BRC_EVENT_PUMP"] = "true"
-        # Leave the idle budget at its 30-min default: the streak alert
-        # must come from the agent arm, not the idle-budget safety net.
-        env.pop("EGG_BRC_IDLE_BUDGET_MIN", None)
-        env["EGG_AGENT_ROLE"] = "coder"
-        env["EGG_PIPELINE_ID"] = "test-pipeline"
-        env["EGG_CONCURRENT_MODE"] = "true"
-
-        cmd = build_consensus_wrapped_command("Prompt")
-        try:
-            subprocess.run(
-                cmd,
-                env=env,
-                capture_output=True,
-                text=True,
-                # Needs >=10 loop iterations, each spawning several
-                # egg-orch/python3 subprocesses, to exercise the streak-10
-                # escalation. 20s gives headroom on a loaded CI host so the
-                # ``len(observed) >= 10`` assertion below doesn't flake.
-                timeout=20,
-            )
-        except subprocess.TimeoutExpired:
-            pass  # expected — the wrapper loops; we bound it.
-
-        assert sleep_log.exists(), (
-            "agent arm never slept after a failed invocation -- the "
-            "event-pump loop may not have reached the propose arm. "
-            "egg-orch log:\n" + (general_log.read_text() if general_log.exists() else "(empty)")
-        )
-        observed = [int(line) for line in sleep_log.read_text().split() if line.isdigit()]
-        expected = [min(2 * (i + 1), 30) for i in range(len(observed))]
-        assert observed == expected, (
-            "#3138 regression: agent-arm retry sleeps must follow the "
-            "capped-linear backoff (streak x 2 s, capped 30 s, parity "
-            f"with the confirm arm). Observed {observed[:20]}, expected "
-            f"{expected[:20]}"
-        )
-        assert len(observed) >= 10, (
-            "test did not reach streak 10 within the timeout; the "
-            f"escalation path was not exercised (streak={len(observed)})"
-        )
-
-        assert alert_log.exists(), (
-            "#3138 regression: 10+ consecutive fast agent-invocation "
-            "failures did not raise an overseer alert from the wrapper. "
-            "Pre-fix, AGENT_FAIL_STREAK was computed and discarded; the "
-            "operator only heard about the loop ~8 minutes later via "
-            "the overseer's generic heartbeat-silence anomaly. egg-orch "
-            "log:\n" + general_log.read_text()
-        )
-        alert_text = alert_log.read_text()
-        alert_count = alert_text.count("agent-invocation-fail-streak")
-        assert alert_count == 1, (
-            "streak alert must fire exactly once per wrapper lifetime "
-            f"(sticky AGENT_FAIL_ALERTED_10 latch); got {alert_count}. "
-            f"Alert text:\n{alert_text}"
-        )
-        assert "configuration-class" in alert_text, (
-            "sub-second failures must be classified as configuration-"
-            "class (unknown model alias, auth, prompt-rendering crash) "
-            f"in the alert detail. Alert text:\n{alert_text}"
-        )
 
 
 class TestEventPumpInvokesComposer:
@@ -1398,22 +46,15 @@ class TestEventPumpInvokesComposer:
     ``python3 "$script_path"`` call shape.
     """
 
-    def test_flag_on_template_defines_invoke_agent_for_event(self, monkeypatch) -> None:
-        from consensus_wrapper import build_consensus_wrapped_command
-
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+    def test_template_defines_invoke_agent_for_event(self) -> None:
         cmd = build_consensus_wrapped_command("hello")
         script = cmd[2]
         assert "invoke_agent_for_event()" in script, (
             "Wrapper template must define `invoke_agent_for_event` so the "
-            "per-event prompt composition is in place for slice-3 / "
-            "slice-4 wiring."
+            "per-event prompt composition is in place."
         )
 
-    def test_flag_on_template_references_event_prompt_script(self, monkeypatch) -> None:
-        from consensus_wrapper import build_consensus_wrapped_command
-
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+    def test_template_references_event_prompt_script(self) -> None:
         cmd = build_consensus_wrapped_command("hello")
         script = cmd[2]
         # Either the hard-coded production path OR the override env var
@@ -1428,10 +69,7 @@ class TestEventPumpInvokesComposer:
         # The actual script-path env var name is the documented seam.
         assert "EGG_EVENT_PROMPT_SCRIPT" in script
 
-    def test_flag_on_template_re_exports_memory_env_var(self, monkeypatch) -> None:
-        from consensus_wrapper import build_consensus_wrapped_command
-
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+    def test_template_re_exports_memory_env_var(self) -> None:
         cmd = build_consensus_wrapped_command("hello")
         script = cmd[2]
         # The re-export line must be present so the env-var contract
@@ -1439,16 +77,13 @@ class TestEventPumpInvokesComposer:
         # env vars (``EGG_AGENT_ROLE`` / ``EGG_BASE_BRANCH`` /
         # ``EGG_REPO_PATH`` / ``EGG_BRC_MEMORY``) must be re-exported
         # on the python3 invocation per the reviewer_holistic v2
-        # follow-up — the earlier shape relied on ``EGG_REPO_PATH``
-        # being exported by the parent shell, which works in
-        # production today but breaks symmetry with the in-source
-        # comment that lists all four as wrapper-supplied.
+        # follow-up.
         assert "EGG_BRC_MEMORY=" in script
         assert "EGG_AGENT_ROLE=" in script
         assert "EGG_BASE_BRANCH=" in script
         assert "EGG_REPO_PATH=" in script
 
-    def test_flag_on_template_env_prefix_attaches_to_python3_not_printf(self, monkeypatch) -> None:
+    def test_template_env_prefix_attaches_to_python3_not_printf(self) -> None:
         """The env-var prefix must attach to ``python3`` (RHS of the
         pipe), not ``printf`` (LHS). The earlier form attached only to
         ``printf`` and ``python3`` inherited from the parent shell — a
@@ -1457,9 +92,6 @@ class TestEventPumpInvokesComposer:
         break if the parent shell didn't (reviewer_contract NACK v1
         finding #1 + reviewer_code NACK v1 finding #1).
         """
-        from consensus_wrapper import build_consensus_wrapped_command
-
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
         cmd = build_consensus_wrapped_command("hello")
         script = cmd[2]
         # The pipe must run printf first (LHS) without env-var prefix,
@@ -1479,12 +111,7 @@ class TestEventPumpInvokesComposer:
             "(RHS of the pipe) per the v1 NACK fix."
         )
 
-    def test_flag_on_template_invokes_python3_with_script_path_and_action(
-        self, monkeypatch
-    ) -> None:
-        from consensus_wrapper import build_consensus_wrapped_command
-
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+    def test_template_invokes_python3_with_script_path_and_action(self) -> None:
         cmd = build_consensus_wrapped_command("hello")
         script = cmd[2]
         # The call shape: ``python3 "$script_path" "$action"``.
@@ -1493,13 +120,6 @@ class TestEventPumpInvokesComposer:
             "and action argument. A future refactor that drops the "
             "action argv would silently break the CLI contract."
         )
-
-    # Note: slice-2's ``test_flag_off_legacy_template_does_not_reference_event_prompt``
-    # was deleted by slice-4 task-4-2. The legacy template is gone; the
-    # event-pump template now unconditionally references ``event_prompt.py``
-    # and ``invoke_agent_for_event``. See
-    # ``test_invokes_event_prompt_composer_script`` (above) for the
-    # post-deletion positive invariant.
 
 
 class TestEffortFlag:
@@ -1533,54 +153,56 @@ class TestSyncToProposals:
     worktree. The wrapper now performs that sync deterministically:
     before an ``ack``/``nack`` invocation it merges each pending
     producer's ``proposal_commit_sha`` into the reviewer worktree,
-    fail-soft at every step.
+    fail-soft at every step. Under the one-shot handler (#3164) the
+    review-action dispatch is gated on ``ONE_SHOT_ACTION``.
     """
 
-    def _script(self, monkeypatch) -> str:
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+    def _script(self) -> str:
         return build_consensus_wrapped_command("Prompt")[2]
 
-    def test_template_defines_sync_to_proposals(self, monkeypatch):
-        script = self._script(monkeypatch)
+    def test_template_defines_sync_to_proposals(self):
+        script = self._script()
         assert "sync_to_proposals() {" in script
 
-    def test_sync_runs_only_for_review_actions(self, monkeypatch):
+    def test_sync_runs_only_for_review_actions(self):
         """The sync call must be gated on ack/nack — a producer's own
         ``propose`` invocation must NOT merge peers' commits into its
         worktree (R11a: propose own work first, peer state irrelevant).
+        Under the one-shot handler (#3164) the gate reads
+        ``ONE_SHOT_ACTION``.
         """
-        script = self._script(monkeypatch)
-        guard = 'if [ "$ACTION" = "ack" ] || [ "$ACTION" = "nack" ]; then'
+        script = self._script()
+        guard = 'if [ "$ONE_SHOT_ACTION" = "ack" ] || [ "$ONE_SHOT_ACTION" = "nack" ]; then'
         assert guard in script
         # The call rides inside that guard, with the event payload.
         guarded_block = script.split(guard, 1)[1].split("fi", 1)[0]
-        assert 'sync_to_proposals "$EVENT_PAYLOAD"' in guarded_block
+        assert 'sync_to_proposals "$ONE_SHOT_PAYLOAD"' in guarded_block
 
-    def test_sync_precedes_agent_invocation(self, monkeypatch):
+    def test_sync_precedes_agent_invocation(self):
         """Ordering invariant: the worktree must be synced BEFORE the
         one-shot agent runs, or the tester still reviews a stale tree.
         """
-        script = self._script(monkeypatch)
-        sync_pos = script.index('sync_to_proposals "$EVENT_PAYLOAD"')
-        invoke_pos = script.index('invoke_agent_for_event "$ACTION" "$EVENT_PAYLOAD"')
+        script = self._script()
+        sync_pos = script.index('sync_to_proposals "$ONE_SHOT_PAYLOAD"')
+        invoke_pos = script.index('invoke_agent_for_event "$ONE_SHOT_ACTION" "$ONE_SHOT_PAYLOAD"')
         assert sync_pos < invoke_pos
 
-    def test_sha_extraction_is_hex_validated(self, monkeypatch):
+    def test_sha_extraction_is_hex_validated(self):
         """The producer-supplied SHA is interpolated into git argv;
         the extractor must hex-validate (7-64 chars) so shell
         metacharacters and non-hex sentinels (RECONSTRUCTED_NO_SHA)
         never reach git.
         """
-        script = self._script(monkeypatch)
+        script = self._script()
         assert "[0-9a-fA-F]{7,64}" in script
         assert "fullmatch" in script
 
-    def test_merge_failure_is_fail_soft(self, monkeypatch):
+    def test_merge_failure_is_fail_soft(self):
         """A conflicting merge must abort and continue — the per-event
         prompt's ``git show`` reads (#3078) remain the fallback; the
         agent invocation must never be blocked on the sync.
         """
-        script = self._script(monkeypatch)
+        script = self._script()
         assert "merge --abort" in script
         # The function never propagates failure into the action arm.
         fn_body = script.split("sync_to_proposals() {", 1)[1]
@@ -1612,7 +234,7 @@ class TestSyncToProposals:
             + '\necho "SYNC_RC=$?"\n'
         )
 
-    def test_behavioral_merge_and_metachar_filter(self, tmp_path, monkeypatch):
+    def test_behavioral_merge_and_metachar_filter(self, tmp_path):
         """End-to-end: a real proposal SHA on a producer branch is
         merged into the reviewer's checkout (the proposed artifact
         becomes Read-able); a shell-metachar SHA is filtered before
@@ -1662,7 +284,7 @@ class TestSyncToProposals:
                 ]
             }
         )
-        script = self._script(monkeypatch)
+        script = self._script()
         harness = self._extract_sync_harness(script, str(repo), payload)
         result = subprocess.run(
             ["bash", "-c", harness],
@@ -1685,7 +307,7 @@ class TestSyncToProposals:
         # The metachar SHA was filtered, not executed/attempted.
         assert "rm -rf" not in result.stderr
 
-    def test_behavioral_unresolvable_sha_logs_and_continues(self, tmp_path, monkeypatch):
+    def test_behavioral_unresolvable_sha_logs_and_continues(self, tmp_path):
         """A well-formed but unknown SHA logs the git-show fallback and
         exits 0 — never fails the action arm."""
         import json as _json
@@ -1696,7 +318,7 @@ class TestSyncToProposals:
         payload = _json.dumps(
             {"pending_reviews": [{"producer": "x", "proposal_commit_sha": "a" * 40}]}
         )
-        script = self._script(monkeypatch)
+        script = self._script()
         harness = self._extract_sync_harness(script, str(repo), payload)
         result = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, timeout=30)
         assert "SYNC_RC=0" in result.stdout
@@ -1736,16 +358,10 @@ class TestSyncOutcomesAndBanner:
     # covered at the wrapper level."
     _OUTCOMES = ("merged", "already-ancestor", "unresolvable", "merge-failed")
 
-    def _script(self, monkeypatch) -> str:
-        # ``EGG_BRC_EVENT_PUMP`` was deleted by slice-4 task-4-2 and is
-        # silently inert (see ``TestEventPumpTemplateSelection``); the
-        # event-pump is the only template. ``monkeypatch`` is kept on
-        # the signature so a future template-selection toggle can be
-        # added back without changing every call site.
-        del monkeypatch
+    def _script(self) -> str:
         return build_consensus_wrapped_command("Prompt")[2]
 
-    def test_template_records_all_four_outcomes(self, monkeypatch):
+    def test_template_records_all_four_outcomes(self):
         """Each of the four per-SHA outcome tokens (``merged``,
         ``already-ancestor``, ``unresolvable``, ``merge-failed``) is
         present in the wrapper template. A future refactor that drops
@@ -1753,7 +369,7 @@ class TestSyncOutcomesAndBanner:
         ``merged`` log line — would re-orphan a path the banner needs
         to distinguish.
         """
-        script = self._script(monkeypatch)
+        script = self._script()
         missing = [o for o in self._OUTCOMES if o not in script]
         assert not missing, (
             "Slice-1 outcome contract requires all four per-SHA outcome "
@@ -1762,7 +378,7 @@ class TestSyncOutcomesAndBanner:
             "merged, already-ancestor, unresolvable, merge-failed."
         )
 
-    def test_template_emits_not_synced_banner_text(self, monkeypatch):
+    def test_template_emits_not_synced_banner_text(self):
         """The banner string the agent sees on a failure outcome is
         pinned to the architect's wording ("worktree NOT synced ...")
         AND wired into the ``SYNC_FAILURE_BANNERS`` accumulator. The
@@ -1770,7 +386,7 @@ class TestSyncOutcomesAndBanner:
         downgrades the banner to a dead comment; pinning the
         ``SYNC_FAILURE_BANNERS+=`` append site catches that too.
         """
-        script = self._script(monkeypatch)
+        script = self._script()
         assert "NOT synced" in script, (
             "Wrapper template must emit the 'worktree NOT synced' "
             "banner so a reviewer whose sync silently failed cannot "
@@ -1810,25 +426,25 @@ class TestSyncOutcomesAndBanner:
             f"{append_sites}"
         )
 
-    def test_template_references_git_show_fallback_in_banner(self, monkeypatch):
+    def test_template_references_git_show_fallback_in_banner(self):
         """The banner steers reviewers at the rendered ``git show``
         delta commands (#3078 served reads) — that is the live
         replacement channel R1 is non-silently surfacing. The
         substring ``git show`` must appear inside the banner-bearing
         region so the agent has a next step beyond "sync failed".
         """
-        script = self._script(monkeypatch)
+        script = self._script()
         # The banner-bearing region runs from the start of
-        # ``invoke_agent_for_event`` (where ``$prompt`` is composed) to
-        # the start of ``sync_to_proposals`` (whose closing fence ends
-        # before the main loop). The exact placement of the prepend
-        # logic — sync function vs invoke function vs a small helper —
-        # is the coder's call; we only require both regions, taken
-        # together, to carry the banner-and-fallback text.
+        # ``invoke_agent_for_event`` / ``sync_to_proposals`` (where the
+        # banner is produced and consumed) to the one-shot event handler
+        # section that dispatches the actions. The exact placement of the
+        # prepend logic — sync function vs invoke function vs a small
+        # helper — is the coder's call; we only require both regions,
+        # taken together, to carry the banner-and-fallback text.
         invoke_start = script.index("invoke_agent_for_event() {")
         sync_start = script.index("sync_to_proposals() {")
         body_lo = min(invoke_start, sync_start)
-        body_hi = script.index("# --- main event-pump loop ---")
+        body_hi = script.index("# --- one-shot event handler (#3164)")
         body = script[body_lo:body_hi]
         assert "NOT synced" in body, (
             "Banner text must live inside the sync/invoke region — "
@@ -1953,8 +569,8 @@ class TestSyncOutcomesAndBanner:
         git("commit", "-qm", "base")
         return repo, git
 
-    def _run_harness(self, tmp_path, monkeypatch, payload, capture, stub):
-        script = self._script(monkeypatch)
+    def _run_harness(self, tmp_path, payload, capture, stub):
+        script = self._script()
         harness = self._build_harness(script, str(tmp_path / "repo"), payload, str(capture), stub)
         result = subprocess.run(
             ["bash", "-c", harness, "harness", payload],
@@ -1970,9 +586,8 @@ class TestSyncOutcomesAndBanner:
             },
         )
         # Sync function and invoke function must each exit zero; the
-        # idle-budget safety net keeps the event-pump moving even on a
-        # composer error, and the slice-1 banner mechanism rides on that
-        # invariant (banner is a prompt prefix, not a hard failure).
+        # slice-1 banner mechanism rides on that invariant (banner is a
+        # prompt prefix, not a hard failure).
         assert "HARNESS_RC=0" in result.stdout, (
             "Harness must exit 0; the slice-1 banner is a prompt "
             "prefix, not a hard failure. "
@@ -1980,7 +595,7 @@ class TestSyncOutcomesAndBanner:
         )
         return result
 
-    def test_behavioral_merged_outcome_no_banner(self, tmp_path, monkeypatch):
+    def test_behavioral_merged_outcome_no_banner(self, tmp_path):
         """Successful merge → ``merged`` outcome recorded, agent-visible
         prompt is byte-identical to the composed prompt (no banner).
 
@@ -2009,7 +624,7 @@ class TestSyncOutcomesAndBanner:
         )
         capture = tmp_path / "agent_prompt.txt"
         stub = self._stub_composer(tmp_path)
-        result = self._run_harness(tmp_path, monkeypatch, payload, capture, stub)
+        result = self._run_harness(tmp_path, payload, capture, stub)
 
         assert "merged" in result.stderr, (
             f"``merged`` outcome must be observable at the wrapper level. stderr={result.stderr!r}"
@@ -2021,7 +636,7 @@ class TestSyncOutcomesAndBanner:
             f"prefix. Got: {prompt!r}"
         )
 
-    def test_behavioral_already_ancestor_outcome_no_banner(self, tmp_path, monkeypatch):
+    def test_behavioral_already_ancestor_outcome_no_banner(self, tmp_path):
         """SHA already in HEAD ancestry → ``already-ancestor`` outcome,
         agent-visible prompt unchanged."""
         import json as _json
@@ -2039,7 +654,7 @@ class TestSyncOutcomesAndBanner:
         )
         capture = tmp_path / "agent_prompt.txt"
         stub = self._stub_composer(tmp_path)
-        result = self._run_harness(tmp_path, monkeypatch, payload, capture, stub)
+        result = self._run_harness(tmp_path, payload, capture, stub)
 
         assert "already-ancestor" in result.stderr, (
             "``already-ancestor`` outcome must be observable at the "
@@ -2051,7 +666,7 @@ class TestSyncOutcomesAndBanner:
             f"byte-identical. Got: {prompt!r}"
         )
 
-    def test_behavioral_unresolvable_outcome_emits_banner(self, tmp_path, monkeypatch):
+    def test_behavioral_unresolvable_outcome_emits_banner(self, tmp_path):
         """Well-formed but unknown SHA → ``unresolvable`` outcome AND
         the "NOT synced" banner reaches the agent prompt.
 
@@ -2068,7 +683,7 @@ class TestSyncOutcomesAndBanner:
         )
         capture = tmp_path / "agent_prompt.txt"
         stub = self._stub_composer(tmp_path)
-        result = self._run_harness(tmp_path, monkeypatch, payload, capture, stub)
+        result = self._run_harness(tmp_path, payload, capture, stub)
 
         assert "unresolvable" in result.stderr, (
             "``unresolvable`` outcome must be observable at the "
@@ -2097,7 +712,7 @@ class TestSyncOutcomesAndBanner:
             f"substitution. Prompt: {prompt!r}"
         )
 
-    def test_behavioral_merge_failed_outcome_emits_banner(self, tmp_path, monkeypatch):
+    def test_behavioral_merge_failed_outcome_emits_banner(self, tmp_path):
         """Conflicting merge → ``merge-failed`` outcome AND the
         "NOT synced" banner reaches the agent prompt.
 
@@ -2133,7 +748,7 @@ class TestSyncOutcomesAndBanner:
         )
         capture = tmp_path / "agent_prompt.txt"
         stub = self._stub_composer(tmp_path)
-        result = self._run_harness(tmp_path, monkeypatch, payload, capture, stub)
+        result = self._run_harness(tmp_path, payload, capture, stub)
 
         assert "merge-failed" in result.stderr, (
             "``merge-failed`` outcome must be observable at the "
@@ -2157,275 +772,180 @@ class TestSyncOutcomesAndBanner:
 
 
 # ===========================================================================
-# Slice-1 (#3064 task-1-2): ownership flag + one-shot wrapper arm.
-#
-# These tests are TEST-FIRST: they pin the slice-1 contract the coder's
-# parallel implementation (task-1-1) must satisfy. The pod-default golden
-# snapshot passes against the pre-#3064 rendering today (R1 guard); the
-# orchestrator-mode one-shot arm and the ``env_config`` accessor tests go
-# green once the coder's slice-1 implementation is integrated.
-#
-# Contract pinned here (the plan, "Slice 1 — Ownership flag + one-shot
-# wrapper arm"):
-#   * ``env_config.get_event_loop_owner()`` reads ``EGG_EVENT_LOOP_OWNER``
-#     ∈ {``pod`` (default), ``orchestrator``}; an unrecognised value is
-#     rejected loudly by raising ``ValueError`` (the deliberate exception
-#     to the module's usual never-raise/warn-and-default convention —
-#     #3023: a wrong ownership mode deadlocks BRC, so a typo must surface
-#     at read time rather than masquerade as the ``pod`` default).
-#   * ``build_consensus_wrapped_command`` selects the rendering by owner:
-#     ``pod``/unset → today's in-pod event-pump template (byte-identical,
-#     golden-pinned); ``orchestrator`` → the single-event one-shot arm.
-#   * The one-shot arm skips the blocking wait-loop and background
-#     heartbeat, re-checks ``brc next-action`` once (stale ⇒ exit 0, no
-#     agent invocation — the dedupe backstop), invokes the agent exactly
-#     once on a fresh ``propose|ack|nack`` event, and exits with the
-#     agent's (#2908-classified) exit code. ``confirm``/``complete`` never
-#     reach the one-shot arm — an injected terminal action is rejected
-#     loudly.
+# One-shot wrapper (#3164): the in-pod BRC event-loop wait arm was retired.
+# ``build_consensus_wrapped_command`` now renders a single rendering — a
+# one-shot event handler driven by the injected ``EGG_EVENT_ACTION`` — with
+# no blocking wait-loop, no background heartbeat, and no idle-budget /
+# fail-streak machinery (those re-homed to the orchestrator event loop).
+# The rendering is IDENTICAL regardless of any env var: there is no
+# ownership flag and no ``EGG_EVENT_LOOP_OWNER`` mode.
 # ===========================================================================
 
 _GOLDEN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden")
-_POD_DEFAULT_GOLDEN_PATH = os.path.join(_GOLDEN_DIR, "event_pump_wrapper_pod_default.sh.golden")
+_GOLDEN_PATH = os.path.join(_GOLDEN_DIR, "event_pump_wrapper.sh.golden")
 
 
-def _read_pod_default_golden() -> str:
-    with open(_POD_DEFAULT_GOLDEN_PATH, encoding="utf-8") as fh:
+def _read_golden() -> str:
+    with open(_GOLDEN_PATH, encoding="utf-8") as fh:
         return fh.read()
 
 
-class TestPodDefaultWrapperGoldenSnapshot:
-    """R1 guard (#3064 slice-1 acceptance: "Golden-file test fails on ANY
-    drift of the pod-default wrapper rendering").
+class TestWrapperGoldenSnapshot:
+    """Byte-for-byte guard on the one-shot wrapper rendering (#3164).
 
-    The #3023 post-mortem deadlocked BRC by silencing the in-pod loop with
-    nothing replacing it. Slice-1 lands the ownership guard *dormant*: with
-    ``EGG_EVENT_LOOP_OWNER`` unset or ``pod`` the generated wrapper MUST be
-    byte-identical to the pre-#3064 event-pump rendering, so the guard can
-    never regress the production (pod) path silently.
+    A golden-file snapshot fails on ANY drift of the rendered wrapper so
+    a change to the one-shot path can never regress the production path
+    silently.
 
-    The fixture deliberately carries the ``.sh.golden`` suffix (not ``.sh``)
-    so ``make lint-shell`` does not shellcheck it: the rendered pod wrapper
-    begins with a leading blank line before ``#!/bin/bash`` (the template's
-    ``r\"\"\"`` opener), which is inert at runtime — the wrapper runs as
-    ``bash -c \"$script\"`` — but trips SC1128 as a standalone file. Keeping
-    the suffix lets the golden hold main's exact bytes (leading newline and
-    all) rather than a lint-friendly mutation of them.
+    The fixture deliberately carries the ``.sh.golden`` suffix (not
+    ``.sh``) so ``make lint-shell`` does not shellcheck it: the rendered
+    wrapper begins with a leading blank line before ``#!/bin/bash`` (the
+    template's ``r\"\"\"`` opener), which is inert at runtime — the
+    wrapper runs as ``bash -c \"$script\"`` — but trips SC1128 as a
+    standalone file. Keeping the suffix lets the golden hold the exact
+    bytes (leading newline and all).
 
-    To regenerate after an INTENTIONAL pod-path change, run from the
-    ``orchestrator/`` directory::
+    To regenerate after an INTENTIONAL change, run from the repo root::
 
-        python3 -c "from consensus_wrapper import \\
-build_consensus_wrapped_command as b; \\
-open('tests/golden/event_pump_wrapper_pod_default.sh.golden', 'w').write(b('x')[2])"
+        PYTHONPATH=orchestrator:shared .venv/bin/python -c \\
+          "import consensus_wrapper as c; \\
+open('orchestrator/tests/golden/event_pump_wrapper.sh.golden','w')\\
+.write(c.build_consensus_wrapped_command('x')[2])"
 
     and review the diff — an unreviewed regeneration defeats the guard.
     """
 
-    def test_pod_default_matches_golden_byte_for_byte(self, monkeypatch):
-        monkeypatch.delenv("EGG_EVENT_LOOP_OWNER", raising=False)
-        golden = _read_pod_default_golden()
+    def test_wrapper_matches_golden_byte_for_byte(self):
+        golden = _read_golden()
         cmd = build_consensus_wrapped_command("Prompt")
         assert cmd[:2] == ["bash", "-c"]
         assert cmd[2] == golden, (
-            "pod-default wrapper rendering drifted from the golden "
-            "snapshot. If the change to the pod path was intentional, "
-            "regenerate tests/golden/event_pump_wrapper_pod_default.sh "
-            "(see this class's docstring) and review the diff; otherwise "
-            "this is the #3064 R1 guard catching an unintended drift of "
-            "the in-pod event-pump rendering."
+            "wrapper rendering drifted from the golden snapshot. If the "
+            "change to the wrapper was intentional, regenerate "
+            "tests/golden/event_pump_wrapper.sh.golden (see this class's "
+            "docstring) and review the diff; otherwise this is the "
+            "#3164 guard catching an unintended drift of the one-shot "
+            "wrapper rendering."
         )
 
-    def test_explicit_pod_owner_matches_golden(self, monkeypatch):
-        """Explicit ``EGG_EVENT_LOOP_OWNER=pod`` is identical to unset."""
-        monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", "pod")
-        assert build_consensus_wrapped_command("Prompt")[2] == _read_pod_default_golden()
-
-    def test_pod_default_is_prompt_independent(self, monkeypatch):
-        """The event-pump emits its own per-event prompts, so the initial
+    def test_wrapper_is_prompt_independent(self):
+        """The wrapper emits its own per-event prompts, so the initial
         prompt text never reaches the bash — the golden must hold for any
         prompt argument."""
-        monkeypatch.delenv("EGG_EVENT_LOOP_OWNER", raising=False)
-        golden = _read_pod_default_golden()
+        golden = _read_golden()
         assert build_consensus_wrapped_command("totally different prompt")[2] == golden
 
-    def test_golden_snapshot_is_the_in_pod_event_pump(self):
-        """Sanity-check the committed golden really is the in-pod
-        event-pump (blocking loop + wait-loop), so a stale/empty golden
-        can't make the byte-equality test vacuous."""
-        golden = _read_pod_default_golden()
-        assert "Event-pump wrapper (#2908 slice-2)" in golden
-        assert "while true; do" in golden
-        assert "egg-orch message wait-loop" in golden
-        assert "start_background_heartbeat" in golden
+    def test_wrapper_is_env_independent(self, monkeypatch):
+        """There is no ownership flag after #3164: any value of the
+        retired ``EGG_EVENT_LOOP_OWNER`` / ``EGG_BRC_EVENT_PUMP`` env vars
+        must produce the identical rendering."""
+        golden = _read_golden()
+        for var in ("EGG_EVENT_LOOP_OWNER", "EGG_BRC_EVENT_PUMP"):
+            for val in ("pod", "orchestrator", "true", "false", "0"):
+                monkeypatch.setenv(var, val)
+                assert build_consensus_wrapped_command("Prompt")[2] == golden, (
+                    f"{var}={val!r} must not change the wrapper rendering "
+                    "(no ownership flag after #3164)."
+                )
+            monkeypatch.delenv(var, raising=False)
 
-
-class TestEventLoopOwnerAccessor:
-    """``env_config.get_event_loop_owner()`` — the #3064 slice-1 ownership
-    flag accessor. Unset/blank/whitespace falls back to the ``pod`` default
-    (the module's usual convention), but an unrecognised value is rejected
-    loudly by raising ``ValueError`` — the deliberate exception to the
-    never-raise convention, because there is no safe silent fallback for an
-    ownership mode (#3023: a wrong mode deadlocks BRC, so a typo must surface
-    at read time). See ``test_invalid_value_rejected_loudly``.
-    """
-
-    def test_unset_defaults_to_pod(self, monkeypatch):
-        monkeypatch.delenv("EGG_EVENT_LOOP_OWNER", raising=False)
-        from env_config import get_event_loop_owner
-
-        assert get_event_loop_owner() == "pod"
-
-    def test_explicit_pod(self, monkeypatch):
-        monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", "pod")
-        from env_config import get_event_loop_owner
-
-        assert get_event_loop_owner() == "pod"
-
-    def test_explicit_orchestrator(self, monkeypatch):
-        monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", "orchestrator")
-        from env_config import get_event_loop_owner
-
-        assert get_event_loop_owner() == "orchestrator"
-
-    def test_value_is_trimmed_and_case_insensitive(self, monkeypatch):
-        """Module convention (``.strip().lower()``): surrounding
-        whitespace and case must not change the parsed owner."""
-        from env_config import get_event_loop_owner
-
-        for raw in ("  orchestrator", "orchestrator  ", "Orchestrator", "ORCHESTRATOR"):
-            monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", raw)
-            assert get_event_loop_owner() == "orchestrator", repr(raw)
-        for raw in (" pod ", "POD", "Pod"):
-            monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", raw)
-            assert get_event_loop_owner() == "pod", repr(raw)
-
-    def test_blank_value_defaults_to_pod(self, monkeypatch):
-        monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", "   ")
-        from env_config import get_event_loop_owner
-
-        assert get_event_loop_owner() == "pod"
-
-    def test_invalid_value_rejected_loudly(self, monkeypatch):
-        """An unrecognised ownership mode is rejected LOUDLY by raising
-        ``ValueError`` — there is no safe silent fallback for an ownership
-        mode (#3023: a wrong mode deadlocks BRC or duplicates pods, so a
-        typo must surface at read time rather than masquerade as the
-        default). This is the deliberate exception to the module's usual
-        never-raise/warn-and-default convention. The raised message must
-        name both the env var and the offending value so the operator can
-        find the typo."""
-        from env_config import get_event_loop_owner
-
-        monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", "kubernetes")
-        with pytest.raises(ValueError) as excinfo:
-            get_event_loop_owner()
-        msg = str(excinfo.value)
-        assert "EGG_EVENT_LOOP_OWNER" in msg and "kubernetes" in msg, (
-            f"the ValueError must name the env var and the offending value. Got: {msg!r}"
-        )
+    def test_golden_snapshot_is_the_one_shot_wrapper(self):
+        """Sanity-check the committed golden really is the one-shot
+        wrapper (#3164), not the retired in-pod event-pump, so a
+        stale/empty golden can't make the byte-equality test vacuous."""
+        golden = _read_golden()
+        # New one-shot markers.
+        assert "one-shot event handler (#3164)" in golden
+        assert 'ONE_SHOT_ACTION="${EGG_EVENT_ACTION:-}"' in golden
+        # Retired in-pod-pump markers MUST be gone.
+        assert "while true; do" not in golden
+        assert "egg-orch message wait-loop" not in golden
+        assert "start_background_heartbeat" not in golden
+        assert "# --- main event-pump loop ---" not in golden
 
 
 class TestOneShotArmStructure:
-    """Structural pins on the orchestrator-mode one-shot wrapper arm
-    (#3064 slice-1 task-1-2). With ``EGG_EVENT_LOOP_OWNER=orchestrator`` the
-    generated wrapper drops the in-pod blocking loop in favour of a
-    single-event arm driven by the injected ``EGG_EVENT_ACTION``.
+    """Structural pins on the one-shot wrapper (#3164). The wrapper is
+    one-shot only: it reads the injected ``EGG_EVENT_ACTION``, re-derives
+    next-action once as a stale-event backstop, optionally syncs, invokes
+    the agent once, and exits — no blocking loop, no background heartbeat.
     """
 
-    def _one_shot_script(self, monkeypatch) -> str:
-        monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", "orchestrator")
+    def _script(self) -> str:
         cmd = build_consensus_wrapped_command("Prompt")
         assert cmd[:2] == ["bash", "-c"]
         return cmd[2]
 
-    def test_orchestrator_mode_differs_from_pod_default(self, monkeypatch):
-        monkeypatch.delenv("EGG_EVENT_LOOP_OWNER", raising=False)
-        pod = build_consensus_wrapped_command("Prompt")[2]
-        one_shot = self._one_shot_script(monkeypatch)
-        assert one_shot != pod, (
-            "EGG_EVENT_LOOP_OWNER=orchestrator must select the one-shot "
-            "arm, which is NOT byte-identical to the in-pod event-pump."
+    def test_has_no_main_event_pump_loop_marker(self):
+        """The retired in-pod pump's ``# --- main event-pump loop ---``
+        marker and its ``while true`` loop must be gone."""
+        script = self._script()
+        assert "# --- main event-pump loop ---" not in script
+        assert "while true; do" not in script
+
+    def test_does_not_block_on_wait_loop(self):
+        """The wrapper never blocks on the bus: there is no
+        ``wait_for_event`` / ``egg-orch message wait-loop`` call. The
+        stale-event backstop is a single ``brc next-action`` re-check."""
+        script = self._script()
+        assert "wait_for_event" not in script, (
+            "one-shot wrapper must not call wait_for_event (blocking bus poll)."
+        )
+        assert "egg-orch message wait-loop" not in script, (
+            "one-shot wrapper must not block on the message bus."
         )
 
-    @staticmethod
-    def _one_shot_arm_segment(script: str) -> str:
-        """Isolate the spliced one-shot arm — the region from where it
-        first reads the injected ``EGG_EVENT_LOOP_OWNER`` env up to the
-        main event-pump loop marker. The shared helper *definitions*
-        (``wait_for_event``, ``start_background_heartbeat``, …) live ABOVE
-        this region and the ``while true`` loop BELOW it, so this segment
-        is exactly the one-shot execution path — what task-1-2 calls "the
-        one-shot path"."""
-        main_marker = "# --- main event-pump loop ---"
-        assert main_marker in script, (
-            "orchestrator-mode script must still contain the in-pod loop "
-            "(the one-shot arm reuses its helper functions and the loop is "
-            "the dormant fall-through when no event is injected)."
+    def test_starts_no_background_heartbeat(self):
+        """A one-shot pod is short-lived, so the wrapper must not start a
+        background heartbeat emitter (a single foreground
+        ``emit_heartbeat`` ping is fine and expected)."""
+        script = self._script()
+        assert "start_background_heartbeat" not in script, (
+            "one-shot wrapper must not spawn the background heartbeat emitter."
         )
-        owner_read = script.index("EGG_EVENT_LOOP_OWNER")
-        main_idx = script.index(main_marker)
-        assert owner_read < main_idx, (
-            "the one-shot arm must be spliced BEFORE the main loop so an "
-            "injected event is handled and exits without ever reaching the "
-            "blocking loop."
-        )
-        return script[owner_read:main_idx]
+        # A single foreground ping is still expected.
+        assert 'emit_heartbeat "WORKING"' in script
 
-    def test_one_shot_path_does_not_block_on_wait_loop(self, monkeypatch):
-        """task-1-2: "absence of wait-loop … constructs in the one-shot
-        path". The arm's own block must not call the blocking bus wait —
-        the dedupe backstop is a single ``brc next-action`` re-check. (The
-        helper definitions remain in the script because the arm reuses
-        other helpers and the loop is the dormant fall-through; the arm
-        execution path simply never reaches them.)"""
-        arm = self._one_shot_arm_segment(self._one_shot_script(monkeypatch))
-        assert "wait_for_event" not in arm, (
-            "one-shot path must not call wait_for_event (blocking bus poll)."
-        )
-        assert "egg-orch message wait-loop" not in arm, (
-            "one-shot path must not block on the message bus."
+    def test_reads_injected_event_action(self):
+        script = self._script()
+        assert 'ONE_SHOT_ACTION="${EGG_EVENT_ACTION:-}"' in script, (
+            "one-shot wrapper is driven by the injected EGG_EVENT_ACTION env."
         )
 
-    def test_one_shot_path_starts_no_background_heartbeat(self, monkeypatch):
-        """task-1-2: "absence of … background-heartbeat constructs in the
-        one-shot path". A one-shot pod is short-lived, so the arm must not
-        start the wrapper-owned background heartbeat emitter (a single
-        foreground ``emit_heartbeat`` ping is fine and expected)."""
-        arm = self._one_shot_arm_segment(self._one_shot_script(monkeypatch))
-        assert "start_background_heartbeat" not in arm, (
-            "one-shot path must not spawn the background heartbeat emitter."
+    def test_has_backstop_exit_paths(self):
+        """The stale-event backstop exit codes are pinned:
+        - exit 64 (EX_USAGE) on a missing / terminal / unknown action;
+        - exit 75 (EX_TEMPFAIL) on an inconclusive next-action re-check;
+        - exit 0 on a confirmed-stale event (no agent invocation)."""
+        script = self._script()
+        assert "exit 64" in script
+        assert "exit 75" in script
+        assert "exit 0" in script
+
+    def test_rechecks_next_action_once(self):
+        script = self._script()
+        assert "fetch_next_action" in script, (
+            "one-shot wrapper must re-derive next-action once as the stale/dedupe backstop."
         )
 
-    def test_one_shot_reads_injected_event_action(self, monkeypatch):
-        script = self._one_shot_script(monkeypatch)
-        assert "EGG_EVENT_ACTION" in script, (
-            "one-shot arm is driven by the injected EGG_EVENT_ACTION env."
-        )
-
-    def test_one_shot_rechecks_next_action_once(self, monkeypatch):
-        script = self._one_shot_script(monkeypatch)
-        assert "brc next-action" in script, (
-            "one-shot arm must re-check next-action once as the stale/dedupe backstop."
-        )
-
-    def test_one_shot_retains_agent_invocation_path(self, monkeypatch):
-        """The one-shot arm reuses the existing ``invoke_agent_for_event``
-        composer path rather than inventing a parallel invocation."""
-        script = self._one_shot_script(monkeypatch)
+    def test_retains_agent_invocation_path(self):
+        """The one-shot wrapper reuses the existing
+        ``invoke_agent_for_event`` composer path and ``sync_to_proposals``
+        rather than inventing a parallel invocation."""
+        script = self._script()
         assert "invoke_agent_for_event" in script
+        assert "sync_to_proposals" in script
 
 
 class TestOneShotArmBehavior:
-    """Behavioural tests of the orchestrator-mode one-shot arm, driving the
-    rendered bash against PATH stubs (#3064 slice-1 task-1-2). Covers the
-    one-shot behaviors: confirmed-stale exit 0, inconclusive-recheck exit 75
-    (EX_TEMPFAIL), exactly-one-invocation, agent exit-code passthrough, and
-    loud rejection of injected confirm/complete.
+    """Behavioural tests of the one-shot wrapper, driving the rendered
+    bash against PATH stubs (#3164). Covers the one-shot behaviors:
+    confirmed-stale exit 0, inconclusive-recheck exit 75 (EX_TEMPFAIL),
+    exactly-one-invocation, agent exit-code passthrough, and loud
+    rejection of injected confirm/complete.
     """
 
-    def _render(self, monkeypatch) -> list[str]:
-        monkeypatch.setenv("EGG_EVENT_LOOP_OWNER", "orchestrator")
+    def _render(self) -> list[str]:
         return build_consensus_wrapped_command("Prompt")
 
     @staticmethod
@@ -2491,9 +1011,8 @@ class TestOneShotArmBehavior:
         env = os.environ.copy()
         env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
         env["EGG_AGENT_ROLE"] = "tester"
-        env["EGG_PIPELINE_ID"] = "issue-3064"
+        env["EGG_PIPELINE_ID"] = "issue-3164"
         env["EGG_SLICE_ID"] = "slice-1"
-        env["EGG_EVENT_LOOP_OWNER"] = "orchestrator"
         env["EGG_EVENT_ACTION"] = action
         env["EGG_EVENT_DEDUPE_KEY"] = dedupe
         # Force the compose_event_prompt fallback (unreadable default path)
@@ -2507,13 +1026,13 @@ class TestOneShotArmBehavior:
             return 0
         return len([ln for ln in agent_log.read_text().splitlines() if ln.strip()])
 
-    def test_stale_event_exits_zero_without_invoking_agent(self, tmp_path, monkeypatch):
+    def test_stale_event_exits_zero_without_invoking_agent(self, tmp_path):
         """The orchestrator injected a ``propose`` event, but by the time
         the pod starts the live next-action has moved to ``wait`` (another
-        pod already handled it). The one-shot arm must re-check, detect the
-        stale event, and exit 0 WITHOUT invoking the agent — the dedupe
+        pod already handled it). The one-shot wrapper must re-check, detect
+        the stale event, and exit 0 WITHOUT invoking the agent — the dedupe
         backstop."""
-        cmd = self._render(monkeypatch)
+        cmd = self._render()
         bin_dir, general_log, agent_log = self._stub_bin(
             tmp_path, '{"action":"wait"}', agent_exit=0
         )
@@ -2526,16 +1045,15 @@ class TestOneShotArmBehavior:
             + (general_log.read_text() if general_log.exists() else "(empty)")
         )
 
-    def test_inconclusive_recheck_exits_ex_tempfail_without_invoking(self, tmp_path, monkeypatch):
+    def test_inconclusive_recheck_exits_ex_tempfail_without_invoking(self, tmp_path):
         """A transient blip at re-check time (``egg-orch brc next-action``
         returns non-zero — 409 / 5xx / transport) makes ``fetch_next_action``
-        fall back to ``{"action":"wait"}``. The arm must NOT report a clean
-        handoff (exit 0) — that would let a transient failure silently drop a
-        live event — and must NOT invoke the agent. Instead it exits 75
-        (EX_TEMPFAIL) so the slice-3 supervisor re-derives next-action itself
-        rather than treating the event as definitively handled (reviewer
-        non-blocking note, PR #3167)."""
-        cmd = self._render(monkeypatch)
+        fall back to ``{"action":"wait"}``. The wrapper must NOT report a
+        clean handoff (exit 0) — that would let a transient failure silently
+        drop a live event — and must NOT invoke the agent. Instead it exits
+        75 (EX_TEMPFAIL) so the orchestrator supervisor re-derives next-action
+        itself rather than treating the event as definitively handled."""
+        cmd = self._render()
         bin_dir, general_log, agent_log = self._stub_bin(
             tmp_path, '{"action":"propose"}', agent_exit=0, next_action_rc=22
         )
@@ -2551,11 +1069,11 @@ class TestOneShotArmBehavior:
             + (general_log.read_text() if general_log.exists() else "(empty)")
         )
 
-    def test_fresh_event_invokes_agent_exactly_once(self, tmp_path, monkeypatch):
+    def test_fresh_event_invokes_agent_exactly_once(self, tmp_path):
         """A fresh ``propose`` (live next-action still ``propose``) invokes
         the agent exactly once, then exits — no loop, no second
         invocation."""
-        cmd = self._render(monkeypatch)
+        cmd = self._render()
         bin_dir, general_log, agent_log = self._stub_bin(
             tmp_path, '{"action":"propose"}', agent_exit=0
         )
@@ -2571,12 +1089,12 @@ class TestOneShotArmBehavior:
             + (general_log.read_text() if general_log.exists() else "(empty)")
         )
 
-    def test_agent_exit_code_is_passed_through(self, tmp_path, monkeypatch):
+    def test_agent_exit_code_is_passed_through(self, tmp_path):
         """#2908 exit-code classification passthrough: a non-zero agent
         exit (17 — not a signal code, so not reclassified) propagates to
         the wrapper's exit code rather than being swallowed, so the
-        orchestrator can supervise the failure (slice-3)."""
-        cmd = self._render(monkeypatch)
+        orchestrator can supervise the failure."""
+        cmd = self._render()
         bin_dir, general_log, agent_log = self._stub_bin(
             tmp_path, '{"action":"propose"}', agent_exit=17
         )
@@ -2586,40 +1104,39 @@ class TestOneShotArmBehavior:
             "agent should have been invoked once before the failure."
         )
         assert result.returncode == 17, (
-            "one-shot arm must pass the agent's exit code through (not "
+            "one-shot wrapper must pass the agent's exit code through (not "
             f"swallow it to 0/1); got {result.returncode}. stderr:\n" + result.stderr
         )
 
-    def test_injected_confirm_is_rejected_loudly(self, tmp_path, monkeypatch):
-        self._assert_terminal_action_rejected(tmp_path, monkeypatch, "confirm")
+    def test_injected_confirm_is_rejected_loudly(self, tmp_path):
+        self._assert_terminal_action_rejected(tmp_path, "confirm")
 
-    def test_injected_complete_is_rejected_loudly(self, tmp_path, monkeypatch):
-        self._assert_terminal_action_rejected(tmp_path, monkeypatch, "complete")
+    def test_injected_complete_is_rejected_loudly(self, tmp_path):
+        self._assert_terminal_action_rejected(tmp_path, "complete")
 
-    def _assert_terminal_action_rejected(self, tmp_path, monkeypatch, action: str):
+    def _assert_terminal_action_rejected(self, tmp_path, action: str):
         """``confirm``/``complete`` are executed orchestrator-side
-        (agent-free) under ``EGG_EVENT_LOOP_OWNER=orchestrator``; a pod is
-        never spawned for them. If one is injected anyway, the one-shot arm
-        must reject it loudly: non-zero exit, an error on stderr, no agent
-        invocation, and no ``consensus confirmed`` call."""
-        cmd = self._render(monkeypatch)
+        (agent-free); a pod is never spawned for them. If one is injected
+        anyway, the one-shot wrapper must reject it loudly: non-zero exit,
+        an error on stderr, no agent invocation, and no ``consensus
+        confirmed`` call."""
+        cmd = self._render()
         bin_dir, general_log, agent_log = self._stub_bin(
             tmp_path, f'{{"action":"{action}"}}', agent_exit=0
         )
         env = self._env(bin_dir, action)
         result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)
         assert result.returncode != 0, (
-            f"one-shot arm must reject an injected {action!r} action with a "
+            f"one-shot wrapper must reject an injected {action!r} action with a "
             f"non-zero exit. stderr:\n{result.stderr}"
         )
         assert self._agent_invocation_count(agent_log) == 0, (
-            f"one-shot arm must NOT invoke the agent for {action!r}."
+            f"one-shot wrapper must NOT invoke the agent for {action!r}."
         )
         log = general_log.read_text() if general_log.exists() else ""
         assert "consensus confirmed" not in log, (
-            f"one-shot arm must NOT run 'consensus confirmed' for {action!r}; "
-            "confirm/complete are orchestrator-side in owner=orchestrator "
-            f"mode. egg-orch log:\n{log}"
+            f"one-shot wrapper must NOT run 'consensus confirmed' for {action!r}; "
+            f"confirm/complete are orchestrator-side. egg-orch log:\n{log}"
         )
         assert action in result.stderr, (
             f"rejection of {action!r} must be LOUD — an error naming the "

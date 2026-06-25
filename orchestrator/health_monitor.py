@@ -145,28 +145,16 @@ class HealthMonitor:
         # BRC progress tracking: first time each fully-ACKed producer was seen
         self._fully_acked_first_seen: dict[str, float] = {}
 
-        # #3064 slice-5: orchestrator-mode awareness. In orchestrator mode:
-        #   * roles with no active Job are normal (never alert on heartbeat
-        #     timeout or container-exit).
-        #   * heartbeat / progress / container-exit tripwires apply only
-        #     when a Job is active for that role.
-        #   * a silent one-shot pod mid-event still trips — the role IS
-        #     active so tripwires fire normally.
-        # Auto-detect orchestrator mode from the env config.  This lets the
-        # monitor configure itself at construction time without requiring
-        # an explicit set_orchestrator_mode() call from every caller — the
-        # concurrent executor also calls set_orchestrator_mode(True) during
-        # event-loop setup as a belt-and-suspenders production path.
-        try:
-            from env_config import get_event_loop_owner
-
-            self._orchestrator_mode: bool = get_event_loop_owner() == "orchestrator"
-        except Exception:  # noqa: BLE001 — best-effort auto-detect
-            self._orchestrator_mode: bool = False
-        # Set of roles with an active one-shot Job. Populated externally
-        # (the concurrent executor or event loop sets this from live Job
-        # labels on each poll).  Empty/unset means "unknown — fall through
-        # to pod-mode alerting behavior".
+        # #3164: the orchestrator unconditionally owns the BRC event loop.
+        #   * roles with no active one-shot Job are legitimately idle (the
+        #     loop has not derived an actionable event for them yet) and are
+        #     skipped from heartbeat/progress/container-exit tripwires.
+        #   * a role WITH an active Job is checked normally — a silent
+        #     one-shot pod mid-event still trips.
+        # ``_active_jobs`` is the set of roles with an active one-shot Job,
+        # populated by the event loop on each poll tick via
+        # ``set_active_roles``. Empty means "no active Jobs — every role is
+        # idle", so all tripwires are skipped.
         self._active_jobs: set[str] = set()
 
         # Subscribe to events
@@ -208,21 +196,6 @@ class HealthMonitor:
         """Return the phase last set via :meth:`set_current_phase`."""
         with self._lock:
             return self._current_phase
-
-    def set_orchestrator_mode(self, enabled: bool = True) -> None:
-        """Enable or disable orchestrator-mode alert suppression.
-
-        In orchestrator mode (``enabled=True``), roles with no active Job
-        are normal — heartbeat/progress/container-exit tripwires apply only
-        while that role's Job is active.  A silent one-shot pod mid-event
-        still alerts.  Pod mode (``enabled=False``, the default) restores
-        today's behavior where every registered agent's silence can trip
-        alerts.
-
-        Thread-safe.
-        """
-        with self._lock:
-            self._orchestrator_mode = enabled
 
     def set_active_roles(self, roles: set[str]) -> None:
         """Set the set of roles with currently active one-shot Jobs.
@@ -462,22 +435,17 @@ class HealthMonitor:
         return False, None
 
     def _orchestrator_skip_tripwire(self, agent_id: str) -> bool:
-        """Return True if this agent should be skipped by tripwire checks in orchestrator mode.
+        """Return True if this agent should be skipped by tripwire checks.
 
-        In orchestrator mode, a role with no active one-shot Job is
-        legitimately idle — the orchestrator event loop simply has not
-        derived an actionable event for it yet.  Alerting on such a role
-        would be a false positive.
+        The orchestrator owns the BRC event loop (#3164): a role with no
+        active one-shot Job is legitimately idle — the loop simply has not
+        derived an actionable event for it yet — so alerting on it would be
+        a false positive.
 
         An empty ``_active_jobs`` (default from init or explicitly set via
         ``set_active_roles(set())``) means there are zero active one-shot
         Jobs — every role is legitimately idle; all tripwires are skipped.
-        This is safe because ``pod`` mode returns early before this check,
-        so empty ``_active_jobs`` only reaches this logic when we are
-        demonstrably in orchestrator mode.
         """
-        if not self._orchestrator_mode:
-            return False
         # Empty active_jobs (no active one-shot Jobs) → every role is idle
         if not self._active_jobs:
             return True

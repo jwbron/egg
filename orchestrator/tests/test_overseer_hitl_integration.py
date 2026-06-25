@@ -105,6 +105,7 @@ class TestHITLEscalationAfterMaxRedirects:
             pipeline_id=PIPELINE_ID,
             config=config,
         )
+        monitor.set_active_roles({AGENT_ID})
 
         escalations = []
         monitor.on_escalation(lambda e: escalations.append(e))
@@ -146,6 +147,7 @@ class TestHITLEscalationAfterMaxRedirects:
             pipeline_id=PIPELINE_ID,
             config=config,
         )
+        monitor.set_active_roles({AGENT_ID})
 
         escalations = []
         monitor.on_escalation(lambda e: escalations.append(e))
@@ -280,6 +282,7 @@ class TestContainerExitAlwaysHITL:
             pipeline_id=PIPELINE_ID,
             config=config,
         )
+        monitor.set_active_roles({AGENT_ID})
 
         escalations = []
         monitor.on_escalation(lambda e: escalations.append(e))
