@@ -532,7 +532,7 @@
       "id": "slice-8",
       "name": "Threshold reseed (resume-vs-reseed, AC-3)",
       "goal": "Resume-vs-reseed decision at re-invocation, comparing occupancy to the threshold; reseed a fresh session from the protected root, pre-empting CC compaction. None/unknown occupancy and no-warm-session both bias to reseed. Logical deps: slices 1, 2, 4, 6, 7 (all upstream in the serialized chain via slice 7).",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -542,9 +542,9 @@
           "id": "task-8-1",
           "description": "Implement the resume-vs-reseed decision in the event-pump wrapper: read resumed-session occupancy (phase 1); compute the threshold from the model's real window (phase 2); if occupancy is a known value < threshold, resume the cached session via the phase-6 substrate; if occupancy >= threshold, start a FRESH session seeded only from the protected root (phase 4), relying on JIT re-pull (phase 5). None/unknown occupancy -> bias to RESEED (cheap, safe), NEVER resume-below-threshold (covers non-Claude / sub-200K LiteLLM routes whose usage may be partial/absent). If the phase-6 resume path reports no warm session, fall through to the reseed seed. Fire below CC's ~95% compaction. Reseed expected to fire rarely; do not couple it to within-event growth (tool_output_cap.py's job).",
           "status": "pending",
-          "commit": null,
+          "commit": "c6a5cd20a933fcdb5f30c0ff5d28558adfeeb7c6",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Resume-vs-reseed gate landed in shared/egg_agent/reseed.py (new) + __main__.py wiring; session.py py2-except SyntaxError fixed (gate imports from it). Pure core decide_session_action(session_id, occupancy, threshold)->ResumeDecision; decide_resume_session() reads SessionState (slice-6) + resolve_reseed_threshold() (EGG_RESEED_THRESHOLD env override -> lazy defensive orchestrator import -> None). Bias-to-reseed on all ambiguity (no warm session / None occupancy / no threshold / resume disabled); reseed yields no resume id. Threshold via slice-2 real_backend_window (no [1m] mistrigger). Env-activated only -> orchestrator bash wrapper/golden byte-identical; dark by default. Tester task-8-2 (test_reseed_decision.py) 9/9 pass; full egg_agent suite green except a pre-existing, unrelated test_client buffer-overflow failure (reproduces on clean tree).",
           "acceptance_criteria": "Resumes when occupancy is known and < min(400k,0.80*real_window); reseeds from the protected root when occupancy >= threshold OR occupancy is None/unknown OR no warm session; reseeded session contains the protected root and only re-pulled bulk; trigger uses occupancy (cache_read+cache_creation+input), not billed input; None-occupancy and no-warm-session both resolve to a safe reseed, never a lossy resume.",
           "files_affected": [
             "sandbox/",
@@ -566,7 +566,7 @@
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Slice-8 tester tests in tests/shared/egg_agent/test_reseed_decision.py (commit 6911cb552). 9 decision-boundary tests covering all task-8-2 ACs: just-under threshold->resume; at/over->reseed; None/unknown occupancy->reseed (bias, never lossy resume); no-warm-session->reseed (never a hard failure); reseed verdict leaks no resume session id (fresh protected-root/JIT-re-pull path); and the real-window threshold regression (sub-1M kimi[1m]: occupancy between the real ~209,715 threshold and the 400k [1m]-implied floor MUST reseed, plus a symmetric below-real-threshold resume so it's not a blanket \"always reseed sub-1M\").\n\nBoundary occupancy values are DERIVED from the merged slice-2 reseed_threshold helper (orchestrator/agent_model_resolution.py) rather than hard-coded, so they track the FLOOR/MARGIN knobs without edits. Test module adds orchestrator/ to sys.path (the shared conftest only adds shared/+sandbox/).\n\nParallel-BRC convention: signature-introspecting locator (_decision_fn over candidate modules egg_agent.{reseed,resume,session,client,threshold,__main__} x candidate fn names) + a verdict normaliser accepting \"resume id or None\" / bool / decision-object / (action, id) tuple shapes. Skip-guards until coder task-8-1 merges (9 skipped pre-merge), asserts at PR assembly.\n\nVALIDATED before commit: 9/9 PASS against a throwaway \"return session_id or None\" reference; the sub-1M regression test correctly FAILS against a [1m] mis-trigger reference (threshold off the 400k floor). Throwaway removed.\n\nSuite regression check: tests/shared/egg_agent/ + test_reseed_threshold.py = 195 passed, 9 skipped (mine), ruff clean. The 1 failure (test_client.py::test_buffer_overflow_returns_failure_with_marker) is PRE-EXISTING/environmental (real SDK vs mock under py3.14) \u2014 fails identically with my file absent; documented by the slice-6 tester. Unrelated to slice-8.",
           "acceptance_criteria": "Under/at/over + None-occupancy->reseed + no-warm-session->reseed covered; reseed-from-root + JIT-re-pull asserted; real-window threshold asserted; tests pass.",
           "files_affected": [
             "sandbox/tests/",
@@ -587,11 +587,11 @@
         "slice-7"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3200/slice-7",
+      "integration_base_sha": "99293e7cf66b7d3bc0a8a3765eb6ad1740f2e84b",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3251,
+      "pr_url": "https://github.com/jwbron/egg/pull/3251",
       "review_feedback": []
     },
     {
@@ -1421,6 +1421,39 @@
       "old_value": "Tests for task-6-1 resume plumbing in tests/shared/egg_agent/test_client_resume.py. Pins the client-layer contract: run_agent_async grows keyword-only resume:str|None=None (default None = opt-in/default-off at client layer; staged-rollout enable flag stays upstream in wrapper/__main__ per architect slice-6). Non-empty resume -> options.resume; falsy resume (None/\"\") -> fresh from protected-root prompt, never raises. 5 tests: signature default-off, resume-by-id, no-arg fresh, resume=None cold-start, empty-id cold-start. RED-BY-DESIGN until task-6-1 (coder, client.py) integrates: 1 pass / 4 fail standalone (TypeError: no resume kwarg + signature assertion). Go green on the slice-6 integration branch once coder lands resume. Exact contract handed off to coder (msg 7eea0e5c).",
       "new_value": "Tests for task-6-1 resume substrate in tests/shared/egg_agent/test_client_resume.py, rebased green on top of coder commit 5bf70837e. Aligned to the coder's actual two-fold default-off: (1) run_agent_async resume:str|None=None param default; (2) a passed-in id is threaded to options.resume only when EGG_SESSION_RESUME (egg_agent.session.session_resume_enabled) is on. Falsy id (None/\"\") -> fresh from protected-root prompt, never raises, even with the flag enabled. 6 tests, all passing: signature default-off, resume-by-id-when-enabled, id-ignored-when-flag-disabled, no-arg fresh, resume=None cold-start, empty-id cold-start. ruff clean. Note: a pre-existing/environmental failure in test_client.py::test_buffer_overflow_returns_failure_with_marker fails in isolation without my file (real SDK vs mock under py3.14) \u2014 unrelated to slice-6.",
       "reason": "Updated notes for task-6-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T16:55:42.970803Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.7.tasks.1.notes",
+      "old_value": "",
+      "new_value": "Slice-8 tester tests in tests/shared/egg_agent/test_reseed_decision.py (commit 6911cb552). 9 decision-boundary tests covering all task-8-2 ACs: just-under threshold->resume; at/over->reseed; None/unknown occupancy->reseed (bias, never lossy resume); no-warm-session->reseed (never a hard failure); reseed verdict leaks no resume session id (fresh protected-root/JIT-re-pull path); and the real-window threshold regression (sub-1M kimi[1m]: occupancy between the real ~209,715 threshold and the 400k [1m]-implied floor MUST reseed, plus a symmetric below-real-threshold resume so it's not a blanket \"always reseed sub-1M\").\n\nBoundary occupancy values are DERIVED from the merged slice-2 reseed_threshold helper (orchestrator/agent_model_resolution.py) rather than hard-coded, so they track the FLOOR/MARGIN knobs without edits. Test module adds orchestrator/ to sys.path (the shared conftest only adds shared/+sandbox/).\n\nParallel-BRC convention: signature-introspecting locator (_decision_fn over candidate modules egg_agent.{reseed,resume,session,client,threshold,__main__} x candidate fn names) + a verdict normaliser accepting \"resume id or None\" / bool / decision-object / (action, id) tuple shapes. Skip-guards until coder task-8-1 merges (9 skipped pre-merge), asserts at PR assembly.\n\nVALIDATED before commit: 9/9 PASS against a throwaway \"return session_id or None\" reference; the sub-1M regression test correctly FAILS against a [1m] mis-trigger reference (threshold off the 400k floor). Throwaway removed.\n\nSuite regression check: tests/shared/egg_agent/ + test_reseed_threshold.py = 195 passed, 9 skipped (mine), ruff clean. The 1 failure (test_client.py::test_buffer_overflow_returns_failure_with_marker) is PRE-EXISTING/environmental (real SDK vs mock under py3.14) \u2014 fails identically with my file absent; documented by the slice-6 tester. Unrelated to slice-8.",
+      "reason": "Updated notes for task-8-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T16:59:43.441399Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.7.tasks.0.commit",
+      "old_value": null,
+      "new_value": "c6a5cd20a933fcdb5f30c0ff5d28558adfeeb7c6",
+      "reason": "Linked commit c6a5cd2 to task-8-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T16:59:48.397209Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.7.tasks.0.notes",
+      "old_value": "",
+      "new_value": "Resume-vs-reseed gate landed in shared/egg_agent/reseed.py (new) + __main__.py wiring; session.py py2-except SyntaxError fixed (gate imports from it). Pure core decide_session_action(session_id, occupancy, threshold)->ResumeDecision; decide_resume_session() reads SessionState (slice-6) + resolve_reseed_threshold() (EGG_RESEED_THRESHOLD env override -> lazy defensive orchestrator import -> None). Bias-to-reseed on all ambiguity (no warm session / None occupancy / no threshold / resume disabled); reseed yields no resume id. Threshold via slice-2 real_backend_window (no [1m] mistrigger). Env-activated only -> orchestrator bash wrapper/golden byte-identical; dark by default. Tester task-8-2 (test_reseed_decision.py) 9/9 pass; full egg_agent suite green except a pre-existing, unrelated test_client buffer-overflow failure (reproduces on clean tree).",
+      "reason": "Updated notes for task-8-1",
       "checkpoint_id": null
     }
   ],
