@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from io import StringIO
 from types import ModuleType
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from egg_agent.result import AgentResult
 
@@ -170,3 +170,90 @@ class TestMain:
 
         assert code == 1
         assert "error msg" in captured_err.getvalue()
+
+
+class TestSessionStatePlumbing:
+    """CLI wiring for the warm-resume substrate (#3200, slice-6).
+
+    Locks the ``--resume`` / ``--session-state-file`` args and the
+    best-effort ``write_session_state`` write-back: the substrate's write
+    side is live in production today (every run with a state-file path
+    configured), so these pin the CLI plumbing that ``test_client_resume.py``
+    (which stops at ``run_agent``) does not reach.
+    """
+
+    @patch("egg_agent.__main__.write_session_state")
+    @patch("egg_agent.__main__.decide_resume_session")
+    @patch("egg_agent.__main__.run_agent")
+    def test_resume_arg_threads_through_gate_to_run_agent(
+        self, mock_run_agent, mock_decide, _mock_write
+    ):
+        """``--resume`` is handed to the slice-8 resume-vs-reseed gate as
+        ``explicit_resume``; the gate's *decision* (not the raw arg) drives
+        ``run_agent``'s ``resume`` kwarg (#3200 slice-8). With the gate
+        electing to resume, that session id reaches ``run_agent``."""
+        mock_decide.return_value = MagicMock(session_id="sess-prior")
+        mock_run_agent.return_value = AgentResult(
+            success=True, stdout="", stderr="", returncode=0, session_id="sess-1"
+        )
+        with patch("sys.argv", ["egg_agent", "--resume", "sess-prior", "do work"]):
+            main()
+        assert mock_decide.call_args.kwargs["explicit_resume"] == "sess-prior"
+        assert mock_run_agent.call_args.kwargs["resume"] == "sess-prior"
+
+    @patch("egg_agent.__main__.write_session_state")
+    @patch("egg_agent.__main__.run_agent")
+    def test_resume_defaults_to_none(self, mock_run_agent, _mock_write):
+        mock_run_agent.return_value = AgentResult(success=True, stdout="", stderr="", returncode=0)
+        with patch("sys.argv", ["egg_agent", "do work"]):
+            main()
+        assert mock_run_agent.call_args.kwargs["resume"] is None
+
+    @patch("egg_agent.__main__.write_session_state")
+    @patch("egg_agent.__main__.run_agent")
+    def test_write_back_persists_session_id_and_occupancy(self, mock_run_agent, mock_write):
+        mock_run_agent.return_value = AgentResult(
+            success=True,
+            stdout="",
+            stderr="",
+            returncode=0,
+            session_id="sess-new",
+            window_occupancy=12345,
+        )
+        with patch(
+            "sys.argv",
+            ["egg_agent", "--session-state-file", "/tmp/state.json", "do work"],
+        ):
+            main()
+        mock_write.assert_called_once()
+        args, kwargs = mock_write.call_args
+        assert args[0] == "sess-new"
+        assert args[1] == 12345
+        assert kwargs["path"] == "/tmp/state.json"
+
+    @patch("egg_agent.__main__.write_session_state")
+    @patch("egg_agent.__main__.run_agent")
+    def test_write_back_path_defaults_to_none(self, mock_run_agent, mock_write):
+        mock_run_agent.return_value = AgentResult(
+            success=True, stdout="", stderr="", returncode=0, session_id="sess-new"
+        )
+        with patch("sys.argv", ["egg_agent", "do work"]):
+            main()
+        assert mock_write.call_args.kwargs["path"] is None
+
+    @patch("egg_agent.__main__.write_session_state", return_value=False)
+    @patch("egg_agent.__main__.run_agent")
+    def test_write_back_failure_does_not_change_exit_code(self, mock_run_agent, _mock_write):
+        """Persistence is bookkeeping — its outcome must not drive the exit code.
+
+        ``write_session_state`` returns ``False`` on a swallowed persistence
+        failure; the exit code must still come solely from the agent's
+        ``returncode`` (here a non-zero failure), proving the best-effort
+        write-back is decoupled from the run's result.
+        """
+        mock_run_agent.return_value = AgentResult(
+            success=False, stdout="", stderr="", returncode=3, session_id="sess-new"
+        )
+        with patch("sys.argv", ["egg_agent", "do work"]):
+            code = main()
+        assert code == 3

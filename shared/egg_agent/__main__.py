@@ -13,6 +13,8 @@ import argparse
 import sys
 
 from egg_agent.client import run_agent
+from egg_agent.reseed import decide_resume_session
+from egg_agent.session import write_session_state
 
 
 def _stream_to_stdout(text: str) -> None:
@@ -42,6 +44,28 @@ def main() -> int:
         choices=["low", "medium", "high", "max"],
         help=("Reasoning effort for the session. Omit to inherit Claude Code's per-model default."),
     )
+    parser.add_argument(
+        "--resume",
+        default=None,
+        metavar="SESSION_ID",
+        help=(
+            "Claude session_id to re-enter (warm resume, #3200 slice-6). Opt-in "
+            "and default OFF: only resumes when EGG_SESSION_RESUME is enabled; an "
+            "absent/stale session cold-starts from the protected root. The "
+            "resume-vs-reseed decision lives in the slice-8 gate."
+        ),
+    )
+    parser.add_argument(
+        "--session-state-file",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Where to persist this run's session_id + window occupancy so a later "
+            "event-pump invocation can resume it (defaults to $EGG_SESSION_STATE_FILE; "
+            "no-op when neither is set). The round-trip's read+decide side is the "
+            "slice-8 gate."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -55,6 +79,19 @@ def main() -> int:
             print("Error: empty prompt from stdin", file=sys.stderr)
             return 1
 
+    # Resume-vs-reseed gate (#3200 slice-8, task-8-1). The decision happens at
+    # the start of each one-shot re-invocation: read the prior run's occupancy
+    # from the slice-6 state file, compare against the real-window threshold, and
+    # either resume the cached session (occupancy known and below threshold) or
+    # reseed from the protected root (resume=None -> fresh session, JIT re-pull).
+    # Every ambiguous case (no warm session, unknown occupancy, no threshold,
+    # resume disabled) biases to a safe reseed rather than a lossy resume.
+    resume_decision = decide_resume_session(
+        model=args.model,
+        explicit_resume=args.resume,
+        session_state_path=args.session_state_file,
+    )
+
     result = run_agent(
         prompt,
         model=args.model,
@@ -63,6 +100,17 @@ def main() -> int:
         timeout=args.timeout,
         on_output=_stream_to_stdout,
         effort=args.effort,
+        resume=resume_decision.session_id,
+    )
+
+    # Write side of the session-state round-trip (#3200 slice-6): persist this
+    # run's session_id + window occupancy so a later event-pump invocation can
+    # re-enter (or, per the slice-8 gate, reseed). Best-effort and inert when no
+    # path is configured; a persistence failure never changes the exit code.
+    write_session_state(
+        result.session_id,
+        result.window_occupancy,
+        path=args.session_state_file,
     )
 
     if result.stderr:

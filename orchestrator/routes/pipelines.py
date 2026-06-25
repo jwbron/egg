@@ -3157,6 +3157,20 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     # slice agent.
     # Slice-scoped restarts (#2410) target the per-slice tracker; the
     # pipeline-level tracker has no record of the slice agent.
+    #
+    # INVARIANT (#3200 task-7-1, mid-phase BRC record survival): this reset
+    # clears the *peer consensus tracker* (the ephemeral ACK/NACK/proposal
+    # bookkeeping the restarted agent rebuilds by re-proposing) but MUST NOT
+    # clear the *Redis message store* (``pipeline:{id}:messages``). That store
+    # is the durable BRC message record — CONSENSUS_PROPOSE/ACK/NACK and the
+    # conditional-ACK obligations — and a mid-phase restart deliberately
+    # preserves it so the reseeded/resumed session can re-pull it via
+    # ``GET /<pipeline_id>/brc-transcript`` + ``read_peer_artifact`` and
+    # re-derive the #3189 deterministic anchors. The store is cleared only at
+    # phase transitions (``_clear_concurrent_state``) and pipeline
+    # create/delete (``_clear_pipeline_runtime_state``), never here. Do NOT
+    # add ``get_message_store().clear()`` / ``_clear_concurrent_state`` to the
+    # restart path — that would lose the record across the restart boundary.
     try:
         try:
             from peer_consensus import get_peer_consensus_tracker
@@ -3511,6 +3525,51 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
 
     # --- Outside the lock: slow, idempotent, best-effort operations ---
 
+    # 3b. Persist the in-flight phase's BRC message record to disk BEFORE the
+    #     destructive container/worktree teardown (#3200 task-7-1, mid-phase
+    #     BRC record survival). Today ``_write_brc_history`` runs only at phase
+    #     transitions (``_persist_phase_brc_history`` in complete/advance_phase,
+    #     #1827); a mid-phase restart never wrote the durable on-disk
+    #     transcript.
+    #
+    #     PRIMARY mechanism is option (a), the live Redis stream: it survives a
+    #     bare restart (the store is cleared only at phase transitions /
+    #     pipeline create+delete, never here — see step 5), so a reseeded
+    #     session re-pulls the in-flight record from Redis via
+    #     ``/brc-transcript`` + ``read_peer_artifact``. The slice-scoped
+    #     CONSENSUS_PROPOSE/ACK/NACK records of an in-flight implement slice
+    #     rely on (a) for survival.
+    #
+    #     This disk persist (option (b)) is a belt-and-suspenders ADD-ON with a
+    #     deliberately NARROW durability scope — do not overstate it. It calls
+    #     ``_persist_phase_brc_history`` -> ``_write_brc_history(
+    #     write_per_slice=False)``. For a slice-aware implement phase that path
+    #     writes ONLY the ``{id}-implement-unattributed.{md,json}`` sibling
+    #     (non-CONSENSUS BRC types: HEARTBEAT/STATUS/HANDOFF/AGENT_FAILED/
+    #     NUDGE/OVERSEER_ALERT) and SKIPS the per-slice bucket loop; the
+    #     slice's CONSENSUS_* proposals/verdicts/open-NACKs are NOT written to
+    #     disk here (write_per_slice=False avoids the #2755 add/add conflict on
+    #     ``work``; per-slice files are owned by the slice integration branch).
+    #     So across a FULL Redis loss (orchestrator pod death, the cold-start
+    #     case task-6-1 covers) the in-flight slice record does NOT survive on
+    #     disk — only (a) preserves it. What (b) does buy: for non-slice phases
+    #     (plan/refine/pr) and non-slice implement runs the aggregate
+    #     ``{id}-{phase}.{md,json}`` transcript IS written, and for slice runs
+    #     the unattributed audit sibling is captured — extending the #1827
+    #     persist-before-clear invariant to the restart path for everything
+    #     except the per-slice CONSENSUS buckets. Best-effort and front-running
+    #     teardown: a transcript-write hiccup must never block recovery of a
+    #     wedged phase (mirrors the salvage step below).
+    try:
+        _persist_phase_brc_history(pipeline, store, phase)
+    except Exception as brc_persist_err:  # noqa: BLE001
+        logger.warning(
+            "Failed to persist in-flight BRC history during phase restart (continuing)",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            error=str(brc_persist_err),
+        )
+
     # 4. Stop and remove old containers
     for container_id in old_container_ids:
         try:
@@ -3611,6 +3670,16 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
     #    the entire phase, so any per-slice consensus state that
     #    survived the restart is stale and would deadlock the new run
     #    if left in place.
+    #
+    #    INVARIANT (#3200 task-7-1, mid-phase BRC record survival): like
+    #    ``restart_agent`` above, this clears the *peer consensus tracker*
+    #    (ephemeral ACK/NACK state) but MUST NOT clear the *Redis message
+    #    store* (``pipeline:{id}:messages``). That store is the durable BRC
+    #    message record; a mid-phase phase restart preserves it so the
+    #    reseeded session can re-pull it (``/brc-transcript`` +
+    #    ``read_peer_artifact``) and re-derive the #3189 anchors. The store is
+    #    cleared only at phase transitions / pipeline create+delete, never on
+    #    restart. Do NOT add ``get_message_store().clear()`` here.
     try:
         try:
             from peer_consensus import get_peer_consensus_tracker
