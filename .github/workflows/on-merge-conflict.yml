@@ -69,7 +69,7 @@ jobs:
           # Note: mergeable_state is only available after GitHub computes it,
           # which happens asynchronously. PRs with "UNKNOWN" state are skipped.
           prs=$(gh api repos/${{ github.repository }}/pulls --paginate \
-            -q '[.[] | select(.state == "open") | {number: .number, title: .title, head_repo: .head.repo.full_name}]')
+            -q '[.[] | select(.state == "open") | {number: .number, title: .title, head_repo: .head.repo.full_name, head_ref: .head.ref}]')
 
           conflicting=()
           while IFS= read -r pr_json; do
@@ -77,10 +77,27 @@ jobs:
             pr_num=$(echo "$pr_json" | jq -r '.number')
             pr_title=$(echo "$pr_json" | jq -r '.title')
             head_repo=$(echo "$pr_json" | jq -r '.head_repo')
+            head_ref=$(echo "$pr_json" | jq -r '.head_ref')
 
             # Skip fork PRs — bot can't push to forks
             if [[ "$head_repo" != "${{ github.repository }}" ]]; then
               echo "PR #${pr_num} is from a fork ($head_repo), skipping — bot cannot push to forks"
+              continue
+            fi
+
+            # Skip egg slice PRs (#3255). A slice PR's head is egg/<id>/slice-<N>
+            # and its base is the advancing egg/<id>/work state-branch. Resolving
+            # such a PR by merging the base in (this bot's strategy) drags every
+            # later slice's "Persist contract after slice ... completion" commit —
+            # and re-stamped copies of the whole refine/plan prefix — into the
+            # early slice's history, even though the slice's file diff stays
+            # correct. Slice-stack reconciliation is owned by the orchestrator's
+            # stacked-PR reconciler, not this generic base-into-head merge bot, so
+            # leave slice PRs to it. The egg/<id>/work -> main context PR (whose
+            # head does NOT match this pattern) is deliberately still resolved
+            # here so the base PR keeps tracking main.
+            if [[ "$head_ref" =~ ^egg/.+/slice-[0-9]+$ ]]; then
+              echo "PR #${pr_num} is an egg slice PR ($head_ref), skipping — orchestrator owns slice-stack reconciliation (#3255)"
               continue
             fi
 
