@@ -344,6 +344,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "828ad853b5c6dcfa22ab1e7a51384e239b625542": {
+      "branch": "egg/issue-3200/slice-9",
+      "patch_id": "a02a6c7fdcd57702534f203ab304f722b901c08c",
+      "pipeline_id": "issue-3200",
+      "registered_at": "2026-06-25T17:08:50.613860+00:00",
+      "repo": null,
+      "role": "documenter"
+    },
     "87a88687b998b199a9e18da1f16200974704184a": {
       "branch": "egg/issue-3200/work",
       "patch_id": "efe899a092857e2ce145e3458c25a1056827d7cc",
