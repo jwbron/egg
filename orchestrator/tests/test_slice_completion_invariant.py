@@ -32,14 +32,22 @@ def _slice(
     slice_id: str = "slice-3",
     *,
     task_statuses: list[TaskStatus] | None = None,
+    task_commits: list[str | None] | None = None,
     status: SliceStatus = SliceStatus.PENDING,
     pr_number: int | None = None,
     integration_base_sha: str | None = None,
     parent_branch_at_creation: str | None = None,
     commit: str | None = None,
 ) -> Slice:
-    """Build a Slice with one task per entry in ``task_statuses``."""
+    """Build a Slice with one task per entry in ``task_statuses``.
+
+    ``task_commits`` (when given) supplies a per-task commit SHA aligned
+    with ``task_statuses`` — used to model whether the slice's producers
+    actually committed work (#3253). ``None`` entries leave that task's
+    commit unset.
+    """
     statuses = task_statuses if task_statuses is not None else [TaskStatus.PENDING]
+    commits = task_commits if task_commits is not None else [None] * len(statuses)
     return Slice(
         id=slice_id,
         name=f"Slice {slice_id}",
@@ -49,7 +57,13 @@ def _slice(
         parent_branch_at_creation=parent_branch_at_creation,
         commit=commit,
         tasks=[
-            Task(id=f"task-3-{i + 1}", description="t", status=st, files_affected=[])
+            Task(
+                id=f"task-3-{i + 1}",
+                description="t",
+                status=st,
+                files_affected=[],
+                commit=commits[i] if i < len(commits) else None,
+            )
             for i, st in enumerate(statuses)
         ],
     )
@@ -116,11 +130,27 @@ class TestValidBases:
             is None
         )
 
-    def test_basis_merged(self) -> None:
-        # Layer-B bootstrap / run-loop merged-skip: ancestry-verified.
+    def test_basis_merged_with_produced_commit(self) -> None:
+        # Layer-B bootstrap / run-loop merged-skip: ancestry-verified AND
+        # the slice's producers actually committed work (#3253). A real
+        # merge always leaves recorded task commits, so basis="merged" is
+        # trusted here even with the task status not yet flipped COMPLETE
+        # on the in-memory contract.
         assert (
             _validate_slice_completion_basis(
-                _slice(task_statuses=[TaskStatus.PENDING]), basis="merged"
+                _slice(task_statuses=[TaskStatus.PENDING], task_commits=["a" * 40]),
+                basis="merged",
+            )
+            is None
+        )
+
+    def test_basis_merged_with_pr(self) -> None:
+        # A recorded slice PR is itself sufficient evidence of a real
+        # merge even if the task-commit record is absent (#3253).
+        assert (
+            _validate_slice_completion_basis(
+                _slice(task_statuses=[TaskStatus.PENDING], pr_number=3213),
+                basis="merged",
             )
             is None
         )
@@ -178,6 +208,37 @@ class TestInvalidBases:
             _slice(task_statuses=[TaskStatus.COMPLETE, TaskStatus.PENDING])
         )
         assert reason is not None
+
+    def test_basis_merged_no_pr_no_commit_is_rejected(self) -> None:
+        # #3253 — the slice-10 signature: basis="merged" detected on
+        # origin (empty/ancestor integration branch) but the slice never
+        # ran (no PR, every task.commit None). A merge with no PR and no
+        # produced commit is not a valid completion basis; reject it so
+        # the restart re-runs the slice instead of false-completing.
+        slice10 = _slice(
+            slice_id="slice-10",
+            task_statuses=[TaskStatus.PENDING, TaskStatus.PENDING],
+            task_commits=[None, None],
+            pr_number=None,
+        )
+        reason = _validate_slice_completion_basis(slice10, basis="merged")
+        assert reason is not None, "basis=merged with no PR + no commit must be rejected"
+        assert "slice-10" in reason
+        assert "3253" in reason
+
+    def test_basis_merged_no_pr_no_commit_rejected_despite_fork_base(self) -> None:
+        # The #3253 guard must fire even when a (stale, #3245) fork base is
+        # recorded — the recorded integration_base_sha would otherwise pass
+        # the #2871 "forked" free-pass and let the empty branch through.
+        slice10 = _slice(
+            slice_id="slice-10",
+            task_statuses=[TaskStatus.PENDING],
+            task_commits=[None],
+            pr_number=None,
+            integration_base_sha="b" * 40,
+        )
+        reason = _validate_slice_completion_basis(slice10, basis="merged")
+        assert reason is not None, "a recorded fork base must not rescue an empty merged slice"
 
     def test_exact_slice3_production_state_is_flagged(self) -> None:
         """The literal state read off pipeline ``issue-3200`` contract:

@@ -202,6 +202,15 @@ class SliceCompletionInvariantError(RuntimeError):
     state where *all* are absent — a slice marked COMPLETE with zero
     evidence it ran. We raise here so that corrupt write fails loud at its
     source instead of wedging the forest a phase later.
+
+    #3253 refinement: ``basis="merged"`` is no longer an unconditional
+    pass. A merged slice went through a PR and left commits its producers
+    recorded; a ``basis="merged"`` write with **no PR and no produced task
+    commit** is an empty / never-implemented branch that origin ancestry
+    mis-detected as merged (the slice-10 case — producers exhausted before
+    committing, so the integration branch's tip is still its fork base and
+    is trivially an ancestor of the advanced parent). Such a write is
+    rejected so the slice is re-run rather than false-completed.
     """
 
 
@@ -210,6 +219,28 @@ class SliceCompletionInvariantError(RuntimeError):
 # on the contract (the crash-recovery / merged-skip paths). See
 # :class:`SliceCompletionInvariantError`.
 _VERIFIED_SLICE_COMPLETION_BASES = frozenset({"merged", "consensus_complete"})
+
+
+def _slice_produced_commits(slice_obj: Any) -> bool:
+    """Return True iff any of the slice's tasks recorded a commit SHA.
+
+    This is the base-SHA-independent "a producer actually committed work"
+    signal (#3253). It reads *task* commits only — a slice whose producers
+    all failed before committing has every ``task.commit`` ``None`` (the
+    AC-4 measurement in the issue-3200 slice-10 incident). It deliberately
+    ignores ``Slice.commit``: that field can carry the *parent's* SHA on a
+    false-complete (the #3214 slice-3 carryover), so it is not trustworthy
+    evidence the slice itself produced anything.
+
+    An empty integration branch (tip still at its fork base, so trivially
+    an ancestor of an advanced parent) is indistinguishable from a merged
+    one by origin ancestry alone once the recorded fork base is missing or
+    stale (#3245). The contract's task-commit record is the durable signal
+    that survives that ambiguity: no task commit + no slice PR ⇒ the slice
+    never ran and must be re-run, not completed.
+    """
+    tasks = getattr(slice_obj, "tasks", None) or []
+    return any(getattr(t, "commit", None) for t in tasks)
 
 
 def _validate_slice_completion_basis(
@@ -229,6 +260,21 @@ def _validate_slice_completion_basis(
     :class:`SliceCompletionInvariantError` for the basis rules (#3214).
     """
     has_pr = pr_number is not None or getattr(slice_obj, "pr_number", None) is not None
+    # #3253 — a ``basis="merged"`` slice with no PR and no produced task
+    # commits is not a merged slice; it is an empty / never-implemented
+    # integration branch (tip still at its fork base) that origin ancestry
+    # mis-detected as merged. A genuine merge went through a PR and left
+    # commits the producers recorded. Reject so the restart re-runs the
+    # slice instead of false-completing the pipeline with its work missing.
+    # This guard fires *before* the verified-basis / forked free-passes
+    # below so a recorded (possibly stale) fork base cannot rescue it.
+    if basis == "merged" and not has_pr and not _slice_produced_commits(slice_obj):
+        return (
+            f"slice {getattr(slice_obj, 'id', '?')} would be marked COMPLETE "
+            f"basis='merged' with no slice PR and no produced task commits — an "
+            f"empty / never-implemented integration branch is not a merged one "
+            f"(#3253)"
+        )
     verified_basis = basis in _VERIFIED_SLICE_COMPLETION_BASES
     # A slice that actually forked its integration branch recorded a base
     # SHA (#2871). Its absence — together with no PR, no verified basis,
@@ -16589,6 +16635,32 @@ def _run_implement_phase_slices(
                     error=str(detect_err),
                 )
                 return slice_obj.id, False
+            # #3253 — guard against a false-positive merged result. A slice
+            # whose producers never committed (no produced task commit) and
+            # that has no slice PR has an empty integration branch: its tip
+            # is still the fork base, so it is trivially an ancestor of an
+            # advanced parent and the origin ancestry check reports it
+            # merged. Marking it COMPLETE basis=merged silently drops the
+            # slice and lets the pipeline complete with its work missing —
+            # the restart-to-retry failure mode (#3138 producer exhaustion →
+            # operator restart → false-complete). Override to not-merged so
+            # the slice falls through to Layer-C and re-runs. A genuine merge
+            # has produced commits or a recorded PR, so this never overrides
+            # a real merge.
+            if (
+                merged
+                and not _slice_produced_commits(slice_obj)
+                and getattr(slice_obj, "pr_number", None) is None
+            ):
+                logger.warning(
+                    "Bootstrap merged-detection overridden: origin ancestry "
+                    "reports merged but the slice has no produced task commit "
+                    "and no PR — empty/un-started branch, re-running rather than "
+                    "false-completing as merged (#3253)",
+                    pipeline_id=pipeline_id,
+                    slice_id=slice_obj.id,
+                )
+                return slice_obj.id, False
             return slice_obj.id, bool(merged)
 
         max_workers = min(len(layer_b_candidates), 8)
@@ -16920,6 +16992,11 @@ def _run_implement_phase_slices(
                 # one. It is ``None`` on a slice's first run (recorded
                 # only after the branch is created, just below).
                 recorded_base_sha: str | None = None
+                # #3253 — capture whether the slice has any produced task
+                # commit / PR while we hold the contract, so the race-merged
+                # skip below cannot mistake an empty / un-started branch for
+                # a merged one (see the merged-acceptance guard below).
+                slice_produced_work = False
                 try:
                     with get_pipeline_state_lock(pipeline_id):
                         contract_local = load_contract(pipeline_id, worktree_repo_path)
@@ -16941,6 +17018,9 @@ def _run_implement_phase_slices(
                                 if s.status == SliceStatus.PENDING:
                                     s.status = SliceStatus.IN_PROGRESS
                                 recorded_base_sha = s.integration_base_sha
+                                slice_produced_work = (
+                                    _slice_produced_commits(s) or s.pr_number is not None
+                                )
                                 break
                         save_contract(contract_local, worktree_repo_path)
                 except Exception as save_err:  # noqa: BLE001
@@ -16983,6 +17063,22 @@ def _run_implement_phase_slices(
                             pipeline_id=pipeline_id,
                             slice_id=slice_id,
                             error=str(detect_err),
+                        )
+                        already_merged = False
+                    # #3253 — a slice with no produced task commit and no PR
+                    # has an empty integration branch (tip still at the fork
+                    # base); origin ancestry reports it merged because that
+                    # base is trivially an ancestor of an advanced parent.
+                    # Don't skip it as merged — spawn so it actually runs.
+                    if already_merged and not slice_produced_work:
+                        logger.info(
+                            "Slice merged-detection ignored: no produced task commit "
+                            "and no PR — empty/un-started branch, spawning instead of "
+                            "skipping as merged (#3253)",
+                            pipeline_id=pipeline_id,
+                            slice_id=slice_id,
+                            integration_branch=integration_branch,
+                            parent_branch=parent_branch,
                         )
                         already_merged = False
                     if already_merged:
