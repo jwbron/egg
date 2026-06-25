@@ -336,9 +336,7 @@ class TestRestartCountManagement:
         """Once the budget is exhausted, further calls raise instead of incrementing (#3244)."""
         spawner._restart_counts[("issue-100", "coder", None)] = 2
         with pytest.raises(ContainerSpawnError, match="Restart limit"):
-            spawner.check_and_increment_restart_count(
-                "issue-100", AgentRole.CODER, max_restarts=2
-            )
+            spawner.check_and_increment_restart_count("issue-100", AgentRole.CODER, max_restarts=2)
         # The rejected call must not burn an extra slot.
         assert spawner.get_restart_count("issue-100", "coder") == 2
 
@@ -1047,7 +1045,10 @@ class TestRestartAgentEndpointSliceScope:
         # #3164: validation accepted, no resident spawn; the per-slice
         # count bucket is read.
         mock_spawner.restart_agent_container.assert_not_called()
-        assert mock_spawner.check_and_increment_restart_count.call_args.kwargs.get("slice_id") == "slice-2"
+        assert (
+            mock_spawner.check_and_increment_restart_count.call_args.kwargs.get("slice_id")
+            == "slice-2"
+        )
 
     @patch("egg_contracts.loader.load_contract")
     @patch("routes.pipelines.get_container_spawner")
@@ -1194,7 +1195,10 @@ class TestRestartAgentEndpointSliceDerivation:
         assert (
             mock_spawner.k8s.list_containers.call_args.kwargs["labels"][LABEL_SLICE_ID] == "slice-2"
         )
-        assert mock_spawner.check_and_increment_restart_count.call_args.kwargs.get("slice_id") == "slice-2"
+        assert (
+            mock_spawner.check_and_increment_restart_count.call_args.kwargs.get("slice_id")
+            == "slice-2"
+        )
         assert response.get_json()["data"]["slice_id"] == "slice-2"
 
     @patch("routes.pipelines.get_container_spawner")
@@ -1309,7 +1313,10 @@ class TestRestartAgentEndpointSliceDerivation:
         mock_spawner.restart_agent_container.assert_not_called()
         # The explicit slice_id wins over derivation: it scopes the count
         # bucket and the response.
-        assert mock_spawner.check_and_increment_restart_count.call_args.kwargs.get("slice_id") == "slice-1"
+        assert (
+            mock_spawner.check_and_increment_restart_count.call_args.kwargs.get("slice_id")
+            == "slice-1"
+        )
         assert response.get_json()["data"]["slice_id"] == "slice-1"
 
 
