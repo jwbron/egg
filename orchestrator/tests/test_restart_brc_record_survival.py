@@ -229,24 +229,85 @@ class TestRestartAgentPreservesBrcRecord:
 
 
 class TestConsensusResetPreservesMessageStore:
-    def test_clearing_consensus_tracker_leaves_message_store_intact(self):
-        """The restart handlers reset the peer consensus tracker (ephemeral
-        ACK/NACK bookkeeping) — a store distinct from the Redis message record.
-        Clearing the tracker must not drop any BRC messages."""
+    """The restart handlers reset the peer consensus tracker (ephemeral
+    ACK/NACK bookkeeping) — a store distinct from the Redis message record.
+    These tests seed a *real* tracker with live consensus state so the
+    reset path (``clear`` for ``restart_phase``, ``remove_agent`` for
+    ``restart_agent``) is genuinely exercised, then assert no BRC message
+    is dropped."""
+
+    @staticmethod
+    def _make_real_tracker(pipeline_id):
+        """Create and register a real tracker carrying live consensus state
+        (registered agents → non-empty ``_producer_phases``). Returns the
+        tracker, or skips if peer_consensus / review_graph aren't importable."""
         try:
-            from peer_consensus import get_peer_consensus_tracker
+            from peer_consensus import create_peer_consensus_tracker
+            from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
         except ImportError:  # pragma: no cover - import shape varies
-            pytest.skip("peer_consensus not importable")
+            pytest.skip("peer_consensus / review_graph not importable")
 
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
+            ]
+        )
+        tracker = create_peer_consensus_tracker(pipeline_id, graph, cooldown_seconds=0)
+        for role in ("coder", "reviewer_code", "reviewer_contract"):
+            tracker.register_agent(role)
+        # Sanity: the tracker really carries state, so clearing it is not a no-op.
+        assert tracker._producer_phases, "tracker should carry live producer state"
+        return tracker
+
+    def test_clearing_consensus_tracker_leaves_message_store_intact(self):
+        """``restart_phase``'s reset (``tracker.clear()``) drops all consensus
+        state but must leave the Redis message record untouched."""
+        from peer_consensus import get_peer_consensus_tracker, remove_peer_consensus_tracker
+
+        pipeline_id = "issue-777"
         store = get_message_store()
-        seeded = _seed_brc_record(store, pipeline_id="issue-777")
-        assert len(store.get_messages("issue-777", limit=100)) == len(seeded)
+        seeded = _seed_brc_record(store, pipeline_id=pipeline_id)
+        assert len(store.get_messages(pipeline_id, limit=100)) == len(seeded)
 
-        # Mirror the restart handlers' reset step.
-        tracker = get_peer_consensus_tracker("issue-777")
-        if tracker is not None:
+        self._make_real_tracker(pipeline_id)
+        try:
+            # Mirror restart_phase's reset step against the real tracker.
+            tracker = get_peer_consensus_tracker(pipeline_id)
+            assert tracker is not None, "a real tracker must exist for the clear path to run"
             tracker.clear()
+            # The clear path actually ran: consensus state is gone.
+            assert not tracker._producer_phases
+        finally:
+            remove_peer_consensus_tracker(pipeline_id)
 
-        after = store.get_messages("issue-777", limit=100)
+        after = store.get_messages(pipeline_id, limit=100)
+        assert len(after) == len(seeded)
+        assert sorted(m.message_type for m in after) == sorted(m.message_type for m in seeded)
+
+    def test_removing_agent_from_tracker_leaves_message_store_intact(self):
+        """``restart_agent``'s reset (``tracker.remove_agent(role)``) evicts the
+        restarted agent's tracker state but must leave the Redis message record
+        intact, so the reseeded session can re-pull and re-derive anchors."""
+        from peer_consensus import get_peer_consensus_tracker, remove_peer_consensus_tracker
+
+        pipeline_id = "issue-778"
+        store = get_message_store()
+        seeded = _seed_brc_record(store, pipeline_id=pipeline_id)
+        assert len(store.get_messages(pipeline_id, limit=100)) == len(seeded)
+
+        self._make_real_tracker(pipeline_id)
+        try:
+            # Mirror restart_agent's reset step against the real tracker.
+            tracker = get_peer_consensus_tracker(pipeline_id)
+            assert tracker is not None, "a real tracker must exist for the remove path to run"
+            assert "coder" in tracker._producer_phases
+            tracker.remove_agent("coder")
+            # The remove path actually ran: the restarted agent is evicted.
+            assert "coder" not in tracker._producer_phases
+        finally:
+            remove_peer_consensus_tracker(pipeline_id)
+
+        after = store.get_messages(pipeline_id, limit=100)
         assert len(after) == len(seeded)
         assert sorted(m.message_type for m in after) == sorted(m.message_type for m in seeded)

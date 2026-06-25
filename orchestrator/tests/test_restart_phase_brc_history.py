@@ -455,6 +455,102 @@ class TestInFlightBrcRecordSurvivesToDisk:
 
 
 # ---------------------------------------------------------------------------
+# Restart-path disk shape (write_per_slice=False): the cold-start persist that
+# ``restart_phase`` fires uses ``write_per_slice=False`` (it must not duplicate
+# the per-slice CONSENSUS files the slice integration branch owns — #2755).
+# The tests above pin ``write_per_slice=True``; these pin the *actual*
+# ``write_per_slice=False`` output of ``_write_brc_history`` so a refactor that
+# silently changed which files the restart persist emits would fail loudly.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _HAS_FLASK, reason="orchestrator deps not available")
+class TestRestartPersistDiskShape:
+    """``_write_brc_history(write_per_slice=False)`` — the exact call the
+    restart persist makes (``_persist_phase_brc_history`` → this seam) — must
+    skip the per-slice CONSENSUS files and write only the cross-cutting
+    ``{identifier}-implement-unattributed.{md,json}`` sibling.
+    """
+
+    @staticmethod
+    def _unattributed_other_message():
+        """A non-CONSENSUS BRC type with no canonical ``slice_id`` — the kind
+        of cross-cutting message (OVERSEER_ALERT, here) that the writer routes
+        to the ``unattributed`` sibling rather than dropping."""
+        return _make_brc_message(
+            from_role="overseer",
+            message_type=MessageType.OVERSEER_ALERT,
+            subject="phase stall detected",
+            body="coder heartbeat gap exceeded threshold",
+            slice_id=None,  # no slice scope — overseer emits cross-cutting alerts
+        )
+
+    def _write_per_slice_false(self, tmp_path, messages):
+        from routes.pipelines import _write_brc_history
+
+        mock_store = MagicMock(spec=RedisMessageStore)
+        mock_store.get_messages.return_value = messages
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(
+                tmp_path,
+                _PIPELINE_ID,
+                "implement",
+                _ISSUE_NUMBER,
+                write_per_slice=False,
+            )
+        return tmp_path / ".egg-state" / "brc-history"
+
+    def test_per_slice_consensus_files_are_not_written(self, tmp_path):
+        """The slice-attributed CONSENSUS record (proposal/ACK/NACK) is owned
+        by the slice integration branch; the restart persist must NOT emit
+        ``{identifier}-implement-{slice}.{md,json}`` for it (#2755 add/add)."""
+        # Slice-attributed CONSENSUS + one cross-cutting unattributed alert.
+        messages = _in_flight_consensus_record() + [self._unattributed_other_message()]
+        history_dir = self._write_per_slice_false(tmp_path, messages)
+
+        per_slice_json = history_dir / f"{_ISSUE_NUMBER}-implement-{_IN_FLIGHT_SLICE_ID}.json"
+        per_slice_md = history_dir / f"{_ISSUE_NUMBER}-implement-{_IN_FLIGHT_SLICE_ID}.md"
+        assert not per_slice_json.exists(), (
+            "write_per_slice=False must not emit the per-slice CONSENSUS file"
+        )
+        assert not per_slice_md.exists()
+
+    def test_unattributed_sibling_is_written(self, tmp_path):
+        """The cross-cutting (non-slice) BRC messages still reach the
+        ``unattributed`` sibling so the audit trail stays complete."""
+        messages = _in_flight_consensus_record() + [self._unattributed_other_message()]
+        history_dir = self._write_per_slice_false(tmp_path, messages)
+
+        unattributed_json = history_dir / f"{_ISSUE_NUMBER}-implement-unattributed.json"
+        unattributed_md = history_dir / f"{_ISSUE_NUMBER}-implement-unattributed.md"
+        assert unattributed_json.exists(), (
+            "the cross-cutting unattributed sibling must be written even when "
+            "per-slice writes are skipped"
+        )
+        assert unattributed_md.exists()
+
+        records = json.loads(unattributed_json.read_text())
+        # Only the cross-cutting alert is in the sibling — the slice CONSENSUS
+        # records are NOT folded in (they belong to the per-slice file we skipped).
+        by_type = {r["message_type"] for r in records}
+        assert "OVERSEER_ALERT" in by_type
+        assert "CONSENSUS_PROPOSE" not in by_type
+        assert "CONSENSUS_NACK" not in by_type
+
+    def test_no_unattributed_sibling_when_only_slice_consensus(self, tmp_path):
+        """With only slice-attributed CONSENSUS messages and no cross-cutting
+        traffic, ``write_per_slice=False`` writes nothing — the per-slice files
+        are skipped and there is no unattributed remainder to persist."""
+        history_dir = self._write_per_slice_false(tmp_path, _in_flight_consensus_record())
+
+        if history_dir.exists():
+            assert list(history_dir.iterdir()) == [], (
+                "write_per_slice=False with only slice CONSENSUS records must "
+                "write no files (per-slice skipped, nothing unattributed)"
+            )
+
+
+# ---------------------------------------------------------------------------
 # Best-effort guard: the cold-start persist that ``restart_phase`` fires
 # before teardown is wrapped so a persist failure never blocks recovery of a
 # wedged phase.  This exercises the REAL wired call site (restart_phase ->
