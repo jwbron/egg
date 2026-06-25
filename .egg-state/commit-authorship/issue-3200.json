@@ -504,6 +504,14 @@
       "repo": null,
       "role": "refiner"
     },
+    "c6a5cd20a933fcdb5f30c0ff5d28558adfeeb7c6": {
+      "branch": "egg/issue-3200/slice-8",
+      "patch_id": "8d687cc814e00ccd5fcfa843147346b1779c0b2f",
+      "pipeline_id": "issue-3200",
+      "registered_at": "2026-06-25T16:59:35.694900+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "c7e9e0cf5f25b7304ecfab939dcb3b4724ed086f": {
       "branch": "egg/issue-3200/slice-5",
       "patch_id": "d40ba53be0781b16352ab983eba0d4ca7085da0a",
