@@ -14,7 +14,7 @@
       "id": "slice-1",
       "name": "Token-occupancy capture (prerequisite, AC-1)",
       "goal": "Capture cumulative window occupancy (cache_read+cache_creation+input) in AgentResult from ResultMessage.usage. Depends on: none. Blocks phases 8 and 10.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -23,8 +23,8 @@
         {
           "id": "task-1-1",
           "description": "Extend `AgentResult` (`shared/egg_agent/result.py:24-33`) with an optional cumulative window-occupancy field (default None, non-breaking). Docstring defines occupancy = cache_read + cache_creation + input and states it is NOT billed/effective input. Optionally retain raw component counts for downstream breakout; the single total is the load-bearing field.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "d0705780defdfc9ee78cb58d1b450db3a636f378",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Optional occupancy field defaults None; docstring defines occupancy and excludes billed input; existing constructors still build.",
@@ -44,8 +44,8 @@
         {
           "id": "task-1-2",
           "description": "In `shared/egg_agent/client.py` stop dropping `message.usage` on the ResultMessage branch (717-751). Read usage, compute occupancy defensively (missing/None sub-fields -> 0), thread it into result_meta and EVERY AgentResult build site in the file (~733/~747/~760/~782/~804/~825). Guard against SDK shapes with no usage.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "d0705780defdfc9ee78cb58d1b450db3a636f378",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "usage read on the ResultMessage branch; occupancy=cache_read+cache_creation+input computed defensively; populated on all AgentResult return sites; absent usage -> None, no exception.",
@@ -86,18 +86,18 @@
       ],
       "dependencies": [],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3200/work",
+      "integration_base_sha": "f0a76124b17c24faa74ff15875f1350969a16036",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3236,
+      "pr_url": "https://github.com/jwbron/egg/pull/3236",
       "review_feedback": []
     },
     {
       "id": "slice-2",
       "name": "Real-window resolution + threshold (AC-3 foundation)",
       "goal": "Pure deterministic helpers for the real backend window and the reseed threshold. Logical dep: none; serialized after slice 1 to avoid shared-file (orchestrator/tests) integration collisions (#3046).",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -106,10 +106,10 @@
         {
           "id": "task-2-1",
           "description": "Add a real-backend-window resolver in `orchestrator/agent_model_resolution.py`: Claude aliases -> 1_000_000; `_SUB_1M_CONTEXT_MODELS` members -> registered size (kimi-k2.7-code -> 262144); other non-Claude/200K-profile -> 200_000. Key on the bare model name, not the [1m] suffix. Reuse the existing tables.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "55387ff1f5f7ea480209fd89091be1990d006357",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Added real_backend_window(model) to orchestrator/agent_model_resolution.py. Resolution keys on the BARE name (strips [1m]): (1) _SUB_1M_CONTEXT_MODELS member -> registered size FIRST (so kimi-k2.7-code[1m] -> 262_144, never the [1m]-implied 1M); (2) Claude alias (opus/opus[1m]/sonnet/claude-*) -> _CLAUDE_BACKEND_WINDOW=1_000_000; (3) else -> _conservative_unknown_window().\n\nRECONCILIATION (contract vs architect slice-2 goal): contract task-2-1 says \"200_000 for an unregistered non-Claude model\"; architect slice-2 says \"unknown -> SMALLEST known window (conservative), not 200K\". Implemented the unknown default as min([_PROFILE_200K_WINDOW(200_000), *_SUB_1M_CONTEXT_MODELS.values()]). With only kimi (262_144) registered this == 200_000 (satisfies the contract acceptance literally TODAY) AND auto-tightens to any sub-200K backend if one is ever registered (honors the architect's conservative directive without a code change). Verified: returns 200_000 for unregistered non-Claude now; returns 128_000 after registering a 128K backend.",
           "acceptance_criteria": "Returns 1_000_000 for opus/opus[1m]; 262_144 for kimi-k2.7-code; 200_000 for an unregistered non-Claude model; never the [1m]-implied 1M for a sub-1M backend.",
           "files_affected": [
             "orchestrator/agent_model_resolution.py"
@@ -127,10 +127,10 @@
         {
           "id": "task-2-2",
           "description": "Add a threshold function `threshold = min(400_000, 0.80 * real_backend_window)` consuming task-2-1. Expose 400_000 as a named, overridable constant (initial knob, not derived). The 0.80 margin pre-empts CC's ~95% compaction.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "55387ff1f5f7ea480209fd89091be1990d006357",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Added reseed_threshold(model) = min(RESEED_THRESHOLD_FLOOR, int(RESEED_THRESHOLD_MARGIN * real_backend_window(model))). RESEED_THRESHOLD_FLOOR=400_000 and RESEED_THRESHOLD_MARGIN=0.80 are named module constants read live inside the function (overridable via reassign/monkeypatch); both exported in __all__ for the slice-6 gate. Margin documented as pre-empting Claude Code's ~95% lossy auto-compaction wall, computed against the REAL backend window (never the [1m] alias). Worked examples verified: opus[1m]->400_000; 200K-profile->160_000; 128K-class backend->102_400 (~102k).",
           "acceptance_criteria": "Returns min(400_000, 0.80*real_window); floor is a named overridable constant; margin documented as pre-empting CC ~95% compaction.",
           "files_affected": [
             "orchestrator/agent_model_resolution.py"
@@ -148,10 +148,10 @@
         {
           "id": "task-2-3",
           "description": "Unit tests for the worked examples: opus[1m]->400k; 200K->160k; Qwen/128K-class->~102k. Regression test: the sub-1M threshold is computed against the real window, NOT the [1m] alias (the mis-trigger bug).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "335979385de352c5b8a886d619d422d36825d9f2",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Tests in orchestrator/tests/test_reseed_threshold.py (commit 335979385). 8 tests, all pass against the merged coder implementation (commit 55387ff1f). Coverage: real_backend_window \u2014 opus/opus[1m]->1M, kimi-k2.7-code(+[1m])->262_144, unregistered non-Claude->200_000. reseed_threshold worked examples \u2014 opus[1m]->400k (floor caps 0.80*1M=800k), 200K-profile->160k, kimi 262_144->209_715, and the central mis-trigger regression: a synthetic 128K backend ->102_400 (0.80*128k) with [1m] NEVER lifting it to the 1M-implied 400k floor. Also asserts the 400_000 floor is a named, overridable module constant (monkeypatch lowers it -> threshold follows). Skip-guards (parallel-BRC-producer convention) now resolve to the real symbols. Verified: 8 passed; sibling test_agent_model_resolution.py 71 passed (no regression); ruff clean.",
           "acceptance_criteria": "400k/160k/~102k asserted; mis-trigger regression asserted; tests pass.",
           "files_affected": [
             "orchestrator/tests/"
@@ -171,18 +171,18 @@
         "slice-1"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3200/slice-1",
+      "integration_base_sha": "3b2579734d79fcc5b9fe789bd8dce9ef3c59b900",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3237,
+      "pr_url": "https://github.com/jwbron/egg/pull/3237",
       "review_feedback": []
     },
     {
       "id": "slice-3",
       "name": "Derive",
       "goal": "Derive the four #3189 anchor fields (last-reviewed SHA/producer, latest verdicts, open NACK reasons, conditional-ACK obligations) from the BRC message record; extend shared/egg_anchor additively. Closes the substrate gap the NACK flagged (BRCState carries none of these today; #3189 OPEN). Logical dep: none; serialized after slice 2 (#3046). Hard prereq of the protected root (slice 4).",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -191,8 +191,8 @@
         {
           "id": "task-3-1",
           "description": "Implement a deterministic derivation that, from the BRC message record (CONSENSUS_PROPOSE/ACK/NACK/conditional-ACK messages), computes: (i) last-reviewed SHA per producer (latest reviewed proposal_commit_sha per edge); (ii) latest verdict per reviewer->producer edge; (iii) open NACK reasons (current-version NACKs not yet resolved); (iv) conditional-ACK obligations (pre_merge_condition, with resolved/unresolved status). Derivation is mechanical (never agent-transcribed). Extend shared/egg_anchor model(s) to carry these four fields additively (do not break BRCState.acks/nacks/last_message_id at models.py:96-103).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "34278c681",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "The four fields derive purely from the message record; the egg_anchor model carries them additively without breaking existing fields; against a fixture message record the derived anchors match exactly; no agent-authored content enters this layer.",
@@ -213,10 +213,10 @@
         {
           "id": "task-3-2",
           "description": "Tests: a fixture message stream (multiple producers; an ACK then re-propose + NACK; a conditional-ACK with an unresolved obligation) yields the correct last-reviewed SHA per producer, latest verdict per edge, open NACK reason, and unresolved obligation; a resolved obligation is marked resolved; legacy acks/nacks/last_message_id untouched.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "3c0c9ad5a",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Tests in shared/egg_anchor/tests/test_brc_anchor_derivation.py + orchestrator/tests/test_brc_anchor_derivation.py. After coder task-3-1 (derive_brc_anchors / BRCDerivedAnchors in shared/egg_anchor/brc_derive.py + models.py) merged, fixtures were aligned to the real contract (message dicts with nested metadata; ACK/NACK carry the producer in to_role). ALL 9 TESTS PASS (commit 3c0c9ad5a; coder impl 34278c681).\n\nCoverage:\n- last_reviewed_sha per producer: coder->v2 SHA, tester->v1 SHA; superseded coder-v1 SHA absent.\n- latest_verdicts per edge: reviewer_code->coder NACK; reviewer_security->coder (conditional) ACK; reviewer_code->tester (conditional) ACK.\n- open_nacks on current version: reviewer_code->coder \"missing guard\".\n- conditional_ack_obligations: coder \"git mv old new\" resolved=False; tester \"update import path\" resolved=True (flipped by CONSENSUS_OBLIGATION_RESOLVED).\n- determinism: identical record -> identical anchors (slice-4 byte-stability prereq).\n- ApprovalMatrix substrate cross-check (orchestrator): the message-record derivation agrees with the ApprovalMatrix/ApprovalEntry projection (verdict states, ack_commit_sha, NACK reason, pre_merge_condition + obligation_resolved).\n- legacy non-regression: BRCState.acks/nacks/last_message_id unchanged by the additive BRCDerivedAnchors extension.\n\nAC scenario: multiple producers (coder, tester); ACK-then-repropose+NACK; an unresolved obligation and a resolved-in-cycle obligation (resolved by a non-producer role since a producer cannot self-resolve). ruff clean.",
           "acceptance_criteria": "Derivation correctness for all four fields asserted against a realistic fixture; obligation resolved/unresolved distinguished; legacy-field non-regression asserted; tests pass.",
           "files_affected": [
             "shared/egg_anchor/tests/",
@@ -237,18 +237,18 @@
         "slice-2"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3200/slice-2",
+      "integration_base_sha": "216f1de24a3decf55cedcef0ad79e0f08da524a1",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3238,
+      "pr_url": "https://github.com/jwbron/egg/pull/3238",
       "review_feedback": []
     },
     {
       "id": "slice-4",
       "name": "Protected root (deterministic, resident, AC-2 part 1)",
       "goal": "Small, byte-stable, role-parameterized resident root rendered from the phase-3 #3189 anchors. Logical dep: slice 3 (the anchors it renders). Feeds slices 5, 8, 9.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -257,10 +257,10 @@
         {
           "id": "task-4-1",
           "description": "Implement a protected-root renderer assembling, in fixed order: (a) role contract, (b) task anchor via compose_task_description (#3163), (c) the #3189 deterministic anchors derived in phase 3 (last-reviewed SHA/producer, latest verdicts, open NACKs, conditional-ACK obligations), (d) non-negotiable directives. Role-parameterized; emits STABLE BYTES (sorted keys, bounded sections, hard per-section caps, no timestamps/nondeterministic ordering).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "a3dc986c395473c26b72366891c721a3170e0a5b",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Implemented shared/egg_anchor/protected_root.py: render_protected_root(role, role_contract, task_description, derived, directives, caps) assembling the fixed four-section root (role contract / task anchor / #3189 BRCDerivedAnchors / non-negotiable directives). Byte-stable: keyed collections sorted, list counts bounded by RootCaps, free-form sections char-capped, no timestamps. Role-parameterized. Pure (no new egg_anchor dep; task_description composed by caller via compose_task_description #3163). Section (c) sourced only from mechanically-derived BRCDerivedAnchors. Exported render_protected_root + RootCaps. ruff + mypy clean; 105 existing egg_anchor tests pass. Tests for byte-stability/cap-truncation/sort-stability/role-parameterization are task-4-2 (tester).",
           "acceptance_criteria": "Four sections in fixed order; byte-stable across repeated identical renders; role-parameterized; the phase-3 deterministic layer is authoritative for section (c) (no agent claims inlined here).",
           "files_affected": [
             "shared/egg_anchor/",
@@ -280,9 +280,9 @@
           "id": "task-4-2",
           "description": "Tests for deterministic rendering: identical input -> identical bytes; oversized sections truncated at the documented per-section cap; key ordering stable regardless of input dict order; two roles render distinct-but-each-stable roots.",
           "status": "pending",
-          "commit": null,
+          "commit": "1f4b9167a",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Tests in shared/egg_anchor/tests/test_protected_root.py (proposed tester v1, commit 1f4b9167a; coder renderer task-4-1 merged at a3dc986c3). 6 tests, all PASS against the real renderer; full shared/egg_anchor suite 111 passed; ruff clean.\n\nCoverage maps 1:1 to task-4-2 ACs:\n- byte-stability: two identical renders -> identical bytes; non-empty; all four sections present (role contract / task anchor / #3189 anchors / directives) in fixed a->b->c->d order.\n- per-section-cap truncation: a ~4MB free-text role_contract is hard-capped (not inlined verbatim, output < input/20, head survives -> truncated not omitted); a 5000-entry open_nacks flood (~5MB) is bounded by the cap.\n- sort-stability: same logical anchors with reversed dict-insertion + list-element order render to IDENTICAL bytes (renderer sorts its own content; does not trust caller pre-sort).\n- role-parameterization: reviewer_code vs coder render distinct roots, each individually byte-stable; role name present in its own root.\n\nParallel-BRC-producer convention: flexible locators (11 module/symbol candidates), signature-introspecting kwarg mapping with name aliases, model-as-object-or-dict + directives-as-list-or-string tolerance, function-or-class result handling. Skipped pre-merge; converged on the coder's API with NO test edits after merge. Validated 6/6 PASS against a throwaway reference renderer before merge (since removed; protected_root.py is coder-owned).",
           "acceptance_criteria": "Byte-stability, per-section-cap truncation, sort-stability, role-parameterization each asserted; tests pass.",
           "files_affected": [
             "shared/egg_anchor/tests/",
@@ -303,18 +303,18 @@
         "slice-3"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3200/slice-3",
+      "integration_base_sha": "dcfe077a7d2f1a09e3e1c027e115548c173c25d2",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3239,
+      "pr_url": "https://github.com/jwbron/egg/pull/3239",
       "review_feedback": []
     },
     {
       "id": "slice-5",
       "name": "Queryable environment (JIT pull, AC-2 part 2)",
       "goal": "Move bulk out of the inlined prompt; pull JIT via read_peer_artifact + /brc-transcript; move #3188 enrichment into this layer, SHA-stamped. Logical dep: slice 4 (protected root must exist before bulk is removed from it).",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -324,9 +324,9 @@
           "id": "task-5-1",
           "description": "Stop inlining bulk BRC history / peer artifacts / diffs in the event-pump prompt. Pre-stage only the deterministic delta (the phase-3 #3189 layer in the protected root); leave bulk to read_peer_artifact + GET /<pipeline_id>/brc-transcript (`orchestrator/routes/messages.py:415`). Code comment records the honest limit: JIT pull does NOT bound the window (a pulled slice stays resident until reseed/compaction); the reseed (phase 8) bounds it.",
           "status": "pending",
-          "commit": null,
+          "commit": "e9a5eec50",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "New shared/egg_agent/queryable_env.py renders JIT POINTERS (per-producer `git log A..B --not origin/base -p` recipe scoped by #3189 SHAs + read_peer_artifact / GET /<pipeline_id>/brc-transcript handles) instead of inlined bulk; honest-limit (\"pull does not bound the window, reseed does\") in code constant + rendered prose. protected_root.py adds optional byte-stable \"QUERYABLE ENVIRONMENT (JIT pull)\" section (omitted when None). ADDITIVE: legacy inline path (_render_producer_delta_section/_render_memory_section/compose_event_prompt) untouched so slice-9 flag keeps OFF path byte-identical.",
           "acceptance_criteria": "Prompt no longer inlines bulk history/artifacts/diffs; bulk reachable only via read_peer_artifact / /brc-transcript; comment records 'pull does not bound the window, reseed does'.",
           "files_affected": [
             "sandbox/",
@@ -346,9 +346,9 @@
           "id": "task-5-2",
           "description": "Move #3188 agent-authored enrichment into the queryable environment: surfaced on demand (not inlined), SHA-stamped so the git-log delta can invalidate stale claims. Treat enrichment as claims, not ground truth; the phase-3 deterministic layer + git-log delta stay authoritative; a wrong 'verified' claim must not suppress re-checking.",
           "status": "pending",
-          "commit": null,
+          "commit": "e9a5eec50",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "brc_memory.py renders #3188 enrichment as SHA-stamped CLAIMS (enrichment_sha bullet + claims-not-ground-truth banners); parser skips banner lines so render\u2192parse\u2192render is idempotent (verified). egg_agent.queryable_env.enrichment_is_stale() invalidates a claim whose stamp != current proposal SHA (fail-safe: unstamped/uncomparable\u2192stale). orchestrator event_prompt.py adds additive _render_memory_pointer_section (memory on demand, not inlined). Deterministic #3189 layer + git-log delta authoritative.",
           "acceptance_criteria": "Enrichment pulled on demand; each record SHA-stamped; stale enrichment (SHA older than current delta) detectable/invalidatable; deterministic layer authoritative.",
           "files_affected": [
             "shared/egg_agent/",
@@ -370,7 +370,7 @@
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Tester suite for slice-5 task-5-3 landed in commit 08202efb3. Two files: orchestrator/tests/test_queryable_env_jit.py (bulk-exclusion behavioural probe, JIT-retrievability of read_peer_artifact handler + /brc-transcript route, SHA-stamp staleness/freshness) and tests/shared/egg_agent/test_queryable_env.py (egg_agent-home queryable-env layer locator: honest-limit contract + JIT-pull tool reference). Skip-guarded per the parallel-BRC convention: bulk-exclusion + SHA-stamp tests skip while coder task-5-1/task-5-2 unmerged on the tester branch; JIT-retrievability passes today (existing #3076/#3077 tools). 2 passed / 6 skipped, ruff clean. Converges with coder symbols at PR assembly.",
           "acceptance_criteria": "Bulk-exclusion, JIT retrievability, and SHA-stamp invalidation asserted; tests pass.",
           "files_affected": [
             "shared/egg_agent/tests/",
@@ -391,18 +391,18 @@
         "slice-4"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3200/slice-4",
+      "integration_base_sha": "04a94f8a4c4d6ce88f8c310106876df6e509b7d2",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3240,
+      "pr_url": "https://github.com/jwbron/egg/pull/3240",
       "review_feedback": []
     },
     {
       "id": "slice-6",
       "name": "Session-resume substrate (#3186) + cold-start fallback (NEW - fixes B2)",
       "goal": "Land resume=<session_id> plumbing in client.py + the no-warm-session cold-start fallback (fresh seed from the protected root). Closes the second substrate gap the NACK flagged (0 resume hits in client.py; #3186 OPEN). Logical dep: none; serialized after slice 5 (#3046). Hard prereq of the reseed (slice 8).",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -411,8 +411,8 @@
         {
           "id": "task-6-1",
           "description": "Add session-resume plumbing to the event-pump path: thread a resume=<session_id> (continue-conversation) option through shared/egg_agent/client.py so a re-invocation can re-enter the prior session by session_id (already on AgentResult). Define the no-warm-session fallback explicitly: when no resumable session_id exists (first invocation, expired session, consensus reset, pod death), seed a fresh session from the protected root (phase 4) - never a hard failure. (Architect confirms the SDK option surface; this task owns the requirement + tests.)",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "5bf70837e",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "client.py exposes a resume-by-session_id option threaded through the event-pump path; when no resumable session exists the path seeds fresh from the protected root rather than erroring; resume is opt-in (default off) so rollout is staged.",
@@ -434,9 +434,9 @@
           "id": "task-6-2",
           "description": "Tests: a valid session_id resumes the prior conversation; an absent/expired session_id cold-starts from the protected root without raising; resume defaults off unless explicitly enabled.",
           "status": "pending",
-          "commit": null,
+          "commit": "21fec06b8f0d087245fb47de32cf7ed535259488",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Tests for task-6-1 resume substrate in tests/shared/egg_agent/test_client_resume.py, rebased green on top of coder commit 5bf70837e. Aligned to the coder's actual two-fold default-off: (1) run_agent_async resume:str|None=None param default; (2) a passed-in id is threaded to options.resume only when EGG_SESSION_RESUME (egg_agent.session.session_resume_enabled) is on. Falsy id (None/\"\") -> fresh from protected-root prompt, never raises, even with the flag enabled. 6 tests, all passing: signature default-off, resume-by-id-when-enabled, id-ignored-when-flag-disabled, no-arg fresh, resume=None cold-start, empty-id cold-start. ruff clean. Note: a pre-existing/environmental failure in test_client.py::test_buffer_overflow_returns_failure_with_marker fails in isolation without my file (real SDK vs mock under py3.14) \u2014 unrelated to slice-6.",
           "acceptance_criteria": "resume-by-id, cold-start-fallback, and default-off each asserted; no exception on the missing-session path; tests pass.",
           "files_affected": [
             "shared/egg_agent/tests/",
@@ -457,18 +457,18 @@
         "slice-5"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3200/slice-5",
+      "integration_base_sha": "a4146ab1b81d5ce5a4ab84afbba5221e86033864",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3243,
+      "pr_url": "https://github.com/jwbron/egg/pull/3243",
       "review_feedback": []
     },
     {
       "id": "slice-7",
       "name": "Mid-phase BRC message-record persistence",
       "goal": "Make the BRC message record survive a mid-phase restart so a reseeded session can re-pull it and re-derive the phase-3 anchors (_write_brc_history persists at phase transitions only today). Logical dep: none; serialized after slice 6 (#3046). Must land before the reseed (slice 8) is trusted across restarts.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -521,11 +521,11 @@
         "slice-6"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3200/slice-6",
+      "integration_base_sha": "11606eb592a9ecb526a79423fbfe7d03ffcfa65d",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3248,
+      "pr_url": "https://github.com/jwbron/egg/pull/3248",
       "review_feedback": []
     },
     {
@@ -794,6 +794,34 @@
       "resolved_by": "human",
       "resolved_at": "2026-06-25T04:54:56.425535Z",
       "debounce_until": null
+    },
+    {
+      "id": "cq-3",
+      "question": "slice-2 (task-2-1/2-3): What is the real_backend_window of a BARE Claude alias (`opus`/`sonnet`/`haiku`, no `[1m]`)? The ratified contract and a reviewer NACK conflict, and the answer sets both the coder's resolver and the tester's worked-example tests.\n\nEVIDENCE FOR 1_000_000 (threshold 400k):\n- RATIFIED CONTRACT task-2-1 acceptance_criteria (authoritative): \"Returns 1_000_000 for opus/opus[1m]; 262_144 for kimi-k2.7-code; 200_000 for an unregistered non-Claude model; never the [1m]-implied 1M for a sub-1M backend.\" => bare opus == opus[1m] == 1M; the \"200K profile\" case is an unregistered NON-Claude model.\n- Coder's merged impl (commit 55387ff1f, task-2-1 marked complete) implements exactly this; tester ACKed it and PROPOSED a matching test (commit 335979385); issue worked example \"200K profile->160k\" is satisfiable by the non-Claude 200K case, so it does NOT force bare opus to 160k.\n\nEVIDENCE FOR 200_000 (threshold 160k) \u2014 reviewer_code_holistic NACK:\n- Plan-phase architect drafts say bare opus->200K: 3200-architect-slices.yaml:25 and 3200-architect-output.json:209 (\"opus/sonnet/haiku (no [1m]) -> 200_000\"). These DIVERGE from the ratified contract.\n- Technical merit (AC-3 core): Claude Code auto-compacts a no-`[1m]` session at ~95% of the 200K native window (~190K). If bare opus resolves to 1M, the default agent (DEFAULT_AGENT_MODEL=\"opus\", bare) reseeds at 400k \u2014 AFTER CC's lossy 190K compaction \u2014 reintroducing the exact alias-vs-real-window mis-trigger AC-3 exists to prevent, for the most common agent.\n\nI cannot resolve this by editing tests: option 1 keeps the ratified contract + coder impl but requires reviewer_code_holistic to withdraw its NACK; option 2 is technically safer for AC-3 but contradicts the ratified contract task-2-1 AC and requires the coder to re-implement (distinguish `[1m]`) and the contract AC to be amended. Operator adjudication needed.",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "1) Bare opus/sonnet/haiku -> 1_000_000 (threshold 400k), == opus[1m]. Upholds the RATIFIED contract task-2-1 AC and the already-merged coder impl (55387ff1f) + tester test (v1). reviewer_code_holistic withdraws its NACK. Any default-agent compaction concern is logged as out-of-scope follow-up.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "2) Bare opus/sonnet/haiku -> 200_000 (threshold 160k); only the [1m]-suffixed aliases -> 1_000_000. Adopts the architect plan + reviewer NACK + AC-3 technical merit. Requires: coder re-implements real_backend_window to distinguish the [1m] suffix for Claude aliases, contract task-2-1 AC is amended, and the tester test is updated to assert bare opus->200k/160k.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"1) Bare opus/sonnet/haiku -> 1_000_000 (threshold 400k), == opus[1m]. Upholds the RATIFIED contract task-2-1 AC and the already-merged coder impl (55387ff1f) + tester test (v1). reviewer_code_holistic withdraws its NACK. Any default-agent compaction concern is logged as out-of-scope follow-up.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-25T16:44:28.651691Z",
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
@@ -883,6 +911,517 @@
       },
       "reason": "Created HITL decision: Which reviewer role should the #3200 prototype run...",
       "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T05:57:50.306947Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "d0705780defdfc9ee78cb58d1b450db3a636f378",
+      "reason": "Linked commit d070578 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T05:57:50.912305Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "d0705780defdfc9ee78cb58d1b450db3a636f378",
+      "reason": "Linked commit d070578 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T05:57:56.724880Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T05:57:56.761177Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:14:32.683801Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.notes",
+      "old_value": "",
+      "new_value": "Added real_backend_window(model) to orchestrator/agent_model_resolution.py. Resolution keys on the BARE name (strips [1m]): (1) _SUB_1M_CONTEXT_MODELS member -> registered size FIRST (so kimi-k2.7-code[1m] -> 262_144, never the [1m]-implied 1M); (2) Claude alias (opus/opus[1m]/sonnet/claude-*) -> _CLAUDE_BACKEND_WINDOW=1_000_000; (3) else -> _conservative_unknown_window().\n\nRECONCILIATION (contract vs architect slice-2 goal): contract task-2-1 says \"200_000 for an unregistered non-Claude model\"; architect slice-2 says \"unknown -> SMALLEST known window (conservative), not 200K\". Implemented the unknown default as min([_PROFILE_200K_WINDOW(200_000), *_SUB_1M_CONTEXT_MODELS.values()]). With only kimi (262_144) registered this == 200_000 (satisfies the contract acceptance literally TODAY) AND auto-tightens to any sub-200K backend if one is ever registered (honors the architect's conservative directive without a code change). Verified: returns 200_000 for unregistered non-Claude now; returns 128_000 after registering a 128K backend.",
+      "reason": "Updated notes for task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:14:35.714117Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.notes",
+      "old_value": "",
+      "new_value": "Added reseed_threshold(model) = min(RESEED_THRESHOLD_FLOOR, int(RESEED_THRESHOLD_MARGIN * real_backend_window(model))). RESEED_THRESHOLD_FLOOR=400_000 and RESEED_THRESHOLD_MARGIN=0.80 are named module constants read live inside the function (overridable via reassign/monkeypatch); both exported in __all__ for the slice-6 gate. Margin documented as pre-empting Claude Code's ~95% lossy auto-compaction wall, computed against the REAL backend window (never the [1m] alias). Worked examples verified: opus[1m]->400_000; 200K-profile->160_000; 128K-class backend->102_400 (~102k).",
+      "reason": "Updated notes for task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:14:48.773697Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": null,
+      "new_value": "affda6aef",
+      "reason": "Linked commit affda6a to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:14:48.789865Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:14:49.181133Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": null,
+      "new_value": "affda6aef",
+      "reason": "Linked commit affda6a to task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:14:49.202244Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:16:06.281787Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": "affda6aef",
+      "new_value": "55387ff1f5f7ea480209fd89091be1990d006357",
+      "reason": "Linked commit 55387ff to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:16:06.783645Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": "affda6aef",
+      "new_value": "55387ff1f5f7ea480209fd89091be1990d006357",
+      "reason": "Linked commit 55387ff to task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:19:49.893579Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.commit",
+      "old_value": null,
+      "new_value": "335979385de352c5b8a886d619d422d36825d9f2",
+      "reason": "Linked commit 3359793 to task-2-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:19:55.532239Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.notes",
+      "old_value": "",
+      "new_value": "Tests in orchestrator/tests/test_reseed_threshold.py (commit 335979385). 8 tests, all pass against the merged coder implementation (commit 55387ff1f). Coverage: real_backend_window \u2014 opus/opus[1m]->1M, kimi-k2.7-code(+[1m])->262_144, unregistered non-Claude->200_000. reseed_threshold worked examples \u2014 opus[1m]->400k (floor caps 0.80*1M=800k), 200K-profile->160k, kimi 262_144->209_715, and the central mis-trigger regression: a synthetic 128K backend ->102_400 (0.80*128k) with [1m] NEVER lifting it to the 1M-implied 400k floor. Also asserts the 400_000 floor is a named, overridable module constant (monkeypatch lowers it -> threshold follows). Skip-guards (parallel-BRC-producer convention) now resolve to the real symbols. Verified: 8 passed; sibling test_agent_model_resolution.py 71 passed (no regression); ruff clean.",
+      "reason": "Updated notes for task-2-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:19:59.023458Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.commit",
+      "old_value": "335979385de352c5b8a886d619d422d36825d9f2",
+      "new_value": "335979385de352c5b8a886d619d422d36825d9f2",
+      "reason": "Linked commit 3359793 to task-2-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:19:59.039685Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:25:42.153263Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-3",
+        "question": "slice-2 (task-2-1/2-3): What is the real_backend_window of a BARE Claude alias (`opus`/`sonnet`/`haiku`, no `[1m]`)? The ratified contract and a reviewer NACK conflict, and the answer sets both the coder's resolver and the tester's worked-example tests.\n\nEVIDENCE FOR 1_000_000 (threshold 400k):\n- RATIFIED CONTRACT task-2-1 acceptance_criteria (authoritative): \"Returns 1_000_000 for opus/opus[1m]; 262_144 for kimi-k2.7-code; 200_000 for an unregistered non-Claude model; never the [1m]-implied 1M for a sub-1M backend.\" => bare opus == opus[1m] == 1M; the \"200K profile\" case is an unregistered NON-Claude model.\n- Coder's merged impl (commit 55387ff1f, task-2-1 marked complete) implements exactly this; tester ACKed it and PROPOSED a matching test (commit 335979385); issue worked example \"200K profile->160k\" is satisfiable by the non-Claude 200K case, so it does NOT force bare opus to 160k.\n\nEVIDENCE FOR 200_000 (threshold 160k) \u2014 reviewer_code_holistic NACK:\n- Plan-phase architect drafts say bare opus->200K: 3200-architect-slices.yaml:25 and 3200-architect-output.json:209 (\"opus/sonnet/haiku (no [1m]) -> 200_000\"). These DIVERGE from the ratified contract.\n- Technical merit (AC-3 core): Claude Code auto-compacts a no-`[1m]` session at ~95% of the 200K native window (~190K). If bare opus resolves to 1M, the default agent (DEFAULT_AGENT_MODEL=\"opus\", bare) reseeds at 400k \u2014 AFTER CC's lossy 190K compaction \u2014 reintroducing the exact alias-vs-real-window mis-trigger AC-3 exists to prevent, for the most common agent.\n\nI cannot resolve this by editing tests: option 1 keeps the ratified contract + coder impl but requires reviewer_code_holistic to withdraw its NACK; option 2 is technically safer for AC-3 but contradicts the ratified contract task-2-1 AC and requires the coder to re-implement (distinguish `[1m]`) and the contract AC to be amended. Operator adjudication needed.",
+        "type": "hitl",
+        "phase": "implement",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "1) Bare opus/sonnet/haiku -> 1_000_000 (threshold 400k), == opus[1m]. Upholds the RATIFIED contract task-2-1 AC and the already-merged coder impl (55387ff1f) + tester test (v1). reviewer_code_holistic withdraws its NACK. Any default-agent compaction concern is logged as out-of-scope follow-up.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "2) Bare opus/sonnet/haiku -> 200_000 (threshold 160k); only the [1m]-suffixed aliases -> 1_000_000. Adopts the architect plan + reviewer NACK + AC-3 technical merit. Requires: coder re-implements real_backend_window to distinguish the [1m] suffix for Claude aliases, contract task-2-1 AC is amended, and the tester test is updated to assert bare opus->200k/160k.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: slice-2 (task-2-1/2-3): What is the real_backend_w...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:28:47.002676Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.commit",
+      "old_value": null,
+      "new_value": "34278c681",
+      "reason": "Linked commit 34278c6 to task-3-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:28:47.052148Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:30:01.995872Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.notes",
+      "old_value": "",
+      "new_value": "Tests in shared/egg_anchor/tests/test_brc_anchor_derivation.py + orchestrator/tests/test_brc_anchor_derivation.py (commit 226412c52). 9 tests: 2 pass today, 7 skip-guarded until coder task-3-1 lands the derivation symbol (parallel-BRC-producer convention, cf. test_reseed_threshold.py).\n\nGround-truth (no guard, run today): (a) orchestrator test_matrix_substrate_models_four_fields asserts the ApprovalMatrix/ApprovalEntry substrate carries all four #3189 facts for the AC scenario \u2014 current proposal version, per-edge verdict (reviewer_code->coder NACKED v2, reviewer_security->coder ACKED v2, reviewer_code->tester ACKED v1), ack_commit_sha as last-reviewed SHA, NACK reason \"missing guard\", pre_merge_condition unresolved (coder) vs obligation_resolved (tester); (b) egg_anchor test_legacy_brcstate_fields_untouched asserts BRCState.acks/nacks/last_message_id survive the additive extension.\n\nSkip-guarded derivation-output assertions (activate at PR assembly): last-reviewed SHA per producer (coder->v2 SHA, tester->v1 SHA, superseded coder-v1 SHA absent); latest verdict per edge; open NACK reason on current version; unresolved obligation text surfaced; resolved obligation distinguished (filtered or flagged); deterministic byte-stable output (slice-4 prereq). Locators probe several plausible module/symbol/field spellings and pytest.skip until one resolves.\n\nAC scenario fixture: multiple producers (coder, tester); ACK-then-repropose+NACK (coder v1 ACK -> v2 NACK); conditional-ACK with unresolved obligation (reviewer_security->coder \"git mv old new\") and a resolved obligation (reviewer_code->tester \"update import path\", resolved in-cycle by a non-producer role since the producer cannot self-resolve).",
+      "reason": "Updated notes for task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:30:02.349688Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.commit",
+      "old_value": null,
+      "new_value": "226412c52",
+      "reason": "Linked commit 226412c to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:33:14.406136Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.notes",
+      "old_value": "Tests in shared/egg_anchor/tests/test_brc_anchor_derivation.py + orchestrator/tests/test_brc_anchor_derivation.py (commit 226412c52). 9 tests: 2 pass today, 7 skip-guarded until coder task-3-1 lands the derivation symbol (parallel-BRC-producer convention, cf. test_reseed_threshold.py).\n\nGround-truth (no guard, run today): (a) orchestrator test_matrix_substrate_models_four_fields asserts the ApprovalMatrix/ApprovalEntry substrate carries all four #3189 facts for the AC scenario \u2014 current proposal version, per-edge verdict (reviewer_code->coder NACKED v2, reviewer_security->coder ACKED v2, reviewer_code->tester ACKED v1), ack_commit_sha as last-reviewed SHA, NACK reason \"missing guard\", pre_merge_condition unresolved (coder) vs obligation_resolved (tester); (b) egg_anchor test_legacy_brcstate_fields_untouched asserts BRCState.acks/nacks/last_message_id survive the additive extension.\n\nSkip-guarded derivation-output assertions (activate at PR assembly): last-reviewed SHA per producer (coder->v2 SHA, tester->v1 SHA, superseded coder-v1 SHA absent); latest verdict per edge; open NACK reason on current version; unresolved obligation text surfaced; resolved obligation distinguished (filtered or flagged); deterministic byte-stable output (slice-4 prereq). Locators probe several plausible module/symbol/field spellings and pytest.skip until one resolves.\n\nAC scenario fixture: multiple producers (coder, tester); ACK-then-repropose+NACK (coder v1 ACK -> v2 NACK); conditional-ACK with unresolved obligation (reviewer_security->coder \"git mv old new\") and a resolved obligation (reviewer_code->tester \"update import path\", resolved in-cycle by a non-producer role since the producer cannot self-resolve).",
+      "new_value": "Tests in shared/egg_anchor/tests/test_brc_anchor_derivation.py + orchestrator/tests/test_brc_anchor_derivation.py. After coder task-3-1 (derive_brc_anchors / BRCDerivedAnchors in shared/egg_anchor/brc_derive.py + models.py) merged, fixtures were aligned to the real contract (message dicts with nested metadata; ACK/NACK carry the producer in to_role). ALL 9 TESTS PASS (commit 3c0c9ad5a; coder impl 34278c681).\n\nCoverage:\n- last_reviewed_sha per producer: coder->v2 SHA, tester->v1 SHA; superseded coder-v1 SHA absent.\n- latest_verdicts per edge: reviewer_code->coder NACK; reviewer_security->coder (conditional) ACK; reviewer_code->tester (conditional) ACK.\n- open_nacks on current version: reviewer_code->coder \"missing guard\".\n- conditional_ack_obligations: coder \"git mv old new\" resolved=False; tester \"update import path\" resolved=True (flipped by CONSENSUS_OBLIGATION_RESOLVED).\n- determinism: identical record -> identical anchors (slice-4 byte-stability prereq).\n- ApprovalMatrix substrate cross-check (orchestrator): the message-record derivation agrees with the ApprovalMatrix/ApprovalEntry projection (verdict states, ack_commit_sha, NACK reason, pre_merge_condition + obligation_resolved).\n- legacy non-regression: BRCState.acks/nacks/last_message_id unchanged by the additive BRCDerivedAnchors extension.\n\nAC scenario: multiple producers (coder, tester); ACK-then-repropose+NACK; an unresolved obligation and a resolved-in-cycle obligation (resolved by a non-producer role since a producer cannot self-resolve). ruff clean.",
+      "reason": "Updated notes for task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:33:14.513493Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.commit",
+      "old_value": "226412c52",
+      "new_value": "3c0c9ad5a",
+      "reason": "Linked commit 3c0c9ad to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:34:59.045649Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.commit",
+      "old_value": "3c0c9ad5a",
+      "new_value": "3c0c9ad5a",
+      "reason": "Linked commit 3c0c9ad to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:34:59.057560Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:44:35.046710Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.commit",
+      "old_value": null,
+      "new_value": "a3dc986c395473c26b72366891c721a3170e0a5b",
+      "reason": "Linked commit a3dc986 to task-4-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:44:38.923800Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.notes",
+      "old_value": "",
+      "new_value": "Implemented shared/egg_anchor/protected_root.py: render_protected_root(role, role_contract, task_description, derived, directives, caps) assembling the fixed four-section root (role contract / task anchor / #3189 BRCDerivedAnchors / non-negotiable directives). Byte-stable: keyed collections sorted, list counts bounded by RootCaps, free-form sections char-capped, no timestamps. Role-parameterized. Pure (no new egg_anchor dep; task_description composed by caller via compose_task_description #3163). Section (c) sourced only from mechanically-derived BRCDerivedAnchors. Exported render_protected_root + RootCaps. ruff + mypy clean; 105 existing egg_anchor tests pass. Tests for byte-stability/cap-truncation/sort-stability/role-parameterization are task-4-2 (tester).",
+      "reason": "Updated notes for task-4-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:44:43.182339Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.commit",
+      "old_value": "a3dc986c395473c26b72366891c721a3170e0a5b",
+      "new_value": "a3dc986c395473c26b72366891c721a3170e0a5b",
+      "reason": "Linked commit a3dc986 to task-4-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:44:43.201803Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:48:49.503027Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.commit",
+      "old_value": null,
+      "new_value": "1f4b9167a",
+      "reason": "Linked commit 1f4b916 to task-4-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:48:56.808688Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.notes",
+      "old_value": "",
+      "new_value": "Tests in shared/egg_anchor/tests/test_protected_root.py (proposed tester v1, commit 1f4b9167a; coder renderer task-4-1 merged at a3dc986c3). 6 tests, all PASS against the real renderer; full shared/egg_anchor suite 111 passed; ruff clean.\n\nCoverage maps 1:1 to task-4-2 ACs:\n- byte-stability: two identical renders -> identical bytes; non-empty; all four sections present (role contract / task anchor / #3189 anchors / directives) in fixed a->b->c->d order.\n- per-section-cap truncation: a ~4MB free-text role_contract is hard-capped (not inlined verbatim, output < input/20, head survives -> truncated not omitted); a 5000-entry open_nacks flood (~5MB) is bounded by the cap.\n- sort-stability: same logical anchors with reversed dict-insertion + list-element order render to IDENTICAL bytes (renderer sorts its own content; does not trust caller pre-sort).\n- role-parameterization: reviewer_code vs coder render distinct roots, each individually byte-stable; role name present in its own root.\n\nParallel-BRC-producer convention: flexible locators (11 module/symbol candidates), signature-introspecting kwarg mapping with name aliases, model-as-object-or-dict + directives-as-list-or-string tolerance, function-or-class result handling. Skipped pre-merge; converged on the coder's API with NO test edits after merge. Validated 6/6 PASS against a throwaway reference renderer before merge (since removed; protected_root.py is coder-owned).",
+      "reason": "Updated notes for task-4-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:59:28.226165Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.2.notes",
+      "old_value": "",
+      "new_value": "Tester suite for slice-5 task-5-3 landed in commit 08202efb3. Two files: orchestrator/tests/test_queryable_env_jit.py (bulk-exclusion behavioural probe, JIT-retrievability of read_peer_artifact handler + /brc-transcript route, SHA-stamp staleness/freshness) and tests/shared/egg_agent/test_queryable_env.py (egg_agent-home queryable-env layer locator: honest-limit contract + JIT-pull tool reference). Skip-guarded per the parallel-BRC convention: bulk-exclusion + SHA-stamp tests skip while coder task-5-1/task-5-2 unmerged on the tester branch; JIT-retrievability passes today (existing #3076/#3077 tools). 2 passed / 6 skipped, ruff clean. Converges with coder symbols at PR assembly.",
+      "reason": "Updated notes for task-5-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:02:53.235874Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.commit",
+      "old_value": null,
+      "new_value": "9436aa33f",
+      "reason": "Linked commit 9436aa3 to task-5-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:02:53.585415Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.1.commit",
+      "old_value": null,
+      "new_value": "9436aa33f",
+      "reason": "Linked commit 9436aa3 to task-5-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:02:57.013832Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.notes",
+      "old_value": "",
+      "new_value": "New shared/egg_agent/queryable_env.py renders JIT POINTERS (per-producer `git log A..B --not origin/base -p` recipe scoped by #3189 SHAs + read_peer_artifact / GET /<pipeline_id>/brc-transcript handles) instead of inlined bulk; honest-limit (\"pull does not bound the window, reseed does\") in code constant + rendered prose. protected_root.py adds optional byte-stable \"QUERYABLE ENVIRONMENT (JIT pull)\" section (omitted when None). ADDITIVE: legacy inline path (_render_producer_delta_section/_render_memory_section/compose_event_prompt) untouched so slice-9 flag keeps OFF path byte-identical.",
+      "reason": "Updated notes for task-5-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:02:59.132771Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.1.notes",
+      "old_value": "",
+      "new_value": "brc_memory.py renders #3188 enrichment as SHA-stamped CLAIMS (enrichment_sha bullet + claims-not-ground-truth banners); parser skips banner lines so render\u2192parse\u2192render is idempotent (verified). egg_agent.queryable_env.enrichment_is_stale() invalidates a claim whose stamp != current proposal SHA (fail-safe: unstamped/uncomparable\u2192stale). orchestrator event_prompt.py adds additive _render_memory_pointer_section (memory on demand, not inlined). Deterministic #3189 layer + git-log delta authoritative.",
+      "reason": "Updated notes for task-5-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:07:49.572658Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.commit",
+      "old_value": "9436aa33f",
+      "new_value": "e9a5eec50",
+      "reason": "Linked commit e9a5eec to task-5-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:07:49.780191Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.1.commit",
+      "old_value": "9436aa33f",
+      "new_value": "e9a5eec50",
+      "reason": "Linked commit e9a5eec to task-5-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:21:14.839800Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.commit",
+      "old_value": null,
+      "new_value": "5bf70837e",
+      "reason": "Linked commit 5bf7083 to task-6-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:21:14.859087Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-6-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:23:03.448628Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.commit",
+      "old_value": null,
+      "new_value": "1af05fd585e70c8e6b86684999799e66cf50346b",
+      "reason": "Linked commit 1af05fd to task-6-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:23:07.796641Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.notes",
+      "old_value": "",
+      "new_value": "Tests for task-6-1 resume plumbing in tests/shared/egg_agent/test_client_resume.py. Pins the client-layer contract: run_agent_async grows keyword-only resume:str|None=None (default None = opt-in/default-off at client layer; staged-rollout enable flag stays upstream in wrapper/__main__ per architect slice-6). Non-empty resume -> options.resume; falsy resume (None/\"\") -> fresh from protected-root prompt, never raises. 5 tests: signature default-off, resume-by-id, no-arg fresh, resume=None cold-start, empty-id cold-start. RED-BY-DESIGN until task-6-1 (coder, client.py) integrates: 1 pass / 4 fail standalone (TypeError: no resume kwarg + signature assertion). Go green on the slice-6 integration branch once coder lands resume. Exact contract handed off to coder (msg 7eea0e5c).",
+      "reason": "Updated notes for task-6-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:25:53.904896Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.commit",
+      "old_value": "1af05fd585e70c8e6b86684999799e66cf50346b",
+      "new_value": "21fec06b8f0d087245fb47de32cf7ed535259488",
+      "reason": "Linked commit 21fec06 to task-6-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:25:57.517172Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.notes",
+      "old_value": "Tests for task-6-1 resume plumbing in tests/shared/egg_agent/test_client_resume.py. Pins the client-layer contract: run_agent_async grows keyword-only resume:str|None=None (default None = opt-in/default-off at client layer; staged-rollout enable flag stays upstream in wrapper/__main__ per architect slice-6). Non-empty resume -> options.resume; falsy resume (None/\"\") -> fresh from protected-root prompt, never raises. 5 tests: signature default-off, resume-by-id, no-arg fresh, resume=None cold-start, empty-id cold-start. RED-BY-DESIGN until task-6-1 (coder, client.py) integrates: 1 pass / 4 fail standalone (TypeError: no resume kwarg + signature assertion). Go green on the slice-6 integration branch once coder lands resume. Exact contract handed off to coder (msg 7eea0e5c).",
+      "new_value": "Tests for task-6-1 resume substrate in tests/shared/egg_agent/test_client_resume.py, rebased green on top of coder commit 5bf70837e. Aligned to the coder's actual two-fold default-off: (1) run_agent_async resume:str|None=None param default; (2) a passed-in id is threaded to options.resume only when EGG_SESSION_RESUME (egg_agent.session.session_resume_enabled) is on. Falsy id (None/\"\") -> fresh from protected-root prompt, never raises, even with the flag enabled. 6 tests, all passing: signature default-off, resume-by-id-when-enabled, id-ignored-when-flag-disabled, no-arg fresh, resume=None cold-start, empty-id cold-start. ruff clean. Note: a pre-existing/environmental failure in test_client.py::test_buffer_overflow_returns_failure_with_marker fails in isolation without my file (real SDK vs mock under py3.14) \u2014 unrelated to slice-6.",
+      "reason": "Updated notes for task-6-2",
+      "checkpoint_id": null
     }
   ],
   "refine_review_cycles": 0,
@@ -894,7 +1433,7 @@
     "description": "Build the full context-discipline mechanism for event-pump BRC agents, wired for\nALL roles (producers AND reviewers): capture cumulative window occupancy in\nAgentResult; derive the #3189 deterministic anchors from the BRC message record;\nsplit each event into a small deterministic protected root (resident, cacheable)\nplus a queryable environment pulled just-in-time; land the #3186 session-resume\nsubstrate; and bound the session with a deterministic threshold reseed at\nmin(400k, 0.80 x real_backend_window) that pre-empts Claude Code's ~95% lossy\nauto-compaction. The whole discipline is gated behind one feature flag (OFF =\ntoday's full-context path). Also build the measurement TOOLING (per-event\noccupancy + metric surfaces), emit-only.\n\nScope is operator-decided (resolved HITL cq-1/cq-2): full build across all roles +\nmeasurement tooling only. NO measurement run, no A/B, no status-quo comparison, and\nnothing gated on measured results. The measurement pass, the go/no-go, the gated\ngeneralization, the sub-agent recursion escalation, and the preserved verbatim\nfull-context fallback are explicit FOLLOW-UP work, out of scope. Implements #3200.",
     "test_plan": "- Automated: unit tests for token-occupancy capture (full/absent/partial usage,\n  cache-dominated case); real-window + threshold helpers (worked examples\n  opus[1m]->400k, 200K->160k, 128K->~102k, plus the [1m] mis-trigger regression);\n  #3189 anchor derivation from a fixture message record (four fields + obligation\n  resolved/unresolved + legacy-field non-regression); protected-root deterministic\n  byte-stability + per-section caps + role-parameterization; queryable-env\n  bulk-exclusion + JIT retrievability + enrichment SHA-stamp invalidation; #3186\n  resume-by-id + cold-start fallback + default-off; mid-phase restart message-record\n  survival; resume-vs-reseed decision boundary incl. None-occupancy->reseed and\n  no-warm-session->reseed; feature-flag ON/OFF (OFF retains legacy path); emit-only\n  metric surfaces (no decision branches on metrics).\n- Integration: >=1 producer and >=1 reviewer driven end-to-end through the new path\n  with the flag ON (resident root, JIT bulk pull, reseed at threshold), plus a\n  flag-OFF assertion that the legacy full-context path is unchanged.\n- Run with `make test` (changeset-aware); full suite via `make test-all`.",
     "manual_steps": "Pre-merge: none\nPost-merge: roll the feature flag ON for a subset of roles, then operator runs the\ndeferred measurement pass end-to-end (separate follow-up issue).",
-    "context_pr_number": null,
+    "context_pr_number": 3234,
     "deferred_actions": []
   },
   "feedback": null,

@@ -986,6 +986,40 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
             pipeline_id, decision_id, dispatch_resolution
         )
 
+        # #3233: if the orchestrator restarted while this pipeline was parked
+        # AWAITING_HUMAN, the in-memory _run_pipeline driver that polls
+        # wait_for_decision is gone — this resolution would otherwise be
+        # recorded with no consumer and the pipeline hangs silently. Revive
+        # the driver via start_pipeline's AWAITING_HUMAN recovery once the
+        # queue has no remaining pending decisions. No-ops when a live driver
+        # is already polling (the normal in-process path consumes it).
+        #
+        # Gate strictly on the *resolved decision* being a phase_gate.
+        # start_pipeline's AWAITING_HUMAN recovery assumes the park is a
+        # phase gate (it advances/resets the phase from the latest resolved
+        # phase_gate resolution); AWAITING_HUMAN is *not* synonymous with
+        # "parked at a phase gate". Other driverless AWAITING_HUMAN parks —
+        # the worktree-divergence reconcile HITL (#2979), which parks with a
+        # deliberately inert ``choice`` decision the operator resolves before
+        # re-running populate_contract — would otherwise be force-advanced
+        # spuriously: with no fresh phase_gate resolution, _parse_resolution
+        # treats the absent resolution as approval and marks the current
+        # phase complete. Only a phase_gate resolution is meant to drive the
+        # phase forward, so only it triggers the revival.
+        if decision.decision_type == "phase_gate":
+            try:
+                from routes.pipelines import maybe_revive_orphaned_awaiting_human_driver
+
+                maybe_revive_orphaned_awaiting_human_driver(pipeline_id, store.repo_path)
+            except Exception:
+                logger.warning(
+                    "Orphaned-driver revival check failed after decision resolve "
+                    "(decision is still resolved) (#3233)",
+                    pipeline_id=pipeline_id,
+                    decision_id=decision_id,
+                    exc_info=True,
+                )
+
         return make_success_response(
             "Decision resolved",
             data={
