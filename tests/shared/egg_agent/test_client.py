@@ -1891,7 +1891,7 @@ class TestOccupancyCapture:
         wrong. Each AssistantMessage carries its own growing per-turn window; the
         ResultMessage reports the session-cumulative sum, which is far larger.
         Occupancy must equal the final AssistantMessage's window (~150k), not the
-        cumulative aggregate (~450k) -- otherwise the reseed threshold would fire
+        cumulative aggregate (~373k) -- otherwise the reseed threshold would fire
         after a couple of steps regardless of the true resident window.
         """
 
@@ -1907,7 +1907,7 @@ class TestOccupancyCapture:
             yield _make_assistant_msg(
                 "step 3", usage=_usage(input_tokens=5_000, cache_read_input_tokens=145_000)
             )
-            # ResultMessage usage is cumulative across all three turns (~450k).
+            # ResultMessage usage is cumulative across all three turns (~373k).
             yield _make_result_msg(
                 usage=_usage(input_tokens=10_000, cache_read_input_tokens=363_000)
             )
