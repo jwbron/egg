@@ -97,7 +97,7 @@
       "id": "slice-2",
       "name": "Real-window resolution + threshold (AC-3 foundation)",
       "goal": "Pure deterministic helpers for the real backend window and the reseed threshold. Logical dep: none; serialized after slice 1 to avoid shared-file (orchestrator/tests) integration collisions (#3046).",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -106,10 +106,10 @@
         {
           "id": "task-2-1",
           "description": "Add a real-backend-window resolver in `orchestrator/agent_model_resolution.py`: Claude aliases -> 1_000_000; `_SUB_1M_CONTEXT_MODELS` members -> registered size (kimi-k2.7-code -> 262144); other non-Claude/200K-profile -> 200_000. Key on the bare model name, not the [1m] suffix. Reuse the existing tables.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "55387ff1f5f7ea480209fd89091be1990d006357",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Added real_backend_window(model) to orchestrator/agent_model_resolution.py. Resolution keys on the BARE name (strips [1m]): (1) _SUB_1M_CONTEXT_MODELS member -> registered size FIRST (so kimi-k2.7-code[1m] -> 262_144, never the [1m]-implied 1M); (2) Claude alias (opus/opus[1m]/sonnet/claude-*) -> _CLAUDE_BACKEND_WINDOW=1_000_000; (3) else -> _conservative_unknown_window().\n\nRECONCILIATION (contract vs architect slice-2 goal): contract task-2-1 says \"200_000 for an unregistered non-Claude model\"; architect slice-2 says \"unknown -> SMALLEST known window (conservative), not 200K\". Implemented the unknown default as min([_PROFILE_200K_WINDOW(200_000), *_SUB_1M_CONTEXT_MODELS.values()]). With only kimi (262_144) registered this == 200_000 (satisfies the contract acceptance literally TODAY) AND auto-tightens to any sub-200K backend if one is ever registered (honors the architect's conservative directive without a code change). Verified: returns 200_000 for unregistered non-Claude now; returns 128_000 after registering a 128K backend.",
           "acceptance_criteria": "Returns 1_000_000 for opus/opus[1m]; 262_144 for kimi-k2.7-code; 200_000 for an unregistered non-Claude model; never the [1m]-implied 1M for a sub-1M backend.",
           "files_affected": [
             "orchestrator/agent_model_resolution.py"
@@ -127,10 +127,10 @@
         {
           "id": "task-2-2",
           "description": "Add a threshold function `threshold = min(400_000, 0.80 * real_backend_window)` consuming task-2-1. Expose 400_000 as a named, overridable constant (initial knob, not derived). The 0.80 margin pre-empts CC's ~95% compaction.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "55387ff1f5f7ea480209fd89091be1990d006357",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Added reseed_threshold(model) = min(RESEED_THRESHOLD_FLOOR, int(RESEED_THRESHOLD_MARGIN * real_backend_window(model))). RESEED_THRESHOLD_FLOOR=400_000 and RESEED_THRESHOLD_MARGIN=0.80 are named module constants read live inside the function (overridable via reassign/monkeypatch); both exported in __all__ for the slice-6 gate. Margin documented as pre-empting Claude Code's ~95% lossy auto-compaction wall, computed against the REAL backend window (never the [1m] alias). Worked examples verified: opus[1m]->400_000; 200K-profile->160_000; 128K-class backend->102_400 (~102k).",
           "acceptance_criteria": "Returns min(400_000, 0.80*real_window); floor is a named overridable constant; margin documented as pre-empting CC ~95% compaction.",
           "files_affected": [
             "orchestrator/agent_model_resolution.py"
@@ -148,10 +148,10 @@
         {
           "id": "task-2-3",
           "description": "Unit tests for the worked examples: opus[1m]->400k; 200K->160k; Qwen/128K-class->~102k. Regression test: the sub-1M threshold is computed against the real window, NOT the [1m] alias (the mis-trigger bug).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "335979385de352c5b8a886d619d422d36825d9f2",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Tests in orchestrator/tests/test_reseed_threshold.py (commit 335979385). 8 tests, all pass against the merged coder implementation (commit 55387ff1f). Coverage: real_backend_window \u2014 opus/opus[1m]->1M, kimi-k2.7-code(+[1m])->262_144, unregistered non-Claude->200_000. reseed_threshold worked examples \u2014 opus[1m]->400k (floor caps 0.80*1M=800k), 200K-profile->160k, kimi 262_144->209_715, and the central mis-trigger regression: a synthetic 128K backend ->102_400 (0.80*128k) with [1m] NEVER lifting it to the 1M-implied 400k floor. Also asserts the 400_000 floor is a named, overridable module constant (monkeypatch lowers it -> threshold follows). Skip-guards (parallel-BRC-producer convention) now resolve to the real symbols. Verified: 8 passed; sibling test_agent_model_resolution.py 71 passed (no regression); ruff clean.",
           "acceptance_criteria": "400k/160k/~102k asserted; mis-trigger regression asserted; tests pass.",
           "files_affected": [
             "orchestrator/tests/"
@@ -171,11 +171,11 @@
         "slice-1"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3200/slice-1",
+      "integration_base_sha": "3b2579734d79fcc5b9fe789bd8dce9ef3c59b900",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3237,
+      "pr_url": "https://github.com/jwbron/egg/pull/3237",
       "review_feedback": []
     },
     {
@@ -926,6 +926,138 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:14:32.683801Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.notes",
+      "old_value": "",
+      "new_value": "Added real_backend_window(model) to orchestrator/agent_model_resolution.py. Resolution keys on the BARE name (strips [1m]): (1) _SUB_1M_CONTEXT_MODELS member -> registered size FIRST (so kimi-k2.7-code[1m] -> 262_144, never the [1m]-implied 1M); (2) Claude alias (opus/opus[1m]/sonnet/claude-*) -> _CLAUDE_BACKEND_WINDOW=1_000_000; (3) else -> _conservative_unknown_window().\n\nRECONCILIATION (contract vs architect slice-2 goal): contract task-2-1 says \"200_000 for an unregistered non-Claude model\"; architect slice-2 says \"unknown -> SMALLEST known window (conservative), not 200K\". Implemented the unknown default as min([_PROFILE_200K_WINDOW(200_000), *_SUB_1M_CONTEXT_MODELS.values()]). With only kimi (262_144) registered this == 200_000 (satisfies the contract acceptance literally TODAY) AND auto-tightens to any sub-200K backend if one is ever registered (honors the architect's conservative directive without a code change). Verified: returns 200_000 for unregistered non-Claude now; returns 128_000 after registering a 128K backend.",
+      "reason": "Updated notes for task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:14:35.714117Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.notes",
+      "old_value": "",
+      "new_value": "Added reseed_threshold(model) = min(RESEED_THRESHOLD_FLOOR, int(RESEED_THRESHOLD_MARGIN * real_backend_window(model))). RESEED_THRESHOLD_FLOOR=400_000 and RESEED_THRESHOLD_MARGIN=0.80 are named module constants read live inside the function (overridable via reassign/monkeypatch); both exported in __all__ for the slice-6 gate. Margin documented as pre-empting Claude Code's ~95% lossy auto-compaction wall, computed against the REAL backend window (never the [1m] alias). Worked examples verified: opus[1m]->400_000; 200K-profile->160_000; 128K-class backend->102_400 (~102k).",
+      "reason": "Updated notes for task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:14:48.773697Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": null,
+      "new_value": "affda6aef",
+      "reason": "Linked commit affda6a to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:14:48.789865Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:14:49.181133Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": null,
+      "new_value": "affda6aef",
+      "reason": "Linked commit affda6a to task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:14:49.202244Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:16:06.281787Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": "affda6aef",
+      "new_value": "55387ff1f5f7ea480209fd89091be1990d006357",
+      "reason": "Linked commit 55387ff to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:16:06.783645Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": "affda6aef",
+      "new_value": "55387ff1f5f7ea480209fd89091be1990d006357",
+      "reason": "Linked commit 55387ff to task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:19:49.893579Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.commit",
+      "old_value": null,
+      "new_value": "335979385de352c5b8a886d619d422d36825d9f2",
+      "reason": "Linked commit 3359793 to task-2-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:19:55.532239Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.notes",
+      "old_value": "",
+      "new_value": "Tests in orchestrator/tests/test_reseed_threshold.py (commit 335979385). 8 tests, all pass against the merged coder implementation (commit 55387ff1f). Coverage: real_backend_window \u2014 opus/opus[1m]->1M, kimi-k2.7-code(+[1m])->262_144, unregistered non-Claude->200_000. reseed_threshold worked examples \u2014 opus[1m]->400k (floor caps 0.80*1M=800k), 200K-profile->160k, kimi 262_144->209_715, and the central mis-trigger regression: a synthetic 128K backend ->102_400 (0.80*128k) with [1m] NEVER lifting it to the 1M-implied 400k floor. Also asserts the 400_000 floor is a named, overridable module constant (monkeypatch lowers it -> threshold follows). Skip-guards (parallel-BRC-producer convention) now resolve to the real symbols. Verified: 8 passed; sibling test_agent_model_resolution.py 71 passed (no regression); ruff clean.",
+      "reason": "Updated notes for task-2-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:19:59.023458Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.commit",
+      "old_value": "335979385de352c5b8a886d619d422d36825d9f2",
+      "new_value": "335979385de352c5b8a886d619d422d36825d9f2",
+      "reason": "Linked commit 3359793 to task-2-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T06:19:59.039685Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-3 as complete",
       "checkpoint_id": null
     }
   ],
