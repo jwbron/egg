@@ -665,7 +665,7 @@
       "id": "slice-10",
       "name": "Measurement tooling/surfaces (emit-only, AC-4 + AC-5)",
       "goal": "Emit per-event occupancy + metric surfaces for a later measurement pass; run no measurement and gate nothing. Logical deps: slices 1, 8 (both upstream via slice 9); serialized last to avoid shared-file (shared/egg_agent, orchestrator + tests) integration collisions (#3046).",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
