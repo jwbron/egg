@@ -46,7 +46,7 @@ for _p in (_orchestrator_path, _shared_path, _project_root):
         sys.path.insert(0, str(_p))
 
 import pytest  # noqa: E402
-from gateway_client import GatewayClient  # noqa: E402
+from gateway_client import GatewayClient, GatewayError  # noqa: E402
 
 
 @pytest.fixture
@@ -138,8 +138,11 @@ class TestHappyPath:
         payload = kwargs["data"]
         assert payload["operation"] == "rebase"
         assert payload["repo_path"] == "/repo"
-        # canonical shape: --onto NEW OLD BRANCH
+        # canonical shape: --autostash --onto NEW OLD BRANCH (#3245 —
+        # --autostash lets the rebase proceed against a worktree carrying
+        # uncommitted .egg-state/agent-outputs/ residue).
         assert payload["args"] == [
+            "--autostash",
             "--onto",
             "egg/issue-2137",
             "egg/issue-2137/slice-1",
@@ -220,6 +223,47 @@ class TestErrorPaths:
             )
         assert ok is False
         delete.assert_called_once_with("tok-rebase")
+
+    def test_gateway_error_surfaces_real_git_stderr(self, client: GatewayClient) -> None:
+        """A failed rebase logs the real git stderr from ``exc.details``,
+        not just the flattened ``"git rebase failed"`` message (#3245).
+
+        The gateway returns ``message="git rebase failed"`` with the true
+        stderr under ``details`` (e.g. the dirty-worktree refusal). The
+        handler must surface that so an operator can tell a recoverable
+        mechanism failure apart from a real content conflict.
+        """
+        gw_err = GatewayError(
+            "git rebase failed",
+            status_code=500,
+            details={
+                "stderr": "error: cannot rebase: You have unstaged changes.",
+                "returncode": 128,
+            },
+        )
+        with (
+            patch.object(client, "register_session", return_value=_fake_session()),
+            patch.object(client, "_make_request", side_effect=gw_err),
+            patch.object(client, "delete_session", return_value=True),
+            patch.object(GatewayClient, "self_ip", new="127.0.0.1"),
+            patch("gateway_client.logger") as mock_logger,
+        ):
+            ok = client.rebase_onto(
+                "issue-3245",
+                "/repo",
+                branch="egg/issue-3245/slice-2",
+                new_base="egg/issue-3245/slice-1",
+                old_base="egg/issue-3245/slice-0",
+            )
+        assert ok is False
+        # The warning carries the real git stderr + returncode.
+        warn_kwargs = next(
+            call.kwargs
+            for call in mock_logger.warning.call_args_list
+            if call.args and call.args[0] == "rebase_onto: gateway request failed"
+        )
+        assert warn_kwargs["git_stderr"] == "error: cannot rebase: You have unstaged changes."
+        assert warn_kwargs["git_returncode"] == 128
 
     def test_register_failure_returns_false(self, client: GatewayClient) -> None:
         with (
@@ -343,10 +387,11 @@ class TestEndToEndOrphanHeal:
             "/api/v1/gh/pr/edit",
         ]
 
-        # Step 1: local rebase shape unchanged.
+        # Step 1: local rebase shape — --autostash --onto NEW OLD BRANCH (#3245).
         rebase_payload = make_request.call_args_list[0].kwargs["data"]
         assert rebase_payload["operation"] == "rebase"
         assert rebase_payload["args"] == [
+            "--autostash",
             "--onto",
             "egg/issue-2137",
             "egg/issue-2137/slice-1",
@@ -526,8 +571,10 @@ class TestNoGatewayPackageDependency:
             )
 
         assert ok is True
-        # Canonical argv was built by the local helper.
+        # Canonical argv was built by the local helper (#3245 — --autostash
+        # prepended).
         assert make_request.call_args.kwargs["data"]["args"] == [
+            "--autostash",
             "--onto",
             "egg/issue-2535",
             "egg/issue-2535/slice-1",
