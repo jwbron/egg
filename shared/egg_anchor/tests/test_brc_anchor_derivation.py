@@ -191,10 +191,14 @@ def _scenario_messages() -> list[dict[str, Any]]:
     return [
         # coder v1 — ACKed, then superseded.
         _msg("CONSENSUS_PROPOSE", "coder", 1, version=1, commit_sha=SHA_CODER_V1),
-        _msg("CONSENSUS_ACK", "reviewer_code", 2, to_role="coder", version=1, commit_sha=SHA_CODER_V1),
+        _msg(
+            "CONSENSUS_ACK", "reviewer_code", 2, to_role="coder", version=1, commit_sha=SHA_CODER_V1
+        ),
         # coder re-proposes v2 — supersedes v1.
         _msg("CONSENSUS_PROPOSE", "coder", 3, version=2, commit_sha=SHA_CODER_V2),
-        _msg("CONSENSUS_NACK", "reviewer_code", 4, to_role="coder", version=2, reason="missing guard"),
+        _msg(
+            "CONSENSUS_NACK", "reviewer_code", 4, to_role="coder", version=2, reason="missing guard"
+        ),
         _msg(
             "CONSENSUS_ACK",
             "reviewer_security",
