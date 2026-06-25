@@ -59,8 +59,10 @@ class RootCaps:
 
 
 # Stable, content-free markers. Both are count- or position-derived, so they
-# never introduce nondeterminism.
-_SECTION_TRUNCATION_MARKER = "\n…[truncated]"
+# never introduce nondeterminism. The truncation marker is space-prefixed (not
+# newline-prefixed) so it never splits a truncated inline value — e.g. a capped
+# NACK reason stays on its own indented anchor line.
+_SECTION_TRUNCATION_MARKER = " …[truncated]"
 _NONE = "(none)"
 
 
@@ -69,12 +71,19 @@ def _truncate(text: str, max_chars: int) -> str:
 
     Character-based (not byte-based) so the result is always valid UTF-8 and
     deterministic for identical input. ``max_chars`` is a hard ceiling on the
-    returned length including the marker.
+    returned length *including* the marker — even when a caller overrides
+    :class:`RootCaps` with a cap smaller than the marker, the result never
+    exceeds ``max_chars`` (it is hard-trimmed without the marker rather than
+    returning the marker alone).
     """
     text = text.strip()
     if len(text) <= max_chars:
         return text
-    keep = max(0, max_chars - len(_SECTION_TRUNCATION_MARKER))
+    if max_chars <= len(_SECTION_TRUNCATION_MARKER):
+        # Cap too small to fit the marker — hard-trim to the ceiling so the
+        # documented "including the marker" guarantee holds for any cap.
+        return text[:max_chars]
+    keep = max_chars - len(_SECTION_TRUNCATION_MARKER)
     return text[:keep].rstrip() + _SECTION_TRUNCATION_MARKER
 
 
@@ -120,9 +129,14 @@ def _render_anchors(derived: BRCDerivedAnchors | None, caps: RootCaps) -> str:
     else:
         lines.append(f"  {_NONE}")
 
-    # (ii) latest verdict per reviewer->producer edge — sort by (producer, reviewer).
+    # (ii) latest verdict per reviewer->producer edge — sort by
+    # (producer, reviewer) with version/sha as final tiebreakers so the order is
+    # byte-stable even if the derived layer ever emits >1 entry per edge.
     lines.append("Latest verdicts (reviewer -> producer):")
-    verdicts = sorted(derived.latest_verdicts, key=lambda v: (v.producer, v.reviewer))
+    verdicts = sorted(
+        derived.latest_verdicts,
+        key=lambda v: (v.producer, v.reviewer, v.version, v.reviewed_sha or ""),
+    )
     if verdicts:
         for v in verdicts[: caps.max_verdicts]:
             sha = f" @ {v.reviewed_sha}" if v.reviewed_sha else ""
@@ -132,9 +146,13 @@ def _render_anchors(derived: BRCDerivedAnchors | None, caps: RootCaps) -> str:
     else:
         lines.append(f"  {_NONE}")
 
-    # (iii) open NACKs — sort by (producer, reviewer).
+    # (iii) open NACKs — sort by (producer, reviewer) with version/reason as
+    # final tiebreakers for byte-stability across duplicate edges.
     lines.append("Open NACKs (current version, unresolved):")
-    nacks = sorted(derived.open_nacks, key=lambda n: (n.producer, n.reviewer))
+    nacks = sorted(
+        derived.open_nacks,
+        key=lambda n: (n.producer, n.reviewer, n.version, n.reason or ""),
+    )
     if nacks:
         for n in nacks[: caps.max_nacks]:
             reason = _truncate(n.reason, caps.reason_chars) if n.reason else "(no reason given)"
@@ -144,10 +162,14 @@ def _render_anchors(derived: BRCDerivedAnchors | None, caps: RootCaps) -> str:
     else:
         lines.append(f"  {_NONE}")
 
-    # (iv) conditional-ACK obligations — sort by (producer, reviewer).
+    # (iv) conditional-ACK obligations — sort by (producer, reviewer) with
+    # version/condition/resolved as final tiebreakers. These are the most
+    # plausible place for multiple entries per edge, so the extra keys keep the
+    # render byte-stable rather than relying on the upstream deriver's order.
     lines.append("Conditional-ACK obligations:")
     obligations = sorted(
-        derived.conditional_ack_obligations, key=lambda o: (o.producer, o.reviewer)
+        derived.conditional_ack_obligations,
+        key=lambda o: (o.producer, o.reviewer, o.version, o.condition or "", o.resolved),
     )
     if obligations:
         for o in obligations[: caps.max_obligations]:
