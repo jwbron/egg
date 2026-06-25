@@ -2760,8 +2760,18 @@ class GatewayClient:
         (rather than non-fast-forward-rejected) by checking that the
         recorded base is still an ancestor of both the existing tip and
         the advanced parent. ``None`` (slices provisioned before #2871,
-        or whose base was never recorded) degrades to the prior
-        behaviour — the rejection surfaces.
+        or whose base was never recorded) does not gate this fast-path.
+
+        When that recorded-base fast-path does not fire — base absent, or
+        an out-of-band actor (restart/salvage/manual edit) rewrote it so
+        it no longer descends to the slice tip (#3245) — the method falls
+        back to re-deriving the fork point from git (``merge-base`` of the
+        existing tip and the advanced parent). A genuine shared fork point
+        that is strictly behind the existing tip means the branch is a
+        resumable additive fork: it is adopted in place rather than
+        non-fast-forward-rejected. Only a branch with no shared history,
+        or one sitting at/behind the fork with no own commits, still falls
+        through to the push (surfacing the rejection / fast-forwarding).
 
         Returns the fork-base SHA (``parent_sha``) on success, ``None``
         on any error (the caller logs and surfaces a clear error to the
@@ -2998,6 +3008,69 @@ class GatewayClient:
                     # recording this return value. Return ``parent_sha``
                     # so the caller treats the call as success.
                     return parent_sha
+                # #3245 — durable resume-in-place when the *recorded* base
+                # cannot be trusted. The #2947 fast-path above gates
+                # resume-in-place on ``integration_base_sha``, but that
+                # stored SHA is mutable by out-of-band actors: a
+                # ``restart_phase`` slice copy, a ``salvage_agent_commits``
+                # run, or a manual contract edit can rewrite it — in the
+                # observed incident (issue-3200 slice-7) it was overwritten
+                # to the *advanced parent tip*. A base that no longer is an
+                # ancestor of the slice's own tip fails the #2947 check, and
+                # we would otherwise fall through to a ``parent_sha`` push
+                # that is non-fast-forward → FAILS the slice → cascades the
+                # whole phase, even though the branch is a perfectly
+                # resumable additive fork whose committed work is intact.
+                #
+                # Re-derive the fork point straight from git instead of
+                # trusting the stored SHA: the merge-base of the existing
+                # tip and the advanced parent. We reach here only when the
+                # parent is NOT an ancestor of the existing tip (the #2512
+                # fast-forward path already returned above), so a real
+                # shared merge-base that is *strictly behind* the existing
+                # tip means the two have DIVERGED from a common fork point
+                # — i.e. the slice forked from the parent's lineage and
+                # carries its own commits while the parent advanced. Adopt
+                # the branch as-is and resume in place; the parent's new
+                # commits reconcile at slice-PR / merge time exactly as for
+                # a slice whose parent advanced while it ran normally. We
+                # never reset or force-push, so no committed work is
+                # destroyed. The re-derivation is idempotent, so a contract
+                # still carrying the corrupted base self-heals on every
+                # subsequent resume without a write-back here.
+                #
+                # Safety: ``fork_base is None`` (no shared history at all —
+                # an unrelated/orphan branch sitting at this name) and
+                # ``fork_base == existing_sha`` (the branch is *behind* the
+                # parent with no unique commits — an un-started branch that
+                # should fast-forward, not resume) both fall through to the
+                # push below, preserving the "don't adopt unknown work /
+                # do fast-forward an empty branch" instincts of #2512/#2947.
+                fork_base = self.merge_base(
+                    pipeline_id,
+                    repo_path,
+                    existing_sha,
+                    parent_sha,
+                    bearer_token=session_token,
+                    mode=mode,
+                )
+                if fork_base and fork_base != existing_sha:
+                    logger.info(
+                        "Slice integration branch shares a fork point with "
+                        "the advanced parent and carries its own commits — "
+                        "adopting it and resuming in place via runtime "
+                        "merge-base re-derivation (#3245; recorded base "
+                        "untrusted/stale)",
+                        pipeline_id=pipeline_id,
+                        integration_branch=integration_branch,
+                        parent_branch=parent_branch,
+                        parent_sha=parent_sha,
+                        existing_sha=existing_sha,
+                        fork_base=fork_base,
+                        recorded_integration_base_sha=integration_base_sha,
+                    )
+                    return parent_sha
+
                 # Could not verify ancestry: parent_sha is either not
                 # reachable from the existing tip (genuinely diverged
                 # history) or the merge-base call itself failed
