@@ -2954,12 +2954,25 @@ class GatewayClient:
                 # destroyed.
                 #
                 # Gating on the slice's *own* recorded base (not a generic
-                # merge-base of the two tips) is what keeps this safe: a
-                # genuinely unrelated stale branch would not descend from
-                # this slice's recorded base, so it still falls through to
-                # the push and surfaces the rejection (preserving the
+                # merge-base of the two tips) is what keeps this *fast-path*
+                # safe: a genuinely unrelated stale branch would not descend
+                # from this slice's recorded base, so it still falls through
+                # to the push and surfaces the rejection (preserving the
                 # #2512/#2549 "don't silently overwrite unknown work"
-                # instinct). A true history rewrite of the parent (rebase)
+                # instinct). NOTE (#3245): the recorded-base invariant
+                # described here governs *this* check only. The #3245
+                # fall-through immediately below deliberately relaxes it —
+                # when the recorded base is untrusted/absent it re-derives a
+                # *generic* merge-base of the two tips and adopts on that.
+                # That widens adoption to the parent-rewrite class and any
+                # branch sharing some ancestor with the parent; it is safe
+                # because the slice branch name is slice-specific and
+                # gateway-restricted, adoption stays non-destructive, and a
+                # genuinely-unexpected branch surfaces as a CONFLICTING slice
+                # PR for a human rather than cascade-failing the phase. Do
+                # not read the "we gate on our own base" claim above as a
+                # whole-function invariant — see the #3245 block below.
+                # A true history rewrite of the parent (rebase)
                 # drops the base out of the parent's ancestry, so the
                 # second check fails and we likewise fall through — that
                 # harder class is deliberately left to the operator. The
@@ -3037,7 +3050,23 @@ class GatewayClient:
                 # never reset or force-push, so no committed work is
                 # destroyed. The re-derivation is idempotent, so a contract
                 # still carrying the corrupted base self-heals on every
-                # subsequent resume without a write-back here.
+                # subsequent resume.
+                #
+                # Return value: ``fork_base`` (the re-derived true base), not
+                # ``parent_sha``. When the recorded base was *corrupted* the
+                # caller's ``recorded_base_sha is None`` write-back guard is
+                # already satisfied (a stored — if wrong — base exists) and
+                # skips the write, so the return value is inert there. But
+                # this path *also* fires when ``integration_base_sha`` was
+                # absent (the #2947 ``integration_base_sha and …`` short-
+                # circuit drops through to here): then ``recorded_base_sha is
+                # None`` and the caller *does* persist whatever we return. We
+                # return the true ``fork_base`` so it records the real base
+                # rather than the advanced parent tip — which would itself be
+                # exactly the corruption shape this path exists to tolerate,
+                # and would pin the slice on the slower re-derivation route
+                # forever. Recording ``fork_base`` instead lets the cheaper
+                # #2947 fast-path fire on the next resume.
                 #
                 # Safety: ``fork_base is None`` (no shared history at all —
                 # an unrelated/orphan branch sitting at this name) and
@@ -3069,7 +3098,7 @@ class GatewayClient:
                         fork_base=fork_base,
                         recorded_integration_base_sha=integration_base_sha,
                     )
-                    return parent_sha
+                    return fork_base
 
                 # Could not verify ancestry: parent_sha is either not
                 # reachable from the existing tip (genuinely diverged

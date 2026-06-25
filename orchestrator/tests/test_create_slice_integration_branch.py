@@ -945,7 +945,10 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
             base_sha=base_sha,
         )
 
-        assert ok == parent_sha, "rewrite class now resumes in place (#3245)"
+        assert ok == fork_sha, (
+            "#3245 returns the re-derived true fork base, not the advanced "
+            "parent tip, so the caller records the real base"
+        )
         assert push_invoked == [], (
             "must NOT push — the branch is adopted in place; a parent-tip "
             "push here is non-fast-forward and would fail the slice"
@@ -1025,7 +1028,12 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
             base_sha=base_sha,
         )
 
-        assert ok == parent_sha, "corrupted-base slice must resume in place via #3245 re-derivation"
+        assert ok == real_fork, (
+            "corrupted-base slice must resume in place via #3245 "
+            "re-derivation, returning the re-derived true fork base "
+            "(not the corrupt parent tip) so the caller persists the real "
+            "base and the next resume hits the cheaper #2947 fast-path"
+        )
         assert push_invoked == [], (
             "must NOT push — adopting the existing fork in place preserves "
             "the slice's consensus-approved commits"
