@@ -402,7 +402,7 @@
       "id": "slice-6",
       "name": "Session-resume substrate (#3186) + cold-start fallback (NEW - fixes B2)",
       "goal": "Land resume=<session_id> plumbing in client.py + the no-warm-session cold-start fallback (fresh seed from the protected root). Closes the second substrate gap the NACK flagged (0 resume hits in client.py; #3186 OPEN). Logical dep: none; serialized after slice 5 (#3046). Hard prereq of the reseed (slice 8).",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -411,8 +411,8 @@
         {
           "id": "task-6-1",
           "description": "Add session-resume plumbing to the event-pump path: thread a resume=<session_id> (continue-conversation) option through shared/egg_agent/client.py so a re-invocation can re-enter the prior session by session_id (already on AgentResult). Define the no-warm-session fallback explicitly: when no resumable session_id exists (first invocation, expired session, consensus reset, pod death), seed a fresh session from the protected root (phase 4) - never a hard failure. (Architect confirms the SDK option surface; this task owns the requirement + tests.)",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "5bf70837e",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "client.py exposes a resume-by-session_id option threaded through the event-pump path; when no resumable session exists the path seeds fresh from the protected root rather than erroring; resume is opt-in (default off) so rollout is staged.",
@@ -434,9 +434,9 @@
           "id": "task-6-2",
           "description": "Tests: a valid session_id resumes the prior conversation; an absent/expired session_id cold-starts from the protected root without raising; resume defaults off unless explicitly enabled.",
           "status": "pending",
-          "commit": null,
+          "commit": "21fec06b8f0d087245fb47de32cf7ed535259488",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Tests for task-6-1 resume substrate in tests/shared/egg_agent/test_client_resume.py, rebased green on top of coder commit 5bf70837e. Aligned to the coder's actual two-fold default-off: (1) run_agent_async resume:str|None=None param default; (2) a passed-in id is threaded to options.resume only when EGG_SESSION_RESUME (egg_agent.session.session_resume_enabled) is on. Falsy id (None/\"\") -> fresh from protected-root prompt, never raises, even with the flag enabled. 6 tests, all passing: signature default-off, resume-by-id-when-enabled, id-ignored-when-flag-disabled, no-arg fresh, resume=None cold-start, empty-id cold-start. ruff clean. Note: a pre-existing/environmental failure in test_client.py::test_buffer_overflow_returns_failure_with_marker fails in isolation without my file (real SDK vs mock under py3.14) \u2014 unrelated to slice-6.",
           "acceptance_criteria": "resume-by-id, cold-start-fallback, and default-off each asserted; no exception on the missing-session path; tests pass.",
           "files_affected": [
             "shared/egg_agent/tests/",
@@ -457,11 +457,11 @@
         "slice-5"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3200/slice-5",
+      "integration_base_sha": "a4146ab1b81d5ce5a4ab84afbba5221e86033864",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3243,
+      "pr_url": "https://github.com/jwbron/egg/pull/3243",
       "review_feedback": []
     },
     {
@@ -1355,6 +1355,72 @@
       "old_value": "9436aa33f",
       "new_value": "e9a5eec50",
       "reason": "Linked commit e9a5eec to task-5-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:21:14.839800Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.commit",
+      "old_value": null,
+      "new_value": "5bf70837e",
+      "reason": "Linked commit 5bf7083 to task-6-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:21:14.859087Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-6-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:23:03.448628Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.commit",
+      "old_value": null,
+      "new_value": "1af05fd585e70c8e6b86684999799e66cf50346b",
+      "reason": "Linked commit 1af05fd to task-6-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:23:07.796641Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.notes",
+      "old_value": "",
+      "new_value": "Tests for task-6-1 resume plumbing in tests/shared/egg_agent/test_client_resume.py. Pins the client-layer contract: run_agent_async grows keyword-only resume:str|None=None (default None = opt-in/default-off at client layer; staged-rollout enable flag stays upstream in wrapper/__main__ per architect slice-6). Non-empty resume -> options.resume; falsy resume (None/\"\") -> fresh from protected-root prompt, never raises. 5 tests: signature default-off, resume-by-id, no-arg fresh, resume=None cold-start, empty-id cold-start. RED-BY-DESIGN until task-6-1 (coder, client.py) integrates: 1 pass / 4 fail standalone (TypeError: no resume kwarg + signature assertion). Go green on the slice-6 integration branch once coder lands resume. Exact contract handed off to coder (msg 7eea0e5c).",
+      "reason": "Updated notes for task-6-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:25:53.904896Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.commit",
+      "old_value": "1af05fd585e70c8e6b86684999799e66cf50346b",
+      "new_value": "21fec06b8f0d087245fb47de32cf7ed535259488",
+      "reason": "Linked commit 21fec06 to task-6-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-25T07:25:57.517172Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.notes",
+      "old_value": "Tests for task-6-1 resume plumbing in tests/shared/egg_agent/test_client_resume.py. Pins the client-layer contract: run_agent_async grows keyword-only resume:str|None=None (default None = opt-in/default-off at client layer; staged-rollout enable flag stays upstream in wrapper/__main__ per architect slice-6). Non-empty resume -> options.resume; falsy resume (None/\"\") -> fresh from protected-root prompt, never raises. 5 tests: signature default-off, resume-by-id, no-arg fresh, resume=None cold-start, empty-id cold-start. RED-BY-DESIGN until task-6-1 (coder, client.py) integrates: 1 pass / 4 fail standalone (TypeError: no resume kwarg + signature assertion). Go green on the slice-6 integration branch once coder lands resume. Exact contract handed off to coder (msg 7eea0e5c).",
+      "new_value": "Tests for task-6-1 resume substrate in tests/shared/egg_agent/test_client_resume.py, rebased green on top of coder commit 5bf70837e. Aligned to the coder's actual two-fold default-off: (1) run_agent_async resume:str|None=None param default; (2) a passed-in id is threaded to options.resume only when EGG_SESSION_RESUME (egg_agent.session.session_resume_enabled) is on. Falsy id (None/\"\") -> fresh from protected-root prompt, never raises, even with the flag enabled. 6 tests, all passing: signature default-off, resume-by-id-when-enabled, id-ignored-when-flag-disabled, no-arg fresh, resume=None cold-start, empty-id cold-start. ruff clean. Note: a pre-existing/environmental failure in test_client.py::test_buffer_overflow_returns_failure_with_marker fails in isolation without my file (real SDK vs mock under py3.14) \u2014 unrelated to slice-6.",
+      "reason": "Updated notes for task-6-2",
       "checkpoint_id": null
     }
   ],
