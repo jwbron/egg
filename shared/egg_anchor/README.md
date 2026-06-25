@@ -194,7 +194,7 @@ Assembles the byte-stable protected root injected at the top of an event-pump BR
 
 ```python
 from egg_anchor import RootCaps, render_protected_root
-from egg_anchor import BRCDerivedAnchors  # from models
+from egg_anchor import BRCDerivedAnchors  # re-exported from .models
 
 root = render_protected_root(
     role="reviewer_code",
