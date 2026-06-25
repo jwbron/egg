@@ -197,3 +197,69 @@ class TestResolveRouteTriggersRevival:
         assert resp.status_code == 200
         mock_revive.assert_called_once()
         assert mock_revive.call_args[0][0] == "issue-3200"
+
+    @patch("routes.pipelines.maybe_revive_orphaned_awaiting_human_driver")
+    @patch("routes.decisions.get_state_store_for_pipeline")
+    @patch("routes.decisions.get_decision_queue")
+    def test_resolve_skips_revival_for_non_phase_gate_decision(
+        self, mock_get_queue, mock_get_store, mock_revive, client, tmp_path
+    ):
+        """A resolved non-phase-gate decision (e.g. the worktree-reconcile
+        ``choice`` HITL, #2979) must NOT trigger the AWAITING_HUMAN revival.
+
+        ``start_pipeline``'s recovery assumes a phase-gate park and would
+        spuriously force-advance the phase; only a phase_gate resolution is
+        meant to drive the phase forward (#3233 review fix).
+        """
+        from models import DecisionStatus, HITLDecision
+
+        mock_get_store.return_value = (MagicMock(repo_path=tmp_path), MagicMock())
+        queue = MagicMock()
+        queue.resolve_decision.return_value = HITLDecision(
+            id="decision-9",
+            question="Reconcile the worktree, then re-run populate_contract",
+            decision_type="choice",
+            status=DecisionStatus.RESOLVED,
+            resolution="Acknowledged",
+        )
+        mock_get_queue.return_value = queue
+
+        resp = client.post(
+            "/api/v1/pipelines/issue-3200/decisions/decision-9/resolve",
+            json={"resolution": "Acknowledged"},
+        )
+
+        assert resp.status_code == 200
+        mock_revive.assert_not_called()
+
+
+class TestBroadcastOrphanedDriverAlert:
+    """``_broadcast_orphaned_driver_alert`` constructs and sends a real
+    OVERSEER_ALERT (#3233 review: close the untested-broadcast gap)."""
+
+    @patch("routes.pipelines._get_message_store")
+    def test_emits_overseer_alert_with_expected_fields(self, mock_get_store_fn):
+        from message_store import MessageType
+        from routes.pipelines import _broadcast_orphaned_driver_alert
+
+        msg_store = MagicMock()
+        mock_get_store_fn.return_value = lambda: msg_store
+
+        pipeline = _pipeline()
+        _broadcast_orphaned_driver_alert("issue-3200", pipeline)
+
+        msg_store.add_message.assert_called_once()
+        sent = msg_store.add_message.call_args[0][0]
+        assert sent.pipeline_id == "issue-3200"
+        assert sent.from_role == "orchestrator"
+        assert sent.to_role == "all"
+        assert sent.message_type == MessageType.OVERSEER_ALERT
+        assert "[medium]" in sent.subject
+        assert sent.metadata == {"reason": "restart_orphaned_awaiting_human"}
+
+    @patch("routes.pipelines._get_message_store", return_value=None)
+    def test_no_message_store_is_a_noop(self, _mock_get_store_fn):
+        from routes.pipelines import _broadcast_orphaned_driver_alert
+
+        # Must not raise when the message store factory is unavailable.
+        _broadcast_orphaned_driver_alert("issue-3200", _pipeline())

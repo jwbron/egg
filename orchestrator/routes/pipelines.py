@@ -22240,7 +22240,7 @@ def _broadcast_orphaned_driver_alert(pipeline_id: str, pipeline: Pipeline) -> No
                 from_role="orchestrator",
                 to_role="all",
                 message_type=MessageType.OVERSEER_ALERT,
-                subject="orphaned_driver_revived: orchestrator [info]",
+                subject="orphaned_driver_revived: orchestrator [medium]",
                 body=(
                     "A HITL decision was resolved on a pipeline whose "
                     "_run_pipeline driver thread did not survive an "
