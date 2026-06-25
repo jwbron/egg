@@ -254,10 +254,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Which reviewer role should the #3200 prototype run on? This affects measurement validity (peak utilization under resume + the recursion-escalation signal). A reviewer that accumulates the largest per-event working set is the strongest test of the resume hypothesis.",
+      "context": "Open contract question cq-2, registered by an agent during the refine phase.",
+      "options": [
+        "reviewer_code (implement phase) — sees real multi-file diffs, largest working set, strongest stress test of JIT-pull-vs-inline and the recursion signal",
+        "reviewer_refine (refine phase) — longest-lived in a text-heavy phase, closest to the motivating #3183 incident, lighter to stand up",
+        "Leave the specific role to the plan/architect phase — refine only fixes the requirement that it be a single reviewer with a status-quo control on the same phase",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-06-25T04:53:11.087184Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-06-24T21:43:07.252603Z",
-  "updated_at": "2026-06-25T04:53:11.040777Z",
+  "updated_at": "2026-06-25T04:53:11.095993Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -270,7 +289,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-25T04:45:40.679208Z",
-  "version": 39,
+  "version": 40,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
