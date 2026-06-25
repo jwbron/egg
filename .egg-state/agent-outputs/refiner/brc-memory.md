@@ -1,18 +1,39 @@
-# refiner BRC memory — issue-3064 (refine)
+# refiner BRC memory — issue-3258 (refine)
 
 ## IMPORTANT: prior memory was stale
-- Earlier memory in this file referenced issue-3077 (analysis at `.egg-state/drafts/3077-analysis.md`, HITL cq-1/cq-2 about served-state scope). That belonged to a DIFFERENT pipeline. This pipeline is **issue-3064** ("Orchestrator-driven on-demand agent spawning"). The gateway rejected the 3077-path proposal; contract confirmed pipeline_id=issue-3064. Do not act on 3077 content here.
+- Earlier contents of this file referenced issue-3064 / issue-3077 — DIFFERENT pipelines. This
+  pipeline is **issue-3258**: "Complete #3200 slice-10 — emit-only BRC context-discipline
+  measurement surfaces (AC-4+AC-5 of #3200)." Base branch = `main`. Ignore all 3064/3077 content.
 
 ## Status
-- v1 analysis written to `.egg-state/drafts/3064-analysis.md`, HITL cq-1 (scope A/B/C; recommended B) and cq-2 (failure supervision; recommended bounded respawn + alert) registered on the issue-3064 contract. Committed + proposed (see decision log).
+- v1 analysis written to `.egg-state/drafts/issue-3258-analysis.md`. Registered BLOCKING HITL
+  OQ-1 (substrate dependency, options A/B/C/D; recommended A-if-stacking-else-D). Committed + proposed.
 
 ## Verdict / position
-- Recommended scope (Option B): on-demand spawner for propose|ack|nack + ownership flag defaulting to in-pod loop + spawn dedupe (role + proposal_commit_sha / nack-version) + bounded respawn supervision + confirm/complete orchestrator-side, PLUS worktree re-attach & session reuse, idle-budget/stall alerts re-homed orchestrator-side, lifecycle-aware health-monitor thresholds, #2806 signaling relocated. Default flip = gated follow-up after a live BRC cycle (issue's own bar).
-- Hard constraint (from scrapped #3023): guard + spawner land together or spawner-first; no rollback flag exists since #2908 slice-4 deleted EGG_BRC_EVENT_PUMP.
-- Key grounded facts: spawn-up-front at concurrent_executor.py:311-349 / kubernetes_spawner.py:491-940; in-pod loop consensus_wrapper.py:110-916 (wait-loop ≈379, heartbeat 30s ≈209-230, idle budget alert-only ≈702-720, streak backoff ≈897-901); _derive_next_action routes/consensus.py:296-422 (proposal_commit_sha in pending_reviews ≈220-221); confirm/complete already agent-free in wrapper; durable memory brc_memory.py atomic-write; tracker rebuilt from message store (#2761); worktrees hostPath-persistent (#3005/#2403).
+- Scope is emit-only: emit 6 per-event metrics (window occupancy = cache_read+cache_creation+input;
+  peak context util under resume; single-event working set vs real backend window
+  [recursion-escalation signal]; reseed freq per phase; root-cache hit rate; tokens/event) through
+  EXISTING progress/heartbeat/metrics surfaces. NOTHING gated — a test must assert no decision
+  branches on emitted values. No measurement run / A/B / aggregation-to-verdict (owned by #3249).
+
+## CRITICAL grounded fact (drives OQ-1)
+- The "slices 1-9 already merged" premise is FALSE for base=main. slice-1 occupancy (#3236, OPEN,
+  base egg/issue-3200/work) and slice-8 reseed (#3251, OPEN, UNSTABLE) are UNMERGED; origin/main has
+  no `occupanc`/`reseed` code. `AgentResult` (shared/egg_agent/result.py:7-34) has only
+  cost_usd/num_turns/duration_ms/session_id/metadata — no occupancy field. Token data exists only
+  downstream in config/litellm/cost_callback.py:173-206.
+- Existing surfaces to reuse: progress_emit (sandbox/egg_agent_tools/handlers/progress.py:35-84 →
+  orchestrator/routes/progress.py:56-131, EventType.PROGRESS_EMITTED); heartbeat
+  (handlers/progress.py:114-132; orchestrator/heartbeat.py:45-168 HeartbeatCoordinator);
+  metrics registry (orchestrator/routes/metrics.py:1-81, counters/gauges/histograms, post-hoc only).
+- Per-event seam: orchestrator one-shot event loop (orchestrator/event_loop.py,
+  consensus_wrapper.py:~93-100,429); AgentResult NOT currently read back post-event by orchestrator.
 
 ## If NACKed
-- Address reviewer points by editing `.egg-state/drafts/3064-analysis.md` in place, re-commit, re-propose (version bumps). Keep scope options A/B/C unless a reviewer shows a factual error. Cite file:line for any disputed claim.
+- Edit `.egg-state/drafts/issue-3258-analysis.md` in place, re-commit, re-propose (version bumps).
+  Hold the emit-only line and the unmerged-substrate finding unless a reviewer shows a factual error
+  (cite file:line). Keep OQ-1 options A/B/C/D until operator resolves.
 
 ## Decision log
-- 2026-06-12: discovered stale 3077 memory; rebuilt analysis for issue-3064 from issue body (re-verified 2026-06-11 by author) + codebase exploration; registered cq-1/cq-2; proposed v1.
+- 2026-06-25: rebuilt memory for issue-3258 (was stale 3064); grounded codebase; discovered
+  slice-1/slice-8 substrate UNMERGED on main; wrote v1 analysis; registered HITL OQ-1; proposing v1.
