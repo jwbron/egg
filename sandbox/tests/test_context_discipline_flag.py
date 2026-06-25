@@ -26,7 +26,7 @@ import importlib
 import os
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -69,7 +69,7 @@ def _reader() -> Callable[[], Any]:
             continue
         fn = getattr(module, attr, None)
         if callable(fn):
-            return fn
+            return cast(Callable[[], Any], fn)
     pytest.skip(
         "context-discipline flag reader not found (coder task-9-1 unmerged); tried "
         f"{[f'{m}.{a}' for m, a in _READER_CANDIDATES]}"
@@ -95,7 +95,7 @@ def _env(values: dict[str, str | None]) -> Iterator[None]:
                 os.environ[k] = v
 
 
-def _clear_all() -> dict[str, None]:
+def _clear_all() -> dict[str, str | None]:
     return dict.fromkeys(_FLAG_CANDIDATES)
 
 
