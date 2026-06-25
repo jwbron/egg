@@ -986,6 +986,26 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
             pipeline_id, decision_id, dispatch_resolution
         )
 
+        # #3233: if the orchestrator restarted while this pipeline was parked
+        # AWAITING_HUMAN, the in-memory _run_pipeline driver that polls
+        # wait_for_decision is gone — this resolution would otherwise be
+        # recorded with no consumer and the pipeline hangs silently. Revive
+        # the driver via start_pipeline's AWAITING_HUMAN recovery once the
+        # queue has no remaining pending decisions. No-ops when a live driver
+        # is already polling (the normal in-process path consumes it).
+        try:
+            from routes.pipelines import maybe_revive_orphaned_awaiting_human_driver
+
+            maybe_revive_orphaned_awaiting_human_driver(pipeline_id, store.repo_path)
+        except Exception:
+            logger.warning(
+                "Orphaned-driver revival check failed after decision resolve "
+                "(decision is still resolved) (#3233)",
+                pipeline_id=pipeline_id,
+                decision_id=decision_id,
+                exc_info=True,
+            )
+
         return make_success_response(
             "Decision resolved",
             data={
