@@ -455,7 +455,7 @@
       "id": "slice-6",
       "name": "Authority \u2014 bounded corrective vocabulary executor, control-plane-side (\u00a74)",
       "goal": "Add the orchestrator-side CorrectiveExecutor with a CLOSED vocabulary\n{open_operator_hitl, nudge_agent, respawn_cohort}. `open_operator_hitl` writes a contract\ndecision via the orchestrator identity (dissolves the gateway 403 \u2014 real enforcement is\n`gateway/agent_restrictions.py` + contract RBAC, NOT `roles.py:can_modify`); `nudge_agent` reuses\n`_send_brc_confirmation_nudge`; `respawn_cohort` uses the general restart machinery. Every action\nrate-limited, audit-logged, idempotent, barred during zero-agent HITL parks. The adjudicator only\nADVISES; this plane executes.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -464,8 +464,8 @@
         {
           "id": "task-6-1",
           "description": "Implement the orchestrator-side CorrectiveExecutor with the CLOSED vocabulary. Wire\n`open_operator_hitl` to write a contract decision via the orchestrator identity at the REAL\nenforcement point (`gateway/agent_restrictions.py` + contract RBAC); `nudge_agent` \u2192\n`_send_brc_confirmation_nudge`; `respawn_cohort` \u2192 general restart. Make every action\nrate-limited, audit-logged, idempotent, and barred during zero-agent HITL parks.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "7319a5f1421ff73b0bab898dcaf3fd4d66ec6f64",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "The executor exposes exactly the three actions; `open_operator_hitl` opens a contract\ndecision; unauthorized callers remain denied; actions are bounded/audited/idempotent.",
@@ -487,8 +487,8 @@
         {
           "id": "task-6-2",
           "description": "Tests: each action is rate-limited / audit-logged / idempotent; `open_operator_hitl` creates\nan operator HITL via the authorized path; actions are barred during zero-agent parks;\nunauthorized paths stay denied; the adjudicator only advises.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "0df8fcd8177edd8e3de8cef0ad88978cd546a262",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Allow + deny + idempotency + park-bar assertions pass. `make test` green.",
@@ -511,11 +511,11 @@
         "slice-5"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-2270-overhaul/slice-5",
+      "integration_base_sha": "1799cda9703c35d56f5d0f9ed9c944c2c207aa52",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3294,
+      "pr_url": "https://github.com/jwbron/egg/pull/3294",
       "review_feedback": []
     },
     {
@@ -945,6 +945,34 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"All-in-one \u2014 deliver the full \u00a71\u2013\u00a76 including the entire \u00a75 coverage-gap survey in this pipeline\"}",
       "resolved_by": "human",
       "resolved_at": "2026-06-26T03:13:35.722152Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-3",
+      "question": "[#2777 slice-4 TASK-4-4 case 5] Slice slice-6 of pipeline issue-2270-overhaul has an impossible status enum value or state combination (e.g. status not in PENDING/IN_PROGRESS/COMPLETE/BLOCKED, or PENDING with commits on the integration branch). Bootstrap reconciliation cannot classify the slice safely. How should the orchestrator proceed?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Mark slice complete and continue",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Restart slice from scratch",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Cancel pipeline for manual investigation",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
       "debounce_until": null
     }
   ],
@@ -1397,6 +1425,50 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-5-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T07:55:01.810361Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.commit",
+      "old_value": null,
+      "new_value": "7319a5f1421ff73b0bab898dcaf3fd4d66ec6f64",
+      "reason": "Linked commit 7319a5f to task-6-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T07:55:01.831151Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-6-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T07:55:50.178187Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.commit",
+      "old_value": null,
+      "new_value": "0df8fcd8177edd8e3de8cef0ad88978cd546a262",
+      "reason": "Linked commit 0df8fcd to task-6-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T07:55:50.191071Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-6-2 as complete",
       "checkpoint_id": null
     }
   ],
