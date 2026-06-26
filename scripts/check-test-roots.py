@@ -108,8 +108,13 @@ def parse_testall_roots(makefile: str) -> set[str]:
 
 
 def parse_fallback_roots(makefile: str) -> set[str]:
-    """Roots of the ``printf '%s\\n' ... >"$selected_file"`` full-suite fallback."""
-    m = re.search(r"printf '%s\\n'\s+(.*?)\s*>", makefile)
+    """Roots of the ``printf '%s\\n' ... >"$selected_file"`` full-suite fallback.
+
+    Anchored on the ``>"$selected_file"`` redirect target so it cannot
+    accidentally match the unrelated ``printf '%s\\n' "$cur_id" >`` marker
+    write elsewhere in the Makefile if the recipes are ever reordered.
+    """
+    m = re.search(r"""printf '%s\\n'\s+(.*?)\s*>\s*"\$\$selected_file""", makefile)
     if not m:
         raise SystemExit(
             "check-test-roots: could not parse the full-suite fallback printf in Makefile"
@@ -123,6 +128,11 @@ def parse_mypy_invocation(makefile: str) -> tuple[set[str], set[str]]:
     if not m:
         raise SystemExit("check-test-roots: could not parse the $(MYPY) invocation in Makefile")
     line = m.group(1)
+    # NB: ``--exclude`` values are mypy regexes, but every current entry is a
+    # plain literal path (e.g. ``shared/egg_contracts/tests/``), so we compare
+    # them literally against discovered roots. A future grouped/regex exclude
+    # (e.g. ``'(shared|gateway)/tests/'``) would not match this assumption and
+    # would need this parser taught to expand it.
     excludes = {e.rstrip("/") for e in re.findall(r"--exclude\s+'([^']+)'", line)}
     # Package roots = leading bare words before the first option flag.
     roots: set[str] = set()
