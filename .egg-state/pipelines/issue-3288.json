@@ -5,7 +5,7 @@
   "branch": "egg/issue-3288/work",
   "base_branch": "main",
   "prompt": "Documenter agent + docs: snapshot of current state, not a ledger of changes.\n\nTwo coupled work streams (planner decides slicing/sequencing):\n1. Change the documenter agent so it produces snapshots, not ledgers — revise its task instructions (assembled in orchestrator/routes/pipelines.py \"## Your Task\" block; role definition in shared/egg_contracts/agent_roles.py) to write docs describing the current state of the code after the change, never referencing SDLC artifacts (slice numbers, TASK-N ids, phase/HITL iteration numbers) in any doc/docstring/inline comment; include historical context only when tangibly valuable to a current reader (prefer rationale over chronology); fold new state into the snapshot and remove stale ledger entries; keep the no-op/no-doc-impact propose path intact.\n2. Clean up the existing documentation corpus — a pass over docs/, **/README.md, **/CLAUDE.md, and code docstrings/comments to strip slice/TASK/process-ledger references, rewrite change-log-style behavioral sections into current-behavior descriptions, and remove/refactor \"historical record\" sections that no longer describe live code, keeping only residue genuinely useful to a current reader.\n\nOut of scope: not \"delete all issue references\" — issue links that justify why the current system is shaped the way it is are fine. Preserve the documenter's gateway file boundaries (docs/, **/*.md, .egg-state/agent-outputs/) and the BRC no-op propose path.",
-  "status": "awaiting_human",
+  "status": "running",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -68,7 +68,7 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "awaiting_human",
+      "status": "complete",
       "started_at": "2026-06-26T20:25:27.292289Z",
       "work_started_at": "2026-06-26T20:25:28.283504Z",
       "completed_at": "2026-06-26T20:31:58.820000Z",
@@ -167,7 +167,7 @@
     }
   ],
   "created_at": "2026-06-26T19:57:59.841683Z",
-  "updated_at": "2026-06-26T20:36:35.942968Z",
+  "updated_at": "2026-06-26T20:36:38.792765Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -180,7 +180,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-26T20:25:20.195648Z",
-  "version": 22,
+  "version": 23,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
