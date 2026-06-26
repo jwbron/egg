@@ -155,3 +155,10 @@ NOT pre-commit slice boundaries.
   pattern/reference inputs; re-derived patch-target surface (57 pipelines / 12
   gateway); **corrected the stale seam-table `#2261` claim** (no such rows in
   the two CLAUDE.md files); confirmed scope is locked → no HITL; wrote v1.
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the refine phase gate:
+
+Operator approval: scope confirmed as all 19 files including pipelines.py (~27k) and gateway.py (~10k), with _run_pipeline tackled head-on. No descoping. Proceed to plan phase; the planner owns ordering/packaging only, not scope reduction.
