@@ -113,6 +113,21 @@ class PipelineHealthContext:
             return "orchestrator"
         return "orchestrator"
 
+    @property
+    def awaiting_spawn(self) -> bool:
+        """Whether the orchestrator is about to spawn the next one-shot agent (#3230).
+
+        Under #3064 orchestrator-owned spawning a phase spends brief windows
+        RUNNING with zero live containers *between* one-shot agents — the
+        orchestrator has the next spawn queued. Pairing this with
+        :pyattr:`lifecycle_owner` lets a stall check tell "wedged" (no owner,
+        nothing queued) from "drafting" (orchestrator-owned, spawn pending) and
+        is the signal the detection plane's ``snapshot_from_health_context``
+        reads to silence the #3230 false stall. Defaults to ``False`` when the
+        pipeline model carries no such flag.
+        """
+        return bool(getattr(self.pipeline, "awaiting_spawn", False))
+
     # ------------------------------------------------------------------
     # Lazy properties (IO on first access)
     # ------------------------------------------------------------------

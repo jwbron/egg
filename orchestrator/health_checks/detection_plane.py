@@ -201,11 +201,17 @@ class DetectionPlane:
     def default(cls) -> DetectionPlane:
         """Build a plane pre-wired with the detectors delivered so far.
 
-        Slice-4 wires the lifecycle-owner-aware phase-stall detector. Slices 7
-        and 8 append their detectors here as they land.
+        Slice-4 wires the lifecycle-owner-aware phase-stall detector. Slice-8
+        (#2270 §5) registers the coverage-gap detector survey here — this is the
+        single, stable coupling point the calibration corpus bridges to (it
+        auto-registers every detector ``default().detectors`` carries by its
+        ``detector_key``). Registration is delegated to
+        :func:`_register_coverage_gap_detectors` (lazy imports of the tier1
+        detector modules, so the plane module stays import-cheap).
         """
         plane = cls()
         plane.register(PhaseStallDetector())
+        _register_coverage_gap_detectors(plane)
         return plane
 
     def register(self, detector: Detector) -> None:
@@ -399,6 +405,98 @@ def detect_phase_stall(
 # ---------------------------------------------------------------------------
 # Plane factory + live-state snapshot builder.
 # ---------------------------------------------------------------------------
+
+
+def _register_coverage_gap_detectors(plane: DetectionPlane) -> None:
+    """Register the slice-8 §5 coverage-gap detectors onto ``plane`` (idempotent).
+
+    The slice-8 survey lives in ``health_checks.tier1`` as bare
+    ``detect_* -> Finding | None`` functions (each carrying ``detector_key`` /
+    ``name`` attributes so it satisfies the :class:`Detector` protocol). They
+    are deterministic (``requires_adjudication=False`` except the
+    orchestrator-thread-death case), so the bounded corrective executor
+    (slice-6) consumes their findings without an LLM. A detector whose
+    ``detector_key`` is already present is skipped, so this is safe on repeats.
+
+    Note: a detector only fires in a live run once
+    :func:`snapshot_from_health_context` populates the field it reads
+    (``container_transitions`` / ``cost_counters`` / ``git_state`` /
+    ``gateway_error_counters`` / ``decision_state`` …); the calibration corpus
+    drives every detector with fully-populated fixtures today.
+    """
+    from health_checks.tier1.brc_thrashing import (
+        detect_brc_thrash,
+        detect_incomplete_consensus_deferral,
+    )
+    from health_checks.tier1.container_k8s import (
+        detect_container_death,
+        detect_container_oom_evicted,
+        detect_container_restart_loop,
+        detect_overseer_self_injection,
+    )
+    from health_checks.tier1.cost_budget import detect_cost_anomaly
+    from health_checks.tier1.decision_queue import (
+        detect_approved_decision_orphaned,
+        detect_auto_advance_wedge,
+        detect_hitl_queue_backlog,
+        detect_restarted_decision_replay,
+    )
+    from health_checks.tier1.gateway_health import (
+        detect_gateway_error_spike,
+        detect_gateway_repeated_denial,
+        detect_gateway_token_expiry,
+    )
+    from health_checks.tier1.llm_substrate import (
+        detect_anthropic_5xx_sustained,
+        detect_effective_model_drift,
+        detect_llm_substrate_unreachable,
+    )
+    from health_checks.tier1.runtime_liveness import (
+        detect_agent_restart_propagation,
+        detect_duration_drift,
+        detect_run_pipeline_thread_liveness,
+    )
+    from health_checks.tier1.worktree_branch import (
+        detect_disk_inode_pressure,
+        detect_pr_external_mutation,
+        detect_pushed_pr_not_updated,
+        detect_worktree_corruption,
+    )
+    from overseer.self_monitor import detect_overseer_self_health
+
+    coverage_gap_detectors = (
+        detect_container_death,
+        detect_container_oom_evicted,
+        detect_container_restart_loop,
+        detect_overseer_self_injection,
+        detect_run_pipeline_thread_liveness,
+        detect_duration_drift,
+        detect_agent_restart_propagation,
+        detect_auto_advance_wedge,
+        detect_approved_decision_orphaned,
+        detect_restarted_decision_replay,
+        detect_hitl_queue_backlog,
+        detect_worktree_corruption,
+        detect_disk_inode_pressure,
+        detect_pr_external_mutation,
+        detect_pushed_pr_not_updated,
+        detect_gateway_error_spike,
+        detect_gateway_repeated_denial,
+        detect_gateway_token_expiry,
+        detect_brc_thrash,
+        detect_incomplete_consensus_deferral,
+        detect_cost_anomaly,
+        detect_llm_substrate_unreachable,
+        detect_effective_model_drift,
+        detect_anthropic_5xx_sustained,
+        detect_overseer_self_health,
+    )
+
+    existing = set(plane.detectors)
+    for detector in coverage_gap_detectors:
+        if getattr(detector, "detector_key", None) in existing:
+            continue
+        plane.register(detector)
 
 
 def default_detection_plane() -> DetectionPlane:

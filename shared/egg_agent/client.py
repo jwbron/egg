@@ -632,7 +632,12 @@ async def run_agent_async(
     # message bus is only consulted between invocations — so an operator
     # correction sent via send_message lands after the contradicting work
     # is done. A throttled PostToolUse hook polls the bus during the turn
-    # and surfaces new operator-authored messages as additionalContext.
+    # and surfaces new overseer/orchestrator/operator messages as
+    # additionalContext. The poller segments that context by INTENT
+    # (#2270 §2): genuine operator directives render as binding course
+    # corrections, while informational overseer/orchestrator alerts render
+    # under a clearly non-binding header — closing the alert-reflection
+    # defect where a reflected [info] alert was treated as an operator order.
     # Gated on pipeline context (EGG_PIPELINE_ID + EGG_AGENT_ROLE) so
     # non-pipeline egg_agent callers are untouched; EGG_MIDTURN_MESSAGES=
     # false is the rollback escape hatch.

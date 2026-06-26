@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from enum import StrEnum
 from typing import Any
 
 from agent_model_resolution import OVERSEER_TIER_MODELS
@@ -255,6 +256,102 @@ async def detect_loop(recent_actions: list[dict]) -> dict:
     # Normalize is_loop to bool
     if isinstance(result.get("is_loop"), str):
         result["is_loop"] = result["is_loop"].lower() in ("true", "yes", "1")
+
+    _cache_put(key, result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Activity-pattern classification (#2059 / #2132, #2270 §2, task-7-4).
+#
+# ``detect_loop`` answers a single yes/no ("is the agent in a repetitive
+# loop?"). #2059 / #2132 asked for the *failure modes* an agent can exhibit to
+# be first-class, testable verdicts rather than an undifferentiated "stuck":
+#
+#   * ``thrashing``         — rapidly switching between tasks / files /
+#                             approaches without finishing any (lots of context
+#                             switching, repeated undo/redo, no convergence).
+#   * ``spinning``          — repeating the same action (or a tight cycle of a
+#                             few actions) with no state change / no progress.
+#   * ``improper_tool_use`` — repeated tool errors: malformed arguments, the
+#                             wrong tool for the job, ignoring tool results and
+#                             re-issuing the same failing call.
+#   * ``productive``        — making forward progress (the healthy default).
+#
+# Keeping these as an enum lets detectors and tests assert on a stable
+# vocabulary instead of free-text reasoning.
+# ---------------------------------------------------------------------------
+
+
+class ActivityPattern(StrEnum):
+    """First-class agent activity-pattern verdicts (#2059 / #2132)."""
+
+    PRODUCTIVE = "productive"
+    THRASHING = "thrashing"
+    SPINNING = "spinning"
+    IMPROPER_TOOL_USE = "improper_tool_use"
+
+
+_ACTIVITY_PATTERN_VALUES = frozenset(p.value for p in ActivityPattern)
+
+
+async def classify_activity_pattern(recent_actions: list[dict]) -> dict:
+    """Classify an agent's recent activity into a first-class pattern verdict.
+
+    Args:
+        recent_actions: List of recent actions / tool calls (and their results)
+            from the agent.
+
+    Returns:
+        A dict with keys:
+            pattern: one of :class:`ActivityPattern`
+                (``"productive"`` | ``"thrashing"`` | ``"spinning"`` |
+                ``"improper_tool_use"``)
+            confidence: float between 0.0 and 1.0
+            reasoning: brief explanation
+    """
+    key = _cache_key("classify_activity_pattern", recent_actions)
+    if key in _cache:
+        return _cache[key]  # type: ignore[no-any-return]
+
+    prompt = (
+        "You are a pipeline activity-pattern classifier. Examine the agent's "
+        "recent actions (and their results) and classify the dominant pattern "
+        "into EXACTLY ONE of these first-class verdicts:\n"
+        '  - "productive": making forward progress toward the task; varied, '
+        "purposeful actions that build on each other.\n"
+        '  - "thrashing": rapidly switching between different tasks/files/'
+        "approaches without finishing any; repeated undo/redo; no "
+        "convergence.\n"
+        '  - "spinning": repeating the same action or a tight cycle of a few '
+        "actions with no state change and no progress.\n"
+        '  - "improper_tool_use": repeated tool errors — malformed arguments, '
+        "wrong tool for the job, or re-issuing the same failing call while "
+        "ignoring the error result.\n\n"
+        "Respond with ONLY a JSON object (no markdown fences) with these keys:\n"
+        '  "pattern": one of "productive", "thrashing", "spinning", '
+        '"improper_tool_use"\n'
+        '  "confidence": float between 0.0 and 1.0\n'
+        '  "reasoning": brief explanation\n'
+    )
+    context = json.dumps({"recent_actions": recent_actions}, default=str)
+
+    raw = await _call_classifier(prompt, context)
+    result = _parse_json_or_fallback(
+        raw,
+        {
+            "pattern": ActivityPattern.PRODUCTIVE.value,
+            "confidence": 0.5,
+            "reasoning": raw,
+        },
+    )
+    # Coerce any out-of-vocab pattern to the safe default so the verdict set
+    # stays closed and testable.
+    pattern = str(result.get("pattern", "")).strip().lower()
+    if pattern not in _ACTIVITY_PATTERN_VALUES:
+        result["pattern"] = ActivityPattern.PRODUCTIVE.value
+    else:
+        result["pattern"] = pattern
 
     _cache_put(key, result)
     return result

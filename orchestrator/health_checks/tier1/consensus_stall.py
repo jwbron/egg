@@ -15,6 +15,7 @@ from __future__ import annotations
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 _shared_path = Path(__file__).parent.parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
@@ -180,3 +181,75 @@ class ConsensusStallCheck:
             tier=self.tier,
             reasoning=reasoning,
         )
+
+
+# ---------------------------------------------------------------------------
+# Heartbeat-stall detector (#2242, #2270 §2, task-7-4).
+#
+# The original heartbeat-stall signal keyed on the coarse heartbeat counter
+# alone, so an agent making tool calls every 2-3 seconds — unambiguously busy —
+# got flagged the moment a heartbeat tick was missed. The calibration fix keys
+# on **tool-call recency**: an agent is genuinely stalled only when BOTH its
+# last tool call AND its last heartbeat are older than the stall window. Recent
+# tool-call activity exempts an agent regardless of the heartbeat counter.
+# ---------------------------------------------------------------------------
+
+# A genuinely stalled agent has been silent (no tool call AND no heartbeat) for
+# at least this many seconds while its phase still expects progress. Set well
+# above any plausible single-tool latency so a busy agent never trips it.
+DEFAULT_HEARTBEAT_STALL_SECONDS = 300
+
+
+def detect_heartbeat_stall(
+    snapshot: Any,
+    *,
+    stall_seconds: int = DEFAULT_HEARTBEAT_STALL_SECONDS,
+) -> Any | None:
+    """Calibration detector for the ``heartbeat_stall`` corpus rows (#2242).
+
+    Fires ``heartbeat_stall`` / ``high`` (deterministic →
+    ``requires_adjudication=False``) when a running agent in a RUNNING phase has
+    BOTH ``last_tool_call_age_s`` and ``last_heartbeat_age_s`` past
+    ``stall_seconds``. An agent making recent tool calls is busy, not stalled —
+    that is the #2242 false-positive this closes — so recent tool-call activity
+    yields ``None`` even if a heartbeat tick was missed.
+    """
+    from health_checks.types import Finding, FindingClass, Severity
+
+    phase_state = dict(getattr(snapshot, "phase_state", {}) or {})
+    if str(phase_state.get("status", "")).upper() != "RUNNING":
+        return None
+
+    for agent in getattr(snapshot, "running_agents", ()) or ():
+        tool_age = getattr(agent, "last_tool_call_age_s", None)
+        hb_age = getattr(agent, "last_heartbeat_age_s", None)
+        # Both signals must be present AND both stale. A missing/recent
+        # tool-call age means we cannot prove a stall — stay silent.
+        if tool_age is None or hb_age is None:
+            continue
+        try:
+            tool_age_f = float(tool_age)
+            hb_age_f = float(hb_age)
+        except TypeError, ValueError:
+            continue
+        if tool_age_f < stall_seconds or hb_age_f < stall_seconds:
+            continue
+        return Finding(
+            finding_class=FindingClass.HEARTBEAT_STALL,
+            severity=Severity.HIGH,
+            evidence={
+                "role": getattr(agent, "role", ""),
+                "state": getattr(agent, "state", ""),
+                "last_tool_call_age_s": tool_age_f,
+                "last_heartbeat_age_s": hb_age_f,
+                "stall_seconds": stall_seconds,
+            },
+            recommended_action=(
+                "Agent has made no tool call and emitted no heartbeat for "
+                f"longer than {stall_seconds}s while its phase is RUNNING — "
+                "genuinely stalled. Nudge or respawn the agent."
+            ),
+            requires_adjudication=False,
+            detector_key="heartbeat_stall",
+        )
+    return None

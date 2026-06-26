@@ -165,7 +165,12 @@ class TestFirstPollSeedsCursor:
             assert poller.poll() is None  # seed
 
         clock.value += 61.0
-        new_message = _message("msg-2", body="ADOPT, DO NOT REIMPLEMENT")
+        # An operator-authored message renders under the BINDING header; the
+        # #2270 §2 intent-discriminator only treats human/operator/user senders
+        # as binding directives (overseer/orchestrator broadcasts are now
+        # informational), so this test uses an operator sender to assert the
+        # binding operator-message rendering.
+        new_message = _message("msg-2", from_role="operator", body="ADOPT, DO NOT REIMPLEMENT")
         with (
             patch("egg_agent.midturn_messages.shutil.which", return_value="/usr/bin/egg-orch"),
             patch(
@@ -179,7 +184,7 @@ class TestFirstPollSeedsCursor:
         assert cmd[cmd.index("--since") + 1] == "msg-1"
         assert block is not None
         assert "ADOPT, DO NOT REIMPLEMENT" in block
-        assert "Operator message(s) received mid-turn" in block
+        assert "Operator directive(s) received mid-turn" in block
         assert "BINDING" in block
         assert poller._cursor_path.read_text() == "msg-2"
 
