@@ -627,7 +627,8 @@ The overseer reads the authoritative restart count from the spawner's REST API r
 The overseer monitors itself:
 - **Poll cycle timing** — warns if a cycle takes >2x expected duration
 - **Message volume** — alerts if sending >10 redirects per minute
-- **LLM call costs** — reduces poll frequency if exceeding budget
+- **LLM call costs** — reduces poll frequency if exceeding budget; lifetime costs are tracked per-model so a routing anomaly (e.g., Opus billed when Haiku was requested) is visible
+- **Classifier/advisor failure rate** — fires the `overseer_self_health` detection-plane finding when the Haiku classifier or Opus advisor failure rate breaches the configured threshold, signalling that the overseer's own reasoning substrate is unreliable; in-flight alerts are emitted via `alert_sink` the first time a new concern set appears (not just at completion time)
 - **Self-reporting** — files an issue about itself and signals `BLOCKED` if malfunctioning
 
 ## Overseer vs. Mediator Boundary
