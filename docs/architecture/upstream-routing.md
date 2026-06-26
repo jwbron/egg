@@ -9,17 +9,18 @@ the LiteLLM topology in Kubernetes, and the **no-op-by-default**
 invariant that keeps every Claude-bound agent on byte-identical paths
 when LiteLLM is not configured.
 
-Status: this seam lands in two stacked changes for [#2769](https://github.com/jwbron/egg/issues/2769). Slice 1 — described here — is the
-**gateway router + LiteLLM Deployment**, no-op by default. Slice 2
-adds the orchestrator-side resolution (`PipelineConfig.agent_models`,
-`default_agent_model`, `resolve_agent_model`); [#2832](https://github.com/jwbron/egg/issues/2832) later replaced the original
-cq-5 body-rewrite mitigation with `ANTHROPIC_CUSTOM_MODEL_OPTION`
-env-var registration in the agent's sandbox, so the gateway no longer
-rewrites request bodies on the LiteLLM path. Operators looking to
-actually flip a role to a non-Claude backend should start at the
+The seam has two parts (motivated by [#2769](https://github.com/jwbron/egg/issues/2769)): the
+**gateway router + LiteLLM Deployment** (the routing mechanism, no-op
+by default), and the orchestrator-side resolution
+(`PipelineConfig.agent_models`, `default_agent_model`,
+`resolve_agent_model`) that decides per-agent upstreams. On the
+LiteLLM path the gateway does not rewrite request bodies: the agent's
+sandbox registers the upstream model via `ANTHROPIC_CUSTOM_MODEL_OPTION`
+([#2832](https://github.com/jwbron/egg/issues/2832)). Operators looking to
+flip a role to a non-Claude backend should start at the
 [Per-Agent Models guide](../guides/per-agent-models.md) — it walks
 through the two configuration knobs, the precedence chain, the
-custom-model env-var registration, and the cq-4 operator smoke test
+custom-model env-var registration, and the operator smoke test
 end-to-end.
 
 ## Why a router, not a hard-wired second client
@@ -51,7 +52,7 @@ upstream.
 
 ## Topology — where LiteLLM runs in the cluster
 
-The HITL on `cq-1` selected **a separate Deployment + Service in the
+LiteLLM runs as **a separate Deployment + Service in the
 `egg-system` namespace** (1 LiteLLM pod, gateway calls it over the
 cluster-internal Service DNS). The alternative shapes — a sidecar in
 the gateway pod, or a fully separate namespace with its own
@@ -96,8 +97,8 @@ Key topology properties:
   egress to `litellm.egg-system.svc.cluster.local`. Only the
   gateway pod calls LiteLLM.
 - **Operator-owned isolation for the LiteLLM pod itself.** LiteLLM
-  in turn talks out to the configured provider (hosted Qwen for
-  the first cut, per `cq-6`). `OPENROUTER_API_KEY` follows the same
+  in turn talks out to the configured provider (hosted Qwen is the
+  first supported backend). `OPENROUTER_API_KEY` follows the same
   path as `LITELLM_MASTER_KEY` (issue #2799): operators set it in
   `~/.config/egg/secrets.env`; `make k3s-secrets` extracts it onto
   `gateway-secrets` as a literal key; the LiteLLM Deployment binds
@@ -180,10 +181,9 @@ nothing about the Claude flow changes.
 The key lands as a documented entry in `config/secrets.template.env`
 with an explicit "leave empty to disable LiteLLM routing — no agent
 will be routed to LiteLLM with this unset" comment, one block below
-the existing `ANTHROPIC_API_KEY` block. This is the choice from
-`cq-7`: the gateway holds the LiteLLM master key and injects it on
-every LiteLLM-bound request, mirroring today's Anthropic credential
-injection. Per-provider backend keys (e.g. `OPENROUTER_API_KEY`) flow
+the existing `ANTHROPIC_API_KEY` block. The gateway holds the LiteLLM
+master key and injects it on every LiteLLM-bound request, mirroring
+today's Anthropic credential injection. Per-provider backend keys (e.g. `OPENROUTER_API_KEY`) flow
 through the same `secrets.env` → `gateway-secrets` path as the master
 key (issue #2799); the LiteLLM ConfigMap references them with
 `os.environ/<NAME>`. The gateway pod does not consume them. The sandbox
@@ -209,7 +209,7 @@ that fallback because the sandbox never holds LiteLLM credentials.
 ## Per-session routing
 
 The routing decision is **per session**, not per request body. The
-HITL on `cq-2` settled this: the orchestrator declares the upstream
+orchestrator declares the upstream
 when it spawns the agent (the same IP-keyed session lookup that
 already drives `session_mode`), and the gateway treats the model
 name in the request body as informational only. The alternatives —
@@ -227,8 +227,9 @@ Two new optional fields land on the `Session` dataclass at
   route this session's `/v1/messages` traffic to
 - `upstream_model: str | None = None` — the bare upstream-side model
   name, retained as audit metadata on `session_created` log lines.
-  Originally fed slice-2's body-rewrite mitigation; replaced by the
-  in-sandbox `ANTHROPIC_CUSTOM_MODEL_OPTION` registration in #2832
+  The sandbox carries the upstream model name on the wire via the
+  in-sandbox `ANTHROPIC_CUSTOM_MODEL_OPTION` registration ([#2832](https://github.com/jwbron/egg/issues/2832)),
+  so the gateway does not rewrite the request body
 
 Both default to the Claude path. Sessions persisted **before** this
 change rehydrate cleanly: `Session.from_persistence` tolerates
@@ -249,14 +250,15 @@ error), and passes both through to `register_session`. The existing
 `audit_log("session_created", ...)` call includes the upstream and
 upstream_model so the per-session routing decision is auditable.
 
-The orchestrator-side wire shape catches up in
+The orchestrator-side wire shape lives in
 `GatewayClient.register_session` (`orchestrator/gateway_client.py:602`):
 two optional kwargs, included in the POST body only when set
 (matches the existing optional-field pattern in the surrounding
-calls). No slice-1 caller passes them — that's purely the wire
-contract. Slice 2 is where the orchestrator's spawner actually
-decides per-agent upstreams and calls
-`register_session(upstream=…, upstream_model=…)`.
+calls). The orchestrator's spawner decides per-agent upstreams and
+calls `register_session(upstream=…, upstream_model=…)` only when
+`PipelineConfig.agent_models` or repository-level
+`default_agent_model` names a non-Claude model; otherwise both kwargs
+are omitted and the session defaults to the Claude path.
 
 ### Proxy routes
 
@@ -272,7 +274,7 @@ _inject_anthropic_credentials(headers)` call becomes
 Everything **inside** the request loop stays unchanged:
 
 - `_filter_blocked_tools(...)` (the private-mode WebSearch /
-  WebFetch strip from `cq-9` — kept identical regardless of
+  WebFetch strip — kept identical regardless of
   upstream; the conservative read is that an attacker on a
   compromised sandbox can still exfiltrate through search queries
   even when the upstream is self-hosted, so the strip stays
@@ -311,10 +313,10 @@ sandbox ──POST /v1/messages──▶ gateway
                                   └─ stream upstream → accumulate → return SSE downstream
 ```
 
-Wire shape: byte-identical to today. This is the regression guard:
-with `agent_models == {}` everywhere (the slice-2 default) and no
-`LITELLM_MASTER_KEY` configured, every gateway request follows the
-exact same path it does today.
+Wire shape: the default Claude path. This is the regression guard:
+with `agent_models == {}` everywhere (the default) and no
+`LITELLM_MASTER_KEY` configured, every gateway request follows this
+path.
 
 ### LiteLLM (per-agent, once configured)
 
@@ -330,7 +332,7 @@ sandbox ──POST /v1/messages──▶ gateway
                                   │     → LiteLLM resolver (LITELLM_MASTER_KEY from secrets.env)
                                   │
                                   ├─ _filter_blocked_tools(body, session.mode)
-                                  │     (same strip regardless of upstream — cq-9 conservative choice)
+                                  │     (same strip regardless of upstream — conservative choice)
                                   │
                                   │     (body["model"] already carries the upstream name —
                                   │      Claude Code stripped the [1m] suffix from
@@ -343,13 +345,13 @@ sandbox ──POST /v1/messages──▶ gateway
                                   └─ stream upstream → accumulate → return SSE downstream
 ```
 
-In slice 1 the router is in place but no caller sets
-`session.upstream = "litellm"`, so the LiteLLM branch is exercised
-only by unit tests until slice 2 lands the spawn-side plumbing.
-Slice 2 originally set the body's `"model"` field via a gateway-side
-`_rewrite_upstream_model` helper; #2832 retired that helper in
-favour of the in-sandbox env-var registration described in the
-[Per-Agent Models guide](../guides/per-agent-models.md#compaction-math--custom-model-registration-2832).
+The LiteLLM branch is taken only when the orchestrator's spawner
+sets `session.upstream = "litellm"` (i.e. an operator has named a
+non-Claude model for a role). The gateway does not rewrite the body's
+`"model"` field: the in-sandbox env-var registration carries the
+upstream model name on the wire, described in the
+[Per-Agent Models guide](../guides/per-agent-models.md#compaction-math--custom-model-registration-2832)
+([#2832](https://github.com/jwbron/egg/issues/2832)).
 
 ## Routing policy & reactive fallback (#2987)
 
@@ -491,14 +493,14 @@ out of scope for this change.
 When the upstream is unreachable or errors and **no routing policy
 adds a fallback hop for the wire model**, the gateway **fails closed**
 — the 502 / 504 (or the upstream's own error status) surfaces to the
-agent, no implicit fallback to Claude. This preserves the original
-`cq-8` posture as the no-op default: with an empty routing policy the
-fail-closed behavior is byte-identical to before #2987. The
-alternatives `cq-8` declined (a *blanket* transparent Claude fallback,
-HITL escalation) stay declined; #2987 makes fallback an **explicit,
-per-wire-model, operator-authored** opt-in rather than an implicit
-default, so a quietly-mixed transcript only happens where an operator
-asked for it.
+agent, no implicit fallback to Claude. This is the no-op default:
+with an empty routing policy the fail-closed behavior matches a
+gateway with no routing policy at all. The declined alternatives (a
+*blanket* transparent Claude fallback, HITL escalation) stay declined;
+fallback ([#2987](https://github.com/jwbron/egg/issues/2987)) is an
+**explicit, per-wire-model, operator-authored** opt-in rather than an
+implicit default, so a quietly-mixed transcript only happens where an
+operator asked for it.
 
 The existing `except httpx.ConnectError / TimeoutException /
 Exception` handlers in `proxy_anthropic_messages` and
@@ -517,34 +519,31 @@ endpoint exists has three independent guards:
    — but no request routes there because of guard 2.
 2. **Session upstream defaults to `"anthropic"`.** Both
    `Session.upstream` and the `/api/v1/sessions/create` handler's
-   default value are `"anthropic"`. Slice 1 has no caller that
-   passes `upstream="litellm"`. Slice 2 only sets it when
-   `PipelineConfig.agent_models` or repository-level
-   `default_agent_model` names a non-Claude model.
-3. **`agent_models` default is empty.** Slice 2's
-   `PipelineConfig.agent_models` field defaults to `{}`, and the
-   repository-level `default_agent_model` defaults to `None`.
-   Without operator action, all spawns resolve to the built-in
-   `"opus"` Claude path (fable is no longer the default, though still
-   opt-in selectable). All use `upstream="anthropic"`.
+   default value are `"anthropic"`. The orchestrator passes
+   `upstream="litellm"` only when `PipelineConfig.agent_models` or
+   repository-level `default_agent_model` names a non-Claude model.
+3. **`agent_models` default is empty.** `PipelineConfig.agent_models`
+   defaults to `{}`, and the repository-level `default_agent_model`
+   defaults to `None`. Without operator action, all spawns resolve to
+   the built-in `"opus"` Claude path (fable is opt-in selectable but
+   not the default). All use `upstream="anthropic"`.
 
 Any one of the three suffices to keep the LiteLLM client cold on a
 given deployment. All three are independent: a misconfiguration on
 one does not silently activate the LiteLLM path.
 
-## HITL decisions that shape this design
+## Decisions that shape this design
 
-The `#2769` refine phase resolved eleven `cq-*` decisions. The six
-that directly shape the slice-1 architecture:
+The design rationale that shapes this seam ([#2769](https://github.com/jwbron/egg/issues/2769)):
 
 | Decision | Resolution | Effect on this seam |
 |----------|------------|---------------------|
-| `cq-1` | Separate Deployment + Service in `egg-system` | Topology section above — LiteLLM is a sibling of the gateway, not a sidecar |
-| `cq-2` | Per-agent session metadata (IP-keyed lookup, like `session_mode`) | Per-session routing decision; model name in request body is informational only |
-| `cq-5` | Keep Claude Code harness for non-Claude models; compaction-math mitigation | Originally a gateway-side body rewrite in slice 2; superseded by `ANTHROPIC_CUSTOM_MODEL_OPTION` env-var registration in [#2832](https://github.com/jwbron/egg/issues/2832) |
-| `cq-7` | Gateway holds `LITELLM_MASTER_KEY` in `secrets.env`; injects per-request | Credentials section above — mirrors today's Anthropic injection |
-| `cq-8` | Fail closed on LiteLLM errors (502, no fallback) | Failure policy section above |
-| `cq-9` | Keep the private-mode WebSearch / WebFetch strip on every upstream | Proxy-routes section — `_filter_blocked_tools` runs identically regardless of upstream |
+| Topology | Separate Deployment + Service in `egg-system` | Topology section above — LiteLLM is a sibling of the gateway, not a sidecar |
+| Routing key | Per-agent session metadata (IP-keyed lookup, like `session_mode`) | Per-session routing decision; model name in request body is informational only |
+| Harness | Keep the Claude Code harness for non-Claude models; the compaction-math mitigation is `ANTHROPIC_CUSTOM_MODEL_OPTION` env-var registration in the sandbox ([#2832](https://github.com/jwbron/egg/issues/2832)), not a gateway-side body rewrite | The gateway does not rewrite request bodies on the LiteLLM path |
+| Credentials | Gateway holds `LITELLM_MASTER_KEY` in `secrets.env`; injects per-request | Credentials section above — mirrors today's Anthropic injection |
+| Failure | Fail closed on LiteLLM errors (502, no fallback) | Failure policy section above |
+| Tool filter | Keep the private-mode WebSearch / WebFetch strip on every upstream | Proxy-routes section — `_filter_blocked_tools` runs identically regardless of upstream |
 
 The full set is at [`.egg-state/contracts/issue-2769.json`](../../.egg-state/contracts/issue-2769.json).
 
@@ -578,15 +577,14 @@ The full set is at [`.egg-state/contracts/issue-2769.json`](../../.egg-state/con
   credential resolver shape and the upstream-reset resilience
   pattern that both router branches inherit unchanged
 - [Orchestrator Architecture](orchestrator.md) — Spawner and
-  session-creation context for slice 2's per-agent model
-  resolution
+  session-creation context for per-agent model resolution
 - [Per-Agent Models Guide](../guides/per-agent-models.md) — Operator
-  walkthrough for the slice-2 configuration plumbing
+  walkthrough for the configuration plumbing
   (`PipelineConfig.agent_models`, repo-level `default_agent_model`,
   the `resolve_agent_model` precedence + classifier, the
-  `ANTHROPIC_CUSTOM_MODEL_OPTION` env-var registration that replaced
-  the original cq-5 body rewrite ([#2832](https://github.com/jwbron/egg/issues/2832)),
-  and the cq-4 hosted-Qwen smoke test)
+  `ANTHROPIC_CUSTOM_MODEL_OPTION` env-var registration
+  ([#2832](https://github.com/jwbron/egg/issues/2832)),
+  and the hosted-Qwen smoke test)
 - [Network Isolation](network-isolation.md) — Cluster network
   posture; LiteLLM is gateway-only and NetworkPolicy is unchanged
 - Issue [#2769](https://github.com/jwbron/egg/issues/2769) — Original

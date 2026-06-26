@@ -1586,7 +1586,7 @@ itself — the orchestrator no longer reads it, so setting it has no
 effect on a post-slice-4 codebase. The supported regression path is
 `git revert` of slice-4 / slice-3 / slice-2 / slice-1 in
 reverse-merge order; see
-[Rollback plan](../architecture/orchestrator.md#rollback-plan).
+[Rollback posture](../architecture/orchestrator.md#rollback-posture).
 
 ### 10.9 BRC Per-Event Prompt Composer + Preamble Collapse
 

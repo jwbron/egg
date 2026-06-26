@@ -184,8 +184,9 @@ JSON file and reads it back:
 
 Mid-phase restarts additionally need the BRC *message record* to survive so a
 reseeded session can re-pull it and re-derive the #3189 anchors
-([#3200](https://github.com/jwbron/egg/issues/3200) slice-7); `_write_brc_history`
-historically persisted only at phase transitions.
+([#3200](https://github.com/jwbron/egg/issues/3200)). `_write_brc_history`
+persists the record mid-phase, not only at phase transitions, so the record is
+available to a reseeded session before the next phase boundary.
 
 ## Feature flags
 
@@ -218,13 +219,13 @@ value and is NOT blindly forwarded — it still needs explicit per-pod wiring.
 `EGG_RESEED_THRESHOLD` was similarly per-pod-only but is now always injected
 by `_ExecutorEventSpawner.spawn_event` ([#3284](https://github.com/jwbron/egg/issues/3284)).
 
-**Slice-9 master flag (`EGG_CONTEXT_DISCIPLINE`, shipped).** The terminal slice
-([#3200](https://github.com/jwbron/egg/issues/3200) slice-9) introduced a single
-master context-discipline flag that gates the whole discipline (protected-root /
-queryable-environment split + threshold reseed + JIT pull) for **every**
-event-pump role — producers and reviewers alike — each inlining only its own
-contract and its own anchors via the role-parameterized `render_protected_root`.
-It is a **kill-switch**, not the preserved fallback build:
+**Master flag (`EGG_CONTEXT_DISCIPLINE`).** A single master context-discipline
+flag ([#3200](https://github.com/jwbron/egg/issues/3200)) gates the whole
+discipline (protected-root / queryable-environment split + threshold reseed +
+JIT pull) for **every** event-pump role — producers and reviewers alike — each
+inlining only its own contract and its own anchors via the role-parameterized
+`render_protected_root`. It is a **kill-switch**, not the preserved fallback
+build:
 
 - **ON** → every role takes the new path; the mechanism is uniform and only the
   *content* of the root differs by role.
@@ -248,8 +249,8 @@ wrapper-bash standalone case where `egg_agent` is off `PYTHONPATH`).
 
 ## Measurement (emit-only)
 
-The discipline is "build + measure": slice-10 emits per-event measurement
-surfaces from the occupancy field and the reseed decisions — window occupancy
+The discipline is "build + measure": per-event measurement surfaces are emitted
+from the occupancy field and the reseed decisions — window occupancy
 per event, peak utilization under resume (the **primary** metric), single-event
 working set vs the real window (the recursion-escalation signal), reseed
 frequency per phase (the cost case rests on this being low), root-cache hit
