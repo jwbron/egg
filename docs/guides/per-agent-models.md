@@ -1,7 +1,6 @@
 # Per-Agent Models — Running a Single Agent on a Non-Claude Backend
 
-This guide walks an operator through the **slice-2** plumbing of
-[#2769](https://github.com/jwbron/egg/issues/2769): flipping any single
+This guide walks an operator through flipping any single
 SDLC phase agent role (refiner, coder, tester, a reviewer, …) to a
 non-Claude model via the gateway's LiteLLM proxy, without touching
 agent prompts, the sandbox, or source code. By the end you will have
@@ -10,12 +9,12 @@ every other role continues to run on Claude.
 
 The seam itself — the gateway-side `UpstreamRegistry`, the LiteLLM
 Deployment, the per-session routing decision — is described in
-[Upstream Routing](../architecture/upstream-routing.md) and was the
-slice-1 deliverable. This guide is the operator-facing complement: the
-two configuration fields slice 2 introduces, how they compose, the
-`ANTHROPIC_CUSTOM_MODEL_OPTION` env-var registration (#2832) that
-keeps Claude Code's auto-compaction math sane on non-Claude routes,
-and the end-to-end smoke test that validates a live LiteLLM endpoint.
+[Upstream Routing](../architecture/upstream-routing.md). This guide is
+the operator-facing complement: the two configuration fields, how they
+compose, the `ANTHROPIC_CUSTOM_MODEL_OPTION` env-var registration
+(#2832) that keeps Claude Code's auto-compaction math sane on
+non-Claude routes, and the end-to-end smoke test that validates a live
+LiteLLM endpoint.
 
 ## Mental model in one sentence
 
@@ -613,8 +612,8 @@ Apply by running `make litellm-config` (also invoked automatically by
 `make deploy` and `make redeploy`). The target patches the live
 ConfigMap and rolls the LiteLLM Deployment to pick up the new config.
 
-> **Hosted-provider choice.** Hosted Qwen is the cq-6 first target;
-> any LiteLLM-supported backend works. Self-hosted vLLM / SGLang is
+> **Hosted-provider choice.** Hosted Qwen is the first validation
+> target; any LiteLLM-supported backend works. Self-hosted vLLM / SGLang is
 > deferred until the no-op-by-default path is validated against a
 > hosted provider first.
 
@@ -633,7 +632,7 @@ repo_settings:
 
 `default_agent_model` is a *repo-level default for every role* — to
 flip exactly one role to a non-Claude backend (the common case for
-the cq-4 smoke test), prefer 3b.
+the smoke test), prefer 3b.
 
 ### 3b. Per-pipeline override (recommended for the smoke test)
 
@@ -686,8 +685,8 @@ the built-in default (`"opus"` for all roles).
 ### 4. Run the pipeline and observe routing
 
 Submit a pipeline. The gateway audit log records the per-session
-routing decision **once per session** (slice-1's
-`audit_log("session_created", …)` extension at
+routing decision **once per session** (the gateway's
+`audit_log("session_created", …)` at
 `gateway/gateway.py:8920` includes the resolved `upstream` and
 `upstream_model`); every subsequent `/v1/messages` request from that
 session inherits the decision implicitly via the session-keyed
@@ -709,13 +708,13 @@ lookup, with no per-request routing log line:
 
 If anything is misconfigured (LiteLLM master key absent, LiteLLM pod
 unreachable, etc.), the failure policy is **fail closed**: a 502
-surfaces to the agent. No silent fallback to Claude — this is cq-8
-and intentionally matches today's Anthropic-side failure shape so a
+surfaces to the agent. No silent fallback to Claude — this
+intentionally matches the Anthropic-side failure shape so a
 mixed transcript can't quietly erode the cost goal motivating the
 work. See [Upstream Routing → Failure
 policy](../architecture/upstream-routing.md#failure-policy).
 
-### 5. Exercise the cq-4 smoke test
+### 5. Exercise the smoke test
 
 The two compatibility properties only the live path can prove:
 
@@ -737,14 +736,13 @@ The two compatibility properties only the live path can prove:
 Capture the gateway audit log via the structured-logging stream
 ([architecture/logging](../architecture/logging.md)).
 
-This validation step is **operator-driven and out of scope for
-slice-2 merge** (per the cq-4 resolution): merging slice 2 ships only
-the buildable seam. The smoke test runs once an operator has a live
+This validation step is **operator-driven**: the buildable seam ships
+without it, and the smoke test runs once an operator has a live
 LiteLLM endpoint to point at.
 
 ## No-op-by-default invariant — three independent guards
 
-The combination of slices 1 and 2 keeps the LiteLLM client cold on a
+These guards keep the LiteLLM client cold on a
 deployment that has not been configured. The guards (described in
 detail at [Upstream Routing → No-op-by-default
 invariant](../architecture/upstream-routing.md#no-op-by-default-invariant)):
@@ -754,8 +752,8 @@ invariant](../architecture/upstream-routing.md#no-op-by-default-invariant)):
    LiteLLM would fail credential injection with the standard 401.
 2. **Session upstream defaults to `"anthropic"`.** Both the
    `Session.upstream` default and the `/api/v1/sessions/create`
-   handler default are `"anthropic"`. Slice 2 only sets it when the
-   resolver returns a LiteLLM decision.
+   handler default are `"anthropic"`. The session upstream is set to
+   `litellm` only when the resolver returns a LiteLLM decision.
 3. **`agent_models` default is empty.** Both
    `PipelineConfig.agent_models` and repo-level
    `default_agent_model` default to nothing — the resolver returns
@@ -764,7 +762,7 @@ invariant](../architecture/upstream-routing.md#no-op-by-default-invariant)):
 Any single guard suffices. All three are independent; a
 misconfiguration on one does not silently activate the LiteLLM path.
 
-## Slice-2 primitives at a glance
+## Primitives at a glance
 
 | Primitive | Location | Purpose |
 |-----------|----------|---------|
@@ -774,28 +772,14 @@ misconfiguration on one does not silently activate the LiteLLM path.
 | `resolve_agent_model(role, pipeline_config, repo)` + `AgentModelDecision` | `orchestrator/agent_model_resolution.py` | Walks precedence + classifies into `(claude_code_alias, upstream, upstream_model, effort)`; `AgentModelDecision.env_vars()` returns the `ANTHROPIC_CUSTOM_MODEL_OPTION` pair plus `ANTHROPIC_AUTH_METHOD=api_key`, `CLAUDE_CODE_SUBAGENT_MODEL`, and `ANTHROPIC_DEFAULT_HAIKU_MODEL` / `ANTHROPIC_SMALL_FAST_MODEL` on the LiteLLM path |
 | Spawn-side plumbing | `orchestrator/concurrent_executor.py` (`_spawn_agent`), `orchestrator/routes/pipelines.py` (`restart_agent`), `orchestrator/kubernetes_spawner.py` (`spawn_agent_job`) | Threads `--model` and `--effort` to the consensus wrapper, merges `decision.env_vars()` into `extra_env`, and forwards `upstream` / `upstream_model` to `GatewayClient.register_session` |
 
-The slice-1 primitives this guide builds on (`UpstreamRegistry`,
+The lower-level primitives this guide builds on (`UpstreamRegistry`,
 `Session.upstream` / `upstream_model`, the LiteLLM credential
 resolver, the LiteLLM k8s manifests) are catalogued in [Upstream
 Routing → Files](../architecture/upstream-routing.md#files).
 
-## HITL decisions that shape this guide
-
-| Decision | Resolution | Where it shows up |
-|----------|------------|-------------------|
-| `cq-3` | Per-role field on `PipelineConfig` **and** `repositories.yaml` default | Two-knob config above; precedence chain in the resolver |
-| `cq-4` | No agent-flip in this pipeline; operator smoke-test deferred | Smoke-test section is operator-driven, not gating merge |
-| `cq-5` | Keep Claude Code; superseded by env-var registration (#2832) | Resolver pins `claude_code_alias = "<upstream>[1m]"` for ≥1M upstreams (bare `<upstream>` for `_SUB_1M_CONTEXT_MODELS` per #2987) and threads `ANTHROPIC_CUSTOM_MODEL_OPTION` into the agent env — no gateway body rewrite |
-| `cq-6` | First validation backend is hosted Qwen | Step 2 example uses hosted Qwen; self-hosted deferred |
-| `cq-8` | Fail closed on LiteLLM errors (502, no fallback) | Step 4 error-path note; same behavior as today's Anthropic upstream errors |
-| `cq-11` | Leave `[1m]` for Claude | Non-Claude model strings simply do not carry `[1m]`; the resolver routes them via the LiteLLM path |
-
-The full set is at
-[`.egg-state/contracts/issue-2769.json`](../../.egg-state/contracts/issue-2769.json).
-
 ## Related Documentation
 
-- [Upstream Routing](../architecture/upstream-routing.md) — slice-1
+- [Upstream Routing](../architecture/upstream-routing.md) —
   architecture: gateway router, `UpstreamRegistry`, per-session
   routing, LiteLLM topology, credential layout, failure policy, and
   the no-op-by-default invariant.
@@ -803,8 +787,7 @@ The full set is at
   Anthropic credential resolver shape; the LiteLLM resolver follows
   the same mtime-invalidated cache pattern.
 - [Orchestrator Architecture](../architecture/orchestrator.md) —
-  Spawner / session-creation context that the slice-2 plumbing
-  hooks into.
+  Spawner / session-creation context this guide hooks into.
 - [Agent Roles](../reference/agent-roles.md) — Canonical role names
   accepted as keys in `agent_models`.
 - Issue [#2769](https://github.com/jwbron/egg/issues/2769) — Original
