@@ -1120,21 +1120,33 @@ def _send_brc_confirmation_nudge(
 # Overseer authority plane (#2270 slice-6, §4) — the orchestrator-side seams the
 # CorrectiveExecutor dispatches to. The overseer ADVISES (returns a verdict); the
 # control plane EXECUTES exactly three bounded actions. Agents — including the
-# overseer — cannot reach these directly: the shared RBAC predicate denies them,
-# and the executor re-checks it. See orchestrator/overseer/corrective.py.
+# overseer — cannot reach these directly: the gateway file patterns deny agents
+# from contract writes (the "403"), and the executor only runs control-plane-side.
+# The seams are invoked by CorrectiveExecutor with keyword arguments. See
+# orchestrator/overseer/corrective.py and gateway/agent_restrictions.py.
 # ---------------------------------------------------------------------------
 
 
-def _corrective_open_operator_hitl(context: Any) -> str:
+def _corrective_open_operator_hitl(
+    *,
+    pipeline_id: str,
+    issue_number: int | None = None,
+    repo_path: Any = None,
+    question: str | None = None,
+    options: Any = None,
+    finding: Any = None,
+    phase: str | None = None,
+    **_: Any,
+) -> str:
     """``open_operator_hitl`` seam: open a HITL contract decision (orchestrator id).
 
     The decision is written via :func:`apply_mutation` under ``Role.IMPLEMENTER``
     — the same ``decisions.*`` owner the ``register_open_question`` MCP tool and
     the impasse router use — with an orchestrator-side actor so the audit trail
     stays distinct from agent-authored decisions. This is the REAL enforcement
-    point: contract RBAC gates the write, and the corrective RBAC predicate keeps
-    agents (incl. the overseer) off this path entirely, so an operator HITL gate
-    can only be opened by the control plane.
+    point: the contract write runs as the control plane (which has no gateway
+    agent pattern), while agents — incl. the overseer — stay blocked from
+    ``.egg-state/contracts/``. Returns the new decision id.
     """
     from egg_contracts.decisions import next_cq_id
     from egg_contracts.loader import load_contract, save_contract
@@ -1142,47 +1154,47 @@ def _corrective_open_operator_hitl(context: Any) -> str:
     from egg_contracts.roles import Role
     from egg_contracts.validator import apply_mutation
 
-    payload = context.payload or {}
-    pipeline_id = context.pipeline_id
-    issue_number = payload.get("issue_number")
-    finding = payload.get("finding")
-    verdict = payload.get("verdict")
-
     identifier = _pipeline_identifier(issue_number, pipeline_id)
-    repo_path = payload.get("repo_path") or get_repo_path()
-    contract = load_contract(identifier, repo_path)
+    resolved_repo = repo_path or get_repo_path()
+    contract = load_contract(identifier, resolved_repo)
     existing = contract.decisions or []
     next_idx = len(existing)
     decision_id = next_cq_id(existing)
 
-    finding_class = context.finding_class or str(
-        getattr(finding, "finding_class", "") or getattr(verdict, "finding_class", "")
-    )
-    severity = str(getattr(verdict, "severity", "") or getattr(finding, "severity", "") or "medium")
-    reasoning = context.reason or str(getattr(verdict, "reasoning", "") or "")
+    finding_class = str(getattr(finding, "finding_class", "") or "")
+    severity = str(getattr(finding, "severity", "") or "medium")
 
-    question_lines = [
-        f"The overseer detection plane flagged ``{finding_class or 'an anomaly'}`` "
-        f"(severity ``{severity}``) in pipeline ``{pipeline_id}`` and the on-demand "
-        "adjudicator escalated it for operator judgement.",
-        "",
-        f"**Adjudicator reasoning**: {reasoning or '(none provided)'}",
-    ]
-    evidence = getattr(finding, "evidence", None)
-    if evidence:
-        question_lines.append(f"**Evidence**: {evidence}")
+    if question:
+        question_text = question
+    else:
+        lines = [
+            f"The overseer detection plane flagged ``{finding_class or 'an anomaly'}`` "
+            f"(severity ``{severity}``) in pipeline ``{pipeline_id}`` and the on-demand "
+            "adjudicator escalated it for operator judgement.",
+        ]
+        evidence = getattr(finding, "evidence", None)
+        if evidence:
+            lines.append(f"**Evidence**: {evidence}")
+        question_text = "\n".join(lines)
 
-    options = [
-        DecisionOption(id="opt-1", label="Intervene now (operator will act manually)"),
-        DecisionOption(id="opt-2", label="Dismiss — detector over-fired (calibration data)"),
-        DecisionOption(id="opt-3", label="Other (explain in reply)"),
-    ]
+    if options:
+        decision_options = [
+            DecisionOption(id=f"opt-{i + 1}", label=str(label))
+            for i, label in enumerate(options)
+        ]
+    else:
+        decision_options = [
+            DecisionOption(id="opt-1", label="Intervene now (operator will act manually)"),
+            DecisionOption(id="opt-2", label="Dismiss — detector over-fired (calibration data)"),
+            DecisionOption(id="opt-3", label="Other (explain in reply)"),
+        ]
+
     decision = Decision(
         id=decision_id,
-        question="\n".join(question_lines),
+        question=question_text,
         type=DecisionType.HITL,
         phase=contract.current_phase,
-        options=options,
+        options=decision_options,
     )
     result = apply_mutation(
         contract,
@@ -1190,66 +1202,72 @@ def _corrective_open_operator_hitl(context: Any) -> str:
         actor="orchestrator-overseer-corrective",
         field_path=f"decisions.{next_idx}",
         new_value=decision,
-        reason=(
-            f"Overseer corrective: open operator HITL for "
-            f"{finding_class or 'finding'}"
-        ),
+        reason=f"Overseer corrective: open operator HITL for {finding_class or 'finding'}",
     )
     if not result.success:
         raise RuntimeError(f"failed to open operator HITL decision: {result.message}")
-    save_contract(contract, repo_path)
-    return f"opened operator HITL decision {decision_id}"
+    save_contract(contract, resolved_repo)
+    return decision_id
 
 
-def _corrective_nudge_agent(context: Any) -> str:
+def _corrective_nudge_agent(
+    *,
+    pipeline_id: str,
+    target_role: str | None = None,
+    phase: str | None = None,
+    finding: Any = None,
+    escalation: dict[str, Any] | None = None,
+    **_: Any,
+) -> bool:
     """``nudge_agent`` seam: deliver the deterministic BRC-confirmation nudge.
 
     Wires to :func:`_send_brc_confirmation_nudge` (the #2079 directed wake), which
-    posts an ``OVERSEER_ALERT`` the stuck producer's wait-loop filters admit. The
-    escalation dict is taken from the payload when present, otherwise synthesized
-    in the ``brc_confirmation_timeout`` shape that helper requires.
+    posts an ``OVERSEER_ALERT`` the stuck producer's wait-loop filters admit. An
+    explicit ``escalation`` dict is used when present, otherwise synthesized in
+    the ``brc_confirmation_timeout`` shape that helper requires. Returns whether
+    the nudge was delivered.
     """
-    payload = context.payload or {}
-    escalation = dict(payload.get("escalation") or {})
-    escalation.setdefault("alert_type", "brc_confirmation_timeout")
-    escalation.setdefault("agent_id", context.target)
-    elapsed = escalation.get("elapsed_seconds", payload.get("elapsed_seconds"))
-    escalation["elapsed_seconds"] = elapsed if (elapsed and elapsed > 0) else 1
-
-    delivered = _send_brc_confirmation_nudge(escalation, context.pipeline_id, context.phase)
-    if not delivered:
-        raise RuntimeError(f"nudge to {context.target!r} was not delivered")
-    return f"nudged {context.target}"
+    payload = dict(escalation or {})
+    payload.setdefault("alert_type", "brc_confirmation_timeout")
+    payload.setdefault("agent_id", target_role)
+    elapsed = payload.get("elapsed_seconds")
+    payload["elapsed_seconds"] = elapsed if (elapsed and elapsed > 0) else 1
+    return _send_brc_confirmation_nudge(payload, pipeline_id, phase)
 
 
-def _corrective_respawn_cohort(context: Any) -> str:
+def _corrective_respawn_cohort(
+    *,
+    pipeline_id: str,
+    target_role: str | None = None,
+    reason: str | None = None,
+    **_: Any,
+) -> bool:
     """``respawn_cohort`` seam: restart the target role(s) via the general path.
 
     Delegates to the orchestrator's public restart endpoint
     (``POST /agents/<role>/restart``) — the same general-restart machinery the
     overseer monitor's ``_execute_restart_agent`` uses — so restart-budget
     enforcement, consensus reset, and one-shot Job teardown all happen
-    server-side, with no bespoke respawn plumbing. ``target`` may be a single
-    role or a comma-separated cohort.
+    server-side, with no bespoke respawn plumbing. ``target_role`` may be a single
+    role or a comma-separated cohort. Returns whether every role restarted.
     """
     import urllib.request
     from urllib.parse import quote
 
-    roles = [r.strip() for r in str(context.target).split(",") if r.strip()]
+    roles = [r.strip() for r in str(target_role or "").split(",") if r.strip()]
     if not roles:
         raise RuntimeError("respawn_cohort: empty target cohort")
 
     orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL", "http://localhost:9849")
-    reason = (context.reason or "overseer corrective respawn")[:500]
-    restarted: list[str] = []
+    restart_reason = (reason or "overseer corrective respawn")[:500]
     for role in roles:
         restart_url = (
             f"{orchestrator_url}/api/v1/pipelines/"
-            f"{quote(context.pipeline_id, safe='')}/agents/{quote(role, safe='')}/restart"
+            f"{quote(pipeline_id, safe='')}/agents/{quote(role, safe='')}/restart"
         )
         req = urllib.request.Request(
             restart_url,
-            data=json.dumps({"reason": reason}).encode(),
+            data=json.dumps({"reason": restart_reason}).encode(),
             headers={"Content-Type": "application/json"},
             method="POST",
         )
@@ -1260,35 +1278,44 @@ def _corrective_respawn_cohort(context: Any) -> str:
             raise RuntimeError(
                 f"restart of {role!r} failed: {result.get('message', 'unknown error')}"
             )
-        restarted.append(role)
-    return f"respawned cohort: {', '.join(restarted)}"
+    return True
 
 
 def _build_overseer_corrective_executor(
     *,
-    open_hitl: Any = None,
-    nudge: Any = None,
-    respawn: Any = None,
+    issue_number: int | None = None,
+    repo_path: Any = None,
     config: Any = None,
+    audit_sink: Any = None,
+    open_operator_hitl: Any = None,
+    nudge_agent: Any = None,
+    respawn_cohort: Any = None,
 ) -> "CorrectiveExecutor":  # noqa: UP037
     """Construct the §4 :class:`CorrectiveExecutor` wired to the production seams.
 
     Seams are injectable so the path stays unit-testable without a live
-    orchestrator. Rate-limit / idempotency windows derive from the overseer
-    config when present, falling back to the executor defaults.
+    orchestrator. The default ``open_operator_hitl`` seam is bound to the
+    pipeline's ``issue_number`` / ``repo_path`` so it can resolve the contract.
+    The rate-limit window derives from the overseer config when present, falling
+    back to the executor default.
     """
     from overseer.corrective import CorrectiveExecutor
 
-    window = getattr(config, "overseer_infra_error_dedup_window_seconds", None)
+    def _default_open_hitl(**kwargs: Any) -> str:
+        kwargs.setdefault("issue_number", issue_number)
+        kwargs.setdefault("repo_path", repo_path)
+        return _corrective_open_operator_hitl(**kwargs)
+
     kwargs: dict[str, Any] = {}
+    window = getattr(config, "overseer_infra_error_dedup_window_seconds", None)
     if isinstance(window, int) and window > 0:
-        kwargs["rate_limit_window_seconds"] = window
-        kwargs["idempotency_window_seconds"] = window
+        kwargs["window_seconds"] = float(window)
 
     return CorrectiveExecutor(
-        open_hitl=open_hitl or _corrective_open_operator_hitl,
-        nudge=nudge or _corrective_nudge_agent,
-        respawn=respawn or _corrective_respawn_cohort,
+        open_operator_hitl=open_operator_hitl or _default_open_hitl,
+        nudge_agent=nudge_agent or _corrective_nudge_agent,
+        respawn_cohort=respawn_cohort or _corrective_respawn_cohort,
+        audit_sink=audit_sink,
         **kwargs,
     )
 
@@ -1304,38 +1331,39 @@ def _execute_overseer_verdicts(
 ) -> list[Any]:
     """Run the §4 authority plane over adjudicated ``(finding, verdict)`` pairs.
 
-    For each pair carrying a confirmed verdict, dispatch the recommended action
-    through the :class:`CorrectiveExecutor` under the orchestrator identity. The
-    executor enforces the closed vocabulary, RBAC, the zero-agent-park bar,
-    rate-limiting, idempotency, and audit logging. Returns the per-verdict
-    :class:`CorrectiveOutcome` list (empty when nothing was adjudicated).
+    For each pair carrying a verdict, dispatch the recommended action through the
+    :class:`CorrectiveExecutor`. The executor enforces the closed vocabulary (a
+    ``none`` recommendation is skipped here as the non-executable no-op), the
+    zero-agent-park bar, rate-limiting, idempotency, and audit logging. Returns
+    the per-verdict :class:`CorrectiveOutcome` list (empty when nothing was
+    adjudicated or actioned).
     """
-    from overseer.corrective import CorrectiveContext
-
-    active = executor or _build_overseer_corrective_executor()
+    active = executor or _build_overseer_corrective_executor(
+        issue_number=issue_number
+    )
     outcomes: list[Any] = []
     for finding, verdict in results:
         if verdict is None:
             continue  # routine finding — handled deterministically, no action
+        action = str(getattr(verdict, "recommended_action", "") or "").strip()
+        if action in ("", "none"):
+            continue  # adjudicator advised no action — nothing to execute
         evidence = getattr(finding, "evidence", None) or {}
-        target = str(getattr(verdict, "target", "") or "") or str(
+        target_role = str(getattr(verdict, "target", "") or "") or str(
             evidence.get("agent_role") or evidence.get("agent_id") or ""
         )
-        context = CorrectiveContext(
-            pipeline_id=pipeline_id,
-            running_agent_count=running_agent_count,
-            caller_identity="orchestrator",
-            target=target,
-            phase=phase,
-            finding_class=str(getattr(finding, "finding_class", "") or ""),
-            reason=str(getattr(verdict, "reasoning", "") or ""),
-            payload={
-                "finding": finding,
-                "verdict": verdict,
-                "issue_number": issue_number,
-            },
+        finding_class = str(getattr(finding, "finding_class", "") or "")
+        outcomes.append(
+            active.execute(
+                action,
+                pipeline_id=pipeline_id,
+                running_agent_count=running_agent_count,
+                phase=phase,
+                target_role=target_role,
+                finding=finding,
+                idempotency_key=f"{finding_class}:{target_role}" if finding_class else None,
+            )
         )
-        outcomes.append(active.execute_verdict(verdict, context))
     return outcomes
 
 

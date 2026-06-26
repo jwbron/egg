@@ -1,10 +1,33 @@
 # Coder BRC memory — issue-2270 overhaul
 
-## slice-6 — Authority: bounded CorrectiveExecutor (§4) — PROPOSED
+## slice-6 — Authority: bounded CorrectiveExecutor (§4) — PROPOSED (reconciled to tester)
 
-- **branch**: egg/issue-2270-overhaul-slice-6-coder/work (base origin/.../slice-6)
+- **branch**: egg/issue-2270-overhaul-slice-6-coder/work (merged origin/.../slice-6 = tester task-6-2)
 - **tasks**: task-6-1 (complete)
-- **verdict**: shipped; ruff clean; behavior smoke-tested (no venv → CI/tester runs suite).
+- **verdict**: shipped; ALL 36 tester rows PASS (25 test_corrective_executor + 11
+  test_overseer_authority); 795+ adjacent tests green; ruff clean.
+
+### RECONCILED to tester contract (task-6-2) — first cut diverged, fixed:
+The tester pinned a DIFFERENT surface than my v1. Reconciled (tester-leads-coder):
+- Executor ctor kwargs are `open_operator_hitl=/nudge_agent=/respawn_cohort=`
+  (NOT open_hitl/nudge/respawn), `audit_sink=` (list-append callable, NOT logger),
+  `max_actions_per_window=/window_seconds=/clock=` (NOT rate_limit_window/time_fn).
+- `execute(action, *, pipeline_id, running_agent_count=1, phase, target_role,
+  finding, idempotency_key, question, options)` — KWARGS, no CorrectiveContext.
+- Status set: executed|denied|barred|deduplicated|rate_limited (NOTE
+  "deduplicated" not "deduped"; NO failed/unknown_action/noop). Out-of-vocab →
+  `denied` (the executor does NOT do an identity/RBAC gate — that lives at the
+  gateway file patterns). Precedence: vocab→denied, zero-agent→barred,
+  dup-key→deduplicated, rate-limit→rate_limited, else→executed.
+- Deps invoked with kwargs (pipeline_id +target_role for nudge/respawn, +question
+  for hitl); rate-limit is GLOBAL sliding window of executed-action timestamps;
+  dedup is a seen-key set (record both only on execute).
+- DROPPED shared/egg_restrictions/corrective.py + __init__ wiring (tester's gateway
+  contract wants the deny enforced by EXISTING OVERSEER_PATTERNS, not a new shared
+  predicate). Gateway guardrail now lives directly in gateway/agent_restrictions.py
+  as `check_corrective_action(*, action, identity=None) -> CorrectiveAuthorityResult`
+  + `CORRECTIVE_ACTIONS` — name matches the tester's candidate list so its optional
+  guardrail row goes STRICT (rejects force_merge/delete_repo/none/"").
 
 ### Change model
 - `shared/egg_restrictions/corrective.py` (NEW): the RBAC gate, cycle-free (pure

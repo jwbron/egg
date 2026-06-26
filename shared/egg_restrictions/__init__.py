@@ -24,11 +24,6 @@ if TYPE_CHECKING:
         get_agent_pattern,
         validate_agent_push,
     )
-    from .corrective import (
-        CORRECTIVE_ACTIONS,
-        ORCHESTRATOR_CONTROL_PLANE_IDENTITY,
-        corrective_action_authorized,
-    )
     from .hints import BLOCKED_HINTS, derive_hint
     from .matchers import match_pattern
     from .patterns import (
@@ -43,10 +38,7 @@ __all__ = [
     "AgentRole",
     "AGENT_PATTERNS",
     "BLOCKED_HINTS",
-    "CORRECTIVE_ACTIONS",
-    "ORCHESTRATOR_CONTROL_PLANE_IDENTITY",
     "check_agent_file_access",
-    "corrective_action_authorized",
     "derive_hint",
     "get_agent_pattern",
     "match_pattern",
@@ -64,13 +56,6 @@ _CHECKER_NAMES = frozenset(
 _PATTERNS_NAMES = frozenset({"AGENT_PATTERNS", "AgentFilePattern", "AgentRole"})
 _MATCHERS_NAMES = frozenset({"match_pattern"})
 _HINTS_NAMES = frozenset({"BLOCKED_HINTS", "derive_hint"})
-_CORRECTIVE_NAMES = frozenset(
-    {
-        "CORRECTIVE_ACTIONS",
-        "ORCHESTRATOR_CONTROL_PLANE_IDENTITY",
-        "corrective_action_authorized",
-    }
-)
 
 
 def __getattr__(name: str) -> Any:
@@ -78,10 +63,6 @@ def __getattr__(name: str) -> Any:
         from . import checker
 
         return getattr(checker, name)
-    if name in _CORRECTIVE_NAMES:
-        from . import corrective
-
-        return getattr(corrective, name)
     if name in _PATTERNS_NAMES:
         from . import patterns
 
