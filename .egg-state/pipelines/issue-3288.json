@@ -110,10 +110,27 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "context": "# In plain terms — issue #3288\n\n**Make the documentation describe how the system works *today*, instead of\nreading like a running diary of every change that was ever made.**\n\n## The problem\n\nOver time, egg's documentation has drifted. Instead of telling a reader how the\nsoftware currently behaves, many pages and code comments now read like a\nchange-log: \"this was added,\" \"that used to work differently,\" \"step 3 landed\nthis piece,\" and so on. They are littered with internal process labels — things\nlike work-batch numbers and task IDs that only mean something inside egg's own\ndevelopment machinery, not to someone trying to understand the code.\n\nThere are two reasons for the drift, and the fix has two matching parts:\n\n1. **The automated documentation writer is pointed in the wrong direction.** The\n   instructions it follows tell it to \"document the *changes*\" that were just\n   made. That framing naturally produces change-log prose and pulls those\n   internal process labels into permanent documentation.\n2. **The existing documentation has accumulated years of that style.** Roughly\n   260 files across the docs and source trees already carry these process labels\n   and change-log narration.\n\nThe goal: documentation should read as if the internal development process never\nexisted. History is fine *only* when it genuinely helps a present-day reader —\nfor example, explaining *why* something is built the way it is — and even then,\nthe reasoning matters more than the chronology.\n\n## The two pieces of work\n\n**Piece 1 — Retrain the automated documentation writer (small, low risk).**\nUpdate the instructions it follows so that it:\n- describes the *current* state of the code, not the change that produced it;\n- never sprinkles internal process labels into documentation, comments, or code\n  docstrings;\n- includes background only when it's genuinely useful, favoring the reasoning\n  over a timeline;\n- when editing an existing page, *merges* the new reality into the description\n  and *deletes* the now-stale change-log lines, rather than tacking on another\n  entry;\n- still correctly does nothing when a change has no documentation impact (that\n  existing \"nothing to document here\" path must keep working).\n\nThis touches just two source files and is essentially text-only. It's worth\ndoing first, because it sets the standard that the cleanup then follows.\n\n**Piece 2 — Clean up the existing documentation (large).** A pass over the docs,\nthe README and guidance files, and code comments to strip the internal process\nlabels, rewrite change-log-style passages into plain \"here's how it works now\"\ndescriptions, and remove \"historical record\" sections that no longer match the\nlive code. A few high-value pages are written so heavily around the change-log\nframing that they need a full rewrite, not a line edit. This piece is large\nenough that it should be broken into independent chunks (by area of the docs) so\nthe work is reviewable and pieces don't collide.\n\n## What *not* to do\n\n- This is **not** \"delete every issue reference.\" A link that explains *why* the\n  current design exists is useful and stays — just reframed as reasoning rather\n  than as a dated event.\n- The automated writer's existing limits on *which files it may edit* (only\n  documentation and a couple of scratch locations — never source code or tests)\n  stay exactly as they are. Only the wording of its instructions changes.\n- The \"nothing to document\" shortcut stays working.\n\n## Two decisions left for a human\n\n1. **How thorough should the cleanup be?** Around 260 files are affected.\n   Recommended: clean the specific, high-impact files the issue calls out plus\n   the densest offenders now, and leave the long tail to follow-up work — rather\n   than attempting all 260 at once (which would be a merge headache) or doing\n   none of the cleanup now.\n2. **Should we add an automated check** that catches these internal process\n   labels before they land in documentation again? Recommended: not in this\n   round — it's separable, has its own tuning cost, and the issue asks for an\n   instruction change plus a cleanup, not a new automated guard.\n\n\n[View the full detailed analysis draft](https://github.com/jwbron/egg/blob/egg/issue-3288/work/.egg-state/drafts/3288-analysis.md)",
+      "options": [
+        "approve",
+        "request changes"
+      ],
+      "decision_type": "phase_gate",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-06-26T20:32:02.797368Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-06-26T19:57:59.841683Z",
-  "updated_at": "2026-06-26T20:31:58.820486Z",
+  "updated_at": "2026-06-26T20:32:02.807167Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -126,7 +143,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-26T20:25:20.195648Z",
-  "version": 14,
+  "version": 15,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
