@@ -10,7 +10,31 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Operator approval: scope confirmed as all 19 files including pipelines.py (~27k) and gateway.py (~10k), with _run_pipeline tackled head-on. No descoping. Proceed to plan phase; the planner owns ordering/packaging only, not scope reduction.",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-26T23:22:18.586814Z",
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
   "audit_log": [],
   "refine_review_cycles": 0,
