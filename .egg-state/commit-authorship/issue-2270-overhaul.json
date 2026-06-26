@@ -104,6 +104,14 @@
       "repo": null,
       "role": "coder"
     },
+    "392b2fea23d2e31bb950170e4e8bda7787fddbb1": {
+      "branch": "egg/issue-2270-overhaul/slice-8",
+      "patch_id": "0213bd509fb7b0073cad01c8d65340f73b91fa22",
+      "pipeline_id": "issue-2270-overhaul",
+      "registered_at": "2026-06-26T09:00:17.493552+00:00",
+      "repo": null,
+      "role": "tester"
+    },
     "3db85b0a94422f384f90b6e83796f45d92542178": {
       "branch": "egg/issue-2270-overhaul/slice-6",
       "patch_id": null,
