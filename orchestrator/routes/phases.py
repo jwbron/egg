@@ -1035,6 +1035,65 @@ def _collect_unresolved_phase_decisions(
     return unresolved
 
 
+def _collect_unresolved_contract_gaps(
+    pipeline: Pipeline,
+    store_repo_path: Path,
+) -> list[str]:
+    """Return ``"<task>/<gap>"`` ids for every unresolved ``TaskGap``.
+
+    A tester→coder :class:`TaskGap` left ``resolved == False`` ships into
+    the committed contract snapshot and fails ``test_models_gaps.py`` red
+    in CI on the already-open PR (#3298 class 4). This scans the contract
+    so :func:`complete_phase` can block finalize on open gaps — the same
+    way it blocks on unresolved HITL decisions — instead of discovering
+    them reactively in CI. See #3300.
+
+    Gaps are not phase-scoped: at finalize every gap should be resolved,
+    so the scan spans all tasks (unlike the phase-filtered decision
+    scan). Returns an empty list for clean contracts and when the
+    contract is absent/unloadable (the gate fails open, mirroring the
+    decision scan — a load failure must never strand the pipeline).
+    """
+    if not pipeline.has_contract:
+        return []
+
+    try:
+        from egg_contracts.loader import (
+            ContractNotFoundError,
+            ContractValidationError,
+            load_contract,
+        )
+    except ImportError:
+        logger.warning(
+            "Failed to scan contract for unresolved gaps",
+            pipeline_id=pipeline.id,
+            exc_info=True,
+        )
+        return []
+
+    try:
+        from routes import resolve_worktree_path
+        from routes.pipelines import _pipeline_identifier
+
+        worktree_path = resolve_worktree_path(pipeline.id, store_repo_path)
+        contract_id = _pipeline_identifier(pipeline.issue_number, pipeline.id)
+        try:
+            contract = load_contract(contract_id, worktree_path)
+        except ContractNotFoundError:
+            return []
+        return [f"{task_id}/{gap.id}" for task_id, gap in contract.unresolved_gaps()]
+    except OSError, ValueError, ContractValidationError:
+        # Mirror _collect_unresolved_phase_decisions: filesystem /
+        # serialization / validation failures fail open and log; only
+        # programming errors are left to propagate.
+        logger.warning(
+            "Failed to scan contract for unresolved gaps",
+            pipeline_id=pipeline.id,
+            exc_info=True,
+        )
+        return []
+
+
 @phases_bp.route("/<pipeline_id>/phase/complete", methods=["POST"])
 @require_lifecycle_secret
 def complete_phase(pipeline_id: str) -> tuple[Response, int]:
@@ -1149,6 +1208,30 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
                 reason="unresolved_hitl_decisions",
             )
 
+        # Block finalize while the contract carries unresolved TaskGaps.
+        # A tester→coder gap left open ships into the committed contract
+        # and fails test_models_gaps.py red in CI on the already-open PR
+        # (#3298 class 4). Mirror the unresolved-HITL guard above so the
+        # failure is symmetric and surfaced early; force=true abandons.
+        # See #3300.
+        unresolved_gap_ids = _collect_unresolved_contract_gaps(pipeline, store.repo_path)
+        if unresolved_gap_ids and not force:
+            return make_error_response(
+                (
+                    f"Phase '{pipeline.current_phase.value}' has "
+                    f"{len(unresolved_gap_ids)} unresolved contract gap"
+                    f"{'s' if len(unresolved_gap_ids) != 1 else ''}. "
+                    "Resolve them (set the gap's resolved=true) or pass "
+                    "force=true to ship with the gap open."
+                ),
+                status_code=409,
+                details={
+                    "phase": pipeline.current_phase.value,
+                    "unresolved_gap_ids": unresolved_gap_ids,
+                },
+                reason="unresolved_contract_gaps",
+            )
+
         phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
         phase_execution.status = PipelineStatus.COMPLETE
         phase_execution.completed_at = datetime.now(UTC)
@@ -1161,17 +1244,21 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
         # so the abandoned decisions remain on the frozen phase history for
         # audit, even though they were never resolved. Values must be
         # strings (PhaseExecution.artifacts is dict[str, str]).
-        if force and unresolved_ids:
+        if force and (unresolved_ids or unresolved_gap_ids):
             merged = dict(phase_execution.artifacts)
-            merged["force_completed_decisions"] = json.dumps(unresolved_ids)
+            if unresolved_ids:
+                merged["force_completed_decisions"] = json.dumps(unresolved_ids)
+            if unresolved_gap_ids:
+                merged["force_completed_gaps"] = json.dumps(unresolved_gap_ids)
             if force_reason:
                 merged["force_reason"] = force_reason
             phase_execution.artifacts = merged
             logger.warning(
-                "Phase force-completed with unresolved HITL decisions",
+                "Phase force-completed with unresolved HITL decisions / contract gaps",
                 pipeline_id=pipeline_id,
                 phase=pipeline.current_phase.value,
                 unresolved_decision_ids=unresolved_ids,
+                unresolved_gap_ids=unresolved_gap_ids,
                 force_reason=force_reason,
             )
 

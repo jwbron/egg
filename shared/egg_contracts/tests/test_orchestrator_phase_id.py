@@ -104,10 +104,10 @@ class TestOrchestratorCompleteAgent:
         orch = Orchestrator(contract, phase_id="phase-1")
 
         orch.start_agent(AgentRole.CODER)
-        execution = orch.complete_agent(AgentRole.CODER, commit="abc123")
+        execution = orch.complete_agent(AgentRole.CODER, commit="abc1234")
 
         assert execution.status == AgentExecutionStatus.COMPLETE
-        assert execution.commit == "abc123"
+        assert execution.commit == "abc1234"
 
     def test_complete_agent_with_outputs(self):
         """complete_agent records outputs correctly."""
@@ -116,7 +116,7 @@ class TestOrchestratorCompleteAgent:
 
         orch.start_agent(AgentRole.CODER)
         outputs = {"summary": "Implemented phase 1"}
-        execution = orch.complete_agent(AgentRole.CODER, commit="abc123", outputs=outputs)
+        execution = orch.complete_agent(AgentRole.CODER, commit="abc1234", outputs=outputs)
 
         assert execution.status == AgentExecutionStatus.COMPLETE
         assert execution.outputs == outputs
@@ -130,9 +130,9 @@ class TestOrchestratorCompleteAgent:
         orch.state.set_execution(AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-2")
         orch.state.mark_running(AgentRole.CODER, phase_id="phase-2")
 
-        execution = orch.complete_agent(AgentRole.CODER, commit="def456", phase_id="phase-2")
+        execution = orch.complete_agent(AgentRole.CODER, commit="def4567", phase_id="phase-2")
         assert execution.status == AgentExecutionStatus.COMPLETE
-        assert execution.commit == "def456"
+        assert execution.commit == "def4567"
 
 
 class TestOrchestratorFailAgent:
@@ -180,7 +180,7 @@ class TestOrchestratorGetNextDispatch:
         orch = Orchestrator(contract, phase_id="phase-1")
 
         orch.start_agent(AgentRole.CODER)
-        orch.complete_agent(AgentRole.CODER, commit="abc123")
+        orch.complete_agent(AgentRole.CODER, commit="abc1234")
 
         decision = orch.get_next_dispatch()
         assert AgentRole.TESTER in decision.agents_to_run
@@ -221,7 +221,7 @@ class TestOrchestratorPhaseIndependence:
 
         # Start and complete coder in phase-1
         orch1.start_agent(AgentRole.CODER)
-        orch1.complete_agent(AgentRole.CODER, commit="abc123")
+        orch1.complete_agent(AgentRole.CODER, commit="abc1234")
 
         # Phase-2 coder should still be pending
         coder_p2 = orch2.state.get_execution(AgentRole.CODER, phase_id="phase-2")
@@ -234,7 +234,7 @@ class TestOrchestratorPhaseIndependence:
         orch = Orchestrator(contract, phase_id="phase-1")
 
         orch.start_agent(AgentRole.CODER)
-        orch.complete_agent(AgentRole.CODER, commit="abc123")
+        orch.complete_agent(AgentRole.CODER, commit="abc1234")
 
         updated_contract = orch.apply_to_contract()
         # Find coder execution

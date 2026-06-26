@@ -317,6 +317,7 @@ The overseer is a phase-scoped, read-only agent that handles cases the orchestra
 - **Phase-scoped** — the overseer is spawned at the start of each pipeline phase and torn down when that phase completes, advances, or fails. Each phase gets a fresh overseer instance with no accumulated state from prior phases.
 - **Auto-spawned** on every pipeline (when `overseer_enabled` is true) — gated on agents actively running: a zero-agent HITL park does not spawn an overseer (#2270 slice-5)
 - **Configurable turn budget** — the overseer runs with `overseer_max_turns` (default 2000) Agent SDK turns per phase, configurable in `PipelineConfig`. This replaced a hardcoded value of 500 that caused premature exits during active consensus negotiation (~480 turns consumed in ~25 minutes).
+- **Presence-gated** — the overseer is only spawned when agents are actively running in the phase. Zero-agent HITL parks do not spawn an overseer; the presence check uses the deterministic phase roster that the concurrent executor itself consults (#2270 slice-5). If the overseer exits mid-phase, any restart need goes through the general agent-restart machinery (the bespoke `_check_and_respawn_overseer` loop was retired in #2270 slice-5).
 - **One overseer per pipeline phase** — only one overseer container runs at a time
 - **No code access** — cannot clone, checkout, or modify code
 
@@ -626,7 +627,8 @@ The overseer reads the authoritative restart count from the spawner's REST API r
 The overseer monitors itself:
 - **Poll cycle timing** — warns if a cycle takes >2x expected duration
 - **Message volume** — alerts if sending >10 redirects per minute
-- **LLM call costs** — reduces poll frequency if exceeding budget
+- **LLM call costs** — reduces poll frequency if exceeding budget; lifetime costs are tracked per-model so a routing anomaly (e.g., Opus billed when Haiku was requested) is visible
+- **Classifier/advisor failure rate** — fires the `overseer_self_health` detection-plane finding when the Haiku classifier or Opus advisor failure rate breaches the configured threshold, signalling that the overseer's own reasoning substrate is unreliable; in-flight alerts are emitted via `alert_sink` the first time a new concern set appears (not just at completion time)
 - **Self-reporting** — files an issue about itself and signals `BLOCKED` if malfunctioning
 
 ## Overseer vs. Mediator Boundary

@@ -188,14 +188,31 @@ class TestTaskGapsRoundTrip:
 
 class TestBackCompatWithExistingContracts:
     """Old on-disk contracts MUST continue to load cleanly post-iter-2,
-    and the parsed task objects must expose ``gaps`` as an empty list
-    (NOT an absent key) so the rendered MCP response shape stays stable.
+    and the parsed task objects must expose ``gaps`` as a list (NOT an
+    absent key) so the rendered MCP response shape stays stable.
+
+    A committed contract must carry **no unresolved gaps** — a tester→
+    coder :class:`TaskGap` left ``resolved == False`` is the #3298 class-4
+    failure the finalize gate (#3300) blocks.  A *resolved* gap is the
+    intended terminal state: ``TaskGap.resolved`` is an audit flag (set
+    via the contract-mutate path; there is no removal path), so a gap that
+    has been addressed legitimately stays on the contract as a record.
+    This invariant — ``not gap.resolved`` for every gap — is exactly what
+    ``Contract.unresolved_gaps()`` and the finalize gate enforce, so the
+    proactive gate and this reactive backstop cannot drift.
     """
 
     @pytest.mark.parametrize("fixture", CONTRACT_FIXTURES, ids=lambda p: p.name)
     def test_existing_contract_parses(self, fixture: Path):
-        """A pre-iter-2 contract must load post-iter-2 and report
-        ``gaps=[]`` on every task.
+        """A pre-iter-2 contract must load post-iter-2 and report no
+        *unresolved* gaps on any task.
+
+        Legacy fixtures predate gaps entirely, so they trivially satisfy
+        the invariant (``gaps == []``).  The assertion is deliberately
+        ``not gap.resolved`` rather than ``gaps == []`` so it matches the
+        finalize gate's clearing criterion (``Contract.unresolved_gaps()``):
+        a contract whose gaps the operator resolved before finalize must
+        pass *both* gates, not clear the gate yet fail this test red.
 
         Some legacy fixtures have unrelated schema drift (e.g., old
         agent role enums); those predate the gaps migration and are
@@ -222,12 +239,19 @@ class TestBackCompatWithExistingContracts:
                 f"Legacy fixture {fixture.name} has unrelated schema drift "
                 f"(not about gaps): {str(exc).splitlines()[0]}"
             )
-        # Every task, in every phase, must report gaps as a list.
+        # Every task, in every phase, must report gaps as a list with no
+        # *unresolved* gap left open (resolved gaps are a kept audit trail).
         for phase in contract.phases:
             for task in phase.tasks:
-                assert task.gaps == [], (
+                assert isinstance(task.gaps, list), (
                     f"{fixture.name}: task {task.id} in phase {phase.id} "
-                    f"has non-empty gaps before iter-2 writes landed"
+                    f"does not expose gaps as a list"
+                )
+                unresolved = [g.id for g in task.gaps if not g.resolved]
+                assert unresolved == [], (
+                    f"{fixture.name}: task {task.id} in phase {phase.id} "
+                    f"committed with unresolved gaps {unresolved} "
+                    f"(#3298 class 4 — the finalize gate must block these)"
                 )
 
     def test_at_least_one_fixture_back_compat_tested(self):
@@ -290,6 +314,147 @@ class TestContractJsonSchema:
 # --------------------------------------------------------------------
 # Role-aware mutation validator
 # --------------------------------------------------------------------
+
+
+class TestContractUnresolvedGaps:
+    """``Contract.unresolved_gaps()`` powers the finalize/PR-open gate
+    (#3300): it must surface every open gap across all slices so the
+    pipeline can block before committing a contract that would fail
+    ``test_models_gaps.py`` red in CI."""
+
+    def _contract_with_gaps(self, gaps_by_task):
+        return Contract(
+            pipeline_id="issue-3300",
+            slices=[
+                {
+                    "id": "slice-1",
+                    "name": "n",
+                    "tasks": [
+                        {"id": task_id, "description": "d", "gaps": gaps}
+                        for task_id, gaps in gaps_by_task
+                    ],
+                }
+            ],
+        )
+
+    def test_clean_contract_returns_empty(self):
+        contract = self._contract_with_gaps([("task-1-1", [])])
+        assert contract.unresolved_gaps() == []
+
+    def test_resolved_gaps_excluded(self):
+        contract = self._contract_with_gaps(
+            [
+                (
+                    "task-1-1",
+                    [
+                        {
+                            "id": "gap-1",
+                            "from_role": "tester",
+                            "to_role": "coder",
+                            "description": "d",
+                            "resolved": True,
+                        }
+                    ],
+                )
+            ]
+        )
+        assert contract.unresolved_gaps() == []
+
+    def test_open_gap_surfaced_with_task_id(self):
+        contract = self._contract_with_gaps(
+            [
+                (
+                    "task-1-2",
+                    [
+                        {
+                            "id": "gap-3",
+                            "from_role": "tester",
+                            "to_role": "coder",
+                            "description": "no error-path test",
+                        }
+                    ],
+                )
+            ]
+        )
+        open_gaps = contract.unresolved_gaps()
+        assert len(open_gaps) == 1
+        task_id, gap = open_gaps[0]
+        assert task_id == "task-1-2"
+        assert gap.id == "gap-3"
+        assert gap.resolved is False
+
+    def test_mixed_resolved_and_open_across_tasks(self):
+        contract = self._contract_with_gaps(
+            [
+                (
+                    "task-1-1",
+                    [
+                        {
+                            "id": "gap-1",
+                            "from_role": "tester",
+                            "to_role": "coder",
+                            "description": "open",
+                        },
+                        {
+                            "id": "gap-2",
+                            "from_role": "tester",
+                            "to_role": "coder",
+                            "description": "closed",
+                            "resolved": True,
+                        },
+                    ],
+                ),
+                (
+                    "task-1-2",
+                    [
+                        {
+                            "id": "gap-3",
+                            "from_role": "reviewer_code",
+                            "to_role": "coder",
+                            "description": "also open",
+                        }
+                    ],
+                ),
+            ]
+        )
+        ids = sorted(f"{t}/{g.id}" for t, g in contract.unresolved_gaps())
+        assert ids == ["task-1-1/gap-1", "task-1-2/gap-3"]
+
+    def test_resolved_contract_passes_both_gates(self):
+        """Cross-check that the gate and the reactive backstop agree.
+
+        The finalize gate (#3300) clears when ``unresolved_gaps() == []``;
+        the resolution path it advertises sets ``resolved=true`` (there is
+        no gap-removal path).  A contract that took that path therefore
+        carries a *resolved* gap.  This pins the invariant that such a
+        contract clears the gate **and** satisfies the reactive
+        ``test_existing_contract_parses`` check (no unresolved gaps),
+        so resolving a gap can never produce the red PR the gate exists to
+        prevent.  If the two criteria ever diverge again, this fails.
+        """
+        contract = self._contract_with_gaps(
+            [
+                (
+                    "task-1-1",
+                    [
+                        {
+                            "id": "gap-1",
+                            "from_role": "tester",
+                            "to_role": "coder",
+                            "description": "addressed by the coder",
+                            "resolved": True,
+                        }
+                    ],
+                )
+            ]
+        )
+        # Gate criterion: cleared.
+        assert contract.unresolved_gaps() == []
+        # Reactive-backstop criterion (test_existing_contract_parses):
+        # no *unresolved* gap on any committed task.
+        for phase in contract.phases:
+            for task in phase.tasks:
+                assert [g.id for g in task.gaps if not g.resolved] == []
 
 
 class TestGapsMutationAuthorization:
