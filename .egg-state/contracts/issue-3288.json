@@ -98,7 +98,7 @@
       "id": "slice-2",
       "name": "De-ledger docs/architecture line-edit pages",
       "goal": "Sentence-level de-ledgering of the architecture pages that need edits\nrather than a rewrite. Strip slice/TASK ids; rewrite \"used to\u2026 now\u2026\"\ninto present-tense current behavior; keep issue links that justify the\ncurrent design, reframed as rationale.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -107,10 +107,10 @@
         {
           "id": "task-2-1",
           "description": "De-ledger docs/architecture/brc-memory.md: replace \"Introduced by\n#2908, slice-1.\", \"Slice-1 lands the writer\u2026 lands in slice-3.\nSlice-4 flipped the default\u2026\", \"Added in #3200 slice-5.\" with\npresent-tense descriptions of the current BRC-memory mechanism.\nKeep an issue link only where it explains why the design exists.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "fd16800dab6017f47d0a747a432c03c84a94179b",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Rewrote docs/architecture/brc-memory.md as a present-tense snapshot of the BRC memory mechanism. Removed all slice-NUMBER / \"lands in slice-N\" / \"flipped the default\" chronology; the \"Acceptance contract (slice-1)\" section is now \"Writer guarantees\". Retained issue links (#2908, #3163, #3164, #1998/#2336) only as rationale for why the design exists.",
           "acceptance_criteria": "- brc-memory.md describes the current mechanism with no\n  slice-NUMBER / \"lands in slice-N\" / \"flipped the default\"\n  chronology; retained links read as rationale.",
           "files_affected": [
             "docs/architecture/brc-memory.md"
@@ -128,10 +128,10 @@
         {
           "id": "task-2-2",
           "description": "De-ledger docs/architecture/orchestrator.md (highest density) and\nthe remaining lower-density architecture line-edit pages\n(overseer-calibration-corpus.md, upstream-routing.md,\ncontext-discipline.md). Convert the behavioral sections keyed on\nslice/TASK ids (\"slice-4 TASK-4-5\", \"TASK-4-1 used to clear only\u2026\")\nand the slice-1\u2192slice-4 \"slice lifecycle\" change-log section into\ndescriptions of current behavior; strip slice/TASK ids and \"used\nto\u2026 now\u2026\" narration from the others; keep issue links only as\nrationale.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "fd16800dab6017f47d0a747a432c03c84a94179b",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "De-ledgered orchestrator.md (highest density) + overseer-calibration-corpus.md, upstream-routing.md, context-discipline.md. orchestrator.md: the BRC consensus-wrapper \"slice lifecycle\"/rollout narration and the in-pod-loop historical record were rewritten into a current-behavior description of the orchestrator-owned event loop (orchestrator/event_loop.py); slice-restart-hardening TASK-N ids, upstream-routing summary, \"Open-decision resolutions\" (od-N), preamble-collapse, env-var table rows, and scattered slice/TASK refs all converted. Live-machinery \"slice\" naming (slice_id, contract.slices, per-slice trackers, EGG_ORCH_*_SLICES) retained. The three smaller pages had slice/TASK ledger + used-to/now narration stripped; retained links read as rationale. Verified by grep: no slice-N/TASK-N/od-N/cq-N ledger refs remain; no stale anchors.",
           "acceptance_criteria": "- orchestrator.md \"slice lifecycle\"/rollout narration is replaced by\n  a current-behavior description; no slice-N/TASK-N references remain\n  except reviewer-accepted live-machinery naming.\n- overseer-calibration-corpus.md, upstream-routing.md, and\n  context-discipline.md carry no slice/TASK ledger references;\n  retained links are rationale.",
           "files_affected": [
             "docs/architecture/orchestrator.md",
@@ -154,11 +154,11 @@
         "slice-1"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3288/slice-1",
+      "integration_base_sha": "55352cc1114281975d6d942e0da923b559361c1e",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3319,
+      "pr_url": "https://github.com/jwbron/egg/pull/3319",
       "review_feedback": []
     },
     {
@@ -683,6 +683,72 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T21:26:30.905607Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.notes",
+      "old_value": "",
+      "new_value": "Rewrote docs/architecture/brc-memory.md as a present-tense snapshot of the BRC memory mechanism. Removed all slice-NUMBER / \"lands in slice-N\" / \"flipped the default\" chronology; the \"Acceptance contract (slice-1)\" section is now \"Writer guarantees\". Retained issue links (#2908, #3163, #3164, #1998/#2336) only as rationale for why the design exists.",
+      "reason": "Updated notes for task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T21:26:35.110283Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.notes",
+      "old_value": "",
+      "new_value": "De-ledgered orchestrator.md (highest density) + overseer-calibration-corpus.md, upstream-routing.md, context-discipline.md. orchestrator.md: the BRC consensus-wrapper \"slice lifecycle\"/rollout narration and the in-pod-loop historical record were rewritten into a current-behavior description of the orchestrator-owned event loop (orchestrator/event_loop.py); slice-restart-hardening TASK-N ids, upstream-routing summary, \"Open-decision resolutions\" (od-N), preamble-collapse, env-var table rows, and scattered slice/TASK refs all converted. Live-machinery \"slice\" naming (slice_id, contract.slices, per-slice trackers, EGG_ORCH_*_SLICES) retained. The three smaller pages had slice/TASK ledger + used-to/now narration stripped; retained links read as rationale. Verified by grep: no slice-N/TASK-N/od-N/cq-N ledger refs remain; no stale anchors.",
+      "reason": "Updated notes for task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T21:26:39.874570Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": null,
+      "new_value": "fd16800dab6017f47d0a747a432c03c84a94179b",
+      "reason": "Linked commit fd16800 to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T21:26:39.896593Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T21:26:40.346504Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": null,
+      "new_value": "fd16800dab6017f47d0a747a432c03c84a94179b",
+      "reason": "Linked commit fd16800 to task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T21:26:40.362526Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-2 as complete",
       "checkpoint_id": null
     }
   ],
