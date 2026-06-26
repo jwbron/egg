@@ -781,7 +781,7 @@
       "id": "slice-9",
       "name": "Cleanup (\u00a76, net-negative) + docs",
       "goal": "Collapse per-class fail-soft scaffolding; de-duplicate advisor-escalation plumbing; harden the\ntwo-tier `file_issue` dedup. Confirm-then-remove genuinely-dead code ONLY \u2014 do NOT delete\n`issue_filer.py` on the stale #1962 premise (imported `__init__.py:27` + `monitor.py:36`, called\n`monitor.py:675`); do NOT re-decompose `monitor.py` (rides #2817). Update docs (overseer\narchitecture, the orchestrator-side overseership model, deprecation notes for\n`overseer_decision_maker_model` + `EGG_OVERSEER_*`). Verify overall net-negative line count.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -790,8 +790,8 @@
         {
           "id": "task-9-1",
           "description": "Collapse per-class fail-soft scaffolding; de-duplicate advisor-escalation plumbing; harden the\ntwo-tier `file_issue` dedup. Re-confirm `issue_filer.py` is still imported/called before\ntouching it (it is); remove only genuinely-dead code; do NOT re-decompose `monitor.py`.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "72be4d414",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Net deletion across `monitor.py`/`decision_maker.py`; dedup deterministic under repeats;\n`issue_filer.py` retained and exercised.",
@@ -813,8 +813,8 @@
         {
           "id": "task-9-2",
           "description": "Finalize deprecation: ensure `overseer_decision_maker_model` + `EGG_OVERSEER_*` shims are\ninert and clearly marked; add the guarded shadow\u2192enforce gate for\n`overseer_auto_file_issues_mode` (default stays shadow; flip only after telemetry validates).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "72be4d414",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Deprecated surfaces are inert/marked; the enforce mode is config-selectable and defaulted to\nshadow with test coverage.",
@@ -835,8 +835,8 @@
         {
           "id": "task-9-3",
           "description": "Tests for dedup hardening, fail-soft collapse, the shadow\u2192enforce gate default, and a\nnet-negative sanity check that deletion did not regress detection (corpus still green).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "71d9fad5e",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Cleanup behaviors covered; corpus stays green. `make test` green.",
@@ -856,8 +856,8 @@
         {
           "id": "task-9-4",
           "description": "Refresh the docs for the delivered shape: overseer architecture, the orchestrator-side\noverseership model (detection plane + bounded corrective vocabulary + on-demand adjudicator),\nthe detector catalogue, the authority path, and the deprecation notes.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "a0e2cff5c",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "`docs/architecture/overseer.md`, `health_checks/README.md`, and `overseer/README.md` reflect\nthe delivered subsystem; #2817 decomposition noted out of scope.",
@@ -881,11 +881,11 @@
         "slice-8"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-2270-overhaul/slice-8",
+      "integration_base_sha": "f8aad4ff55133b5bed11771dee1fa5fb290ca189",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3297,
+      "pr_url": "https://github.com/jwbron/egg/pull/3297",
       "review_feedback": []
     }
   ],
@@ -1760,6 +1760,94 @@
       "old_value": "10cfe23c3",
       "new_value": "a80bdfdbb",
       "reason": "Linked commit a80bdfd to task-8-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T09:46:45.089211Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.8.tasks.2.commit",
+      "old_value": null,
+      "new_value": "71d9fad5e",
+      "reason": "Linked commit 71d9fad to task-9-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T09:46:45.118455Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.8.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-9-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T09:49:22.189511Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.8.tasks.3.commit",
+      "old_value": null,
+      "new_value": "a0e2cff5c",
+      "reason": "Linked commit a0e2cff to task-9-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T09:49:22.215289Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.8.tasks.3.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-9-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T09:57:01.031794Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.8.tasks.0.commit",
+      "old_value": null,
+      "new_value": "72be4d414",
+      "reason": "Linked commit 72be4d4 to task-9-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T09:57:01.058977Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.8.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-9-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T09:57:01.087876Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.8.tasks.1.commit",
+      "old_value": null,
+      "new_value": "72be4d414",
+      "reason": "Linked commit 72be4d4 to task-9-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T09:57:01.111480Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.8.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-9-2 as complete",
       "checkpoint_id": null
     }
   ],
