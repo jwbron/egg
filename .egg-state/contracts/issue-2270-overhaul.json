@@ -276,7 +276,7 @@
       "id": "slice-4",
       "name": "Orchestrator-side detection plane + escalation\u2192adjudicator path (Option C core spine)",
       "goal": "Build the in-process deterministic evaluator that runs detectors over an EventStreamSnapshot on\nthe orchestrator event loop (extending `health_checks/tier1/`); each detector returns\nOptional[Finding{class, severity, evidence, recommended_action, requires_adjudication}]. Wire the\nescalation path: when `requires_adjudication` is set, spawn a NORMAL on-demand OVERSEER agent\n(slice-3 path, Opus via slice-2 resolver) returning a structured verdict the orchestrator\nconsumes. Corpus-validated against slice-1. The replacement that MUST exist before slice-5.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -285,8 +285,8 @@
         {
           "id": "task-4-1",
           "description": "Implement the deterministic detection plane: an in-process evaluator that runs detectors over\nan EventStreamSnapshot on the orchestrator event loop, extending the `health_checks` runner;\ndefine the `Finding` type (class, severity, evidence, recommended_action,\nrequires_adjudication).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "63fb5d073",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "The evaluator yields `Optional[Finding]` per detector over a snapshot; routine cases need no\nLLM; the slice-1 harness can drive it.",
@@ -310,8 +310,8 @@
         {
           "id": "task-4-2",
           "description": "Wire the escalation\u2192adjudicator path: a `Finding` with `requires_adjudication` spawns a NORMAL\non-demand OVERSEER agent (slice-3 normalized spawn, Opus via the slice-2 resolver) that\nreturns a structured verdict; the orchestrator consumes the verdict (the authority plane in\nslice-6 executes on it). Retire standing-pod assumptions from `monitor.py`.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "63fb5d073",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "The adjudicator spawns only on `requires_adjudication`; routine findings never spawn it; the\nverdict is structured and consumed in-process.",
@@ -333,8 +333,8 @@
         {
           "id": "task-4-3",
           "description": "Corpus-validate the detection plane against slice-1 (flip the plane's rows to strict);\ntest the Finding contract and that the adjudicator spawns only when `requires_adjudication`.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "c7ecda675",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Plane corpus rows strict-pass; adjudicator-spawn gating covered. `make test` green.",
@@ -357,11 +357,11 @@
         "slice-3"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-2270-overhaul/slice-3",
+      "integration_base_sha": "aa1526b1e31066b14fbc3d2f780b8edccee689d3",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3287,
+      "pr_url": "https://github.com/jwbron/egg/pull/3287",
       "review_feedback": []
     },
     {
@@ -1265,6 +1265,72 @@
       "old_value": "a341fd825",
       "new_value": "79904a695",
       "reason": "Linked commit 79904a6 to task-3-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T05:02:59.320562Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.2.commit",
+      "old_value": null,
+      "new_value": "c7ecda675",
+      "reason": "Linked commit c7ecda6 to task-4-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T05:02:59.343894Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T05:09:35.558425Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.commit",
+      "old_value": null,
+      "new_value": "63fb5d073",
+      "reason": "Linked commit 63fb5d0 to task-4-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T05:09:35.576664Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T05:09:35.911547Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.commit",
+      "old_value": null,
+      "new_value": "63fb5d073",
+      "reason": "Linked commit 63fb5d0 to task-4-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T05:09:35.929612Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-2 as complete",
       "checkpoint_id": null
     }
   ],
