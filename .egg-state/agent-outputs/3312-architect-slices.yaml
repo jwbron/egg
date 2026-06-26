@@ -1,0 +1,255 @@
+# Recommended slice DAG for issue #3312 — decompose 19 oversize files.
+# Architect RECOMMENDS; task_planner owns the final DAG / ordering / PR packaging.
+# All 19 slices are FILE-DISJOINT at the source level (each touches only its own
+# foo.py -> foo/ tree). dependencies are therefore NONE. The "wave" annotation is a
+# scheduling/priority HINT (front-load independent wins per the issue + #2817/#3111
+# history), not a hard DAG edge. The only cross-slice contention is MECHANICAL:
+# scripts/file-size-allowlist.yaml (each slice drops its entry) and the CLAUDE.md
+# seam tables (each slice adds its row) — resolved by the section-(e) rebase recipe,
+# not by serialization.
+#
+# Every slice (unless noted) follows the canonical pattern:
+#   step-0 git mv foo.py -> foo/__init__.py (own bisectable commit, test-all green)
+#   -> carve clusters into underscore-prefixed submodules
+#   -> __init__.py barrel does explicit per-symbol re-exports (stable API; preserves
+#      patch("module._sym") targets — run the section-(d) importer audit per cluster)
+#   -> drop the file's scripts/file-size-allowlist.yaml entry
+#   -> add/refresh the relevant CLAUDE.md seam-table row
+#   -> make lint + make test-all green. Pure refactor, no behavior change. Branch egg/.
+slices:
+  # ===================== WAVE 1 — clean ~1–1.3x cap fast wins =====================
+  - id: 1
+    name: |-
+      Decompose sandbox/egg_lib/contract_cli.py (1,501) -> contract_cli/
+    goal: |-
+      CLI/argparse command-dominated. Keep ~20 shared helpers, an aggregator
+      create_parser() (calls each submodule's register_<group>_parsers), and main()
+      in __init__.py. Submodules: _display, _task_ops, _phase_ops, _decision,
+      _agent_ops (~450, largest), _feedback. Smallest target -> a clean first landing
+      and a second worked example of the CLI shape. Add a seam table to sandbox/CLAUDE.md
+      (none today) with this row.
+    dependencies: none
+  - id: 2
+    name: |-
+      Decompose orchestrator/routes/decisions.py (1,562) -> routes/decisions/
+    goal: |-
+      Flask Blueprint decisions_bp (9 routes). @decisions_bp.route decorators STAY in
+      __init__.py (decision-8) on thin wrappers. Submodules: _query, _resolve
+      (resolve_decision 221 + _resolve_contract_decision 216), _handlers (HITL
+      processing), _lifecycle (cancel/feedback/queue-status), _graph_mutations. Add the
+      orchestrator/CLAUDE.md seam table + this row.
+    dependencies: none
+  - id: 3
+    name: |-
+      Decompose orchestrator/state_store.py (1,635) -> state_store/
+    goal: |-
+      Class-dominated (StateStore, 34 methods) -> method-modules-on-class: keep the
+      StateStore class object in __init__.py with thin delegating methods; extract bodies
+      to _lifecycle (create/load/save/delete/update), _git (worktree/lock/run-git ~360),
+      _sync (remote sync/reconcile/restore), _queries (discovery/listing), _commit.
+      StateStore is a core, heavily-imported type — audit importers carefully; barrel
+      MUST re-export StateStore at the same path. Add orchestrator/CLAUDE.md row.
+    dependencies: none
+  - id: 4
+    name: |-
+      Decompose orchestrator/routes/phases.py (1,736) -> routes/phases/
+    goal: |-
+      Flask Blueprint phases_bp (9 routes); decorators stay in __init__.py. Submodules:
+      _queries, _state (advance_phase ~541 + state clearing), _start, _gates, _complete
+      (completion + contract population), _failure. PHASE_TRANSITIONS is a load-bearing
+      cross-module import (pipelines _run_loop reads it) — re-export it from the barrel.
+      Add orchestrator/CLAUDE.md row.
+    dependencies: none
+  - id: 5
+    name: |-
+      Decompose orchestrator/routes/deployment.py (1,854) -> routes/deployment/
+    goal: |-
+      Flask Blueprint deployment_bp (7 routes); decorators stay in __init__.py.
+      Submodules: _runtime, _cluster_detection, _context, _manifest_validation (~380,
+      largest), _service_logs, _network_probe, _rebuild. Add orchestrator/CLAUDE.md row.
+    dependencies: none
+  - id: 6
+    name: |-
+      Decompose orchestrator/routes/event_prompt.py (1,895) -> routes/event_prompt/
+    goal: |-
+      Function-dominated helper module (NOT a Blueprint). Keep compose_event_prompt()
+      entry in __init__.py. Submodules: _render (~300, section renderers; #3200/#3231
+      JIT-pull rendering lives here), _extract (payload extractors), _delta (git-log
+      delta), _task (task/feedback reading). Add orchestrator/CLAUDE.md row.
+    dependencies: none
+  - id: 7
+    name: |-
+      Decompose shared/egg_contracts/plan_parser.py (1,952) -> plan_parser/
+    goal: |-
+      Function-dominated (models + transformation layers). Keep public API in the barrel:
+      PlanPreflightError; ParsedTask/ParsedPhase/ParseWarning/ParseResult; parse_plan/
+      parse_plan_file/validate_plan_preflight; validate_forest/validate_slice_file_overlap/
+      validate_task_role_alignment; yaml/markdown parse fns; format_warnings_for_comment.
+      Submodules: _yaml_parse (~400), _markdown_parse (~230), _orchestration (parse_plan),
+      _validators (forest/overlap/role + preflight ~430); models in __init__.py or _models.
+      FIRST shared/ file -> CREATE shared/CLAUDE.md (absent today) with a seam table + row.
+    dependencies: none
+  # ===================== WAVE 2 — ~2–2.5x cap, one sub-sub-split each ============
+  - id: 8
+    name: |-
+      Decompose orchestrator/overseer/monitor.py (2,130) -> overseer/monitor/
+    goal: |-
+      Class-dominated (OverseerMonitor, ~53 async methods) -> method-modules-on-class.
+      Path: orchestrator/overseer/monitor.py -> orchestrator/overseer/monitor/.
+      Submodules: _lifecycle (init/start/stop/reset/health-summary), _polling (poll cycle
+      + all _query_* + container list/logs ~680, largest), _detection (stall/consistency/
+      anomaly), _escalation (adjudicate/decide), _execution (execute-action/restart),
+      _messaging (alerts/HITL/slack). Add orchestrator/CLAUDE.md row.
+    dependencies: none
+  - id: 9
+    name: |-
+      Decompose sandbox/entrypoint.py (2,212) -> entrypoint/
+    goal: |-
+      Class + sequential-setup-function dominated. Keep Config dataclass, run_cmd(),
+      run_exec(), main() in __init__.py (entrypoint surface). Submodules: _startup
+      (StartupTimer/Logger/timed_phase), _user_setup (user/repo perms, uid/gid),
+      _environment_setup (git/CA/anthropic/worktrees/symlink/rules/claude ~490, largest),
+      _python_setup, _subprocess (stderr/cleanup), _orchestrator (completion/cleanup).
+      Add the row to sandbox/CLAUDE.md's seam table.
+    dependencies: none
+  - id: 10
+    name: |-
+      Decompose orchestrator/peer_consensus.py (2,326; over byte cap) -> peer_consensus/
+    goal: |-
+      Class-dominated (PeerConsensusTracker, ~45 methods) -> method-modules-on-class.
+      Submodules: _matrix (init/register/state), _proposal (handle_propose + nudge),
+      _verdict (ack/nack), _confirmation (confirmed/withdraw), _lifecycle (crash/stall/
+      excuse/reopen/timeout/obligation), _queries (snapshot/state/evaluate), _invariants.
+      Over the byte cap (102,933) — byte reduction follows the line split. orchestrator/
+      CLAUDE.md row.
+    dependencies: none
+  - id: 11
+    name: |-
+      Decompose gateway/git_client.py (2,393) -> git_client/
+    goal: |-
+      Function-dominated (29 functions + 2 data classes) -> function clusters. Barrel
+      re-exports ALL public symbols (GIT_ALLOWED_COMMANDS, BLOCKED_GIT_FLAGS,
+      ALLOWED_FLAG_VALUES, git_cmd, url/path validators, validate_git_args, branch-switch
+      detectors, credential helpers, push-analysis + attribution fns, AttributedFile/
+      AttributedPushRange, get_token_for_repo, build_rebase_onto_args). Submodules:
+      _command_builder, _url_handling, _path_validation, _arg_validation (normalize/validate
+      + GIT_ALLOWED_COMMANDS data ~784, largest), _branch_detection, _credentials,
+      _push_analysis, _attribution (~430), _token, _rebase. Add gateway/CLAUDE.md seam
+      table + row.
+    dependencies: none
+  - id: 12
+    name: |-
+      Decompose gateway/worktree_manager.py (2,507) -> worktree_manager/
+    goal: |-
+      Class-dominated (WorktreeManager, 27 methods) -> method-modules-on-class. Barrel
+      keeps WorktreeManager + dataclasses (WorktreeInfo/WorktreeRemovalResult) + validators
+      (validate_identifier/validate_branch_ref) + entry points (startup_cleanup/
+      get_active_docker_containers) + constants. Submodules: _lifecycle, _git_ops (~970,
+      largest), _filesystem, _phase, _removal, _listing, _orphan_mgmt (~629), _session,
+      _validation, _startup. Over byte cap (106,355). gateway/CLAUDE.md row.
+    dependencies: none
+  # ===================== WAVE 3 — ~2.9–3.4x cap, one over-cap cluster each =======
+  - id: 13
+    name: |-
+      Decompose orchestrator/mcp_tools.py (2,948) -> mcp_tools/
+    goal: |-
+      Class-dominated (PipelineToolHandler, ~42 _handle_*) -> method-modules-on-class.
+      Keep the class + handle_tool_call dispatch in __init__.py. Submodules: _task_handlers
+      (~680), _status, _phase_handlers, _agent_handlers, _consensus, _config, _deployment,
+      _gateway. Over byte cap (130,445). orchestrator/CLAUDE.md row.
+    dependencies: none
+  - id: 14
+    name: |-
+      Decompose orchestrator/kubernetes_spawner.py (3,041; over byte cap) -> kubernetes_spawner/
+    goal: |-
+      Class-dominated (KubernetesSpawner) -> method-modules-on-class. Keep the class +
+      helper classes (_EventJobStatusView, SpawnedContainer) + properties in __init__.py.
+      Submodules: _agent_spawning (~750), _job_lifecycle, _restart_tracking, _worktree_reuse,
+      _session, _job_names. Over byte cap (139,815) — line split drives byte reduction.
+      orchestrator/CLAUDE.md row.
+    dependencies: none
+  - id: 15
+    name: |-
+      Decompose orchestrator/routes/signals.py (3,398; over byte cap) -> routes/signals/
+    goal: |-
+      Flask Blueprint signals_bp (2 routes: /signal dispatcher, /signal/batch); decorators
+      stay in __init__.py. Submodules: _lifecycle (complete/progress/error/heartbeat/
+      readiness), _consensus_propose, _consensus_verdict (ack/nack), _consensus_confirmation
+      (confirmed/withdraw/excuse/obligation), and _validation/ — the validation cluster
+      (~1,650) is OVER CAP -> sub-sub-package (_validate_content / _validate_artifacts /
+      _validate_plan / _branch_progress) per section (g). orchestrator/CLAUDE.md row.
+    dependencies: none
+  # ===================== WAVE 4 — large, multiple over-cap clusters ==============
+  - id: 16
+    name: |-
+      Decompose orchestrator/gateway_client.py (4,326; over byte cap) -> gateway_client/
+    goal: |-
+      Class-dominated (GatewayClient) -> method-modules-on-class. Keep the class + thin
+      methods + _make_request/retry in __init__.py; module-level PR-body formatters
+      re-exported if externally referenced. Submodules: _request, _sessions, _worktrees,
+      _push (push/conflict/rebase), and TWO over-cap clusters needing sub-sub-packages
+      (section g): _pr/ (create/update/format ~1,560 -> _pr_create/_pr_update/_pr_format)
+      and _branches/ (queries/merge-base/rebase-onto/fetch ~1,760 -> _branch_queries/
+      _merge/_rebase_onto). orchestrator/CLAUDE.md row.
+    dependencies: none
+  - id: 17
+    name: |-
+      Decompose sandbox/egg_lib/orch_cli.py (5,012; over byte cap) -> orch_cli/
+    goal: |-
+      CLI/argparse command-dominated. Keep ApiError, ~45 shared helpers, a now-THIN
+      create_parser() (aggregates each submodule's register_<group>_parsers), main() in
+      __init__.py — the 1,325-line create_parser dissolves as registration distributes.
+      Submodules (12): _helpers, _health, _pipeline, _signal, _phase, _decision, _container,
+      _gateway, _message (~663, largest), _overseer, _consensus, _brc, _progress. Add the
+      sandbox/CLAUDE.md row.
+    dependencies: none
+  # ===================== WAVE 5 — structural outliers (PR stacks) ================
+  - id: 18
+    name: |-
+      Decompose gateway/gateway.py (10,385; over byte cap) -> gateway/gateway/  [PR STACK]
+    goal: |-
+      Second outlier; ~7x cap, 46 @app.route handlers + 1 errorhandler + 3 registered
+      sibling Blueprints. ALL decorators + blueprint registrations + module singletons
+      (app, _health_tracker, _worktree_manager, _MOUNT_MAPPING, LAUNCHER_SECRET*) stay in
+      __init__.py (decision-8). Recommended PACKAGING: a stack — PR-0 step-0 git mv
+      baseline, then per-route-group PRs; allowlist entry drops on the FINAL PR once
+      gateway/ is under cap (ratchet still reduces size intra-stack). Submodules: _helpers
+      (path-xlate + response builders), _auth, _health, _confluence_routes (~1,159),
+      _worktree_routes, _session_routes, _proxy (creds + hops + /v1/messages + count_tokens
+      ~939), _startup (main + health server), and THREE over-cap route groups each
+      further-split in-slice (section g): _git_routes/ (push ~969/execute ~738/fetch),
+      _github_routes/ (pr-write/execute ~669/pr-query), _jira_routes/ (read/write). Re-export
+      the ~12 gateway.gateway.* patch targets (audit per section d). Add gateway/CLAUDE.md
+      rows. Independent of slice 19 — may run in parallel.
+    dependencies: none
+  - id: 19
+    name: |-
+      Decompose orchestrator/routes/pipelines.py (27,211; over byte cap) -> routes/pipelines/  [PR STACK; _run_loop last]
+    goal: |-
+      The dominant outlier (~18x cap, 16 routes, ~57 distinct routes.pipelines.* patch
+      targets across ~137 test files). pipelines_bp + all 16 route decorators stay in
+      __init__.py; barrel re-exports every externally-referenced symbol (audit per cluster,
+      section d). Recommended PACKAGING: a STACK — PR-0 step-0 git mv baseline, then one PR
+      per top-level submodule (or small group), with _run_loop/ extracted LAST (it depends
+      on the most helpers and is riskiest); allowlist entry drops on the FINAL PR.
+      Submodules: _types, _ids, _overseer, _container_lifecycle, _status, _divergence,
+      _contract_population, _phase_gates, _driver, _streaming, plus over-cap clusters
+      needing sub-sub-packages (section g): _crud_routes/ (~2,500), _prompt_building/
+      (~5,500; _build_agent_prompt ~1,206 and _build_phase_prompt ~683 are individually
+      huge — pre-allocate further-splits), _git_operations/ (~1,879), _pr_management/
+      (~1,994), and the AT-CAP _slice_runner / _concurrent_phase (~1,560 / ~1,519; in-slice
+      further-split contingency).
+      NON-NEGOTIABLE #7 — _run_pipeline (~3,042) -> _run_loop/ sub-sub-package, decomposed
+      DIRECTLY (not deferred): __init__.py = thin orchestration loop (setup preamble +
+      `while True` phase dispatch on (success,error,next_phase) + exception/finally
+      envelope); _setup (load/worktrees/sync/health); _phase_handlers (per-phase refine/
+      plan/apply/implement, split to _refine/_plan/_apply/_implement if over cap);
+      _consensus_cycle (inner review while-loop + slice-DAG routing + dispatch to
+      _run_implement_phase_slices/_run_concurrent_phase); _hitl_gate (queue/await/parse +
+      revise-vs-approve; signals the cycle to re-run, doesn't drive the loop); _advance
+      (next-phase compute + apply-handoff/wontdo-drain + driver respawn + return).
+      PRESERVE BYTE-EQUIVALENT-IN-EFFECT: phase-transition semantics, epoch-bump
+      supersession, spurious-PNFE retry, finally-block health-monitor + worktree cleanup
+      (kept in the loop finally, NOT handlers). Add the orchestrator/CLAUDE.md pipelines/
+      row. Independent of slice 18.
+    dependencies: none
