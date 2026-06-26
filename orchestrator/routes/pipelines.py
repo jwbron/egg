@@ -982,6 +982,10 @@ def _run_overseer_detection_plane(
     findings carrying ``requires_adjudication`` to the on-demand adjudicator.
     Returns ``(finding, verdict)`` pairs — ``verdict`` is ``None`` for routine
     findings that were handled deterministically without an agent.
+
+    The default plane already carries the slice-8 §5 coverage-gap detectors
+    (registered in :meth:`DetectionPlane.default`), so production runs the full
+    detector set without any wiring here.
     """
     from health_checks.detection_plane import default_detection_plane, escalate_findings
 

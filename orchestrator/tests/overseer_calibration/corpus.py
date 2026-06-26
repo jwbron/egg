@@ -79,17 +79,49 @@ class Severity(StrEnum):
 class FindingClass(StrEnum):
     """One class per incident the corpus pins.
 
-    Slice-8's coverage-gap survey will extend this; the harness matches on the
-    raw string so a detector may emit a class not listed here without breaking
-    structural matching.
+    Slices 1/4/7 pin the first block; slice-8's §5 coverage-gap survey extends
+    it with the second block (one class per surveyed layer — orchestrator
+    runtime, worktree/branch, container/k8s, gateway, BRC/thrashing, HITL queue,
+    cost/budget, external-state, LLM-substrate, and overseer self-health). The
+    harness matches on the raw string so a detector may emit a class not listed
+    here without breaking structural matching, but every class the corpus asserts
+    on is named here for type-safety at the call sites that construct them.
     """
 
+    # --- slices 1/4/7 -------------------------------------------------------
     OVERSEER_SELF_INJECTION = "overseer_self_injection"
     ALERT_REFLECTION = "alert_reflection"
     PHASE_STALL = "phase_stall"
     HEARTBEAT_STALL = "heartbeat_stall"
     BRANCH_DIVERGENCE = "branch_divergence"
     CONTAINER_DEATH = "container_death"
+
+    # --- slice-8 §5 coverage-gap survey ------------------------------------
+    # orchestrator runtime (task-8-1)
+    RUNTIME_THREAD_DEAD = "runtime_thread_dead"
+    AUTO_ADVANCE_WEDGE = "auto_advance_wedge"
+    APPROVED_DECISION_ORPHANED = "approved_decision_orphaned"
+    DURATION_DRIFT = "duration_drift"
+    AGENT_RESTART_PROPAGATION = "agent_restart_propagation"
+    RESTARTED_DECISION_REPLAY = "restarted_decision_replay"
+    # worktree / branch, container / k8s, gateway (task-8-2)
+    WORKTREE_CORRUPTION = "worktree_corruption"
+    DISK_INODE_PRESSURE = "disk_inode_pressure"
+    CONTAINER_RESTART_LOOP = "container_restart_loop"
+    CONTAINER_OOM_EVICTED = "container_oom_evicted"
+    GATEWAY_ERROR_SPIKE = "gateway_error_spike"
+    GATEWAY_REPEATED_DENIAL = "gateway_repeated_denial"
+    GATEWAY_TOKEN_EXPIRY = "gateway_token_expiry"
+    # BRC / thrashing, HITL queue, cost, external, LLM-substrate, self-health (task-8-3)
+    BRC_THRASH = "brc_thrash"
+    INCOMPLETE_CONSENSUS_DEFERRAL = "incomplete_consensus_deferral"
+    HITL_QUEUE_BACKLOG = "hitl_queue_backlog"
+    COST_ANOMALY = "cost_anomaly"
+    PR_EXTERNAL_MUTATION = "pr_external_mutation"
+    LLM_SUBSTRATE_UNREACHABLE = "llm_substrate_unreachable"
+    EFFECTIVE_MODEL_DRIFT = "effective_model_drift"
+    ANTHROPIC_5XX = "anthropic_5xx"
+    OVERSEER_SELF_HEALTH = "overseer_self_health"
 
 
 # ---------------------------------------------------------------------------

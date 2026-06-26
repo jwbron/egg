@@ -102,6 +102,28 @@ except ImportError:
 else:
     register_detector("branch_divergence", detect_branch_divergence)
 
+# ---------------------------------------------------------------------------
+# Slice-8 bridge (task-8-4): the §5 coverage-gap survey wires every new
+# detector into the production detection plane (the architecture requires each
+# new detector to be "plugged into the slice-4 plane"). Rather than couple this
+# bridge to ~20 per-module import paths, auto-register every detector the plane
+# carries by its ``detector_key`` — the single, stable coupling point. Same
+# test → production direction as the slice-4/7 bridges (production never imports
+# the test-only corpus).
+#
+# On the tester branch alone the plane is importable (slice-4 landed) but only
+# carries ``phase_stall``, so the slice-8 keys stay unregistered → their
+# known-bad rows remain xfail and ``test_slice8_coverage_gap_rows_are_strict``
+# skips, keeping ``make test`` green. Once the coder wires the slice-8 detectors
+# into ``DetectionPlane.default()`` they resolve here and flip to strict.
+try:
+    from health_checks.detection_plane import default_detection_plane
+except ImportError:
+    pass
+else:
+    for _s8_key, _s8_detector in default_detection_plane().detectors.items():
+        register_detector(_s8_key, _s8_detector)
+
 # Load once at collection time so rows can be parametrized with per-row marks.
 _CORPUS: list[CorpusRow] = load_corpus()
 
@@ -312,6 +334,66 @@ def test_slice7_signal_calibration_rows_are_strict() -> None:
         if row.detector_key in set(_SLICE7_DETECTOR_KEYS) and not row.is_known_bad:
             detector = resolve_detector(row.detector_key)
             assert detector is not None
+            assert_row(detector, row)
+
+
+# ---------------------------------------------------------------------------
+# Slice-8 (task-8-4): §5 coverage-gap rows flip to strict.
+# ---------------------------------------------------------------------------
+
+
+def _slice8_detector_keys() -> set[str]:
+    """The detector keys the slice-8 known-bad rows pin (the §5 survey set)."""
+    return {r.detector_key for r in _CORPUS if r.delivered_in_slice == 8}
+
+
+def test_slice8_corpus_covers_the_survey() -> None:
+    """task-8-4: every slice-8 detector class has BOTH polarities in the corpus.
+
+    Pure corpus assertion — runs on the tester branch alone (no production import
+    needed). The §5 survey is large; this pins that each surveyed layer landed a
+    known-bad row *and* its known-normal companion (the precision tooth), and
+    that the set is non-trivial so a silently-dropped detector class is caught.
+    """
+    keys = _slice8_detector_keys()
+    assert len(keys) >= 20, (
+        f"the §5 coverage-gap survey must pin many detector classes; got {len(keys)}: "
+        f"{sorted(keys)}"
+    )
+    by_key: dict[str, set[Label]] = {}
+    for row in _CORPUS:
+        if row.detector_key in keys:
+            by_key.setdefault(row.detector_key, set()).add(row.label)
+    for key in keys:
+        assert by_key.get(key) == {Label.KNOWN_NORMAL, Label.KNOWN_BAD}, (
+            f"slice-8 detector {key!r} needs both a known-normal and a known-bad row"
+        )
+
+
+def test_slice8_coverage_gap_rows_are_strict() -> None:
+    """task-8-4: once the slice-8 plane is wired, its §5 rows pass under real detectors.
+
+    Skips on the tester branch alone (the coverage-gap detectors are not wired
+    into ``DetectionPlane.default()`` yet); on the integrated slice branch every
+    slice-8 known-bad row fires the expected finding under the real detector AND
+    every known-normal companion stays silent (precision — the "stop crying wolf"
+    invariant generalised to the full survey).
+    """
+    pytest.importorskip("health_checks.detection_plane")
+
+    keys = _slice8_detector_keys()
+    assert keys, "slice-8 must deliver at least one detector row"
+
+    missing = sorted(k for k in keys if resolve_detector(k) is None)
+    if missing:
+        pytest.skip(f"slice-8 §5 detectors not yet wired into the plane: {missing}")
+
+    for row in _CORPUS:
+        if row.detector_key in keys:
+            detector = resolve_detector(row.detector_key)
+            assert detector is not None, (
+                f"slice-8 detector {row.detector_key!r} must be registered (strict, not xfail)"
+            )
             assert_row(detector, row)
 
 
