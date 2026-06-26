@@ -1672,3 +1672,19 @@ class TestEventSpawnReseedThreshold:
 
         env = mock_spawn.call_args.kwargs["extra_env"]
         assert env["EGG_RESEED_THRESHOLD"] == str(int(0.80 * 262_144))  # 209_715, NOT 400_000
+
+    def test_event_spawn_threshold_conservative_for_unregistered_litellm_model(self):
+        """An unregistered LiteLLM model (not in ``_SUB_1M_CONTEXT_MODELS``, not a
+        Claude alias) resolves against the conservative 200K window, so the
+        threshold is ``int(0.80 * 200_000)`` = ``160_000`` — the branch an operator
+        whose model isn't in the registry silently lands on.
+        """
+        pipeline = _make_pipeline()
+        pipeline.config.agent_models = {"coder": "qwen3-coder-30b"}
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        spawner = self._event_spawner(pipeline, mock_spawn)
+
+        spawner.spawn_event(role="coder", action="propose", dedupe_key="k1")
+
+        env = mock_spawn.call_args.kwargs["extra_env"]
+        assert env["EGG_RESEED_THRESHOLD"] == "160000"
