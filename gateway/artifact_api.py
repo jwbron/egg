@@ -1,4 +1,4 @@
-"""Artifact API endpoints on the gateway (#3077 slice-4).
+"""Artifact API endpoints on the gateway.
 
 Sandbox entry point for served-read access to coordination artifacts
 (``analysis-draft``, ``plan-draft``, ``architect-output``, ...).  The
@@ -286,7 +286,7 @@ def get_artifact() -> tuple[Response, int]:
     identifier = body.get("identifier")
     if identifier is not None:
         # Pass through both shapes (str | int) — the orchestrator
-        # coerces all-digit strings to int to match the slice-2 spec.
+        # coerces all-digit strings to int per the identifier spec.
         if not isinstance(identifier, str | int):
             return _error("'identifier' must be a string or integer when provided")
         forwarded["identifier"] = identifier
