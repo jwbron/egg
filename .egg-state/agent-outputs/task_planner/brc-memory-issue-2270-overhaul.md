@@ -5,32 +5,30 @@
   `.egg-state/agent-outputs/task_planner/brc-memory.md` is **STALE** (issue-3077) — ignore it.
 
 ## Status
-- v1 plan written to `.egg-state/drafts/issue-2270-overhaul-plan.md`, committed + proposed via BRC.
+- v2 plan (ADOPTS architect DAG) at `.egg-state/drafts/issue-2270-overhaul-plan.md`, committed + proposed.
 - Validated locally (PYTHONPATH=shared; no .venv present): parse_plan success, **0 warnings**;
-  validate_plan_preflight OK; validate_forest=[]; validate_slice_file_overlap=[];
-  validate_task_role_alignment(repo=jwbron/egg)=[]. 9 slices, 31 tasks.
+  preflight OK; forest=[]; overlap=[]; role_alignment(repo=jwbron/egg)=[]. **9 slices, 30 tasks.**
+- v1 (my own ordering) was SUPERSEDED: rebased onto origin after architect + risk_analyst pushed;
+  re-aligned to the architect's slices.yaml.
 
 ## Plan shape (defend on NACK unless reviewer shows it wrong)
-- **Single serialized chain** slice-1 → … → slice-9 (each `dependencies: [prev]`). Chosen because the
-  overseer subsystem is tightly coupled (monitor.py / kubernetes_spawner.py / routes/pipelines.py /
-  health_checks/ all shared) — serialization makes #3046 file-overlap legal for free and is a forest.
-- slice-1 **Calibration corpus + harness** (deliverable #1, §2). Lands xfail markers so it's green;
-  later slices flip to strict (red→green). Corpus doc → `docs/architecture/overseer-calibration-corpus.md`
-  (NOT under tests/ — a .md under tests/ is unwritable by every role: documenter blocked from tests/,
-  coder/tester blocked from .md. This was the only role-align failure in v1; fixed).
-- slice-2 §2 false-positive fixes (midturn reflection, lifecycle-aware stall #3230/#2242,
-  ancestor/patch-id divergence #2222/#2224, thrashing defs #2059/#2132).
-- slice-3 §1 model tiering via resolve_agent_model (folds #2813; removes classify_model bypass).
-- slice-4 §1.5 fold spawn_overseer_job→spawn_agent_job(OVERSEER); delete EGG_OVERSEER_* + baked
-  overseer_monitor.py.
-- slice-5 §3 kill respawn churn; fold _check_and_respawn_overseer; restart/generation hygiene.
-- slice-6 Option C core: orchestrator-side deterministic detection + bounded corrective vocab +
-  on-demand adjudicator (Opus) only on adversarial escalation.
-- slice-7 §4 authority — real enforcement = gateway phase_filter/agent_restrictions (NOT
-  roles.py:can_modify, which is STALE).
-- slice-8 §5 coverage-gap survey (all-in-one per cq-2): new Tier-1 detectors across every layer.
-- slice-9 §6 cleanup (net-negative) + docs. issue_filer.py IS used — do NOT delete. monitor.py
-  decomposition rides #2817 (out of scope).
+- **ADOPTED the architect's 9-slice DAG** (`issue-2270-overhaul-architect-slices.yaml`) verbatim
+  (numbering/names/goals). Architect DAG is multi-parent (s4←[1,3], s7←[1,4], s8←[4,7], s9←[3,5,6,8]).
+- The #2137 forest validator forbids >1 parent, so contract `dependencies` is encoded as the **linear
+  chain slice-1→…→slice-9** — a VERIFIED topological sort of the architect DAG (script-checked). It
+  preserves every architect ordering edge incl. the hard invariant "detection plane (s4) + corpus (s1)
+  live before respawn deletion (s5)", is a forest, and makes all #3046 overlaps transitively ordered.
+- Architect's ORDER (key difference from my v1): s2 model-tiering + s3 spawn-norm come EARLY (the s4
+  detection plane needs normalized spawn + resolver to spawn the on-demand adjudicator); s4 plane built
+  BEFORE s5 deletes the pod; s7 signal-fixes plug INTO the s4 plane.
+- s1 corpus doc → `docs/architecture/overseer-calibration-corpus.md` (NOT tests/ — a .md under tests/
+  is unwritable by every role; this was the only role-align trap, fixed).
+- Slice map: 1 corpus+harness(§2 deliverable#1) · 2 model tiering(§1,#2813) · 3 spawn-norm(§1.5) ·
+  4 detection plane + adjudicator (Option C core) · 5 lifecycle/respawn(§3) · 6 authority/corrective
+  vocab(§4) · 7 signal fixes(§2) · 8 coverage survey(§5 all-in-one) · 9 cleanup+docs(§6).
+- §4 real enforcement = gateway/agent_restrictions.py + contract RBAC (NOT stale roles.py:can_modify).
+  §7b: RETAIN #3123 brc-confirmation-timeout nudge (golden-file). §6: issue_filer.py IS used — keep;
+  monitor.py decomposition rides #2817 (out).
 
 ## Anchors honored
 - HITL cq-1 = Option C (hybrid). cq-2 = All-in-one (full §1–§6 incl §5 survey). Both binding.
