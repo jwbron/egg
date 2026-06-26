@@ -3,20 +3,19 @@
 Deterministic detection-plane detectors over an :class:`EventStreamSnapshot`.
 Each is a pure function ``snapshot -> Finding | None``: it never raises, never
 calls an LLM, and fires only on a condition it can *prove* from the snapshot
-(the §2 "stop crying wolf" discipline). Routine findings carry
-``requires_adjudication=False`` so the bounded corrective vocabulary (slice-6)
-handles them without an LLM.
+(the §2 "stop crying wolf" discipline).
 
 These detectors are registered into the slice-1 calibration corpus by
 ``detector_key`` (so each gets a strict corpus row) and into the production
-:class:`DetectionPlane` (see ``routes/pipelines.register_coverage_gap_detectors``).
+:class:`DetectionPlane` (see ``DetectionPlane.default``).
 
-Detectors here key on the ``consensus`` field of the snapshot:
+Detectors here key on the ``consensus`` section of the snapshot:
 
-* :func:`detect_brc_thrashing` — a reviewer/producer NACK->propose->NACK thrash.
-* :func:`detect_late_confirm_renack` — a CONFIRMED edge followed by a re-NACK.
+* :func:`detect_brc_thrash` — reviewer/producer NACK→propose→NACK thrash, or a
+  late CONFIRMED that was then re-NACKed. A thrash needs human/LLM judgement to
+  break (adjudicate), so it escalates.
 * :func:`detect_incomplete_consensus_deferral` — unbounded incomplete-consensus
-  deferral.
+  deferral past its cap.
 """
 
 from __future__ import annotations
@@ -31,19 +30,14 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
 
 from health_checks.types import Finding, Severity
 
-# Finding-class strings. Emitted as plain strings (the detection plane matches a
-# detector's output structurally on the raw string, so slice-8 may name classes
-# beyond the pinned ``FindingClass`` enum — see health_checks/types.py).
-FINDING_BRC_THRASHING = "brc_thrashing"
-FINDING_LATE_CONFIRM_RENACK = "late_confirm_renack"
+# Finding-class strings (matched structurally on the raw string by the plane).
+FINDING_BRC_THRASH = "brc_thrash"
 FINDING_INCOMPLETE_CONSENSUS_DEFERRAL = "incomplete_consensus_deferral"
 
-# Default number of NACK->propose->NACK cycles before a consensus edge is
-# considered thrashing rather than ordinary back-and-forth review.
-_DEFAULT_THRASH_THRESHOLD = 3
-# Default cap on incomplete-consensus deferrals before the unbounded-deferral
-# loop is itself worth surfacing.
-_DEFAULT_DEFERRAL_CAP = 5
+# Default NACK-cycle count before a review edge is treated as thrashing.
+_DEFAULT_NACK_CYCLE_THRESHOLD = 3
+# Default cap fallback when the snapshot does not carry an explicit deferral cap.
+_DEFAULT_DEFERRAL_CAP = 20
 
 
 def _consensus(snapshot: Any) -> dict[str, Any]:
@@ -51,141 +45,86 @@ def _consensus(snapshot: Any) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
-def _as_int(value: Any) -> int | None:
-    """Best-effort numeric coercion; ``None`` for non-numeric / missing."""
-    if isinstance(value, bool):
+def _as_float(value: Any) -> float | None:
+    """Coerce a numeric-looking value to float, returning None otherwise."""
+    if isinstance(value, bool) or value is None:
         return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
+    if isinstance(value, (int, float)):
+        return float(value)
     return None
 
 
-def detect_brc_thrashing(
+def detect_brc_thrash(
     snapshot: Any,
     *,
-    threshold: int = _DEFAULT_THRASH_THRESHOLD,
+    nack_cycle_threshold: int = _DEFAULT_NACK_CYCLE_THRESHOLD,
 ) -> Finding | None:
-    """Fire on a reviewer/producer NACK->propose->NACK consensus thrash.
+    """Fire on BRC review thrash or a late CONFIRMED-then-re-NACK.
 
-    A consensus edge that cycles NACK -> re-propose -> NACK repeatedly is not
-    making progress. Fire when either the recorded ``thrash_count`` or the
-    ``nack_cycles`` count reaches ``threshold``. A small amount of normal
-    back-and-forth (below ``threshold``) stays silent.
-
-    Deterministic → ``requires_adjudication=False``.
+    Fires when ``consensus.nack_cycles`` reaches ``nack_cycle_threshold`` (a
+    review edge cycling NACK→propose→NACK without converging), OR when
+    ``consensus.late_confirmed_then_renack`` is set (a CONFIRMED edge that was
+    then re-NACKed). Both are genuine disagreements that need adjudication to
+    break, so the verdict escalates → ``requires_adjudication=True``.
     """
     consensus = _consensus(snapshot)
+    nack_cycles = _as_float(consensus.get("nack_cycles")) or 0.0
+    late_renack = bool(consensus.get("late_confirmed_then_renack"))
 
-    thrash_count = _as_int(consensus.get("thrash_count"))
-    nack_cycles = _as_int(consensus.get("nack_cycles"))
-
-    thrash_hit = thrash_count is not None and thrash_count >= threshold
-    cycles_hit = nack_cycles is not None and nack_cycles >= threshold
-    if not (thrash_hit or cycles_hit):
+    if not (nack_cycles >= nack_cycle_threshold or late_renack):
         return None
 
     return Finding(
-        finding_class=FINDING_BRC_THRASHING,
+        finding_class=FINDING_BRC_THRASH,
         severity=Severity.MEDIUM,
         evidence={
-            "protocol": consensus.get("protocol"),
-            "blocking_agents": consensus.get("blocking_agents"),
-            "thrash_count": thrash_count,
             "nack_cycles": nack_cycles,
-            "threshold": threshold,
+            "late_confirmed_then_renack": late_renack,
+            "nack_cycle_threshold": nack_cycle_threshold,
         },
         recommended_action=(
-            "A BRC consensus edge is thrashing (NACK->propose->NACK past the "
-            "threshold) without converging. Surface the disagreement for "
-            "adjudication or an operator HITL rather than letting the producer "
-            "re-propose indefinitely."
+            "BRC consensus is thrashing (repeated NACK cycles, or a CONFIRMED "
+            "edge re-NACKed). Adjudicate the disagreement or open an operator "
+            "HITL to break the loop rather than letting it cycle."
         ),
-        requires_adjudication=False,
-        detector_key="brc_thrashing",
+        requires_adjudication=True,
+        detector_key="brc_thrash",
     )
 
 
-detect_brc_thrashing.detector_key = "brc_thrashing"  # type: ignore[attr-defined]
-detect_brc_thrashing.name = "brc_thrashing_detector"  # type: ignore[attr-defined]
+detect_brc_thrash.detector_key = "brc_thrash"  # type: ignore[attr-defined]
+detect_brc_thrash.name = "brc_thrash_detector"  # type: ignore[attr-defined]
 
 
-def detect_late_confirm_renack(snapshot: Any) -> Finding | None:
-    """Fire when a CONFIRMED consensus edge is followed by a re-NACK.
+def detect_incomplete_consensus_deferral(snapshot: Any) -> Finding | None:
+    """Fire when incomplete-consensus deferral exceeds its cap.
 
-    Once consensus is CONFIRMED the edge should be settled; a subsequent NACK
-    means the confirmation was premature or has been reopened. Fire when the
-    snapshot records ``confirmed_then_renacked`` as truthy, or a non-zero
-    ``post_confirm_nack_count``.
+    Fires when ``consensus.incomplete_consensus_deferrals`` exceeds the snapshot's
+    ``consensus.deferral_cap`` (falling back to a default). Caps the unbounded
+    "defer again" loop so it cannot run forever.
 
     Deterministic → ``requires_adjudication=False``.
     """
     consensus = _consensus(snapshot)
-
-    confirmed_then_renacked = bool(consensus.get("confirmed_then_renacked"))
-    post_confirm_nack = _as_int(consensus.get("post_confirm_nack_count"))
-    post_confirm_hit = post_confirm_nack is not None and post_confirm_nack >= 1
-
-    if not (confirmed_then_renacked or post_confirm_hit):
+    deferrals = _as_float(consensus.get("incomplete_consensus_deferrals"))
+    if deferrals is None:
         return None
-
-    return Finding(
-        finding_class=FINDING_LATE_CONFIRM_RENACK,
-        severity=Severity.MEDIUM,
-        evidence={
-            "protocol": consensus.get("protocol"),
-            "blocking_agents": consensus.get("blocking_agents"),
-            "confirmed_then_renacked": confirmed_then_renacked,
-            "post_confirm_nack_count": post_confirm_nack,
-        },
-        recommended_action=(
-            "A consensus edge was re-NACKed after it had already been CONFIRMED "
-            "(#2270 §5). Treat the confirmation as reopened and re-run the BRC "
-            "cycle for the edge rather than merging on the stale CONFIRMED."
-        ),
-        requires_adjudication=False,
-        detector_key="late_confirm_renack",
-    )
-
-
-detect_late_confirm_renack.detector_key = "late_confirm_renack"  # type: ignore[attr-defined]
-detect_late_confirm_renack.name = "late_confirm_renack_detector"  # type: ignore[attr-defined]
-
-
-def detect_incomplete_consensus_deferral(
-    snapshot: Any,
-    *,
-    cap: int = _DEFAULT_DEFERRAL_CAP,
-) -> Finding | None:
-    """Fire on unbounded incomplete-consensus deferral.
-
-    An incomplete consensus may be deferred a bounded number of times while it
-    converges; deferring past ``cap`` is an unbounded-deferral loop. Fire when
-    the recorded ``deferral_count`` exceeds ``cap`` (deferrals at or below the
-    cap stay silent).
-
-    Deterministic → ``requires_adjudication=False``.
-    """
-    consensus = _consensus(snapshot)
-
-    deferral_count = _as_int(consensus.get("deferral_count"))
-    if deferral_count is None or deferral_count <= cap:
+    cap = _as_float(consensus.get("deferral_cap"))
+    if cap is None:
+        cap = float(_DEFAULT_DEFERRAL_CAP)
+    if deferrals <= cap:
         return None
 
     return Finding(
         finding_class=FINDING_INCOMPLETE_CONSENSUS_DEFERRAL,
         severity=Severity.MEDIUM,
         evidence={
-            "protocol": consensus.get("protocol"),
-            "blocking_agents": consensus.get("blocking_agents"),
-            "deferral_count": deferral_count,
-            "cap": cap,
+            "incomplete_consensus_deferrals": deferrals,
+            "deferral_cap": cap,
         },
         recommended_action=(
-            "An incomplete consensus has been deferred past its cap (#2270 §5), "
-            "an unbounded-deferral loop. Force resolution of the edge or escalate "
-            "to an operator HITL rather than deferring again."
+            "Incomplete-consensus deferral exceeded its cap. Stop deferring and "
+            "escalate the blocked consensus to an operator HITL."
         ),
         requires_adjudication=False,
         detector_key="incomplete_consensus_deferral",
@@ -197,7 +136,6 @@ detect_incomplete_consensus_deferral.name = "incomplete_consensus_deferral_detec
 
 
 __all__ = [
-    "detect_brc_thrashing",
+    "detect_brc_thrash",
     "detect_incomplete_consensus_deferral",
-    "detect_late_confirm_renack",
 ]

@@ -62,6 +62,13 @@ def _git_state(snapshot: Any) -> dict[str, Any]:
     return state if isinstance(state, dict) else {}
 
 
+def _raw_section(snapshot: Any, name: str) -> dict[str, Any]:
+    """Return the named top-level section of the snapshot (carried in ``raw``)."""
+    raw = getattr(snapshot, "raw", {}) or {}
+    section = raw.get(name, {}) if isinstance(raw, dict) else {}
+    return section if isinstance(section, dict) else {}
+
+
 def _as_float(value: Any) -> float | None:
     """Coerce a numeric-looking value to float, returning None otherwise."""
     if isinstance(value, bool) or value is None:
@@ -78,17 +85,18 @@ def detect_worktree_corruption(
 ) -> Finding | None:
     """Fire on git index/lock corruption.
 
-    Corruption is provable when ``git_state.corrupt`` is set, when the index is
-    flagged ``index_locked``, or when a held lock has outlived its grace window
-    (``lock_age_s`` > ``lock_grace_s``) — a transient lock under the grace window
-    is normal in-flight git churn and stays silent.
+    Corruption is provable when ``git_state.fsck_errors`` is positive, when the
+    index lock is held (``index_lock_present``), or when a held lock has outlived
+    its grace window (``lock_age_s`` > ``lock_grace_s``) — a transient lock under
+    the grace window is normal in-flight git churn and stays silent.
 
     Deterministic → ``requires_adjudication=False``.
     """
     git_state = _git_state(snapshot)
 
-    corrupt = bool(git_state.get("corrupt"))
-    index_locked = bool(git_state.get("index_locked"))
+    fsck_errors = _as_float(git_state.get("fsck_errors")) or 0.0
+    corrupt = fsck_errors > 0
+    index_locked = bool(git_state.get("index_lock_present"))
     lock_age = _as_float(git_state.get("lock_age_s"))
     lock_stale = lock_age is not None and lock_age > lock_grace_s
 
@@ -100,8 +108,8 @@ def detect_worktree_corruption(
         severity=Severity.HIGH,
         evidence={
             "branch": git_state.get("branch"),
-            "corrupt": corrupt,
-            "index_locked": index_locked,
+            "fsck_errors": fsck_errors,
+            "index_lock_present": index_locked,
             "lock_age_s": lock_age,
             "lock_grace_s": lock_grace_s,
         },
@@ -127,29 +135,33 @@ def detect_disk_inode_pressure(
 ) -> Finding | None:
     """Fire on disk or inode exhaustion on the worktree volume.
 
-    Fires when either ``git_state.disk_used_pct`` or ``git_state.inode_used_pct``
-    is at/above ``threshold``. Usage below the threshold (or absent) stays silent.
+    Fires when either ``resources.disk_used_pct`` or ``resources.inode_used_pct``
+    is at/above the snapshot's ``resources.disk_threshold_pct`` (falling back to
+    ``threshold``). Usage below the threshold (or absent) stays silent.
 
     Deterministic → ``requires_adjudication=False``.
     """
-    git_state = _git_state(snapshot)
+    resources = _raw_section(snapshot, "resources")
 
-    disk_pct = _as_float(git_state.get("disk_used_pct"))
-    inode_pct = _as_float(git_state.get("inode_used_pct"))
+    disk_pct = _as_float(resources.get("disk_used_pct"))
+    inode_pct = _as_float(resources.get("inode_used_pct"))
+    limit = _as_float(resources.get("disk_threshold_pct"))
+    if limit is None:
+        limit = float(threshold)
 
-    disk_pressure = disk_pct is not None and disk_pct >= threshold
-    inode_pressure = inode_pct is not None and inode_pct >= threshold
+    disk_pressure = disk_pct is not None and disk_pct >= limit
+    inode_pressure = inode_pct is not None and inode_pct >= limit
 
     if not (disk_pressure or inode_pressure):
         return None
 
     return Finding(
         finding_class=FINDING_DISK_INODE_PRESSURE,
-        severity=Severity.HIGH,
+        severity=Severity.MEDIUM,
         evidence={
             "disk_used_pct": disk_pct,
             "inode_used_pct": inode_pct,
-            "threshold": threshold,
+            "threshold": limit,
         },
         recommended_action=(
             "Disk or inode usage on the worktree volume is at/above the "
@@ -169,25 +181,24 @@ detect_disk_inode_pressure.name = "disk_inode_pressure_detector"  # type: ignore
 def detect_pr_external_mutation(snapshot: Any) -> Finding | None:
     """Fire when the PR head was mutated outside the pipeline.
 
-    Fires when ``git_state.pr_externally_mutated`` is set, or when both the PR
-    head SHA and the last-pushed SHA are present and differ — meaning the PR head
-    is no longer the commit we pushed. Equal or absent SHAs stay silent (a missing
-    SHA is not provable divergence; an equal pair means the PR reflects our push).
+    Fires when ``pr_state.external_mutation`` is set, or when both the PR head
+    SHA and the pushed SHA are present and differ — meaning the PR head is no
+    longer the commit we pushed. Equal or absent SHAs stay silent (a missing SHA
+    is not provable divergence; an equal pair means the PR reflects our push).
 
     Deterministic → ``requires_adjudication=False``.
     """
-    git_state = _git_state(snapshot)
+    pr_state = _raw_section(snapshot, "pr_state")
 
-    pr_head = git_state.get("pr_head_sha")
-    last_pushed = git_state.get("last_pushed_sha")
+    pr_head = pr_state.get("pr_head_sha")
+    pushed = pr_state.get("pushed_sha")
     sha_divergence = (
         pr_head is not None
-        and last_pushed is not None
-        and pr_head != last_pushed
-        and pr_head is not last_pushed
+        and pushed is not None
+        and pr_head != pushed
     )
 
-    if not (git_state.get("pr_externally_mutated") or sha_divergence):
+    if not (pr_state.get("external_mutation") or sha_divergence):
         return None
 
     return Finding(
@@ -195,8 +206,8 @@ def detect_pr_external_mutation(snapshot: Any) -> Finding | None:
         severity=Severity.MEDIUM,
         evidence={
             "pr_head_sha": pr_head,
-            "last_pushed_sha": last_pushed,
-            "pr_externally_mutated": bool(git_state.get("pr_externally_mutated")),
+            "pushed_sha": pushed,
+            "external_mutation": bool(pr_state.get("external_mutation")),
         },
         recommended_action=(
             "The PR head was mutated outside the pipeline (its head SHA no longer "

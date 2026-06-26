@@ -43,9 +43,6 @@ FINDING_RESTARTED_DECISION_REPLAY = "restarted_decision_replay"
 # The phase-state status that means the orchestrator believes work is in flight.
 _RUNNING_STATUS = "RUNNING"
 
-# Decision statuses that mean an operator has cleared the gate.
-_RESOLVED_STATUSES = frozenset({"approved", "resolved"})
-
 # Default grace, in seconds, before an approved-but-not-advanced decision is
 # treated as a wedge rather than mid-flight bookkeeping.
 _DEFAULT_AUTO_ADVANCE_GRACE_S = 180.0
@@ -62,6 +59,13 @@ def _phase_state(snapshot: Any) -> dict[str, Any]:
 def _decision_state(snapshot: Any) -> dict[str, Any]:
     raw = getattr(snapshot, "decision_state", {}) or {}
     return raw if isinstance(raw, dict) else {}
+
+
+def _runtime(snapshot: Any) -> dict[str, Any]:
+    """The ``runtime`` section of the snapshot (carried in ``raw``)."""
+    raw = getattr(snapshot, "raw", {}) or {}
+    section = raw.get("runtime", {}) if isinstance(raw, dict) else {}
+    return section if isinstance(section, dict) else {}
 
 
 def _as_float(value: Any) -> float | None:
@@ -82,19 +86,21 @@ def detect_auto_advance_wedge(
 
     The defect (#2219): a decision is approved and flagged auto-advance-ready,
     but the phase never advanced — the auto-advance path wedged. The signature
-    is a RUNNING phase whose ``decision_state.auto_advance_ready`` is truthy and
-    whose ``auto_advance_age_s`` has aged past ``grace_s``.
+    is a RUNNING phase whose ``runtime.auto_advance_pending`` is truthy and whose
+    ``runtime.auto_advance_age_s`` has aged past ``grace_s``.
 
-    Deterministic → ``requires_adjudication=False``.
+    A wedged auto-advance is high-stakes (the phase silently never completes)
+    and the right corrective action is not obvious from the snapshot alone, so
+    the verdict is escalated → ``requires_adjudication=True``.
     """
     state = _phase_state(snapshot)
     if str(state.get("status", "")) != _RUNNING_STATUS:
         return None
 
-    decision = _decision_state(snapshot)
-    if not decision.get("auto_advance_ready"):
+    runtime = _runtime(snapshot)
+    if not runtime.get("auto_advance_pending"):
         return None
-    age_s = _as_float(decision.get("auto_advance_age_s"))
+    age_s = _as_float(runtime.get("auto_advance_age_s"))
     if age_s is None or age_s <= grace_s:
         return None
 
@@ -103,16 +109,17 @@ def detect_auto_advance_wedge(
         severity=Severity.HIGH,
         evidence={
             "phase": getattr(snapshot, "phase", None),
-            "auto_advance_ready": True,
+            "auto_advance_pending": True,
             "auto_advance_age_s": age_s,
             "grace_s": grace_s,
         },
         recommended_action=(
             "An auto-advanceable approved decision did not advance the phase "
-            "past the grace window (#2219). Re-trigger the auto-advance path or "
-            "advance the phase manually; the decision consumer is wedged."
+            "past the grace window (#2219). Adjudicate whether to re-trigger the "
+            "auto-advance path or advance the phase manually; the consumer is "
+            "wedged."
         ),
-        requires_adjudication=False,
+        requires_adjudication=True,
         detector_key="auto_advance_wedge",
     )
 
@@ -129,26 +136,21 @@ def detect_approved_decision_orphaned(
     """Fire when an approved/resolved decision has no consumer acting on it.
 
     The defect (#2219): a decision is approved/resolved by the operator but no
-    downstream consumer ever picks it up — it is orphaned. Fires when
-    ``decision_state.approved_unconsumed`` is truthy, OR when the last decision's
-    status is approved/resolved and its ``orphaned_age_s`` has aged past
-    ``grace_s``.
+    downstream consumer ever applies it — it is orphaned. Fires when
+    ``decision_state.approved_unapplied`` carries any entry whose ``age_s`` has
+    aged past ``grace_s`` (an empty list is clean).
 
     Deterministic → ``requires_adjudication=False``.
     """
     decision = _decision_state(snapshot)
 
-    approved_unconsumed = bool(decision.get("approved_unconsumed"))
+    unapplied = decision.get("approved_unapplied")
+    entries = [e for e in unapplied if isinstance(e, dict)] if isinstance(unapplied, list) else []
+    # An entry with no age is treated as just-appeared (age 0) and stays silent
+    # until it ages past the grace window.
+    orphaned = [e for e in entries if (_as_float(e.get("age_s")) or 0.0) > grace_s]
 
-    last_status = str(decision.get("last_decision_status", "") or "")
-    orphaned_age_s = _as_float(decision.get("orphaned_age_s"))
-    aged_out = (
-        last_status in _RESOLVED_STATUSES
-        and orphaned_age_s is not None
-        and orphaned_age_s > grace_s
-    )
-
-    if not (approved_unconsumed or aged_out):
+    if not orphaned:
         return None
 
     return Finding(
@@ -156,9 +158,7 @@ def detect_approved_decision_orphaned(
         severity=Severity.MEDIUM,
         evidence={
             "phase": getattr(snapshot, "phase", None),
-            "approved_unconsumed": approved_unconsumed,
-            "last_decision_status": last_status or None,
-            "orphaned_age_s": orphaned_age_s,
+            "approved_unapplied": orphaned,
             "grace_s": grace_s,
         },
         recommended_action=(
@@ -180,18 +180,17 @@ def detect_restarted_decision_replay(snapshot: Any) -> Finding | None:
 
     The defect (#2219): after an orchestrator restart, a stale decision is
     re-escalated — a replay cascade that re-asks an already-answered question.
-    Fires when ``decision_state.replay_count`` exceeds 1, OR when
-    ``replayed_after_restart`` is truthy.
+    Fires when ``decision_state.replay_pending`` is truthy, OR when a numeric
+    ``replay_count`` exceeds 1.
 
     Deterministic → ``requires_adjudication=False``.
     """
     decision = _decision_state(snapshot)
 
+    replay_pending = bool(decision.get("replay_pending"))
     replay_count = _as_float(decision.get("replay_count"))
-    replayed_after_restart = bool(decision.get("replayed_after_restart"))
-
     too_many_replays = replay_count is not None and replay_count > 1
-    if not (too_many_replays or replayed_after_restart):
+    if not (replay_pending or too_many_replays):
         return None
 
     return Finding(
@@ -199,8 +198,9 @@ def detect_restarted_decision_replay(snapshot: Any) -> Finding | None:
         severity=Severity.MEDIUM,
         evidence={
             "phase": getattr(snapshot, "phase", None),
+            "replay_pending": replay_pending,
+            "replayed_resolved_id": decision.get("replayed_resolved_id"),
             "replay_count": replay_count,
-            "replayed_after_restart": replayed_after_restart,
         },
         recommended_action=(
             "A decision is being replayed after an orchestrator restart (stale "
@@ -216,8 +216,54 @@ detect_restarted_decision_replay.detector_key = "restarted_decision_replay"  # t
 detect_restarted_decision_replay.name = "restarted_decision_replay_detector"  # type: ignore[attr-defined]
 
 
+# Default grace, in seconds, before the oldest open HITL decision is treated as
+# a backlog rather than a normally-pending operator decision.
+_DEFAULT_HITL_BACKLOG_GRACE_S = 3600.0
+
+
+def detect_hitl_queue_backlog(
+    snapshot: Any,
+    *,
+    grace_s: float = _DEFAULT_HITL_BACKLOG_GRACE_S,
+) -> Finding | None:
+    """Fire when the oldest open HITL decision has aged past the backlog grace.
+
+    A decision queue whose oldest open decision has been waiting longer than
+    ``grace_s`` is a backlog — the operator may have lost track of it. Fires on
+    ``decision_state.oldest_open_age_s`` past the grace window; a recently-opened
+    decision stays silent.
+
+    Deterministic → ``requires_adjudication=False``.
+    """
+    decision = _decision_state(snapshot)
+    oldest_age_s = _as_float(decision.get("oldest_open_age_s"))
+    if oldest_age_s is None or oldest_age_s <= grace_s:
+        return None
+
+    return Finding(
+        finding_class="hitl_queue_backlog",
+        severity=Severity.MEDIUM,
+        evidence={
+            "phase": getattr(snapshot, "phase", None),
+            "oldest_open_age_s": oldest_age_s,
+            "grace_s": grace_s,
+        },
+        recommended_action=(
+            "The oldest open HITL decision has aged past the backlog grace "
+            "window. Surface it to the operator; the decision queue is backing up."
+        ),
+        requires_adjudication=False,
+        detector_key="hitl_queue_backlog",
+    )
+
+
+detect_hitl_queue_backlog.detector_key = "hitl_queue_backlog"  # type: ignore[attr-defined]
+detect_hitl_queue_backlog.name = "hitl_queue_backlog_detector"  # type: ignore[attr-defined]
+
+
 __all__ = [
     "detect_approved_decision_orphaned",
     "detect_auto_advance_wedge",
+    "detect_hitl_queue_backlog",
     "detect_restarted_decision_replay",
 ]

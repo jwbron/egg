@@ -36,7 +36,7 @@ from health_checks.types import Finding, Severity
 # Finding-class strings. Emitted as plain strings (the detection plane matches a
 # detector's output structurally on the raw string, so slice-8 may name classes
 # beyond the pinned ``FindingClass`` enum — see health_checks/types.py).
-FINDING_RUN_PIPELINE_THREAD_DEAD = "run_pipeline_thread_dead"
+FINDING_RUN_PIPELINE_THREAD_DEAD = "runtime_thread_dead"
 FINDING_DURATION_DRIFT = "duration_drift"
 FINDING_AGENT_RESTART_PROPAGATION = "agent_restart_propagation"
 
@@ -47,8 +47,9 @@ _RUNNING_STATE = "Running"
 # Default grace, in seconds, before a silent ``_run_pipeline`` driver thread is
 # treated as dead/hung rather than merely between heartbeats.
 _DEFAULT_RUN_LOOP_GRACE_S = 300.0
-# Default multiple of a phase's expected duration before drift is worth noting.
-_DEFAULT_DURATION_DRIFT_FACTOR = 3.0
+# Default multiple of a phase's expected duration before drift is worth noting:
+# fire once a phase has run more than 2× its expected budget (drift_ratio > 2).
+_DEFAULT_DURATION_DRIFT_FACTOR = 2.0
 # Default deadline, in seconds, for a requested restart to propagate to a
 # respawned container before it is treated as never having propagated.
 _DEFAULT_RESTART_PROPAGATION_DEADLINE_S = 300.0
@@ -62,6 +63,13 @@ def _phase_state(snapshot: Any) -> dict[str, Any]:
 def _transitions(snapshot: Any) -> list[dict[str, Any]]:
     raw = getattr(snapshot, "container_transitions", ()) or ()
     return [t for t in raw if isinstance(t, dict)]
+
+
+def _runtime(snapshot: Any) -> dict[str, Any]:
+    """The ``runtime`` section of the snapshot (carried in ``raw``)."""
+    raw = getattr(snapshot, "raw", {}) or {}
+    section = raw.get("runtime", {}) if isinstance(raw, dict) else {}
+    return section if isinstance(section, dict) else {}
 
 
 def _as_float(value: Any) -> float | None:
@@ -94,17 +102,13 @@ def detect_run_pipeline_thread_liveness(
     No-fire when ``run_loop_alive`` is truthy, the heartbeat is recent, the phase
     is not RUNNING, or no liveness signal is present at all.
     """
-    state = _phase_state(snapshot)
-    if str(state.get("status", "")) != _RUNNING_STATUS:
-        return None
-
-    alive = state.get("run_loop_alive")
-    heartbeat_age_s = _as_float(state.get("run_loop_heartbeat_age_s"))
+    alive = _runtime(snapshot).get("run_pipeline_thread_alive")
+    tick_age_s = _as_float(_runtime(snapshot).get("thread_last_tick_age_s"))
 
     # Require an actual liveness signal — absence is not evidence of death.
     explicitly_dead = alive is False
-    heartbeat_stale = heartbeat_age_s is not None and heartbeat_age_s > grace_s
-    if not (explicitly_dead or heartbeat_stale):
+    tick_stale = tick_age_s is not None and tick_age_s > grace_s
+    if not (explicitly_dead or tick_stale):
         return None
 
     return Finding(
@@ -112,24 +116,22 @@ def detect_run_pipeline_thread_liveness(
         severity=Severity.HIGH,
         evidence={
             "phase": getattr(snapshot, "phase", None),
-            "status": _RUNNING_STATUS,
-            "run_loop_alive": alive,
-            "run_loop_heartbeat_age_s": heartbeat_age_s,
+            "run_pipeline_thread_alive": alive,
+            "thread_last_tick_age_s": tick_age_s,
             "grace_s": grace_s,
         },
         recommended_action=(
             "The orchestrator _run_pipeline driver thread appears dead or hung "
-            "while the phase is still RUNNING (#2234/#3233/#2219). Escalate to "
-            "an operator/overseer to confirm the thread is gone before tearing "
-            "down or restarting the pipeline — a false positive kills a healthy "
-            "run."
+            "(#2234/#3233/#2219). Escalate to an operator/overseer to confirm the "
+            "thread is gone before tearing down or restarting the pipeline — a "
+            "false positive kills a healthy run."
         ),
         requires_adjudication=True,
-        detector_key="run_pipeline_thread",
+        detector_key="runtime_thread_liveness",
     )
 
 
-detect_run_pipeline_thread_liveness.detector_key = "run_pipeline_thread"  # type: ignore[attr-defined]
+detect_run_pipeline_thread_liveness.detector_key = "runtime_thread_liveness"  # type: ignore[attr-defined]
 detect_run_pipeline_thread_liveness.name = "run_pipeline_thread_liveness_detector"  # type: ignore[attr-defined]
 
 
@@ -154,20 +156,28 @@ def detect_duration_drift(
 
     started_age_s = _as_float(state.get("started_age_s"))
     expected_duration_s = _as_float(state.get("expected_duration_s"))
-    if started_age_s is None or expected_duration_s is None:
-        return None
-    if expected_duration_s <= 0:
-        return None
-    if started_age_s <= expected_duration_s * factor:
+    # Prefer an explicit drift_ratio; else derive it from elapsed/expected.
+    ratio = _as_float(state.get("drift_ratio"))
+    if ratio is None:
+        if (
+            started_age_s is None
+            or expected_duration_s is None
+            or expected_duration_s <= 0
+        ):
+            return None
+        ratio = started_age_s / expected_duration_s
+    # Fire only when the phase is over budget by more than ``factor``×.
+    if ratio <= factor:
         return None
 
     return Finding(
         finding_class=FINDING_DURATION_DRIFT,
-        severity=Severity.MEDIUM,
+        severity=Severity.LOW,
         evidence={
             "phase": getattr(snapshot, "phase", None),
             "started_age_s": started_age_s,
             "expected_duration_s": expected_duration_s,
+            "drift_ratio": ratio,
             "factor": factor,
         },
         recommended_action=(
@@ -200,35 +210,41 @@ def detect_agent_restart_propagation(
 
     Deterministic → ``requires_adjudication=False``.
     """
-    state = _phase_state(snapshot)
-    requested_age_s = _as_float(state.get("restart_requested_age_s"))
-    if requested_age_s is None or requested_age_s <= deadline_s:
-        return None
+    # Primary signal: the orchestrator runtime reports the restart-propagation
+    # deadline exceeded.
+    prop = _runtime(snapshot).get("restart_propagation", {})
+    prop = prop if isinstance(prop, dict) else {}
+    deadline_exceeded = bool(prop.get("deadline_exceeded"))
 
-    restart_role = state.get("restart_role")
-    role_prefix = str(restart_role) if restart_role else None
+    age_s = _as_float(prop.get("age_s"))
+    runtime_deadline_s = _as_float(prop.get("deadline_s"))
 
-    propagated = False
-    for t in _transitions(snapshot):
-        if str(t.get("to", "")) != _RUNNING_STATE:
-            continue
-        if role_prefix is None:
-            propagated = True
-            break
-        if str(t.get("container", "") or "").startswith(role_prefix):
-            propagated = True
-            break
-    if propagated:
-        return None
+    if not deadline_exceeded:
+        # Legacy fallback: a phase-state restart-request age past the deadline
+        # with no container transition back to Running for the restarted role.
+        state = _phase_state(snapshot)
+        requested_age_s = _as_float(state.get("restart_requested_age_s"))
+        if requested_age_s is None or requested_age_s <= deadline_s:
+            return None
+        restart_role = state.get("restart_role")
+        role_prefix = str(restart_role) if restart_role else None
+        for t in _transitions(snapshot):
+            if str(t.get("to", "")) != _RUNNING_STATE:
+                continue
+            if role_prefix is None or str(t.get("container", "") or "").startswith(
+                role_prefix
+            ):
+                return None
+        age_s = requested_age_s
+        runtime_deadline_s = deadline_s
 
     return Finding(
         finding_class=FINDING_AGENT_RESTART_PROPAGATION,
-        severity=Severity.HIGH,
+        severity=Severity.MEDIUM,
         evidence={
             "phase": getattr(snapshot, "phase", None),
-            "restart_role": restart_role,
-            "restart_requested_age_s": requested_age_s,
-            "deadline_s": deadline_s,
+            "age_s": age_s,
+            "deadline_s": runtime_deadline_s,
             "propagated": False,
         },
         recommended_action=(

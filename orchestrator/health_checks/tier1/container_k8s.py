@@ -40,7 +40,11 @@ from health_checks.types import Finding, Severity
 # beyond the pinned ``FindingClass`` enum — see health_checks/types.py).
 FINDING_CONTAINER_DEATH = "container_death"
 FINDING_OVERSEER_SELF_INJECTION = "overseer_self_injection"
-FINDING_REPEATED_ROLE_RESTART = "repeated_role_restart"
+FINDING_CONTAINER_RESTART_LOOP = "container_restart_loop"
+FINDING_CONTAINER_OOM_EVICTED = "container_oom_evicted"
+
+# Reasons that indicate an OOM kill or kubelet eviction (the #2948 case).
+_OOM_EVICT_REASONS = frozenset({"OOMKilled", "Evicted"})
 
 # Container states that, paired with a crash reason, indicate a death rather
 # than an orderly completion.
@@ -217,19 +221,19 @@ detect_overseer_self_injection.detector_key = "overseer_self_injection"  # type:
 detect_overseer_self_injection.name = "overseer_self_injection_detector"  # type: ignore[attr-defined]
 
 
-def detect_repeated_role_restarts(
+def detect_container_restart_loop(
     snapshot: Any,
     *,
     threshold: int = _DEFAULT_RESTART_LOOP_THRESHOLD,
 ) -> Finding | None:
-    """Fire when one role restarts repeatedly without a fatal-death verdict.
+    """Fire when one role restarts repeatedly (crash-loop).
 
     Distinct from :func:`detect_container_death` (a single permanent death):
     this catches a *crash-loop* — the same role's container restart count
-    climbing past ``threshold`` while the pod keeps coming back. Single-shot
-    respawn churn (restart_count <= threshold) stays silent.
-
-    Deterministic → ``requires_adjudication=False``.
+    climbing to/past ``threshold``. Single-shot respawn churn (restart_count
+    below the threshold) stays silent. A crash-loop's right correction is not
+    obvious from the snapshot (respawn-again can deepen the loop), so the verdict
+    escalates → ``requires_adjudication=True``.
     """
     transitions = _transitions(snapshot)
     if not transitions:
@@ -247,11 +251,11 @@ def detect_repeated_role_restarts(
             worst_restart = restart
             worst_key = key
 
-    if worst_restart <= threshold:
+    if worst_restart < threshold:
         return None
 
     return Finding(
-        finding_class=FINDING_REPEATED_ROLE_RESTART,
+        finding_class=FINDING_CONTAINER_RESTART_LOOP,
         severity=Severity.HIGH,
         evidence={
             "container": worst_key,
@@ -259,21 +263,65 @@ def detect_repeated_role_restarts(
             "threshold": threshold,
         },
         recommended_action=(
-            "A role's container is restarting repeatedly (crash-loop) past the "
-            "threshold without stabilising. Inspect the crash cause before "
-            "respawning again; consider an operator HITL if it persists."
+            "A role's container is restarting repeatedly (crash-loop) at/past "
+            "the threshold. Adjudicate the crash cause before respawning again; "
+            "a blind respawn can deepen the loop."
         ),
-        requires_adjudication=False,
-        detector_key="repeated_role_restart",
+        requires_adjudication=True,
+        detector_key="container_restart_loop",
     )
 
 
-detect_repeated_role_restarts.detector_key = "repeated_role_restart"  # type: ignore[attr-defined]
-detect_repeated_role_restarts.name = "repeated_role_restart_detector"  # type: ignore[attr-defined]
+detect_container_restart_loop.detector_key = "container_restart_loop"  # type: ignore[attr-defined]
+detect_container_restart_loop.name = "container_restart_loop_detector"  # type: ignore[attr-defined]
+
+
+def detect_container_oom_evicted(snapshot: Any) -> Finding | None:
+    """Fire on an OOM-kill / kubelet eviction that did NOT recover.
+
+    The #2948 disambiguation, lighter-weight than :func:`detect_container_death`:
+    a transition whose reason is ``OOMKilled`` / ``Evicted`` and whose
+    ``recovered`` flag is explicitly ``False`` is a real resource-pressure death.
+    A recovered eviction (``recovered`` truthy) — or one with no explicit
+    ``recovered`` flag — stays silent, so transient evict→reschedule churn does
+    not cry wolf.
+
+    Deterministic → ``requires_adjudication=False``.
+    """
+    for t in _transitions(snapshot):
+        if str(t.get("reason", "")) not in _OOM_EVICT_REASONS:
+            continue
+        if t.get("recovered") is not False:
+            continue
+        return Finding(
+            finding_class=FINDING_CONTAINER_OOM_EVICTED,
+            severity=Severity.MEDIUM,
+            evidence={
+                "container": t.get("container"),
+                "role": t.get("role"),
+                "reason": t.get("reason"),
+                "restart_count": t.get("restart_count"),
+                "recovered": False,
+            },
+            recommended_action=(
+                "A container was OOM-killed / evicted and did not recover "
+                "(#2948). Increase the resource request or reduce memory "
+                "pressure before respawning; distinct from a transient eviction "
+                "that reschedules."
+            ),
+            requires_adjudication=False,
+            detector_key="container_oom_evicted",
+        )
+    return None
+
+
+detect_container_oom_evicted.detector_key = "container_oom_evicted"  # type: ignore[attr-defined]
+detect_container_oom_evicted.name = "container_oom_evicted_detector"  # type: ignore[attr-defined]
 
 
 __all__ = [
     "detect_container_death",
+    "detect_container_oom_evicted",
+    "detect_container_restart_loop",
     "detect_overseer_self_injection",
-    "detect_repeated_role_restarts",
 ]
