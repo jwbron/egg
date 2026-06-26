@@ -7,6 +7,14 @@
       "registered_at": "2026-06-26T00:15:41.087864+00:00",
       "repo": null,
       "role": "refiner"
+    },
+    "9f95891cab5b9e37e9646d740411b1df6eea03d6": {
+      "branch": "egg/issue-2270-overhaul/work",
+      "patch_id": "21331858ae1500e539ff02ab45200f894779f5e9",
+      "pipeline_id": "issue-2270-overhaul",
+      "registered_at": "2026-06-26T00:16:08.403826+00:00",
+      "repo": null,
+      "role": "refiner"
     }
   },
   "version": 2
