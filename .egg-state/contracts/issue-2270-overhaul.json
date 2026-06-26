@@ -368,7 +368,7 @@
       "id": "slice-5",
       "name": "Lifecycle \u2014 retire respawn churn + restart/generation hygiene (\u00a73)",
       "goal": "Now that slice-4 is the replacement: remove/fold `_check_and_respawn_overseer`\n(`routes/pipelines.py:685-848`) and the standing-pod respawn loop; guarantee no overseer activity\nduring HITL parks with zero agents running; fold any surviving restart need into the GENERAL\nagent-restart machinery; add escalation-history clear + generation-token reset on\nrestart/orchestrator recycle. Net-negative. Strictly AFTER slice-4.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -377,8 +377,8 @@
         {
           "id": "task-5-1",
           "description": "Remove/fold `_check_and_respawn_overseer` and the standing-pod respawn loop into the general\nagent-restart machinery; gate any overseer presence on \"agents actually running\" so multi-hour\nzero-agent HITL parks spawn nothing.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "2641ebff7",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "No overseer respawn fires during a zero-agent HITL park; restart logic shares the agent path;\nnet-negative lines.",
@@ -399,8 +399,8 @@
         {
           "id": "task-5-2",
           "description": "Restart/generation hygiene: clear per-agent escalation history on restart; reset the\ngeneration token on orchestrator pod recycle so stale escalation state can't cascade.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "2641ebff7",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Escalation history clears on restart; generation token resets on recycle; no cross-generation\nleakage.",
@@ -421,8 +421,8 @@
         {
           "id": "task-5-3",
           "description": "Tests for no-respawn-during-HITL, escalation-history reset on restart, generation-token reset\non recycle.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "5ad959051",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Churn-gone + reset-hygiene assertions pass. `make test` green.",
@@ -444,11 +444,11 @@
         "slice-4"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-2270-overhaul/slice-4",
+      "integration_base_sha": "da8d8e8b8fd8d85160516cc34dc762fd9ccea6f5",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3290,
+      "pr_url": "https://github.com/jwbron/egg/pull/3290",
       "review_feedback": []
     },
     {
@@ -1331,6 +1331,72 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-4-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T05:32:52.831000Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.commit",
+      "old_value": null,
+      "new_value": "2641ebff7",
+      "reason": "Linked commit 2641ebf to task-5-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T05:32:52.853128Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-5-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T05:32:53.334294Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.1.commit",
+      "old_value": null,
+      "new_value": "2641ebff7",
+      "reason": "Linked commit 2641ebf to task-5-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T05:32:53.354403Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-5-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T05:48:01.829893Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.2.commit",
+      "old_value": null,
+      "new_value": "5ad959051",
+      "reason": "Linked commit 5ad9590 to task-5-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T05:48:01.860183Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-5-3 as complete",
       "checkpoint_id": null
     }
   ],
