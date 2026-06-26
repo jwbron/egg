@@ -1179,8 +1179,7 @@ def _corrective_open_operator_hitl(
 
     if options:
         decision_options = [
-            DecisionOption(id=f"opt-{i + 1}", label=str(label))
-            for i, label in enumerate(options)
+            DecisionOption(id=f"opt-{i + 1}", label=str(label)) for i, label in enumerate(options)
         ]
     else:
         decision_options = [
@@ -1338,9 +1337,7 @@ def _execute_overseer_verdicts(
     the per-verdict :class:`CorrectiveOutcome` list (empty when nothing was
     adjudicated or actioned).
     """
-    active = executor or _build_overseer_corrective_executor(
-        issue_number=issue_number
-    )
+    active = executor or _build_overseer_corrective_executor(issue_number=issue_number)
     outcomes: list[Any] = []
     for finding, verdict in results:
         if verdict is None:

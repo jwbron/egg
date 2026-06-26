@@ -122,7 +122,7 @@ def _corrective_module():
     for name in _CORRECTIVE_MODULES:
         try:
             return __import__(name, fromlist=["_"])
-        except (ImportError, ModuleNotFoundError):
+        except ImportError, ModuleNotFoundError:
             continue
     return None
 
@@ -140,9 +140,7 @@ def _require_module():
     """
     module = _corrective_module()
     if module is None:
-        pytest.skip(
-            "overseer.corrective not landed by the coder yet — strict at integration"
-        )
+        pytest.skip("overseer.corrective not landed by the coder yet — strict at integration")
     return module
 
 
@@ -235,9 +233,7 @@ class TestClosedVocabulary:
 
     def test_executor_advertises_exactly_three(self) -> None:
         executor, _, _ = _make_executor()
-        advertised = getattr(executor, "ACTIONS", None) or getattr(
-            executor, "actions", None
-        )
+        advertised = getattr(executor, "ACTIONS", None) or getattr(executor, "actions", None)
         assert advertised is not None, "executor must advertise its action vocabulary"
         assert set(advertised) == set(_EXPECTED_ACTIONS)
 
@@ -319,9 +315,7 @@ class TestUnauthorizedDenied:
     )
     def test_out_of_vocabulary_denied(self, action: str) -> None:
         executor, spies, _ = _make_executor()
-        outcome = executor.execute(
-            action, pipeline_id="pipe-6", running_agent_count=2
-        )
+        outcome = executor.execute(action, pipeline_id="pipe-6", running_agent_count=2)
         assert outcome.executed is False
         assert outcome.status == "denied"
         for spy in spies.values():
@@ -344,9 +338,7 @@ class TestBarredDuringZeroAgentPark:
     @pytest.mark.parametrize("action", sorted(_EXPECTED_ACTIONS))
     def test_zero_agents_bars_every_action(self, action: str) -> None:
         executor, spies, _ = _make_executor()
-        outcome = executor.execute(
-            action, pipeline_id="pipe-6", running_agent_count=0
-        )
+        outcome = executor.execute(action, pipeline_id="pipe-6", running_agent_count=0)
         assert outcome.executed is False
         assert outcome.status == "barred"
         for spy in spies.values():
