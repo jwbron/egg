@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1.3",
+  "issue": {
+    "number": 3288,
+    "title": "Issue #3288",
+    "url": "https://github.com/jwbron/egg/issues/3288"
+  },
+  "task_description": "This pipeline's task is GitHub issue #3288 \u2014 https://github.com/jwbron/egg/issues/3288. Fetch the live issue body (`gh issue view 3288`) before structural decisions. Worktree artifacts (drafts, agent outputs) that reference any other issue or pipeline are leftovers from previous runs \u2014 they are NOT your task.\n\nDocumenter agent + docs: snapshot of current state, not a ledger of changes.\n\nTwo coupled work streams (planner decides slicing/sequencing):\n1. Change the documenter agent so it produces snapshots, not ledgers \u2014 revise its task instructions (assembled in orchestrator/routes/pipelines.py \"## Your Task\" block; role definition in shared/egg_contracts/agent_roles.py) to write docs describing the current state of the code after the change, never referencing SDLC artifacts (slice numbers, TASK-N ids, phase/HITL iteration numbers) in any doc/docstring/inline comment; include historical context only when tangibly valuable to a current reader (prefer rationale over chronology); fold new state into the snapshot and remove stale ledger entries; keep the no-op/no-doc-impact propose path intact.\n2. Clean up the existing documentation corpus \u2014 a pass over docs/, **/README.md, **/CLAUDE.md, and code docstrings/comments to strip slice/TASK/process-ledger references, rewrite change-log-style behavioral sections into current-behavior descriptions, and remove/refactor \"historical record\" sections that no longer describe live code, keeping only residue genuinely useful to a current reader.\n\nOut of scope: not \"delete all issue references\" \u2014 issue links that justify why the current system is shaped the way it is are fine. Preserve the documenter's gateway file boundaries (docs/, **/*.md, .egg-state/agent-outputs/) and the BRC no-op propose path.",
+  "pipeline_id": "issue-3288",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "slices": [],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
