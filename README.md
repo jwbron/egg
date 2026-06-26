@@ -102,8 +102,8 @@ Human gate        Human gate        Human gate*        stacked-PR slices; humans
                                     only)
 ```
 
-1. **Refine.** Agents analyze the task, research the codebase, and produce requirements; reviewers validate. A human approves before planning begins.
-2. **Plan.** An architect recommends an approach, a task planner breaks it into discrete tasks with acceptance criteria and a **DAG of slices**, and a risk analyst flags concerns. A human approves before any code is written.
+1. **Refine.** Agents analyze the task, research the codebase, and produce requirements; reviewers validate. A simplifier also produces a jargon-free human-focused summary of the analysis. A human approves before planning begins.
+2. **Plan.** An architect recommends an approach, a task planner breaks it into discrete tasks with acceptance criteria and a **DAG of slices**, and a risk analyst flags concerns. A simplifier produces a jargon-free human-focused companion to the plan. A human approves before any code is written.
 3. **Apply** *(Jira epic-mode only)*. When the task resolves to a Jira Epic, an `applier` role drives Jira mutations (epic description writes, child-ticket creates/edits, link creates, Won't-Do handoffs) on operator approval, before implementation begins.
 4. **Implement.** The plan's slices are scheduled as a **DAG**: each slice runs as its own agent team on its own integration branch, with its own BRC consensus and its own stacked PR. Slices whose dependencies are satisfied run concurrently (per-pipeline cap `PipelineConfig.max_parallel_slices` at pipeline creation, falling back to `EGG_ORCH_MAX_PARALLEL_SLICES`, default 1 — raise on hosts with capacity; process-wide cap `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES`, default 4); dependent slices wait for later waves. Within a slice the coder writes code and its own tests, the tester reviews-and-hardens the coder's tests (adding missing coverage and adversarially probing for bugs), and the documenter updates docs, while code, contract, security, and concurrency reviewers provide line-level feedback and can block consensus on a NACK.
 
@@ -114,17 +114,17 @@ A completed pipeline looks like this:
 ```
 ╔══════════════════════════════════════════════╗
 │ ✓ Refine                            complete │
-│   ✓ refiner                                  │
+│   ✓ refiner  ✓ simplifier                    │
 │   ✓ reviewer_refine  ✓ reviewer_agent_design │
 ╚══════════════════════════════════════════════╝
     │
     ▼
-╔═════════════════════════════════════════╗
-│ ✓ Plan                         complete │
-│   ✓ architect                           │
-│   ✓ task_planner  ✓ risk_analyst        │
-│   ✓ reviewer_plan                       │
-╚═════════════════════════════════════════╝
+╔══════════════════════════════════════════════╗
+│ ✓ Plan                              complete │
+│   ✓ architect  ✓ simplifier                  │
+│   ✓ task_planner  ✓ risk_analyst             │
+│   ✓ reviewer_plan                            │
+╚══════════════════════════════════════════════╝
     │
     ▼
 ╔═══════════════════════════════════════════════╗

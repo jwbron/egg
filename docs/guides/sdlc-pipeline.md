@@ -326,10 +326,11 @@ Multi-agent orchestration is managed by the local orchestrator (`orchestrator/co
 The refine and plan phases include an automated internal review step before human approval. All reviews happen internally without posting to the issue until approval:
 
 1. **Producer agent runs** — The refine/plan agent writes its output to `.egg-state/drafts/{identifier}-{analysis|plan}.md`
-2. **Reviewer agents run in parallel** — Each reviewer reads the draft and writes verdict to its own file
-3. **Verdicts aggregated** — If any reviewer needs revision, the aggregate verdict is `needs_revision`
-4. **If approved** — The final draft is posted to the issue with an approval checkbox for human review
-5. **If needs revision** — Producer agent is re-dispatched with combined feedback; cycle repeats without posting to issue
+2. **Simplifier runs** — Once the producer proposes, the simplifier reads the draft and writes a human-focused companion (`{identifier}-{analysis|plan}-human.md`) free of pipeline jargon, for the human reviewer's benefit
+3. **Reviewer agents run in parallel** — Each reviewer reads the draft (the relevant reviewer also reviews the simplifier's companion), then writes its verdict to its own file
+4. **Verdicts aggregated** — If any reviewer needs revision, the aggregate verdict is `needs_revision`
+5. **If approved** — The final draft (and companion) is posted to the issue with an approval checkbox for human review
+6. **If needs revision** — Producer agent is re-dispatched with combined feedback; cycle repeats without posting to issue
 
 **Key Benefit:** Internal review cycles don't create noise on the GitHub issue. Only the final approved analysis/plan is posted for human review.
 
@@ -338,8 +339,10 @@ The refine and plan phases include an automated internal review step before huma
 .egg-state/
 ├── contracts/{identifier}.json      # Contract state
 ├── drafts/
-│   ├── {identifier}-analysis.md     # Refine phase draft (preserved on PR branch)
-│   └── {identifier}-plan.md         # Plan phase draft (preserved on PR branch)
+│   ├── {identifier}-analysis.md        # Refine phase draft (preserved on PR branch)
+│   ├── {identifier}-analysis-human.md  # Human-focused refine companion (simplifier)
+│   ├── {identifier}-plan.md            # Plan phase draft (preserved on PR branch)
+│   └── {identifier}-plan-human.md      # Human-focused plan companion (simplifier)
 ├── brc-history/
 │   ├── {identifier}-refine.md       # BRC consensus messages from refine phase (human-readable, with YAML metadata)
 │   ├── {identifier}-refine.json     # BRC consensus messages from refine phase (machine-readable)
