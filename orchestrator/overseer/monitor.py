@@ -115,12 +115,12 @@ class OverseerMonitor:
         self._running = False
         # agent_role -> bounded deque of escalations (keep last 50 per agent)
         self._escalation_history: dict[str, deque] = {}
-        # Generation token (#2270 slice-5): bumped on orchestrator pod recycle
+        # Generation token (#2270 slice-5): reset on orchestrator pod recycle
         # via ``reset_generation``. Every escalation record is stamped with the
         # generation that produced it, and redirect-history reads filter to the
         # current generation, so stale escalation state from a prior generation
         # can never cascade into a fresh run's corrective decisions.
-        self._generation: int = 0
+        self.generation: int = 0
 
         # Allow dependency injection for testing
         self._classifier = classifier
@@ -387,35 +387,34 @@ class OverseerMonitor:
     # Restart / generation hygiene (#2270 slice-5)
     # -----------------------------------------------------------------
 
-    def clear_escalation_history(self, agent_role: str | None = None) -> None:
-        """Drop accumulated escalation history so a restart starts clean.
+    def reset_escalation_history(self) -> None:
+        """Drop all accumulated escalation history so a restart starts clean.
 
         Called when an agent is restarted (``restart_agent`` /
         ``restart_phase``): the pre-restart redirect history would otherwise
         survive and inflate ``redirect_count``, pushing a freshly-restarted
         agent straight to HITL escalation on its first stall (#2270 §3).
-
-        With ``agent_role`` set, only that agent's history is dropped (the
-        common single-agent restart). With ``agent_role=None`` the whole map is
-        cleared (a cohort restart). No-op if the agent is unknown.
+        Idempotent — resetting an already-empty history is a harmless no-op.
         """
-        if agent_role is None:
-            self._escalation_history.clear()
-        else:
-            self._escalation_history.pop(agent_role, None)
-
-    def reset_generation(self) -> None:
-        """Advance the generation token and clear all escalation history.
-
-        Called on orchestrator pod recycle. Bumping the generation means any
-        escalation record that somehow survives (e.g. via persisted/replayed
-        state) is stamped with an older generation and is filtered out of the
-        redirect-history reads, so stale escalation state can never cascade
-        into the new generation's corrective decisions. The history is also
-        cleared outright for good measure.
-        """
-        self._generation += 1
         self._escalation_history.clear()
+
+    def reset_generation(self, generation: int | None = None) -> None:
+        """Reset the generation token and clear all escalation history.
+
+        Called on orchestrator pod recycle. With ``generation`` provided the
+        token is set to that explicit value; with ``generation=None`` (the
+        default recycle shape) the token is advanced by one. Either way the
+        escalation history is cleared, so stale escalation state can never
+        cascade into the new generation's corrective decisions. The
+        generation stamp on each record plus the generation-filtered
+        redirect-history reads make this leak-proof even if a record somehow
+        survives the clear (e.g. via persisted/replayed state).
+        """
+        if generation is None:
+            self.generation += 1
+        else:
+            self.generation = generation
+        self.reset_escalation_history()
 
     # -----------------------------------------------------------------
     # Core poll cycle
@@ -647,7 +646,7 @@ class OverseerMonitor:
         history = [
             h
             for h in self._escalation_history.get(agent_role, [])
-            if h.get("generation", self._generation) == self._generation
+            if h.get("generation", self.generation) == self.generation
         ]
         max_redirects = getattr(self.config, "overseer_max_redirects_before_escalation", 2)
 
@@ -688,7 +687,7 @@ class OverseerMonitor:
                 "action": decision.get("action"),
                 "classification": classification,
                 "timestamp": time.time(),
-                "generation": self._generation,
+                "generation": self.generation,
             }
         )
 

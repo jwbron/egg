@@ -846,17 +846,64 @@ def _consume_adjudicator_verdict(spawned: Any, finding: Any) -> "AdjudicationVer
     return parse_adjudication_verdict(raw, finding=finding)
 
 
-def _overseer_spawn_suppressed(pipeline: Pipeline) -> bool:
-    """Return True when no overseer should be spawned for this phase (#2270 slice-5).
+def _overseer_should_be_present(
+    *, running_agent_count: int, pipeline_status: PipelineStatus
+) -> bool:
+    """Gate overseer presence on agents actually running (#2270 slice-5, §3).
 
-    Gate overseer presence on "agents actually running". During a zero-agent
-    HITL park the pipeline sits in ``AWAITING_HUMAN`` with no phase agents
-    executing, so spawning an overseer there is pure churn — the behaviour §3
-    of #2270 calls out (a multi-hour park must spawn nothing). The overseer is
-    only useful while a phase is actively executing agents, so suppress the
-    spawn whenever the pipeline is parked awaiting a human.
+    Decisive rules (the tester contract pins these exactly):
+
+    * ``running_agent_count <= 0`` ⇒ ``False`` regardless of status — the §3
+      guarantee that a multi-hour *zero-agent* HITL park spawns no overseer.
+    * a terminal pipeline status (``COMPLETE`` / ``FAILED`` / ``CANCELLED``) ⇒
+      ``False`` regardless of the count — nothing left to monitor.
+    * otherwise (agents in flight, non-terminal) ⇒ ``True``.
+
+    The overseer is only useful while a phase is actively executing agents, so
+    presence tracks "are there agents to watch", not the phase calendar.
     """
-    return pipeline.status == PipelineStatus.AWAITING_HUMAN
+    if running_agent_count <= 0:
+        return False
+    if pipeline_status in (
+        PipelineStatus.COMPLETE,
+        PipelineStatus.FAILED,
+        PipelineStatus.CANCELLED,
+    ):
+        return False
+    return True
+
+
+def _count_phase_agents(pipeline: Pipeline, phase: PipelinePhase) -> int:
+    """Count the agents a phase is about to run (#2270 slice-5 roster source).
+
+    Prefers the runtime roster cached on the phase execution (populated once
+    the phase has spawned); falls back to the deterministic
+    ``get_roles_for_phase`` source the concurrent executor itself consults, so
+    a not-yet-spawned phase still reports its imminent cohort. A derivation
+    failure returns 0 — conservatively *no* overseer rather than guessing,
+    which keeps the §3 "no overseer with zero agents" invariant safe.
+    """
+    phase_exec = pipeline.phases.get(phase)
+    if phase_exec is not None and getattr(phase_exec, "agents", None):
+        return len(phase_exec.agents)
+    try:
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        roles = get_roles_for_phase(
+            phase.value,
+            include_reviewers=True,
+            repo=pipeline.repo,
+            has_contract=getattr(pipeline, "has_contract", True),
+        )
+        return len(list(roles))
+    except Exception as exc:  # noqa: BLE001 - roster derivation is best-effort
+        logger.debug(
+            "Could not derive phase roster for overseer presence gate",
+            pipeline_id=getattr(pipeline, "id", None),
+            phase=getattr(phase, "value", str(phase)),
+            error=str(exc),
+        )
+        return 0
 
 
 def _escalate_finding_to_adjudicator(
@@ -3323,7 +3370,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     # agent from inheriting a stale redirect/escalation history that would push
     # it straight to HITL on its first post-restart stall. The Tier-2 overseer's
     # own escalation-history clear + generation reset live on
-    # ``OverseerMonitor`` (overseer/monitor.py:clear_escalation_history /
+    # ``OverseerMonitor`` (overseer/monitor.py:reset_escalation_history /
     # reset_generation), which the on-demand adjudicator constructs fresh.
     try:
         try:
@@ -23572,12 +23619,18 @@ def _run_pipeline(
             # fresh overseer instance with no accumulated state.
             #
             # #2270 slice-5: gate overseer presence on "agents actually
-            # running". During a zero-agent HITL park the pipeline sits in
-            # AWAITING_HUMAN with no phase agents, so spawning an overseer
-            # there is pure churn (§3). The respawn loop that used to keep it
-            # alive across such parks was removed; this gate stops the
-            # phase-start spawn from doing the same thing.
-            if pipeline.config.overseer_enabled and not _overseer_spawn_suppressed(pipeline):
+            # running". During a zero-agent HITL park the pipeline has no phase
+            # agents in flight, so spawning an overseer there is pure churn
+            # (§3). The respawn loop that used to keep it alive across such
+            # parks was removed; this gate stops the phase-start spawn from
+            # doing the same thing. The agent count is the deterministic phase
+            # roster the concurrent executor itself consults — the cohort this
+            # phase is about to run.
+            _phase_agent_count = _count_phase_agents(pipeline, current_phase)
+            if pipeline.config.overseer_enabled and _overseer_should_be_present(
+                running_agent_count=_phase_agent_count,
+                pipeline_status=pipeline.status,
+            ):
                 try:
                     overseer_result = _spawn_overseer_agent(
                         spawner=spawner,
