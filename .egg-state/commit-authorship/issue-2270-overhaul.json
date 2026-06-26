@@ -80,6 +80,14 @@
       "repo": null,
       "role": "documenter"
     },
+    "5ad959051127e07b778feaaeee485221d6dd5d9e": {
+      "branch": "egg/issue-2270-overhaul/slice-5",
+      "patch_id": "c9eb2c35cff9ea7f940054fca2cf08c38bdd2dcf",
+      "pipeline_id": "issue-2270-overhaul",
+      "registered_at": "2026-06-26T05:45:13.601023+00:00",
+      "repo": null,
+      "role": "tester"
+    },
     "6053befa6aa70fbe24a9e1388b12f6563dae831c": {
       "branch": "egg/issue-2270-overhaul/slice-1",
       "patch_id": "deff57c057951b19d38ff76933acef3f7ccba3ce",
