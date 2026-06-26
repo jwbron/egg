@@ -30,7 +30,7 @@ sys.modules.setdefault("docker.types", MagicMock())
 
 from events import EventType
 from gateway_client import GatewayError, PushResult
-from models import Pipeline, PipelinePhase, PipelineStatus
+from models import AgentRole, Pipeline, PipelinePhase, PipelineStatus
 
 
 @pytest.fixture(autouse=True)
@@ -1223,8 +1223,14 @@ class TestWorktreeCreationRetry:
         # Pipeline should have progressed past worktree creation to agent
         # spawning. Since #2270 §1.5 the overseer is spawned through the generic
         # ``spawn_agent_job`` path (no bespoke ``spawn_overseer_container``).
+        # Assert specifically on the OVERSEER role so the test keeps proving the
+        # overseer was spawned, not merely that *some* agent job ran.
         mock_spawner = mock_get_spawner.return_value
         mock_spawner.spawn_agent_job.assert_called()
+        assert any(
+            c.kwargs.get("agent_role") == AgentRole.OVERSEER
+            for c in mock_spawner.spawn_agent_job.call_args_list
+        ), "expected the overseer to be spawned via spawn_agent_job"
 
     @patch("routes.pipelines.time.sleep")
     @patch(_COMMON_PATCHES[7])
