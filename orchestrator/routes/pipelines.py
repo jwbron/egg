@@ -24809,15 +24809,16 @@ def _run_pipeline(
                         pipeline.config.hitl_gates,
                     )
                     pipeline = store.load_pipeline(pipeline_id)
-                    # The gate ran before the statefile commit+push above,
-                    # so when it changed the contract (operator resolved a
-                    # gap, or the override audit landed) the resolution is
-                    # still uncommitted in the worktree. Re-commit + push so
-                    # the work branch tree CI sees reflects the post-gate
+                    # The gate ran after the statefile commit+push above, so
+                    # when it changed the contract (operator resolved a gap,
+                    # or the override audit landed) the resolution is still
+                    # uncommitted in the worktree. Re-commit + push so the
+                    # work branch tree CI sees reflects the post-gate
                     # contract, not the open-gap snapshot pushed earlier.
                     if gap_gated:
+                        gate_committed = False
                         try:
-                            _commit_statefiles_to_worktree(
+                            gate_committed = _commit_statefiles_to_worktree(
                                 worktree_repo_path,
                                 f"Persist contract after {current_phase.value} gap gate",
                                 pipeline_identifier=_pipeline_identifier(
@@ -24832,7 +24833,11 @@ def _run_pipeline(
                                 phase=current_phase.value,
                                 error=str(git_err),
                             )
-                        if pipeline.branch and worktree_repo_path != repo_path:
+                        # Skip the follow-up push when nothing was committed
+                        # (e.g. the override path leaves the contract
+                        # unchanged) — it would be a no-op fast-forward
+                        # (#2548).
+                        if gate_committed and pipeline.branch and worktree_repo_path != repo_path:
                             try:
                                 spawner.gateway.push_worktree_branch(
                                     pipeline_id=pipeline_id,

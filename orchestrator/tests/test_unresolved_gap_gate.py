@@ -101,8 +101,13 @@ def _run_gate(
     load_side_effect: list[Any],
     *,
     hitl_gates: bool = True,
-) -> tuple[bool, Pipeline]:
-    """Invoke the gate with the queue + a scripted load_contract sequence."""
+) -> tuple[bool, Pipeline, MagicMock]:
+    """Invoke the gate with the queue + a scripted load_contract sequence.
+
+    Returns ``(gated, pipeline, report_mock)`` — ``report_mock`` is the
+    patched ``report_pipeline_status`` so callers can assert the
+    escalation was surfaced.
+    """
     from routes.pipelines import _await_unresolved_gap_gate
 
     pipeline = Pipeline(
@@ -118,7 +123,7 @@ def _run_gate(
     with (
         patch("routes.pipelines.get_decision_queue", return_value=dq),
         patch("routes.pipelines.get_pipeline_state_lock", return_value=nullcontext()),
-        patch("routes.pipelines.report_pipeline_status"),
+        patch("routes.pipelines.report_pipeline_status") as report_mock,
         patch("routes.pipelines._emit_event", None),
         patch("egg_contracts.loader.load_contract", side_effect=load_side_effect),
     ):
@@ -131,13 +136,13 @@ def _run_gate(
             PipelinePhase.IMPLEMENT,
             hitl_gates,
         )
-    return gated, pipeline
+    return gated, pipeline, report_mock
 
 
 def test_clean_contract_no_gate() -> None:
     """A resolved gap (or no gap) must not surface a decision."""
     dq = _FakeQueue(resolutions=[])
-    gated, _ = _run_gate(dq, load_side_effect=[_contract(resolved=True)])
+    gated, _, _ = _run_gate(dq, load_side_effect=[_contract(resolved=True)])
     assert gated is False
     assert dq.queued == []
 
@@ -147,7 +152,7 @@ def test_open_gap_override_finalizes() -> None:
     records the override on the frozen phase artifacts for audit parity
     with the complete_phase endpoint's force path (#3300 review)."""
     dq = _FakeQueue(resolutions=["override"])
-    gated, pipeline = _run_gate(dq, load_side_effect=[_contract(resolved=False)])
+    gated, pipeline, _ = _run_gate(dq, load_side_effect=[_contract(resolved=False)])
     assert gated is True
     assert len(dq.queued) == 1
     assert dq.queued[0].decision_type == "phase_gate"
@@ -218,7 +223,7 @@ def test_autonomous_open_gap_surfaces_but_does_not_block() -> None:
     would stall forever. The reactive CI check stays the backstop (#3300
     review). The escalation is still surfaced (report_pipeline_status)."""
     dq = _FakeQueue(resolutions=[])
-    gated, pipeline = _run_gate(
+    gated, pipeline, report_mock = _run_gate(
         dq,
         load_side_effect=[_contract(resolved=False)],
         hitl_gates=False,
@@ -227,13 +232,15 @@ def test_autonomous_open_gap_surfaces_but_does_not_block() -> None:
     assert dq.queued == []
     # Never parked in AWAITING_HUMAN — the loop proceeds to finalize.
     assert pipeline.status != PipelineStatus.AWAITING_HUMAN
+    # The escalation is still surfaced even though the gate doesn't block.
+    assert report_mock.called
 
 
 def test_open_gap_approve_then_clear() -> None:
     """Approval after the operator resolves the gap clears the gate with a
     single prompt (re-read finds the contract clean)."""
     dq = _FakeQueue(resolutions=["approve"])
-    gated, _ = _run_gate(
+    gated, _, _ = _run_gate(
         dq,
         load_side_effect=[_contract(resolved=False), _contract(resolved=True)],
     )
@@ -245,7 +252,7 @@ def test_open_gap_approve_without_resolving_resurfaces() -> None:
     """A stale 'approve' while the gap is still open must NOT advance — the
     gate re-surfaces until resolved or overridden."""
     dq = _FakeQueue(resolutions=["approve", "override"])
-    gated, _ = _run_gate(
+    gated, _, _ = _run_gate(
         dq,
         load_side_effect=[_contract(resolved=False), _contract(resolved=False)],
     )
@@ -257,6 +264,6 @@ def test_open_gap_approve_without_resolving_resurfaces() -> None:
 def test_unresolved_decision_does_not_spin() -> None:
     """A cancelled/abandoned gate (non-RESOLVED) returns instead of looping."""
     dq = _FakeQueue(resolutions=[None])
-    gated, _ = _run_gate(dq, load_side_effect=[_contract(resolved=False)])
+    gated, _, _ = _run_gate(dq, load_side_effect=[_contract(resolved=False)])
     assert gated is True
     assert len(dq.queued) == 1
