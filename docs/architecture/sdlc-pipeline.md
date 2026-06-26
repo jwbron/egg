@@ -190,7 +190,7 @@ the agent reads to recover the task:
 > between #2777 and #3115 despite being preflight-required), then a
 > generated `## Pipeline context` footer — pipeline id, originating
 > issue, the slice table, and links to the refine analysis draft, the
-> plan draft (`.egg-state/drafts/`), and the per-phase BRC transcripts
+> plan draft, and their human-focused companion summaries (`.egg-state/drafts/`), and the per-phase BRC transcripts
 > (`.egg-state/brc-history/`) committed on the work branch. Artifact
 > links are branch-qualified absolute URLs
 > (`https://github.com/<repo>/blob/<work-branch>/...`) because GitHub
