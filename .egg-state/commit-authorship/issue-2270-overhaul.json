@@ -360,6 +360,14 @@
       "repo": null,
       "role": "tester"
     },
+    "d38ce7f35c7aed27a8fc9f7214ff31b496ab8d52": {
+      "branch": "egg/issue-2270-overhaul/slice-7",
+      "patch_id": "6b0933e68751f7c0bef2188c871e11254a9ba7cd",
+      "pipeline_id": "issue-2270-overhaul",
+      "registered_at": "2026-06-26T08:15:06.152451+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "e20a735be15b6814517d1012efac00312f2e3ca6": {
       "branch": "egg/issue-2270-overhaul/slice-2",
       "patch_id": "9c582af4a0f1723d593f023ba5d8c378e715ebf5",
