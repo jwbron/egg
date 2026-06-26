@@ -288,8 +288,7 @@ module-by-module breakdown.
 - **`monitor.py` decomposition** (~2,050 lines) rides
   [#2817](https://github.com/jwbron/egg/issues/2817) / the
   [#2261](https://github.com/jwbron/egg/issues/2261) decomposition program — it
-  is **not** re-decomposed by the overseer overhaul. See the submodule seam
-  tables in [orchestrator/CLAUDE.md](../../orchestrator/CLAUDE.md).
+  is **not** re-decomposed by the overseer overhaul.
 
 ## Related
 
