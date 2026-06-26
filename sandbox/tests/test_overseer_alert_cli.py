@@ -134,7 +134,7 @@ class TestPayloadShape:
         endpoint, kwargs = mock_request.call_args[0][0], mock_request.call_args[1]
         return endpoint, kwargs
 
-    @patch("egg_lib.orch_cli.orch_request")
+    @patch("egg_agent_tools.handlers.progress.orchestrator_request")
     def test_message_type_is_overseer_alert(self, mock_request):
         endpoint, kwargs = self._run(
             [
@@ -154,7 +154,7 @@ class TestPayloadShape:
         assert kwargs["method"] == "POST"
         assert kwargs["data"]["message_type"] == "OVERSEER_ALERT"
 
-    @patch("egg_lib.orch_cli.orch_request")
+    @patch("egg_agent_tools.handlers.progress.orchestrator_request")
     def test_to_role_is_always_all(self, mock_request):
         _, kwargs = self._run(
             [
@@ -172,7 +172,7 @@ class TestPayloadShape:
         )
         assert kwargs["data"]["to_role"] == "all"
 
-    @patch("egg_lib.orch_cli.orch_request")
+    @patch("egg_agent_tools.handlers.progress.orchestrator_request")
     def test_subject_includes_anomaly_and_priority(self, mock_request):
         _, kwargs = self._run(
             [
@@ -190,7 +190,7 @@ class TestPayloadShape:
         )
         assert kwargs["data"]["subject"] == "agent-loop [medium]"
 
-    @patch("egg_lib.orch_cli.orch_request")
+    @patch("egg_agent_tools.handlers.progress.orchestrator_request")
     def test_body_combines_summary_detail_recommend(self, mock_request):
         _, kwargs = self._run(
             [
@@ -217,7 +217,7 @@ class TestPayloadShape:
         assert "Recommended action:" in body
         assert "manually advance to plan" in body
 
-    @patch("egg_lib.orch_cli.orch_request")
+    @patch("egg_agent_tools.handlers.progress.orchestrator_request")
     def test_role_from_env(self, mock_request, monkeypatch):
         monkeypatch.setenv("EGG_AGENT_ROLE", "sentinel_agent")
         _, kwargs = self._run(
@@ -236,7 +236,7 @@ class TestPayloadShape:
         )
         assert kwargs["data"]["from_role"] == "sentinel_agent"
 
-    @patch("egg_lib.orch_cli.orch_request")
+    @patch("egg_agent_tools.handlers.progress.orchestrator_request")
     def test_role_defaults_to_overseer_when_env_missing(self, mock_request, monkeypatch):
         monkeypatch.delenv("EGG_AGENT_ROLE", raising=False)
         _, kwargs = self._run(
@@ -255,7 +255,7 @@ class TestPayloadShape:
         )
         assert kwargs["data"]["from_role"] == "overseer"
 
-    @patch("egg_lib.orch_cli.orch_request")
+    @patch("egg_agent_tools.handlers.progress.orchestrator_request")
     def test_explicit_role_flag_wins(self, mock_request, monkeypatch):
         monkeypatch.setenv("EGG_AGENT_ROLE", "coder")
         _, kwargs = self._run(
@@ -280,7 +280,7 @@ class TestPayloadShape:
 class TestExitCodes:
     """Non-success responses surface as a non-zero exit code."""
 
-    @patch("egg_lib.orch_cli.orch_request")
+    @patch("egg_agent_tools.handlers.progress.orchestrator_request")
     def test_failure_returns_nonzero(self, mock_request, capsys):
         mock_request.return_value = {"success": False, "message": "boom"}
         rc = cmd_overseer_alert(
@@ -302,7 +302,7 @@ class TestExitCodes:
         err = capsys.readouterr().err
         assert "boom" in err
 
-    @patch("egg_lib.orch_cli.orch_request")
+    @patch("egg_agent_tools.handlers.progress.orchestrator_request")
     def test_json_success_returns_zero(self, mock_request, capsys):
         mock_request.return_value = {
             "success": True,
@@ -331,7 +331,7 @@ class TestExitCodes:
         payload = json.loads(out)
         assert payload["success"] is True
 
-    @patch("egg_lib.orch_cli.orch_request")
+    @patch("egg_agent_tools.handlers.progress.orchestrator_request")
     def test_json_failure_returns_nonzero(self, mock_request, capsys):
         mock_request.return_value = {"success": False, "message": "auth denied"}
         rc = cmd_overseer_alert(

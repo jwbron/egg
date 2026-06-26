@@ -128,11 +128,11 @@ class TestCompositeKeyMarking:
         state = OrchestrationState()
         state.set_execution(AgentRole.CODER, AgentExecutionStatus.RUNNING, phase_id="phase-1")
 
-        state.mark_complete(AgentRole.CODER, commit="abc123", phase_id="phase-1")
+        state.mark_complete(AgentRole.CODER, commit="abc1234", phase_id="phase-1")
         ex = state.get_execution(AgentRole.CODER, phase_id="phase-1")
         assert ex is not None
         assert ex.status == AgentExecutionStatus.COMPLETE
-        assert ex.commit == "abc123"
+        assert ex.commit == "abc1234"
 
     def test_mark_failed_with_phase_id(self):
         """mark_failed sets status and error for phase-scoped execution."""

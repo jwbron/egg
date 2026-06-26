@@ -124,6 +124,10 @@ TEST_ROOT_DIRS: tuple[str, ...] = (
     "gateway/tests",
     "orchestrator/tests",
     "shared/tests",
+    "shared/egg_anchor/tests",
+    "shared/egg_contracts/tests",
+    "sandbox/tests",
+    "scripts/tests",
 )
 
 # Paths that, when changed, force a full-suite fallback regardless of

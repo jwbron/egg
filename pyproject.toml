@@ -191,7 +191,7 @@ exclude_lines = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "gateway/tests", "orchestrator/tests", "shared/tests"]
+testpaths = ["tests", "gateway/tests", "orchestrator/tests", "shared/tests", "shared/egg_anchor/tests", "shared/egg_contracts/tests", "sandbox/tests", "scripts/tests"]
 # consider_namespace_packages lets pytest discover shared/tests,
 # gateway/tests, and orchestrator/tests as namespace subpackages
 # without ImportPathMismatchError when conftest.py exists in both
