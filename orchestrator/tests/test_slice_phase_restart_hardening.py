@@ -203,9 +203,9 @@ def _propose_message(
     """Build a CONSENSUS_PROPOSE Message whose payload metadata passes
     the ProposalPayload validator at peer_consensus.py:~2090-2102.
 
-    Used by AC-16 reconstruction tests so the replay path actually
-    populates the tracker's proposal slot rather than skipping the
-    message as invalid.
+    Used by the per-slice reconstruction tests so the replay path
+    actually populates the tracker's proposal slot rather than skipping
+    the message as invalid.
     """
     payload = {
         "summary": f"{from_role} slice {slice_id} proposal",
@@ -1965,18 +1965,18 @@ class TestEscalateBlockedSliceToHITL:
 
 
 # ---------------------------------------------------------------------------
-# Per-slice consensus tracker reconstruction (#2409 / AC-16)
+# Per-slice consensus tracker reconstruction (#2409)
 # ---------------------------------------------------------------------------
 
 
-class TestAC16CrossSliceTrackerIsolation:
-    """**AC-16 closure (#2409)** — two concurrent slices' messages live
-    under the same bare ``pipeline_id`` in the message store, tagged
-    per-slice via ``metadata['slice_id']``. After orchestrator restart,
-    the reconstructed slice-N tracker MUST NOT contain sibling slices'
-    messages.
+class TestCrossSliceTrackerIsolation:
+    """Cross-slice tracker isolation (#2409) — two concurrent slices'
+    messages live under the same bare ``pipeline_id`` in the message
+    store, tagged per-slice via ``metadata['slice_id']``. After
+    orchestrator restart, the reconstructed slice-N tracker MUST NOT
+    contain sibling slices' messages.
 
-    The metadata-based filter is the AC-16 enforcement surface (see
+    The metadata-based filter is the enforcement surface (see
     ``peer_consensus.py:~2035-2042``: ``_message_slice_id(m) ==
     slice_id``).
     """
@@ -1990,7 +1990,7 @@ class TestAC16CrossSliceTrackerIsolation:
         _purge_tracker_keys(self.PIPELINE_ID, [None, "slice-1", "slice-2"])
 
     def test_slice_2_reconstruction_excludes_slice_1_messages(self) -> None:
-        """Headline AC-16 test bar: slice-1 has reached consensus
+        """Headline test bar: slice-1 has reached consensus
         (PROPOSE + CONFIRMED messages on the bus); slice-2 is
         mid-work (PROPOSE only). After orchestrator restart, the
         reconstructed slice-2 tracker MUST report ``is_complete=False``
@@ -2028,7 +2028,7 @@ class TestAC16CrossSliceTrackerIsolation:
         eval_state = slice_2_tracker.evaluate()
         assert eval_state.get("is_complete") is not True, (
             "slice-2 tracker incorrectly reports complete consensus — "
-            "AC-16 cross-slice isolation regression"
+            "cross-slice isolation regression"
         )
 
     def test_slice_1_and_slice_2_trackers_are_distinct(self) -> None:
@@ -2146,10 +2146,9 @@ class TestStartupReconciliationEnumeratesContractSlices:
 
 class TestHandleConsensusConfirmedSliceScopedReconstruction:
     """``handle_consensus_confirmed_signal`` no longer skips
-    reconstruction when ``slice_id`` is supplied (architect v2
-    AC-16). The fix removes the ``if slice_id is None`` gate around
-    the reconstruction call — the metadata filter is the canonical
-    scope mechanism.
+    reconstruction when ``slice_id`` is supplied (#2409). The fix
+    removes the ``if slice_id is None`` gate around the reconstruction
+    call — the metadata filter is the canonical scope mechanism.
     """
 
     PIPELINE_ID = "issue-2777-confirmed-slice"
