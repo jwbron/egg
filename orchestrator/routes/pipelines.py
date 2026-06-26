@@ -14798,10 +14798,10 @@ def _build_agent_prompt(
                 "- Describe what the code does now, not what changed or when it changed.",
                 "- NEVER reference SDLC artifacts — slice numbers, TASK-N ids, phase or "
                 "HITL iteration numbers — in any doc, docstring, or inline comment you write.",
-                "- Include historical context (issue links, \"previously X\" rationale, "
+                '- Include historical context (issue links, "previously X" rationale, '
                 "migration notes) ONLY when it is tangibly valuable to a reader of the "
-                "current system, and prefer rationale (\"why it is this way\") over "
-                "chronology (\"what it used to be / when it changed\").",
+                'current system, and prefer rationale ("why it is this way") over '
+                'chronology ("what it used to be / when it changed").',
                 "- When updating an existing doc, fold the new state into the snapshot and "
                 "REMOVE now-stale ledger or historical entries rather than appending "
                 "another layer.",
