@@ -1,65 +1,60 @@
 # Slice-DAG Implement Phase
 
-> Status: shipped (#2137, HITL decision-20 opt-2). Per the operator's
-> resolution of decision-20, the implement-phase run-loop wire-up landed
-> in this PR rather than being deferred. The slice loop drives
-> `SliceScheduler` waves, creates each slice's integration branch on
-> origin via the gateway *before* agents spawn, runs the BRC consensus
-> per slice, opens a per-slice PR on consensus reach, and runs the
-> stacked-PR reconciler in a background thread. The reconciler's
-> `list_open_prs` / `list_remote_branches` callables are bound to live
-> gateway helpers — it is no longer a no-op.
->
-> **Two trade-offs scoped to #2199** (per-slice MCP control verbs
-> follow-up):
->
-> 1. The `EGG_PIPELINE_ID` override that scopes BRC `CONSENSUS_*`
->    messages also currently scopes the agent-emitted `HEARTBEAT` and
->    `OVERSEER_ALERT` traffic to the slice tracker. The hybrid scheme
->    promised by decision-14 (cross-slice telemetry routes through the
->    bare `pipeline_id`) is honoured *partially* — the orchestrator-side
->    cascade emission and log line in `_run_implement_phase_slices`
->    provide the always-on fallback so deadlocks remain visible at the
->    pipeline level. Full fan-out requires a CLI-side message-type-aware
->    router (#2199).
-> 2. The `record_cycle` two-tier `max_cycles` accounting and the
->    `hitl_escalator` hook on `SliceScheduler` are public API and unit-
->    tested, but the slice run loop does not yet call `record_cycle`
->    on each BRC re-proposal. The env knobs
->    `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES` / `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES`
->    are read but not exercised today; #2199 wires the trip flag through
->    the BRC re-proposal loop.
+The implement phase runs as a **forest of slices**. Each slice is an
+independently-implementable unit of work with its own integration branch,
+agent team, BRC consensus, and pull request; slice PRs stack along the DAG's
+linear chains. The slice run loop drives `SliceScheduler` waves, creates each
+slice's integration branch on origin via the gateway *before* agents spawn,
+runs BRC consensus per slice, opens a per-slice PR on consensus reach, and
+runs the stacked-PR reconciler in a background thread (bound to live gateway
+helpers — `list_open_prs` / `list_remote_branches` / `rebase_onto`).
 
-The implement phase used to run as a single monolithic agent team on one
-branch through one BRC consensus. Tickets large enough to fill the context
-window (empirically ~33K LOC / 41 files per #2105) caused compaction and
-quality drops. The slice-DAG model replaces that single-team flow with a
-**forest of slices** — each slice has its own integration branch, agent
-team, BRC consensus, and pull request. Slice PRs stack along the DAG's
-linear chains.
+The forest model exists because a single monolithic agent team on one branch
+through one BRC consensus cannot hold a large ticket: tickets big enough to
+fill the context window (empirically ~33K LOC / 41 files,
+[#2105](https://github.com/jwbron/egg/issues/2105)) caused compaction and
+quality drops. Slicing bounds each agent team's context to one unit of work.
+
+> **Known limitations** (tracked in
+> [#2199](https://github.com/jwbron/egg/issues/2199), the per-slice MCP
+> control-verbs follow-up):
+>
+> 1. The `EGG_PIPELINE_ID` override that scopes BRC `CONSENSUS_*` messages
+>    also scopes agent-emitted `HEARTBEAT` and `OVERSEER_ALERT` traffic to
+>    the slice tracker, so cross-slice telemetry does not route through the
+>    bare `pipeline_id`. The orchestrator-side cascade emission and log line
+>    in `_run_implement_phase_slices` are the always-on fallback that keeps
+>    deadlocks visible at the pipeline level; full fan-out requires a
+>    CLI-side message-type-aware router.
+> 2. `SliceScheduler.record_cycle` (two-tier `max_cycles` accounting) and the
+>    `hitl_escalator` hook are public API and unit-tested, but the slice run
+>    loop does not call `record_cycle` on each BRC re-proposal. The env knobs
+>    `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES` / `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES`
+>    are read but not exercised.
 
 ## Vocabulary
 
 | Term | Meaning |
 |------|---------|
-| **Slice** | One independently-implementable unit of work. Renamed from `Phase` in #2137. Each slice has tasks, dependencies, an integration branch, an agent team, and (eventually) a PR. |
+| **Slice** | One independently-implementable unit of work. Each slice has tasks, dependencies, an integration branch, an agent team, and (eventually) a PR. |
 | **Forest** | The slice DAG must be a forest: every slice has **at most one** DAG parent. Multi-parent slices are rejected at plan ingestion. |
 | **Wave** | A set of slices whose dependencies are all satisfied. Slices in the same wave can run concurrently. |
 | **Stacked PR** | A child slice's PR targets the parent slice's integration branch (not main). Reviewers land slices incrementally as parents merge. |
 | **Cascade** | When a slice fails, after a grace window its transitive descendants are marked `BLOCKED_ON_FAILED_DEPENDENCY` rather than running pointlessly. |
 
-## Contract Schema (Phase → Slice)
+## Contract Schema (slices, with `phases` back-compat)
 
-The contract field `phases[]` was renamed to `slices[]`. Backwards
-compatibility is preserved at every layer:
+The canonical contract field is `slices[]`. Backwards compatibility with the
+legacy `phases[]` name is preserved at every layer so older on-disk contracts
+keep loading:
 
-- **`Phase = Slice`** — class alias. Old imports keep working.
+- **`Phase = Slice`** — class alias. Legacy imports keep working.
 - **`PhaseStatus = SliceStatus`** — enum alias. Status values
-  (`pending` / `in_progress` / `complete` / `blocked`) are unchanged so
+  (`pending` / `in_progress` / `complete` / `blocked`) are identical so
   on-disk JSON loads without translation.
 - **`Contract.phases`** — read/write property proxy to `Contract.slices`.
   Reading and assigning both work.
-- **Load-time migration shim** — when a pre-#2137 contract JSON containing
+- **Load-time migration shim** — when a legacy contract JSON containing
   `phases: [...]` is loaded, a Pydantic `model_validator(mode="wrap")`
   rewrites `phases[]` → `slices[]` and each item's `phase-N` ID → `slice-N`,
   including dependency references. The original payload is stashed on the
@@ -75,7 +70,7 @@ pass either.
 | Field | Type | Default | Purpose |
 |-------|------|---------|---------|
 | `serialized_chain_order` | `list[str]` | `[]` | Architect-emitted ordering for would-be multi-parent slices (#2809). When the architect identifies a slice that would naturally have >1 parents, it serialises the upstream cluster into a chain and records the chosen order on the downstream slice. |
-| `parent_branch_at_creation` | `str \| None` | `None` | Git branch the slice's integration branch was forked off when its worktree was provisioned. Eager-persisted under the per-pipeline state lock in the same contract write that flips `SliceStatus.PENDING → IN_PROGRESS` ([#2777](https://github.com/jwbron/egg/issues/2777) slice-4 TASK-4-2, cq-9), so Layer-C bootstrap reconciliation has a single signal that distinguishes a fresh slice from an interrupted one and the value is durable across orchestrator restarts. Read by the stacked-PR reconciler when the parent's branch has been deleted by a merge so it can compute the correct rebase target. Empty on legacy/orphaned slices that pre-date the eager-persist contract — in that case `_resolve_slice_base_branch` falls back to a merge-base probe (TASK-4-3) against the dependency-derived parent before routing onto `pipeline_branch`. |
+| `parent_branch_at_creation` | `str \| None` | `None` | Git branch the slice's integration branch was forked off when its worktree was provisioned. Eager-persisted under the per-pipeline state lock in the same contract write that flips `SliceStatus.PENDING → IN_PROGRESS` ([#2777](https://github.com/jwbron/egg/issues/2777)), so Layer-C bootstrap reconciliation has a single signal that distinguishes a fresh slice from an interrupted one and the value is durable across orchestrator restarts. Read by the stacked-PR reconciler when the parent's branch has been deleted by a merge so it can compute the correct rebase target. Empty on legacy/orphaned slices that pre-date the eager-persist contract — in that case `_resolve_slice_base_branch` falls back to a merge-base probe against the dependency-derived parent before routing onto `pipeline_branch`. |
 | `integration_base_sha` | `str \| None` | `None` | Origin SHA the slice's integration branch was forked at when first created (#2871). Written right after branch creation and before any agent is spawned (so the tip still equals this SHA at that point), but can be overwritten by out-of-band actors such as `restart_phase`, `salvage_agent_commits`, or manual contract edits. Lets `is_slice_branch_merged_into_parent` distinguish an *empty, un-started* branch (tip still equals this SHA → trivially an ancestor of any advanced parent, but not merged work) from a *genuinely merged* one (tip has moved past this SHA). Also used by `create_slice_integration_branch` to verify that an existing integration branch is a resumable additive fork (#2947); when this field is absent or corrupted (e.g. overwritten to the advanced parent tip by a restart actor), that method re-derives the fork point via a runtime `git merge-base` (executed on the gateway) and adopts the branch in place rather than non-fast-forward-failing the slice (#3245). Slices provisioned before this field existed fall back to the prior ancestor-only check. |
 
 ## Plan Parser & Forest Validation
@@ -221,9 +216,9 @@ exists to provide.
 
 ## DependencyGraph generification
 
-`shared/egg_contracts/dependency_graph.py` was generified in #2137.
 `DependencyNode`, `ExecutionWave`, `ExecutionPlan`, and `DependencyGraph`
-are now generic over the node-key type. The classes use **PEP 695 generic
+in `shared/egg_contracts/dependency_graph.py` are generic over the node-key
+type. The classes use **PEP 695 generic
 class syntax** (`class DependencyGraph[NodeT: Hashable]: ...`) — matching
 `pyproject.toml`'s `target-version = "py314"` — rather than the older
 `Generic[NodeT]` + `TypeVar` shape. Existing agent-role-keyed callers
@@ -311,15 +306,15 @@ otherwise serialise every other scheduler operation; a >180 s round trip
 would also trip the orchestrator's stuck-phase-transition timeout. (Same
 pattern as #2012 for the BRC tracker.)
 
-> **Status: deferred to #2199.** The `record_cycle` invocation point is
-> not yet wired into the slice run loop. `_run_implement_phase_slices`
-> tracks per-slice exit codes but does not call `record_cycle` on each
-> BRC re-proposal; the env knobs are read at constructor time but the
-> trip path is dead code today. The hook itself is public, unit-tested,
-> and lock-safe — #2199 (per-slice MCP control verbs follow-up) closes
-> the loop on the BRC re-proposal counter and wires the
-> `hitl_escalator` argument through to the orchestrator's HITL
-> escalation surface.
+> **Not yet wired** (tracked in
+> [#2199](https://github.com/jwbron/egg/issues/2199)). The `record_cycle`
+> invocation point is not called from the slice run loop:
+> `_run_implement_phase_slices` tracks per-slice exit codes but does not
+> call `record_cycle` on each BRC re-proposal, so the env knobs are read at
+> constructor time but the trip path is unreached. The hook itself is
+> public, unit-tested, and lock-safe; closing the loop on the BRC
+> re-proposal counter and wiring the `hitl_escalator` argument through to
+> the orchestrator's HITL escalation surface is the open follow-up.
 
 ### Failure cascade
 
@@ -336,8 +331,7 @@ emitted with the full subtree.
 not by the scheduler. After every `iter_ready` pass,
 `_run_implement_phase_slices` calls `scheduler.poll_cascades()`,
 logs each event, and pushes a structured `OVERSEER_ALERT` directly into
-the in-process `message_store` keyed on the bare `pipeline_id` (TASK-3-4
-emission path):
+the in-process `message_store` keyed on the bare `pipeline_id`:
 
 ```python
 {
@@ -352,10 +346,10 @@ emission path):
 }
 ```
 
-This is the always-on safety net: under the v4/v5/v6 `EGG_PIPELINE_ID`
+This is the always-on safety net: under the `EGG_PIPELINE_ID`
 override, agent-emitted `OVERSEER_ALERT` traffic routes through the
-slice tracker rather than the pipeline tracker (the trade-off scoped to
-#2199 — see status callout). The orchestrator-side emission keeps
+slice tracker rather than the pipeline tracker (see Known limitations).
+The orchestrator-side emission keeps
 cascade visibility flowing through `pipeline_id` regardless, so the
 human operator's overseer surface still sees the deadlock even if every
 agent in the failed subtree has already shut down.
@@ -373,16 +367,16 @@ one-way trip.)
 
 `ConcurrentPhaseExecutor.get_worktree_branch(role, *, slice_id=None)` is
 slice-aware. **In slice mode, every agent in a slice shares the slice's
-integration branch.** This was a deliberate v6 design correction: an
-earlier per-role suffix shape (`egg/issue-N/slice-M/{role}/work`) caused
-the per-slice PR's diff to render empty, because the integration branch
-opened on origin pointed at the parent's tip while every agent commit
-lived on a per-role sibling branch GitHub does not see in the PR.
+integration branch.** The branch is shared per-slice rather than
+per-role because a per-role suffix shape (`egg/issue-N/slice-M/{role}/work`)
+would make the per-slice PR's diff render empty: the integration branch
+opened on origin points at the parent's tip while every agent commit would
+live on a per-role sibling branch GitHub does not see in the PR.
 
 | Mode | `slice_id` | Result |
 |------|------------|--------|
-| Pipeline mode (pre-#2137 / non-slice phases) | `None` (default) | `pipeline.branch` or `egg/issue-N/work` (tip pushed to `<id>/work` since #2399). |
-| Slice mode (post-v6) | `"slice-2"` or `"2"` | `egg/issue-N/slice-2` — **shared by every role in the slice**. |
+| Pipeline mode (non-slice phases) | `None` (default) | `pipeline.branch` or `egg/issue-N/work` (tip pushed to `<id>/work` since [#2399](https://github.com/jwbron/egg/issues/2399)). |
+| Slice mode | `"slice-2"` or `"2"` | `egg/issue-N/slice-2` — **shared by every role in the slice**. |
 
 > **The slice is the unit of isolation, not the role within the slice.**
 > Cross-slice isolation is preserved by the per-slice integration branch;
@@ -420,11 +414,11 @@ The slice run loop creates each slice's integration branch on origin
 the parent ref so the commit object is locally reachable, (2) resolves
 the parent branch to a SHA on origin via `git ls-remote`, then (3)
 pushes `<parent_sha>:refs/heads/<integration_branch>` through the existing
-per-agent `/api/v1/git/push` allowlist (no new privileged endpoint;
-decision-15 invariant preserved). Pushing by SHA rather than ref name
-avoids local-ref resolution failures in the orchestrator's per-pipeline
-worktree, which is checked out on `<branch>/work` and carries no local
-ref matching `<parent_branch>` (#2393). On creation failure the run
+per-agent `/api/v1/git/push` allowlist (no new privileged endpoint is
+introduced). Pushing by SHA rather than ref name avoids local-ref
+resolution failures in the orchestrator's per-pipeline worktree, which is
+checked out on `<branch>/work` and carries no local ref matching
+`<parent_branch>` ([#2393](https://github.com/jwbron/egg/issues/2393)). On creation failure the run
 loop calls `record_failure(slice_id)` and returns early — agents are
 not spawned against a missing integration branch. When the branch already
 exists (e.g. after an orchestrator-pod restart or a `restart_phase` that
@@ -438,14 +432,13 @@ rather than failing with a non-fast-forward rejection (#3245).
 The BRC tracker layer (`orchestrator/peer_consensus.py`) was extended so
 `create/get/remove_peer_consensus_tracker(pipeline_id, slice_id=None)` keys
 the registry under the composite key `{pipeline_id}/{slice_id}`. Per-slice
-`CONSENSUS_*` state is naturally isolated. Refine-phase decision-14
-called for `HEARTBEAT` / `OVERSEER_ALERT` to keep flowing through the
-bare `pipeline_id`; in practice the `EGG_PIPELINE_ID` override route on
-the agent CLI sends *every* outbound signal through the slice tracker
-today (see status callout — full hybrid fan-out is scoped to #2199).
-The orchestrator-side cascade emission and run-loop log lines are the
-always-on `pipeline_id`-scoped fallback so deadlocks remain visible at
-the pipeline level regardless.
+`CONSENSUS_*` state is naturally isolated. `HEARTBEAT` / `OVERSEER_ALERT`
+are intended to flow through the bare `pipeline_id`, but the
+`EGG_PIPELINE_ID` override route on the agent CLI currently sends *every*
+outbound signal through the slice tracker (see Known limitations). The
+orchestrator-side cascade emission and run-loop log lines are the always-on
+`pipeline_id`-scoped fallback so deadlocks remain visible at the pipeline
+level regardless.
 
 ## Implement-phase run loop
 
@@ -476,9 +469,9 @@ shape:
        persists `Slice.parent_branch_at_creation` AND flips
        `SliceStatus.PENDING → IN_PROGRESS` in the same contract write
        under the per-pipeline state lock ([#2777](https://github.com/jwbron/egg/issues/2777)
-       slice-4 TASK-4-2, cq-9 — gives Layer-C bootstrap a single
-       signal that distinguishes a fresh slice from an interrupted
-       one), creates the integration branch via the gateway, calls
+       — gives Layer-C bootstrap a single signal that distinguishes a
+       fresh slice from an interrupted one), creates the integration
+       branch via the gateway, calls
        `_run_concurrent_phase(slice_id=...)` to spawn the slice's
        agent team, awaits BRC consensus, and on consensus reach calls
        `GatewayClient.create_slice_pr` with `base` resolved from the
@@ -494,7 +487,7 @@ shape:
 5. **Tear down** the reconciler thread and aggregate per-slice exit
    codes into the run-loop's return value.
 
-The run loop runs a **bootstrap reconciliation pass** before the first wave begins. Layer A reconciles slices the contract already marks `COMPLETE`; Layer B reconciles the open-PR side. Layer C ([#2777](https://github.com/jwbron/egg/issues/2777) slice-4 TASK-4-4, bundles [#2409](https://github.com/jwbron/egg/issues/2409)) reconciles non-`COMPLETE` slices that did real work before an orchestrator-pod recycle interrupted the prior run. The Layer-C classifier (`_classify_non_complete_slice`) reads `SliceStatus`, queries the gateway for the integration branch's origin commit count, and looks up the slice's consensus tracker, then applies a 5-way decision: (1) `IN_PROGRESS` with no commits → no-op (scheduler re-yields `READY`); (2) `IN_PROGRESS` + commits + no consensus → mark spawned; (3) `IN_PROGRESS` + commits + consensus reached → mark `COMPLETE`; (4) `BLOCKED` without a pending HITL → escalate to HITL; (5) corrupt / unclassifiable → escalate to HITL. Cases 4/5 create unresolved `Decision` objects on the contract via `_escalate_layer_c_hitl` rather than silently re-yielding `READY` (silent classification error is worse than an operator pause). The classifier's gateway-probe failure default is "fresh, re-yield `READY`" — the safer direction for the scheduler — which is deliberately the opposite of `_resolve_slice_base_branch`'s probe-failure default ("derived parent" — the safer direction for the next push). See [`Slice/phase restart hardening`](orchestrator.md#slicephase-restart-hardening-2777-slice-4-bundles-2409) for the full restart-hardening picture, including the slice-aware `restart_phase` clear and the per-slice consensus tracker reconstruction at startup.
+The run loop runs a **bootstrap reconciliation pass** before the first wave begins. Layer A reconciles slices the contract already marks `COMPLETE`; Layer B reconciles the open-PR side. Layer C ([#2777](https://github.com/jwbron/egg/issues/2777), bundles [#2409](https://github.com/jwbron/egg/issues/2409)) reconciles non-`COMPLETE` slices that did real work before an orchestrator-pod recycle interrupted the prior run. The Layer-C classifier (`_classify_non_complete_slice`) reads `SliceStatus`, queries the gateway for the integration branch's origin commit count, and looks up the slice's consensus tracker, then applies a 5-way decision: (1) `IN_PROGRESS` with no commits → no-op (scheduler re-yields `READY`); (2) `IN_PROGRESS` + commits + no consensus → mark spawned; (3) `IN_PROGRESS` + commits + consensus reached → mark `COMPLETE`; (4) `BLOCKED` without a pending HITL → escalate to HITL; (5) corrupt / unclassifiable → escalate to HITL. Cases 4/5 create unresolved `Decision` objects on the contract via `_escalate_layer_c_hitl` rather than silently re-yielding `READY` (silent classification error is worse than an operator pause). The classifier's gateway-probe failure default is "fresh, re-yield `READY`" — the safer direction for the scheduler — which is deliberately the opposite of `_resolve_slice_base_branch`'s probe-failure default ("derived parent" — the safer direction for the next push). See [`Slice/phase restart hardening`](orchestrator.md#slicephase-restart-hardening-2777-slice-4-bundles-2409) for the full restart-hardening picture, including the slice-aware `restart_phase` clear and the per-slice consensus tracker reconstruction at startup.
 
 Per-slice agent teams are spawned via the existing
 `ConcurrentPhaseExecutor` machinery with `slice_id` plumbed through:
@@ -582,14 +575,12 @@ every slice PR is purely slice-scoped.
   backstop; the stack is non-mergeable until the operator reconciles
   the missing context PR.
 
-The `## Stack` block is the body's footer. The legacy plain-text line
-(``Slice <slice-id> of pipeline <pipeline>. Stacked on top of
-`<base>`.``) that used to follow it was dropped in #3115 — a repo-wide
-search found no consumer parsing it.
+The `## Stack` block is the body's footer; nothing follows it. (No
+machine-readable trailing stack line is emitted — a repo-wide search found
+no consumer parsing one.)
 
-Task bullets carry full descriptions (the pre-#2745 300-char
-truncation is removed) and a nested `Acceptance criteria:` line when
-`task.acceptance_criteria` is set; since #3115 the whole task list
+Task bullets carry full descriptions and a nested `Acceptance criteria:`
+line when `task.acceptance_criteria` is set; the whole task list
 renders inside a collapsed `<details>` block so traceability does not
 crowd out the reviewer-facing summary.
 
@@ -725,18 +716,17 @@ reconciler is fully functional, not a no-op:
 `list_remote_branches` and `rebase_onto` flow through the existing
 per-agent allowlists. `list_open_prs` uses the dedicated control-plane
 route `/api/v1/gh/list_open_prs` with launcher auth rather than a
-synthetic agent session (refine-phase decision-15 intent preserved: no
-general-purpose privileged gh-command surface is introduced — the route
-accepts only `repo`/`limit` and constructs the fixed read-only argv
-server-side).
+synthetic agent session: no general-purpose privileged gh-command surface
+is introduced — the route accepts only `repo`/`limit` and constructs the
+fixed read-only argv server-side.
 
-## Architect, planner & plan-reviewer prompt updates
+## Architect, planner & plan-reviewer prompts
 
-The dynamic prompt builders for `task_planner` and `reviewer_plan` were
-extended to teach the agents the new schema and constraints:
+The dynamic prompt builders for `task_planner` and `reviewer_plan` teach
+the agents the slice schema and constraints:
 
 - **Architect (`architect`)** — sole authority for slice composition
-  (#2809, inverting HITL decision-6 opt-2). The architect prompt
+  ([#2809](https://github.com/jwbron/egg/issues/2809)). The architect prompt
   declares this authority explicitly and the architect emits a binding
   `architect-slices.yaml` scaffold alongside its analysis JSON
   (`{identifier}-architect-slices.yaml` under `.egg-state/agent-outputs/`).
@@ -763,19 +753,20 @@ extended to teach the agents the new schema and constraints:
      and populating `serialized_chain_order` on the downstream
      slice. The fallback heuristic (`files_affected` Jaccard >0.3,
      then descending fan-out) is documented; the architect's own
-     ordering is the source of truth (HITL decision-17). The
-     planner preserves the field verbatim from the scaffold.
+     ordering is the source of truth. The planner preserves the field
+     verbatim from the scaffold.
   4. The yaml-block key swap: `slices:` is canonical, `phases:` is
      backward-compat.
-- **Plan reviewer (`reviewer_plan`)** — two new prompt sections:
+- **Plan reviewer (`reviewer_plan`)** — two prompt sections:
   1. *Forest-violation NACK*: when the populator left a "Plan ingestion
      REJECTED" block on `plan_review_feedback` (or a `forest_violation`
      log discriminator is present), the reviewer NACKs the **architect**
-     (not the planner — slice scaffold ownership moved to architect in
-     #2809) with the structured errors verbatim and instructs re-emission
-     of the scaffold with `serialized_chain_order` populated.
-  2. *Slice-sizing NACK* (hard, judgment-based; #2809 inverts HITL
-     decision-6 opt-2). The reviewer is empowered AND required to
+     (slice scaffold ownership belongs to the architect,
+     [#2809](https://github.com/jwbron/egg/issues/2809)) with the structured
+     errors verbatim and instructs re-emission of the scaffold with
+     `serialized_chain_order` populated.
+  2. *Slice-sizing NACK* (hard, judgment-based). The reviewer is empowered
+     AND required to
      hard-NACK the architect on `slice_size` when a slice is oversized
      for one BRC cycle. There is no fixed LOC budget — the rubric is
      judgment-based: NACK when a slice bundles >~3 distinct
@@ -800,7 +791,7 @@ on parse failure.
 |---------|------|---------|----------|
 | `EGG_ORCH_MAX_PARALLEL_SLICES` | int | 1 | **Per-pipeline** wave slice spawn concurrency cap (fallback default). Enforced via `iter_ready` and mirrored on the wave's `ThreadPoolExecutor.max_workers`. Overridden per-pipeline by `PipelineConfig.max_parallel_slices` (set at pipeline creation), which takes precedence when non-null. |
 | `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES` | int | 4 | **Process-wide** slice cap across ALL running pipelines (#2241 gap 1). Enforced by `orchestrator.global_slice_admit.try_admit()` in the run loop; deferred slices stay READY and re-yield next tick. |
-| `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES` | int | 3 | Per-slice BRC re-proposal ceiling before HITL escalation. *Currently inert — #2199 wires the trip flag through the BRC re-proposal loop.* |
+| `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES` | int | 3 | Per-slice BRC re-proposal ceiling before HITL escalation. *Currently inert — the run loop does not call `record_cycle`; see Known limitations.* |
 | `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES` | int | 10 | Pipeline-wide summed slice-cycle cap. *Currently inert — see local cycles row.* |
 | `EGG_ORCH_SLICE_FAILURE_GRACE_SECONDS` | float | 60.0 | Grace window before a failure cascade marks the downstream subtree `BLOCKED_ON_FAILED_DEPENDENCY`. |
 | `EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS` | float | 30.0 | Reconciler polling cadence for orphaned child PRs. |
@@ -832,66 +823,52 @@ The current global admit-state is exposed on
 operators can see when slices are queued behind the cap rather than
 wedged.
 
-## Resolved design decisions (from refine phase)
+## Design rationale
 
-The slicing design was driven by 18 HITL decisions plus a feedback round
-during refine. The most consequential are referenced inline above:
+Why the model is shaped the way it is:
 
-- **decision-5** — concurrency: unbounded per wave; `max_parallel_slices`
-  is an operator-tunable soft cap. Initial cap was 5; lowered to 2 in
-  #2466 to constrain container/gateway resource pressure during the
-  implement phase.
-- **decision-7** — schema rename ships with a one-version load-time
-  migration; legacy `phases[]` JSON keeps loading.
-- **decision-9** — two-tier `max_cycles` (local 3, global 10).
-- **decision-10** — failure-cascade hybrid (60 s grace + downstream-only
-  block).
-- **decision-13** — lens reviewers run per-slice (cross-slice coherence
-  trade-off accepted).
-- **decision-14** — BRC tracker keying: hybrid (`pipeline_id` for
-  cross-slice telemetry, nested `pipeline_id/slice_id` for `CONSENSUS_*`).
-- **decision-15** — no general-purpose privileged gh-command surface;
-  reconciler reads via narrow read-only routes (per-agent allowlists for
-  `ls-remote`/rebase; control-plane fixed-argv `/api/v1/gh/list_open_prs`
-  with launcher auth, post [#2925](https://github.com/jwbron/egg/issues/2925)).
-- **decision-16** — stacked-PR rebase: GitHub auto-retarget primary path,
-  reconciler safety net.
-- **decision-17** — auto-serialization for would-be multi-parent slices:
-  architect-supplied `serialized_chain_order` is the source of truth (#2809).
-- **decision-18** — forest constraint enforced at plan ingestion only;
-  multi-parent slices NACK the architect (#2809).
-- **decision-20** — implement-phase run-loop wire-up (TASK-4-2,
-  TASK-4-4, TASK-5-1 invocation, TASK-5-3 scheduling). Operator chose
-  **opt-2** ("require the wire-up to land here before consensus"); the
-  run loop, slice-aware `ConcurrentPhaseExecutor`, integration-branch
-  creation, per-slice PR opening, and the reconciler thread all shipped
-  in this PR (commits `36d34da9612`, `7f4203469`, `97de1061d` plus
-  v1–v3 follow-ups).
+- **Concurrency is an operator-tunable soft cap, not unbounded.**
+  `max_parallel_slices` bounds wave spawn concurrency; the default is low
+  ([#2466](https://github.com/jwbron/egg/issues/2466)) to constrain
+  container/gateway resource pressure during the implement phase.
+- **The schema rename carries a one-version load-time migration** so legacy
+  `phases[]` JSON keeps loading rather than breaking on the field swap.
+- **`max_cycles` is two-tier** (local per-slice + pipeline-global) so a
+  single thrashing slice and a pipeline-wide cycle budget can both trip HITL
+  escalation independently.
+- **The failure cascade is hybrid** — a grace window before blocking, and
+  only the failed slice's downstream subtree is blocked — so a transient
+  failure can recover and siblings are unaffected.
+- **Lens reviewers run per-slice**, accepting the cross-slice-coherence
+  trade-off in exchange for bounding each review's context to one slice.
+- **BRC tracker keying is hybrid**: the bare `pipeline_id` is intended for
+  cross-slice telemetry and the nested `pipeline_id/slice_id` key isolates
+  `CONSENSUS_*` state (see Known limitations for the part not yet wired).
+- **No general-purpose privileged gh-command surface.** The reconciler reads
+  via narrow read-only routes (per-agent allowlists for `ls-remote`/rebase;
+  the control-plane fixed-argv `/api/v1/gh/list_open_prs` with launcher
+  auth, [#2925](https://github.com/jwbron/egg/issues/2925)).
+- **Stacked-PR rebase** relies on GitHub auto-retarget as the primary path,
+  with the reconciler as a safety net for paths that don't trigger it.
+- **The forest constraint is enforced at plan ingestion** and would-be
+  multi-parent slices are serialised via architect-supplied
+  `serialized_chain_order`, which is the source of truth
+  ([#2809](https://github.com/jwbron/egg/issues/2809)).
 
-## Out of scope (#2137)
+## Out of scope
 
 - **Per-slice MCP control verbs** (`restart_slice`, `get_slice_status`,
-  `list_slices`) — tracked in #2199. The slice-addressable hooks the
-  verbs will wrap are public on `SliceScheduler` already
+  `list_slices`) — tracked in
+  [#2199](https://github.com/jwbron/egg/issues/2199). The slice-addressable
+  hooks the verbs will wrap are public on `SliceScheduler` already
   (`teardown_slice`, `respawn_slice`, `get_slice_status`, plus the
   implicit `list_slices` view via the scheduler's contract reference).
-  Note: `restart_agent` with `slice_id` landed in #2399/#2410 — the
-  REST endpoint (`POST /api/v1/pipelines/<id>/agents/<role>/restart`)
-  now accepts `?slice_id=slice-N` (or `"slice_id"` in the body).
-- **`record_cycle` two-tier wiring (#2199)** — `SliceScheduler`'s
-  `record_cycle` API and `hitl_escalator` hook are public and unit-
-  tested but the slice run loop does not call `record_cycle` on each
-  BRC re-proposal yet; the `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES` /
-  `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES` env knobs are read but not
-  exercised today.
-- **`EGG_PIPELINE_ID` cross-slice telemetry hybrid (#2199)** — the
-  agent CLI's `EGG_PIPELINE_ID` override scopes *every* outbound
-  message (CONSENSUS_*, HEARTBEAT, OVERSEER_ALERT) to the slice
-  tracker. Decision-14's hybrid scheme (cross-slice telemetry on the
-  bare pipeline tracker) requires a CLI-side message-type-aware router
-  to fully honour. Today the orchestrator-side cascade emission and
-  log lines provide the always-on `pipeline_id`-scoped fallback for
-  cascade visibility.
+  `restart_agent` already accepts a `slice_id`: the REST endpoint
+  (`POST /api/v1/pipelines/<id>/agents/<role>/restart`) takes
+  `?slice_id=slice-N` (or `"slice_id"` in the body).
+- **The `record_cycle` cycle-cap wiring and the `EGG_PIPELINE_ID`
+  cross-slice telemetry hybrid** are both unfinished — see Known
+  limitations at the top of this page.
 - **Cross-slice architectural review** — `reviewer_code_holistic` runs
   per-slice; cross-slice cohesion is not re-checked once slices land.
 
