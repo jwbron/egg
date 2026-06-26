@@ -96,7 +96,12 @@ class _FakeQueue:
         raise AssertionError(f"decision {decision_id} not queued")
 
 
-def _run_gate(dq: _FakeQueue, load_side_effect: list[Any]) -> tuple[bool, Pipeline]:
+def _run_gate(
+    dq: _FakeQueue,
+    load_side_effect: list[Any],
+    *,
+    hitl_gates: bool = True,
+) -> tuple[bool, Pipeline]:
     """Invoke the gate with the queue + a scripted load_contract sequence."""
     from routes.pipelines import _await_unresolved_gap_gate
 
@@ -124,6 +129,7 @@ def _run_gate(dq: _FakeQueue, load_side_effect: list[Any]) -> tuple[bool, Pipeli
             Path("/worktree"),
             42,
             PipelinePhase.IMPLEMENT,
+            hitl_gates,
         )
     return gated, pipeline
 
@@ -137,7 +143,9 @@ def test_clean_contract_no_gate() -> None:
 
 
 def test_open_gap_override_finalizes() -> None:
-    """An open gap surfaces a phase_gate decision; 'override' ships it."""
+    """An open gap surfaces a phase_gate decision; 'override' ships it and
+    records the override on the frozen phase artifacts for audit parity
+    with the complete_phase endpoint's force path (#3300 review)."""
     dq = _FakeQueue(resolutions=["override"])
     gated, pipeline = _run_gate(dq, load_side_effect=[_contract(resolved=False)])
     assert gated is True
@@ -147,6 +155,78 @@ def test_open_gap_override_finalizes() -> None:
     assert "task-1-2" in dq.queued[0].context
     # Status restored to RUNNING after the gate clears.
     assert pipeline.status == PipelineStatus.RUNNING
+    # Durable override audit on the phase box, not just a log line.
+    import json
+
+    phase_exec = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+    assert phase_exec.artifacts["force_completed_gaps"] == json.dumps(["task-1-2/gap-1"])
+
+
+def test_open_gap_marks_phase_box_awaiting_human() -> None:
+    """While blocking, both the pipeline and the implement phase box must
+    read AWAITING_HUMAN so the DAG renders the gate on the right phase
+    (#3300 review). A FakeQueue captures status at queue time."""
+    captured: dict[str, Any] = {}
+
+    class _CapturingQueue(_FakeQueue):
+        def __init__(self, pipeline_ref: list[Pipeline], resolutions):
+            super().__init__(resolutions)
+            self._pipeline_ref = pipeline_ref
+
+        def wait_for_decision(self, decision_id: str):
+            # Status is set to AWAITING_HUMAN just before the wait.
+            pl = self._pipeline_ref[0]
+            captured["pipeline"] = pl.status
+            captured["phase"] = pl.get_phase_execution(PipelinePhase.IMPLEMENT).status
+            return super().wait_for_decision(decision_id)
+
+    pipeline_ref: list[Pipeline] = []
+    dq = _CapturingQueue(pipeline_ref, resolutions=["override"])
+
+    from routes.pipelines import _await_unresolved_gap_gate
+
+    pipeline = Pipeline(id="issue-42", issue_number=42, repo="owner/repo", branch="egg/issue-42")
+    pipeline.current_phase = PipelinePhase.IMPLEMENT
+    pipeline_ref.append(pipeline)
+    store = MagicMock()
+    store.load_pipeline.return_value = pipeline
+
+    with (
+        patch("routes.pipelines.get_decision_queue", return_value=dq),
+        patch("routes.pipelines.get_pipeline_state_lock", return_value=nullcontext()),
+        patch("routes.pipelines.report_pipeline_status"),
+        patch("routes.pipelines._emit_event", None),
+        patch("egg_contracts.loader.load_contract", side_effect=[_contract(resolved=False)]),
+    ):
+        _await_unresolved_gap_gate(
+            store,
+            "issue-42",
+            Path("/repo"),
+            Path("/worktree"),
+            42,
+            PipelinePhase.IMPLEMENT,
+            True,
+        )
+
+    assert captured["pipeline"] == PipelineStatus.AWAITING_HUMAN
+    assert captured["phase"] == PipelineStatus.AWAITING_HUMAN
+
+
+def test_autonomous_open_gap_surfaces_but_does_not_block() -> None:
+    """On a fully-autonomous pipeline (hitl_gates=False) an open gap must
+    NOT queue a blocking decision — both options need a human, so blocking
+    would stall forever. The reactive CI check stays the backstop (#3300
+    review). The escalation is still surfaced (report_pipeline_status)."""
+    dq = _FakeQueue(resolutions=[])
+    gated, pipeline = _run_gate(
+        dq,
+        load_side_effect=[_contract(resolved=False)],
+        hitl_gates=False,
+    )
+    assert gated is False
+    assert dq.queued == []
+    # Never parked in AWAITING_HUMAN — the loop proceeds to finalize.
+    assert pipeline.status != PipelineStatus.AWAITING_HUMAN
 
 
 def test_open_gap_approve_then_clear() -> None:

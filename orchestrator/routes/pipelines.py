@@ -21985,6 +21985,7 @@ def _await_unresolved_gap_gate(
     worktree_repo_path: Path,
     pipeline_identifier: int | str,
     phase: PipelinePhase,
+    hitl_gates: bool = True,
 ) -> bool:
     """Block phase finalize while the contract carries unresolved TaskGaps.
 
@@ -21995,17 +21996,25 @@ def _await_unresolved_gap_gate(
     otherwise mark it complete and finalize with the gap open and no
     human in the loop. This surfaces a blocking ``phase_gate`` HITL
     decision listing the open gaps and waits — mirroring the
-    unresolved-HITL guard in ``complete_phase`` (#1788) and honoring the
-    "always surface HITL, never auto-resolve" rule (so it fires
-    regardless of ``config.hitl_gates``). See #3300.
+    unresolved-HITL guard in ``complete_phase`` (#1788). See #3300.
 
     The operator resolves the gap (set the gap's ``resolved=true`` via
     the contract-mutate path, e.g. by re-running/kicking the coder) and
     approves, or picks the override option to ship with the gap open. The
     contract is re-read after each approval so a stale ``approve`` cannot
     advance with a gap still open. Returns ``True`` when a gate was
-    surfaced (resolved or overridden), ``False`` when the contract was
-    already clean (the common path, no gate shown).
+    surfaced and the contract may have changed (resolved or overridden),
+    ``False`` when the contract was already clean (the common path) or
+    the escalation could only be logged (autonomous run, below).
+
+    **Autonomous runs.** ``wait_for_decision`` polls indefinitely and
+    both options require a human, so a fully-autonomous pipeline
+    (``hitl_gates is False``) has no path forward — blocking here would
+    convert a red-but-progressing PR into an indefinite stall (the
+    health monitor would eventually tear it down). When ``hitl_gates is
+    False`` we therefore *surface* the escalation (event + warning) but
+    do **not** block: the reactive ``test_models_gaps.py`` CI check
+    remains the backstop, exactly as it was before this gate existed.
 
     A best-effort scan: contract load failures fail open (log + return)
     so a transient read error can never strand the pipeline.
@@ -22034,6 +22043,39 @@ def _await_unresolved_gap_gate(
     open_gaps = _load_open_gaps()
     if not open_gaps:
         return False
+
+    if not hitl_gates:
+        # No human in the loop — do not block forever. Both options need a
+        # human, so blocking would convert a red-but-progressing PR into an
+        # indefinite stall. Surface the escalation (so observers still see
+        # it) + log loudly, and let the reactive CI backstop catch the open
+        # gap on the PR, exactly as before this gate existed.
+        report_pipeline_status(
+            store.load_pipeline(pipeline_id),
+            event_type="phase.gap_gate",
+            message=f"{phase.value} phase has unresolved coverage gaps",
+        )
+        logger.warning(
+            "Unresolved-gap gate: open gaps on an autonomous pipeline "
+            "(hitl_gates=False); surfacing but not blocking",
+            pipeline_id=pipeline_id,
+            phase=phase.value,
+            open_gap_ids=[f"{t}/{g.id}" for t, g in open_gaps],
+        )
+        return False
+
+    def _set_status(status: PipelineStatus) -> Pipeline:
+        # Mirror the phase_gate block: drive both pipeline and the phase
+        # box so the DAG visualization renders the gate on the right
+        # phase, and the operator's wait-status monitor wakes.
+        with get_pipeline_state_lock(pipeline_id):
+            pipeline = store.load_pipeline(pipeline_id)
+            pipeline.status = status
+            phase_execution = pipeline.get_phase_execution(phase)
+            if phase_execution is not None:
+                phase_execution.status = status
+            store.save_pipeline(pipeline)
+        return pipeline
 
     dq = get_decision_queue(pipeline_id, repo_path)
     gated = False
@@ -22067,10 +22109,7 @@ def _await_unresolved_gap_gate(
 
         # Mark AWAITING_HUMAN + surface to event watchers, mirroring the
         # phase_gate block so the operator's wait-status monitor wakes.
-        with get_pipeline_state_lock(pipeline_id):
-            pipeline = store.load_pipeline(pipeline_id)
-            pipeline.status = PipelineStatus.AWAITING_HUMAN
-            store.save_pipeline(pipeline)
+        pipeline = _set_status(PipelineStatus.AWAITING_HUMAN)
         report_pipeline_status(
             pipeline,
             event_type="phase.gap_gate",
@@ -22086,10 +22125,7 @@ def _await_unresolved_gap_gate(
         resolved = dq.wait_for_decision(decision.id)
         # Restore RUNNING now the gate cleared (re-set to AWAITING_HUMAN
         # above on the next loop if gaps remain).
-        with get_pipeline_state_lock(pipeline_id):
-            pipeline = store.load_pipeline(pipeline_id)
-            pipeline.status = PipelineStatus.RUNNING
-            store.save_pipeline(pipeline)
+        _set_status(PipelineStatus.RUNNING)
 
         if resolved.status != DecisionStatus.RESOLVED:
             # Cancelled / abandoned — don't spin; let the loop proceed so
@@ -22110,6 +22146,21 @@ def _await_unresolved_gap_gate(
                 phase=phase.value,
                 open_gap_ids=[f"{t}/{g.id}" for t, g in open_gaps],
             )
+            # Record the override on the frozen phase artifacts for audit
+            # parity with the complete_phase endpoint's ``force`` path
+            # (otherwise the load-bearing run-loop override left only a
+            # transient log line). Values must be strings —
+            # PhaseExecution.artifacts is dict[str, str].
+            with get_pipeline_state_lock(pipeline_id):
+                pipeline = store.load_pipeline(pipeline_id)
+                phase_execution = pipeline.get_phase_execution(phase)
+                if phase_execution is not None:
+                    merged = dict(phase_execution.artifacts)
+                    merged["force_completed_gaps"] = json.dumps(
+                        [f"{t}/{g.id}" for t, g in open_gaps]
+                    )
+                    phase_execution.artifacts = merged
+                    store.save_pipeline(pipeline)
             return gated
 
         # Approval path: re-read the contract. If the operator actually
@@ -24741,20 +24792,62 @@ def _run_pipeline(
             # ship into the committed contract (which would fail
             # test_models_gaps.py red in CI on the already-open PR —
             # #3298 class 4). Scoped to IMPLEMENT, where gaps are written;
-            # no-ops on a clean contract. Fires regardless of
-            # config.hitl_gates: an open gap is an escalation, not a
-            # routine phase approval.
+            # no-ops on a clean contract. On a fully-autonomous pipeline
+            # (hitl_gates=False) the gate surfaces the escalation but does
+            # not block — both options need a human, so blocking would
+            # stall the pipeline indefinitely; the reactive CI check stays
+            # the backstop there.
             if current_phase == PipelinePhase.IMPLEMENT:
                 try:
-                    _await_unresolved_gap_gate(
+                    gap_gated = _await_unresolved_gap_gate(
                         store,
                         pipeline_id,
                         repo_path,
                         worktree_repo_path,
                         _pipeline_identifier(pipeline.issue_number, pipeline_id),
                         current_phase,
+                        pipeline.config.hitl_gates,
                     )
                     pipeline = store.load_pipeline(pipeline_id)
+                    # The gate ran before the statefile commit+push above,
+                    # so when it changed the contract (operator resolved a
+                    # gap, or the override audit landed) the resolution is
+                    # still uncommitted in the worktree. Re-commit + push so
+                    # the work branch tree CI sees reflects the post-gate
+                    # contract, not the open-gap snapshot pushed earlier.
+                    if gap_gated:
+                        try:
+                            _commit_statefiles_to_worktree(
+                                worktree_repo_path,
+                                f"Persist contract after {current_phase.value} gap gate",
+                                pipeline_identifier=_pipeline_identifier(
+                                    pipeline.issue_number, pipeline_id
+                                ),
+                                pipeline_id=pipeline_id,
+                            )
+                        except Exception as git_err:
+                            logger.warning(
+                                "Failed to commit statefiles after gap gate (continuing)",
+                                pipeline_id=pipeline_id,
+                                phase=current_phase.value,
+                                error=str(git_err),
+                            )
+                        if pipeline.branch and worktree_repo_path != repo_path:
+                            try:
+                                spawner.gateway.push_worktree_branch(
+                                    pipeline_id=pipeline_id,
+                                    repo_path=str(worktree_repo_path),
+                                    branch=pipeline.branch,
+                                    mode=gateway_mode,
+                                    base_branch=pipeline.base_branch,
+                                )
+                            except Exception as push_err:
+                                logger.warning(
+                                    "Failed to push statefiles after gap gate (continuing)",
+                                    pipeline_id=pipeline_id,
+                                    phase=current_phase.value,
+                                    error=str(push_err),
+                                )
                 except Exception as gap_gate_err:  # noqa: BLE001
                     # Never let a gate bug strand the pipeline — the
                     # reactive test_models_gaps.py CI check remains the
