@@ -450,6 +450,7 @@ if TYPE_CHECKING:
     from egg_container import MountSpec
     from egg_contracts.agent_roles import AgentRole as ContractAgentRole
     from egg_contracts.models import Slice as ContractSlice
+    from overseer.decision_maker import AdjudicationVerdict
 
     try:
         from ..container_spawner import ContainerSpawner
@@ -696,6 +697,7 @@ def _spawn_overseer_agent(
     pipeline_repos: list | None,
     max_turns: int,
     decision_model: str = "sonnet",
+    prompt_override: str | None = None,
 ) -> "SpawnedContainer":  # noqa: UP037
     """Spawn the overseer as a normal agent (#2270 §1.5).
 
@@ -764,7 +766,10 @@ def _spawn_overseer_agent(
     # Monitoring arrives via MCP tools / the ``egg-orch`` CLI, not a baked-in
     # script the agent is told to trust and run. The prompt describes the
     # observe→classify→alert loop and leaves the mechanics to the agent's tools.
-    overseer_prompt = (
+    # When ``prompt_override`` is set (the #2270 slice-4 on-demand adjudicator),
+    # use it verbatim — a single-shot adjudication of one finding, not the
+    # continuous monitoring loop.
+    default_overseer_prompt = (
         f"You are the overseer agent for pipeline {pipeline_id}. You are a "
         "normal egg agent with read-only monitoring permissions: there is no "
         "baked-in script to run and no pre-built monitoring loop to trust. "
@@ -788,6 +793,7 @@ def _spawn_overseer_agent(
         "prefer silence over a low-confidence alert. When the pipeline ends, "
         "emit a final health summary."
     )
+    overseer_prompt = prompt_override or default_overseer_prompt
     command = build_agent_command(
         prompt=overseer_prompt,
         model=overseer_decision.claude_code_alias,
@@ -816,6 +822,124 @@ def _spawn_overseer_agent(
         spawn_kwargs["upstream_model"] = overseer_decision.upstream_model
 
     return spawner.spawn_agent_job(**spawn_kwargs)
+
+
+def _consume_adjudicator_verdict(spawned: Any, finding: Any) -> "AdjudicationVerdict":  # noqa: UP037
+    """Consume the structured verdict an on-demand adjudicator produced.
+
+    Best-effort and defensive (#2270 slice-4). The adjudicator is a NORMAL
+    spawned agent; its structured verdict reaches the orchestrator either inline
+    on the spawn result (when a synchronous runner surfaces it as
+    ``adjudication_verdict`` / ``result_text``) or out-of-band. When no verdict
+    is available yet, we degrade to a conservative *defer-to-operator* verdict so
+    a genuine deadlock is never silently dropped — the slice-6 authority plane
+    executes on whatever this returns.
+    """
+    from overseer.decision_maker import parse_adjudication_verdict
+
+    raw: Any = None
+    for attr in ("adjudication_verdict", "result_text", "stdout"):
+        value = getattr(spawned, attr, None)
+        if value:
+            raw = value
+            break
+    return parse_adjudication_verdict(raw, finding=finding)
+
+
+def _escalate_finding_to_adjudicator(
+    finding: Any,
+    *,
+    spawner: "ContainerSpawner",  # noqa: UP037
+    pipeline_id: str,
+    issue_number: int | None,
+    gateway_mode: str,
+    pipeline_repos: list | None,
+    max_turns: int = 3,
+    spawn_overseer: Any = None,
+    consume_verdict: Any = None,
+) -> "AdjudicationVerdict | None":  # noqa: UP037
+    """Escalate a finding to an on-demand OVERSEER adjudicator (#2270 slice-4).
+
+    The escalation→adjudicator path is the ONLY thing the orchestrator-side
+    overseership spends an agent on. The gate is strict:
+
+    * a finding **without** ``requires_adjudication`` returns ``None`` and NEVER
+      spawns an adjudicator — the routine majority is handled deterministically;
+    * a finding **with** ``requires_adjudication`` spawns a NORMAL on-demand
+      OVERSEER agent (the slice-3 normalized spawn, Opus via the slice-2
+      resolver) with a one-shot adjudication prompt, and the orchestrator
+      consumes its structured verdict in-process.
+
+    ``spawn_overseer`` / ``consume_verdict`` are injectable seams so the path is
+    unit-testable without a live container; they default to
+    :func:`_spawn_overseer_agent` and :func:`_consume_adjudicator_verdict`.
+    """
+    if not getattr(finding, "requires_adjudication", False):
+        return None  # routine finding — deterministic handling, no agent spend
+
+    from overseer.decision_maker import build_adjudication_prompt
+
+    spawn = spawn_overseer or _spawn_overseer_agent
+    consume = consume_verdict or _consume_adjudicator_verdict
+
+    prompt = build_adjudication_prompt(finding)
+    spawned = spawn(
+        spawner=spawner,
+        pipeline_id=pipeline_id,
+        issue_number=issue_number,
+        gateway_mode=gateway_mode,
+        pipeline_repos=pipeline_repos if pipeline_repos else None,
+        max_turns=max_turns,
+        prompt_override=prompt,
+    )
+    verdict = consume(spawned, finding)
+    logger.info(
+        "Overseer adjudicated finding",
+        pipeline_id=pipeline_id,
+        finding_class=getattr(finding, "finding_class", "?"),
+        confirmed=getattr(verdict, "confirmed", None),
+        recommended_action=getattr(verdict, "recommended_action", None),
+    )
+    return verdict
+
+
+def _run_overseer_detection_plane(
+    snapshot: Any,
+    *,
+    spawner: "ContainerSpawner",  # noqa: UP037
+    pipeline_id: str,
+    issue_number: int | None,
+    gateway_mode: str,
+    pipeline_repos: list | None,
+    plane: Any = None,
+    max_turns: int = 3,
+) -> "list[tuple[Any, AdjudicationVerdict | None]]":  # noqa: UP037
+    """Evaluate the detection plane and escalate only findings that need it.
+
+    The orchestrator-side overseership spine (#2270 Option C, slice-4): run the
+    deterministic detectors over ``snapshot`` (no LLM), then escalate ONLY the
+    findings carrying ``requires_adjudication`` to the on-demand adjudicator.
+    Returns ``(finding, verdict)`` pairs — ``verdict`` is ``None`` for routine
+    findings that were handled deterministically without an agent.
+    """
+    from health_checks.detection_plane import default_detection_plane
+
+    active_plane = plane or default_detection_plane()
+    findings = active_plane.evaluate(snapshot)
+
+    results: list[tuple[Any, Any]] = []
+    for finding in findings:
+        verdict = _escalate_finding_to_adjudicator(
+            finding,
+            spawner=spawner,
+            pipeline_id=pipeline_id,
+            issue_number=issue_number,
+            gateway_mode=gateway_mode,
+            pipeline_repos=pipeline_repos,
+            max_turns=max_turns,
+        )
+        results.append((finding, verdict))
+    return results
 
 
 def _check_and_respawn_overseer(

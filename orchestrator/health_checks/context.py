@@ -94,6 +94,25 @@ class PipelineHealthContext:
         """The phase being evaluated (may be overridden from constructor)."""
         return self.phase
 
+    @property
+    def lifecycle_owner(self) -> str:
+        """Who owns the agent lifecycle for the current phase (#2270 / #3230).
+
+        Under #3064 orchestrator-owned on-demand spawning the orchestrator owns
+        the lifecycle and is about to spawn the next one-shot agent — so a phase
+        that is RUNNING with zero live containers is *not* stalled. The
+        detection plane's stall detector keys on this to avoid the #3230 false
+        alerts. Defaults to ``"orchestrator"`` (the prevailing owner) and only
+        reports ``"none"`` when the pipeline explicitly carries no owner.
+        """
+        explicit = getattr(self.pipeline, "lifecycle_owner", None)
+        if explicit:
+            return str(explicit)
+        # An event-loop-owned pipeline is orchestrator-owned by definition.
+        if getattr(self.pipeline, "event_loop_owner", None):
+            return "orchestrator"
+        return "orchestrator"
+
     # ------------------------------------------------------------------
     # Lazy properties (IO on first access)
     # ------------------------------------------------------------------
