@@ -41,6 +41,19 @@ from agent_model_resolution import (
     resolve_agent_model,
 )
 from consensus_wrapper import build_consensus_wrapped_command
+
+try:
+    # Orchestrator-side check of the forwarded warm-resume flags
+    # (``EGG_SESSION_RESUME`` / ``EGG_CONTEXT_DISCIPLINE`` on the orchestrator's
+    # own env, which ``_forwarded_discipline_env`` propagates to the pod). Used to
+    # gate the #3278 session-store env so default pods stay byte-identical.
+    from egg_agent.session import session_resume_enabled
+except ImportError:  # pragma: no cover - egg_agent always on PYTHONPATH in prod/tests
+
+    def session_resume_enabled() -> bool:  # type: ignore[misc]
+        return False
+
+
 from events import EventType, emit_event
 from message_store import Message, MessageType, get_message_store
 from models import (
@@ -66,6 +79,15 @@ SpawnFn = Callable[..., Any]
 
 # Failure detection window: multiple failures within this window trigger abort
 MULTI_FAILURE_WINDOW_SECONDS = 60
+
+# Warm-resume session-store substrate (#3278). The agent's Claude session store
+# lives at ``$CLAUDE_CONFIG_DIR`` (default ``~/.claude`` = ``/home/egg/.claude``);
+# we pin it explicitly so the wrapper's pull/push and the agent agree on the path
+# regardless of HOME resolution. The pointer file is a pod-ephemeral local path
+# the gate round-trips (the durable copy is orchestrator-owned in Redis). Both are
+# injected only when warm resume is enabled, so default pods are byte-identical.
+_POD_CLAUDE_CONFIG_DIR = "/home/egg/.claude"
+_POD_SESSION_STATE_FILE = "/tmp/egg-session-state.json"  # noqa: S108 — pod-ephemeral, agent-local
 
 
 # Substrings (case-insensitive) indicating a spawn failure is worth retrying at
@@ -163,6 +185,15 @@ class _ExecutorEventSpawner:
         # branch). Inert unless a discipline/resume/measurement flag is on in the
         # pod — the only consumers read it (#3279); a plain default pod ignores it.
         env["EGG_RESEED_THRESHOLD"] = str(threshold)
+        # Warm-resume session-store substrate (#3278): pin the Claude session-store
+        # location and the local pointer file the slice-8 gate round-trips, so the
+        # wrapper's `egg-orch session-state pull|push` re-materialises the prior
+        # transcript and `--resume` finds it. Gated on resume being enabled so a
+        # default pod gets neither (byte-identical legacy path); the wrapper's
+        # pull/push run under the same flag.
+        if session_resume_enabled():
+            env["CLAUDE_CONFIG_DIR"] = _POD_CLAUDE_CONFIG_DIR
+            env["EGG_SESSION_STATE_FILE"] = _POD_SESSION_STATE_FILE
         return self._ex.spawn_fn(
             role=agent_role,
             branch=branch,
