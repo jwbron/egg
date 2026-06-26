@@ -922,13 +922,14 @@ def _run_overseer_detection_plane(
     Returns ``(finding, verdict)`` pairs — ``verdict`` is ``None`` for routine
     findings that were handled deterministically without an agent.
     """
-    from health_checks.detection_plane import default_detection_plane
+    from health_checks.detection_plane import default_detection_plane, escalate_findings
 
     active_plane = plane or default_detection_plane()
     findings = active_plane.evaluate(snapshot)
 
     results: list[tuple[Any, Any]] = []
-    for finding in findings:
+
+    def _spawn_adjudicator(finding: Any) -> Any:
         verdict = _escalate_finding_to_adjudicator(
             finding,
             spawner=spawner,
@@ -939,6 +940,12 @@ def _run_overseer_detection_plane(
             max_turns=max_turns,
         )
         results.append((finding, verdict))
+        return verdict
+
+    # The canonical gate (health_checks.detection_plane.escalate_findings) calls
+    # the spawn callback exactly once per requires_adjudication finding and never
+    # for routine ones — a single source of truth shared with the tester contract.
+    escalate_findings(findings, spawn_adjudicator=_spawn_adjudicator)
     return results
 
 

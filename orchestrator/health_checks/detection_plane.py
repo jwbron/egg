@@ -197,15 +197,30 @@ class DetectionPlane:
     def __init__(self) -> None:
         self._detectors: list[Detector] = []
 
+    @classmethod
+    def default(cls) -> DetectionPlane:
+        """Build a plane pre-wired with the detectors delivered so far.
+
+        Slice-4 wires the lifecycle-owner-aware phase-stall detector. Slices 7
+        and 8 append their detectors here as they land.
+        """
+        plane = cls()
+        plane.register(PhaseStallDetector())
+        return plane
+
     def register(self, detector: Detector) -> None:
         """Register a detector. Later registration order is preserved."""
         self._detectors.append(detector)
         logger.debug("Detector registered", detector_key=detector.detector_key)
 
     @property
-    def detectors(self) -> list[Detector]:
-        """All registered detectors, in registration order."""
-        return list(self._detectors)
+    def detectors(self) -> dict[str, Detector]:
+        """Registered detectors keyed by ``detector_key`` (registration order).
+
+        Returning a mapping lets callers ask ``"phase_stall" in plane.detectors``
+        while still iterating the detector objects via ``.values()``.
+        """
+        return {d.detector_key: d for d in self._detectors}
 
     def evaluate_one(self, detector: Detector, snapshot: EventStreamSnapshot) -> Finding | None:
         """Run a single detector, swallowing any internal error."""
@@ -232,6 +247,32 @@ class DetectionPlane:
     def requires_adjudication(findings: Iterable[Finding]) -> list[Finding]:
         """Filter to findings the orchestrator must escalate to an adjudicator."""
         return [f for f in findings if f.requires_adjudication]
+
+
+def escalate_findings(
+    findings: Iterable[Finding],
+    *,
+    spawn_adjudicator: Any,
+) -> list[Finding]:
+    """Escalate exactly the findings that require adjudication, nothing else.
+
+    The cost guard at the heart of Option C: deterministic detectors resolve the
+    routine majority in-process with no LLM, and ``spawn_adjudicator`` is invoked
+    **once per finding whose ``requires_adjudication`` is set** — never for the
+    rest, and never at all when there are no findings.
+
+    ``spawn_adjudicator`` is an injected single-argument callable
+    ``(finding) -> Any``; the orchestrator wires it to the slice-3
+    ``spawn_agent_job(agent_role=OVERSEER, …)`` path (the unit test injects a
+    spy). Returns the escalated findings in order, so the caller can pair them
+    with the verdicts the adjudicator produced.
+    """
+    escalated: list[Finding] = []
+    for finding in findings:
+        if getattr(finding, "requires_adjudication", False):
+            spawn_adjudicator(finding)
+            escalated.append(finding)
+    return escalated
 
 
 # ---------------------------------------------------------------------------
@@ -339,6 +380,22 @@ class PhaseStallDetector:
         return LifecycleOwner.NONE.value
 
 
+def detect_phase_stall(
+    snapshot: EventStreamSnapshot,
+    *,
+    grace_seconds: int = _DEFAULT_PHASE_STALL_GRACE_SECONDS,
+) -> Finding | None:
+    """Module-level slice-4 detector — the form the calibration corpus registers.
+
+    Shares one implementation with :class:`PhaseStallDetector` (the plane
+    registers the *object* so it self-describes via ``detector_key`` / ``name``;
+    the corpus registers this bare function). Fires ``phase_stall`` / ``high`` /
+    ``requires_adjudication=True`` on a genuinely wedged phase and stays silent
+    on the #3230 false stall — see :class:`PhaseStallDetector` for the full rule.
+    """
+    return PhaseStallDetector(grace_seconds=grace_seconds)(snapshot)
+
+
 # ---------------------------------------------------------------------------
 # Plane factory + live-state snapshot builder.
 # ---------------------------------------------------------------------------
@@ -347,12 +404,10 @@ class PhaseStallDetector:
 def default_detection_plane() -> DetectionPlane:
     """Build the detection plane with the detectors delivered so far.
 
-    Slice-4 registers :class:`PhaseStallDetector`. Slices 7 and 8 append their
-    detectors here as they land.
+    Thin alias for :meth:`DetectionPlane.default` kept for call sites that read
+    as a factory function (e.g. ``routes/pipelines``).
     """
-    plane = DetectionPlane()
-    plane.register(PhaseStallDetector())
-    return plane
+    return DetectionPlane.default()
 
 
 def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
@@ -432,9 +487,14 @@ __all__ = [
     "DetectionPlane",
     "Detector",
     "EventStreamSnapshot",
+    "Finding",
+    "FindingClass",
     "LifecycleOwner",
+    "Severity",
     "PhaseStallDetector",
     "RunningAgent",
     "default_detection_plane",
+    "detect_phase_stall",
+    "escalate_findings",
     "snapshot_from_health_context",
 ]
