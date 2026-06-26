@@ -158,9 +158,9 @@ _TICKET_KEY = rf"{_PROJECT_KEY}-\d+"
 JIRA_API_ALLOWED_PATHS: list[re.Pattern[str]] = [
     re.compile(rf"^issue/{_TICKET_KEY}$"),
     re.compile(rf"^issue/{_TICKET_KEY}/comment$"),
-    # Issue #1557 slice-2 — read-only ``GET /rest/api/3/issue/{key}/
-    # remotelink`` for the in-flight PR detection signal (decision-7
-    # signal b). Stays inside the GET-only ``ALLOWED_METHODS`` plus
+    # Read-only ``GET /rest/api/3/issue/{key}/remotelink`` for the
+    # in-flight PR detection signal. Stays inside the GET-only
+    # ``ALLOWED_METHODS`` plus
     # the ``JIRA_WRITE_VERBS_DENIED`` segment list, so POST / PUT /
     # DELETE on this path remain rejected.
     re.compile(rf"^issue/{_TICKET_KEY}/remotelink$"),
@@ -443,10 +443,10 @@ class JiraClient:
         return _safe_json(response, f"issue/{key}/comment")
 
     def get_remotelinks(self, key: str) -> dict[str, Any]:
-        """Fetch the remote-link list for an issue (issue #1557 slice-2).
+        """Fetch the remote-link list for an issue.
 
-        Used by the reassess sweep's in-flight classifier (decision-7
-        signal b) — a child epic ticket whose remote-link list
+        Used by the reassess sweep's in-flight classifier — a child
+        epic ticket whose remote-link list
         includes a ``github.com/.../pull/<N>`` URL is treated as
         in-flight regardless of its Atlassian status. Same 404
         semantics as ``get_ticket`` / ``get_comments``.
@@ -477,7 +477,7 @@ class JiraClient:
         transition_name: str | None = None,
         comment_adf: dict[str, Any] | None = None,
     ) -> tuple[int, dict[str, Any]]:
-        """``POST /rest/api/3/issue/{key}/transitions`` — issue #1557 slice-2.
+        """``POST /rest/api/3/issue/{key}/transitions``.
 
         **Internal-only**: the public agent-facing surface continues to
         deny transitions via :data:`JIRA_WRITE_VERBS_DENIED`. The
