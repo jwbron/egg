@@ -9,22 +9,24 @@ but every one of the 19 still gets done.**
 
 ## One file, one slice, one pull request
 
-The work is cut into **19 independent pieces ("slices") — exactly one per
-oversized file**. Each slice splits a single file and ships as its own pull
-request. Nothing is bundled; nothing is half-done across slices.
+The work is cut into **19 pieces ("slices") — exactly one per oversized file**.
+Each slice splits a single file and ships as its own pull request. Nothing is
+bundled; nothing is half-done across slices.
 
-The important property is that **the slices don't depend on each other**. An
-earlier attempt needed a shared "set up the pattern first" step that everything
-else waited on — but that groundwork already shipped (in merged PR #2335), so
-there's no longer a bottleneck slice. Each of the 19 files can be split on its
-own, in any order, even in parallel.
+The slices are **run strictly one after another, in a single line**
+(slice 1, then slice 2, …, through slice 19) — not in parallel. The reason is a
+single shared file: the allow-list (the little "these files are too big, allow
+them for now" list), which **every** slice has to edit, because each one deletes
+its own line from it. If the slices were worked on as separate parallel branches,
+they'd all be editing that same list at once and would **collide when it came
+time to merge them**. Sequencing them into one chain side-steps that collision
+entirely: each slice starts from the finished result of the one before it, so the
+allow-list is only ever changed by one slice at a time.
 
-There's exactly **one file all 19 slices touch**: the allow-list (the little
-"these files are too big, allow them for now" list), because each slice deletes
-its own line from it. When two slices are in flight at once they'll both try to
-edit that list — but that's a trivial, mechanical merge (each just removes a
-different line), not a real dependency. There's a standard recipe for resolving
-it, and the slices stay independent.
+(There's no other reason they need to be ordered — the one-time "set up the
+splitting pattern" groundwork that an earlier attempt depended on already shipped
+in merged PR #2335, so the only thing forcing a sequence is that shared
+allow-list file.)
 
 ## The order: easiest first, giants last
 
@@ -36,16 +38,15 @@ The slices are lined up **smallest file to largest**:
 - Slice 19 is `pipelines.py` (~27,200 lines) — the one containing the tricky
   `_run_pipeline` state machine.
 
-Why this order? Two previous attempts at this work **never managed to land even
-a single file**. Doing the easy ones first means real progress gets banked early
-and the splitting recipe is battle-tested on seventeen simpler files before the
-two hardest are attempted. Critically, **"last" does not mean "optional"** — the
-two giants are fully in scope and must be finished; they're simply scheduled
-where their longer review time won't hold up the seventeen quicker wins.
-
-The plan recommends doing as many slices in parallel as is practical; the
-architect may choose to run a few one-after-another for safety, but that's a
-sequencing choice, not a change to the work.
+Why this order along the chain? Two previous attempts at this work **never
+managed to land even a single file**. Doing the easy ones first means real
+progress gets banked early and the splitting recipe is battle-tested on seventeen
+simpler files before the two hardest are attempted. Because the chain is
+sequential, the seventeen simpler files all land *before* the two giants are
+reached. Critically, **"last" does not mean "optional"** — the two giants are
+fully in scope and must be finished; they're simply placed at the tail of the
+chain so that if one of them stalls, it doesn't hold up the seventeen quicker
+wins that have already landed ahead of it.
 
 ## What happens inside each slice (the same routine every time)
 
@@ -115,7 +116,8 @@ reorganization* like this could still go wrong:
 
 ## Anything for a human to decide?
 
-No open scope question remains: the person who requested the work locked it to
-all 19 files with no trimming, and that's reflected throughout the plan. The only
-judgment left is sequencing and how aggressively to parallelize — and that's the
-architect's call in the next stage, not a decision that needs a human ruling now.
+No open question remains for a human. The person who requested the work locked
+the scope to all 19 files with no trimming, and the ordering question is settled
+too: because the shared allow-list forces the slices into one sequential chain,
+there's no parallelism trade-off left to weigh. The plan is fully determined —
+nothing here needs a human ruling before the work proceeds.
