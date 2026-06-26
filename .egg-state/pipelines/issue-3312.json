@@ -92,9 +92,27 @@
       "agent_exits": []
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "context": "# In plain terms — issue #3312\n\n**Break up 19 oversized Python files into tidy, smaller pieces — without\nchanging how anything behaves — until none of them trips the project's\n\"this file is too big\" guard anymore.**\n\n## The problem\n\nThe project has a rule: no single source file should be longer than about\n1,500 lines (or 100 KB). It's a guardrail against files growing so large that\nnobody can hold them in their head. Today 19 files break that rule. They're\nparked on an *allow-list* — a small file that says \"we know these are too big,\nlet them through for now.\" That allow-list was meant to be temporary. The job\nis to shrink every one of those 19 files until the allow-list can be emptied\ncompletely.\n\nTwo of the files are in a league of their own:\n\n- `orchestrator/routes/pipelines.py` — roughly **27,000 lines**.\n- `gateway/gateway.py` — roughly **10,000 lines**.\n\nThe rest are smaller but still over the limit. The big two are the hard part,\nand — this matters — they are **not** allowed to be skipped or pushed to a\n\"later\" project. Every one of the 19 is in scope. (For the record, a few of the\nfiles have quietly grown a little *larger* than the snapshot in the issue, so\nthe live measurements are what count, not the issue's table.)\n\n## How each file gets broken up (the established recipe)\n\nThis isn't a free-for-all rewrite. The project already has a proven, written-down\nway to split a large file, and we follow it exactly:\n\n- Turn the one big file into a **small folder** (a \"sub-package\") of several\n  smaller files.\n- The folder gets a single front-door file (called `__init__.py`, the \"barrel\")\n  whose only job is to re-export every public name the old file used to offer.\n  Anything that imported the old file keeps working unchanged, because the\n  front door still hands out all the same names.\n- The actual code moves into smaller private files inside the folder (their\n  names start with an underscore to signal \"internal\").\n- Crucially, the existing tests keep working untouched. Many tests reach into\n  the old file by name — for instance, to swap in a fake version of an internal\n  helper. (There are a lot of these: well over fifty such named hooks point at\n  the big pipelines file alone, and around a dozen at the gateway file.) The\n  front door re-exports those names so every one of those tests still finds what\n  it's looking for in the same place.\n\nThere are three concrete reference points to copy from, and they should be read\n*before* starting:\n\n1. The written recipe: `docs/guides/decomposition-pattern.md`.\n2. A finished worked example already in the codebase: the `scripts/select_tests/`\n   folder.\n3. A merged example change to model the diff on: PR #2335.\n\n## Why it's done in many small steps, not one big one\n\nEach file is split on its own and lands as its own self-contained change. As each\nfile is finished:\n\n- its entry is removed from the allow-list (so progress is visible and the guard\n  tightens one notch at a time),\n- the project's \"maps\" of how the code fits together are kept accurate. For each\n  file that's split, a short entry describing its new internal layout is **added**\n  to the relevant map (`orchestrator/CLAUDE.md`, `gateway/CLAUDE.md`, and a\n  freshly-added section in `sandbox/CLAUDE.md`), and a brand-new map file —\n  `shared/CLAUDE.md` — is **created** to cover the one in-scope file in that area.\n- and the full build must be **green** — both the style checks (`make lint`) and\n  the whole test suite (`make test-all`) — before that step is considered done.\n\n> A small correction worth flagging: the issue assumes those two main maps still\n> contain stale, leftover placeholder rows from an earlier attempt that need\n> \"retagging.\" A check of the current code shows that's no longer the case —\n> there are no such leftover rows in those files. So the real work is *adding*\n> fresh, accurate layout entries as each file lands, not cleaning up old ones.\n> (Any genuinely stale references that do turn up while editing get tidied in\n> passing, but they aren't the point.)\n\nThe independent files are ordered so they can land and deliver value on their own,\neven if the two giant files turn out to be slow going. But \"slow going\" is the\nonly allowance — the giants still have to be finished, not dropped.\n\nThe single trickiest piece inside the 27,000-line file is a chunk called the\n`_run_pipeline` phase-transition state machine — the part that walks a job through\nits stages. The issue specifically requires this to be tackled head-on rather than\nworked around or deferred.\n\n## The golden rule: nothing changes behavior\n\nThis is a **pure reorganization**. Code moves between files; it does not change\nwhat it does. If, while splitting a file, someone notices a genuine bug, they do\n**not** fix it as part of this work — they write it up as a separate follow-up.\nMixing a behavior fix into a \"we only moved things\" change is exactly what makes\nsuch changes risky and hard to review, so it's off-limits here.\n\nAll the work goes on branches whose names start with `egg/`.\n\n## What \"done\" looks like\n\n- All 19 files are below the size limit.\n- The allow-list's list of exempted files is **empty**.\n- The \"how it fits together\" maps are accurate — new layout entries added for\n  every split file, plus the new `shared/CLAUDE.md`.\n- No production code that imports these files breaks, and no test loses track of\n  the internal hook it relies on.\n- Every landing step passed lint and the full test suite.\n- No behavior changed anywhere.\n\n## Is there anything left for a human to decide?\n\nFor this particular task, the usual \"how much should we bite off?\" question has\n**already been answered by the person who requested the work**: all 19 files,\nincluding the two giant ones, with no trimming of the list. So there is no\nscope-size decision to make here — the instruction is deliberately firm about\nthat, and the refiner confirmed there's no genuine open question to put to a\nhuman at this stage. The room for judgment is entirely in the *ordering and\npackaging* of the work (which file goes first, how the changes are grouped into\nreviewable chunks), which is a planning detail handled in the next stage.\n\n\n[View the full detailed analysis draft](https://github.com/jwbron/egg/blob/egg/issue-3312/work/.egg-state/drafts/3312-analysis.md)",
+      "options": [
+        "approve",
+        "request changes"
+      ],
+      "decision_type": "phase_gate",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-06-26T23:21:35.921044Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
+    }
+  ],
   "created_at": "2026-06-26T23:14:44.700849Z",
-  "updated_at": "2026-06-26T23:21:31.402408Z",
+  "updated_at": "2026-06-26T23:21:35.930565Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -107,7 +125,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 9,
+  "version": 10,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
