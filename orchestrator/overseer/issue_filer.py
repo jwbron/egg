@@ -35,23 +35,38 @@ logger = logging.getLogger(__name__)
 # Paste-ready remediation entries per detection-plane finding class (#2270 §5).
 # Each new coverage-gap detector class gets one line here so a filed diagnostic
 # issue ships with an actionable next step instead of the generic fallback.
-# Keyed on the detector's ``finding_class`` string.
+# Keyed on the detector's ``finding_class`` string — these keys MUST stay in
+# lock-step with the ``FINDING_*`` constants the tier1/detection-plane detectors
+# emit (orchestrator/health_checks/...). A key that drifts from the emitted
+# ``finding_class`` string silently falls through to ``_DEFAULT_REMEDIATION``.
 FINDING_CLASS_REMEDIATIONS: dict[str, str] = {
     "container_death": (
         "Producer container is genuinely dead (crash/fatal exit, no reschedule). "
         "Inspect the crash cause, then respawn the cohort or open an operator HITL. "
         "Distinct from a transient eviction that reschedules (#2948)."
     ),
+    "container_oom_evicted": (
+        "A container was OOM-killed / evicted under memory or node pressure and "
+        "rescheduled. Confirm the reschedule landed; if the workload is genuinely "
+        "over its memory request, raise the limit or shrink the working set before "
+        "the next spawn. Distinct from a fatal crash (container_death)."
+    ),
     "overseer_self_injection": (
         "Overseer is refusing its own bootstrap as prompt-injection and looping "
         "refuse->exit->respawn (#2270 §1). Run the overseer decision tier on Opus "
         "and deliver instructions via tools/prompt, not a baked-in script."
     ),
-    "repeated_role_restart": (
+    "overseer_self_health": (
+        "The overseer's own self-monitor is unhealthy (respawn churn / bootstrap "
+        "fail-loop / lifetime-cost breach — #2270 §1, §3). Inspect the overseer "
+        "pod's own lifecycle before trusting its alerts; stop respawning and open "
+        "an operator HITL if it cannot bootstrap cleanly."
+    ),
+    "container_restart_loop": (
         "A role's container is crash-looping past the restart threshold. Inspect "
         "the crash logs before respawning again; escalate to HITL if it persists."
     ),
-    "run_pipeline_thread_dead": (
+    "runtime_thread_dead": (
         "The orchestrator _run_pipeline driver thread appears dead/hung while the "
         "phase is RUNNING (#2234/#3233). Restart the run loop / recycle the "
         "orchestrator pod and reset the generation token."
@@ -59,6 +74,16 @@ FINDING_CLASS_REMEDIATIONS: dict[str, str] = {
     "duration_drift": (
         "Phase is running far past its expected budget. Check for a silent wedge "
         "or a misconfigured duration estimate."
+    ),
+    "phase_stall": (
+        "A phase is genuinely wedged — no lifecycle owner is driving it and it is "
+        "neither awaiting a spawn nor parked on a HITL (#3230). Re-drive the phase "
+        "transition or open an operator HITL to break the deadlock."
+    ),
+    "heartbeat_stall": (
+        "An agent has stopped heart-beating while still expected to be working. "
+        "Confirm the container is alive (distinguish a dead pod from a stale "
+        "health-DB record), then nudge or respawn the affected role."
     ),
     "agent_restart_propagation": (
         "An agent restart was requested but never propagated to a running "
@@ -75,6 +100,12 @@ FINDING_CLASS_REMEDIATIONS: dict[str, str] = {
     "restarted_decision_replay": (
         "A decision is being replayed after restart (stale escalation cascade). "
         "Clear per-agent escalation history and reset the generation token."
+    ),
+    "hitl_queue_backlog": (
+        "Operator-facing HITL decisions are piling up unanswered past the backlog "
+        "threshold. The pipeline is blocked on human input — surface the oldest "
+        "pending decisions to the operator and stop generating new escalations "
+        "until the queue drains."
     ),
     "worktree_corruption": (
         "Worktree git index is locked/corrupt. Clear the stale lock or re-clone "
@@ -96,7 +127,7 @@ FINDING_CLASS_REMEDIATIONS: dict[str, str] = {
         "Gateway 5xx error rate spiked. Inspect gateway logs and upstream "
         "(LiteLLM/Anthropic) health."
     ),
-    "repeated_identical_denials": (
+    "gateway_repeated_denial": (
         "The gateway is repeatedly denying the same operation. The agent is "
         "likely retrying a forbidden action — re-scope its task or fix the call."
     ),
@@ -104,27 +135,22 @@ FINDING_CLASS_REMEDIATIONS: dict[str, str] = {
         "A gateway credential/token has expired. Refresh the injected credential "
         "and restart the affected agent."
     ),
-    "brc_thrashing": (
-        "BRC consensus is thrashing (repeated NACK/propose cycles). Adjudicate the "
-        "disagreement or open an operator HITL to break the loop."
-    ),
-    "late_confirm_renack": (
-        "A CONFIRMED edge was followed by a re-NACK. Re-run the review cycle and "
-        "reconcile the late objection before merging."
+    "brc_thrash": (
+        "BRC consensus is thrashing (repeated NACK/propose cycles, including a "
+        "CONFIRMED edge followed by a late re-NACK). Adjudicate the disagreement "
+        "or open an operator HITL to break the loop."
     ),
     "incomplete_consensus_deferral": (
         "Incomplete-consensus deferral exceeded its cap. Stop deferring and "
         "escalate the blocked consensus to an operator HITL."
     ),
-    "cost_per_hour_breach": (
-        "Hourly LLM cost exceeded the budget envelope (max_llm_cost_per_hour). "
-        "Throttle or pause the offending agent tier."
-    ),
-    "token_cost_anomaly": (
-        "Anomalous cost-per-token spike. Check for a model-tier misroute or a "
+    "cost_anomaly": (
+        "LLM cost breached its envelope — either the hourly budget "
+        "(max_llm_cost_per_hour) or an anomalous cost-per-token spike. Throttle or "
+        "pause the offending agent tier and check for a model-tier misroute or a "
         "runaway prompt."
     ),
-    "litellm_unreachable": (
+    "llm_substrate_unreachable": (
         "The LiteLLM proxy is unreachable (#2769). Verify the proxy pod and "
         "upstream routing before respawning agents."
     ),
@@ -132,7 +158,7 @@ FINDING_CLASS_REMEDIATIONS: dict[str, str] = {
         "The effective served model differs from the requested model. Inspect "
         "LiteLLM routing / fallbacks."
     ),
-    "anthropic_5xx_sustained": (
+    "anthropic_5xx": (
         "Sustained Anthropic 5xx errors. Back off and retry; surface to the "
         "operator if the upstream outage persists."
     ),
@@ -147,6 +173,7 @@ def remediation_for_finding_class(
 ) -> str:
     """Return the paste-ready remediation for a finding class, or ``default``."""
     return FINDING_CLASS_REMEDIATIONS.get(finding_class, default)
+
 
 # Labels applied to diagnostic issues filed by the overseer.
 # DEAD: production filing uses agent:overseer + matching priority label
