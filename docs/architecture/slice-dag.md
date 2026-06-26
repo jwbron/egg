@@ -495,8 +495,8 @@ Per-slice agent teams are spawned via the existing
 - `spawn_all` registers the BRC tracker under the nested
   `{pipeline_id}/{slice_id}` key.
 - `_spawn_agent` resolves the head ref via
-  `get_worktree_branch(role, slice_id=...)` (the v6 shared-branch
-  shape).
+  `get_worktree_branch(role, slice_id=...)`, which returns the
+  shared per-slice integration branch all roles on a slice push to.
 - `check_consensus` looks up the slice-scoped tracker first.
 
 `_run_concurrent_phase` mutates a shallow copy of the sandbox env to set
@@ -530,9 +530,8 @@ live on that context PR (no longer on a "terminal slice umbrella"), so
 every slice PR is purely slice-scoped.
 
 - **Title.** `[<program-slug>][<position>] <subject>`, capped at 70
-  chars; over-long titles truncate at a word boundary (#3115), not the
-  pre-#3115 hard `title[:67] + "..."` cut that produced mid-word
-  fragments. `program-slug` is derived from `pipeline_id`: `issue-<N>`
+  chars; titles over that length truncate at a word boundary (#3115).
+  `program-slug` is derived from `pipeline_id`: `issue-<N>`
   pipelines collapse to `issue-<N>` (version suffix dropped);
   `pipeline-<hash>` pipelines keep a truncated prefix. `position` is
   `slice-N/M` and `subject` is the slice name; the legacy `merge-gate`
