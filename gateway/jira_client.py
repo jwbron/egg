@@ -128,7 +128,7 @@ ALLOWED_METHODS: frozenset[str] = frozenset({"GET"})
 # Paths / HTTP verbs that are permanently out of scope for the wrapper.
 # Even if a future maintainer widens ALLOWED_METHODS, the gateway will still
 # refuse these — they're the escape hatch that turns read-only audit trails
-# into real Jira mutations, and the refine phase explicitly blocked them.
+# into real Jira mutations, so they are permanently denied.
 JIRA_WRITE_VERBS_DENIED: frozenset[str] = frozenset(
     {
         # Path-segment denylist (checked against individual segments of the
