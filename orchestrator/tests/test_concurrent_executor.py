@@ -465,6 +465,23 @@ class TestReviewGraphIntegration:
         assert "reviewer_refine" in graph.critical_reviewers_for("refiner")
         assert "reviewer_agent_design" in graph.critical_reviewers_for("refiner")
 
+        # The simplifier produces the human-focused companion and is
+        # dual-role: CRITICAL-reviewed by reviewer_refine, and carrying an
+        # ADVISORY edge over the refiner so the BRC ``ack`` arm re-invokes
+        # it when the refiner proposes. These four properties are
+        # load-bearing — a regression that dropped the advisory edge or
+        # flipped its criticality would silently break the wake-up.
+        assert graph.is_producer("simplifier")
+        assert graph.is_reviewer("simplifier")
+        assert graph.is_dual_role("simplifier")
+        # reviewer_refine CRITICAL-reviews the simplifier's companion
+        assert "reviewer_refine" in graph.reviewers_for("simplifier")
+        assert "reviewer_refine" in graph.critical_reviewers_for("simplifier")
+        # simplifier reviews refiner ADVISORY (wake-up edge, never blocks)
+        assert "simplifier" in graph.reviewers_for("refiner")
+        assert "simplifier" in graph.advisory_reviewers_for("refiner")
+        assert "simplifier" not in graph.critical_reviewers_for("refiner")
+
         # Phase lookup returns same structure
         phase_graph = get_review_graph_for_phase("refine")
         assert len(phase_graph.edges) == len(graph.edges)
@@ -496,6 +513,24 @@ class TestReviewGraphIntegration:
         assert "risk_analyst" in graph.reviewers_for("task_planner")
         assert "risk_analyst" in graph.critical_reviewers_for("architect")
         assert "risk_analyst" in graph.critical_reviewers_for("task_planner")
+
+        # The simplifier produces the human-focused plan companion and is
+        # dual-role like the refine-phase simplifier: CRITICAL-reviewed by
+        # reviewer_plan, with an ADVISORY edge over task_planner so the BRC
+        # ``ack`` arm re-invokes it when task_planner proposes. These four
+        # properties are load-bearing — a regression that dropped the
+        # advisory edge or flipped its criticality would silently break the
+        # wake-up.
+        assert graph.is_producer("simplifier")
+        assert graph.is_reviewer("simplifier")
+        assert graph.is_dual_role("simplifier")
+        # reviewer_plan CRITICAL-reviews the simplifier's companion
+        assert "reviewer_plan" in graph.reviewers_for("simplifier")
+        assert "reviewer_plan" in graph.critical_reviewers_for("simplifier")
+        # simplifier reviews task_planner ADVISORY (wake-up edge, never blocks)
+        assert "simplifier" in graph.reviewers_for("task_planner")
+        assert "simplifier" in graph.advisory_reviewers_for("task_planner")
+        assert "simplifier" not in graph.critical_reviewers_for("task_planner")
 
         # Phase lookup returns same structure
         phase_graph = get_review_graph_for_phase("plan")

@@ -99,6 +99,8 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 **Reviewed by**: `reviewer_refine` (refine, CRITICAL) / `reviewer_plan` (plan, CRITICAL).
 
+**Failure surface & operator recovery**: because the companion is a mandatory, CRITICAL-reviewed producer artifact, a simplifier crash or a persistent reviewer NACK on the (cosmetic) summary stalls the refine/plan phase gate — a failure surface neither phase had before this role existed. There is intentionally **no automatic degraded fallback** (the gate does not silently proceed on the agent draft alone), so a missing companion is always surfaced rather than swallowed. To recover, the operator can either re-run the stalled phase so the simplifier re-attempts the companion, or — if the simplifier is repeatedly unable to land it — unblock the gate manually: the HITL gate comment falls back to the full agent draft inline whenever the companion is absent (see `_read_human_phase_draft` / the gate composition in `orchestrator/routes/pipelines.py`), so the operator still has the substantive draft in hand to approve against. The mandatory-producer coupling is a deliberate choice that keeps the human-readable summary from silently disappearing; the cost is that a summarization failure blocks substantive progress until the operator intervenes.
+
 ## Plan Phase
 
 ### `architect`

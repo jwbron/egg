@@ -24672,6 +24672,20 @@ def _run_pipeline(
 
                     # Detect whether the gate content changed compared to the
                     # previous phase_gate decision for this phase (if any).
+                    #
+                    # NB: this compares ``gate_context``, which leads with the
+                    # simplifier's human-focused summary when a companion
+                    # exists. That summary is intentionally high-level and
+                    # lossy, so a re-refinement that materially changes the
+                    # detailed agent draft *without* altering the summary will
+                    # report ``content_changed=False``. The flag only feeds the
+                    # overseer's no-op-rerun health heuristic
+                    # (``overseer/monitor.py`` ``_check_rerun_anomaly``) — it
+                    # never gates re-prompting — so a missed change here is at
+                    # worst a suppressed advisory alert, not a correctness
+                    # issue. We compare the gate content (not the full draft)
+                    # deliberately so the heuristic tracks what the operator
+                    # actually sees at the gate.
                     _content_changed: bool | None = None
                     _prev_gate = next(
                         (
