@@ -8,6 +8,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "096f540aca0795f5f6e957edfa8d33ff47b0c2b8": {
+      "branch": "egg/issue-2270-overhaul/slice-1",
+      "patch_id": "ef7149f8bb555f47e8da5615d162e5806fbc08d3",
+      "pipeline_id": "issue-2270-overhaul",
+      "registered_at": "2026-06-26T03:38:35.267932+00:00",
+      "repo": null,
+      "role": "documenter"
+    },
     "7fe8436b6146acff561b3f0e06f594106e72c03a": {
       "branch": "egg/issue-2270-overhaul/work",
       "patch_id": "4ff576d50b12a2642e9d5a1c05402a8dcad034d1",
