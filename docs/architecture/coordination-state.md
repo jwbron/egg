@@ -22,32 +22,10 @@
 > has produced zero such incidents. The invariant below is the structural fix
 > that retires the failure class.
 
-## Slice landings (status as of slice-6)
-
-This page describes the **final shape** of the #3077 invariant. The epic was
-landed in six slices, all of which have now shipped to `main`; every enforcing
-mechanism cited below exists. The table records each slice landing so a reader
-can trace which mechanism arrived in which slice.
-
-| Mechanism | Cited under | Status |
-|-----------|-------------|--------|
-| Wrapper `sync_to_proposals()` per-SHA outcome recording + "worktree NOT synced" banner | Clause 2 | **Shipped** (slice-1) |
-| Empty-delta caution cross-reference to the wrapper banner | Clause 2 | **Shipped** (slice-1) |
-| `mcp__brc__read_peer_artifact` (live store + on-disk merge, `live` flag) | Clause 1 | **Shipped** (predates #3077) |
-| Contract reads via `mcp__sdlc__show_contract` / `mcp__task__*` / `mcp__phase__get_context` | Clause 1 | **Shipped** (predates #3077) |
-| `mcp__progress__query_status` / `mcp__progress__emit` HTTP-backed reads | Clause 1 | **Shipped** (predates #3077) |
-| `shared/egg_contracts/artifact_spec.py` declarative artifact registry | Clause 3 | **Shipped** (slice-2) |
-| `shared/egg_contracts/tests/test_artifact_spec.py` spec-consistency tests | Clause 3 | **Shipped** (slice-2) |
-| `handle_consensus_propose_signal` generalisation to every spec-registered artifact | Clause 3 | **Shipped** (slice-3) |
-| Gateway `POST /api/v1/artifact/get` + `orchestrator/routes/artifacts.py` | Clause 1 | **Shipped** (slice-4) |
-| Sandbox `egg-artifact` verb | Clauses 1, 3 | **Shipped** (slice-4) |
-| `orchestrator/tests/test_prompt_sync_ratchet.py` no-sync-mechanics ratchet | Clause 2 | **Shipped** (slice-5) |
-| Redis-only message store (memory backend removed, [#3159](https://github.com/jwbron/egg/issues/3159)) + Redis restart-semantics test | Wipe-semantics | **Shipped** (slice-6 fail-loud signal, superseded by the #3159 removal) |
-
-The clause descriptions below are written in present tense. With all six
-slices shipped, every "Enforcing mechanisms" bullet now describes a
-current-state claim rather than a design target. The slice column above
-records when each mechanism landed.
+This page states the invariant and names the live mechanism that enforces
+each of its three clauses. Every mechanism cited below exists in the current
+codebase; the [Mechanism map](#mechanism-map) at the foot of the page binds
+each one to its module and the clause it enforces.
 
 ## The Three-Clause Invariant
 
@@ -82,7 +60,7 @@ explicitly justify the exception in this page before it ships.
   by **spec-registered name** + hex-validated ref, executing
   `git show <ref>:<path>` against the authoritative repo. The endpoint is
   strict — it accepts no raw repo-path escape hatch
-  ([#3077](https://github.com/jwbron/egg/issues/3077) HITL Q2) — and
+  ([#3077](https://github.com/jwbron/egg/issues/3077)) — and
   unblocks [#3002](https://github.com/jwbron/egg/issues/3002) by removing
   the implicit shared-object-store assumption that made `git show` work on
   a single-host deployment but break on a split-object-store runtime
@@ -168,34 +146,26 @@ explicitly justify the exception in this page before it ships.
 
 ## Wipe semantics: designed boundary wipe vs accidental mid-phase loss
 
-The message store and the BRC consensus tracker are wiped at **two**
-points. These MUST NOT be conflated when reasoning about durability:
+The message store and the BRC consensus tracker are wiped at exactly **one**
+designed point, and that wipe MUST NOT be conflated with a restart when
+reasoning about durability:
 
-| Wipe | Where | When | Status |
-|------|-------|------|--------|
-| **Designed phase-boundary wipe** | `_clear_concurrent_state()` in `orchestrator/routes/phases.py` (called from `phases.py` at the phase transitions and from `routes/pipelines.py`) | At phase transitions, **after** the brc-history persistence has captured the transcript | **Required behaviour.** This wipe must keep happening. The persisted history is the audit trail; the live message store is per-phase scratch space. |
-| **Accidental mid-phase restart loss** | A mid-phase orchestrator restart on the (removed) in-memory `MessageStore` backend | Could occur whenever backend selection landed on the in-memory store — silently, via the old `EGG_MESSAGE_STORE_BACKEND=auto` → memory fallback | **Retired surface.** [#3159](https://github.com/jwbron/egg/issues/3159) removed the in-memory backend; Redis Streams is the only backend and creation fails loudly rather than degrading. |
+| Wipe | Where | When | Why it is safe |
+|------|-------|------|----------------|
+| **Designed phase-boundary wipe** | `_clear_concurrent_state()` in `orchestrator/routes/phases.py` (called at the phase transitions and from `routes/pipelines.py`) | At phase transitions, **after** the brc-history persistence has captured the transcript | The persisted history is the audit trail; the live message store is per-phase scratch space. This wipe is required behaviour. |
 
-The history of this distinction: slice 6 of #3077 added a **fail-loud
-signal** (error-level marker log + health-visible degraded flag) for
-the `auto` → memory fallback, per HITL Q3 deliberately without changing
-the selection semantics. [#2662](https://github.com/jwbron/egg/issues/2662)
-then deployed Redis in-cluster (`k8s/base/redis-deployment.yaml`) and
-pinned the orchestrator to `EGG_MESSAGE_STORE_BACKEND=redis`, making
-the fallback unreachable in production.
-[#3159](https://github.com/jwbron/egg/issues/3159) completed the arc by
-removing the in-memory backend (and the now-purposeless fail-loud
-machinery) entirely: `redis` / unset selects Redis, the removed
-`auto` / `memory` values raise at creation, and an unreachable Redis
-raises instead of falling back. Deeper durability work stays in the
-[#3070](https://github.com/jwbron/egg/issues/3070) lineage. The Redis
-path's restart semantics are pinned by
-`orchestrator/tests/test_redis_message_store.py`: mid-phase messages
-survive a store re-instantiation against the same Redis (simulated
-orchestrator restart), while the designed `_clear_concurrent_state()`
-phase-boundary wipe still clears state. Both wipe semantics are named
-explicitly in the test ids/docstrings so a future regression cannot
-quietly trade one for the other.
+Redis Streams is the only message-store backend: `redis` / unset selects
+Redis, and an unreachable Redis raises at creation rather than falling back.
+There is no in-memory backend to silently lose mid-phase state on an
+orchestrator restart ([#3159](https://github.com/jwbron/egg/issues/3159)
+removed it precisely to close that gap; deeper durability work lives in the
+[#3070](https://github.com/jwbron/egg/issues/3070) lineage). The Redis path's
+restart semantics are pinned by
+`orchestrator/tests/test_redis_message_store.py`: mid-phase messages survive
+a store re-instantiation against the same Redis (a simulated orchestrator
+restart), while the designed `_clear_concurrent_state()` phase-boundary wipe
+still clears state. Both wipe semantics are named explicitly in the test
+ids/docstrings so a future regression cannot quietly trade one for the other.
 
 ## Mechanism map
 
@@ -228,10 +198,9 @@ quietly trade one for the other.
   state.
 - [BRC Consensus Wrapper](orchestrator.md#brc-consensus-wrapper) —
   the orchestrator owns the wait and spawns the per-event agent
-  one-shot (the in-pod wait arm was retired by #3164); the wrapper
-  around each pod performs deterministic sync at spawn time.
+  one-shot; the wrapper around each pod performs deterministic sync at
+  spawn time.
 - [Reviewer Sync Guide](../../shared/prompts/REVIEWER-SYNC.md) — the
-  agent-facing reviewer contract; its delta-command row was rewritten
-  in #3077 slice 5 from `git fetch` + `git log` instructions to
-  served-reads wording so it no longer drifts back into prompt-prose
-  sync mechanics.
+  agent-facing reviewer contract; its delta-command row uses
+  served-reads wording rather than `git fetch` / `git log` instructions,
+  so it cannot drift back into prompt-prose sync mechanics.

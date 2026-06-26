@@ -77,7 +77,7 @@ All concurrent agent containers are wrapped with a shell script defined in `orch
 
 **How it works:**
 
-- The orchestrator derives the next action in-process from `egg-orch brc get-state` / `egg-orch brc next-action`. When a role's BRC work is complete it confirms and the pod exits cleanly (code 0); otherwise it spawns a one-shot pod for the next actionable event (`INVOKE` with a one-shot event prompt). The orchestrator owns the wait between events — the wrapper never blocks in `egg-orch message wait-loop` (see [Wait-filter construction](../architecture/orchestrator.md#wait-filter-construction-pre-confirm-vs-post-confirm) for the per-state filters the orchestrator applies).
+- The orchestrator derives the next action in-process from `egg-orch brc get-state` / `egg-orch brc next-action`. When a role's BRC work is complete it confirms and the pod exits cleanly (code 0); otherwise it spawns a one-shot pod for the next actionable event (`INVOKE` with a one-shot event prompt). The orchestrator owns the wait between events — the wrapper never blocks in `egg-orch message wait-loop` (see [Wake conditions](../architecture/orchestrator.md#wake-conditions-pre-confirm-vs-post-confirm) for the per-state filters the orchestrator applies).
 - Clean exit after handling an event is the expected steady state — no restart, no recovery prompt.
 - If the agent exits non-zero (transient signal-class crash, exit 1, or anything else), the wrapper increments `AGENT_FAIL_STREAK`, sleeps 1 s, and the orchestrator spawns the next event normally — there is no per-crash restart, no exponential backoff, and no exit-code branching on the `propose|ack|nack` arm. The `is_transient_crash` / `is_buffer_overflow` / `is_startup_failure` helpers are defined in the wrapper bash template but **not invoked** today; they are retained as named placeholders against a possible future classifier-gated fast-fail path (see `orchestrator/consensus_wrapper.py` L145–150).
 - The wrapper does not propagate non-zero agent exits as FAILED transitions. They accrue against the **idle / no-progress safety budget** (`EGG_BRC_IDLE_BUDGET_MIN`, default 30 minutes), which is the sole operator-visible escalation surface. At threshold and `2 ×` threshold the wrapper emits an `OVERSEER_ALERT`; the pipeline is never transitioned to FAILED by this path.
@@ -104,7 +104,7 @@ Agents communicate with each other during concurrent execution via the orchestra
 
 **Agents don't wait — the orchestrator does.** Every blocking read on the message bus belongs outside the agent tier: the orchestrator derives the next BRC event in-process (`egg-orch brc next-action`) and spawns the agent one-shot per actionable event (see [Consensus Wrapper](#consensus-wrapper) above). There is no in-pod wait loop. The agent handles the single event in its prompt and exits naturally; it must never run `egg-orch message wait` / `wait-loop`, an outer poll loop, or a `sleep` — the orchestrator owns the wait, and an agent-tier wait double-waits against it while holding the SDK turn open. The agent-facing contract is stated in the per-event prompt itself (`orchestrator/routes/event_prompt.py`); the wait-side mechanics — the wrapper's `wait-loop` idiom and per-state filters, the five anti-patterns the pump retired, the `egg-orch message wait` exit codes, the `HEARTBEAT` schema, and the `EGG_MESSAGE_POLL_MAX_WAIT` ↔ gateway-Squid coupling — are in [Agent Wait Patterns](../reference/agent-wait-patterns.md).
 
-The wrapper constructs the `--for` filter set conditionally per BRC state ([wait-filter construction](../architecture/orchestrator.md#wait-filter-construction-pre-confirm-vs-post-confirm)):
+The wrapper constructs the `--for` filter set conditionally per BRC state ([wake conditions](../architecture/orchestrator.md#wake-conditions-pre-confirm-vs-post-confirm)):
 
 ```bash
 # Pre-confirm (wrapper-issued) — must NOT include CONSENSUS_CONFIRMED
@@ -189,7 +189,7 @@ Returns total message count and a breakdown by message type.
 | `CONSENSUS_WITHDRAW` | Producer withdrawing its proposal (e.g., to address NACK) |
 | `CONSENSUS_CONFIRMED` | Agent confirmed after all required reviews are ACKed |
 | `CONSENSUS_RE_REVIEW` | Orchestrator notifying a reviewer that their prior confirmation is stale and they must re-review the producer's new proposal version |
-| `OVERSEER_ALERT` | Health anomaly or lifecycle alert. Sent by the overseer agent for health anomalies (always with explicit `pipeline_id` and `from_role: overseer`), and by the orchestrator for lifecycle events |
+| `OVERSEER_ALERT` | Health anomaly or lifecycle alert. Sent by the overseer agent for health anomalies (`from_role: overseer`), and by the orchestrator for event-loop supervision alerts — failure-streak exhaustion / convergence stalls (`from_role: orchestrator`, `_emit_supervision_alert`, #3064). Always carries an explicit `pipeline_id`. |
 
 > **Removed in #1897**: `QUESTION` was dropped from the type vocabulary because it had no delivery semantics and was only used as informal free-form chatter. Agents that need a peer to act should use `HANDOFF`; agents that need to advertise state should use `HEARTBEAT`; reviewers with clarifying questions should put them in the `NACK` rationale so the producer sees them and can address them on re-propose.
 

@@ -233,8 +233,17 @@ operator-authored** messages (`from_role` ∈ overseer/orchestrator/human/
 operator/user) into the running session as additional context. The
 `orchestrator` role covers deterministic course-correction nudges that
 originate in the orchestrator itself — notably the
-`brc_confirmation_timeout` directed wake to a stuck producer; without it
-those nudges would be silently dropped mid-turn. Peer-agent and protocol traffic (`CONSENSUS_*`,
+`brc_confirmation_timeout` directed wake to a stuck producer and the
+orchestrator-emitted `OVERSEER_ALERT` event-loop supervision broadcast
+(`_emit_supervision_alert` — failure-streak exhaustion / convergence
+stalls, #3064); without it those nudges would be silently dropped
+mid-turn. The two are injected under different headers per
+`classify_message_intent`: `brc_confirmation_timeout` is the only
+binding orchestrator directive (`_DIRECTIVE_ALERT_TYPES`), so it renders
+as an operator directive, whereas the supervision `OVERSEER_ALERT` is
+informational and renders under the non-binding "Informational notices"
+header — eligibility for injection here is about the `from_role`, not
+about the alert being binding. Peer-agent and protocol traffic (`CONSENSUS_*`,
 heartbeats) is never injected — it stays on the between-invocation path
 the wrapper sequences.
 
@@ -1525,7 +1534,7 @@ legacy `_CONSENSUS_WRAPPER_TEMPLATE` emission, no agent-side
 `message_wait_loop` heartbeat / keep-alive code, and no
 `EGG_BRC_EVENT_PUMP` env var — the orchestrator does not read it, so
 setting it has no effect. The supported rollback path is a `git revert`;
-see [Rollback plan](../architecture/orchestrator.md#rollback-plan).
+see [Rollback posture](../architecture/orchestrator.md#rollback-posture).
 
 ### 10.9 BRC Per-Event Prompt Composer + Preamble Collapse
 

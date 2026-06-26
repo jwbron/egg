@@ -1263,11 +1263,12 @@ _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
 # is consulted only by the concurrent-executor spawn path and the
 # ``restart_agent`` route, which between them spawn every phase producer
 # and reviewer in the two maps above. Utility roles (AUTOFIXER,
-# CONFLICT_RESOLVER) and interface role (OVERSEER) spawn
-# through dedicated paths that never call the resolver, so an
-# ``agent_models`` entry naming one of them would be silently dropped at
-# spawn — ``PipelineConfig``'s validator rejects such keys up front. See
-# #2769.
+# CONFLICT_RESOLVER) spawn through dedicated paths that never call the
+# resolver. The interface role (OVERSEER) now resolves its base model
+# through ``resolve_overseer_model`` -> ``resolve_agent_model`` (#2270 §1),
+# but is not yet promoted into ``MODEL_OVERRIDE_ROLES``. Either way an
+# ``agent_models`` entry naming one of these roles is not honored today, so
+# ``PipelineConfig``'s validator rejects such keys up front. See #2769.
 MODEL_OVERRIDE_ROLES: frozenset[AgentRole] = frozenset(
     role
     for role_group in (*_PHASE_ROLES.values(), *_PHASE_REVIEWERS.values())

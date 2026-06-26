@@ -47,11 +47,16 @@ to the existing overseer-tier model fields around
 `"refiner"`, `"tester"`, the `"reviewer_*"` roles, …) — the roles
 spawned through the paths that consult the resolver. A Pydantic
 validator rejects both typos *and* otherwise-valid roles the resolver
-never honors — the utility roles `autofixer` / `conflict_resolver` and
-the interface role `overseer` spawns through a dedicated
-paths that bypass `resolve_agent_model`, so an override naming one of
-them would silently no-op at spawn. The honored set is the constant
-`agent_roles.MODEL_OVERRIDE_ROLES`; the validator surfaces a
+never honors. The utility roles `autofixer` / `conflict_resolver` spawn
+through dedicated paths that bypass `resolve_agent_model`, so an override
+naming one of them would silently no-op at spawn. The interface role
+`overseer` now resolves its base model through
+`resolve_overseer_model("adversarial", …)` → `resolve_agent_model(OVERSEER)`
+(opus by default; see #2270 §1) rather than a bespoke path; an
+`agent_models["overseer"]` entry will be honored once `overseer` is
+promoted into `MODEL_OVERRIDE_ROLES`, but until then the validator rejects
+it and the override surface is the deprecated
+`overseer_decision_maker_model` field. The validator surfaces a
 misconfigured key immediately at construction time. Values are
 free-form model strings — interpreted by the resolver (below).
 
