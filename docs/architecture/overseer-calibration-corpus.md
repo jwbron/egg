@@ -174,9 +174,13 @@ day one (red), and every detector that ships is permanently regression-locked
 
 ## 6. Where it lives & how detectors plug in
 
-- **Fixtures + harness:** under `orchestrator/health_checks/` (the detection plane
-  it guards), as a corpus/test-fixtures module. Snapshots are data; the harness is
-  the assert-over-rows driver.
+- **Fixtures:** the labelled corpus rows live under
+  `orchestrator/tests/overseer_calibration/` (`__init__.py`, `corpus.py`,
+  `fixtures.json`) as a corpus/test-fixtures package. Snapshots are data — no I/O,
+  no clock.
+- **Harness:** `orchestrator/tests/test_overseer_calibration.py` — the
+  assert-over-rows driver that runs each detector-under-test across its corpus rows
+  and emits the §4 scoreboard.
 - **Detectors:** pure `EventStreamSnapshot -> Optional[Finding]` functions in the
   slice-4 framework extending `health_checks/tier1/`. Each registers the rows it
   owns and is run against them by the harness.
