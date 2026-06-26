@@ -213,7 +213,26 @@ Runs all checks with ON_DEMAND trigger. Returns aggregate status + per-check res
 
 Status codes: 200 (checks executed), 404 (pipeline not found), 503 (runner not initialized).
 
-## Adding a New Check
+## Detection-Plane Detectors (`tier1/`)
+
+`tier1/` also contains a second family of detectors — pure functions registered into `DetectionPlane` (see `detection_plane.py`), not into `HealthCheckRunner`. These implement the `Detector` protocol: `snapshot -> Finding | None`, where the input is an `EventStreamSnapshot` rather than a `PipelineHealthContext`. They are fast, deterministic, and LLM-free.
+
+Slice-8 (#2270 §5) adds the coverage-gap detector survey:
+
+| Module | Detectors |
+|--------|-----------|
+| `brc_thrashing.py` | BRC NACK-thrash, incomplete-consensus deferral cap |
+| `container_k8s.py` | Container death, OOM eviction, restart loops, overseer self-injection |
+| `cost_budget.py` | LLM cost anomaly / hourly budget breach |
+| `decision_queue.py` | HITL queue backlog, auto-advance wedge, orphaned decisions, restarted-decision replay |
+| `gateway_health.py` | Gateway error spike, repeated denial, token expiry |
+| `llm_substrate.py` | LiteLLM unreachable, effective model drift, sustained Anthropic 5xx |
+| `runtime_liveness.py` | Orchestrator thread liveness, duration drift, restart propagation |
+| `worktree_branch.py` | Worktree corruption, disk/inode pressure, PR external mutation, pushed-PR-not-updated |
+
+These are registered into `DetectionPlane` via `DetectionPlane.default()` (called from `detection_plane.py`). Each is also registered in the calibration corpus (`orchestrator/tests/overseer_calibration/`) by `detector_key`, so every detector has a strict regression assertion. See [Overseer Calibration Corpus](../../docs/architecture/overseer-calibration-corpus.md) for the corpus contract.
+
+## Adding a New HealthCheck
 
 1. Create a class satisfying the `HealthCheck` protocol in `tier1/`
 2. Set `name`, `tier`, `triggers`, and implement `run(context) -> HealthResult`

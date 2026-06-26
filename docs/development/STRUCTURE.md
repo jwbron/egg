@@ -147,18 +147,27 @@ orchestrator/
 │   ├── decision_maker.py   # Sonnet/Opus-tier decision-maker (corrective actions, redirect messages)
 │   ├── issue_filer.py      # Autonomous GitHub diagnostic issue filing
 │   ├── monitor.py          # Main OverseerMonitor polling loop (poll-classify-decide-act cycle)
-│   ├── self_monitor.py     # OverseerSelfMonitor (poll timing, message volume, LLM cost tracking)
+│   ├── self_monitor.py     # OverseerSelfMonitor (poll timing, message volume, per-model LLM cost tracking, classifier/advisor failure rates, in-flight alert emission)
 │   └── utils.py            # Shared utilities for overseer modules
 ├── health_checks/          # Two-tier health check framework (see health_checks/README.md)
 │   ├── types.py            # HealthCheck protocol, HealthResult, enums
 │   ├── context.py          # PipelineHealthContext with lazy properties
 │   ├── runner.py           # HealthCheckRunner — trigger dispatch and tier escalation
-│   ├── tier1/              # Programmatic checks (fast, deterministic)
-│   │   ├── container_liveness.py   # Verify RUNNING containers exist in Docker
-│   │   ├── startup_state.py        # Post-startup reconciliation verification
-│   │   ├── phase_output.py         # Detect missing artifacts (commits, plans)
-│   │   ├── consensus_stall.py      # Detect BRC consensus-complete-but-phase-stuck
-│   │   └── state_consistency.py    # Cross-reference orchestrator state vs Docker vs contract
+│   ├── tier1/              # Programmatic checks (fast, deterministic) — two kinds: HealthCheck-protocol classes (HealthCheckRunner) and Detector-protocol pure functions (DetectionPlane)
+│   │   ├── container_liveness.py          # HealthCheck: Verify RUNNING containers exist in Docker
+│   │   ├── startup_state.py               # HealthCheck: Post-startup reconciliation verification
+│   │   ├── phase_output.py                # HealthCheck: Detect missing artifacts (commits, plans)
+│   │   ├── consensus_stall.py             # HealthCheck: Detect BRC consensus-complete-but-phase-stuck
+│   │   ├── incomplete_consensus_stall.py  # HealthCheck: Detect incomplete-consensus-not-progressing
+│   │   ├── state_consistency.py           # HealthCheck: Cross-reference orchestrator state vs Docker vs contract
+│   │   ├── brc_thrashing.py               # Detector: BRC NACK-thrash and late-CONFIRMED re-NACK (#2270 §5)
+│   │   ├── container_k8s.py               # Detector: Container death, OOM eviction, restart loops, overseer self-injection (#2270 §5)
+│   │   ├── cost_budget.py                 # Detector: LLM cost anomaly / hourly budget breach (#2270 §5)
+│   │   ├── decision_queue.py              # Detector: HITL queue backlog, auto-advance wedge, orphaned decisions (#2270 §5)
+│   │   ├── gateway_health.py              # Detector: Gateway error spike, repeated denial, token expiry (#2270 §5)
+│   │   ├── llm_substrate.py               # Detector: LiteLLM unreachable, model drift, sustained Anthropic 5xx (#2270 §5)
+│   │   ├── runtime_liveness.py            # Detector: Orchestrator thread liveness, duration drift, restart propagation (#2270 §5)
+│   │   └── worktree_branch.py             # Detector: Worktree corruption, disk/inode pressure, PR external mutation (#2270 §5)
 ├── routes/                 # API route handlers
 │   ├── anchors.py          # Agent anchor CRUD and team anchor generation endpoints
 │   ├── commit_authorship.py # Commit-authorship registry endpoints (register + lookup); called by gateway commit observer and push handler
