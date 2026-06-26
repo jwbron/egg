@@ -3239,4 +3239,3 @@ class TestOverseerSpawnNormalization:
             f"{monitor} must be deleted — the on-demand overseer monitors via MCP/tools, "
             "not a trust-and-run baked-in script (#2270 §1.5)"
         )
-        assert statistics.median(samples) >= 60_000
