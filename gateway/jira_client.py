@@ -40,15 +40,14 @@ Path safety:
   ``transitions`` / ``worklog`` / ``attachments`` / ``watchers`` via
   ``/execute``.
 
-429 handling (refine Q5, architect D7):
+429 handling:
 
 - GET requests retry at most once on HTTP 429, honoring ``Retry-After`` up to
   30s.  Write verbs never retry (future-safety + at-most-once semantics for
   upstream Atlassian).  Both paths emit the ``jira_upstream_rate_limited``
-  audit event so operators see 429s on writes too (feedback Q1, decision-16
-  symmetry).
+  audit event so operators see 429s on writes too, symmetrically with reads.
 
-404 envelope (refine Q8, architect D8):
+404 envelope:
 
 - ``get_ticket`` and ``get_comments`` translate upstream 404 into a structured
   ``{"status": "not_found", "key": key, "upstream_status": 404}`` dict so the
@@ -187,8 +186,7 @@ MAX_FIELDS: int = 32
 
 # Default expand parameters for issue reads.  Gives agents both the raw
 # Atlassian Document Format JSON and the server-rendered HTML in a single
-# request so they don't need to re-fetch with different expand values
-# (risk R6, architect Q4).
+# request so they don't need to re-fetch with different expand values.
 DEFAULT_EXPAND: tuple[str, ...] = ("renderedBody", "renderedFields")
 
 # Default ``maxResults`` when the caller doesn't pass one.  Capped at 100 by
@@ -362,8 +360,7 @@ class JiraClient:
         Atlassian returned on the first try — at-most-once semantics for
         write verbs.  All 429 responses (read **and** write) emit the
         ``jira_upstream_rate_limited`` audit event so operators see write
-        rate-limit events even though writes don't auto-retry (refine
-        feedback Q1).
+        rate-limit events even though writes don't auto-retry.
         """
         creds = self.creds_provider()
         headers = {
@@ -709,7 +706,7 @@ class JiraClient:
         Callers that mix replace + incremental get a ``ValueError`` here
         (the route layer rejects with 400 first).
 
-        ``notify_users=False`` (refine decision-5 default) sends
+        ``notify_users=False`` (the default) sends
         ``?notifyUsers=false`` so an edit doesn't blast every watcher's
         inbox; pass ``True`` explicitly to opt in.
 
@@ -811,9 +808,8 @@ class JiraClient:
         """``POST /rest/api/3/issueLink`` — link two tickets.
 
         Atlassian does **not** dedupe identical ``(inward, outward, type)``
-        triples — a transient-error retry would create a duplicate link
-        (refine Open Q28).  The idempotency cache (decision-28) sidesteps
-        this for caller-driven retries.
+        triples — a transient-error retry would create a duplicate link.
+        The idempotency cache sidesteps this for caller-driven retries.
 
         The cache key namespaces the opaque ``idempotency_key`` by
         ``(jira_issue_link_create, "<inward>__<outward>__<type>", key)`` so
