@@ -1101,6 +1101,7 @@ class TestAgentRole:
         assert AgentRole.TASK_PLANNER in roles
         assert AgentRole.RISK_ANALYST in roles
         assert AgentRole.REFINER in roles
+        assert AgentRole.SIMPLIFIER in roles
         assert AgentRole.REVIEWER_CODE in roles
         assert AgentRole.REVIEWER_CODE_HOLISTIC in roles
         assert AgentRole.REVIEWER_CONTRACT in roles
@@ -1115,9 +1116,10 @@ class TestAgentRole:
         # Registry-size pin. Count grew from the original 18 → 19 with
         # APPLIER (#1557) → 20 with ORCHESTRATOR (#2893) → back to 19 when
         # ORCHESTRATOR was removed (#2925: the orchestrator is the control
-        # plane, not an agent role). Bump this and add the matching
+        # plane, not an agent role) → 20 with SIMPLIFIER (human-focused
+        # draft companions). Bump this and add the matching
         # `assert AgentRole.X in roles` above whenever a new role lands.
-        assert len(roles) == 19
+        assert len(roles) == 20
 
 
 class TestBackwardCompatibility:

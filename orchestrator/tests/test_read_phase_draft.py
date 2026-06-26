@@ -14,7 +14,9 @@ from routes.pipelines import (
     _cleanup_stale_generic_drafts,
     _draft_filename,
     _get_generic_draft_path,
+    _get_human_draft_path,
     _git_show_draft,
+    _read_human_phase_draft,
     _read_phase_draft,
 )
 
@@ -627,3 +629,180 @@ class TestReadPhaseDraftGitShowFallback:
         # Should have an info log about reading from remote ref
         info_calls = mock_logger.info.call_args_list
         assert any("remote tracking ref" in call[0][0] for call in info_calls)
+
+
+class TestGetHumanDraftPath:
+    """Tests for _get_human_draft_path."""
+
+    def test_refine_returns_analysis_human_md(self):
+        """Refine phase maps to the issue-prefixed -analysis-human.md path."""
+        result = _get_human_draft_path("refine", issue_number=42)
+        assert result == ".egg-state/drafts/42-analysis-human.md"
+
+    def test_plan_returns_plan_human_md(self):
+        """Plan phase maps to the issue-prefixed -plan-human.md path."""
+        result = _get_human_draft_path("plan", issue_number=7)
+        assert result == ".egg-state/drafts/7-plan-human.md"
+
+    def test_pipeline_id_used_when_no_issue(self):
+        """Pipeline ID is used as prefix when no issue_number is provided."""
+        result = _get_human_draft_path("refine", pipeline_id="pid123")
+        assert result == ".egg-state/drafts/pid123-analysis-human.md"
+
+    def test_implement_phase_returns_none(self):
+        """Phases without a registered human companion return None."""
+        assert _get_human_draft_path("implement", issue_number=42) is None
+
+    def test_unknown_phase_returns_none(self):
+        """Arbitrary phases have no human companion; returns None."""
+        assert _get_human_draft_path("review", issue_number=42) is None
+
+    def test_human_suffix_disjoint_from_agent_draft(self):
+        """The companion suffix must not collide with the agent draft path."""
+        from routes.pipelines import _get_draft_path
+
+        human = _get_human_draft_path("refine", issue_number=42)
+        agent = _get_draft_path("refine", issue_number=42)
+        assert human != agent
+        assert human == ".egg-state/drafts/42-analysis-human.md"
+        assert agent == ".egg-state/drafts/42-analysis.md"
+
+
+class TestReadHumanPhaseDraft:
+    """Tests for _read_human_phase_draft (the human companion reader)."""
+
+    def test_returns_full_content_within_limit(self, tmp_path: Path):
+        """Content shorter than max_chars is returned in full."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "42-analysis-human.md").write_text("human summary", encoding="utf-8")
+
+        result = _read_human_phase_draft(tmp_path, "refine", issue_number=42)
+        assert result == "human summary"
+
+    def test_truncates_content_exceeding_limit(self, tmp_path: Path):
+        """Content longer than max_chars is truncated with a suffix."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        content = "x" * 200
+        (drafts / "42-analysis-human.md").write_text(content, encoding="utf-8")
+
+        result = _read_human_phase_draft(tmp_path, "refine", issue_number=42, max_chars=100)
+        assert result.startswith("x" * 100)
+        assert "... (truncated, 200 chars total)" in result
+
+    def test_plan_phase_reads_plan_human(self, tmp_path: Path):
+        """Plan phase reads the -plan-human.md companion."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "7-plan-human.md").write_text("plan summary", encoding="utf-8")
+
+        result = _read_human_phase_draft(tmp_path, "plan", issue_number=7)
+        assert result == "plan summary"
+
+    def test_pipeline_id_used_when_no_issue(self, tmp_path: Path):
+        """Pipeline ID is used as prefix when no issue_number is provided."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "pid123-analysis-human.md").write_text("human", encoding="utf-8")
+
+        result = _read_human_phase_draft(tmp_path, "refine", pipeline_id="pid123")
+        assert result == "human"
+
+    def test_missing_companion_returns_none(self, tmp_path: Path):
+        """Returns None when the companion file does not exist (gate falls back)."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+
+        result = _read_human_phase_draft(tmp_path, "refine", issue_number=42)
+        assert result is None
+
+    def test_no_companion_for_implement_phase(self, tmp_path: Path):
+        """Implement phase has no human companion; returns None."""
+        result = _read_human_phase_draft(tmp_path, "implement", issue_number=42)
+        assert result is None
+
+    def test_no_generic_fallback(self, tmp_path: Path):
+        """Unlike the agent reader, the companion has no generic-path variant.
+
+        An unprefixed analysis-human.md must NOT satisfy a pipeline-identified
+        read — the companion is always pipeline-identified.
+        """
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "analysis-human.md").write_text("generic should be ignored", encoding="utf-8")
+
+        result = _read_human_phase_draft(tmp_path, "refine", issue_number=42)
+        assert result is None
+
+    def test_git_show_fallback_when_disk_missing(self, tmp_path: Path, monkeypatch):
+        """Falls back to git show when the disk copy only landed on the remote."""
+        import routes.pipelines as mod
+
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+
+        captured: list[list[str]] = []
+
+        def fake_run(cmd, **kwargs):
+            captured.append(cmd)
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = "human draft from remote"
+            return result
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+        result = _read_human_phase_draft(
+            tmp_path, "refine", pipeline_id="pid123", branch="egg/pid123/work"
+        )
+        assert result == "human draft from remote"
+        # The ref:path must target the human companion path
+        assert any("pid123-analysis-human.md" in c[-1] for c in captured)
+
+    def test_git_show_not_attempted_without_branch(self, tmp_path: Path, monkeypatch):
+        """Git show is not attempted when branch is None."""
+        import routes.pipelines as mod
+
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+
+        call_log: list = []
+
+        def fake_run(cmd, **kwargs):
+            call_log.append(cmd)
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = "should not be read"
+            return result
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+        result = _read_human_phase_draft(tmp_path, "refine", pipeline_id="pid123")
+        assert result is None
+        assert len(call_log) == 0
+
+    def test_disk_preferred_over_git_show(self, tmp_path: Path, monkeypatch):
+        """Disk copy is preferred over git show even when branch is provided."""
+        import routes.pipelines as mod
+
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "pid123-analysis-human.md").write_text("disk human", encoding="utf-8")
+
+        call_log: list = []
+
+        def fake_run(cmd, **kwargs):
+            call_log.append(cmd)
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = "remote human"
+            return result
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+        result = _read_human_phase_draft(
+            tmp_path, "refine", pipeline_id="pid123", branch="egg/pid123/work"
+        )
+        assert result == "disk human"
+        assert len(call_log) == 0

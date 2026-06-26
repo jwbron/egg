@@ -4514,6 +4514,23 @@ class TestProducerOrientation:
         assert "tasks[].files" in orient
         assert "acceptance criteria" in orient.lower()
 
+    def test_simplifier_orientation_gates_on_upstream_propose(self):
+        """The refine-phase simplifier orientation tells it its work depends
+        on the refiner's CONSENSUS_PROPOSE and is re-invoked by the event
+        pump — the proven tester-style dependency wake-up."""
+        orient = _build_producer_orientation("simplifier", "refine", ["reviewer_refine"])
+        assert "refiner" in orient
+        assert "CONSENSUS_PROPOSE" in orient
+        assert "event pump" in orient.lower()
+        assert "jargon-free" in orient.lower()
+
+    def test_simplifier_orientation_plan_phase_targets_task_planner(self):
+        """The plan-phase simplifier orientation targets the task_planner's
+        plan as its upstream draft."""
+        orient = _build_producer_orientation("simplifier", "plan", ["reviewer_plan"])
+        assert "task_planner" in orient
+        assert "CONSENSUS_PROPOSE" in orient
+
     def test_tester_orientation_contains_dual_mandate_pointer(self):
         """Tester orientation carries a brief dual-mandate pointer, NOT the
         full failing-test → NACK → HANDOFF instruction.
