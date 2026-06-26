@@ -159,11 +159,7 @@ def detect_duration_drift(
     # Prefer an explicit drift_ratio; else derive it from elapsed/expected.
     ratio = _as_float(state.get("drift_ratio"))
     if ratio is None:
-        if (
-            started_age_s is None
-            or expected_duration_s is None
-            or expected_duration_s <= 0
-        ):
+        if started_age_s is None or expected_duration_s is None or expected_duration_s <= 0:
             return None
         ratio = started_age_s / expected_duration_s
     # Fire only when the phase is over budget by more than ``factor``×.
@@ -231,9 +227,7 @@ def detect_agent_restart_propagation(
         for t in _transitions(snapshot):
             if str(t.get("to", "")) != _RUNNING_STATE:
                 continue
-            if role_prefix is None or str(t.get("container", "") or "").startswith(
-                role_prefix
-            ):
+            if role_prefix is None or str(t.get("container", "") or "").startswith(role_prefix):
                 return None
         age_s = requested_age_s
         runtime_deadline_s = deadline_s

@@ -116,9 +116,7 @@ def detect_container_death(snapshot: Any) -> Finding | None:
 
     # A successful reschedule back to Running AFTER the last fatal transition
     # means the container recovered — not a permanent death.
-    rescheduled = any(
-        str(t.get("to", "")) == _RUNNING_STATE for t in transitions[last_fatal + 1 :]
-    )
+    rescheduled = any(str(t.get("to", "")) == _RUNNING_STATE for t in transitions[last_fatal + 1 :])
     if rescheduled:
         return None
 
@@ -130,9 +128,7 @@ def detect_container_death(snapshot: Any) -> Finding | None:
 
     role = getattr(fatal_exit_agent, "role", None) if fatal_exit_agent else None
     exit_code = getattr(fatal_exit_agent, "exit_code", None) if fatal_exit_agent else None
-    exit_reason = (
-        getattr(fatal_exit_agent, "exit_reason", None) if fatal_exit_agent else None
-    )
+    exit_reason = getattr(fatal_exit_agent, "exit_reason", None) if fatal_exit_agent else None
     restart_count = transitions[last_fatal].get("restart_count") if last_fatal >= 0 else None
 
     return Finding(

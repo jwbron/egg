@@ -130,9 +130,7 @@ class OverseerSelfMonitor:
         self._lifetime_cost += cost
         self._lifetime_tokens += tokens
         self._lifetime_calls += 1
-        self._lifetime_cost_by_model[model] = (
-            self._lifetime_cost_by_model.get(model, 0.0) + cost
-        )
+        self._lifetime_cost_by_model[model] = self._lifetime_cost_by_model.get(model, 0.0) + cost
 
     def record_classifier_result(self, success: bool) -> None:
         """Record the outcome of a classifier call (True == succeeded)."""
@@ -292,10 +290,7 @@ class OverseerSelfMonitor:
 
     def _cost_by_model(self) -> dict[str, float]:
         """Lifetime LLM cost per model (rounded USD; immune to deque eviction)."""
-        return {
-            model: round(cost, 4)
-            for model, cost in self._lifetime_cost_by_model.items()
-        }
+        return {model: round(cost, 4) for model, cost in self._lifetime_cost_by_model.items()}
 
     @staticmethod
     def _failure_rate(results: deque[bool]) -> float:

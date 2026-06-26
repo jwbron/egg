@@ -192,11 +192,7 @@ def detect_pr_external_mutation(snapshot: Any) -> Finding | None:
 
     pr_head = pr_state.get("pr_head_sha")
     pushed = pr_state.get("pushed_sha")
-    sha_divergence = (
-        pr_head is not None
-        and pushed is not None
-        and pr_head != pushed
-    )
+    sha_divergence = pr_head is not None and pushed is not None and pr_head != pushed
 
     if not (pr_state.get("external_mutation") or sha_divergence):
         return None
