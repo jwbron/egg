@@ -50,10 +50,10 @@ def main() -> int:
         default=None,
         metavar="SESSION_ID",
         help=(
-            "Claude session_id to re-enter (warm resume, #3200 slice-6). Opt-in "
+            "Claude session_id to re-enter (warm resume, #3200). Opt-in "
             "and default OFF: only resumes when EGG_SESSION_RESUME is enabled; an "
             "absent/stale session cold-starts from the protected root. The "
-            "resume-vs-reseed decision lives in the slice-8 gate."
+            "resume-vs-reseed decision lives in the reseed gate."
         ),
     )
     parser.add_argument(
@@ -64,7 +64,7 @@ def main() -> int:
             "Where to persist this run's session_id + window occupancy so a later "
             "event-pump invocation can resume it (defaults to $EGG_SESSION_STATE_FILE; "
             "no-op when neither is set). The round-trip's read+decide side is the "
-            "slice-8 gate."
+            "resume-vs-reseed gate."
         ),
     )
 
@@ -80,9 +80,9 @@ def main() -> int:
             print("Error: empty prompt from stdin", file=sys.stderr)
             return 1
 
-    # Resume-vs-reseed gate (#3200 slice-8, task-8-1). The decision happens at
+    # Resume-vs-reseed gate (#3200). The decision happens at
     # the start of each one-shot re-invocation: read the prior run's occupancy
-    # from the slice-6 state file, compare against the real-window threshold, and
+    # from the session-state file, compare against the real-window threshold, and
     # either resume the cached session (occupancy known and below threshold) or
     # reseed from the protected root (resume=None -> fresh session, JIT re-pull).
     # Every ambiguous case (no warm session, unknown occupancy, no threshold,
@@ -104,17 +104,17 @@ def main() -> int:
         resume=resume_decision.session_id,
     )
 
-    # Write side of the session-state round-trip (#3200 slice-6): persist this
+    # Write side of the session-state round-trip (#3200): persist this
     # run's session_id + window occupancy so a later event-pump invocation can
-    # re-enter (or, per the slice-8 gate, reseed). Best-effort and inert when no
-    # path is configured; a persistence failure never changes the exit code.
+    # re-enter (or, per the resume-vs-reseed gate, reseed). Best-effort and inert
+    # when no path is configured; a persistence failure never changes the exit code.
     write_session_state(
         result.session_id,
         result.window_occupancy,
         path=args.session_state_file,
     )
 
-    # Emit-only per-event measurement (#3249 / #3200 phase 10). Agent-side,
+    # Emit-only per-event measurement (#3249 / #3200). Agent-side,
     # after the SDK call, routed through the existing progress + heartbeat
     # surfaces. Pure observation: the return value is intentionally discarded
     # and nothing here touches the exit code — the six metrics are consumed
