@@ -2778,6 +2778,29 @@
       "resolved_by": "human",
       "resolved_at": "2026-06-26T23:22:18.586814Z",
       "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "[Phase gate: plan] The plan phase has completed. Please review the plan and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Operator approval: scope verified intact \u2014 all 19 files as 19 slices, giants (gateway.py slice-18, pipelines.py slice-19) fully in scope and must finish (not optional), _run_pipeline split head-on into per-stage handlers + thin loop, R3 Dockerfile-COPY mitigation included in the 9 affected slices, empty-allowlist done-signal, pure refactor with bugs filed separately. Sequential linear chain accepted as a sound ordering decision (shared allowlist file forces sequencing to avoid merge collisions); ordering is the planner's call and does not descope. Proceed to implement.",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-26T23:51:56.971377Z",
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
