@@ -771,12 +771,11 @@ class PipelineConfig(BaseModel):
         le=10000,
         description="Max Agent SDK turns for the overseer agent per phase",
     )
-    overseer_max_respawns: int = Field(
-        default=3,
-        ge=0,
-        le=50,
-        description="Max times to respawn the overseer if it exits mid-pipeline",
-    )
+    # overseer_max_respawns removed in #2270 slice-5: the standing-pod overseer
+    # respawn loop was retired (orchestrator-side detection plane + on-demand
+    # adjudicator is the replacement; any surviving restart need goes through the
+    # general agent-restart machinery). PipelineConfig uses extra='ignore', so a
+    # persisted config still carrying this key loads cleanly.
     overseer_rerun_min_work_seconds: int = Field(
         default=60,
         ge=1,
