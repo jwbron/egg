@@ -50,6 +50,85 @@ class HealthAction(StrEnum):
     ALERT = "alert"
 
 
+class Severity(StrEnum):
+    """Finding severity, mirroring the overseer alert vocabulary (#2270 §4).
+
+    Kept a ``StrEnum`` so a :class:`Finding` compares equal to the plain-string
+    severities the calibration corpus asserts against (``Severity.HIGH ==
+    "high"``), letting the production type plug straight into the slice-1
+    harness without the corpus importing it.
+    """
+
+    INFO = "info"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class FindingClass(StrEnum):
+    """The detection-plane finding classes delivered across #2270 slices 4/7/8.
+
+    The detection plane matches a detector's output structurally on the raw
+    string, so a detector MAY emit a class not listed here (slice-8 extends the
+    coverage-gap survey) without breaking matching. This enum names the classes
+    pinned by the slice-1 calibration corpus for type-safety at the call sites
+    that construct them.
+    """
+
+    OVERSEER_SELF_INJECTION = "overseer_self_injection"
+    ALERT_REFLECTION = "alert_reflection"
+    PHASE_STALL = "phase_stall"
+    HEARTBEAT_STALL = "heartbeat_stall"
+    BRANCH_DIVERGENCE = "branch_divergence"
+    CONTAINER_DEATH = "container_death"
+
+
+@dataclass(frozen=True)
+class Finding:
+    """A deterministic detection-plane finding (#2270 §-core, slice-4).
+
+    The orchestrator-side detection plane runs detectors over an
+    ``EventStreamSnapshot`` and each detector returns ``Optional[Finding]``.
+    Routine findings carry ``requires_adjudication=False`` and are handled by
+    the bounded corrective vocabulary (slice-6) without ever invoking an LLM;
+    only an *ambiguous / high-stakes* finding sets ``requires_adjudication`` and
+    triggers the on-demand OVERSEER adjudicator (slice-4 escalation path).
+
+    The field set is the slice-1 corpus contract: ``finding_class``,
+    ``severity``, ``evidence``, ``recommended_action``, ``requires_adjudication``.
+
+    Attributes:
+        finding_class: Stable class string (see :class:`FindingClass`).
+        severity: One of :class:`Severity`.
+        evidence: Structured, JSON-serialisable evidence the detector observed.
+        recommended_action: Human/operator-facing next step.
+        requires_adjudication: Whether this finding must be escalated to the
+            on-demand OVERSEER adjudicator before any corrective action.
+        detector_key: The detector that produced it (for routing / audit).
+        timestamp: When the finding was produced.
+    """
+
+    finding_class: str
+    severity: str
+    evidence: dict[str, object] = field(default_factory=dict)
+    recommended_action: str = ""
+    requires_adjudication: bool = False
+    detector_key: str = ""
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize for JSON / event payloads."""
+        return {
+            "finding_class": str(self.finding_class),
+            "severity": str(self.severity),
+            "evidence": self.evidence,
+            "recommended_action": self.recommended_action,
+            "requires_adjudication": self.requires_adjudication,
+            "detector_key": self.detector_key,
+            "timestamp": self.timestamp.isoformat(),
+        }
+
+
 @dataclass(frozen=True)
 class HealthResult:
     """Result produced by a health check.

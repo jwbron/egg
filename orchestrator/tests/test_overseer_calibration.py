@@ -45,8 +45,27 @@ from overseer_calibration.corpus import (  # noqa: E402
     evaluate,
     load_corpus,
     null_detector,
+    register_detector,
     resolve_detector,
 )
+
+# ---------------------------------------------------------------------------
+# Slice-4 bridge (task-4-3): register the production detection-plane detectors
+# into the corpus registry. This is what "flips the plane's rows to strict" —
+# once ``health_checks.detection_plane`` is importable, its detectors resolve,
+# the xfail markers in :func:`_row_param` evaporate, and the slice-4 known-bad
+# rows run as ordinary strict assertions. Until the coder's plane lands the
+# import fails, nothing registers, and the rows stay xfail (slice-1 baseline),
+# keeping ``make test`` green on the tester branch alone.
+#
+# Production code must never import the test-only corpus, so the bridge runs
+# here (test → production), not the other way around.
+try:
+    from health_checks.detection_plane import detect_phase_stall
+except ImportError:
+    pass
+else:
+    register_detector("phase_stall", detect_phase_stall)
 
 # Load once at collection time so rows can be parametrized with per-row marks.
 _CORPUS: list[CorpusRow] = load_corpus()
@@ -140,30 +159,71 @@ def test_calibration_contract(row: CorpusRow) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_scoreboard_baseline_has_no_false_positives(capsys: pytest.CaptureFixture[str]) -> None:
-    """With no detectors registered, the baseline must never over-fire.
+def test_scoreboard_precision_is_invariant(capsys: pytest.CaptureFixture[str]) -> None:
+    """Precision stays pinned at 1.0 at every slice; recall climbs as detectors land.
 
-    Emits the precision/recall scoreboard for visibility. As detectors land in
-    later slices, recall climbs toward 1.0; precision must stay at 1.0 (the
-    overseer must never cry wolf on a known-normal input).
+    Emits the precision/recall scoreboard for visibility. Slice-1 shipped this
+    with zero detectors registered (recall 0.0, every row undelivered). As
+    detectors land — slice-4 (phase_stall), 7, 8 — they register through the
+    corpus bridge and their known-bad rows become true positives, so recall
+    climbs. The permanent invariant, generalized here for task-4-3, is that the
+    overseer must NEVER cry wolf: zero false positives, precision 1.0, at every
+    registration state. Computing the expectations from what is actually
+    registered keeps this test correct on the tester branch (nothing
+    registered) and on the integrated slice branch (phase_stall registered)
+    alike.
     """
     board: Scoreboard = evaluate(_CORPUS)
     print(board)
 
     normal_rows = [r for r in _CORPUS if not r.is_known_bad]
     bad_rows = [r for r in _CORPUS if r.is_known_bad]
+    registered_bad = [r for r in bad_rows if resolve_detector(r.detector_key) is not None]
+    undelivered_rows = [r for r in _CORPUS if resolve_detector(r.detector_key) is None]
 
-    # Baseline (null detector): zero false positives, all normals are TN.
-    assert board.false_positive == 0, "baseline detector must not over-fire"
+    # The permanent invariant: never over-fire on a known-normal input.
+    assert board.false_positive == 0, "the overseer must never cry wolf"
     assert board.true_negative == len(normal_rows)
     assert board.precision == pytest.approx(1.0)
 
-    # Baseline catches nothing yet: every known-bad row is a false negative.
-    assert board.false_negative == len(bad_rows)
-    # No detectors are registered in slice-1, so *every* row is undelivered.
-    assert board.undelivered == len(_CORPUS)
-    assert board.recall == pytest.approx(0.0)
+    # Recall is exactly the known-bad rows whose detector has landed.
+    assert board.true_positive == len(registered_bad)
+    assert board.false_negative == len(bad_rows) - len(registered_bad)
+    expected_recall = 1.0 if not bad_rows else len(registered_bad) / len(bad_rows)
+    assert board.recall == pytest.approx(expected_recall)
+
+    # Undelivered tracks rows whose detector is not yet registered.
+    assert board.undelivered == len(undelivered_rows)
     assert board.total == len(_CORPUS)
 
     out = capsys.readouterr().out
     assert "scoreboard" in out.lower()
+
+
+def test_slice4_detection_plane_rows_are_strict() -> None:
+    """task-4-3: once the slice-4 plane is importable, its corpus rows pass strict.
+
+    Skips on the tester branch alone (the production plane is not importable
+    yet); on the integrated slice branch it asserts the phase_stall detector is
+    registered (no longer xfail) and that BOTH its known-bad row and its #3230
+    known-normal companion satisfy the AC-3 contract under the *real* detector.
+    """
+    pytest.importorskip("health_checks.detection_plane")
+
+    plane_rows = [r for r in _CORPUS if r.delivered_in_slice == 4]
+    assert plane_rows, "slice-4 must deliver at least one detector row"
+
+    for row in plane_rows:
+        detector = resolve_detector(row.detector_key)
+        assert detector is not None, (
+            f"slice-4 detector {row.detector_key!r} must be registered (strict, not xfail)"
+        )
+        assert_row(detector, row)
+
+    # The #3230 false-stall companion must stay silent under the real detector.
+    companion_keys = {r.detector_key for r in plane_rows}
+    for row in _CORPUS:
+        if row.detector_key in companion_keys and not row.is_known_bad:
+            detector = resolve_detector(row.detector_key)
+            assert detector is not None
+            assert_row(detector, row)

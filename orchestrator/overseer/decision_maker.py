@@ -10,12 +10,135 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass, field
+from typing import Any
 
 from agent_model_resolution import OVERSEER_TIER_MODELS
 from egg_agent.client import run_agent_async
 from overseer.utils import parse_json_or_fallback as _parse_json_or_fallback
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Adjudication (#2270 slice-4) — the on-demand OVERSEER's structured verdict.
+#
+# A detection-plane Finding with ``requires_adjudication=True`` spawns a NORMAL
+# on-demand OVERSEER agent (slice-3 spawn path, Opus via the slice-2 resolver).
+# That agent ADVISES only: it returns one of the bounded corrective-vocabulary
+# recommendations (the slice-6 authority plane is what actually executes). This
+# module owns the verdict schema + parsing so both the spawn site
+# (routes/pipelines) and the monitor's on-demand entry point agree on the shape.
+# ---------------------------------------------------------------------------
+
+# The closed advisory vocabulary the adjudicator may recommend. Mirrors the
+# slice-6 CorrectiveExecutor's actions, plus ``none`` (no action / false alarm).
+# The adjudicator only advises; it never executes.
+ADJUDICATION_ACTIONS: frozenset[str] = frozenset(
+    {"none", "nudge_agent", "respawn_cohort", "open_operator_hitl"}
+)
+
+
+@dataclass(frozen=True)
+class AdjudicationVerdict:
+    """Structured verdict returned by the on-demand OVERSEER adjudicator.
+
+    Attributes:
+        confirmed: Whether the adjudicator agrees the finding is a real problem
+            (``False`` means the deterministic detector over-fired — a calibration
+            data point, §2).
+        recommended_action: One of :data:`ADJUDICATION_ACTIONS`. Advisory only;
+            the slice-6 authority plane decides whether/how to execute it.
+        severity: The adjudicator's severity assessment (may differ from the
+            detector's).
+        reasoning: Human-facing explanation.
+        finding_class: The finding class this verdict adjudicates (for routing).
+        raw: The raw verdict payload, retained for audit.
+    """
+
+    confirmed: bool
+    recommended_action: str
+    severity: str = "medium"
+    reasoning: str = ""
+    finding_class: str = ""
+    raw: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "confirmed": self.confirmed,
+            "recommended_action": self.recommended_action,
+            "severity": self.severity,
+            "reasoning": self.reasoning,
+            "finding_class": self.finding_class,
+        }
+
+
+def build_adjudication_prompt(finding: Any) -> str:
+    """Build the one-shot adjudication prompt for a single finding.
+
+    The adjudicator is a NORMAL overseer agent invoked on-demand for ONE
+    finding; it is not a standing watcher. It must return ONLY a JSON verdict.
+    """
+    finding_dict = finding.to_dict() if hasattr(finding, "to_dict") else dict(finding)
+    return (
+        "You are the on-demand overseer ADJUDICATOR. A deterministic detector "
+        "on the orchestrator flagged a possible problem and asked for your "
+        "judgement before any corrective action is taken. You ADVISE only — you "
+        "do not execute anything.\n\n"
+        "Finding under adjudication (JSON):\n"
+        f"{json.dumps(finding_dict, default=str, indent=2)}\n\n"
+        "Decide whether this is a genuine problem or a false alarm (the detector "
+        "over-firing). Be conservative: a false confirmation trains operators to "
+        "ignore the overseer.\n\n"
+        "Respond with ONLY a JSON object (no markdown fences):\n"
+        '  "confirmed": boolean — is this a real problem?\n'
+        '  "recommended_action": one of "none", "nudge_agent", '
+        '"respawn_cohort", "open_operator_hitl"\n'
+        '  "severity": one of "info", "low", "medium", "high"\n'
+        '  "reasoning": brief explanation\n'
+    )
+
+
+def parse_adjudication_verdict(raw: Any, *, finding: Any = None) -> AdjudicationVerdict:
+    """Parse an adjudicator response (raw text or dict) into a verdict.
+
+    Defensive: an unparseable / malformed response degrades to a conservative
+    *unconfirmed* verdict recommending ``open_operator_hitl`` only when the
+    detector itself demanded adjudication, so a broken adjudicator never
+    silently swallows a genuine deadlock.
+    """
+    finding_class = ""
+    if finding is not None:
+        finding_class = str(getattr(finding, "finding_class", "") or "")
+
+    if isinstance(raw, dict):
+        payload = raw
+    else:
+        payload = _parse_json_or_fallback(str(raw), {})
+
+    if not isinstance(payload, dict) or not payload:
+        # Conservative fallback: defer to a human rather than drop the finding.
+        return AdjudicationVerdict(
+            confirmed=False,
+            recommended_action="open_operator_hitl",
+            severity=str(getattr(finding, "severity", "medium") or "medium"),
+            reasoning="Adjudicator returned no parseable verdict; deferring to operator.",
+            finding_class=finding_class,
+            raw={"unparseable": str(raw)[:500]},
+        )
+
+    action = str(payload.get("recommended_action", "none"))
+    if action not in ADJUDICATION_ACTIONS:
+        action = "open_operator_hitl"
+    return AdjudicationVerdict(
+        confirmed=bool(payload.get("confirmed", False)),
+        recommended_action=action,
+        severity=str(payload.get("severity", "medium")),
+        reasoning=str(payload.get("reasoning", "")),
+        finding_class=finding_class or str(payload.get("finding_class", "")),
+        raw=dict(payload),
+    )
+
 
 # Routine tier (#2270 §1): routine corrective decisions run on Sonnet, sourced
 # from the single overseer-tier table in ``agent_model_resolution`` so the

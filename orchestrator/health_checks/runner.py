@@ -9,7 +9,11 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from health_checks.detection_plane import DetectionPlane, EventStreamSnapshot
+    from health_checks.types import Finding
 
 # Add shared directory to path for logging
 _shared_path = Path(__file__).parent.parent.parent / "shared"
@@ -147,6 +151,48 @@ class HealthCheckRunner:
                 reasoning=f"Check failed internally: {exc}",
                 action=HealthAction.ALERT,
             )
+
+    # ------------------------------------------------------------------
+    # Detection plane (#2270 slice-4)
+    # ------------------------------------------------------------------
+
+    def run_detection_plane(
+        self,
+        snapshot: EventStreamSnapshot,
+        plane: DetectionPlane,
+        *,
+        pipeline_id: str | None = None,
+    ) -> list[Finding]:
+        """Evaluate the deterministic detection plane over a snapshot.
+
+        This is the orchestrator-side overseership spine (#2270 Option C): cheap,
+        deterministic detectors run in-process and yield ``Finding`` values with
+        **no LLM call** for routine cases. Each finding is emitted on the event
+        bus for visibility; the caller routes findings with
+        ``requires_adjudication`` to the on-demand OVERSEER adjudicator.
+
+        The plane never raises (each detector is exception-isolated inside
+        :meth:`DetectionPlane.evaluate`); this method only fans the results out
+        to the event bus and returns them.
+        """
+        findings = plane.evaluate(snapshot)
+        pid = pipeline_id or getattr(snapshot, "pipeline_id", "") or ""
+        for finding in findings:
+            self._emit_finding(pid, finding)
+        return findings
+
+    def _emit_finding(self, pipeline_id: str, finding: Finding) -> None:
+        """Emit a detection-plane finding on the event bus (best-effort)."""
+        bus = self._get_event_bus()
+        if bus is None:
+            return
+        try:
+            from events import EventType
+
+            event_type = getattr(EventType, "DETECTION_FINDING", EventType.HEALTH_CHECK_DEGRADED)
+            bus.emit(event_type, pipeline_id, data=finding.to_dict())
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed to emit detection finding event", error=str(exc))
 
     # ------------------------------------------------------------------
     # EventBus integration (DD-8)

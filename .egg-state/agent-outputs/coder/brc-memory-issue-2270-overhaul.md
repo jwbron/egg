@@ -1,5 +1,66 @@
 # Coder BRC memory — issue-2270 overhaul
 
+## slice-4 — Detection plane + escalation→adjudicator (§-core) — PROPOSED
+
+- **commit**: 63fb5d073 (branch egg/issue-2270-overhaul-slice-4-coder/work)
+- **tasks**: task-4-1, task-4-2 (both complete)
+- **verdict**: shipped; corpus phase_stall rows strict-pass; ruff clean.
+
+### Change model
+- `health_checks/types.py`: added production `Finding` (finding_class, severity,
+  evidence, recommended_action, requires_adjudication, detector_key, ts) +
+  `Severity`/`FindingClass` StrEnums. StrEnum so `Finding` satisfies the slice-1
+  corpus `Finding` Protocol structurally (Severity.HIGH == "high").
+- `health_checks/detection_plane.py` (NEW): `EventStreamSnapshot`/`RunningAgent`/
+  `LifecycleOwner` (production mirror of corpus snapshot — same field names, so
+  the slice-1 harness drives production detectors verbatim, no corpus import);
+  `Detector` Protocol (callable); `DetectionPlane` (register + exception-isolated
+  `evaluate` + `requires_adjudication` filter); `PhaseStallDetector` (the #3230
+  fix CORE — silent when lifecycle_owner∈{orchestrator,agent} or awaiting_spawn
+  or HITL parked; fires high+requires_adjudication=True only on genuine wedge
+  past grace=3600s); `default_detection_plane`; `snapshot_from_health_context`.
+- `runner.py`: `HealthCheckRunner.run_detection_plane(snapshot, plane)` emits
+  findings on the bus. `context.py`: `lifecycle_owner` property (#3230).
+- `decision_maker.py`: `AdjudicationVerdict` + `build_adjudication_prompt` +
+  `parse_adjudication_verdict` (closed advisory vocab {none,nudge_agent,
+  respawn_cohort,open_operator_hitl}; malformed → conservative defer-to-operator
+  open_operator_hitl so a broken adjudicator never drops a deadlock).
+- `monitor.py`: on-demand `OverseerMonitor.adjudicate(finding)` (single-shot,
+  no poll loop); `start()` loop docstring marks it the RETIRED standing-pod
+  shape (respawn machinery removed in slice-5).
+- `routes/pipelines.py`: `_escalate_finding_to_adjudicator` STRICTLY gated on
+  `requires_adjudication` (routine findings return None, never spawn an agent);
+  reuses slice-3 `_spawn_overseer_agent` via a NEW optional `prompt_override`
+  kwarg (default monitoring prompt unchanged → slice-3 tester contract intact);
+  `_consume_adjudicator_verdict` consumes structured verdict in-process;
+  `_run_overseer_detection_plane` integration helper (evaluate → escalate).
+
+### Verified
+- phase_stall: false_stall_3230__normal → None; phase_stall__bad → (phase_stall,
+  high, requires_adjudication=True). Scoreboard precision=1.0, FP=0, TN=6 (all
+  normals incl. #3230 silent), TP=1; remaining known-bad rows are slices 7/8.
+- DetectionPlane.evaluate survives a raising detector. Verdict parsing: good
+  JSON, malformed→defer, out-of-vocab action→coerced to open_operator_hitl.
+- ruff check + format clean on all 8 files. No network → couldn't build venv;
+  CI/tester (task-4-3) runs the full suite + flips plane rows to strict.
+
+### For tester (task-4-3)
+- Register the production detector into the corpus registry in the test:
+  `register_detector("phase_stall", PhaseStallDetector())` at collection time so
+  the `_ROW_PARAMS` xfail evaporates and phase_stall rows go strict.
+- `test_detection_plane.py`: Finding contract, plane exception-isolation, and
+  adjudicator gating — assert `_escalate_finding_to_adjudicator` spawns ONLY when
+  requires_adjudication (inject `spawn_overseer`/`consume_verdict` seams; a
+  routine Finding must return None without calling spawn).
+
+### IMPORTANT — false confirm-nudge observed this slice
+An orchestrator STATUS claimed "your proposal v2 is ready to confirm" while
+coder had ZERO CONSENSUS_PROPOSE messages and a clean tree. Verified against
+`mcp__brc__get_state` + `read_peer_artifact` (CONSENSUS_PROPOSE, coder → empty)
+before acting; did NOT confirm. This is itself an instance of the §2 calibration
+pathology. Always verify confirm-readiness against BRC ground truth.
+
+
 ## slice-3 — Spawn normalization (§1.5) — PROPOSED (reconciled to tester contract)
 
 - **proposal_sha**: (set at propose; built on merge of origin slice-3 + reconciliation)
