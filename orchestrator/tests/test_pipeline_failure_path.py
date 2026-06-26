@@ -1220,9 +1220,13 @@ class TestWorktreeCreationRetry:
         assert mock_gateway.create_worktrees.call_count == 2
         # Sleep should have been called exactly once with 2.0 between retry attempts
         assert mock_sleep.call_args_list.count(call(2.0)) == 1
-        # Pipeline should have progressed past worktree creation to agent spawning
-        mock_spawner = mock_get_spawner.return_value
-        mock_spawner.spawn_overseer_container.assert_called()
+        # Pipeline should have progressed past worktree creation to agent spawning.
+        # Overseer no longer has a bespoke spawn_overseer_container method (#2270 /
+        # #3290 — it goes through the generic agent spawn path), so the agent
+        # spawn-and-wait call is the deterministic signal that the pipeline got
+        # past worktree creation. Mirrors the assert_not_called() in the
+        # retry-exhausted companion test.
+        mock_spawn_wait.assert_called()
 
     @patch("routes.pipelines.time.sleep")
     @patch(_COMMON_PATCHES[7])
