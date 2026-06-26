@@ -299,7 +299,9 @@ def _metrics_with_cost_fix(monitor):
     """Return metrics, or skip if the cost-tracking fix (cost_by_model) isn't landed."""
     metrics = monitor.check_health()["metrics"]
     if "cost_by_model" not in metrics:
-        pytest.skip("self_monitor cost-tracking fix (cost_by_model) not landed yet (slice-8 task-8-3)")
+        pytest.skip(
+            "self_monitor cost-tracking fix (cost_by_model) not landed yet (slice-8 task-8-3)"
+        )
     return metrics
 
 
