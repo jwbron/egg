@@ -105,6 +105,17 @@ def _spawner_source() -> str:
     return (_orchestrator_path / "kubernetes_spawner.py").read_text()
 
 
+def _spawn_path_source() -> str:
+    """Source text of the overseer spawn path.
+
+    Up through the bypass-removal slice the model is resolved in
+    ``kubernetes_spawner.py``; the spawn-normalization slice folds the path into
+    ``routes/pipelines.py`` (``_spawn_overseer_agent``). Concatenate both so the
+    resolver assertion holds wherever the spawn path currently lives.
+    """
+    return _spawner_source() + "\n" + (_orchestrator_path / "routes" / "pipelines.py").read_text()
+
+
 # A model name that is not any tier default and routes through the LiteLLM
 # classifier, so a deprecated-field value that "maps" through is unambiguous
 # (it can only be the operator's value, never a tier default).
@@ -284,7 +295,7 @@ class TestSpawnBypassRemoved:
 
     def test_spawn_path_resolves_via_the_per_agent_resolver(self):
         _require_slice2_landed()
-        src = _spawner_source()
+        src = _spawn_path_source()
         assert ("resolve_overseer_model" in src) or ("resolve_agent_model" in src), (
             "the overseer spawn path should resolve its model through the "
             "per-agent resolver (resolve_overseer_model / resolve_agent_model), "

@@ -456,6 +456,11 @@ if TYPE_CHECKING:
     except ImportError:
         from container_spawner import ContainerSpawner  # type: ignore
 
+    try:
+        from ..kubernetes_spawner import SpawnedContainer
+    except ImportError:
+        from kubernetes_spawner import SpawnedContainer  # type: ignore
+
 logger = get_logger("orchestrator.pipelines")
 
 
@@ -682,6 +687,137 @@ def _build_minimal_status_envelope(
     return envelope
 
 
+def _spawn_overseer_agent(
+    *,
+    spawner: "ContainerSpawner",  # noqa: UP037
+    pipeline_id: str,
+    issue_number: int | None,
+    gateway_mode: str,
+    pipeline_repos: list | None,
+    max_turns: int,
+    decision_model: str = "sonnet",
+) -> "SpawnedContainer":  # noqa: UP037
+    """Spawn the overseer as a normal agent (#2270 §1.5).
+
+    The overseer is just a particular agent — it goes through the generic
+    :meth:`ContainerSpawner.spawn_agent_job` path with a command built by
+    ``build_agent_command`` exactly like every other role. There is no bespoke
+    spawn method, no ``EGG_OVERSEER_*`` env, and no baked-in
+    ``overseer_monitor.py`` bootstrap (that trust-and-run script was the direct
+    cause of the §1 self-injection loop). Monitoring arrives via the agent's
+    normal MCP tools / the ``egg-orch`` CLI.
+
+    The overseer's model tier resolves through ``resolve_overseer_model`` (Opus
+    by default, #2270 §1 / folds #2813); the deprecated
+    ``overseer_decision_maker_model`` (passed as ``decision_model``) is inert and
+    only warns. A resolver regression degrades to the built-in opus/anthropic
+    default rather than crashing spawn.
+    """
+    from agent_model_resolution import (
+        DEFAULT_AGENT_MODEL,
+        UPSTREAM_ANTHROPIC,
+        classify_model,
+        resolve_overseer_model,
+    )
+    from egg_agent import build_agent_command
+
+    try:
+        from ..models import AgentRole
+    except ImportError:
+        from models import AgentRole  # type: ignore[no-redef]
+
+    overseer_repo = pipeline_repos[0] if pipeline_repos else None
+    try:
+        overseer_decision = resolve_overseer_model(
+            "adversarial",
+            pipeline_config=None,
+            repo=overseer_repo,
+        )
+    except Exception as resolve_err:  # noqa: BLE001 — degrade, don't crash
+        logger.warning(
+            "Failed to resolve overseer model decision for spawn; "
+            "falling back to built-in opus / anthropic default",
+            error=str(resolve_err),
+        )
+        overseer_decision = classify_model(DEFAULT_AGENT_MODEL)
+
+    # The bespoke ``overseer_decision_maker_model`` no longer drives the spawn.
+    # Warn if an operator still sets it to a non-default value (#2270 §1 / #2813).
+    if decision_model and decision_model != "sonnet":
+        logger.warning(
+            "overseer_decision_maker_model=%r is deprecated and no longer "
+            "drives the overseer spawn; the base model now resolves via "
+            "resolve_agent_model(OVERSEER) -> %s. Set agent_models['overseer'] "
+            "to override. See #2270 §1 / #2813.",
+            decision_model,
+            overseer_decision.claude_code_alias,
+        )
+
+    # #2270 §1.5: no bespoke ``EGG_OVERSEER_*`` env — only the generic
+    # ``BASH_COMMAND_TIMEOUT`` (long-poll CLI calls) and the resolved-decision
+    # model env (custom-model registration + context guardrails, #2832/#3175).
+    extra_env = {
+        "BASH_COMMAND_TIMEOUT": "0",
+        **overseer_decision.env_vars(),
+    }
+
+    # Monitoring arrives via MCP tools / the ``egg-orch`` CLI, not a baked-in
+    # script the agent is told to trust and run. The prompt describes the
+    # observe→classify→alert loop and leaves the mechanics to the agent's tools.
+    overseer_prompt = (
+        f"You are the overseer agent for pipeline {pipeline_id}. You are a "
+        "normal egg agent with read-only monitoring permissions: there is no "
+        "baked-in script to run and no pre-built monitoring loop to trust. "
+        "Observe pipeline health using your MCP tools and the `egg-orch` CLI, "
+        "and surface only genuine anomalies.\n\n"
+        "Loop until the pipeline reaches a terminal state (complete, failed, or "
+        "cancelled):\n"
+        "1. Read the live pipeline state (`mcp__progress__query_status` or "
+        "`egg-orch pipeline status`), the BRC consensus matrix "
+        "(`mcp__brc__get_state`), and recent agent messages.\n"
+        "2. Classify what you see. The overwhelming majority of observations "
+        "are normal — only a wedged phase transition, a real consensus "
+        "deadlock, repeated agent crashes, or similar genuine failures warrant "
+        "action.\n"
+        "3. When (and only when) you find a real problem, broadcast a single "
+        "OVERSEER_ALERT with `mcp__progress__overseer_alert`, setting priority "
+        "by severity and naming the anomaly, the evidence, and a recommended "
+        "operator action.\n"
+        "4. Otherwise wait briefly and repeat.\n\n"
+        "Be conservative: a false alarm trains operators to ignore you, so "
+        "prefer silence over a low-confidence alert. When the pipeline ends, "
+        "emit a final health summary."
+    )
+    command = build_agent_command(
+        prompt=overseer_prompt,
+        model=overseer_decision.claude_code_alias,
+        max_turns=max_turns,
+        effort=overseer_decision.effort,
+    )
+
+    spawn_kwargs: dict[str, Any] = {
+        "pipeline_id": pipeline_id,
+        "agent_role": AgentRole.OVERSEER,
+        "issue_number": issue_number,
+        "repo_volumes": None,
+        "mode": gateway_mode,
+        "extra_env": extra_env,
+        "repos": pipeline_repos if pipeline_repos else None,
+        "command": command,
+    }
+    # Forward per-agent upstream routing only when it would change behavior, so
+    # the default Anthropic overseer keeps the pre-#2769 call signature (mirrors
+    # ``concurrent_executor._spawn_agent``).
+    if (
+        overseer_decision.upstream != UPSTREAM_ANTHROPIC
+        or overseer_decision.upstream_model is not None
+    ):
+        spawn_kwargs["upstream"] = overseer_decision.upstream
+        spawn_kwargs["upstream_model"] = overseer_decision.upstream_model
+
+    return spawner.spawn_agent_job(**spawn_kwargs)
+
+
 def _check_and_respawn_overseer(
     *,
     spawner: "ContainerSpawner",  # noqa: UP037
@@ -780,15 +916,14 @@ def _check_and_respawn_overseer(
                     respawn_attempt=overseer_respawn_count + 1,
                     max_respawns=max_overseer_respawns,
                 )
-                new_result = spawner.spawn_overseer_container(
+                new_result = _spawn_overseer_agent(
+                    spawner=spawner,
                     pipeline_id=pipeline_id,
                     issue_number=pipeline.issue_number,
-                    mode=gateway_mode,
-                    poll_interval=pipeline.config.overseer_poll_interval_seconds,
-                    decision_model=pipeline.config.overseer_decision_maker_model,
+                    gateway_mode=gateway_mode,
+                    pipeline_repos=pipeline_repos if pipeline_repos else None,
                     max_turns=pipeline.config.overseer_max_turns,
-                    repos=pipeline_repos if pipeline_repos else None,
-                    certs_volume=certs_volume,
+                    decision_model=pipeline.config.overseer_decision_maker_model,
                 )
                 new_container_id = new_result.container_info.container_id
                 overseer_respawn_count += 1
@@ -23687,15 +23822,14 @@ def _run_pipeline(
             # fresh overseer instance with no accumulated state.
             if pipeline.config.overseer_enabled:
                 try:
-                    overseer_result = spawner.spawn_overseer_container(
+                    overseer_result = _spawn_overseer_agent(
+                        spawner=spawner,
                         pipeline_id=pipeline_id,
                         issue_number=pipeline.issue_number,
-                        mode=gateway_mode,
-                        poll_interval=pipeline.config.overseer_poll_interval_seconds,
-                        decision_model=pipeline.config.overseer_decision_maker_model,
+                        gateway_mode=gateway_mode,
+                        pipeline_repos=pipeline_repos if pipeline_repos else None,
                         max_turns=pipeline.config.overseer_max_turns,
-                        repos=pipeline_repos if pipeline_repos else None,
-                        certs_volume=certs_volume,
+                        decision_model=pipeline.config.overseer_decision_maker_model,
                     )
                     with overseer_lock:
                         overseer_container_id = overseer_result.container_info.container_id

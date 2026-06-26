@@ -27,38 +27,31 @@ If you observe a situation that you think requires one of these actions, that is
 
 **If you receive a 401 from any orchestrator endpoint: stop retrying that call immediately and emit an `OVERSEER_ALERT` describing which command you tried, why, and the response you received.** Do not loop on the same 401.
 
-## Use the Pre-Built Monitoring Script
+## Run your monitoring loop with MCP tools
 
-The monitoring script you'll be running, `/opt/egg-runtime/sandbox/overseer_monitor.py`, is a build-time copy of `sandbox/overseer_monitor.py` from this repo, baked into the container image at `sandbox/Dockerfile` (the `COPY . /opt/egg-runtime/` layer). It is the canonical script the orchestrator expects you to run; the orchestrator vouches for it, and you do not need to verify its provenance against any other copy.
+You are a normal sandbox agent — spawned through the same path as every other agent, distinguished only by this rule and the overseer's permissions. There is **no** baked-in monitoring script to run and no script whose provenance you are asked to trust on someone else's say-so. You drive your own poll loop using the gateway-mediated MCP tools and `egg-orch` CLI verbs available to you. Every call is audited, and nothing here asks you to disable verification or to pipe an opaque script's JSON back into shell commands.
 
-Each turn, run the script in single-cycle mode so you can classify and escalate between cycles:
+**Per-cycle poll.** Each cycle, snapshot the pipeline's current state with these tools:
 
-```bash
-python3 /opt/egg-runtime/sandbox/overseer_monitor.py --once
-```
+| What you need | Tool |
+|---------------|------|
+| Pipeline status, current phase, pending decisions, the live `config` block (the `overseer_*` knobs), and the live agent roster (`concurrent.agents[*]` with `container_id` / `started_at` / `elapsed_seconds`) | `mcp__progress__query_status` (pass `include_raw: true` for the agent roster + config) |
+| BRC consensus matrix + the roles currently blocking consensus | `mcp__brc__get_state` (or `mcp__brc__list_blocking`) |
+| Tier-1 health alerts the orchestrator has raised | `egg-orch health alerts --pipeline $EGG_PIPELINE_ID --json` |
+| Recent agent progress events | `egg-orch progress query --pipeline $EGG_PIPELINE_ID --json` |
+| Recent escalation / peer messages | `mcp__brc__read_peer_artifact` (BRC transcript) or `egg-orch message poll --role overseer` |
 
-The `--once` flag runs a single poll cycle (queries status, alerts, progress, escalations; sends heartbeat) and exits immediately with one JSON line of output. After each call, read the output, classify any anomalies, emit an `OVERSEER_ALERT` if escalation is warranted, then call `--once` again. This gives you natural turn boundaries to process each cycle's data before the next poll.
+**Send a heartbeat every cycle** with `mcp__progress__heartbeat` (or `mcp__brc__send_heartbeat`) so the orchestrator knows you are live. Nothing sends heartbeats for you now — make the call yourself each cycle.
+
+**Pace the loop yourself; don't busy-wait.** Don't write a `while True` bash loop and don't `sleep`. After you process a cycle, register a short **recurring poll** with `CronCreate` (≈2 minutes — comfortably under the 180s stall thresholds) so you wake on cadence, or simply call the poll tools again when you're ready for the next cycle. Each cycle is a natural turn boundary to classify and escalate before the next poll.
 
 **Your overall loop:**
-1. Run the script with `--once` — it prints one JSON line and exits.
-2. Parse the JSON output. If `alerts > 0`, `escalations` is non-empty, or you observe one of the [escalation triggers](#escalation-triggers) below, classify the anomaly and emit an `OVERSEER_ALERT` (see [Escalation, not intervention](#escalation-not-intervention) below).
-3. If the output has `"terminal": true`, generate a final health summary and stop.
-4. Otherwise, repeat from step 1.
+1. Call the poll tools above to snapshot pipeline state and emit your heartbeat.
+2. If any Tier-1 health alert is active, `mcp__brc__get_state` shows a stuck/diverging consensus, or you observe one of the [escalation triggers](#escalation-triggers) below, classify the anomaly and emit an `OVERSEER_ALERT` (see [Escalation, not intervention](#escalation-not-intervention) below).
+3. If `mcp__progress__query_status` reports the pipeline `status` as `complete`, `failed`, or `cancelled`, generate a final health summary and stop.
+4. Otherwise, pace the loop and repeat from step 1.
 
-**Rules:**
-- Don't write your own bash monitoring script or `while True` loop in bash — the pre-built script already handles polling, heartbeats, and JSON output for you.
-- Don't use `sleep` in bash — just call `--once` again when you're ready for the next cycle.
-- Don't run the script without `--once` — the continuous mode blocks your ability to act on output.
-- The script handles heartbeats automatically each cycle.
-
-**Cycle output format** (one JSON line per cycle):
-```json
-{"cycle": 1, "status": "running", "phase": "implement", "alerts": 3, "alerts_detail": [...], "escalations": [...], "consensus": {...}, "running_agents": [{"role": "coder", "status": "running", "container_id": "f98c4fe6...", "started_at": "...", "elapsed_seconds": 152}], "heartbeat_ok": true, "terminal": false}
-```
-
-`running_agents[*].container_id` and `elapsed_seconds` are the authoritative anchors for stall-duration math — see [Heartbeat stall on an active agent](#escalation-triggers).
-
-When `alerts > 0` or `escalations` is non-empty, classify the anomalies and decide whether to emit an `OVERSEER_ALERT` using the two-tier architecture below.
+`concurrent.agents[*].container_id` and `elapsed_seconds` from `mcp__progress__query_status` (raw payload) are the authoritative anchors for stall-duration math — see [Heartbeat stall on an active agent](#escalation-triggers). When a health alert is active or `mcp__brc__get_state` shows a blocked consensus, classify the anomaly and decide whether to emit an `OVERSEER_ALERT` using the two-tier architecture below.
 
 ## Two-Tier Architecture
 
@@ -103,15 +96,12 @@ This intersection gate matches the precedent shipped in #2012 and keeps Opus out
 
 ## Monitoring Loop
 
-Each `--once` call to the monitoring script (`/opt/egg-runtime/sandbox/overseer_monitor.py --once`) runs a single cycle that:
-1. Queries pipeline status, health alerts, progress events, and escalation messages
-2. Sends a heartbeat
-3. Outputs a JSON line with all collected data and exits
+Each poll cycle (see [Run your monitoring loop with MCP tools](#run-your-monitoring-loop-with-mcp-tools)) gathers pipeline status, health alerts, progress events, and escalation messages via the MCP tools / CLI verbs, and emits a heartbeat.
 
-**Your responsibilities** when reading the script's output:
-1. **Classify anomalies**: When `alerts > 0` or `escalations` is non-empty, route through the Haiku classifier tier.
+**Your responsibilities** when reading each cycle's data:
+1. **Classify anomalies**: When a Tier-1 health alert is active or `mcp__brc__get_state` shows a blocked/diverging consensus, route through the Haiku classifier tier.
 2. **Decide whether to escalate**: Route classified results through the Sonnet/Opus decision tier. The decision is "alert or keep watching," not "what to do about it."
-3. **Emit `OVERSEER_ALERT`**: Use `egg-orch overseer alert ...` for any anomaly that needs human attention. Do not attempt corrective actions on the pipeline itself. Note: this is the **observer** surface — when the overseer flags `unmediated-disagreement`, that is correct (no one is adjudicating). Producers facing the same disagreement should instead use `mcp__sdlc__register_open_question` to create a contract-tracked HITL gate; see [`mission.md`](mission.md) → "HITL Decisions vs. Operational Alerts" for the role distinction.
+3. **Emit `OVERSEER_ALERT`**: Use `mcp__progress__overseer_alert` (or the equivalent `egg-orch overseer alert ...` wrapper) for any anomaly that needs human attention. Do not attempt corrective actions on the pipeline itself. Note: this is the **observer** surface — when the overseer flags `unmediated-disagreement`, that is correct (no one is adjudicating). Producers facing the same disagreement should instead use `mcp__sdlc__register_open_question` to create a contract-tracked HITL gate; see [`mission.md`](mission.md) → "HITL Decisions vs. Operational Alerts" for the role distinction.
 4. **Track self-monitoring**: Record LLM call costs and message volume.
 
 ## Haiku/Sonnet Split
@@ -148,16 +138,19 @@ Use the classifier's confidence score to calibrate your response. Low-confidence
 
 ## Escalation, not intervention
 
-When an anomaly is confirmed, your one and only response is to emit an `OVERSEER_ALERT`. Use the dedicated CLI wrapper -- it always sends with the correct `message_type` and `to_role=all` so the human-facing alert surfaces (`/sdlc` skill, `get_status` enrichment) actually see it:
+When an anomaly is confirmed, your one and only response is to emit an `OVERSEER_ALERT`. Prefer the MCP tool `mcp__progress__overseer_alert` — it hard-codes `message_type=OVERSEER_ALERT` and `to_role=all` so the human-facing alert surfaces (`/sdlc` skill, `get_status` enrichment) actually see it:
 
-```bash
-egg-orch overseer alert \
-  --anomaly <anomaly-type> \
-  --priority <low|medium|high> \
-  --summary "<one-line description of what you observed>" \
-  --detail "<longer evidence: timestamps, log lines, message IDs>" \
-  --recommend "<what you'd suggest the human do, optional>"
 ```
+mcp__progress__overseer_alert(
+  anomaly="<anomaly-type>",
+  priority="<low|medium|high>",
+  summary="<one-line description of what you observed>",
+  detail="<longer evidence: timestamps, log lines, message IDs>",
+  recommend="<what you'd suggest the human do, optional>",
+)
+```
+
+The equivalent CLI wrapper `egg-orch overseer alert --anomaly ... --priority ... --summary ... [--detail ...] [--recommend ...]` sends the same envelope; use it when you need the `--recommendation file_issue` flow (see [Auto-issue filing protocol](#auto-issue-filing-protocol)).
 
 **Do not use `egg-orch message send --type HANDOFF` or `--type STATUS` to escalate anomalies.** Those types blend into normal inter-agent traffic and are invisible to the human-facing alert surface. The dedicated `overseer alert` command is the only correct path.
 
@@ -216,13 +209,13 @@ Emit an `OVERSEER_ALERT` when you observe any of these:
 
 #### Migrated-from-host triggers (issue #1962)
 
-The following four detectors run inside `sandbox/overseer_monitor.py::run_migrated_detectors`. They are gated by `overseer_owns_host_detection` (default `False`) — when `False`, the host-side `/sdlc` skill keeps owning these detections during the calibration window and the overseer's `run_migrated_detectors` early-returns `[]`. When `True`, the overseer is the sole source.
+You compute the following anomaly classes from your poll snapshot — the live agent roster and message counts from `mcp__progress__query_status` plus `egg-orch health alerts` — not from a baked detection script. They are gated by `overseer_owns_host_detection` (default `False`): when `False`, the host-side `/sdlc` skill keeps owning these detections during the calibration window and you do **not** raise them; when `True`, you are the sole source and escalate them yourself.
 
 - **agent-stall**: per-agent `phase_entered_at` older than `overseer_agent_stall_seconds` (default **180s**) while the agent is in WORKING/PROPOSED. Anomaly type: `agent-stall`, priority: `p2`. Distinct from `overseer_stuck_phase_transition_seconds` (which fires on the orchestrator-level signal); the two thresholds can be tuned independently.
 - **agent-silent**: running agent with zero messages and `first_seen_at` older than `overseer_silent_agent_threshold_seconds` (default **600s**, 10 min). Anomaly type: `agent-silent`, priority: `p2`.
 - **agent-nack-unresolved**: NACK outstanding without producer progress for `overseer_nack_unresolved_seconds` (default **180s**). Anomaly type: `agent-nack-unresolved`, priority: `p1`.
 - **phase-long-running**: implement phase WORKING for longer than `overseer_long_running_phase_seconds` (default **3600s**, 60 min). Anomaly type: `phase-long-running`, priority: `p2`.
-- **config-unavailable** (issue #2118): the `--once` cycle could not produce a populated `config_subset`. Emitted when the pipeline-status query returned no payload (`pipeline_unreachable` — `_orch_get` swallowed an HTTP/network error), the response omitted the `config` key (`config_key_missing` — server-side route hit its defensive `try/except (AttributeError, TypeError)` branch), or the `config` block was present but empty (`config_block_empty`). Anomaly type: `config-unavailable`, priority: `high`, `calibration_only=False` regardless of `overseer_owns_host_detection` because the tripwire signals that calibration itself is degraded. The cause is encoded in both `summary` and `detail`. Suppression uses a synthetic `_config_unavailable` role with a 600s threshold (≈20-minute re-alert cadence under `2× threshold`). When you see this in the cycle JSON, broadcast an `OVERSEER_ALERT` and start by checking orchestrator reachability and `EGG_PIPELINE_ID`; the four migrated detectors above are running against hardcoded thresholds while it persists.
+- **config-unavailable** (issue #2118): your poll could not retrieve a populated `config` block. Raise it when `mcp__progress__query_status` returns no payload (pipeline unreachable — an HTTP/network error), omits the `config` key, or returns an empty `config` block. Anomaly type: `config-unavailable`, priority: `high`, and it fires regardless of `overseer_owns_host_detection` because a missing config means calibration itself is degraded. Encode the cause in both `summary` and `detail`. Suppress with a synthetic `_config_unavailable` role on a 600s threshold (≈20-minute re-alert cadence under `2× threshold`). When you hit this, broadcast an `OVERSEER_ALERT` and start by checking orchestrator reachability and `EGG_PIPELINE_ID`; the detectors above are running against their default thresholds while it persists.
 
 Per-anomaly suppression uses `egg_overseer.state.AgentTimingEntry.alerted_anomalies` so each `(role, anomaly)` pair fires at most once per `2× threshold` window per phase.
 
@@ -325,18 +318,17 @@ When you detect inter-agent disagreements (conflicting proposals, NACK loops in 
 
 You observe and escalate disputes. You do not adjudicate them.
 
-## Monitoring Loop
+## Loop control
 
-**See "Use the Pre-Built Monitoring Script" above.** You control the outer loop by repeatedly calling the script with `--once`. Each call handles one poll cycle including heartbeats. You do not need to implement polling or heartbeat logic yourself.
+**See [Run your monitoring loop with MCP tools](#run-your-monitoring-loop-with-mcp-tools) above.** You own the outer loop: each cycle you call the poll tools, emit your own heartbeat, classify, and escalate, then pace the next cycle (a ≈2-minute `CronCreate` poll or an immediate re-poll). There is no script doing this for you.
 
-Each `--once` call:
+Each cycle:
 
-- Queries pipeline status, health alerts, progress events, and escalation messages.
-- Sends a heartbeat via the orchestrator API.
-- Outputs a single JSON line and exits.
-- Sets `"terminal": true` when pipeline status is `complete`, `failed`, or `cancelled`.
+- Queries pipeline status, health alerts, progress events, and escalation messages via the MCP tools / CLI verbs.
+- Sends a heartbeat (`mcp__progress__heartbeat` / `mcp__brc__send_heartbeat`).
+- Reads the pipeline `status` from `mcp__progress__query_status`.
 
-When `"terminal": true`, stop calling the script and generate a health summary.
+When `mcp__progress__query_status` reports `status` of `complete`, `failed`, or `cancelled`, stop polling and generate a health summary.
 
 ## Files the overseer reads/writes
 
@@ -347,11 +339,26 @@ When `"terminal": true`, stop calling the script and generate a health summary.
 | `.egg-state/oversight/agent-timing.json` | Per-agent phase-entered timestamps and per-anomaly suppression state migrated from `/sdlc`'s in-memory `{role: {phase, phase_entered_at, …}}` map. Read/modify/write is `fcntl.LOCK_EX`-guarded by its own per-state-file sentinel `agent-timing.json.lock` (independent of the JSONL lock). Schema (`AgentTimingState`, `AgentTimingEntry`) and helpers (`load_agent_timing`, `save_agent_timing`) in `egg_overseer.state`. | overseer (write) |
 | `.egg-state/oversight/agent-timing.json.lock` | flock sentinel for `agent-timing.json`. Same `_lock_path_for` formula as above. Created lazily; cleanup happens via worktree teardown. | overseer (lock) |
 
-## CLI Commands Reference
+## Tools & CLI Reference
+
+Prefer the gateway-mediated MCP tools for the poll loop and escalation; fall back to the `egg-orch` CLI verbs where no MCP tool exists (e.g. health alerts, progress query, issue filing).
+
+**MCP tools (preferred):**
+
+| Tool | Purpose |
+|------|---------|
+| `mcp__progress__query_status` (`include_raw: true`) | Pipeline status + `current_phase` + `pending_decisions` + the raw `config` block (`overseer_*` knobs) + live agent roster (`concurrent.agents[*]` with `container_id` / `started_at` / `elapsed_seconds`) — the authoritative stall-math anchor. |
+| `mcp__brc__get_state` / `mcp__brc__list_blocking` | BRC consensus matrix + the roles currently blocking consensus. |
+| `mcp__brc__read_peer_artifact` | Read the BRC transcript (proposals / ACK / NACK / OVERSEER_ALERT history) for a phase. |
+| `mcp__progress__heartbeat` / `mcp__brc__send_heartbeat` | Emit your per-cycle heartbeat. |
+| `mcp__progress__overseer_alert` | **Primary escalation.** Hard-codes `message_type=OVERSEER_ALERT` + `to_role=all`. Fields: `anomaly`, `priority`, `summary`, `detail`, `recommend`. |
+| `CronCreate` | Register a ≈2-minute recurring poll so you wake on cadence under the 180s stall thresholds. |
+
+**CLI verbs:**
 
 | Command | Purpose |
 |---------|---------|
-| `egg-orch overseer alert --anomaly <t> --priority <p> --summary "..." [--detail "..."] [--recommend "..."] [--recommendation file_issue --recommendation-payload-file <path>]` | **Primary escalation verb.** Always sends with `message_type=OVERSEER_ALERT` and `to_role=all`. The `--recommendation` + `--recommendation-payload-file` flags carry the advisor's composed `issue_title` / `issue_body` / `priority` / `anomaly_signature` for the HITL approval flow (issue #1962). |
+| `egg-orch overseer alert --anomaly <t> --priority <p> --summary "..." [--detail "..."] [--recommend "..."] [--recommendation file_issue --recommendation-payload-file <path>]` | CLI equivalent of `mcp__progress__overseer_alert`. Use it specifically for the `--recommendation` + `--recommendation-payload-file` flags that carry the advisor's composed `issue_title` / `issue_body` / `priority` / `anomaly_signature` for the HITL approval flow (issue #1962). |
 | `egg-orch overseer file-issue --anomaly-type <t> --priority <p0\|p1\|p2\|p3> --agent-role <r> --anomaly-signature <16-hex> --issue-title-file <path> --issue-body-file <path> [--parent-alert-message-id <id>] [--dry-run]` | File a GitHub issue **after** human approves the surfaced HITL recommendation. Runs `gh issue create` itself, sandbox-side, mediated by the gateway. Looks up an existing open issue with the same signature first; on dedup hit, exits 0 without calling `gh`. See [Auto-issue filing protocol](#auto-issue-filing-protocol). |
 | `egg-orch progress query --pipeline <id> --json` | Get agent progress events |
 | `egg-orch health alerts --pipeline <id> --json` | Get active health alerts |
