@@ -305,13 +305,17 @@ TESTER_ROLE = AgentRoleDefinition(
 
 DOCUMENTER_ROLE = AgentRoleDefinition(
     role=AgentRole.DOCUMENTER,
-    description="Updates documentation for the changes",
+    description="Documents the current state of the code",
     category=AgentCategory.EXECUTION,
     responsibilities=[
         "Read the list of changed files from coder",
-        "Update relevant documentation",
-        "Add or update API documentation",
-        "Ensure README files are current",
+        "Describe how the code works now — a snapshot of the current "
+        "state, not a log of what changed or when",
+        "Never embed SDLC artifacts (slice numbers, TASK-N ids, phase or "
+        "HITL iteration numbers) in docs, docstrings, or comments",
+        "Prefer rationale (why it is this way) over chronology; fold new "
+        "state into the snapshot and remove now-stale ledger entries",
+        "Keep README and API documentation current",
     ],
     dependencies=[AgentRole.CODER],  # Must wait for coder
     file_access=FileAccessPattern(

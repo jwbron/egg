@@ -23,6 +23,7 @@ from egg_contracts.agent_roles import (
     _PHASE_REVIEWERS,
     AGENT_ROLE_TO_CONTRACT_ROLE,
     AGENT_ROLES,
+    DOCUMENTER_ROLE,
     EGG_ONLY_REVIEWERS,
     REVIEWER_CODE_ROLE,
     AgentCategory,
@@ -141,3 +142,81 @@ class TestNewLensReviewersNotEggOnly:
     def test_not_in_egg_only_set(self) -> None:
         assert AgentRole.REVIEWER_SECURITY not in EGG_ONLY_REVIEWERS
         assert AgentRole.REVIEWER_CONCURRENCY not in EGG_ONLY_REVIEWERS
+
+
+class TestDocumenterRoleSnapshotFraming:
+    """``DOCUMENTER_ROLE`` carries snapshot-not-ledger framing while its gateway
+    write boundaries stay byte-identical (#3288).
+
+    The role description/responsibilities were reframed from "documentation for
+    the changes" to current-state documentation. That wording change MUST NOT
+    touch the ``FileAccessPattern`` — ``allowed_write`` / ``blocked_write`` are
+    a hard gateway constraint, so these tests pin both lists exactly.
+    """
+
+    # Gateway write boundaries — must remain byte-identical after the wording
+    # change. The blocked_write list keeps code/test/.github surfaces out of
+    # the documenter's reach.
+    _EXPECTED_ALLOWED_WRITE = [
+        "docs/",
+        "**/README.md",
+        "**/*.md",
+        ".egg-state/agent-outputs/",
+    ]
+    _EXPECTED_BLOCKED_WRITE = [
+        "**/*.py",
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx",
+        "**/*.go",
+        "**/*.java",
+        "tests/",
+        ".egg-state/contracts/",
+        ".github/",
+    ]
+
+    def test_allowed_write_boundaries_unchanged(self) -> None:
+        assert DOCUMENTER_ROLE.file_access.allowed_write == self._EXPECTED_ALLOWED_WRITE
+
+    def test_blocked_write_boundaries_unchanged(self) -> None:
+        assert DOCUMENTER_ROLE.file_access.blocked_write == self._EXPECTED_BLOCKED_WRITE
+
+    def test_lookup_helper_returns_same_boundaries(self) -> None:
+        """The registry lookup returns the same boundary lists."""
+        defn = get_role_definition(AgentRole.DOCUMENTER)
+        assert defn.file_access.allowed_write == self._EXPECTED_ALLOWED_WRITE
+        assert defn.file_access.blocked_write == self._EXPECTED_BLOCKED_WRITE
+
+    def test_documenter_cannot_write_code_or_tests(self) -> None:
+        """Behavioral check on the boundaries: code/test paths stay blocked,
+        markdown stays writable."""
+        fa = DOCUMENTER_ROLE.file_access
+        assert fa.can_write("orchestrator/routes/pipelines.py") is False
+        assert fa.can_write("shared/egg_contracts/tests/test_agent_roles.py") is False
+        assert fa.can_write(".github/PULL_REQUEST_TEMPLATE.md") is False
+        assert fa.can_write("docs/architecture/brc-memory.md") is True
+        assert fa.can_write("orchestrator/README.md") is True
+
+    def test_role_metadata_stable(self) -> None:
+        """Role identity, category, and coder dependency are unchanged."""
+        assert DOCUMENTER_ROLE.role == AgentRole.DOCUMENTER
+        assert DOCUMENTER_ROLE.category == AgentCategory.EXECUTION
+        assert AgentRole.CODER in DOCUMENTER_ROLE.dependencies
+
+    def test_description_uses_snapshot_framing(self) -> None:
+        """Description expresses current-state documentation, not 'the changes'."""
+        description = DOCUMENTER_ROLE.description.lower()
+        assert "current state" in description
+        assert "for the changes" not in description
+
+    def test_responsibilities_forbid_sdlc_artifacts(self) -> None:
+        """Responsibilities carry the snapshot rule and the no-SDLC-artifact
+        prohibition (slice/TASK/phase/HITL ids out of docs)."""
+        joined = " ".join(DOCUMENTER_ROLE.responsibilities).lower()
+        assert "snapshot" in joined
+        assert "sdlc artifact" in joined
+        assert "slice number" in joined
+        assert "task-n" in joined
+        # Prefers rationale over chronology.
+        assert "rationale" in joined
