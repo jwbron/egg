@@ -209,11 +209,11 @@
     }
   ],
   "created_at": "2026-06-26T19:57:59.841683Z",
-  "updated_at": "2026-06-26T20:58:11.719185Z",
+  "updated_at": "2026-06-26T20:58:19.269811Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
-  "pr_number": null,
+  "pr_number": 3317,
   "pr_head_sha": null,
   "has_contract": true,
   "error": null,
@@ -222,9 +222,9 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-26T20:36:41.567209Z",
-  "version": 33,
+  "version": 34,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
-  "pr_url": null
+  "pr_url": "https://github.com/jwbron/egg/pull/3317"
 }
