@@ -1,0 +1,352 @@
+{
+  "version": 1,
+  "description": "Overseer calibration corpus (issue #2270, slice-1, AC-3). Each row is a labelled (EventStreamSnapshot, lifecycle-owner, expected Finding|None) record pinning a known incident. known_normal rows MUST yield None from the detector-under-test; known_bad rows MUST yield the expected Finding. Detectors are delivered in later slices (4 = detection plane, 7 = signal-calibration fixes, 8 = coverage-gap survey); until then each known_bad row is xfail in the harness.",
+  "rows": [
+    {
+      "row_id": "self_injection_loop__bad",
+      "label": "known_bad",
+      "incident": "self-injection loop",
+      "pins": ["#2270-s1", "#3064"],
+      "detector_key": "overseer_self_injection",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "overseer_self_injection",
+        "severity": "high",
+        "requires_adjudication": false
+      },
+      "notes": "Sonnet overseer mis-classifies its own legitimate bootstrap prompt as a prompt-injection attack, refuses, exits 0, is respawned, and broadcasts a [high] security-flavored alert each cycle. The self-health detector must recognise the repeated refuse-exit-respawn signature.",
+      "snapshot": {
+        "snapshot_id": "self_injection_loop__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [
+          {"role": "overseer", "state": "EXITED", "lifecycle_owner": "orchestrator", "exit_code": 0, "exit_reason": "self_injection_refusal", "last_tool_call_age_s": null, "last_heartbeat_age_s": null}
+        ],
+        "consensus": {"protocol": "brc", "blocking_agents": [], "matrix": {}},
+        "phase_state": {"status": "RUNNING", "started_age_s": 600, "event_loop_owner": "orchestrator"},
+        "decision_state": {"pending_hitl": false, "open_decisions": 0},
+        "container_transitions": [
+          {"container": "overseer-0933545b", "from": "Running", "to": "Terminated", "reason": "Completed", "restart_count": 4},
+          {"container": "overseer-9c34f799", "from": "Pending", "to": "Running", "reason": "Started", "restart_count": 5}
+        ],
+        "gateway_error_counters": {"403": 0, "5xx": 0},
+        "cost_counters": {"tokens": 12000, "cost_usd": 0.18, "cost_per_hour_usd": 0.9},
+        "midturn_messages": [
+          {"from_role": "overseer", "message_type": "OVERSEER_ALERT", "intent": "informational", "subject": "prompt-injection detected [high]", "rendered_as_binding": false}
+        ],
+        "git_state": {"branch": "egg/issue-3200/work", "is_ancestor_of_base": true, "patch_id_matches": true, "pr_subject_divergence": false}
+      }
+    },
+    {
+      "row_id": "self_injection_loop__normal",
+      "label": "known_normal",
+      "incident": "self-injection loop",
+      "pins": ["#2270-s1"],
+      "detector_key": "overseer_self_injection",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "A healthy overseer bootstrap: the agent reads its prompt, runs, and exits cleanly without a refusal signature. restart_count stays flat. The self-injection detector must NOT fire on a normal lifecycle.",
+      "snapshot": {
+        "snapshot_id": "self_injection_loop__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [
+          {"role": "overseer", "state": "WORKING", "lifecycle_owner": "orchestrator", "exit_code": null, "exit_reason": null, "last_tool_call_age_s": 3.0, "last_heartbeat_age_s": 5.0}
+        ],
+        "consensus": {"protocol": "brc", "blocking_agents": [], "matrix": {}},
+        "phase_state": {"status": "RUNNING", "started_age_s": 120, "event_loop_owner": "orchestrator"},
+        "decision_state": {"pending_hitl": false, "open_decisions": 0},
+        "container_transitions": [
+          {"container": "overseer-9c34f799", "from": "Pending", "to": "Running", "reason": "Started", "restart_count": 0}
+        ],
+        "gateway_error_counters": {"403": 0, "5xx": 0},
+        "cost_counters": {"tokens": 4000, "cost_usd": 0.06, "cost_per_hour_usd": 0.3},
+        "midturn_messages": [],
+        "git_state": {"branch": "egg/issue-3200/work", "is_ancestor_of_base": true, "patch_id_matches": true, "pr_subject_divergence": false}
+      }
+    },
+    {
+      "row_id": "alert_reflection__bad",
+      "label": "known_bad",
+      "incident": "alert-reflection",
+      "pins": ["#2270-s2", "#3064"],
+      "detector_key": "alert_reflection",
+      "delivered_in_slice": 7,
+      "expected": {
+        "finding_class": "alert_reflection",
+        "severity": "medium",
+        "requires_adjudication": false
+      },
+      "notes": "An informational OVERSEER_ALERT (e.g. overseer_restart [info]) is reflected back into an agent's mid-turn message stream and rendered as a BINDING operator course-correction. Intent is informational, not an operator directive; rendering it as binding is the alert-reflection defect (slice-7b fix in midturn_messages.py).",
+      "snapshot": {
+        "snapshot_id": "alert_reflection__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [
+          {"role": "coder", "state": "WORKING", "lifecycle_owner": "orchestrator", "last_tool_call_age_s": 4.0, "last_heartbeat_age_s": 6.0}
+        ],
+        "consensus": {"protocol": "brc", "blocking_agents": ["coder"], "matrix": {}},
+        "phase_state": {"status": "RUNNING", "started_age_s": 200, "event_loop_owner": "orchestrator"},
+        "decision_state": {"pending_hitl": false, "open_decisions": 0},
+        "container_transitions": [],
+        "gateway_error_counters": {"403": 0, "5xx": 0},
+        "cost_counters": {"tokens": 8000, "cost_usd": 0.12, "cost_per_hour_usd": 0.6},
+        "midturn_messages": [
+          {"from_role": "orchestrator", "message_type": "OVERSEER_ALERT", "intent": "informational", "subject": "overseer_restart: overseer [info]", "rendered_as_binding": true}
+        ],
+        "git_state": {"branch": "egg/issue-3200/work", "is_ancestor_of_base": true, "patch_id_matches": true, "pr_subject_divergence": false}
+      }
+    },
+    {
+      "row_id": "alert_reflection__normal",
+      "label": "known_normal",
+      "incident": "alert-reflection",
+      "pins": ["#2270-s2"],
+      "detector_key": "alert_reflection",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "A genuine operator directive (intent=operator_directive) correctly rendered as binding, alongside an informational overseer alert correctly NOT rendered as binding. The intent-discriminator must gate on intent, not solely from_role, so this stream is clean.",
+      "snapshot": {
+        "snapshot_id": "alert_reflection__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [
+          {"role": "coder", "state": "WORKING", "lifecycle_owner": "orchestrator", "last_tool_call_age_s": 4.0, "last_heartbeat_age_s": 6.0}
+        ],
+        "consensus": {"protocol": "brc", "blocking_agents": ["coder"], "matrix": {}},
+        "phase_state": {"status": "RUNNING", "started_age_s": 200, "event_loop_owner": "orchestrator"},
+        "decision_state": {"pending_hitl": false, "open_decisions": 0},
+        "container_transitions": [],
+        "gateway_error_counters": {"403": 0, "5xx": 0},
+        "cost_counters": {"tokens": 8000, "cost_usd": 0.12, "cost_per_hour_usd": 0.6},
+        "midturn_messages": [
+          {"from_role": "operator", "message_type": "OPERATOR_DIRECTIVE", "intent": "operator_directive", "subject": "scope change: drop slice 9", "rendered_as_binding": true},
+          {"from_role": "orchestrator", "message_type": "OVERSEER_ALERT", "intent": "informational", "subject": "overseer_restart: overseer [info]", "rendered_as_binding": false}
+        ],
+        "git_state": {"branch": "egg/issue-3200/work", "is_ancestor_of_base": true, "patch_id_matches": true, "pr_subject_divergence": false}
+      }
+    },
+    {
+      "row_id": "false_stall_3230__normal",
+      "label": "known_normal",
+      "incident": "#3230 false stall (producer drafting under orchestrator-owned spawn)",
+      "pins": ["#3230"],
+      "detector_key": "phase_stall",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "A producer is drafting under orchestrator-owned spawning: the phase is RUNNING with 0 live container agents at this instant, but the lifecycle owner is the orchestrator (it will spawn the next one-shot agent). This is NOT 'a phase with 0 running agents' — lifecycle-owner-awareness is the structural fix. The stall detector must yield None.",
+      "snapshot": {
+        "snapshot_id": "false_stall_3230__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {"protocol": "brc", "blocking_agents": ["coder", "reviewer_code"], "matrix": {}},
+        "phase_state": {"status": "RUNNING", "started_age_s": 900, "event_loop_owner": "orchestrator", "lifecycle_owner": "orchestrator", "awaiting_spawn": true},
+        "decision_state": {"pending_hitl": false, "open_decisions": 0},
+        "container_transitions": [],
+        "gateway_error_counters": {"403": 0, "5xx": 0},
+        "cost_counters": {"tokens": 5000, "cost_usd": 0.08, "cost_per_hour_usd": 0.4},
+        "midturn_messages": [],
+        "git_state": {"branch": "egg/issue-3200/work", "is_ancestor_of_base": true, "patch_id_matches": true, "pr_subject_divergence": false}
+      }
+    },
+    {
+      "row_id": "phase_stall__bad",
+      "label": "known_bad",
+      "incident": "genuine phase stall",
+      "pins": ["#3230", "#2270-s4"],
+      "detector_key": "phase_stall",
+      "delivered_in_slice": 4,
+      "expected": {
+        "finding_class": "phase_stall",
+        "severity": "high",
+        "requires_adjudication": true
+      },
+      "notes": "A genuine stall: the phase is RUNNING, there are zero running agents, no lifecycle owner is queued to spawn one, no HITL is parked, and the phase has been wedged well past any grace window. The detection plane must fire and flag this for adjudication.",
+      "snapshot": {
+        "snapshot_id": "phase_stall__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {"protocol": "brc", "blocking_agents": ["coder"], "matrix": {}},
+        "phase_state": {"status": "RUNNING", "started_age_s": 5400, "event_loop_owner": "orchestrator", "lifecycle_owner": "none", "awaiting_spawn": false},
+        "decision_state": {"pending_hitl": false, "open_decisions": 0},
+        "container_transitions": [],
+        "gateway_error_counters": {"403": 0, "5xx": 0},
+        "cost_counters": {"tokens": 5000, "cost_usd": 0.08, "cost_per_hour_usd": 0.05},
+        "midturn_messages": [],
+        "git_state": {"branch": "egg/issue-3200/work", "is_ancestor_of_base": true, "patch_id_matches": true, "pr_subject_divergence": false}
+      }
+    },
+    {
+      "row_id": "heartbeat_stall_2242__normal",
+      "label": "known_normal",
+      "incident": "#2242 heartbeat-stall (healthy: tool calls every 2-3s)",
+      "pins": ["#2242"],
+      "detector_key": "heartbeat_stall",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "An agent making tool calls every 2-3 seconds is healthy and busy — it must NOT be flagged as a heartbeat stall merely because a coarse heartbeat tick was missed. The detector must look at tool-call recency, not just the heartbeat counter.",
+      "snapshot": {
+        "snapshot_id": "heartbeat_stall_2242__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [
+          {"role": "coder", "state": "WORKING", "lifecycle_owner": "orchestrator", "last_tool_call_age_s": 2.5, "last_heartbeat_age_s": 45.0}
+        ],
+        "consensus": {"protocol": "brc", "blocking_agents": ["coder"], "matrix": {}},
+        "phase_state": {"status": "RUNNING", "started_age_s": 300, "event_loop_owner": "orchestrator"},
+        "decision_state": {"pending_hitl": false, "open_decisions": 0},
+        "container_transitions": [],
+        "gateway_error_counters": {"403": 0, "5xx": 0},
+        "cost_counters": {"tokens": 9000, "cost_usd": 0.14, "cost_per_hour_usd": 0.7},
+        "midturn_messages": [],
+        "git_state": {"branch": "egg/issue-3200/work", "is_ancestor_of_base": true, "patch_id_matches": true, "pr_subject_divergence": false}
+      }
+    },
+    {
+      "row_id": "heartbeat_stall_2242__bad",
+      "label": "known_bad",
+      "incident": "#2242 heartbeat-stall (genuine: no activity)",
+      "pins": ["#2242"],
+      "detector_key": "heartbeat_stall",
+      "delivered_in_slice": 7,
+      "expected": {
+        "finding_class": "heartbeat_stall",
+        "severity": "high",
+        "requires_adjudication": false
+      },
+      "notes": "A genuinely stalled agent: no tool calls and no heartbeat for a long window while the phase expects progress. The heartbeat-stall detector must fire.",
+      "snapshot": {
+        "snapshot_id": "heartbeat_stall_2242__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [
+          {"role": "coder", "state": "WORKING", "lifecycle_owner": "orchestrator", "last_tool_call_age_s": 900.0, "last_heartbeat_age_s": 900.0}
+        ],
+        "consensus": {"protocol": "brc", "blocking_agents": ["coder"], "matrix": {}},
+        "phase_state": {"status": "RUNNING", "started_age_s": 1200, "event_loop_owner": "orchestrator"},
+        "decision_state": {"pending_hitl": false, "open_decisions": 0},
+        "container_transitions": [],
+        "gateway_error_counters": {"403": 0, "5xx": 0},
+        "cost_counters": {"tokens": 9000, "cost_usd": 0.14, "cost_per_hour_usd": 0.02},
+        "midturn_messages": [],
+        "git_state": {"branch": "egg/issue-3200/work", "is_ancestor_of_base": true, "patch_id_matches": true, "pr_subject_divergence": false}
+      }
+    },
+    {
+      "row_id": "branch_divergence_2222__normal",
+      "label": "known_normal",
+      "incident": "#2222/#2224 branch-divergence (ancestor/patch-id says converged)",
+      "pins": ["#2222", "#2224"],
+      "detector_key": "branch_divergence",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "The branch is an ancestor of origin/main (or its patch-id matches the merged commit), so it is NOT diverged — even though the brittle PR-subject regex (_BRANCH_DIVERGENCE_PR_RE) would have flagged it. The fixed detector keys on ancestor-of-base / patch-id and must yield None.",
+      "snapshot": {
+        "snapshot_id": "branch_divergence_2222__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "pr",
+        "running_agents": [],
+        "consensus": {"protocol": "brc", "blocking_agents": [], "matrix": {}},
+        "phase_state": {"status": "RUNNING", "started_age_s": 120, "event_loop_owner": "orchestrator"},
+        "decision_state": {"pending_hitl": false, "open_decisions": 0},
+        "container_transitions": [],
+        "gateway_error_counters": {"403": 0, "5xx": 0},
+        "cost_counters": {"tokens": 2000, "cost_usd": 0.03, "cost_per_hour_usd": 0.2},
+        "midturn_messages": [],
+        "git_state": {"branch": "egg/issue-3200/work", "is_ancestor_of_base": true, "patch_id_matches": true, "pr_subject_divergence": true}
+      }
+    },
+    {
+      "row_id": "branch_divergence_2224__bad",
+      "label": "known_bad",
+      "incident": "#2222/#2224 branch-divergence (genuinely diverged)",
+      "pins": ["#2222", "#2224"],
+      "detector_key": "branch_divergence",
+      "delivered_in_slice": 7,
+      "expected": {
+        "finding_class": "branch_divergence",
+        "severity": "medium",
+        "requires_adjudication": false
+      },
+      "notes": "The branch is genuinely diverged: it is not an ancestor of origin/main and no patch-id match exists. The detector must fire on the ancestor/patch-id signal (not on the subject regex).",
+      "snapshot": {
+        "snapshot_id": "branch_divergence_2224__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "pr",
+        "running_agents": [],
+        "consensus": {"protocol": "brc", "blocking_agents": [], "matrix": {}},
+        "phase_state": {"status": "RUNNING", "started_age_s": 120, "event_loop_owner": "orchestrator"},
+        "decision_state": {"pending_hitl": false, "open_decisions": 0},
+        "container_transitions": [],
+        "gateway_error_counters": {"403": 0, "5xx": 0},
+        "cost_counters": {"tokens": 2000, "cost_usd": 0.03, "cost_per_hour_usd": 0.2},
+        "midturn_messages": [],
+        "git_state": {"branch": "egg/issue-3200/work", "is_ancestor_of_base": false, "patch_id_matches": false, "pr_subject_divergence": false}
+      }
+    },
+    {
+      "row_id": "transient_eviction_2948__normal",
+      "label": "known_normal",
+      "incident": "#2948 transient kubelet eviction (rescheduled)",
+      "pins": ["#2948"],
+      "detector_key": "container_death",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "A pod was transiently evicted by the kubelet and immediately rescheduled back to Running. This must NOT cascade to a producer-permanent-death FAILED verdict — a transient eviction with a successful reschedule is normal churn, not a death.",
+      "snapshot": {
+        "snapshot_id": "transient_eviction_2948__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [
+          {"role": "coder", "state": "WORKING", "lifecycle_owner": "orchestrator", "last_tool_call_age_s": 3.0, "last_heartbeat_age_s": 5.0}
+        ],
+        "consensus": {"protocol": "brc", "blocking_agents": ["coder"], "matrix": {}},
+        "phase_state": {"status": "RUNNING", "started_age_s": 400, "event_loop_owner": "orchestrator"},
+        "decision_state": {"pending_hitl": false, "open_decisions": 0},
+        "container_transitions": [
+          {"container": "coder-abc", "from": "Running", "to": "Evicted", "reason": "Evicted", "restart_count": 0, "transient": true},
+          {"container": "coder-def", "from": "Pending", "to": "Running", "reason": "Started", "restart_count": 1, "transient": false}
+        ],
+        "gateway_error_counters": {"403": 0, "5xx": 0},
+        "cost_counters": {"tokens": 7000, "cost_usd": 0.11, "cost_per_hour_usd": 0.55},
+        "midturn_messages": [],
+        "git_state": {"branch": "egg/issue-3200/work", "is_ancestor_of_base": true, "patch_id_matches": true, "pr_subject_divergence": false}
+      }
+    },
+    {
+      "row_id": "container_death_2948__bad",
+      "label": "known_bad",
+      "incident": "#2948 genuine producer container death",
+      "pins": ["#2948"],
+      "detector_key": "container_death",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "container_death",
+        "severity": "high",
+        "requires_adjudication": false
+      },
+      "notes": "A producer container is genuinely dead: CrashLoopBackOff with a climbing restart count and no successful reschedule back to Running. This is a real permanent-death condition the detector must surface.",
+      "snapshot": {
+        "snapshot_id": "container_death_2948__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [
+          {"role": "coder", "state": "EXITED", "lifecycle_owner": "orchestrator", "exit_code": 137, "exit_reason": "OOMKilled", "last_tool_call_age_s": null, "last_heartbeat_age_s": null}
+        ],
+        "consensus": {"protocol": "brc", "blocking_agents": ["coder"], "matrix": {}},
+        "phase_state": {"status": "RUNNING", "started_age_s": 400, "event_loop_owner": "orchestrator"},
+        "decision_state": {"pending_hitl": false, "open_decisions": 0},
+        "container_transitions": [
+          {"container": "coder-abc", "from": "Running", "to": "Terminated", "reason": "OOMKilled", "restart_count": 5, "transient": false},
+          {"container": "coder-abc", "from": "Terminated", "to": "Waiting", "reason": "CrashLoopBackOff", "restart_count": 6, "transient": false}
+        ],
+        "gateway_error_counters": {"403": 0, "5xx": 0},
+        "cost_counters": {"tokens": 7000, "cost_usd": 0.11, "cost_per_hour_usd": 0.05},
+        "midturn_messages": [],
+        "git_state": {"branch": "egg/issue-3200/work", "is_ancestor_of_base": true, "patch_id_matches": true, "pr_subject_divergence": false}
+      }
+    }
+  ]
+}
