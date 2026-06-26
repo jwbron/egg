@@ -36,7 +36,15 @@ class TestPytestConfigConsolidation:
             cfg = tomllib.load(f)
 
         testpaths = cfg["tool"]["pytest"]["ini_options"]["testpaths"]
-        expected = {"tests", "gateway/tests", "orchestrator/tests", "shared/tests"}
+        expected = {
+            "tests",
+            "gateway/tests",
+            "orchestrator/tests",
+            "shared/tests",
+            # #2270 task-7-2: the new shared/egg_agent/tests root (home of
+            # test_midturn_messages.py / the #3123 regression) must be collected.
+            "shared/egg_agent/tests",
+        }
         assert set(testpaths) == expected, (
             f"testpaths={testpaths} does not match expected={expected}"
         )

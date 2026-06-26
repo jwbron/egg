@@ -1,5 +1,98 @@
 # Coder BRC memory — issue-2270 overhaul
 
+## slice-6 — Authority: bounded CorrectiveExecutor (§4) — PROPOSED (reconciled to tester)
+
+- **branch**: egg/issue-2270-overhaul-slice-6-coder/work (merged origin/.../slice-6 = tester task-6-2)
+- **tasks**: task-6-1 (complete)
+- **verdict**: shipped; ALL 36 tester rows PASS (25 test_corrective_executor + 11
+  test_overseer_authority); 795+ adjacent tests green; ruff clean.
+
+### RECONCILED to tester contract (task-6-2) — first cut diverged, fixed:
+The tester pinned a DIFFERENT surface than my v1. Reconciled (tester-leads-coder):
+- Executor ctor kwargs are `open_operator_hitl=/nudge_agent=/respawn_cohort=`
+  (NOT open_hitl/nudge/respawn), `audit_sink=` (list-append callable, NOT logger),
+  `max_actions_per_window=/window_seconds=/clock=` (NOT rate_limit_window/time_fn).
+- `execute(action, *, pipeline_id, running_agent_count=1, phase, target_role,
+  finding, idempotency_key, question, options)` — KWARGS, no CorrectiveContext.
+- Status set: executed|denied|barred|deduplicated|rate_limited (NOTE
+  "deduplicated" not "deduped"; NO failed/unknown_action/noop). Out-of-vocab →
+  `denied` (the executor does NOT do an identity/RBAC gate — that lives at the
+  gateway file patterns). Precedence: vocab→denied, zero-agent→barred,
+  dup-key→deduplicated, rate-limit→rate_limited, else→executed.
+- Deps invoked with kwargs (pipeline_id +target_role for nudge/respawn, +question
+  for hitl); rate-limit is GLOBAL sliding window of executed-action timestamps;
+  dedup is a seen-key set (record both only on execute).
+- DROPPED shared/egg_restrictions/corrective.py + __init__ wiring (tester's gateway
+  contract wants the deny enforced by EXISTING OVERSEER_PATTERNS, not a new shared
+  predicate). Gateway guardrail now lives directly in gateway/agent_restrictions.py
+  as `check_corrective_action(*, action, identity=None) -> CorrectiveAuthorityResult`
+  + `CORRECTIVE_ACTIONS` — name matches the tester's candidate list so its optional
+  guardrail row goes STRICT (rejects force_merge/delete_repo/none/"").
+
+### Change model
+- `shared/egg_restrictions/corrective.py` (NEW): the RBAC gate, cycle-free (pure
+  strings, no patterns/egg_contracts dep). `CORRECTIVE_ACTIONS` = {open_operator_hitl,
+  nudge_agent, respawn_cohort}; `ORCHESTRATOR_CONTROL_PLANE_IDENTITY="orchestrator"`;
+  `corrective_action_authorized(identity, action)` — deny-by-default, ONLY the
+  orchestrator control plane authorized; EVERY agent (incl. overseer) denied;
+  unknown action rejected before identity check. Lives in shared so BOTH gateway
+  and orchestrator import one source of truth.
+- `shared/egg_restrictions/__init__.py`: lazy `__getattr__` re-export of the three
+  corrective names (PEP-562, cycle-safe).
+- `gateway/agent_restrictions.py` (the NAMED enforcement surface): re-exports
+  `corrective_action_authorized` + constants from shared; added to `__all__`.
+- `orchestrator/overseer/corrective.py` (NEW): `CorrectiveExecutor` — closed
+  3-action vocabulary (`CorrectiveAction` StrEnum; `.actions` == the 3). `execute()`
+  ordering: closed-vocab → RBAC (re-checks shared predicate) → zero-agent-park BAR
+  (running_agent_count<=0) → idempotency (exact (action,target,dedupe_key) within
+  window → DEDUPED no-op returning prior outcome) → rate-limit (per (action,target),
+  sliding window, default 1/600s) → dispatch (FAILED on raise, audited). Records
+  rate-limit + idempotency ONLY on success so a transient failure doesn't block
+  retry. `execute_verdict()` maps AdjudicationVerdict.recommended_action ("none"→NOOP).
+  Every path audit-logged (`logger.info` on EXECUTED, `warning` otherwise) with
+  structured fields. Handlers injected → unit-testable. `CorrectiveStatus`:
+  executed/denied/barred/rate_limited/deduped/failed/unknown_action/noop.
+- `orchestrator/overseer/__init__.py`: export CorrectiveExecutor/Context/Outcome/
+  Action/Status.
+- `orchestrator/routes/pipelines.py`: the production seams (after
+  `_send_brc_confirmation_nudge`):
+  - `_corrective_open_operator_hitl(ctx)` → loads contract, `next_cq_id`, builds a
+    `Decision(type=HITL)` (Intervene / Dismiss-calibration / Other), writes via
+    `apply_mutation(role=Role.IMPLEMENTER, actor="orchestrator-overseer-corrective",
+    field_path="decisions.N")` + `save_contract`. SAME decisions.* owner as
+    register_open_question / impasse router (RBAC-gated); orchestrator-distinct actor.
+  - `_corrective_nudge_agent(ctx)` → `_send_brc_confirmation_nudge` (synthesizes the
+    brc_confirmation_timeout-shaped escalation; elapsed defaults to 1).
+  - `_corrective_respawn_cohort(ctx)` → POST `/agents/<role>/restart` per role
+    (comma-split cohort) — the SAME public general-restart endpoint the overseer
+    monitor's `_execute_restart_agent` uses (budget/consensus/Job teardown
+    server-side, request-context-free, no bespoke respawn plumbing).
+  - `_build_overseer_corrective_executor(...)` factory (seams injectable; windows
+    from overseer_infra_error_dedup_window_seconds when set).
+  - `_execute_overseer_verdicts(results, ...)` runs the authority plane over
+    `(finding, verdict)` pairs from `_run_overseer_detection_plane` (target resolved
+    from verdict.target or finding.evidence agent_role/agent_id). NON-breaking:
+    slice-4's `_run_overseer_detection_plane` untouched.
+  - TYPE_CHECKING import of CorrectiveExecutor.
+
+### Verified (manual smoke, no venv)
+- RBAC: orchestrator→allow; overseer/coder→deny; unknown action→deny. Gateway
+  re-export + lazy __init__ both resolve.
+- Executor: `.actions`==3; unknown_action/denied/barred/executed/deduped(idempotent,
+  handler called once)/after-window re-fire/rate_limited/failed(executed=False)/noop
+  all correct.
+- ruff check + format clean on all touched files; py_compile clean.
+
+### For tester (task-6-2)
+- Inject the three handler seams; assert: exactly-3 actions; RBAC deny for every
+  agent role incl. overseer (and at the gateway re-export); zero-agent bar;
+  idempotent no-op (handler fired once); rate-limit per (action,target); FAILED on
+  handler raise (not recorded → retry allowed); execute_verdict NOOP on "none".
+- For `_corrective_open_operator_hitl`: assert a HITL Decision appended to
+  contract.decisions via apply_mutation under Role.IMPLEMENTER (decisions.* RBAC) —
+  agents cannot reach it. Mock load/save_contract.
+- respawn seam: mock urllib opener; assert POST to the restart endpoint per role.
+
 ## slice-4 — Detection plane + escalation→adjudicator (§-core) — PROPOSED
 
 - **commit**: 63fb5d073 (branch egg/issue-2270-overhaul-slice-4-coder/work)
