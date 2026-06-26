@@ -1038,3 +1038,100 @@ class TestEffortPinning:
 
         assert refiner.effort is None
         assert coder.effort is None
+
+
+# =============================================================================
+# Overseer model tiering (slice-2 of #2270 §1, folds #2813)
+# =============================================================================
+# The overseer's decision/adjudication model is resolved through the same
+# per-agent resolver as every other agent, but with explicit tiering:
+#   classify -> haiku, routine -> sonnet, adversarial -> opus.
+# These scaffold against ``resolve_overseer_model`` and skip until the
+# coder lands slice-2 task-2-1 (same convention as ``_resolver`` above).
+# Deprecation-shim + spawn-bypass-removal facets live in
+# ``test_overseer_model.py``; this class covers the resolver precedence.
+
+
+def _overseer_resolver():
+    """Return slice-2 ``resolve_overseer_model`` or skip."""
+    try:
+        from agent_model_resolution import (  # type: ignore[import-not-found]
+            resolve_overseer_model,
+        )
+
+        return resolve_overseer_model
+    except ImportError:
+        pytest.skip(
+            "agent_model_resolution.resolve_overseer_model not yet implemented "
+            "(waiting on coder for slice-2 task-2-1)"
+        )
+
+
+def _overseer_tier_models():
+    """Return slice-2 ``OVERSEER_TIER_MODELS`` table or skip."""
+    try:
+        from agent_model_resolution import (  # type: ignore[import-not-found]
+            OVERSEER_TIER_MODELS,
+        )
+
+        return OVERSEER_TIER_MODELS
+    except ImportError:
+        pytest.skip(
+            "agent_model_resolution.OVERSEER_TIER_MODELS not yet implemented "
+            "(waiting on coder for slice-2 task-2-1)"
+        )
+
+
+class TestOverseerTierResolution:
+    """``resolve_overseer_model(tier, ...)`` returns the tiered decision.
+
+    The classification tier stays cheap (Haiku), routine corrective
+    decisions run on Sonnet, and the adversarial/high-stakes tier runs on
+    Opus — the §1 fix that stops the overseer mis-classifying its own
+    bootstrap as an attack. Precedence (per-pipeline override > tier
+    default) mirrors the base resolver.
+    """
+
+    def test_tier_defaults_resolve_to_anthropic_aliases(self):
+        resolve_overseer_model = _overseer_resolver()
+        table = _overseer_tier_models()
+
+        with patch("config.repo_config.get_default_agent_model", return_value=None):
+            for tier, expected in table.items():
+                decision = resolve_overseer_model(tier, None, None)
+                assert decision.claude_code_alias == expected
+                assert decision.upstream == "anthropic"
+                assert decision.upstream_model is None
+
+    def test_adversarial_tier_defaults_to_opus(self):
+        resolve_overseer_model = _overseer_resolver()
+        with patch("config.repo_config.get_default_agent_model", return_value=None):
+            decision = resolve_overseer_model("adversarial", None, None)
+        assert decision.claude_code_alias == "opus"
+        assert decision.upstream == "anthropic"
+
+    def test_pipeline_override_for_overseer_beats_tier_default(self):
+        """An explicit per-pipeline overseer override wins over the tier default.
+
+        This depends on slice-2 promoting ``overseer`` to a resolver-honored
+        role (``MODEL_OVERRIDE_ROLES``) so ``agent_models['overseer']`` is
+        accepted. If that promotion has not landed yet, the config rejects
+        the key — skip rather than assert a half-implemented surface.
+        """
+        from pydantic import ValidationError
+
+        resolve_overseer_model = _overseer_resolver()
+        try:
+            config = _pipeline_config(agent_models={"overseer": "opus"})
+        except ValidationError:
+            pytest.skip(
+                "agent_models['overseer'] not yet accepted — slice-2 has not "
+                "promoted overseer into MODEL_OVERRIDE_ROLES yet"
+            )
+
+        with patch("config.repo_config.get_default_agent_model", return_value=None):
+            # The classify tier default is haiku; an explicit override must win.
+            decision = resolve_overseer_model("classify", config, "any/repo")
+
+        assert decision.claude_code_alias == "opus"
+        assert decision.upstream == "anthropic"
