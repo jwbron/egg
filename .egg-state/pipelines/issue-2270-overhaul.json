@@ -129,10 +129,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "cq-2 — Scope of THIS pipeline. §1–§6 are all commitments, but the §5 coverage-gap survey is broad and is where scope can run away. Deliver everything in one pipeline, or land the spine first and gate the §5 expansion?",
+      "context": "Open contract question cq-2, registered by an agent during the refine phase.",
+      "options": [
+        "Spine-first (recommended) — deliver §1 (model) + §1.5 (no special case) + §2 (calibration corpus, deliverable #1) + §4 (authority) + §6 (cleanup) in this pipeline; gate the broad §5 coverage-gap expansion on the calibrated corpus as follow-on slices",
+        "All-in-one — deliver the full §1–§6 including the entire §5 coverage-gap survey in this pipeline",
+        "Calibration-only first — land §2 calibration + the false-positive fixes alone, defer model/lifecycle/authority/cleanup to follow-on",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-06-26T03:12:00.364157Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-06-26T00:05:30.641014Z",
-  "updated_at": "2026-06-26T03:12:00.313040Z",
+  "updated_at": "2026-06-26T03:12:00.374686Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -145,7 +164,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 14,
+  "version": 15,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
