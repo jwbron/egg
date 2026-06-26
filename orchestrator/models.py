@@ -730,15 +730,19 @@ class PipelineConfig(BaseModel):
         # (`_overseer_decision_override` / the deprecation shims below).
         default=OVERSEER_TIER_MODELS["routine"],
         description=(
-            "Deprecated (#2270 §1, folds #2813): no longer drives the overseer "
-            "spawn's base model, which now resolves through the per-agent "
-            "resolver (resolve_agent_model(OVERSEER) -> opus by default; "
-            "override via agent_models['overseer']). The overseer's decision "
-            "work is tiered instead — classify on haiku, routine corrective "
-            "decisions on sonnet, adversarial/high-stakes on the resolved opus "
-            "tier. Retained for backwards compatibility (the routine-tier "
-            "default is still read by overseer/monitor.py); slice-9 makes the "
-            "field fully inert."
+            "Deprecated and runtime-inert (#2270 §1, folds #2813). It does NOT "
+            "drive the overseer's runtime model: the spawn base model resolves "
+            "through the per-agent resolver (resolve_agent_model(OVERSEER) -> "
+            "opus by default), and the overseer's decision work is tiered via "
+            "resolve_overseer_model — classify on haiku, routine corrective "
+            "decisions on sonnet, adversarial/high-stakes adjudication on opus "
+            "(overseer/monitor.py no longer reads this field as of slice-9). "
+            "The ONLY residual effect is a documented back-compat override: a "
+            "non-default value still feeds resolve_overseer_model's adversarial "
+            "tier when agent_models['overseer'] is unset. Set "
+            "agent_models['overseer'] instead; this field will be removed in a "
+            "future release (PipelineConfig uses extra='ignore', so a persisted "
+            "config still carrying it loads cleanly once dropped)."
         ),
     )
 
@@ -751,10 +755,12 @@ class PipelineConfig(BaseModel):
         construction (Pydantic does not validate omitted defaults), so a
         default ``PipelineConfig()`` stays silent while an explicit
         non-default value logs a one-line deprecation warning. The value is
-        still honoured — ``agent_model_resolution.resolve_overseer_model``
-        maps it through to the adversarial/decision tier for back-compat —
-        so this is a notice, not a rejection. ``slice-9`` makes the field
-        fully inert.
+        still honoured for back-compat — ``resolve_overseer_model`` maps it
+        through to the adversarial/decision tier ONLY when
+        ``agent_models['overseer']`` is unset — so this is a notice, not a
+        rejection. As of slice-9 the field is runtime-inert: the overseer's
+        live decision/adjudication path (overseer/monitor.py) no longer reads
+        it; only the back-compat spawn override survives.
         """
         if v and v != OVERSEER_TIER_MODELS["routine"]:
             import logging as _logging
@@ -764,7 +770,8 @@ class PipelineConfig(BaseModel):
                 "(#2270 §1, folds #2813): the overseer model now resolves via "
                 "resolve_overseer_model / resolve_agent_model(OVERSEER) -> opus "
                 "by default. Set agent_models['overseer'] instead; this field "
-                "is retained for back-compat and goes inert in slice-9.",
+                "is runtime-inert as of slice-9 (only a back-compat spawn "
+                "override survives) and will be removed in a future release.",
                 v,
             )
         return v
@@ -868,11 +875,16 @@ class PipelineConfig(BaseModel):
     overseer_auto_file_issues_mode: Literal["shadow", "live"] = Field(
         default="shadow",
         description=(
-            "Auto-issue filing rollout mode. 'shadow' (default): the advisor's "
-            "decision='file_issue' surfaces as an OVERSEER_ALERT + HITL "
-            "decision; the human gates the actual filing. 'live': the same "
-            "HITL flow still runs but the CLI verb is willing to call gh "
-            "once approval lands. Full disable continues to be expressed via "
+            "Auto-issue filing rollout mode — the guarded shadow->enforce gate "
+            "(#2270 §6). 'shadow' (default): the overseer's 'issue' corrective "
+            "action and the advisor's decision='file_issue' surface as an "
+            "OVERSEER_ALERT + HITL decision; the human gates the actual filing "
+            "and overseer/monitor.py does NOT call gh. 'live' (enforce): the "
+            "same HITL flow still runs and the monitor's 'issue' action files "
+            "the diagnostic (through the two-tier dedup ledger) / the CLI verb "
+            "is willing to call gh once approval lands. Default stays 'shadow'; "
+            "flip to 'live' only after telemetry validates the detectors' "
+            "precision. Full disable continues to be expressed via "
             "overseer_enabled=False (per decision-10)."
         ),
     )
