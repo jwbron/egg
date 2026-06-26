@@ -8,6 +8,14 @@
       "repo": null,
       "role": "refiner"
     },
+    "90ac1e0fc665f5485098a47c4cc98d3365f8038b": {
+      "branch": "egg/issue-2270-overhaul/work",
+      "patch_id": "3a1d7153ecbabab92a411c3cbd1d696552d091db",
+      "pipeline_id": "issue-2270-overhaul",
+      "registered_at": "2026-06-26T03:19:01.624702+00:00",
+      "repo": null,
+      "role": "architect"
+    },
     "9f95891cab5b9e37e9646d740411b1df6eea03d6": {
       "branch": "egg/issue-2270-overhaul/work",
       "patch_id": "21331858ae1500e539ff02ab45200f894779f5e9",
