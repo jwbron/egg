@@ -9,7 +9,877 @@
   "pipeline_id": "issue-2270-overhaul",
   "current_phase": "refine",
   "acceptance_criteria": [],
-  "slices": [],
+  "slices": [
+    {
+      "id": "slice-1",
+      "name": "Calibration corpus + detector test harness (\u00a72, deliverable #1)",
+      "goal": "Build the known-normal/known-bad EventStreamSnapshot fixtures + calibration harness (AC-3\ncontract: a detector under test yields None on known-normal rows and the expected Finding on\nknown-bad rows). Head of the chain; no production-code overlap. No production detector changes.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create the EventStreamSnapshot fixtures package: each corpus row is a labelled\n(snapshot, lifecycle-owner, expected Finding|None) record covering the known incidents \u2014\nself-injection loop, alert-reflection, #3230 false stall (producer drafting under\norchestrator-owned spawn), #2242 heartbeat-stall (tool calls every 2-3s), #2222/#2224\nbranch-divergence (ancestor/patch-id vs subject regex), #2948 transient kubelet eviction.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`corpus.py` exposes the labelled rows + a loader; each row names its expected verdict and\nthe issue/defect it pins; fixtures parse and load under test.",
+          "files_affected": [
+            "orchestrator/tests/overseer_calibration/__init__.py",
+            "orchestrator/tests/overseer_calibration/corpus.py",
+            "orchestrator/tests/overseer_calibration/fixtures.json"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-2",
+          "description": "Build the calibration harness encoding the AC-3 contract: run a detector-under-test over the\ncorpus and assert it yields None on every known-normal row and the expected Finding on every\nknown-bad row; emit a precision/recall scoreboard. Tag detectors that don't exist yet\n(slice-4 plane) or aren't fixed yet (slice-7) with `xfail(reason=...)` so this slice is green.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`test_overseer_calibration.py` runs the corpus through the harness and asserts the contract;\nxfail markers cover exactly the rows delivered in slices 4/7/8. Test passes.",
+          "files_affected": [
+            "orchestrator/tests/test_overseer_calibration.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-3",
+          "description": "Document the corpus/harness contract: row schema, the None-on-normal / Finding-on-bad rule,\nthe scoreboard, and the xfail\u2192strict flip convention downstream slices follow.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Doc explains the record shape, the AC-3 contract, and the red\u2192green workflow.",
+          "files_affected": [
+            "docs/architecture/overseer-calibration-corpus.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-2",
+      "name": "Model tiering via resolve_agent_model (\u00a71, folds #2813)",
+      "goal": "Route the overseer decision/adjudication model through `resolve_agent_model` with explicit\ntiering (Haiku classify / Sonnet routine / Opus adversarial); deprecate\n`overseer_decision_maker_model` behind a shim; stop `kubernetes_spawner.py:2919` routing the\noverseer model through `classify_model(decision_model)`.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Route the overseer model through `resolve_agent_model` (`agent_model_resolution.py:497`) with\ntiering; add a deprecation shim for `overseer_decision_maker_model` (`models.py:726-728`);\nremove the `classify_model(decision_model)` bypass at `kubernetes_spawner.py:2919`; wire the\ndecision_maker/classifier to the resolved per-tier models.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Resolver returns Opus for adversarial and cheaper tiers for classify/routine; the deprecated\nfield warns and no longer drives spawn (#2813 regression covered).",
+          "files_affected": [
+            "orchestrator/models.py",
+            "orchestrator/agent_model_resolution.py",
+            "orchestrator/kubernetes_spawner.py",
+            "orchestrator/overseer/decision_maker.py",
+            "orchestrator/overseer/classifier.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-2",
+          "description": "Tests: resolver returns the tiered model per role/tier; the deprecation shim warns + maps;\nthe spawn path no longer reads `overseer_decision_maker_model`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tiering + deprecation-shim + #2813-bypass-removal assertions pass.",
+          "files_affected": [
+            "orchestrator/tests/test_agent_model_resolution.py",
+            "orchestrator/tests/test_overseer_model.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-3",
+      "name": "Spawn normalization \u2014 fold spawn_overseer_job, drop bespoke flags + baked-in bootstrap (\u00a71.5)",
+      "goal": "Fold `spawn_overseer_job` (`kubernetes_spawner.py:2883-2960`) into\n`spawn_agent_job(agent_role=OVERSEER)`; remove `EGG_OVERSEER_MODE/POLL_INTERVAL/DECISION_MODEL`\n(2922-2926) and the prompt invoking `overseer_monitor.py --once` (2931); delete the baked-in\n`sandbox/overseer_monitor.py` + its Dockerfile bake. Net-negative.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Fold `spawn_overseer_job` into `spawn_agent_job(agent_role=OVERSEER, \u2026)`; remove the bespoke\n`EGG_OVERSEER_*` env and the `overseer_monitor.py --once` prompt bootstrap; update the call\nsite(s) in `routes/pipelines.py`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Overseer spawns via the generic agent path with no bespoke env / baked-script invocation.",
+          "files_affected": [
+            "orchestrator/kubernetes_spawner.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-2",
+          "description": "Delete `sandbox/overseer_monitor.py` (802 lines) and remove its bake/copy from\n`sandbox/Dockerfile`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The script is gone; no Dockerfile layer references it; the image builds. Net-negative lines.",
+          "files_affected": [
+            "sandbox/overseer_monitor.py",
+            "sandbox/Dockerfile"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-3",
+          "description": "Move whatever monitoring the on-demand overseer genuinely needs into the prompt/rule, framed\nas MCP/tool usage \u2014 not a trust-and-run baked script.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The overseer rule describes monitoring via available tools/MCP; no baked-script reference.",
+          "files_affected": [
+            "sandbox/agent-config/rules/overseer.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-4",
+          "description": "Tests: overseer spawn goes through `spawn_agent_job`; no `EGG_OVERSEER_*` env; no\nmonitor-script reference; deletion regression.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Spawn-path tests assert the generic path and absence of bespoke flags/script.",
+          "files_affected": [
+            "orchestrator/tests/test_kubernetes_spawner.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-2"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-4",
+      "name": "Orchestrator-side detection plane + escalation\u2192adjudicator path (Option C core spine)",
+      "goal": "Build the in-process deterministic evaluator that runs detectors over an EventStreamSnapshot on\nthe orchestrator event loop (extending `health_checks/tier1/`); each detector returns\nOptional[Finding{class, severity, evidence, recommended_action, requires_adjudication}]. Wire the\nescalation path: when `requires_adjudication` is set, spawn a NORMAL on-demand OVERSEER agent\n(slice-3 path, Opus via slice-2 resolver) returning a structured verdict the orchestrator\nconsumes. Corpus-validated against slice-1. The replacement that MUST exist before slice-5.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Implement the deterministic detection plane: an in-process evaluator that runs detectors over\nan EventStreamSnapshot on the orchestrator event loop, extending the `health_checks` runner;\ndefine the `Finding` type (class, severity, evidence, recommended_action,\nrequires_adjudication).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The evaluator yields `Optional[Finding]` per detector over a snapshot; routine cases need no\nLLM; the slice-1 harness can drive it.",
+          "files_affected": [
+            "orchestrator/health_checks/runner.py",
+            "orchestrator/health_checks/context.py",
+            "orchestrator/health_checks/types.py",
+            "orchestrator/health_checks/detection_plane.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-2",
+          "description": "Wire the escalation\u2192adjudicator path: a `Finding` with `requires_adjudication` spawns a NORMAL\non-demand OVERSEER agent (slice-3 normalized spawn, Opus via the slice-2 resolver) that\nreturns a structured verdict; the orchestrator consumes the verdict (the authority plane in\nslice-6 executes on it). Retire standing-pod assumptions from `monitor.py`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The adjudicator spawns only on `requires_adjudication`; routine findings never spawn it; the\nverdict is structured and consumed in-process.",
+          "files_affected": [
+            "orchestrator/overseer/monitor.py",
+            "orchestrator/overseer/decision_maker.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-3",
+          "description": "Corpus-validate the detection plane against slice-1 (flip the plane's rows to strict);\ntest the Finding contract and that the adjudicator spawns only when `requires_adjudication`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Plane corpus rows strict-pass; adjudicator-spawn gating covered. `make test` green.",
+          "files_affected": [
+            "orchestrator/tests/test_detection_plane.py",
+            "orchestrator/tests/test_overseer_calibration.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-3"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-5",
+      "name": "Lifecycle \u2014 retire respawn churn + restart/generation hygiene (\u00a73)",
+      "goal": "Now that slice-4 is the replacement: remove/fold `_check_and_respawn_overseer`\n(`routes/pipelines.py:685-848`) and the standing-pod respawn loop; guarantee no overseer activity\nduring HITL parks with zero agents running; fold any surviving restart need into the GENERAL\nagent-restart machinery; add escalation-history clear + generation-token reset on\nrestart/orchestrator recycle. Net-negative. Strictly AFTER slice-4.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Remove/fold `_check_and_respawn_overseer` and the standing-pod respawn loop into the general\nagent-restart machinery; gate any overseer presence on \"agents actually running\" so multi-hour\nzero-agent HITL parks spawn nothing.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No overseer respawn fires during a zero-agent HITL park; restart logic shares the agent path;\nnet-negative lines.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py",
+            "orchestrator/models.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-2",
+          "description": "Restart/generation hygiene: clear per-agent escalation history on restart; reset the\ngeneration token on orchestrator pod recycle so stale escalation state can't cascade.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Escalation history clears on restart; generation token resets on recycle; no cross-generation\nleakage.",
+          "files_affected": [
+            "orchestrator/overseer/monitor.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-3",
+          "description": "Tests for no-respawn-during-HITL, escalation-history reset on restart, generation-token reset\non recycle.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Churn-gone + reset-hygiene assertions pass. `make test` green.",
+          "files_affected": [
+            "orchestrator/tests/test_overseer_lifecycle.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-4"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-6",
+      "name": "Authority \u2014 bounded corrective vocabulary executor, control-plane-side (\u00a74)",
+      "goal": "Add the orchestrator-side CorrectiveExecutor with a CLOSED vocabulary\n{open_operator_hitl, nudge_agent, respawn_cohort}. `open_operator_hitl` writes a contract\ndecision via the orchestrator identity (dissolves the gateway 403 \u2014 real enforcement is\n`gateway/agent_restrictions.py` + contract RBAC, NOT `roles.py:can_modify`); `nudge_agent` reuses\n`_send_brc_confirmation_nudge`; `respawn_cohort` uses the general restart machinery. Every action\nrate-limited, audit-logged, idempotent, barred during zero-agent HITL parks. The adjudicator only\nADVISES; this plane executes.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Implement the orchestrator-side CorrectiveExecutor with the CLOSED vocabulary. Wire\n`open_operator_hitl` to write a contract decision via the orchestrator identity at the REAL\nenforcement point (`gateway/agent_restrictions.py` + contract RBAC); `nudge_agent` \u2192\n`_send_brc_confirmation_nudge`; `respawn_cohort` \u2192 general restart. Make every action\nrate-limited, audit-logged, idempotent, and barred during zero-agent HITL parks.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The executor exposes exactly the three actions; `open_operator_hitl` opens a contract\ndecision; unauthorized callers remain denied; actions are bounded/audited/idempotent.",
+          "files_affected": [
+            "orchestrator/overseer/corrective.py",
+            "orchestrator/routes/pipelines.py",
+            "gateway/agent_restrictions.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-6-2",
+          "description": "Tests: each action is rate-limited / audit-logged / idempotent; `open_operator_hitl` creates\nan operator HITL via the authorized path; actions are barred during zero-agent parks;\nunauthorized paths stay denied; the adjudicator only advises.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Allow + deny + idempotency + park-bar assertions pass. `make test` green.",
+          "files_affected": [
+            "orchestrator/tests/test_corrective_executor.py",
+            "gateway/tests/test_overseer_authority.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-5"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-7",
+      "name": "Signal calibration fixes (\u00a72)",
+      "goal": "Apply the calibrated fixes, each asserted against the slice-1 corpus: (a) lifecycle-owner-aware\nstall detector (#3230); (b) alert-reflection intent-discriminator in\n`shared/egg_agent/midturn_messages.py` \u2014 gate injection on INTENT (operator-directive vs\ninformational/alert), NOT solely `from_role`; overseer/orchestrator informational alerts (e.g.\n`overseer_restart [info]`) MUST NOT render as binding course corrections; RETAIN the #3123\nbrc-confirmation-timeout nudge (golden-file regression); (c) branch-divergence ancestor/patch-id\nreplacing `_BRANCH_DIVERGENCE_PR_RE` (#2222/#2224), scan window capped; (d) heartbeat-stall fix\n(#2242); (e) #2059/#2132 thrashing/spinning/improper-tool-use definitions.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-7-1",
+          "description": "Lifecycle-owner-aware stall detector (#3230): a producer drafting under orchestrator-owned\nspawn is not \"a phase with 0 running agents\"; plug it into the slice-4 plane.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The #3230 corpus row returns no-alert; a genuinely stalled phase still alerts.",
+          "files_affected": [
+            "orchestrator/health_checks/tier1/phase_output.py",
+            "orchestrator/health_checks/context.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-2",
+          "description": "Alert-reflection intent-discriminator in `midturn_messages.py`: gate injection on intent\n(operator-directive vs informational/alert), not solely `from_role`; overseer/orchestrator\ninformational alerts MUST NOT render as binding operator directives. RETAIN the #3123\nbrc-confirmation-timeout nudge.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "An `overseer_restart [info]` / `OVERSEER_ALERT` broadcast is no longer injected as a binding\noperator directive; the #3123 nudge still is (golden-file).",
+          "files_affected": [
+            "shared/egg_agent/midturn_messages.py",
+            "shared/egg_agent/client.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-3",
+          "description": "Branch-divergence: replace `_BRANCH_DIVERGENCE_PR_RE` subject matching\n(`routes/pipelines.py:15819`) with ancestor-of-origin/main OR patch-id match (#2222/#2224);\ncap the scan window.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "A `(#NNNN)`-subject commit that is an ancestor / patch-id match no longer flags; genuine\ndivergence still flags; corpus row strict-passes.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-4",
+          "description": "Heartbeat-stall fix (#2242 \u2014 tool calls every 2-3s is not a stall) and #2059/#2132\nthrashing/spinning/improper-tool-use classification definitions.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "#2242 corpus row returns no-alert; thrashing/spinning/improper-tool-use are first-class,\ntestable verdicts.",
+          "files_affected": [
+            "orchestrator/health_checks/tier1/consensus_stall.py",
+            "orchestrator/overseer/classifier.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-5",
+          "description": "Flip the \u00a72 corpus rows to strict; add the #3123-nudge-retention golden-file regression and\nunit tests for the intent-discriminator, lifecycle-aware stall, ancestor/patch-id divergence,\nheartbeat-stall, and thrashing defs.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "\u00a72 corpus rows strict-pass; #3123 golden-file passes; each fix unit-tested. `make test` green.",
+          "files_affected": [
+            "orchestrator/tests/test_overseer_calibration.py",
+            "orchestrator/tests/test_branch_divergence_alert.py",
+            "shared/egg_agent/tests/test_midturn_messages.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-6"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-8",
+      "name": "Coverage-gap detector survey \u2014 full \u00a75 (cq-2 all-in-one)",
+      "goal": "Deliver the full \u00a75 survey as corpus-tested, lifecycle-owner-aware deterministic detectors\nplugged into the slice-4 plane, escalating to adjudication only when ambiguous. Each new class\ngets a paste-ready issue-template entry. Gated entirely behind the slice-1 corpus contract.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-8-1",
+          "description": "Orchestrator-runtime detectors: `_run_pipeline` thread liveness (#2234/#3233), auto-advance\nwedge \u2192 Tier-1 (#2219), approved-decision-orphaned, duration drift, agent-restart propagation\ndeadline, restarted-decision replay. Plugged into the slice-4 plane.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Each is a registered detector returning `Optional[Finding]` with a strict corpus row.",
+          "files_affected": [
+            "orchestrator/health_checks/tier1/runtime_liveness.py",
+            "orchestrator/health_checks/tier1/decision_queue.py",
+            "orchestrator/health_checks/tier1/__init__.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-8-2",
+          "description": "Worktree/branch (ancestor/patch-id git-history sanity, corruption/lock anomalies, disk/inode\npressure), container/k8s (funnel pod transitions through overseer #2210, repeated same-role\nrestarts, OOMKilled/evicted #2948), and gateway (error-rate spikes, repeated identical\ndenials, token-expiry) detectors.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Each is a registered detector with a strict corpus row (incl. the #2948 eviction-vs-\npermanent-death disambiguation).",
+          "files_affected": [
+            "orchestrator/health_checks/tier1/worktree_branch.py",
+            "orchestrator/health_checks/tier1/container_k8s.py",
+            "orchestrator/health_checks/tier1/gateway_health.py",
+            "orchestrator/health_checks/tier1/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-8-3",
+          "description": "BRC/thrashing (reviewer/producer thrash, late CONFIRMED then re-NACK, cap unbounded\nincomplete-consensus deferral), HITL/decision-queue, cost/budget (token-cost anomaly,\n`max_llm_cost_per_hour`, fix incomplete cost tracking in `self_monitor.py`), overseer\nself-health (classifier/advisor failure-rate wired to the alert path \u2014 resolve the\n`check_health` emit-vs-log nuance), external-state (`pr_external_mutation` drift,\npushed-but-PR-not-updated), and LLM-substrate (LiteLLM reachability #2769, effective-model\ndrift, sustained Anthropic 5xx) detectors. Each new class gets a paste-ready issue-template\nentry.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Each is registered + strict corpus-tested; `OverseerSelfMonitor.check_health()` emits alerts;\ncost tracking complete; each class has a template entry.",
+          "files_affected": [
+            "orchestrator/health_checks/tier1/brc_thrashing.py",
+            "orchestrator/health_checks/tier1/cost_budget.py",
+            "orchestrator/health_checks/tier1/llm_substrate.py",
+            "orchestrator/overseer/self_monitor.py",
+            "orchestrator/overseer/issue_filer.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-8-4",
+          "description": "Extend the corpus with a labelled row per new detector class and assert verdicts via the\nharness (strict); unit-test the self-monitor alert emission and the cost-tracking fix.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Every new detector has a strict corpus row; self-health + cost tests pass. `make test` green.",
+          "files_affected": [
+            "orchestrator/tests/test_overseer_calibration.py",
+            "orchestrator/tests/overseer_calibration/corpus.py",
+            "orchestrator/tests/test_overseer_self_monitor.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-7"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-9",
+      "name": "Cleanup (\u00a76, net-negative) + docs",
+      "goal": "Collapse per-class fail-soft scaffolding; de-duplicate advisor-escalation plumbing; harden the\ntwo-tier `file_issue` dedup. Confirm-then-remove genuinely-dead code ONLY \u2014 do NOT delete\n`issue_filer.py` on the stale #1962 premise (imported `__init__.py:27` + `monitor.py:36`, called\n`monitor.py:675`); do NOT re-decompose `monitor.py` (rides #2817). Update docs (overseer\narchitecture, the orchestrator-side overseership model, deprecation notes for\n`overseer_decision_maker_model` + `EGG_OVERSEER_*`). Verify overall net-negative line count.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-9-1",
+          "description": "Collapse per-class fail-soft scaffolding; de-duplicate advisor-escalation plumbing; harden the\ntwo-tier `file_issue` dedup. Re-confirm `issue_filer.py` is still imported/called before\ntouching it (it is); remove only genuinely-dead code; do NOT re-decompose `monitor.py`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Net deletion across `monitor.py`/`decision_maker.py`; dedup deterministic under repeats;\n`issue_filer.py` retained and exercised.",
+          "files_affected": [
+            "orchestrator/overseer/monitor.py",
+            "orchestrator/overseer/issue_filer.py",
+            "orchestrator/overseer/decision_maker.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-9-2",
+          "description": "Finalize deprecation: ensure `overseer_decision_maker_model` + `EGG_OVERSEER_*` shims are\ninert and clearly marked; add the guarded shadow\u2192enforce gate for\n`overseer_auto_file_issues_mode` (default stays shadow; flip only after telemetry validates).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Deprecated surfaces are inert/marked; the enforce mode is config-selectable and defaulted to\nshadow with test coverage.",
+          "files_affected": [
+            "orchestrator/models.py",
+            "orchestrator/overseer/monitor.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-9-3",
+          "description": "Tests for dedup hardening, fail-soft collapse, the shadow\u2192enforce gate default, and a\nnet-negative sanity check that deletion did not regress detection (corpus still green).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Cleanup behaviors covered; corpus stays green. `make test` green.",
+          "files_affected": [
+            "orchestrator/tests/test_overseer_cleanup.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-9-4",
+          "description": "Refresh the docs for the delivered shape: overseer architecture, the orchestrator-side\noverseership model (detection plane + bounded corrective vocabulary + on-demand adjudicator),\nthe detector catalogue, the authority path, and the deprecation notes.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`docs/architecture/overseer.md`, `health_checks/README.md`, and `overseer/README.md` reflect\nthe delivered subsystem; #2817 decomposition noted out of scope.",
+          "files_affected": [
+            "docs/architecture/overseer.md",
+            "orchestrator/health_checks/README.md",
+            "orchestrator/overseer/README.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-8"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [
     {
       "id": "cq-1",
@@ -171,7 +1041,14 @@
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
-  "pr": null,
+  "pr": {
+    "title": "Overseer overhaul: hybrid orchestrator-side detection (#2270)",
+    "description": "Overhaul of the overseer subsystem (#2270, refine HITL Option C, all-in-one \u00a71\u2013\u00a76).\nAdopts the architect's 9-slice DAG, encoded as a forest-legal linear chain (a verified\ntopological sort that preserves every ordering edge, incl. the hard \"detection plane +\ncorpus live before respawn machinery is deleted\" invariant).\n\nReplaces the respawning watcher pod + baked-in `overseer_monitor.py` bootstrap with an\nin-process deterministic detection plane over an EventStreamSnapshot plus a CLOSED corrective\nvocabulary (open_operator_hitl, nudge_agent, respawn_cohort); a NORMAL on-demand OVERSEER agent\n(`spawn_agent_job`, Opus via the resolver) is spawned only to ADVISE on adversarial escalations.\n\n- \u00a71  (s2) overseer model via `resolve_agent_model` tiering; `overseer_decision_maker_model`\n      deprecated; `classify_model` bypass removed (folds #2813).\n- \u00a71.5(s3) `spawn_overseer_job` folded into `spawn_agent_job(OVERSEER)`; `EGG_OVERSEER_*` + baked\n      `overseer_monitor.py` deleted.\n- \u00a72  (s1) tested known-normal/known-bad corpus + harness (deliverable #1); (s7) lifecycle-aware\n      stall #3230/#2242, alert-reflection intent-discriminator (retain #3123 nudge),\n      ancestor/patch-id divergence #2222/#2224, thrashing defs #2059/#2132.\n- core(s4) orchestrator-side detection plane + escalation\u2192adjudicator.\n- \u00a73  (s5) respawn churn retired; `_check_and_respawn_overseer` folded; restart/generation hygiene.\n- \u00a74  (s6) bounded corrective-vocabulary executor; real enforcement = gateway RBAC, not\n      roles.py:can_modify.\n- \u00a75  (s8) full coverage-gap detector survey, each corpus-tested + lifecycle-owner-aware.\n- \u00a76  (s9) net-negative cleanup + docs; issue_filer.py retained; monitor.py decomposition (#2817) out.",
+    "test_plan": "- Automated: slice-1 calibration harness asserts each detector's verdict against the labeled\n  corpus (None on known-normal, expected Finding on known-bad); per-slice unit tests for model\n  resolution, spawn-via-`spawn_agent_job`, the detection plane + Finding contract, no-respawn-\n  during-HITL, the corrective-vocabulary executor, each signal fix, and every new detector class;\n  golden-file regression that the #3123 nudge survives the intent-discriminator. `make test`/slice.\n- Manual: confirm a synthetic deadlock opens an operator HITL via the authorized control-plane\n  path; confirm zero overseer activity during a multi-hour HITL park with no agents running.",
+    "manual_steps": "Pre-merge: stack the slice PRs in DAG order (slice-1 \u2192 slice-9); review each independently;\nnever merge slice-5 (pod/respawn deletion) before slice-4 (detection plane) is green on the corpus.\nPost-merge: run an `EGG_EVENT_LOOP_OWNER=orchestrator` pipeline and confirm a clean overseer alert\nstream (no self-injection / false-stall / reflected-directive alarms) before flipping\n`overseer_auto_file_issues_mode` shadow\u2192enforce.",
+    "context_pr_number": null,
+    "deferred_actions": []
+  },
   "feedback": null,
   "phase_configs": null,
   "agent_executions": []
