@@ -1242,7 +1242,9 @@ def _validate_plan_extensions(
 
 _ARTIFACT_HUMAN_LABEL: dict[str, str] = {
     "analysis-draft": "analysis draft",
+    "analysis-draft-human": "human-focused analysis summary",
     "plan-draft": "plan draft",
+    "plan-draft-human": "human-focused plan summary",
     "architect-output": "architect-output artifact",
     "architect-slices": "architect-slices scaffold",
     "risk-analyst-output": "risk-analyst-output artifact",

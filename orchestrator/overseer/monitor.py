@@ -20,6 +20,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from agent_model_resolution import OVERSEER_TIER_MODELS
 from models import PipelineStatus
 from overseer.classifier import (
     check_alignment,
@@ -82,7 +83,7 @@ class _DefaultConfig:
 
     overseer_poll_interval_seconds: int = 30
     overseer_max_redirects_before_escalation: int = 2
-    overseer_decision_maker_model: str = "sonnet"
+    overseer_decision_maker_model: str = OVERSEER_TIER_MODELS["routine"]
     overseer_rerun_min_work_seconds: int = 60
     overseer_hitl_propagation_timeout_seconds: int = 300
     overseer_infra_error_dedup_window_seconds: int = 300
@@ -271,7 +272,9 @@ class OverseerMonitor:
         *,
         redirect_history: list[dict] | None = None,
     ) -> dict:
-        model = getattr(self.config, "overseer_decision_maker_model", "sonnet")
+        model = getattr(
+            self.config, "overseer_decision_maker_model", OVERSEER_TIER_MODELS["routine"]
+        )
         if self._decision_maker and hasattr(self._decision_maker, "decide_corrective_action"):
             method = self._decision_maker.decide_corrective_action
             if _accepts_kwarg(method, "redirect_history"):
@@ -295,7 +298,9 @@ class OverseerMonitor:
         )
 
     async def _compose_redirect_message(self, agent_role: str, issue: str, context: dict) -> str:
-        model = getattr(self.config, "overseer_decision_maker_model", "sonnet")
+        model = getattr(
+            self.config, "overseer_decision_maker_model", OVERSEER_TIER_MODELS["routine"]
+        )
         if self._decision_maker and hasattr(self._decision_maker, "compose_redirect_message"):
             return await self._decision_maker.compose_redirect_message(
                 agent_role, issue, context, model=model
@@ -305,7 +310,9 @@ class OverseerMonitor:
     async def _decide_escalation_level(
         self, classification: dict, redirect_history: list[dict], context: dict | None = None
     ) -> dict:
-        model = getattr(self.config, "overseer_decision_maker_model", "sonnet")
+        model = getattr(
+            self.config, "overseer_decision_maker_model", OVERSEER_TIER_MODELS["routine"]
+        )
         if self._decision_maker and hasattr(self._decision_maker, "decide_escalation_level"):
             return await self._decision_maker.decide_escalation_level(
                 classification, redirect_history, context=context, model=model

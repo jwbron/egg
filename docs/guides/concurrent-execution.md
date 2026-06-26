@@ -48,8 +48,8 @@ When concurrent execution starts, the `ConcurrentPhaseExecutor` (in `orchestrato
 
 | Phase | Spawned roles |
 |-------|--------------|
-| `refine` | `refiner`, `reviewer_refine`, `reviewer_agent_design` (egg repo only) |
-| `plan` | `architect`, `task_planner`, `risk_analyst`, `reviewer_plan` |
+| `refine` | `refiner`, `simplifier`, `reviewer_refine`, `reviewer_agent_design` (egg repo only) |
+| `plan` | `architect`, `task_planner`, `risk_analyst`, `simplifier`, `reviewer_plan` |
 | `implement` | `coder`, `tester`, `documenter`, `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security`, `reviewer_concurrency` |
 
 **Branch model**: For **refine** and **plan**, all agents operate on the pipeline's shared branch (e.g., `egg/issue-123/work`) and coordinate commits via the message bus to sequence their work and avoid conflicts. For **implement**, each slice runs on its own integration branch (`egg/issue-N/slice-M`); the shared-branch coordination described below applies *within* a slice's agent team — see [Slice-DAG Implement Phase](../architecture/slice-dag.md).

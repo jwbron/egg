@@ -221,15 +221,14 @@ _PROTECTED_ENV_KEYS: frozenset[str] = frozenset(
 # the per-spawn substrate (``EGG_SESSION_STATE_FILE`` / ``EGG_RESEED_THRESHOLD``)
 # needs real per-pod wiring and is deliberately NOT a blind forward.
 #
-# NOTE: the #3249 emit-only measurement knob (``EGG_CONTEXT_MEASUREMENT``) is
-# deliberately NOT forwarded yet — it has no in-pod consumer (no
-# ``egg_agent.measurement`` module exists), and the flag-name auto-discovery
-# convention (``sandbox/tests/test_context_discipline_flag.py``) means the
-# eventual consumer's flag name isn't pinned. Forwarding a guessed name now would
-# be a silent no-op. Add it here once #3249's emit consumer lands under a fixed
-# name.
+# ``EGG_CONTEXT_MEASUREMENT`` forwards the #3249 emit-only measurement knob: its
+# in-pod consumer landed in #3271 as ``egg_agent.measurement`` under the fixed
+# name ``MEASUREMENT_ENV = "EGG_CONTEXT_MEASUREMENT"``, which ``record_measurement``
+# gates on. Without forwarding it the surfaces no-op in every pod (#3277), so the
+# instrumented proving run captures zero metrics even with discipline active.
 _FORWARDED_DISCIPLINE_ENV_KEYS: tuple[str, ...] = (
     "EGG_CONTEXT_DISCIPLINE",
+    "EGG_CONTEXT_MEASUREMENT",
     "EGG_SESSION_RESUME",
 )
 

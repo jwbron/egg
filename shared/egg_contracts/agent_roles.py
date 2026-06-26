@@ -53,7 +53,7 @@ class AgentRole(StrEnum):
     The orchestrator uses these roles to parallelize work where dependencies allow.
 
     Execution roles: CODER, TESTER, DOCUMENTER
-    Analysis roles: ARCHITECT, TASK_PLANNER, RISK_ANALYST, REFINER
+    Analysis roles: ARCHITECT, TASK_PLANNER, RISK_ANALYST, REFINER, SIMPLIFIER
     Review roles: REVIEWER_CODE, REVIEWER_CODE_HOLISTIC,
                   REVIEWER_CONTRACT, REVIEWER_AGENT_DESIGN,
                   REVIEWER_REFINE, REVIEWER_PLAN,
@@ -77,6 +77,11 @@ class AgentRole(StrEnum):
     TASK_PLANNER = "task_planner"
     RISK_ANALYST = "risk_analyst"
     REFINER = "refiner"
+    # Distills a producer's draft (refine analysis / plan) into a
+    # human-focused, jargon-free companion copy. Runs in the refine and
+    # plan phases as a producer gated on the upstream producer's
+    # CONSENSUS_PROPOSE (the coder→tester dependency pattern).
+    SIMPLIFIER = "simplifier"
     # Review roles
     REVIEWER_CODE = "reviewer_code"
     REVIEWER_CODE_HOLISTIC = "reviewer_code_holistic"
@@ -524,6 +529,54 @@ REFINER_ROLE = AgentRoleDefinition(
     requires_inputs=[],
 )
 
+# Simplifier role (human-focused draft companions). Runs in BOTH the
+# refine and plan phases as a producer of the ``*-human.md`` companion
+# copy. It does NOT review the upstream producer — its work simply
+# depends on the producer's pushed draft, so it is sequenced via the
+# BRC dependency prompt (the coder→tester convention), not a review
+# edge. ``dependencies`` is left empty: that field feeds the
+# write-overlap / dependency-graph wave analysis (which runs per-phase
+# against the phase's role set), and this single role-def spans two
+# phases with two different upstreams, so coupling it to one producer
+# here would be wrong. File access mirrors the refiner: drafts and
+# agent-outputs only.
+SIMPLIFIER_ROLE = AgentRoleDefinition(
+    role=AgentRole.SIMPLIFIER,
+    description=(
+        "Distills the producer's draft into a jargon-free, human-focused "
+        "companion summary in the refine and plan phases"
+    ),
+    category=AgentCategory.ANALYSIS,
+    responsibilities=[
+        "Read the upstream producer's draft (refine analysis or plan)",
+        "Write a simplified, higher-level companion that captures the essence",
+        "Keep it digestible for a technical reader outside the pipeline",
+        "Use no egg-internal jargon (no BRC, consensus, slice-DAG, contract, "
+        "propose/ACK/NACK, phase, or agent-role terms)",
+        "Faithfully reflect the upstream draft — introduce no new scope",
+    ],
+    dependencies=[],
+    file_access=FileAccessPattern(
+        allowed_read=[],  # Can read all files
+        allowed_write=[
+            ".egg-state/drafts/",
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=[
+            "**/*.py",
+            "**/*.ts",
+            "**/*.tsx",
+            "**/*.js",
+            "**/*.jsx",
+            "**/*.go",
+            "**/*.java",
+            ".egg-state/contracts/",
+        ],
+    ),
+    produces_outputs=["analysis_draft_human", "plan_draft_human"],
+    requires_inputs=["analysis_draft", "task_breakdown"],
+)
+
 # Reviewer agent role definitions
 # Reviewers can only write to reviews/ and agent-outputs/ directories.
 # Use directory-based blocks instead of "**/*" which breaks can_write()
@@ -922,6 +975,7 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     AgentRole.TASK_PLANNER: TASK_PLANNER_ROLE,
     AgentRole.RISK_ANALYST: RISK_ANALYST_ROLE,
     AgentRole.REFINER: REFINER_ROLE,
+    AgentRole.SIMPLIFIER: SIMPLIFIER_ROLE,
     # Review roles
     AgentRole.REVIEWER_CODE: REVIEWER_CODE_ROLE,
     AgentRole.REVIEWER_CODE_HOLISTIC: REVIEWER_CODE_HOLISTIC_ROLE,
@@ -988,6 +1042,10 @@ AGENT_ROLE_TO_CONTRACT_ROLE: dict[AgentRole, Role] = {
     AgentRole.TASK_PLANNER: Role.IMPLEMENTER,
     AgentRole.RISK_ANALYST: Role.IMPLEMENTER,
     AgentRole.REFINER: Role.IMPLEMENTER,
+    # Simplifier: produces the human-focused companion draft; writes the
+    # same draft/agent-output contract fields as the other analysis
+    # producers.
+    AgentRole.SIMPLIFIER: Role.IMPLEMENTER,
     # Review: verdicts and phase-status/current_phase mutations
     AgentRole.REVIEWER_CODE: Role.REVIEWER,
     AgentRole.REVIEWER_CODE_HOLISTIC: Role.REVIEWER,
@@ -1153,8 +1211,13 @@ class AgentExecution:
 
 _PHASE_ROLES: dict[str, list[AgentRole]] = {
     "implement": [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER],
-    "plan": [AgentRole.ARCHITECT, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
-    "refine": [AgentRole.REFINER],
+    "plan": [
+        AgentRole.ARCHITECT,
+        AgentRole.TASK_PLANNER,
+        AgentRole.RISK_ANALYST,
+        AgentRole.SIMPLIFIER,
+    ],
+    "refine": [AgentRole.REFINER, AgentRole.SIMPLIFIER],
     # Apply phase (issue #1557): single producer (APPLIER) reviewed by
     # REVIEWER_CONTRACT on contract-state convergence. Inserted between
     # PLAN and IMPLEMENT only for epic pipelines — the orchestrator
