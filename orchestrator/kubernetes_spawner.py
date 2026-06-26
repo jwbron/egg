@@ -37,6 +37,7 @@ except ImportError:
 
 
 import agent_salvage
+from agent_model_resolution import OVERSEER_TIER_MODELS
 from egg_config import GATEWAY_PORT, GATEWAY_PROXY_PORT
 from gateway_client import (
     GatewayClient,
@@ -2886,7 +2887,7 @@ class KubernetesSpawner:
         issue_number: int | None = None,
         mode: str = "public",
         poll_interval: int = 30,
-        decision_model: str = "sonnet",
+        decision_model: str = OVERSEER_TIER_MODELS["routine"],
         max_turns: int = 2000,
         image: str | None = None,
         wait_for_gateway: bool = True,
@@ -2954,7 +2955,7 @@ class KubernetesSpawner:
         # The bespoke ``overseer_decision_maker_model`` (passed as
         # ``decision_model``) no longer drives the spawn. If an operator still
         # sets it to a non-default value, warn that it is inert on this path.
-        if decision_model and decision_model != "sonnet":
+        if decision_model and decision_model != OVERSEER_TIER_MODELS["routine"]:
             logger.warning(
                 "overseer_decision_maker_model=%r is deprecated and no longer "
                 "drives the overseer spawn; the base model now resolves via "

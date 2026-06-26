@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Literal, NamedTuple
 
+from agent_model_resolution import OVERSEER_TIER_MODELS
 from egg_contracts.models import PipelinePhase
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from slice_id_validation import SLICE_ID_PATTERN
@@ -724,7 +725,10 @@ class PipelineConfig(BaseModel):
         default=2, ge=1, description="Max redirect attempts before HITL escalation"
     )
     overseer_decision_maker_model: str = Field(
-        default="sonnet",
+        # Default is the routine-tier model; sourced from the single tier
+        # table so it can never drift from the resolver's default detection
+        # (`_overseer_decision_override` / the deprecation shims below).
+        default=OVERSEER_TIER_MODELS["routine"],
         description=(
             "Deprecated (#2270 §1, folds #2813): no longer drives the overseer "
             "spawn's base model, which now resolves through the per-agent "
@@ -752,7 +756,7 @@ class PipelineConfig(BaseModel):
         so this is a notice, not a rejection. ``slice-9`` makes the field
         fully inert.
         """
-        if v and v != "sonnet":
+        if v and v != OVERSEER_TIER_MODELS["routine"]:
             import logging as _logging
 
             _logging.getLogger("orchestrator.models").warning(
