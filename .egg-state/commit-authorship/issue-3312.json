@@ -1,0 +1,13 @@
+{
+  "entries": {
+    "84146df81e6c9a98b3a933402b0c3d0fbe5a2cae": {
+      "branch": "egg/issue-3312/work",
+      "patch_id": "b9fbd67b9012b9115a35e3ff51b8d2bd0a75eb4d",
+      "pipeline_id": "issue-3312",
+      "registered_at": "2026-06-26T23:17:53.780564+00:00",
+      "repo": null,
+      "role": "refiner"
+    }
+  },
+  "version": 2
+}
