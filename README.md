@@ -86,7 +86,7 @@ Detect anomaly (stall, loop, error, off-track behavior)
 
 Health monitoring is **two-tier**. Tier 1 is deterministic and LLM-free: orchestrator-side tripwires for heartbeat timeouts and stalls (longer thresholds during the implement phase to accommodate deep work). Tier 2 is the overseer agent itself: a Haiku classifier runs every poll cycle to flag anomalies, a Sonnet-class decision-maker reasons about ambiguous situations and chooses a corrective action, and an Opus-class advisor is consulted only when a Haiku-flagged anomaly *and* a Tier-1 alert are active simultaneously. Infrastructure errors (git failures, gateway rejections, permission denials) fast-path straight to a human-in-the-loop decision.
 
-The overseer is phase-scoped: spawned at the start of each phase and torn down when that phase completes, advances, or fails, giving each phase a fresh instance with no accumulated state. If it crashes mid-phase, the orchestrator respawns it (up to 3x per phase). See [Pipeline Health Monitoring](docs/guides/pipeline-health-monitoring.md).
+The overseer is phase-scoped: spawned at the start of each phase (only when agents are actively running — a zero-agent HITL park spawns no overseer) and torn down when that phase completes, advances, or fails, giving each phase a fresh instance with no accumulated state. See [Pipeline Health Monitoring](docs/guides/pipeline-health-monitoring.md).
 
 ### 4. The SDLC Pipeline: Humans at the Right Moments
 

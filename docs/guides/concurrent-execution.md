@@ -191,7 +191,7 @@ Returns total message count and a breakdown by message type.
 | `CONSENSUS_WITHDRAW` | Producer withdrawing its proposal (e.g., to address NACK) |
 | `CONSENSUS_CONFIRMED` | Agent confirmed after all required reviews are ACKed |
 | `CONSENSUS_RE_REVIEW` | Orchestrator notifying a reviewer that their prior confirmation is stale and they must re-review the producer's new proposal version |
-| `OVERSEER_ALERT` | Health anomaly or lifecycle alert. Sent by the overseer agent for health anomalies (always with explicit `pipeline_id` and `from_role: overseer`), and by the orchestrator when the overseer is auto-respawned (with diagnostic metadata including exit code, log tail, and container IDs) |
+| `OVERSEER_ALERT` | Health anomaly or lifecycle alert. Sent by the overseer agent for health anomalies (always with explicit `pipeline_id` and `from_role: overseer`) |
 
 > **Removed in #1897**: `QUESTION` was dropped from the type vocabulary because it had no delivery semantics and was only used as informal free-form chatter. Agents that need a peer to act should use `HANDOFF`; agents that need to advertise state should use `HEARTBEAT`; reviewers with clarifying questions should put them in the `NACK` rationale so the producer sees them and can address them on re-propose.
 
