@@ -347,6 +347,2445 @@
         "midturn_messages": [],
         "git_state": {"branch": "egg/issue-3200/work", "is_ancestor_of_base": true, "patch_id_matches": true, "pr_subject_divergence": false}
       }
+    },
+    {
+      "row_id": "runtime_thread_liveness__bad",
+      "label": "known_bad",
+      "incident": "_run_pipeline thread liveness",
+      "pins": [
+        "#2270-s5",
+        "#2234",
+        "#3233"
+      ],
+      "detector_key": "runtime_thread_liveness",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "runtime_thread_dead",
+        "severity": "high",
+        "requires_adjudication": true
+      },
+      "notes": "The orchestrator's _run_pipeline driver thread has died while the phase is still RUNNING (#2234/#3233): no tick for 1200s though the pipeline is not parked. Ambiguous root cause (deadlock vs crash) so it escalates to the adjudicator before a recovery action.",
+      "snapshot": {
+        "snapshot_id": "runtime_thread_liveness__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        },
+        "runtime": {
+          "run_pipeline_thread_alive": false,
+          "thread_last_tick_age_s": 1200
+        }
+      }
+    },
+    {
+      "row_id": "runtime_thread_liveness__normal",
+      "label": "known_normal",
+      "incident": "_run_pipeline thread liveness",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "runtime_thread_liveness",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "The driver thread is alive and ticking every few seconds; a healthy RUNNING phase must NOT fire the liveness detector.",
+      "snapshot": {
+        "snapshot_id": "runtime_thread_liveness__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        },
+        "runtime": {
+          "run_pipeline_thread_alive": true,
+          "thread_last_tick_age_s": 3
+        }
+      }
+    },
+    {
+      "row_id": "auto_advance_wedge__bad",
+      "label": "known_bad",
+      "incident": "auto-advance wedge",
+      "pins": [
+        "#2270-s5",
+        "#2219"
+      ],
+      "detector_key": "auto_advance_wedge",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "auto_advance_wedge",
+        "severity": "high",
+        "requires_adjudication": true
+      },
+      "notes": "A phase whose auto-advance gate is satisfied but which never advanced (#2219 → Tier-1): auto_advance_pending for 1800s with no agents and no HITL. Promoted to a first-class detector; ambiguous, so it adjudicates.",
+      "snapshot": {
+        "snapshot_id": "auto_advance_wedge__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        },
+        "runtime": {
+          "auto_advance_pending": true,
+          "auto_advance_age_s": 1800
+        }
+      }
+    },
+    {
+      "row_id": "auto_advance_wedge__normal",
+      "label": "known_normal",
+      "incident": "auto-advance wedge",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "auto_advance_wedge",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "No auto-advance is pending (the gate is not yet satisfied); detector stays silent.",
+      "snapshot": {
+        "snapshot_id": "auto_advance_wedge__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        },
+        "runtime": {
+          "auto_advance_pending": false,
+          "auto_advance_age_s": 0
+        }
+      }
+    },
+    {
+      "row_id": "approved_decision_orphaned__bad",
+      "label": "known_bad",
+      "incident": "approved-decision orphaned",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "approved_decision_orphaned",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "approved_decision_orphaned",
+        "severity": "medium",
+        "requires_adjudication": false
+      },
+      "notes": "An operator-approved HITL decision was never applied back to the pipeline (orphaned for 1200s). Deterministic and actionable (re-apply), so it is handled by the bounded corrective vocabulary, not adjudicated.",
+      "snapshot": {
+        "snapshot_id": "approved_decision_orphaned__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0,
+          "approved_unapplied": [
+            {
+              "id": "cq-3",
+              "age_s": 1200
+            }
+          ]
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "approved_decision_orphaned__normal",
+      "label": "known_normal",
+      "incident": "approved-decision orphaned",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "approved_decision_orphaned",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "All approved decisions have been applied; nothing orphaned.",
+      "snapshot": {
+        "snapshot_id": "approved_decision_orphaned__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0,
+          "approved_unapplied": []
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "duration_drift__bad",
+      "label": "known_bad",
+      "incident": "phase duration drift",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "duration_drift",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "duration_drift",
+        "severity": "low",
+        "requires_adjudication": false
+      },
+      "notes": "A phase is running far past its historical expected duration (drift_ratio 3.0×). Low-severity advisory signal; deterministic.",
+      "snapshot": {
+        "snapshot_id": "duration_drift__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 9000,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator",
+          "expected_duration_s": 3000,
+          "drift_ratio": 3.0
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "duration_drift__normal",
+      "label": "known_normal",
+      "incident": "phase duration drift",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "duration_drift",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "Phase elapsed time is within its expected duration band (drift_ratio ~1.0×).",
+      "snapshot": {
+        "snapshot_id": "duration_drift__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 1500,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator",
+          "expected_duration_s": 3000,
+          "drift_ratio": 0.5
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "agent_restart_propagation__bad",
+      "label": "known_bad",
+      "incident": "agent-restart propagation deadline",
+      "pins": [
+        "#2270-s5",
+        "#3233"
+      ],
+      "detector_key": "agent_restart_propagation",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "agent_restart_propagation",
+        "severity": "medium",
+        "requires_adjudication": false
+      },
+      "notes": "An agent restart was issued but the new generation never propagated to the event loop before the deadline (age 600s, deadline 300s). Deterministic — re-issue / nudge via the bounded vocabulary.",
+      "snapshot": {
+        "snapshot_id": "agent_restart_propagation__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        },
+        "runtime": {
+          "restart_propagation": {
+            "deadline_exceeded": true,
+            "age_s": 600,
+            "deadline_s": 300
+          }
+        }
+      }
+    },
+    {
+      "row_id": "agent_restart_propagation__normal",
+      "label": "known_normal",
+      "incident": "agent-restart propagation deadline",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "agent_restart_propagation",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "The restart propagated within the deadline; no stranded generation.",
+      "snapshot": {
+        "snapshot_id": "agent_restart_propagation__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        },
+        "runtime": {
+          "restart_propagation": {
+            "deadline_exceeded": false,
+            "age_s": 40,
+            "deadline_s": 300
+          }
+        }
+      }
+    },
+    {
+      "row_id": "restarted_decision_replay__bad",
+      "label": "known_bad",
+      "incident": "restarted-decision replay",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "restarted_decision_replay",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "restarted_decision_replay",
+        "severity": "medium",
+        "requires_adjudication": false
+      },
+      "notes": "After an orchestrator pod recycle a resolved decision is being replayed as if still open (replay_pending against an already-resolved id). Deterministic dedupe/idempotency signal.",
+      "snapshot": {
+        "snapshot_id": "restarted_decision_replay__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0,
+          "replay_pending": true,
+          "replayed_resolved_id": "cq-3"
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "restarted_decision_replay__normal",
+      "label": "known_normal",
+      "incident": "restarted-decision replay",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "restarted_decision_replay",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "No resolved decision is being replayed after recycle.",
+      "snapshot": {
+        "snapshot_id": "restarted_decision_replay__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0,
+          "replay_pending": false
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "worktree_corruption__bad",
+      "label": "known_bad",
+      "incident": "worktree corruption / lock anomaly",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "worktree_corruption",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "worktree_corruption",
+        "severity": "high",
+        "requires_adjudication": false
+      },
+      "notes": "A worktree shows a stale index.lock and git-fsck errors — corruption that will fail every commit/push. Deterministic; recover the worktree.",
+      "snapshot": {
+        "snapshot_id": "worktree_corruption__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false,
+          "index_lock_present": true,
+          "fsck_errors": 3
+        }
+      }
+    },
+    {
+      "row_id": "worktree_corruption__normal",
+      "label": "known_normal",
+      "incident": "worktree corruption / lock anomaly",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "worktree_corruption",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "The worktree is clean: no stale lock, no fsck errors.",
+      "snapshot": {
+        "snapshot_id": "worktree_corruption__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false,
+          "index_lock_present": false,
+          "fsck_errors": 0
+        }
+      }
+    },
+    {
+      "row_id": "disk_inode_pressure__bad",
+      "label": "known_bad",
+      "incident": "disk / inode pressure",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "disk_inode_pressure",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "disk_inode_pressure",
+        "severity": "medium",
+        "requires_adjudication": false
+      },
+      "notes": "Host disk and inode usage are over threshold (98% / 97%), which will soon fail clones and writes. Deterministic resource signal.",
+      "snapshot": {
+        "snapshot_id": "disk_inode_pressure__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        },
+        "resources": {
+          "disk_used_pct": 98,
+          "inode_used_pct": 97,
+          "disk_threshold_pct": 90
+        }
+      }
+    },
+    {
+      "row_id": "disk_inode_pressure__normal",
+      "label": "known_normal",
+      "incident": "disk / inode pressure",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "disk_inode_pressure",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "Disk and inode usage are comfortably under threshold.",
+      "snapshot": {
+        "snapshot_id": "disk_inode_pressure__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        },
+        "resources": {
+          "disk_used_pct": 41,
+          "inode_used_pct": 30,
+          "disk_threshold_pct": 90
+        }
+      }
+    },
+    {
+      "row_id": "container_restart_loop__bad",
+      "label": "known_bad",
+      "incident": "repeated same-role container restarts",
+      "pins": [
+        "#2270-s5",
+        "#2210"
+      ],
+      "detector_key": "container_restart_loop",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "container_restart_loop",
+        "severity": "high",
+        "requires_adjudication": true
+      },
+      "notes": "The same role's container has restarted 5 times in a short window — a crash loop the orchestrator cannot self-classify (code bug vs infra). Ambiguous → adjudicate before cohort respawn.",
+      "snapshot": {
+        "snapshot_id": "container_restart_loop__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [
+          {
+            "container": "coder-a",
+            "role": "coder",
+            "from": "Running",
+            "to": "Terminated",
+            "reason": "Error",
+            "restart_count": 5,
+            "window_s": 300
+          }
+        ],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "container_restart_loop__normal",
+      "label": "known_normal",
+      "incident": "repeated same-role container restarts",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "container_restart_loop",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "A single clean restart (restart_count 1) is routine, not a loop.",
+      "snapshot": {
+        "snapshot_id": "container_restart_loop__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [
+          {
+            "container": "coder-a",
+            "role": "coder",
+            "from": "Pending",
+            "to": "Running",
+            "reason": "Started",
+            "restart_count": 1,
+            "window_s": 300
+          }
+        ],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "container_oom_evicted__bad",
+      "label": "known_bad",
+      "incident": "OOMKilled / evicted (vs transient eviction)",
+      "pins": [
+        "#2270-s5",
+        "#2948"
+      ],
+      "detector_key": "container_oom_evicted",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "container_oom_evicted",
+        "severity": "medium",
+        "requires_adjudication": false
+      },
+      "notes": "Repeated OOMKilled terminations for one role (3× in window) — a genuine resource fault, distinct from a single transient kubelet eviction that recovered. The #2948 disambiguation: do NOT read a recovered eviction as permanent death.",
+      "snapshot": {
+        "snapshot_id": "container_oom_evicted__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [
+          {
+            "container": "tester-a",
+            "role": "tester",
+            "from": "Running",
+            "to": "Terminated",
+            "reason": "OOMKilled",
+            "restart_count": 3,
+            "recovered": false,
+            "window_s": 600
+          }
+        ],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "container_oom_evicted__normal",
+      "label": "known_normal",
+      "incident": "OOMKilled / evicted (vs transient eviction)",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "container_oom_evicted",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "#2948 known-normal: a single transient Evicted that immediately rescheduled and is Running again — recoverable, NOT permanent death.",
+      "snapshot": {
+        "snapshot_id": "container_oom_evicted__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [
+          {
+            "container": "tester-a",
+            "role": "tester",
+            "from": "Running",
+            "to": "Evicted",
+            "reason": "Evicted",
+            "restart_count": 1,
+            "recovered": true,
+            "window_s": 600
+          },
+          {
+            "container": "tester-b",
+            "role": "tester",
+            "from": "Pending",
+            "to": "Running",
+            "reason": "Started",
+            "restart_count": 1,
+            "window_s": 600
+          }
+        ],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "gateway_error_spike__bad",
+      "label": "known_bad",
+      "incident": "gateway error-rate spike",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "gateway_error_spike",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "gateway_error_spike",
+        "severity": "medium",
+        "requires_adjudication": false
+      },
+      "notes": "The gateway is returning 5xx at 30/min, far above the baseline — a spike that will stall pushes. Deterministic rate signal.",
+      "snapshot": {
+        "snapshot_id": "gateway_error_spike__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 150,
+          "5xx_rate_per_min": 30,
+          "rate_threshold_per_min": 5
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "gateway_error_spike__normal",
+      "label": "known_normal",
+      "incident": "gateway error-rate spike",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "gateway_error_spike",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "Gateway error rate is at baseline (0–1/min); no spike.",
+      "snapshot": {
+        "snapshot_id": "gateway_error_spike__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0,
+          "5xx_rate_per_min": 0,
+          "rate_threshold_per_min": 5
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "gateway_repeated_denial__bad",
+      "label": "known_bad",
+      "incident": "repeated identical gateway denial",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "gateway_repeated_denial",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "gateway_repeated_denial",
+        "severity": "medium",
+        "requires_adjudication": false
+      },
+      "notes": "The same 403 denial (identical signature) has repeated 12 times — an agent retrying an operation policy will never allow. Deterministic; the agent needs a hand-off, not more retries.",
+      "snapshot": {
+        "snapshot_id": "gateway_repeated_denial__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 12,
+          "5xx": 0,
+          "identical_403_streak": 12,
+          "denial_signature": "push:protected-path"
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "gateway_repeated_denial__normal",
+      "label": "known_normal",
+      "incident": "repeated identical gateway denial",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "gateway_repeated_denial",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "No repeated identical denial; the occasional 403 is isolated.",
+      "snapshot": {
+        "snapshot_id": "gateway_repeated_denial__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 1,
+          "5xx": 0,
+          "identical_403_streak": 1
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "gateway_token_expiry__bad",
+      "label": "known_bad",
+      "incident": "gateway credential/token expiry",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "gateway_token_expiry",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "gateway_token_expiry",
+        "severity": "high",
+        "requires_adjudication": false
+      },
+      "notes": "The gateway's injected credential has expired (token_expired=true): every authenticated git/gh op will now fail until refreshed. Deterministic, high-impact.",
+      "snapshot": {
+        "snapshot_id": "gateway_token_expiry__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0,
+          "token_expired": true,
+          "401": 8
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "gateway_token_expiry__normal",
+      "label": "known_normal",
+      "incident": "gateway credential/token expiry",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "gateway_token_expiry",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "The gateway credential is valid (not expired).",
+      "snapshot": {
+        "snapshot_id": "gateway_token_expiry__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0,
+          "token_expired": false,
+          "401": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "brc_thrash__bad",
+      "label": "known_bad",
+      "incident": "BRC reviewer/producer thrash",
+      "pins": [
+        "#2270-s5",
+        "#2059",
+        "#2132"
+      ],
+      "detector_key": "brc_thrash",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "brc_thrash",
+        "severity": "medium",
+        "requires_adjudication": true
+      },
+      "notes": "A producer/reviewer pair has cycled NACK→re-propose 6 times, including a late CONFIRMED then re-NACK — thrashing that won't converge on its own. Ambiguous (substantive disagreement vs bug) → adjudicate.",
+      "snapshot": {
+        "snapshot_id": "brc_thrash__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [
+            "coder"
+          ],
+          "matrix": {},
+          "nack_cycles": 6,
+          "late_confirmed_then_renack": true
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "brc_thrash__normal",
+      "label": "known_normal",
+      "incident": "BRC reviewer/producer thrash",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "brc_thrash",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "A normal single NACK→re-propose→ACK cycle is healthy review, not thrash.",
+      "snapshot": {
+        "snapshot_id": "brc_thrash__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {},
+          "nack_cycles": 1,
+          "late_confirmed_then_renack": false
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "incomplete_consensus_deferral__bad",
+      "label": "known_bad",
+      "incident": "unbounded incomplete-consensus deferral",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "incomplete_consensus_deferral",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "incomplete_consensus_deferral",
+        "severity": "medium",
+        "requires_adjudication": false
+      },
+      "notes": "Incomplete-consensus has been deferred 25 times, past the cap of 20 — an unbounded deferral that must be capped and surfaced. Deterministic.",
+      "snapshot": {
+        "snapshot_id": "incomplete_consensus_deferral__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [
+            "reviewer_code"
+          ],
+          "matrix": {},
+          "incomplete_consensus_deferrals": 25,
+          "deferral_cap": 20
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "incomplete_consensus_deferral__normal",
+      "label": "known_normal",
+      "incident": "unbounded incomplete-consensus deferral",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "incomplete_consensus_deferral",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "Deferral count is under the cap; the wait is still bounded.",
+      "snapshot": {
+        "snapshot_id": "incomplete_consensus_deferral__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [
+            "reviewer_code"
+          ],
+          "matrix": {},
+          "incomplete_consensus_deferrals": 2,
+          "deferral_cap": 20
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "hitl_queue_backlog__bad",
+      "label": "known_bad",
+      "incident": "HITL / decision-queue backlog",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "hitl_queue_backlog",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "hitl_queue_backlog",
+        "severity": "medium",
+        "requires_adjudication": false
+      },
+      "notes": "The operator decision queue has 8 open decisions with the oldest open 2 hours — a backlog blocking progress. Deterministic queue-depth signal.",
+      "snapshot": {
+        "snapshot_id": "hitl_queue_backlog__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": true,
+          "open_decisions": 8,
+          "oldest_open_age_s": 7200
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "hitl_queue_backlog__normal",
+      "label": "known_normal",
+      "incident": "HITL / decision-queue backlog",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "hitl_queue_backlog",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "The decision queue is shallow and recent (1 open, fresh).",
+      "snapshot": {
+        "snapshot_id": "hitl_queue_backlog__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": true,
+          "open_decisions": 1,
+          "oldest_open_age_s": 120
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "cost_anomaly__bad",
+      "label": "known_bad",
+      "incident": "token-cost anomaly / budget breach",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "cost_anomaly",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "cost_anomaly",
+        "severity": "high",
+        "requires_adjudication": false
+      },
+      "notes": "Spend has hit $12/hr against a max_llm_cost_per_hour of $5 — a budget breach. Deterministic; throttle/alert via the bounded vocabulary.",
+      "snapshot": {
+        "snapshot_id": "cost_anomaly__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 900000,
+          "cost_usd": 18.0,
+          "cost_per_hour_usd": 12.0,
+          "max_llm_cost_per_hour": 5.0
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "cost_anomaly__normal",
+      "label": "known_normal",
+      "incident": "token-cost anomaly / budget breach",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "cost_anomaly",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "Spend is well under the hourly budget.",
+      "snapshot": {
+        "snapshot_id": "cost_anomaly__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 60000,
+          "cost_usd": 0.9,
+          "cost_per_hour_usd": 0.6,
+          "max_llm_cost_per_hour": 5.0
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        }
+      }
+    },
+    {
+      "row_id": "pr_external_mutation__bad",
+      "label": "known_bad",
+      "incident": "PR external mutation / drift",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "pr_external_mutation",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "pr_external_mutation",
+        "severity": "medium",
+        "requires_adjudication": false
+      },
+      "notes": "The PR head SHA no longer matches what the pipeline last pushed — an external force-push/mutation (or a pushed-but-PR-not-updated drift). Deterministic state-drift signal.",
+      "snapshot": {
+        "snapshot_id": "pr_external_mutation__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        },
+        "pr_state": {
+          "external_mutation": true,
+          "pushed_sha": "aaaa111",
+          "pr_head_sha": "bbbb222"
+        }
+      }
+    },
+    {
+      "row_id": "pr_external_mutation__normal",
+      "label": "known_normal",
+      "incident": "PR external mutation / drift",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "pr_external_mutation",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "The PR head SHA matches the last pushed SHA; no external drift.",
+      "snapshot": {
+        "snapshot_id": "pr_external_mutation__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        },
+        "pr_state": {
+          "external_mutation": false,
+          "pushed_sha": "aaaa111",
+          "pr_head_sha": "aaaa111"
+        }
+      }
+    },
+    {
+      "row_id": "llm_substrate_unreachable__bad",
+      "label": "known_bad",
+      "incident": "LLM substrate unreachable (LiteLLM)",
+      "pins": [
+        "#2270-s5",
+        "#2769"
+      ],
+      "detector_key": "llm_substrate_unreachable",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "llm_substrate_unreachable",
+        "severity": "high",
+        "requires_adjudication": false
+      },
+      "notes": "The LiteLLM proxy is unreachable (#2769): no agent can make an LLM call until it recovers. Deterministic substrate-reachability signal.",
+      "snapshot": {
+        "snapshot_id": "llm_substrate_unreachable__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        },
+        "llm": {
+          "litellm_reachable": false,
+          "consecutive_failures": 6
+        }
+      }
+    },
+    {
+      "row_id": "llm_substrate_unreachable__normal",
+      "label": "known_normal",
+      "incident": "LLM substrate unreachable (LiteLLM)",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "llm_substrate_unreachable",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "The LiteLLM proxy is reachable; the substrate is healthy.",
+      "snapshot": {
+        "snapshot_id": "llm_substrate_unreachable__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        },
+        "llm": {
+          "litellm_reachable": true,
+          "consecutive_failures": 0
+        }
+      }
+    },
+    {
+      "row_id": "effective_model_drift__bad",
+      "label": "known_bad",
+      "incident": "effective-model drift",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "effective_model_drift",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "effective_model_drift",
+        "severity": "medium",
+        "requires_adjudication": false
+      },
+      "notes": "The requested model (opus) is silently being served as a cheaper model (haiku) — effective-model drift that degrades decision quality. Deterministic requested-vs-effective mismatch.",
+      "snapshot": {
+        "snapshot_id": "effective_model_drift__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        },
+        "llm": {
+          "litellm_reachable": true,
+          "requested_model": "opus",
+          "effective_model": "haiku"
+        }
+      }
+    },
+    {
+      "row_id": "effective_model_drift__normal",
+      "label": "known_normal",
+      "incident": "effective-model drift",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "effective_model_drift",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "The effective model matches the requested model; no drift.",
+      "snapshot": {
+        "snapshot_id": "effective_model_drift__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        },
+        "llm": {
+          "litellm_reachable": true,
+          "requested_model": "opus",
+          "effective_model": "opus"
+        }
+      }
+    },
+    {
+      "row_id": "anthropic_5xx__bad",
+      "label": "known_bad",
+      "incident": "sustained Anthropic 5xx",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "anthropic_5xx",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "anthropic_5xx",
+        "severity": "high",
+        "requires_adjudication": false
+      },
+      "notes": "Sustained upstream Anthropic 5xx (8 in a 300s window) — a provider outage distinct from a local substrate fault. Deterministic.",
+      "snapshot": {
+        "snapshot_id": "anthropic_5xx__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        },
+        "llm": {
+          "litellm_reachable": true,
+          "anthropic_5xx_streak": 8,
+          "window_s": 300
+        }
+      }
+    },
+    {
+      "row_id": "anthropic_5xx__normal",
+      "label": "known_normal",
+      "incident": "sustained Anthropic 5xx",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "anthropic_5xx",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "No sustained upstream 5xx; the provider is healthy.",
+      "snapshot": {
+        "snapshot_id": "anthropic_5xx__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        },
+        "llm": {
+          "litellm_reachable": true,
+          "anthropic_5xx_streak": 0,
+          "window_s": 300
+        }
+      }
+    },
+    {
+      "row_id": "overseer_self_health__bad",
+      "label": "known_bad",
+      "incident": "overseer self-health (classifier/advisor failure-rate)",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "overseer_self_health",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "overseer_self_health",
+        "severity": "medium",
+        "requires_adjudication": false
+      },
+      "notes": "The overseer's own classifier/advisor is failing 60% of calls — the watcher itself is degraded and its verdicts cannot be trusted. Wired from OverseerSelfMonitor into the alert path (emit-vs-log resolved).",
+      "snapshot": {
+        "snapshot_id": "overseer_self_health__bad",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        },
+        "self_health": {
+          "classifier_failure_rate": 0.6,
+          "advisor_failure_rate": 0.4,
+          "failure_threshold": 0.25
+        }
+      }
+    },
+    {
+      "row_id": "overseer_self_health__normal",
+      "label": "known_normal",
+      "incident": "overseer self-health (classifier/advisor failure-rate)",
+      "pins": [
+        "#2270-s5"
+      ],
+      "detector_key": "overseer_self_health",
+      "delivered_in_slice": null,
+      "expected": null,
+      "notes": "The overseer's classifier/advisor failure rate is low; self-health is fine.",
+      "snapshot": {
+        "snapshot_id": "overseer_self_health__normal",
+        "pipeline_id": "issue-3200",
+        "phase": "implement",
+        "running_agents": [],
+        "consensus": {
+          "protocol": "brc",
+          "blocking_agents": [],
+          "matrix": {}
+        },
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 300,
+          "lifecycle_owner": "orchestrator",
+          "event_loop_owner": "orchestrator"
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {
+          "403": 0,
+          "5xx": 0
+        },
+        "cost_counters": {
+          "tokens": 4000,
+          "cost_usd": 0.06,
+          "cost_per_hour_usd": 0.3
+        },
+        "midturn_messages": [],
+        "git_state": {
+          "is_ancestor_of_base": true,
+          "patch_id_matches": true,
+          "pr_subject_divergence": false
+        },
+        "self_health": {
+          "classifier_failure_rate": 0.0,
+          "advisor_failure_rate": 0.0,
+          "failure_threshold": 0.25
+        }
+      }
     }
   ]
 }
