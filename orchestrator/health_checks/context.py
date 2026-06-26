@@ -94,6 +94,40 @@ class PipelineHealthContext:
         """The phase being evaluated (may be overridden from constructor)."""
         return self.phase
 
+    @property
+    def lifecycle_owner(self) -> str:
+        """Who owns the agent lifecycle for the current phase (#2270 / #3230).
+
+        Under #3064 orchestrator-owned on-demand spawning the orchestrator owns
+        the lifecycle and is about to spawn the next one-shot agent — so a phase
+        that is RUNNING with zero live containers is *not* stalled. The
+        detection plane's stall detector keys on this to avoid the #3230 false
+        alerts. Defaults to ``"orchestrator"`` (the prevailing owner) and only
+        reports ``"none"`` when the pipeline explicitly carries no owner.
+        """
+        explicit = getattr(self.pipeline, "lifecycle_owner", None)
+        if explicit:
+            return str(explicit)
+        # An event-loop-owned pipeline is orchestrator-owned by definition.
+        if getattr(self.pipeline, "event_loop_owner", None):
+            return "orchestrator"
+        return "orchestrator"
+
+    @property
+    def awaiting_spawn(self) -> bool:
+        """Whether the orchestrator is about to spawn the next one-shot agent (#3230).
+
+        Under #3064 orchestrator-owned spawning a phase spends brief windows
+        RUNNING with zero live containers *between* one-shot agents — the
+        orchestrator has the next spawn queued. Pairing this with
+        :pyattr:`lifecycle_owner` lets a stall check tell "wedged" (no owner,
+        nothing queued) from "drafting" (orchestrator-owned, spawn pending) and
+        is the signal the detection plane's ``snapshot_from_health_context``
+        reads to silence the #3230 false stall. Defaults to ``False`` when the
+        pipeline model carries no such flag.
+        """
+        return bool(getattr(self.pipeline, "awaiting_spawn", False))
+
     # ------------------------------------------------------------------
     # Lazy properties (IO on first access)
     # ------------------------------------------------------------------

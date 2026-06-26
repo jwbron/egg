@@ -414,3 +414,88 @@ __all__ = list(__all__) + [
     "OverseerGhCheckResult",
     "check_overseer_gh_issue_create",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Overseer corrective-authority guardrail (#2270 slice-6, §4)
+# ---------------------------------------------------------------------------
+#
+# The orchestrator-side ``CorrectiveExecutor`` executes a CLOSED vocabulary of
+# exactly three corrective actions. The *deny side* of the authority model is
+# already enforced above by the per-role file patterns: an overseer (or any
+# other) AGENT is blocked from ``.egg-state/contracts/`` — that denial IS the
+# "gateway 403" the executor routes around via the orchestrator identity. This
+# guardrail is the gateway-layer bound on the *vocabulary* itself: anything
+# outside the closed set is rejected here too (defense-in-depth), and an agent
+# identity is never authorized to drive a corrective action.
+
+# The closed corrective vocabulary. Mirrors
+# ``overseer.corrective.CORRECTIVE_ACTIONS`` and the adjudicator's
+# ``ADJUDICATION_ACTIONS`` minus the non-executable ``none``.
+CORRECTIVE_ACTIONS: frozenset[str] = frozenset(
+    {"nudge_agent", "respawn_cohort", "open_operator_hitl"}
+)
+
+# Identities that drive the corrective executor — the control plane. These are
+# NOT agent roles (``get_agent_pattern`` returns ``None`` for them), so their
+# contract-decision write is a control-plane operation, not an agent push.
+_CORRECTIVE_CONTROL_PLANE = frozenset({"orchestrator", "system"})
+
+
+@dataclass(frozen=True)
+class CorrectiveAuthorityResult:
+    """Outcome of :func:`check_corrective_action`."""
+
+    allowed: bool
+    reason: str
+
+
+def check_corrective_action(
+    *, action: str, identity: str | None = None
+) -> CorrectiveAuthorityResult:
+    """Authorize a corrective action at the gateway (deny-by-default).
+
+    The vocabulary is closed: an ``action`` outside :data:`CORRECTIVE_ACTIONS`
+    is rejected regardless of identity. Within the vocabulary, only the
+    control-plane identity (or an unspecified one, since the executor runs
+    control-plane-side) is authorized; an agent identity — including the
+    overseer, which only *advises* — is denied.
+
+    Args:
+        action: The requested corrective action.
+        identity: The caller identity. Defaults to ``None`` (the in-process
+            control plane). An agent role here is denied.
+
+    Returns:
+        ``CorrectiveAuthorityResult`` with ``allowed`` and a ``reason``.
+    """
+    if action not in CORRECTIVE_ACTIONS:
+        return CorrectiveAuthorityResult(
+            allowed=False,
+            reason=(
+                f"action {action!r} is outside the closed corrective vocabulary "
+                f"{sorted(CORRECTIVE_ACTIONS)}"
+            ),
+        )
+
+    normalized = (identity or "").strip().lower()
+    if normalized == "" or normalized in _CORRECTIVE_CONTROL_PLANE:
+        return CorrectiveAuthorityResult(
+            allowed=True, reason="control-plane corrective action authorized"
+        )
+
+    return CorrectiveAuthorityResult(
+        allowed=False,
+        reason=(
+            f"corrective actions are control-plane only; caller {identity!r} is "
+            "denied (agents — including the overseer, which only advises — may "
+            "not execute corrective actions directly)"
+        ),
+    )
+
+
+__all__ = list(__all__) + [
+    "CORRECTIVE_ACTIONS",
+    "CorrectiveAuthorityResult",
+    "check_corrective_action",
+]

@@ -57,6 +57,16 @@ except ImportError as exc:
         allow_module_level=True,
     )
 
+# The bespoke overseer respawn methods (spawn_overseer_container /
+# spawn_overseer_job) are folded into spawn_agent_job as of the spawn-
+# normalization slice. Once that method is gone these respawn-specific tests
+# no longer apply (the path is exercised via the normal agent-spawn tests).
+if not hasattr(ContainerSpawner, "spawn_overseer_container"):
+    pytest.skip(
+        "overseer respawn machinery folded into spawn_agent_job",
+        allow_module_level=True,
+    )
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
