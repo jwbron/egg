@@ -3,10 +3,23 @@
 # All 19 slices are FILE-DISJOINT at the source level (each touches only its own
 # foo.py -> foo/ tree). dependencies are therefore NONE. The "wave" annotation is a
 # scheduling/priority HINT (front-load independent wins per the issue + #2817/#3111
-# history), not a hard DAG edge. The only cross-slice contention is MECHANICAL:
-# scripts/file-size-allowlist.yaml (each slice drops its entry) and the CLAUDE.md
-# seam tables (each slice adds its row) — resolved by the section-(e) rebase recipe,
-# not by serialization.
+# history), not a hard DAG edge. Cross-slice contention is MECHANICAL and spans FIVE
+# shared write targets (resolved by the section-(e) rebase recipe, not serialization):
+#   (1) scripts/file-size-allowlist.yaml — each slice drops its entry;
+#   (2) the CLAUDE.md seam tables — each slice adds its row;
+#   (3) orchestrator/Dockerfile — the 5 top-level orchestrator slices add a COPY line;
+#   (4) gateway/Dockerfile — the 3 gateway slices add a COPY line;
+#   (5) sandbox/Dockerfile — the entrypoint.py slice adjusts its single-file COPY/shim.
+#
+# DOCKERFILE PACKAGING (binding, risk_analyst R3): orchestrator/Dockerfile:44 and
+# gateway/Dockerfile:67 ship top-level modules via a NON-recursive `COPY *.py ./` glob.
+# Converting a top-level module to a sub-package dir means it is NO LONGER copied ->
+# ModuleNotFoundError in the running image, while make lint/make test-all stay GREEN
+# against the source tree (a broken image is a behavior change). So each AFFECTED slice
+# MUST, in the same slice, add the explicit `COPY orchestrator/<name>/ ./<name>/` (or
+# gateway equivalent) line and VERIFY via image build / in-container import. Affected:
+# slices 3,10,13,14,16 (orchestrator top-level), 11,12,18 (gateway), 9 (entrypoint shim).
+# Verify-not-assume: slices 1 & 17 (egg_lib packaging) and slice 8 (overseer/ shipping).
 #
 # Every slice (unless noted) follows the canonical pattern:
 #   step-0 git mv foo.py -> foo/__init__.py (own bisectable commit, test-all green)
@@ -28,6 +41,10 @@ slices:
       _agent_ops (~450, largest), _feedback. Smallest target -> a clean first landing
       and a second worked example of the CLI shape. Add a seam table to sandbox/CLAUDE.md
       (none today) with this row.
+      DOCKERFILE (verify, not assumed): sandbox/egg_lib/ has NO explicit COPY in
+      sandbox/Dockerfile (ships via docker-setup.py / pip + whole-repo `COPY . /opt/egg-
+      runtime/`) — likely SAFE via find_packages, but confirm contract_cli/ imports
+      in-container before landing.
     dependencies: none
   - id: 2
     name: |-
@@ -49,6 +66,10 @@ slices:
       _sync (remote sync/reconcile/restore), _queries (discovery/listing), _commit.
       StateStore is a core, heavily-imported type — audit importers carefully; barrel
       MUST re-export StateStore at the same path. Add orchestrator/CLAUDE.md row.
+      DOCKERFILE (binding): top-level orchestrator module shipped by the non-recursive
+      `COPY orchestrator/*.py ./` glob — add `COPY orchestrator/state_store/ ./state_store/`
+      to orchestrator/Dockerfile in THIS slice and verify in-container (source-tree lint/
+      test stays green while the image breaks).
     dependencies: none
   - id: 4
     name: |-
@@ -100,6 +121,9 @@ slices:
       + all _query_* + container list/logs ~680, largest), _detection (stall/consistency/
       anomaly), _escalation (adjudicate/decide), _execution (execute-action/restart),
       _messaging (alerts/HITL/slack). Add orchestrator/CLAUDE.md row.
+      DOCKERFILE (verify): overseer/ has NO explicit COPY line in orchestrator/Dockerfile
+      today yet pipelines.py imports `from overseer.*` — confirm monitor/ actually ships
+      (add `COPY orchestrator/overseer/` if needed) and verify in-container before landing.
     dependencies: none
   - id: 9
     name: |-
@@ -111,6 +135,11 @@ slices:
       _environment_setup (git/CA/anthropic/worktrees/symlink/rules/claude ~490, largest),
       _python_setup, _subprocess (stderr/cleanup), _orchestrator (completion/cleanup).
       Add the row to sandbox/CLAUDE.md's seam table.
+      DOCKERFILE (binding): entrypoint.py ships via single-file `COPY sandbox/entrypoint.py
+      /usr/local/bin/entrypoint.py` (sandbox/Dockerfile:386) and is invoked as that exact
+      path (ENTRYPOINT :391). Keep a THIN executable entrypoint.py shim (chmod +x) that
+      imports + calls the new entrypoint/ sub-package main(), so the COPY + ENTRYPOINT keep
+      working unchanged; verify in-container.
     dependencies: none
   - id: 10
     name: |-
@@ -122,6 +151,8 @@ slices:
       excuse/reopen/timeout/obligation), _queries (snapshot/state/evaluate), _invariants.
       Over the byte cap (102,933) — byte reduction follows the line split. orchestrator/
       CLAUDE.md row.
+      DOCKERFILE (binding): top-level orchestrator module — add
+      `COPY orchestrator/peer_consensus/ ./peer_consensus/` and verify in-container.
     dependencies: none
   - id: 11
     name: |-
@@ -136,6 +167,9 @@ slices:
       + GIT_ALLOWED_COMMANDS data ~784, largest), _branch_detection, _credentials,
       _push_analysis, _attribution (~430), _token, _rebase. Add gateway/CLAUDE.md seam
       table + row.
+      DOCKERFILE (binding): gateway/ ships via the non-recursive `COPY gateway/*.py ./`
+      (gateway/Dockerfile:67) — add `COPY gateway/git_client/ ./git_client/` and verify
+      via a gateway image build / in-container import.
     dependencies: none
   - id: 12
     name: |-
@@ -147,6 +181,8 @@ slices:
       get_active_docker_containers) + constants. Submodules: _lifecycle, _git_ops (~970,
       largest), _filesystem, _phase, _removal, _listing, _orphan_mgmt (~629), _session,
       _validation, _startup. Over byte cap (106,355). gateway/CLAUDE.md row.
+      DOCKERFILE (binding): add `COPY gateway/worktree_manager/ ./worktree_manager/` to
+      gateway/Dockerfile and verify in-container.
     dependencies: none
   # ===================== WAVE 3 — ~2.9–3.4x cap, one over-cap cluster each =======
   - id: 13
@@ -157,6 +193,8 @@ slices:
       Keep the class + handle_tool_call dispatch in __init__.py. Submodules: _task_handlers
       (~680), _status, _phase_handlers, _agent_handlers, _consensus, _config, _deployment,
       _gateway. Over byte cap (130,445). orchestrator/CLAUDE.md row.
+      DOCKERFILE (binding): top-level orchestrator module — add
+      `COPY orchestrator/mcp_tools/ ./mcp_tools/` and verify in-container.
     dependencies: none
   - id: 14
     name: |-
@@ -167,6 +205,8 @@ slices:
       Submodules: _agent_spawning (~750), _job_lifecycle, _restart_tracking, _worktree_reuse,
       _session, _job_names. Over byte cap (139,815) — line split drives byte reduction.
       orchestrator/CLAUDE.md row.
+      DOCKERFILE (binding): top-level orchestrator module — add
+      `COPY orchestrator/kubernetes_spawner/ ./kubernetes_spawner/` and verify in-container.
     dependencies: none
   - id: 15
     name: |-
@@ -191,6 +231,8 @@ slices:
       (section g): _pr/ (create/update/format ~1,560 -> _pr_create/_pr_update/_pr_format)
       and _branches/ (queries/merge-base/rebase-onto/fetch ~1,760 -> _branch_queries/
       _merge/_rebase_onto). orchestrator/CLAUDE.md row.
+      DOCKERFILE (binding): top-level orchestrator module — add
+      `COPY orchestrator/gateway_client/ ./gateway_client/` and verify in-container.
     dependencies: none
   - id: 17
     name: |-
@@ -202,6 +244,8 @@ slices:
       Submodules (12): _helpers, _health, _pipeline, _signal, _phase, _decision, _container,
       _gateway, _message (~663, largest), _overseer, _consensus, _brc, _progress. Add the
       sandbox/CLAUDE.md row.
+      DOCKERFILE (verify, not assumed): same egg_lib packaging check as slice 1 — confirm
+      orch_cli/ imports in-container before landing.
     dependencies: none
   # ===================== WAVE 5 — structural outliers (PR stacks) ================
   - id: 18
@@ -221,6 +265,10 @@ slices:
       _github_routes/ (pr-write/execute ~669/pr-query), _jira_routes/ (read/write). Re-export
       the ~12 gateway.gateway.* patch targets (audit per section d). Add gateway/CLAUDE.md
       rows. Independent of slice 19 — may run in parallel.
+      DOCKERFILE (binding): gateway.py ships via the non-recursive `COPY gateway/*.py ./`
+      (gateway/Dockerfile:67). gateway/gateway/ is no longer matched — add
+      `COPY gateway/gateway/ ./gateway/` (step-0 or final PR of the stack) and verify with
+      a gateway image build / in-container import.
     dependencies: none
   - id: 19
     name: |-
