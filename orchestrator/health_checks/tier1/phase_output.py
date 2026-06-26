@@ -126,6 +126,32 @@ class PhaseOutputPresenceCheck:
                 reasoning=f"Branch has new commits beyond {base_ref_display}.",
             )
 
+        # Lifecycle-owner-aware guard (#3230 / #2270 §2): under #3064
+        # orchestrator-owned spawning a phase passes through brief windows where
+        # an earlier one-shot agent has exited COMPLETE and the orchestrator is
+        # about to spawn the next one — the commit-bearing agent has not run
+        # yet. That is a producer *drafting under orchestrator-owned spawn*, not
+        # "a phase that produced no work". Treating it as DEGRADED is exactly
+        # the false stall the overhaul targets, so defer the alert while the
+        # orchestrator owns the lifecycle and a spawn is queued.
+        if self._lifecycle_owner(context) == "orchestrator" and self._awaiting_spawn(context):
+            return HealthResult(
+                status=HealthStatus.HEALTHY,
+                check_name=self.name,
+                tier=self.tier,
+                reasoning=(
+                    f"{len(completed_agents)} agent(s) completed without commits, "
+                    f"but the orchestrator owns the lifecycle and has the next "
+                    f"one-shot agent queued (awaiting_spawn) — drafting in "
+                    f"progress, not a stall."
+                ),
+                details={
+                    "completed_agent_count": len(completed_agents),
+                    "lifecycle_owner": "orchestrator",
+                    "awaiting_spawn": True,
+                },
+            )
+
         # Agents completed but no commits anywhere
         return HealthResult(
             status=HealthStatus.DEGRADED,
@@ -142,6 +168,22 @@ class PhaseOutputPresenceCheck:
                 "agents_with_commits": 0,
             },
         )
+
+    @staticmethod
+    def _lifecycle_owner(context: PipelineHealthContext) -> str:
+        """Resolve the phase's lifecycle owner, defaulting to ``orchestrator``.
+
+        Reads :pyattr:`PipelineHealthContext.lifecycle_owner` defensively so a
+        context that predates the #3230 property still behaves (the property is
+        always present today; ``getattr`` keeps the check import-order robust).
+        """
+        owner = getattr(context, "lifecycle_owner", None)
+        return str(owner) if owner else "orchestrator"
+
+    @staticmethod
+    def _awaiting_spawn(context: PipelineHealthContext) -> bool:
+        """Whether the orchestrator has the next one-shot agent queued (#3230)."""
+        return bool(getattr(context, "awaiting_spawn", False))
 
     def _check_plan_outputs(self, context: PipelineHealthContext) -> HealthResult:
         """Check that plan phase produced architect output."""
