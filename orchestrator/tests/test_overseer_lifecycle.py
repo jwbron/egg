@@ -6,8 +6,10 @@ slice-4 (the orchestrator-side detection plane), which is the replacement that
 MUST exist before the respawn machinery is removed.
 
 This module is the **tester contract** that pins the slice-5 production surface;
-the coder reconciles ``routes/pipelines.py``, ``overseer/monitor.py``, and
-``models.py`` to it — the same tester-leads-coder flow used in slices 2, 3 and 4.
+the coder reconciled ``routes/pipelines.py``, ``overseer/monitor.py``, and
+``models.py`` to it (commits ``2641ebff7`` → ``a7e19205c``, tasks 5-1/5-2
+complete) — the same tester-leads-coder flow used in slices 2, 3 and 4. The
+assertions track the names, signatures and polarity the coder ultimately shipped.
 
 Production surface this contract pins
 -------------------------------------
@@ -15,7 +17,9 @@ Production surface this contract pins
 * ``routes.pipelines`` **no longer defines** ``_check_and_respawn_overseer`` and
   carries no per-overseer respawn-counter machinery (``overseer_respawn_count`` /
   ``max_overseer_respawns`` locals). The standing-pod respawn loop is folded into
-  the general agent-restart machinery — net-negative lines (task-5-1).
+  the general agent-restart machinery — net-negative lines (task-5-1). The
+  absence of ``_check_and_respawn_overseer`` is the **integration sentinel** this
+  module keys its skip→strict guard on (see below).
 
 * ``routes.pipelines._overseer_should_be_present(*, running_agent_count,
   pipeline_status) -> bool`` — the gate that guarantees **no overseer during a
@@ -24,30 +28,34 @@ Production surface this contract pins
       "no overseer during HITL waits with no agents running" guarantee), and
     - a terminal status (COMPLETE / FAILED / CANCELLED) ⇒ ``False`` regardless
       of the count, and
-    - ``running_agent_count > 0`` on a ``RUNNING`` pipeline ⇒ ``True``.
+    - ``running_agent_count > 0`` on a non-terminal pipeline ⇒ ``True``.
 
 * ``overseer.monitor.OverseerMonitor.reset_escalation_history()`` — clears the
   per-agent escalation history on restart; idempotent (task-5-2).
 
 * ``overseer.monitor.OverseerMonitor.generation`` (int, default ``0``) plus
   ``reset_generation(generation=None)`` — the generation token reset on
-  orchestrator pod recycle: advancing/resetting the token also clears the
-  escalation history so stale escalation state can't cascade across generations
-  (task-5-2).
+  orchestrator pod recycle. With an explicit ``generation`` the token is set to
+  that value; with ``generation=None`` (the default recycle shape) the token is
+  advanced by one. Either way the escalation history is cleared so stale
+  escalation state can't cascade across generations (task-5-2).
 
-Skip→strict convention
-----------------------
+Skip→strict convention (hardened against wrong-surface)
+-------------------------------------------------------
 
 Each row **skips** while the coder's slice-5 surface is absent (so the suite is
 green on the tester's standalone branch and the BRC check-gate passes) and turns
-into a **strict assertion** the moment that surface lands at slice integration —
-the same green-while-coder-works / strict-at-integration behaviour slice-4 got
-from ``pytest.importorskip``. This module can't ``importorskip`` (the overseer
-package already imports), so the guard is per-row: resolve the target surface,
-``pytest.skip`` if it isn't there yet, otherwise assert. The test bodies exercise
-the real ``_escalation_history`` mechanism, so each asserts genuine behaviour the
-moment the new surface lands — and would fail loudly if the coder shipped it
-wrong.
+into a **strict assertion** the moment that surface lands at slice integration.
+
+The naive skip-guard has a hole the reviewer flagged: if the coder ships a
+*differently-named* surface, the pinned name stays absent and the row skips
+**forever**, silently verifying nothing. To close it, the guard is keyed to an
+**integration sentinel independent of every asserted surface**: the deletion of
+``_check_and_respawn_overseer`` (task-5-1). Once that helper is gone the whole
+slice-5 coder commit has landed, so every pinned surface MUST be present — and a
+still-absent name becomes a **loud failure**, not a silent skip. This makes a
+future wrong-surface coder change fail at integration instead of passing
+unnoticed.
 """
 
 from __future__ import annotations
@@ -98,11 +106,53 @@ except (ImportError, ModuleNotFoundError) as exc:  # pragma: no cover - import g
     )
 
 
+# ---------------------------------------------------------------------------
+# Integration sentinel + hardened skip→strict guard
+# ---------------------------------------------------------------------------
+
+# The symbol whose *deletion* marks the slice-5 coder commit as landed. It is
+# independent of every surface this module asserts, so keying the guard off it
+# can't be defeated by a wrong-named surface (the failure mode the reviewer
+# flagged).
+_INTEGRATION_SENTINEL = "_check_and_respawn_overseer"
+
+
 def _pipelines_module():
     """Import ``routes.pipelines`` fresh for symbol-table assertions."""
     import routes.pipelines as pipelines
 
     return pipelines
+
+
+def _coder_slice5_landed() -> bool:
+    """True once the slice-5 coder commit is in the merge base.
+
+    Detected via the integration sentinel: ``_check_and_respawn_overseer`` is
+    deleted by task-5-1, so its absence means the whole slice-5 coder surface
+    has landed and every pinned symbol MUST now be present.
+    """
+    return not hasattr(_pipelines_module(), _INTEGRATION_SENTINEL)
+
+
+def _require(obj: object, name: str):
+    """Resolve a slice-5 surface under the hardened skip→strict convention.
+
+    * surface present → return it (strict assertion runs).
+    * surface absent **and** coder slice-5 has NOT landed → ``pytest.skip``
+      (green on the tester's standalone branch before the coder reconciles).
+    * surface absent **and** coder slice-5 HAS landed → ``pytest.fail`` — a
+      wrong-surface regression that must be loud at integration, never a silent
+      skip.
+    """
+    if hasattr(obj, name):
+        return getattr(obj, name)
+    if _coder_slice5_landed():
+        pytest.fail(
+            f"{name} is absent though the slice-5 coder surface has landed "
+            f"({_INTEGRATION_SENTINEL} is gone) — wrong-surface regression: the "
+            "delivered name/signature diverged from this contract (#2270 §3)."
+        )
+    pytest.skip(f"{name} not landed by the coder yet — strict at integration")
 
 
 def _make_monitor() -> OverseerMonitor:
@@ -126,24 +176,6 @@ def _seed_escalations(monitor: OverseerMonitor) -> None:
         )
 
 
-def _require(obj: object, name: str, *, absent: bool = False):
-    """Skip-guard the slice-5 surface (skip→strict convention).
-
-    With ``absent=False`` (default): return ``getattr(obj, name)``, or skip if it
-    is not present yet (a new-surface row). With ``absent=True``: skip while the
-    named attribute is STILL present (a deletion-regression row that has not
-    folded yet); the caller then asserts its absence.
-    """
-    present = hasattr(obj, name)
-    if absent:
-        if present:
-            pytest.skip(f"{name} not yet folded by the coder — strict at integration")
-        return None
-    if not present:
-        pytest.skip(f"{name} not landed by the coder yet — strict at integration")
-    return getattr(obj, name)
-
-
 # ===========================================================================
 # task-5-1 — respawn churn retired (deletion regression, net-negative)
 # ===========================================================================
@@ -158,11 +190,15 @@ class TestRespawnChurnRetired:
         Deletion regression for coder task-5-1: the overseer-specific respawn
         helper has no phase-agent analog and folds into the general
         agent-restart machinery. Skips while still present; strict at
-        integration once the fold lands.
+        integration once the fold lands. (This is also the integration sentinel
+        the rest of the module keys its hardened guard on.)
         """
         pipelines = _pipelines_module()
-        _require(pipelines, "_check_and_respawn_overseer", absent=True)
-        assert not hasattr(pipelines, "_check_and_respawn_overseer"), (
+        if hasattr(pipelines, _INTEGRATION_SENTINEL):
+            pytest.skip(
+                f"{_INTEGRATION_SENTINEL} not yet folded by the coder — strict at integration"
+            )
+        assert not hasattr(pipelines, _INTEGRATION_SENTINEL), (
             "_check_and_respawn_overseer must be folded into the general "
             "agent-restart machinery — no bespoke overseer respawn loop (#2270 §3)"
         )
@@ -179,8 +215,7 @@ class TestRespawnChurnRetired:
         source = Path(pipelines.__file__).read_text(encoding="utf-8")
         if "overseer_respawn_count" in source or "max_overseer_respawns" in source:
             pytest.skip(
-                "respawn-counter machinery not yet folded by the coder — "
-                "strict at integration"
+                "respawn-counter machinery not yet folded by the coder — strict at integration"
             )
         assert "overseer_respawn_count" not in source, (
             "the per-overseer respawn counter must be gone — respawn churn is "
@@ -247,9 +282,7 @@ class TestNoOverseerDuringZeroAgentPark:
     def test_terminal_status_never_present(self, terminal) -> None:
         """A terminal pipeline never gets an overseer, regardless of agent count."""
         should_be_present = self._predicate()
-        assert (
-            should_be_present(running_agent_count=3, pipeline_status=terminal) is False
-        )
+        assert should_be_present(running_agent_count=3, pipeline_status=terminal) is False
 
 
 # ===========================================================================
@@ -303,11 +336,7 @@ class TestGenerationTokenResetOnRecycle:
         escalation state forward (no cross-generation leakage).
         """
         monitor = _make_monitor()
-        if not hasattr(monitor, "generation"):
-            pytest.skip(
-                "OverseerMonitor.generation not landed by the coder yet — "
-                "strict at integration"
-            )
+        _require(monitor, "generation")
         assert monitor.generation == 0
         residual = sum(len(h) for h in monitor._escalation_history.values())
         assert residual == 0
@@ -321,6 +350,7 @@ class TestGenerationTokenResetOnRecycle:
         """
         monitor = _make_monitor()
         reset_generation = _require(monitor, "reset_generation")
+        _require(monitor, "generation")
         _seed_escalations(monitor)
 
         reset_generation(5)
@@ -332,12 +362,18 @@ class TestGenerationTokenResetOnRecycle:
         """``reset_generation()`` with no explicit token still clears history.
 
         The default-call shape (recycle without a caller-supplied token) must
-        not silently retain prior-generation escalation state.
+        advance the token by one and not silently retain prior-generation
+        escalation state.
         """
         monitor = _make_monitor()
         reset_generation = _require(monitor, "reset_generation")
+        _require(monitor, "generation")
         _seed_escalations(monitor)
+        before = monitor.generation
 
         reset_generation()
+        assert monitor.generation == before + 1, (
+            "default reset_generation() must advance the token by one"
+        )
         residual = sum(len(h) for h in monitor._escalation_history.values())
         assert residual == 0
