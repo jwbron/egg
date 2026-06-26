@@ -29,7 +29,16 @@ class TestPytestConfigConsolidation:
         assert "[tool.pytest.ini_options]" in content
 
     def test_pyproject_testpaths_include_all_suites(self):
-        """testpaths must include tests/, gateway/tests/, and orchestrator/tests/."""
+        """testpaths must list every Python test root in the repo.
+
+        Issue #3302 wired the orphaned test roots (``sandbox/tests``,
+        ``scripts/tests``, ``shared/egg_anchor/tests``,
+        ``shared/egg_contracts/tests``) into ``testpaths`` so bare
+        ``pytest`` / ``make test-all`` collect them.
+        ``scripts/check-test-roots.py`` is the authoritative dynamic guard;
+        this assertion pins the expected set so drift between the two
+        surfaces is caught here too.
+        """
         import tomllib
 
         with open(REPO_ROOT / "pyproject.toml", "rb") as f:
@@ -44,6 +53,11 @@ class TestPytestConfigConsolidation:
             # #2270 task-7-2: the new shared/egg_agent/tests root (home of
             # test_midturn_messages.py / the #3123 regression) must be collected.
             "shared/egg_agent/tests",
+            # #3302: previously-orphaned test roots, now wired in atomically.
+            "shared/egg_anchor/tests",
+            "shared/egg_contracts/tests",
+            "sandbox/tests",
+            "scripts/tests",
         }
         assert set(testpaths) == expected, (
             f"testpaths={testpaths} does not match expected={expected}"

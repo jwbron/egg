@@ -14,6 +14,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -130,8 +131,13 @@ class TestScriptEntryPoint:
         config_path = tmp_path / "repositories.yaml"
         config_path.write_text(f"local_repos:\n  paths:\n  - {repo_a}\n  - {repo_b}\n")
 
+        # Invoke through sys.executable rather than the script's
+        # `#!/usr/bin/env python3` shebang: the builder imports PyYAML, which
+        # lives in the project venv. On a bare runner `env python3` can resolve
+        # to an interpreter without PyYAML (the script then exits 1), so pin the
+        # same interpreter that runs the test suite.
         proc = subprocess.run(
-            [str(_BUILDER_PATH), str(config_path)],
+            [sys.executable, str(_BUILDER_PATH), str(config_path)],
             capture_output=True,
             text=True,
             check=True,
