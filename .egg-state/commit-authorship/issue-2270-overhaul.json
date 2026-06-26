@@ -184,6 +184,14 @@
       "repo": null,
       "role": "tester"
     },
+    "6e8a7d6b3595ccf43b4af6e2367f559c1e18503e": {
+      "branch": "egg/issue-2270-overhaul/slice-8",
+      "patch_id": "05c63a813d17cf3991729657328416d749a32b62",
+      "pipeline_id": "issue-2270-overhaul",
+      "registered_at": "2026-06-26T09:31:19.476165+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "7319a5f1421ff73b0bab898dcaf3fd4d66ec6f64": {
       "branch": "egg/issue-2270-overhaul/slice-6",
       "patch_id": "8da5faceb6c4c943bec823e66514c1d5423c7bb5",
