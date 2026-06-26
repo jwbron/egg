@@ -158,7 +158,15 @@ orchestrator/
 │   │   ├── startup_state.py        # Post-startup reconciliation verification
 │   │   ├── phase_output.py         # Detect missing artifacts (commits, plans)
 │   │   ├── consensus_stall.py      # Detect BRC consensus-complete-but-phase-stuck
-│   │   └── state_consistency.py    # Cross-reference orchestrator state vs Docker vs contract
+│   │   ├── state_consistency.py    # Cross-reference orchestrator state vs Docker vs contract
+│   │   ├── brc_thrashing.py        # BRC thrash detectors (NACK→propose→NACK loops, incomplete-consensus deferral)
+│   │   ├── container_k8s.py        # Container/K8s detectors (death, OOM eviction, restart loop, overseer self-injection)
+│   │   ├── cost_budget.py          # Cost/token budget anomaly detector
+│   │   ├── decision_queue.py       # HITL decision queue detectors (auto-advance wedge, orphaned decisions, backlog)
+│   │   ├── gateway_health.py       # Gateway error-spike, repeated-denial, and token-expiry detectors
+│   │   ├── llm_substrate.py        # LLM substrate detectors (Anthropic 5xx, model drift, unreachable)
+│   │   ├── runtime_liveness.py     # Runtime thread liveness, duration drift, agent restart propagation
+│   │   └── worktree_branch.py      # Worktree/disk detectors (corruption, inode pressure, PR external mutation)
 ├── routes/                 # API route handlers
 │   ├── anchors.py          # Agent anchor CRUD and team anchor generation endpoints
 │   ├── commit_authorship.py # Commit-authorship registry endpoints (register + lookup); called by gateway commit observer and push handler
