@@ -24,6 +24,7 @@ overseer never cries wolf on a known-normal input.
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -468,12 +469,14 @@ def test_branch_divergence_uses_ancestor_or_patch_id_not_subject() -> None:
     assert str(finding.finding_class) == "branch_divergence"
 
 
-@pytest.mark.asyncio
-async def test_activity_pattern_vocabulary_is_closed_and_coerced() -> None:
+def test_activity_pattern_vocabulary_is_closed_and_coerced() -> None:
     """§2e / #2059/#2132: the thrashing/spinning/improper-tool-use verdict set is a
     CLOSED vocabulary, and ``classify_activity_pattern`` coerces any out-of-vocab
     classifier output back to the safe default so the verdict can never leak an
     unbounded free-text pattern (the #2059/#2132 "improper tool use" defect).
+
+    The suite has no async-mark plugin (the repo drives coroutines via
+    ``asyncio.run``), so run the awaited body inside an explicit event loop.
     """
     classifier = pytest.importorskip("overseer.classifier")
     ActivityPattern = classifier.ActivityPattern
@@ -494,13 +497,16 @@ async def test_activity_pattern_vocabulary_is_closed_and_coerced() -> None:
     async def _fake_classifier_oov(prompt: str, context: str) -> str:
         return '{"pattern": "made_up_pattern", "confidence": 0.9, "reasoning": "x"}'
 
-    with patch.object(classifier, "_call_classifier", _fake_classifier):
-        classifier._cache.clear()
-        in_vocab = await classifier.classify_activity_pattern(actions)
-    assert in_vocab["pattern"] == ActivityPattern.THRASHING.value
+    async def _run() -> None:
+        with patch.object(classifier, "_call_classifier", _fake_classifier):
+            classifier._cache.clear()
+            in_vocab = await classifier.classify_activity_pattern(actions)
+        assert in_vocab["pattern"] == ActivityPattern.THRASHING.value
 
-    with patch.object(classifier, "_call_classifier", _fake_classifier_oov):
-        classifier._cache.clear()
-        coerced = await classifier.classify_activity_pattern(actions)
-    assert coerced["pattern"] in {p.value for p in ActivityPattern}
-    assert coerced["pattern"] == ActivityPattern.PRODUCTIVE.value
+        with patch.object(classifier, "_call_classifier", _fake_classifier_oov):
+            classifier._cache.clear()
+            coerced = await classifier.classify_activity_pattern(actions)
+        assert coerced["pattern"] in {p.value for p in ActivityPattern}
+        assert coerced["pattern"] == ActivityPattern.PRODUCTIVE.value
+
+    asyncio.run(_run())
