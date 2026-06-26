@@ -240,8 +240,10 @@ operator/user) into the running session as additional context. The
 `orchestrator` role covers deterministic course-correction nudges that
 originate in the orchestrator itself — notably the
 `brc_confirmation_timeout` directed wake to a stuck producer and the
-overseer-respawn broadcast; without it those nudges would be silently
-dropped mid-turn. Peer-agent and protocol traffic (`CONSENSUS_*`,
+orchestrator-emitted `OVERSEER_ALERT` event-loop supervision broadcast
+(`_emit_supervision_alert` — failure-streak exhaustion / convergence
+stalls, #3064); without it those nudges would be silently dropped
+mid-turn. Peer-agent and protocol traffic (`CONSENSUS_*`,
 heartbeats) is never injected — it stays on the between-invocation path
 the wrapper sequences.
 
