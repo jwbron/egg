@@ -520,6 +520,14 @@
       "repo": null,
       "role": "tester"
     },
+    "f8aad4ff55133b5bed11771dee1fa5fb290ca189": {
+      "branch": "egg/issue-2270-overhaul/slice-8",
+      "patch_id": "6920f4312cc8fd63605761df3ef5bb8cfb867fd6",
+      "pipeline_id": "issue-2270-overhaul",
+      "registered_at": "2026-06-26T09:39:12.584872+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "fd8bc60638d386b3105c7a525b53df4468e1ac6e": {
       "branch": "egg/issue-2270-overhaul/slice-3",
       "patch_id": "842fbc650f93cbbf7311a8600dd3c3e9fb05438a",
