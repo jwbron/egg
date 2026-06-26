@@ -91,7 +91,7 @@ test the agent; it tests that detectors set this flag correctly.
 
 ---
 
-## 2. The AC-3 contract: None-on-normal / Finding-on-bad
+## 2. The detector contract: None-on-normal / Finding-on-bad
 
 This is the whole point of the corpus, and it is exactly two rules:
 
