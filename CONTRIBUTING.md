@@ -67,7 +67,9 @@ The pre-commit hooks will automatically check and fix most style issues.
 - **Unit tests**: `tests/` - Fast, isolated tests
 - **Gateway tests**: `gateway/tests/` - Gateway-specific tests
 - **Orchestrator tests**: `orchestrator/tests/` - Orchestrator-specific tests
-- **Shared library tests**: `shared/tests/` - Tests for shared packages (egg_anchor, egg_agent, etc.)
+- **Shared library tests**: `shared/tests/`, `shared/egg_anchor/tests/`, `shared/egg_contracts/tests/`, `shared/egg_agent/tests/` - Tests for shared packages
+- **Sandbox tests**: `sandbox/tests/` - Sandbox-specific tests
+- **Script tests**: `scripts/tests/` - Tests for build/CI scripts
 - **Integration tests**: `integration_tests/` - Tests requiring k3s/Kubernetes cluster
 
 Coverage requirements:
