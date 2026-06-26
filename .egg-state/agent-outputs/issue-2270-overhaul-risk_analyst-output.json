@@ -1,0 +1,226 @@
+{
+  "issue": 2270,
+  "pipeline_id": "issue-2270-overhaul",
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "title": "Risk Assessment: Overseer overhaul (#2270) — Option C hybrid (deterministic orchestrator-side detection + on-demand normal agent), all-in-one §1–§6 scope",
+  "summary": "The HITL ratified the most ambitious feasible combination: Option C (hybrid — retire the standing pod, keep deterministic detection orchestrator-side, spawn a NORMAL on-demand agent only for adversarial adjudication) AND cq-2 all-in-one (deliver the full §1–§6 including the entire §5 coverage-gap survey in one pipeline). This is a large, structurally-sound but wide change touching the orchestrator runtime, the spawn path, the mid-turn injection path, the Tier-1 health-check package, RBAC/authority enforcement, and ~4,000 lines of overseer subsystem code across two containers. The dominant risk is SCOPE BREADTH against a DELETE-AND-REWIRE change: the refiner explicitly recommended spine-first and the operator overrode to all-in-one, so the §5 coverage-gap survey must be delivered without the calibrated-corpus gate that was meant to bound it. Several issue claims are STALE (the §4 roles.py authority point, the §6 issue_filer.py 'unused' premise, the §5 OverseerSelfMonitor 'unwired' premise) — building or deleting against the stale premises is the highest-likelihood way this regresses. Recommendation: PROCEED_WITH_MITIGATIONS, contingent on (a) decomposition into reviewable slices with calibration corpus landed FIRST as the gating deliverable even under all-in-one, (b) locating the real authority-enforcement point before designing §4, and (c) a deletion-safety pass that preserves every behavior the removed code currently provides.",
+  "overall_risk_level": "MEDIUM-HIGH",
+  "overall_risk": "MEDIUM-HIGH",
+  "recommendation": "PROCEED_WITH_MITIGATIONS",
+  "verdict": "PROCEED_WITH_MITIGATIONS",
+  "scope_note": "Grounded on the refine analysis (issue-2270-overhaul-analysis.md, all anchors verified 2026-06-26) and the resolved contract: cq-1=Option C (Hybrid), cq-2=All-in-one (full §1–§6 incl. the §5 survey). This assessment evaluates the implementation risk of that ratified scope; it does NOT re-litigate the architectural fork (settled by HITL).",
+  "plan_reconciliation": "Architect plan/slices and task_planner breakdown were not yet proposed at the time this assessment was authored (all three plan producers WORKING). This risk register is therefore scope-anchored to the approved AC-1..AC-7 in the refine analysis §4, not to a specific task DAG. On re-review of the architect/task_planner proposals I will NACK if: (R1) the §5 survey is delivered breadth-first without the calibration corpus landing first; (R2) §4 authority is designed against the stale roles.py:can_modify point without locating the real gateway/RBAC enforcement; (R4) any of issue_filer.py / OverseerSelfMonitor / spawn_overseer_job removals lack an explicit behavior-preservation task; (R6) the mid-turn injection fix drops 'overseer' from _INJECT_FROM_ROLES bluntly rather than distinguishing agent-bus broadcast from operator HITL.",
+  "risks": [
+    {
+      "id": "R1",
+      "title": "All-in-one scope (cq-2) removes the bound the refiner designed to contain the §5 survey — scope runaway / shallow coverage / un-reviewable diff",
+      "category": "scope",
+      "severity": "HIGH",
+      "likelihood": "LIKELY",
+      "impact": "The refiner's cq-2 recommendation was spine-first precisely because the §5 coverage-gap survey is breadth-unbounded (orchestrator runtime, worktree/branch, container/k8s, gateway, BRC/thrashing, HITL queue, cost/budget, overseer self-health, external state, LLM substrate — ~10 layers, dozens of named detectors). The operator chose all-in-one, which is legitimate but removes the calibrated-corpus gate that was meant to throttle the breadth. Delivering all detectors in one pipeline risks: each new detector class shipping under-calibrated (re-introducing the very cry-wolf problem this ticket exists to fix), a diff too large to review meaningfully, and the calibration deliverable (#1) being starved by survey breadth.",
+      "affected_files": [
+        "orchestrator/health_checks/tier1/",
+        "orchestrator/overseer/monitor.py",
+        "orchestrator/routes/pipelines.py"
+      ],
+      "mitigation": "Even under all-in-one, sequence the work so the §2 calibration corpus (the known-normal/known-bad fixtures) lands and is wired into CI FIRST, and every new §5 detector class must add a corpus entry (known-normal AND known-bad) as part of its own task — no detector merges without its calibration row. Decompose into independently-reviewable slices by layer (runtime / worktree / container / gateway / BRC / cost / self-health / external / LLM-substrate) with explicit depends_on the corpus task. Plan must state the per-detector calibration requirement as an acceptance gate, not an aspiration.",
+      "requires_human_review": false,
+      "review_reason": ""
+    },
+    {
+      "id": "R2",
+      "title": "§4 authority target is STALE — roles.py:can_modify does not enforce the overseer denial; building against it yields authority that is still 403-denied",
+      "category": "correctness",
+      "severity": "HIGH",
+      "likelihood": "LIKELY",
+      "impact": "The issue locates the §4 authority denial at shared/egg_contracts/roles.py:can_modify, but the refine analysis confirmed this is STALE: can_modify uses a FIELD_OWNERSHIP table with no overseer entry, and 'overseer' is not even a Role enum value there. The real register_open_question authorization enforcement lives elsewhere (gateway action-guards / RBAC). If the plan designs the §4 'authorized control-plane path' against roles.py, the corrective vocabulary (nudge, cohort respawn, open-HITL) will compile but still be denied at the true enforcement point — AC-5 silently fails and a confirmed deadlock still cannot open an operator HITL.",
+      "affected_files": [
+        "shared/egg_contracts/roles.py",
+        "gateway/",
+        "orchestrator/overseer/monitor.py"
+      ],
+      "mitigation": "Make 'locate the real authority-enforcement point' an explicit gated task that BLOCKS the §4 design task (depends_on). The locating task must produce a file:line anchor of the actual denial (grep the gateway action-guards / RBAC for register_open_question and the overseer role) and a passing test that demonstrates the current 403, before any authorized-path code is written. AC-5 verification must assert the overseer can open a HITL end-to-end through the real path, not that roles.py was edited.",
+      "requires_human_review": true,
+      "review_reason": "The authorized control-plane path grants the overseer the power to open operator HITLs and issue corrective actions (nudge, cohort respawn). The blast radius of mis-scoping this (e.g. granting broader write authority than intended) is operator-facing and security-relevant — the enforcement-point location and the exact bounded vocabulary should be human-reviewed before implementation."
+    },
+    {
+      "id": "R3",
+      "title": "Deletion against stale 'unused' premises — issue_filer.py IS imported and called; OverseerSelfMonitor IS already wired",
+      "category": "correctness",
+      "severity": "HIGH",
+      "likelihood": "POSSIBLE",
+      "impact": "§6 instructs deleting issue_filer.py on the #1962 'preserved-but-unused' premise, but the refine analysis confirmed it is imported (overseer/__init__.py:27, monitor.py:36) and CALLED (monitor.py:675 file_diagnostic_issue inside _execute_escalation). Deleting it removes the diagnostic-issue-filing path mid-escalation. Symmetrically, §5 implies OverseerSelfMonitor is unwired, but it is already instantiated (monitor.py:111) and health-checked (monitor.py:1995) — the real gap is whether check_health() EMITS alerts or only logs. A delete-or-rewire pass driven by the issue's literal text rather than the live tree will break working behavior.",
+      "affected_files": [
+        "orchestrator/overseer/issue_filer.py",
+        "orchestrator/overseer/__init__.py",
+        "orchestrator/overseer/monitor.py",
+        "orchestrator/overseer/self_monitor.py"
+      ],
+      "mitigation": "Every deletion in §6 must be preceded by a fresh import/call-site grep recorded in the task (the refiner already did this once; re-confirm at implementation time since the tree moves). For issue_filer.py: do NOT delete on the #1962 premise — either keep it or migrate its single call-site explicitly. For OverseerSelfMonitor: scope the §5 task to the actual gap (does check_health emit vs log) rather than 'wire it in'. Net-negative-in-lines remains the goal, but achieved by removing the confirmed-dead surfaces (spawn_overseer_job, overseer_monitor.py 802 lines, _check_and_respawn_overseer 164 lines, EGG_OVERSEER_* flags), not by deleting live code.",
+      "requires_human_review": false,
+      "review_reason": ""
+    },
+    {
+      "id": "R4",
+      "title": "Mid-turn injection fix could suppress REAL operator directives if _INJECT_FROM_ROLES is edited bluntly",
+      "category": "correctness",
+      "severity": "HIGH",
+      "likelihood": "POSSIBLE",
+      "impact": "The §2 alert-reflection vector is real (midturn_messages.py:_INJECT_FROM_ROLES includes 'overseer' with no distinction between an overseer agent-bus broadcast and an operator HITL directive — confirmed this very pipeline: I received an overseer_restart OVERSEER_ALERT mid-turn framed as a binding operator course-correction). But the fix must distinguish message PROVENANCE (agent-bus broadcast vs operator-originated), not simply drop 'overseer' (and 'orchestrator') from the inject set — those roles also carry genuine operator-relayed directives. A blunt removal would silently swallow real operator course-corrections, converting a noise bug into a missed-directive bug (strictly worse — silent).",
+      "affected_files": [
+        "shared/egg_agent/midturn_messages.py",
+        "shared/egg_agent/client.py"
+      ],
+      "mitigation": "The fix must key on a provenance/message_type signal (OVERSEER_ALERT and agent-bus broadcasts are NOT operator HITL directives; operator-relayed messages carry a distinct origin). Add a test asserting: (a) an OVERSEER_ALERT broadcast is NOT injected as an operator directive, AND (b) a genuine operator HITL/directive still IS injected. This case belongs in the §2 calibration corpus as a known-bad (alert-reflection) fixture.",
+      "requires_human_review": false,
+      "review_reason": ""
+    },
+    {
+      "id": "R5",
+      "title": "Branch-divergence detector rewrite (subject-regex → ancestor/patch-id) can regress real merged-main detection",
+      "category": "correctness",
+      "severity": "MEDIUM",
+      "likelihood": "POSSIBLE",
+      "impact": "§2 requires replacing the _BRANCH_DIVERGENCE_PR_RE = r'\\(#\\d+\\)' subject heuristic (pipelines.py:15819) with the correct ancestor-of-origin/main / patch-id test. This is the right fix, but git-ancestry/patch-id logic is subtle: false-negative (missing genuine contamination) is worse than the current false-positive. Patch-id is sensitive to rebases/cherry-picks and whitespace; ancestor checks depend on fetch freshness. A naive rewrite can either still over-flag or, worse, stop flagging real merged-main contamination.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py",
+        "orchestrator/tests/test_branch_divergence_alert.py"
+      ],
+      "mitigation": "Drive the rewrite from corpus fixtures: the #2222/#2224 known-bad (real merged-main contamination) AND known-normal (a legitimate '(#NNNN)'-subject commit that is NOT contamination). Keep the existing test file and extend it; require both a true-positive and a true-negative case to pass. Document the patch-id rebase caveat.",
+      "requires_human_review": false,
+      "review_reason": ""
+    },
+    {
+      "id": "R6",
+      "title": "Option C boundary drift — residual special-case plumbing or the on-demand agent re-introducing the bootstrap surface",
+      "category": "architecture",
+      "severity": "MEDIUM",
+      "likelihood": "POSSIBLE",
+      "impact": "Option C keeps a NORMAL on-demand agent for adversarial adjudication. §1.5's hard constraint is 'if the overseer remains an agent, it is a normal agent — no parallel plumbing.' The risk is a half-migration: spawn_overseer_job folded into spawn_agent_job(agent_role=OVERSEER) but EGG_OVERSEER_* flags / decision_model handling / a trimmed overseer_monitor.py invocation surviving 'just for the adjudication agent' — re-creating in miniature the bespoke-bootstrap surface that caused the §1 self-injection loop. The boundary between 'deterministic orchestrator-side' and 'on-demand agent' must be drawn so the agent carries NO baked-in script and gets its context via tools/MCP/prompt only.",
+      "affected_files": [
+        "orchestrator/kubernetes_spawner.py",
+        "sandbox/overseer_monitor.py",
+        "sandbox/Dockerfile",
+        "orchestrator/models.py"
+      ],
+      "mitigation": "Acceptance must assert NEGATIVES: no EGG_OVERSEER_MODE / EGG_OVERSEER_POLL_INTERVAL / EGG_OVERSEER_DECISION_MODEL anywhere in the spawn path; no spawn_overseer_job; the on-demand adjudication agent spawns through the identical spawn_agent_job + standard entrypoint/image as any other agent, with monitoring data supplied via MCP/prompt (not a baked-in --once script). overseer_monitor.py deleted, not trimmed-and-retained. A grep-based test for the bespoke flags is a cheap, durable guard.",
+      "requires_human_review": false,
+      "review_reason": ""
+    },
+    {
+      "id": "R7",
+      "title": "Removing _check_and_respawn_overseer under #3064 orchestrator-owned spawning can open a detection gap or skip generation/escalation-history reset hygiene",
+      "category": "lifecycle",
+      "severity": "MEDIUM",
+      "likelihood": "POSSIBLE",
+      "impact": "§3 folds the overseer-specific respawn machinery (_check_and_respawn_overseer, pipelines.py:685-848, 164 lines) into general agent-restart machinery or removes it. Under #3064 (merged, orchestrator-owned on-demand spawning) there is no long-lived cohort, so removal is correct — but the transition has two hazards: (a) a window where deterministic detection isn't running because the orchestrator-side evaluation loop isn't yet wired to fire on the same cadence the pod used to; (b) the restart hygiene the issue calls out (clear per-agent escalation history on restart, generation-token reset on orchestrator pod recycle) being dropped on the floor during the rip-out. The live overseer_restart alert I received this turn (old container exited 0, respawned) is direct evidence the churn loop is still active and being removed from under a running system.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py",
+        "orchestrator/health_checks/tier1/"
+      ],
+      "mitigation": "Plan must include an explicit 'detection continuity' task: the orchestrator-side evaluation that replaces the pod's polling must be demonstrably firing (test/telemetry) before _check_and_respawn_overseer is deleted. Restart/recycle hygiene (escalation-history clear, generation-token reset) must be its own task with tests, not a side-effect of the removal. Verify no HITL-park path still expects a standing overseer pod.",
+      "requires_human_review": false,
+      "review_reason": ""
+    },
+    {
+      "id": "R8",
+      "title": "Model tiering via resolve_agent_model — effective-model drift or mis-tiering (everything→Opus cost, or nothing→Opus quality)",
+      "category": "cost",
+      "severity": "MEDIUM",
+      "likelihood": "POSSIBLE",
+      "impact": "§1 deprecates overseer_decision_maker_model (models.py:726-728) and routes through resolve_agent_model with tiering: Haiku classify / Sonnet routine / Opus adversarial. Two failure modes: (a) the tier predicates are mis-set so routine corrective decisions escalate to Opus → cost regression (the ticket is partly ABOUT cost bleed); (b) adversarial escalations silently fall back to Sonnet → re-creates the §1 self-misclassification root cause (Sonnet mis-reads its own bootstrap as injection). classify_model(decision_model) at kubernetes_spawner.py:2919 currently bypasses the resolver; the rewire must be complete or effective-model drift goes undetected.",
+      "affected_files": [
+        "orchestrator/models.py",
+        "orchestrator/kubernetes_spawner.py"
+      ],
+      "mitigation": "Add a test asserting the resolved effective model per tier (classify→Haiku, routine→Sonnet, adversarial→Opus) so drift is caught. Deprecation of overseer_decision_maker_model must be a hard removal of the bypass at kubernetes_spawner.py:2919, with a fallback/default that is Opus (fleet standard) for the decision tier — never Sonnet — so a mis-set predicate fails safe toward quality. Note the cost/quality trade and surface it for human sign-off if the tier predicates are non-obvious.",
+      "requires_human_review": false,
+      "review_reason": ""
+    },
+    {
+      "id": "R9",
+      "title": "Calibration corpus (deliverable #1) becomes a checkbox rather than a real, enforced calibration gate",
+      "category": "process",
+      "severity": "MEDIUM",
+      "likelihood": "POSSIBLE",
+      "impact": "§2 names calibration the #1 deliverable: a TESTED known-normal/known-bad corpus (self-injection loop, alert-reflection, #3230 false stall, #2242 heartbeat-stall, #2222/#2224 branch-divergence, #2948 eviction-misread) that detection is calibrated against. The risk under all-in-one breadth pressure is that the corpus ships as a static fixture file that nothing actually runs detectors against — passing CI without proving any detector's false-positive/false-negative behavior changed. If calibration is decorative, the core complaint (cry-wolf) survives the overhaul.",
+      "affected_files": [
+        "orchestrator/health_checks/",
+        "orchestrator/tests/"
+      ],
+      "mitigation": "The corpus must be executed by a test that runs each relevant detector against each fixture and asserts the EXPECTED classification (known-normal → no alert; known-bad → the specific alert). It is the gating deliverable: AC-3 verification = 'every catalogued false-positive in the corpus no longer fires AND every known-bad still does.' Make this the first slice; later detector slices extend the same harness.",
+      "requires_human_review": false,
+      "review_reason": ""
+    },
+    {
+      "id": "R10",
+      "title": "Two-container blast radius — changes span orchestrator AND sandbox images; partial rollout leaves a mismatched overseer",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "POSSIBLE",
+      "impact": "The overhaul touches both the orchestrator image (health_checks, routes/pipelines, models, kubernetes_spawner, overseer/) and the sandbox image (overseer_monitor.py deletion, Dockerfile, midturn_messages, egg_agent client). Deleting overseer_monitor.py from the sandbox while an older orchestrator still issues `python3 .../overseer_monitor.py --once` (or vice versa) yields a crash-looping or no-op overseer during the rollout window. The mid-turn injection change lives in shared/egg_agent (sandbox-side) while the alert origin is orchestrator-side — they must agree on the provenance signal.",
+      "affected_files": [
+        "sandbox/Dockerfile",
+        "sandbox/overseer_monitor.py",
+        "orchestrator/kubernetes_spawner.py",
+        "shared/egg_agent/midturn_messages.py"
+      ],
+      "mitigation": "Sequence so the orchestrator stops referencing overseer_monitor.py BEFORE the sandbox deletes it (remove the invocation first, then the script). The provenance signal for the injection fix must be defined in shared/ so both sides import one source of truth. Document the deploy ordering in the plan; flag any irreversible deletion that assumes simultaneous image roll.",
+      "requires_human_review": false,
+      "review_reason": ""
+    },
+    {
+      "id": "R11",
+      "title": "shadow→enforce flip for overseer_auto_file_issues_mode is NOT a this-pipeline commitment but may be pulled in under all-in-one momentum",
+      "category": "scope",
+      "severity": "LOW",
+      "likelihood": "POSSIBLE",
+      "impact": "§6 says flip shadow→enforce for overseer_auto_file_issues_mode 'once telemetry validates the gate' — explicitly NOT a refine-time commitment. Under all-in-one 'deliver everything' framing, the plan could pull the flip into this pipeline before telemetry exists, causing the overhauled overseer to start auto-filing issues from freshly-rewritten (and not-yet-field-validated) detectors — a noise vector at exactly the moment detector behavior changed most.",
+      "affected_files": [
+        "orchestrator/overseer/"
+      ],
+      "mitigation": "Keep the flip OUT of this pipeline (it is gated on post-deploy telemetry per §6 and the refine analysis §6 out-of-scope list). The plan should land the calibration + detectors in shadow mode; the enforce flip is a follow-on after telemetry. NACK any task that flips the mode here.",
+      "requires_human_review": false,
+      "review_reason": ""
+    },
+    {
+      "id": "R12",
+      "title": "monitor.py (~2,030 lines) re-decomposition could leak into this pipeline despite riding #2817",
+      "category": "scope",
+      "severity": "LOW",
+      "likelihood": "POSSIBLE",
+      "impact": "§6 and the refine analysis are explicit: monitor.py structural decomposition rides #2817, NOT this pipeline. But Option C retires much of what monitor.py does (the standing-pod loop), so there is strong gravitational pull to 'just decompose it while we're here.' Doing so would balloon the diff, collide with #2817, and entangle behavior-preserving deletions with risky restructuring.",
+      "affected_files": [
+        "orchestrator/overseer/monitor.py"
+      ],
+      "mitigation": "Limit monitor.py edits to behavior-removing deletions required by Option C (rip out the standing-pod loop and respawn coupling) and the OverseerSelfMonitor emission fix — no re-modularization. Plan must state monitor.py decomposition is out of scope (#2817). NACK any task that re-organizes monitor.py's module structure.",
+      "requires_human_review": false,
+      "review_reason": ""
+    }
+  ],
+  "areas_requiring_human_review": [
+    {
+      "area": "§4 authority — real enforcement point + bounded corrective vocabulary",
+      "risk_ids": ["R2"],
+      "reason": "Granting the overseer authority to open operator HITLs and issue corrective actions (nudge, cohort respawn) is operator-facing and security-relevant. The true enforcement point is stale-documented and must be located; the exact bounded vocabulary and its scope should be human-confirmed before implementation."
+    }
+  ],
+  "rollback_plan": "The overhaul is dominantly deletion + rewiring across two images, so rollback hygiene matters. (1) Land behind the existing shadow mode (overseer_auto_file_issues_mode stays shadow) so a regressed detector cannot auto-file. (2) Sequence deletions so the orchestrator stops referencing sandbox-side overseer_monitor.py before the script is removed (R10) — a partial revert must not strand a dangling invocation. (3) Keep the deterministic orchestrator-side evaluation behind a feature gate until the calibration corpus is green, so the old respawn path can be re-enabled if detection continuity (R7) regresses. (4) The model-tier rewire (R8) defaults to Opus for the decision tier (fleet standard), so a bad tier predicate fails safe toward quality, not back to the Sonnet self-injection root cause. Each slice should be independently revertable; avoid a single squash that couples authority (R2) + deletions (R3) + lifecycle (R7).",
+  "implementation_recommendations": [
+    "Land the §2 calibration corpus + its detector-execution harness as slice #1, BEFORE any §5 detector work; make 'adds a known-normal + known-bad corpus row' a per-detector acceptance gate (R1, R9).",
+    "Add a gated 'locate real authority-enforcement point' task that BLOCKS the §4 design, producing a file:line anchor + a failing test demonstrating the current 403 (R2).",
+    "Re-grep import/call-sites at implementation time for every §6 deletion; do NOT delete issue_filer.py on the stale #1962 premise; scope the OverseerSelfMonitor work to the real emit-vs-log gap (R3).",
+    "Fix the mid-turn injection by message provenance/type, not by dropping roles from _INJECT_FROM_ROLES; test both that an OVERSEER_ALERT is NOT injected and a real operator directive still IS (R4).",
+    "Drive the branch-divergence rewrite from corpus true-positive AND true-negative fixtures; extend the existing test file (R5).",
+    "Assert negatives for the special-case removal: no EGG_OVERSEER_* flags, no spawn_overseer_job, no baked-in monitor script on the on-demand agent (R6).",
+    "Make detection-continuity and restart/generation-token hygiene explicit tasks that gate the _check_and_respawn_overseer removal (R7).",
+    "Add a per-tier effective-model test (Haiku/Sonnet/Opus) and hard-remove the classify_model bypass; default decision tier to Opus (R8).",
+    "Sequence two-image deletions (orchestrator drops the invocation first, sandbox deletes the script second); define the injection provenance signal once in shared/ (R10).",
+    "Keep overseer_auto_file_issues_mode shadow→enforce OUT of this pipeline (R11); keep monitor.py decomposition OUT (rides #2817) (R12)."
+  ],
+  "performance_assessment": "Net positive expected: retiring the standing pod respawned every ~90s exit-0 (incl. multi-hour HITL parks with zero agents running) removes a continuous cost-bleed and k8s churn. The model-tier change can REGRESS cost if predicates over-escalate to Opus (R8) — guard with the per-tier test. On-demand adjudication agent spawns only on adversarial escalation, so steady-state compute drops materially.",
+  "security_assessment": "Two security-relevant surfaces. (1) §4 authority (R2): the overseer gains a real, authorized control-plane path to open HITLs and issue corrective actions — scope the bounded vocabulary tightly and confirm the enforcement point; over-granting is the security risk. (2) The §2 alert-reflection vector (R4) is itself a quasi-security issue: agent-bus broadcasts surfacing as 'operator directives' is an in-band injection of instructions into a working agent's context (observed live this pipeline). The fix must be provenance-based or it converts a noise bug into a missed-real-directive bug. No new external attack surface introduced; the on-demand agent runs the standard sandbox image with standard permissions (R6).",
+  "compatibility_assessment": "Cross-image (orchestrator + sandbox) and cross-package (orchestrator/overseer, health_checks, routes/pipelines, models, kubernetes_spawner; shared/egg_agent; shared/egg_contracts) blast radius. Rollout-ordering hazards around overseer_monitor.py deletion and the shared provenance signal (R10). Settles against #3064 (merged) — the no-long-lived-cohort assumption must hold; verify no path still expects a standing overseer pod (R7). Builds on #2813 (model resolver), #2222/#2224 (branch divergence), #3230 (event-loop observability), #3233 (redeploy) — confirm those anchors at implementation time as the tree moves.",
+  "overall_assessment": "Option C + all-in-one is the right architectural shape (ratified by HITL) but the widest feasible delivery of it. The structure is sound — deterministic detection orchestrator-side, on-demand normal agent for adjudication, net-negative-in-lines — and directly attacks the root causes (baked-in bootstrap, Sonnet self-misclassification, respawn churn, lifecycle-blind stall detection, alert reflection). The risk is not the design; it is (a) breadth without the spine-first throttle the refiner recommended, (b) several STALE issue claims that will mislead delete-and-rewire work if taken literally (R2/R3 are the highest-leverage failure modes), and (c) a calibration deliverable that must be enforced, not decorative (R9). PROCEED_WITH_MITIGATIONS: land calibration first even under all-in-one, locate the real authority point before §4, re-grep before every deletion, fix injection by provenance, and gate the lifecycle rip-out on demonstrated detection continuity. One area (§4 authority) warrants explicit human review before implementation."
+}
