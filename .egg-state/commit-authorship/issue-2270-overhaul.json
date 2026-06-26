@@ -15,6 +15,14 @@
       "registered_at": "2026-06-26T00:16:08.403826+00:00",
       "repo": null,
       "role": "refiner"
+    },
+    "eb9326892975bc04475285a2a6a602a66d43d437": {
+      "branch": "egg/issue-2270-overhaul/work",
+      "patch_id": "1b92dec489263c6d97c79c6867eb11d5f60fd420",
+      "pipeline_id": "issue-2270-overhaul",
+      "registered_at": "2026-06-26T03:18:12.088866+00:00",
+      "repo": null,
+      "role": "risk_analyst"
     }
   },
   "version": 2
