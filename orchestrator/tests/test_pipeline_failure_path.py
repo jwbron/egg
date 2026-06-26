@@ -1222,11 +1222,12 @@ class TestWorktreeCreationRetry:
         assert mock_sleep.call_args_list.count(call(2.0)) == 1
         # Pipeline should have progressed past worktree creation to agent spawning.
         # Overseer no longer has a bespoke spawn_overseer_container method (#2270 /
-        # #3290 — it goes through the generic agent spawn path), so the agent
-        # spawn-and-wait call is the deterministic signal that the pipeline got
-        # past worktree creation. Mirrors the assert_not_called() in the
-        # retry-exhausted companion test.
-        mock_spawn_wait.assert_called()
+        # #3290 — it goes through the generic agent spawn path), so the phase-start
+        # overseer spawn lands on spawner.spawn_agent_job(). That call is the
+        # deterministic signal that the pipeline got past worktree creation: the
+        # refine phase runs through _run_concurrent_phase (not _spawn_and_wait),
+        # so spawn_agent_job — not the legacy spawn-and-wait — is what fires.
+        mock_spawner.spawn_agent_job.assert_called()
 
     @patch("routes.pipelines.time.sleep")
     @patch(_COMMON_PATCHES[7])
