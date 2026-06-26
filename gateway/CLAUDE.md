@@ -10,35 +10,24 @@ Policy-enforcement sidecar that sits between agents and GitHub. Validates git/gh
 
 Run `make test` from the repo root — it's changeset-aware and selects only the tests reachable from your diff. `make test-all` runs the full suite. See [docs/guides/testing.md](../docs/guides/testing.md) and the root [CLAUDE.md](../CLAUDE.md#quick-reference). Avoid invoking `pytest` directly: you'll skip the narrowing and may hit venv-PATH issues.
 
-## Submodule seam tables
+## Module layout
 
-Several of the gateway's largest source files are being decomposed into sub-packages so each module fits the 1,500-line / 100 KB cap from `scripts/file-size-allowlist.yaml`. The canonical pattern (sub-package + explicit per-symbol re-export barrel + underscore-prefixed submodules) is documented in [../docs/guides/decomposition-pattern.md](../docs/guides/decomposition-pattern.md). The tables below map each decomposed module to its current submodule layout so contributors can find code without scanning the barrel.
+The gateway is a flat package of single-file modules. `gateway.py` holds the Flask app and the `@app.route(...)` REST handlers; the modules below hold the policy, client, and session logic those handlers call into. Import symbols from the module that owns them (e.g. `from gateway.session_manager import SessionManager`).
 
-The barrel `__init__.py` is the **stable public API** (HITL decision-7 of #2261). External consumers — tests, production importers, mocks — keep importing through the barrel (`from gateway.gateway import get_anthropic_client`); the submodule paths below are package-private and may move between releases. `gateway.py`'s routes still register via `@app.route(...)` decorators on thin wrappers in `__init__.py`; submodules hold the implementation bodies (HITL decision-8, refine feedback Q5).
+| Module | Responsibility |
+|--------|----------------|
+| `gateway.py` | Flask app, REST route handlers for policy-enforced git/gh/Jira/Confluence operations |
+| `policy.py` | Ownership and access-control checks (branch ownership, PR create/edit/comment rules) |
+| `phase_filter.py` | Phase-specific operation restrictions (refine/plan/implement/pr permit/block lists) |
+| `agent_restrictions.py` | Per-role file-write boundaries enforced on push |
+| `git_client.py` | `git` CLI wrapper: path/argument validation, credential-helper management |
+| `github_client.py` | `gh` CLI wrapper: token management (bot/user modes), command + API-path validation |
+| `worktree_manager.py` | Git worktree lifecycle, orphan cleanup, container-to-worktree mapping |
+| `session_manager.py` | Per-container session storage (thread-safe, disk-persisted), repo-mode binding |
+| `token_refresher.py` | GitHub token refresh |
+| `jira_client.py` / `jira_policy.py` | Jira REST client and write-policy checks for `/api/v1/jira/*` routes |
+| `confluence_client.py` | Read-only Confluence REST client |
+| `routing_policy.py` / `repo_parser.py` / `repo_visibility.py` / `private_repo_policy.py` | Upstream routing, repo identity parsing, and visibility/private-repo policy |
+| `rate_limiter.py` / `commit_observer.py` / `phase_api.py` | Rate limiting, commit observation, and the phase-state API surface |
 
-### `gateway/gateway/` — TBD (#2261 slice-14)
-
-Placeholder. Slice-14 of #2261 lands the decomposition of
-`gateway/gateway.py` (~9,890 lines). Pre-allocated submodule
-clusters per the plan:
-
-| Submodule | Owned symbols |
-|-----------|---------------|
-| `_git_routes/` | TBD — `git_push`, `git_execute`, `git_fetch` (+ named helpers split out of the security-critical `git_push` mega-handler, R5 mitigation) |
-| `_jira_routes/` | TBD — Jira reads, writes, validators |
-| `_auth.py` | TBD — credential injection / token refresh |
-| `_sessions.py` | TBD — session lifecycle |
-| `_app_factory.py` | TBD — Flask app construction, middleware wiring |
-
-The terminal slice (#2261 slice-14) replaces the TBD rows with the
-concrete submodule layout once the decomposition lands.
-
-### Other in-flight decompositions
-
-The following gateway-side files are also under decomposition in
-#2261; rows will be filled in as each slice lands:
-
-| File | Current size | Slice |
-|------|--------------|-------|
-| `gateway/worktree_manager.py` | ~2,090 lines | slice-8 (#2261) |
-| `gateway/git_client.py` | ~2,032 lines | slice-6 (#2261) |
+When a module outgrows the 1,500-line / 100 KB cap in `scripts/file-size-allowlist.yaml`, decompose it into a sub-package following the canonical pattern (sub-package + explicit per-symbol re-export barrel + underscore-prefixed submodules) in [../docs/guides/decomposition-pattern.md](../docs/guides/decomposition-pattern.md). Once decomposed, the barrel `__init__.py` becomes the stable public API: external consumers import through the barrel while submodule paths stay package-private.
