@@ -39,8 +39,8 @@ files:
   orchestrator/agent_model_resolution.py: 3
   orchestrator/agent_salvage.py: 1
   orchestrator/cli.py: 1
-  orchestrator/concurrent_executor.py: 18
-  orchestrator/consensus_wrapper.py: 13
+  orchestrator/concurrent_executor.py: 19
+  orchestrator/consensus_wrapper.py: 14
   orchestrator/dag_visualizer.py: 1
   orchestrator/env_config.py: 2
   orchestrator/event_loop.py: 26
@@ -81,7 +81,9 @@ files:
   orchestrator/routes/messages.py: 2
   orchestrator/routes/phases.py: 7
   orchestrator/routes/pipelines.py: 232
+  orchestrator/routes/session_state.py: 1
   orchestrator/routes/signals.py: 13
+  orchestrator/session_state_store.py: 2
   orchestrator/slice_scheduler.py: 4
   orchestrator/stacked_pr_reconciler.py: 10
   orchestrator/startup_reconciliation.py: 10
@@ -96,6 +98,7 @@ files:
   sandbox/egg_agent_tools/handlers/progress.py: 1
   sandbox/egg_agent_tools/handlers/task.py: 1
   sandbox/egg_lib/orch_cli.py: 28
+  sandbox/egg_lib/session_state_sync.py: 1
   sandbox/llm/claude/runner.py: 1
   shared/egg_agent/client.py: 5
   shared/egg_agent/measurement.py: 15
