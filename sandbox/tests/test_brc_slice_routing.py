@@ -31,6 +31,11 @@ _PROPOSE_REQ = {
     "tests_run": [],
     "tasks": [],
     "attestation": {},
+    # Supply an explicit commit SHA so brc_propose does not fall back to
+    # `git rev-parse HEAD`. These tests exercise slice_id routing, not HEAD
+    # resolution, and the fallback shells out to git in EGG_REPO_PATH — which
+    # need not exist (e.g. the CI runner), making the suite environment-dependent.
+    "commit_sha": "0123456789abcdef0123456789abcdef01234567",
 }
 
 _ACK_REQ = {
