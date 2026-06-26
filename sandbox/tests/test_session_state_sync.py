@@ -118,6 +118,7 @@ class TestPushRead:
         body = sync.read_state_for_push(
             repo_path="/repo", config_dir=tmp_path / "cfg", session_state_file=str(ssf)
         )
+        assert body is not None
         assert body["session_id"] == "sid-1"
         assert body["transcript"] is None
 

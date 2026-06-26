@@ -20,7 +20,7 @@ from egg_lib import cli_session_state as cli
 from egg_lib import orch_cli, session_state_sync
 
 
-def _args(**kw):
+def _args(**kw: object) -> argparse.Namespace:
     ns = argparse.Namespace(session_state_file=None, repo_path=None, config_dir=None)
     for k, v in kw.items():
         setattr(ns, k, v)
