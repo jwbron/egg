@@ -83,8 +83,16 @@ The algorithm is:
 4. **Build the grimp graph.** A module-level static import graph
    over a single `PACKAGES` constant covering every source package
    (`gateway`, `orchestrator`, `sandbox`, all `shared.egg_*`
-   subpackages) AND all registered test roots (see `TEST_ROOT_DIRS` in
-   `scripts/select_tests/_constants.py`). Test roots **must** be
+   subpackages) AND the four grimp-registered test roots
+   (`TEST_PACKAGES` — `tests`, `gateway.tests`, `orchestrator.tests`,
+   `shared.tests` — in `scripts/select_tests/_constants.py`). Note this
+   is a deliberately *smaller* set than the 9-root `TEST_ROOT_DIRS` used
+   by the full-suite emission sites (§"Orphan-root guard"): the 5 newer
+   roots (`sandbox/tests`, `scripts/tests`, `shared/egg_anchor/tests`,
+   `shared/egg_contracts/tests`, `shared/egg_agent/tests`) are collected
+   by the full suite but are **not** nodes in the grimp graph, so
+   changeset-aware narrowing does not trace edges into or out of those
+   test files. Test roots **must** be
    registered — grimp only reports edges between modules it has been
    told about, and an un-registered test root would make the
    downstream-mapping step return an empty set. The graph is cached
@@ -271,7 +279,7 @@ Every invocation also persists a structured record. The schema:
 | `mode` | string | `"narrow"`, `"full_suite"`, or `"bypass"` (PYTEST_ARGS path-bypass). |
 | `trigger` | string | Explicit trigger enum value, or `"none"` for a clean narrow. |
 | `selected_count` | integer | Number of test files emitted. |
-| `total_count` | integer | Total number of test files across all registered test roots. |
+| `total_count` | integer | Total number of test files in the four grimp-registered test roots (`TEST_PACKAGES`). |
 | `compute_ms` | integer | Selector wall-clock in milliseconds. |
 | `pytest_ms` | integer | Pytest wall-clock in milliseconds; written by the Makefile after pytest returns (`select_tests/__main__.py --patch-selection-json --head <sha> --pytest-ms <int>`). |
 | `timestamp` | string | ISO-8601 UTC timestamp. |
