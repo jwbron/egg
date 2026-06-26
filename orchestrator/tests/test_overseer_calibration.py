@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -66,6 +67,39 @@ except ImportError:
     pass
 else:
     register_detector("phase_stall", detect_phase_stall)
+
+# ---------------------------------------------------------------------------
+# Slice-7 bridge (task-7-5): register the §2 signal-calibration detectors so
+# their corpus rows flip from xfail to strict. Same test → production direction
+# as the slice-4 bridge. Each detector is co-located with the production behavior
+# it guards (task-7-2/-3/-4), so the bridge imports each from its real home:
+#   * ``alert_reflection``  ← shared ``egg_agent.midturn_messages`` (intent gate)
+#   * ``heartbeat_stall``   ← ``health_checks.tier1.consensus_stall`` (#2242)
+#   * ``branch_divergence`` ← ``routes.pipelines`` (ancestor/patch-id, #2222/#2224)
+# Each import is isolated so a missing detector leaves only its own row xfail
+# (slice-1 baseline) rather than dropping all three — keeping ``make test`` green
+# on the tester branch alone. ``test_slice7_signal_calibration_rows_are_strict``
+# enforces all three once the slice lands.
+try:
+    from egg_agent.midturn_messages import detect_alert_reflection
+except ImportError:
+    pass
+else:
+    register_detector("alert_reflection", detect_alert_reflection)
+
+try:
+    from health_checks.tier1.consensus_stall import detect_heartbeat_stall
+except ImportError:
+    pass
+else:
+    register_detector("heartbeat_stall", detect_heartbeat_stall)
+
+try:
+    from routes.pipelines import detect_branch_divergence
+except ImportError:
+    pass
+else:
+    register_detector("branch_divergence", detect_branch_divergence)
 
 # Load once at collection time so rows can be parametrized with per-row marks.
 _CORPUS: list[CorpusRow] = load_corpus()
@@ -227,3 +261,246 @@ def test_slice4_detection_plane_rows_are_strict() -> None:
             detector = resolve_detector(row.detector_key)
             assert detector is not None
             assert_row(detector, row)
+
+
+# ---------------------------------------------------------------------------
+# Slice-7 (task-7-5): §2 signal-calibration rows flip to strict.
+# ---------------------------------------------------------------------------
+
+_SLICE7_DETECTOR_KEYS = ("alert_reflection", "heartbeat_stall", "branch_divergence")
+
+
+def test_slice7_signal_calibration_rows_are_strict() -> None:
+    """task-7-5: once slice-7 lands, its §2 corpus rows pass under real detectors.
+
+    Skips on the tester branch alone (the production detectors are not registered
+    yet); on the integrated slice branch it asserts each §2 detector
+    (``alert_reflection`` #2270-§2b, ``heartbeat_stall`` #2242, ``branch_divergence``
+    #2222/#2224) is registered — no longer xfail — and that BOTH its known-bad
+    row AND its known-normal companion satisfy the AC-3 contract under the *real*
+    detector. The known-normal companions are the calibration teeth: they pin the
+    "stop crying wolf" fixes (an informational alert rendered as binding is the
+    only ``alert_reflection`` trigger; a 45 s heartbeat gap with 2.5 s since the
+    last tool call is NOT a ``heartbeat_stall``; an ancestor-of-base / patch-id
+    match is NOT ``branch_divergence`` even with a ``(#NNNN)`` subject).
+    """
+    pytest.importorskip("health_checks.detection_plane")
+
+    missing = [k for k in _SLICE7_DETECTOR_KEYS if resolve_detector(k) is None]
+    if missing:
+        pytest.skip(f"slice-7 §2 detectors not yet registered: {sorted(missing)}")
+
+    slice7_rows = [r for r in _CORPUS if r.delivered_in_slice == 7]
+    assert slice7_rows, "slice-7 must deliver at least one detector row"
+    delivered_keys = {r.detector_key for r in slice7_rows}
+    assert delivered_keys == set(_SLICE7_DETECTOR_KEYS), (
+        f"slice-7 known-bad rows must cover exactly {sorted(_SLICE7_DETECTOR_KEYS)}; "
+        f"got {sorted(delivered_keys)}"
+    )
+
+    # Every slice-7 known-bad row fires the expected finding under the real detector.
+    for row in slice7_rows:
+        detector = resolve_detector(row.detector_key)
+        assert detector is not None, (
+            f"slice-7 detector {row.detector_key!r} must be registered (strict, not xfail)"
+        )
+        assert_row(detector, row)
+
+    # Every known-normal companion of a slice-7 detector stays silent (precision).
+    for row in _CORPUS:
+        if row.detector_key in set(_SLICE7_DETECTOR_KEYS) and not row.is_known_bad:
+            detector = resolve_detector(row.detector_key)
+            assert detector is not None
+            assert_row(detector, row)
+
+
+# ---------------------------------------------------------------------------
+# Focused detector unit tests — the individual §2 fixes (task-7-5 "each fix
+# unit-tested"). These build EventStreamSnapshots directly and assert the
+# discriminating behavior the calibration rows encode, so a regression points at
+# the exact rule that broke rather than at an opaque corpus-row failure.
+# ---------------------------------------------------------------------------
+
+
+def _snapshot(data: dict):
+    """Build an EventStreamSnapshot from a dict (skips if the plane is absent)."""
+    dp = pytest.importorskip("health_checks.detection_plane")
+    return dp.EventStreamSnapshot.from_dict(data)
+
+
+def test_lifecycle_owner_aware_stall_silences_orchestrator_owned_gap() -> None:
+    """§2a / #3230: a RUNNING phase with 0 agents but an orchestrator-owned
+    lifecycle is NOT a stall — the orchestrator is about to spawn the next
+    one-shot agent. The pre-fix detector treated "0 running agents" as wedged.
+    """
+    dp = pytest.importorskip("health_checks.detection_plane")
+    snap = _snapshot(
+        {
+            "snapshot_id": "lifecycle_owned_gap",
+            "phase": "implement",
+            "running_agents": [],
+            "phase_state": {
+                "status": "RUNNING",
+                "lifecycle_owner": "orchestrator",
+                "started_age_s": 100_000,  # far past any grace window
+            },
+            "decision_state": {"pending_hitl": False, "open_decisions": 0},
+        }
+    )
+    assert dp.detect_phase_stall(snap) is None
+
+
+def test_lifecycle_owner_aware_stall_fires_when_nothing_queued() -> None:
+    """§2a / #3230: a RUNNING phase wedged past grace with NO owner queued to
+    spawn the next agent IS the genuine stall — and it escalates to adjudication.
+    """
+    dp = pytest.importorskip("health_checks.detection_plane")
+    snap = _snapshot(
+        {
+            "snapshot_id": "genuine_stall",
+            "phase": "implement",
+            "running_agents": [],
+            "phase_state": {
+                "status": "RUNNING",
+                "lifecycle_owner": "none",
+                "awaiting_spawn": False,
+                "started_age_s": 100_000,
+            },
+            "decision_state": {"pending_hitl": False, "open_decisions": 0},
+            "consensus": {"blocking_agents": ["coder"]},
+        }
+    )
+    finding = dp.detect_phase_stall(snap)
+    assert finding is not None
+    assert str(finding.finding_class) == "phase_stall"
+    assert finding.requires_adjudication is True
+
+
+def test_heartbeat_stall_ignores_heartbeat_gap_with_live_tool_calls() -> None:
+    """§2d / #2242: an agent calling tools every ~2-3 s is working, even if its
+    last *heartbeat* was 45 s ago. Gating on heartbeat age alone produced the
+    #2242 false stalls; the fix requires BOTH tool-call and heartbeat age stale.
+    """
+    consensus_stall = pytest.importorskip("health_checks.tier1.consensus_stall")
+    snap = _snapshot(
+        {
+            "snapshot_id": "heartbeat_gap_but_working",
+            "phase": "implement",
+            "running_agents": [
+                {
+                    "role": "coder",
+                    "state": "WORKING",
+                    "lifecycle_owner": "orchestrator",
+                    "last_tool_call_age_s": 2.5,
+                    "last_heartbeat_age_s": 45.0,
+                }
+            ],
+            "phase_state": {"status": "RUNNING", "started_age_s": 300},
+        }
+    )
+    assert consensus_stall.detect_heartbeat_stall(snap) is None
+
+
+def test_heartbeat_stall_fires_when_no_tool_calls() -> None:
+    """§2d / #2242: a WORKING agent with no tool call for 900 s is genuinely
+    stalled and fires ``heartbeat_stall`` / high.
+    """
+    consensus_stall = pytest.importorskip("health_checks.tier1.consensus_stall")
+    snap = _snapshot(
+        {
+            "snapshot_id": "genuine_heartbeat_stall",
+            "phase": "implement",
+            "running_agents": [
+                {
+                    "role": "coder",
+                    "state": "WORKING",
+                    "lifecycle_owner": "orchestrator",
+                    "last_tool_call_age_s": 900.0,
+                    "last_heartbeat_age_s": 900.0,
+                }
+            ],
+            "phase_state": {"status": "RUNNING", "started_age_s": 1200},
+        }
+    )
+    finding = consensus_stall.detect_heartbeat_stall(snap)
+    assert finding is not None
+    assert str(finding.finding_class) == "heartbeat_stall"
+    assert str(finding.severity) == "high"
+
+
+def test_branch_divergence_uses_ancestor_or_patch_id_not_subject() -> None:
+    """§2c / #2222/#2224: divergence is decided by ancestor-of-base OR patch-id
+    match, NOT by a ``(#NNNN)`` subject. A branch that is an ancestor of base, or
+    whose patch-id matches the merged commit, is clean even if its PR subject
+    "looks like" a merge.
+    """
+    pipelines_mod = pytest.importorskip("routes.pipelines")
+    detect_branch_divergence = pipelines_mod.detect_branch_divergence
+
+    # #2222 false positive: subject-divergence true, but ancestor + patch-id clean.
+    clean = _snapshot(
+        {
+            "snapshot_id": "branch_clean_despite_subject",
+            "phase": "pr",
+            "git_state": {
+                "is_ancestor_of_base": True,
+                "patch_id_matches": True,
+                "pr_subject_divergence": True,
+            },
+        }
+    )
+    assert detect_branch_divergence(clean) is None
+
+    # #2224 real contamination: neither an ancestor nor a patch-id match.
+    contaminated = _snapshot(
+        {
+            "snapshot_id": "branch_contaminated",
+            "phase": "pr",
+            "git_state": {
+                "is_ancestor_of_base": False,
+                "patch_id_matches": False,
+                "pr_subject_divergence": False,
+            },
+        }
+    )
+    finding = detect_branch_divergence(contaminated)
+    assert finding is not None
+    assert str(finding.finding_class) == "branch_divergence"
+
+
+@pytest.mark.asyncio
+async def test_activity_pattern_vocabulary_is_closed_and_coerced() -> None:
+    """§2e / #2059/#2132: the thrashing/spinning/improper-tool-use verdict set is a
+    CLOSED vocabulary, and ``classify_activity_pattern`` coerces any out-of-vocab
+    classifier output back to the safe default so the verdict can never leak an
+    unbounded free-text pattern (the #2059/#2132 "improper tool use" defect).
+    """
+    classifier = pytest.importorskip("overseer.classifier")
+    ActivityPattern = classifier.ActivityPattern
+
+    # The definition is exactly the four first-class verdicts.
+    assert {p.value for p in ActivityPattern} == {
+        "productive",
+        "thrashing",
+        "spinning",
+        "improper_tool_use",
+    }
+
+    actions = [{"tool": "Edit", "result": "error"}, {"tool": "Edit", "result": "error"}]
+
+    async def _fake_classifier(prompt: str, context: str) -> str:
+        return '{"pattern": "thrashing", "confidence": 0.9, "reasoning": "x"}'
+
+    async def _fake_classifier_oov(prompt: str, context: str) -> str:
+        return '{"pattern": "made_up_pattern", "confidence": 0.9, "reasoning": "x"}'
+
+    with patch.object(classifier, "_call_classifier", _fake_classifier):
+        classifier._cache.clear()
+        in_vocab = await classifier.classify_activity_pattern(actions)
+    assert in_vocab["pattern"] == ActivityPattern.THRASHING.value
+
+    with patch.object(classifier, "_call_classifier", _fake_classifier_oov):
+        classifier._cache.clear()
+        coerced = await classifier.classify_activity_pattern(actions)
+    assert coerced["pattern"] in {p.value for p in ActivityPattern}
+    assert coerced["pattern"] == ActivityPattern.PRODUCTIVE.value
