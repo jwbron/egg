@@ -38,10 +38,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"C (recommended) \u2014 Hybrid: deterministic detection + bounded corrective vocabulary run orchestrator-side (kills respawn churn, bootstrap loop, and lifecycle-blind stalls structurally); spawn a NORMAL on-demand agent (spawn_agent_job, Opus-tier, no special plumbing) only to adjudicate adversarial escalations\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-26T03:13:35.705977Z",
       "debounce_until": null
     },
     {
@@ -71,10 +71,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"All-in-one \u2014 deliver the full \u00a71\u2013\u00a76 including the entire \u00a75 coverage-gap survey in this pipeline\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-26T03:13:35.722152Z",
       "debounce_until": null
     }
   ],
