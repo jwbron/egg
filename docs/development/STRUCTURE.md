@@ -159,6 +159,7 @@ orchestrator/
 │   │   ├── phase_output.py         # Detect missing artifacts (commits, plans)
 │   │   ├── consensus_stall.py      # Detect BRC consensus-complete-but-phase-stuck
 │   │   ├── state_consistency.py    # Cross-reference orchestrator state vs Docker vs contract
+│   │   ├── incomplete_consensus_stall.py # BRC consensus incomplete-and-not-progressing (sibling of consensus_stall)
 │   │   ├── brc_thrashing.py        # BRC thrash detectors (NACK→propose→NACK loops, incomplete-consensus deferral)
 │   │   ├── container_k8s.py        # Container/K8s detectors (death, OOM eviction, restart loop, overseer self-injection)
 │   │   ├── cost_budget.py          # Cost/token budget anomaly detector
