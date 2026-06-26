@@ -10,7 +10,8 @@
     "out_of_scope": "Behavior changes (pure refactor; bugs surfaced get a separate 'Part of #3312' follow-up issue, never bundled). Test file size (lint exempts test_*.py / *_test.py / tests/**). Non-Python files (JSON/YAML/Markdown). Decomposing files NOT in the 19-file table. Retargeting #2562 / retagging docs/ #2261 refs is optional bookkeeping, NOT an acceptance gate (see grounding correction).",
     "binding_decisions": "Operator directive (contract task_description) + resolved refine HITL decision-1 (2026-06-26): scope = all 19 files including pipelines.py (~27k) and gateway.py (~10k); _run_pipeline tackled head-on; NO descoping; planner owns ordering/packaging only, not scope reduction. Pattern HITL decisions carried from #2261 via the pattern doc: decision-1 (sub-package not sibling files), decision-5 (explicit per-symbol re-exports), decision-6 (underscore-prefixed submodules), decision-7 (barrel is the stable public API), decision-8 (route decorators stay in __init__.py).",
     "grounding_correction_honored": "The refine analysis corrected a stale issue claim: orchestrator/CLAUDE.md and gateway/CLAUDE.md do NOT currently carry '#2261 slice-N / TBD' placeholder rows (those #2261 refs live in docs/, not the seam tables). So the seam-table work is CREATE concrete submodule rows per landing, not RETAG existing placeholder rows. sandbox/CLAUDE.md exists with no seam table (add one); shared/CLAUDE.md is ABSENT (create it). Binding criterion: concrete seam coverage exists for every in-scope file at its landing.",
-    "ordering_rationale": "Front-load independent per-file slices, structural outliers last (issue 'History' recommendation + refine 'planner owns' note). Given two prior attempts never landed a single decomposition slice, ordering easiest->hardest maximizes banked value: 17 simpler files can land even if pipelines.py/gateway.py stall a third time. The outliers are NOT dropped \u2014 they are scheduled last, still in scope, with their own enriched task sets."
+    "ordering_rationale": "Front-load independent per-file slices, structural outliers last (issue 'History' recommendation + refine 'planner owns' note). Given two prior attempts never landed a single decomposition slice, ordering easiest->hardest maximizes banked value: 17 simpler files can land even if pipelines.py/gateway.py stall a third time. The outliers are NOT dropped \u2014 they are scheduled last, still in scope, with their own enriched task sets.",
+    "v2_changes": "v2 resolves reviewer_plan NACK v1 (R3 Dockerfile-COPY, risk_analyst R3 HIGH). Added same-slice Dockerfile recursive-COPY + image-smoke tasks to the 8 slices that convert a top-level module under a non-recursive glob (orchestrator 3/10/13/14/16, gateway 11/12/18); rewrote slice-9 to a concrete thin-shim entrypoint fix preserving #1799 + a container ENTRYPOINT smoke task; added packaging-confirmation tasks for the transparent-shipping slices (egg_lib 1/17, overseer 8 \u2014 all ship via the recursive whole-repo copy, no flat glob to break); annotated the routes slices (2/4/5/6/15/19) as safe via the recursive routes/ COPY; amended AC-3 (source-tree blind spot) and added AC-8 (container-image COPY parity). No scope change: still all 19 files, no descope."
   },
   "grounding": {
     "pattern_doc": "docs/guides/decomposition-pattern.md (present, 13,292 bytes) \u2014 canonical recipe: (a) sub-package layout, (b) step-0 git mv to __init__.py as its own bisectable baseline commit, (c) method-modules-on-class pattern for class-dominated files, (d) external-importer git grep audit, (e) allowlist-drop + parallel-slice rebase recipe, (f) routes-handling convention (decorators in __init__.py), (g) further-split in-slice rather than a fresh allowlist entry, (h) follow-up-issue convention for surfaced bugs.",
@@ -25,8 +26,7 @@
     "slice_model": "19 per-file decomposition slices (one phase == one slice == one PR), ordered easiest->hardest. SERIALIZED into a single linear dependency chain slice-1 -> slice-2 -> ... -> slice-19: every slice edits scripts/file-size-allowlist.yaml (each removes its own entry), so per #3046 the slices must be ordered along one chain \u2014 independent branches off the shared base would collide at integration on that file. No pattern-adoption parent (merged in #2335). The chain preserves easiest-first ordering so 17 simpler files bank value before the two structural outliers, which sit at the tail.",
     "per_slice_template": "Every slice follows the same five-task internal shape parameterized on the file F: (1) external-importer audit (git grep every public symbol in F), (2) step-0 git mv F.py -> F/__init__.py as a standalone green baseline commit, (3) cluster extraction into _<cluster>.py submodules + explicit per-symbol re-export barrel, (4) allowlist-entry drop + CLAUDE.md seam-table row (further-split in-slice if any submodule lands over the cap; never a fresh allowlist entry), (5) make lint + make test-all green; mechanical test patch-path rewrites in-slice, test-logic rewrites filed as follow-ups.",
     "pr_packaging": "One PR per slice (per file). Each PR drops exactly one allowlist entry and adds exactly one file's seam coverage. The terminal-state acceptance check (allowlist files: map empty) is satisfied cumulatively as the 19th PR lands. Branches prefixed egg/. PR titles: 'refactor(<area>): decompose <file> into a sub-package (Part of #3312)'.",
-    "outlier_handling": "gateway.py (phase-18) and pipelines.py (phase-19) carry enriched task sets: pre-allocated cluster lists, the route-decorator convention (gateway), and the _run_pipeline per-phase-handler split (pipelines). They remain single slices each but with explicit further-split tasks because mechanical extraction alone will leave submodules over the cap.",
-    "container_packaging_R3": "Dockerfiles ship code by flat copy to WORKDIR (PYTHONPATH=/app for orchestrator+gateway; /opt/egg-runtime/sandbox for sandbox), NOT pip-installed source. orchestrator/Dockerfile:44 `COPY orchestrator/*.py ./` and gateway/Dockerfile:67 `COPY gateway/*.py ./` are NON-recursive, so a module that becomes a package dir must get its own `COPY <pkg>/ ./<pkg>/` line in the SAME slice (mirroring the existing explicit routes/ and health_checks/ dir COPYs). sandbox/entrypoint.py is COPYed as a single file and run as the ENTRYPOINT, so its slice keeps a thin shim or updates COPY+ENTRYPOINT together. Files under recursive copies (orchestrator/routes/, `COPY . /opt/egg-runtime/`, shared/egg_contracts/) are transparent. Because all 19 slices are already one linear chain, the 5 orchestrator slices sharing orchestrator/Dockerfile (and 3 sharing gateway/Dockerfile) are correctly serialized under #3046."
+    "outlier_handling": "gateway.py (phase-18) and pipelines.py (phase-19) carry enriched task sets: pre-allocated cluster lists, the route-decorator convention (gateway), and the _run_pipeline per-phase-handler split (pipelines). They remain single slices each but with explicit further-split tasks because mechanical extraction alone will leave submodules over the cap."
   },
   "phases": [
     {
@@ -51,7 +51,7 @@
         {
           "id": "task-1-2",
           "description": "Step-0 baseline: git mv sandbox/egg_lib/contract_cli.py sandbox/egg_lib/contract_cli/__init__.py; verify imports resolve with make test-all; commit as a standalone bisectable baseline (move only, no extraction).",
-          "acceptance_criteria": "Sub-package baseline commit is green (make test-all); diff is a pure move. Container packaging: sandbox/egg_lib/contract_cli ships via the recursive `COPY . /opt/egg-runtime/` (sandbox/Dockerfile:361) + PYTHONPATH -- NO Dockerfile change needed.",
+          "acceptance_criteria": "Sub-package baseline commit is green (make test-all); diff is a pure move.",
           "files_affected": [
             "sandbox/egg_lib/contract_cli/__init__.py"
           ]
@@ -81,6 +81,14 @@
             "sandbox/egg_lib/tests/",
             "tests/"
           ]
+        },
+        {
+          "id": "task-1-6",
+          "description": "R3 packaging confirmation (reviewer_plan NACK v1 #4): sandbox/egg_lib/contract_cli.py ships to the sandbox image via the whole-repo `COPY . /opt/egg-runtime/` (sandbox/Dockerfile:361, RECURSIVE) with PYTHONPATH=/opt/egg-runtime/sandbox (line 378) \u2014 there is NO flat per-file `COPY sandbox/egg_lib/*.py` glob and no pip install of egg_lib, so file->sub-package conversion is TRANSPARENT and needs no Dockerfile change. Confirm at implement time by re-grounding (grep the Dockerfile for any egg_lib glob) and by building the sandbox image + running `python -c \"import egg_lib.contract_cli\"`; only if a flat glob is discovered, add the corresponding recursive COPY in this slice.",
+          "acceptance_criteria": "Confirmed: contract_cli.py ships via the recursive whole-repo copy; the sandbox image builds and `import egg_lib.contract_cli` succeeds; no Dockerfile change required (or, if a flat glob is found, the recursive COPY is added in-slice).",
+          "files_affected": [
+            "sandbox/Dockerfile"
+          ]
         }
       ]
     },
@@ -105,8 +113,8 @@
         },
         {
           "id": "task-2-2",
-          "description": "Step-0 git mv decisions.py -> decisions/__init__.py; green baseline commit.",
-          "acceptance_criteria": "Pure-move baseline commit green. Container packaging: routes/decisions ships via the recursive `COPY orchestrator/routes/ ./routes/` (Dockerfile:45) -- NO Dockerfile change needed.",
+          "description": "Step-0 git mv decisions.py -> decisions/__init__.py; green baseline commit. R3 packaging: routes/* ships via the RECURSIVE `COPY orchestrator/routes/ ./routes/` (orchestrator/Dockerfile:45), which is transparent to file->sub-package conversion \u2014 no Dockerfile change required for this slice (verified against the live tree).",
+          "acceptance_criteria": "Pure-move baseline commit green.",
           "files_affected": [
             "orchestrator/routes/decisions/__init__.py"
           ]
@@ -184,21 +192,20 @@
           ]
         },
         {
-          "id": "task-3-docker",
-          "description": "Container packaging (R3, reviewer-mandated): orchestrator/Dockerfile:44 `COPY orchestrator/*.py ./` is a NON-recursive glob (which is why routes/ and health_checks/ have their own explicit dir COPYs). Converting state_store.py to the package dir state_store/ drops it from the image -> ModuleNotFoundError at runtime (PYTHONPATH=/app). In the SAME slice add `COPY orchestrator/state_store/ ./state_store/` to orchestrator/Dockerfile.",
-          "acceptance_criteria": "orchestrator/Dockerfile copies the new state_store/ package dir; an image build + container import smoke (e.g. `python -c 'import state_store'`) succeeds; the source-tree lint/test gate is NOT relied on to catch this.",
+          "id": "task-3-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
           "files_affected": [
-            "orchestrator/Dockerfile"
+            "orchestrator/tests/",
+            "tests/"
           ]
         },
         {
-          "id": "task-3-5",
-          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice. R3: ALSO build the affected container image and run a container import/entrypoint smoke at this landing boundary (make lint + make test-all run on the SOURCE TREE and cannot catch a missing Dockerfile COPY).",
-          "acceptance_criteria": "Green; no behavior change; the affected image builds and its import/entrypoint smoke passes.",
+          "id": "task-3-6",
+          "description": "R3 container-image COPY parity (BLOCKING, from reviewer_plan NACK v1 / risk_analyst R3): orchestrator/Dockerfile:44 `COPY orchestrator/*.py ./` is a NON-RECURSIVE glob \u2014 it copies only top-level .py files. Once state_store.py becomes the package directory state_store/, that glob stops copying it, so the shipped orchestrator image raises ModuleNotFoundError at runtime even though the source tree is fine. IN THIS SLICE add `COPY orchestrator/state_store/ ./state_store/` to orchestrator/Dockerfile (mirror the existing recursive `COPY orchestrator/routes/ ./routes/` at line 45). Then build the orchestrator image and run an import smoke check (`python -c \"import state_store\"`). make lint + make test-all run on the SOURCE TREE and CANNOT catch a missing COPY \u2014 the image build + import smoke is the only gate that does.",
+          "acceptance_criteria": "orchestrator/Dockerfile recursively copies state_store/ in the SAME slice/PR as the sub-package conversion; the orchestrator image builds and `import state_store` succeeds with no ModuleNotFoundError.",
           "files_affected": [
-            "orchestrator/Dockerfile",
-            "orchestrator/tests/",
-            "tests/"
+            "orchestrator/Dockerfile"
           ]
         }
       ]
@@ -224,8 +231,8 @@
         },
         {
           "id": "task-4-2",
-          "description": "Step-0 git mv phases.py -> phases/__init__.py; green baseline commit.",
-          "acceptance_criteria": "Pure-move baseline commit green. Container packaging: routes/phases ships via recursive `COPY orchestrator/routes/` -- NO Dockerfile change needed.",
+          "description": "Step-0 git mv phases.py -> phases/__init__.py; green baseline commit. R3 packaging: routes/* ships via the RECURSIVE `COPY orchestrator/routes/ ./routes/` (orchestrator/Dockerfile:45), which is transparent to file->sub-package conversion \u2014 no Dockerfile change required for this slice (verified against the live tree).",
+          "acceptance_criteria": "Pure-move baseline commit green.",
           "files_affected": [
             "orchestrator/routes/phases/__init__.py"
           ]
@@ -279,8 +286,8 @@
         },
         {
           "id": "task-5-2",
-          "description": "Step-0 git mv deployment.py -> deployment/__init__.py; green baseline commit.",
-          "acceptance_criteria": "Pure-move baseline commit green. Container packaging: routes/deployment ships via recursive `COPY orchestrator/routes/` -- NO Dockerfile change needed.",
+          "description": "Step-0 git mv deployment.py -> deployment/__init__.py; green baseline commit. R3 packaging: routes/* ships via the RECURSIVE `COPY orchestrator/routes/ ./routes/` (orchestrator/Dockerfile:45), which is transparent to file->sub-package conversion \u2014 no Dockerfile change required for this slice (verified against the live tree).",
+          "acceptance_criteria": "Pure-move baseline commit green.",
           "files_affected": [
             "orchestrator/routes/deployment/__init__.py"
           ]
@@ -334,8 +341,8 @@
         },
         {
           "id": "task-6-2",
-          "description": "Step-0 git mv event_prompt.py -> event_prompt/__init__.py; green baseline commit.",
-          "acceptance_criteria": "Pure-move baseline commit green. Container packaging: routes/event_prompt ships via recursive `COPY orchestrator/routes/` -- NO Dockerfile change needed.",
+          "description": "Step-0 git mv event_prompt.py -> event_prompt/__init__.py; green baseline commit. R3 packaging: routes/* ships via the RECURSIVE `COPY orchestrator/routes/ ./routes/` (orchestrator/Dockerfile:45), which is transparent to file->sub-package conversion \u2014 no Dockerfile change required for this slice (verified against the live tree).",
+          "acceptance_criteria": "Pure-move baseline commit green.",
           "files_affected": [
             "orchestrator/routes/event_prompt/__init__.py"
           ]
@@ -390,7 +397,7 @@
         {
           "id": "task-7-2",
           "description": "Step-0 git mv plan_parser.py -> plan_parser/__init__.py; green baseline commit.",
-          "acceptance_criteria": "Pure-move baseline commit green. Container packaging: shared/egg_contracts/plan_parser ships via recursive `COPY shared/egg_contracts/` + `COPY . /opt/egg-runtime/` -- NO Dockerfile change needed.",
+          "acceptance_criteria": "Pure-move baseline commit green.",
           "files_affected": [
             "shared/egg_contracts/plan_parser/__init__.py"
           ]
@@ -468,21 +475,20 @@
           ]
         },
         {
-          "id": "task-8-docker",
-          "description": "Container packaging (R3) CONFIRMATION: orchestrator/Dockerfile has NO `COPY orchestrator/overseer/` line and `COPY orchestrator/*.py ./` is non-recursive, yet shipped orchestrator code lazily imports `from overseer.* import ...` (orchestrator/routes/pipelines.py, orchestrator/health_checks/detection_plane.py). CONFIRM how overseer/ reaches the orchestrator image BEFORE decomposing monitor.py. If overseer/ ships via a recursive copy, converting monitor.py -> monitor/ is transparent (no Dockerfile change). If it ships via a non-recursive glob, add the matching `COPY orchestrator/overseer/monitor/ ./overseer/monitor/` (or overseer/ dir COPY) in this slice. If the confirmation reveals overseer/ is currently NOT copied at all (a possible PRE-EXISTING packaging bug, independent of this refactor), file it as a separate `Part of #3312` follow-up and do NOT bundle -- but still ensure this slice does not regress monitor.py shipping.",
-          "acceptance_criteria": "overseer/ shipping mechanism confirmed; the monitor/ package is present in the built image (import smoke for the actual lazy-import path succeeds) OR a pre-existing overseer-absence bug is filed separately; this slice does not regress monitor shipping.",
+          "id": "task-8-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
           "files_affected": [
-            "orchestrator/Dockerfile"
+            "orchestrator/tests/",
+            "tests/"
           ]
         },
         {
-          "id": "task-8-5",
-          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice. R3: ALSO build the affected container image and run a container import/entrypoint smoke at this landing boundary (make lint + make test-all run on the SOURCE TREE and cannot catch a missing Dockerfile COPY).",
-          "acceptance_criteria": "Green; no behavior change; the affected image builds and its import/entrypoint smoke passes.",
+          "id": "task-8-6",
+          "description": "R3 packaging confirmation (reviewer_plan NACK v1 #5): orchestrator/overseer/monitor.py becomes orchestrator/overseer/monitor/. There is NO `COPY orchestrator/overseer/` line and NO flat `*.py` glob over overseer/ in orchestrator/Dockerfile, so the file->dir conversion breaks NO flat-glob COPY. overseer/ ships to the agent (sandbox) image via the recursive whole-repo `COPY . /opt/egg-runtime/` (sandbox/Dockerfile:361), transparent to the conversion. CONFIRM at implement time: re-ground the overseer's shipping path (grep all Dockerfiles for an overseer flat glob \u2014 none today), build the image(s) that run the overseer, and smoke-import `overseer.monitor`. Add a recursive COPY ONLY if a flat glob is found; do NOT assume a non-existent COPY.",
+          "acceptance_criteria": "Confirmed: overseer/monitor/ ships via a recursive/whole-tree copy (no flat glob to break); the relevant image builds and `import overseer.monitor` succeeds; a recursive COPY is added only if grounding finds a flat glob.",
           "files_affected": [
-            "orchestrator/Dockerfile",
-            "orchestrator/tests/",
-            "tests/"
+            "sandbox/Dockerfile"
           ]
         }
       ]
@@ -508,23 +514,24 @@
         },
         {
           "id": "task-9-2",
-          "description": "Step-0 git mv entrypoint.py -> entrypoint/__init__.py; green baseline commit. NOTE: verify the container ENTRYPOINT / module-execution path (python -m / direct invocation) still resolves after the package conversion \u2014 entrypoint.py may be the image's launch target.",
-          "acceptance_criteria": "Pure-move baseline commit green; container launch path still resolves.",
+          "description": "Step-0 baseline: git mv sandbox/entrypoint.py sandbox/_entrypoint/__init__.py (the bulk moves into a private sub-package; entrypoint.py is recreated as a thin shim in task-9-3). Verify imports resolve with make test-all and commit as a standalone bisectable baseline. NOTE: the container ENTRYPOINT contract (sandbox/Dockerfile single-file COPY + invocation) is restored within this slice by task-9-6 \u2014 the source-tree make test-all gate stays green across step-0 because it does not build the image.",
+          "acceptance_criteria": "Pure-move baseline commit green (make test-all).",
           "files_affected": [
-            "sandbox/entrypoint/__init__.py"
+            "sandbox/_entrypoint/__init__.py"
           ]
         },
         {
           "id": "task-9-3",
-          "description": "Extract clusters into _<cluster>.py submodules; add __main__.py if the module is executed as a script (mirror scripts/select_tests/ which has __main__.py); explicit per-symbol re-export barrel.",
-          "acceptance_criteria": "All submodules under cap; script-execution entry preserved; barrel re-exports every external symbol.",
+          "description": "Extract the bulk into sandbox/_entrypoint/ submodules (_<cluster>.py, internal __init__.py barrel). RECREATE sandbox/entrypoint.py as a THIN barrel+launcher (well under the cap): it (a) bootstraps sys.path to /opt/egg-runtime/sandbox so the package imports without relying on env propagation (preserves the fixed-path, env-independent intent of issue #1799), (b) explicitly re-exports the public symbols from _entrypoint so existing patch targets like patch(\"entrypoint._foo\") keep resolving (the script-entry exception to decision-1's no-sibling-facade rule, justified by the container's single-file ENTRYPOINT), and (c) provides the `if __name__ == '__main__': main()` launcher. Keep one import style consistent in the package.",
+          "acceptance_criteria": "entrypoint.py is a thin shim well under the cap; all _entrypoint/ submodules under the cap; patch(\"entrypoint._*\") targets still resolve via the shim's explicit re-exports; the package's public API is unchanged.",
           "files_affected": [
-            "sandbox/entrypoint/"
+            "sandbox/entrypoint.py",
+            "sandbox/_entrypoint/"
           ]
         },
         {
           "id": "task-9-4",
-          "description": "Drop entrypoint.py allowlist entry; append a concrete entrypoint/ row to the sandbox/CLAUDE.md seam table created in slice-1.",
+          "description": "Drop entrypoint.py's allowlist entry (the file is now a tiny shim, under the cap); append a concrete row to the sandbox/CLAUDE.md seam table created in slice-1 documenting entrypoint.py (shim) + _entrypoint/ package layout.",
           "acceptance_criteria": "Allowlist entry removed; sandbox/CLAUDE.md row added; lint ratchet passes.",
           "files_affected": [
             "scripts/file-size-allowlist.yaml",
@@ -532,22 +539,21 @@
           ]
         },
         {
-          "id": "task-9-docker",
-          "description": "Container packaging (R3): sandbox/Dockerfile:386 `COPY sandbox/entrypoint.py /usr/local/bin/entrypoint.py` copies entrypoint.py as a single FILE and line 391 invokes it as ENTRYPOINT [\"python3\",\"/usr/local/bin/entrypoint.py\"]. Converting entrypoint.py to a package breaks this. Prescribed fix (pick one, IN THE SAME SLICE): (A) PREFERRED -- keep sandbox/entrypoint.py as a thin executable shim (small, under cap) that imports and calls the decomposed package's main(); the package (sibling name, e.g. sandbox/egg_entrypoint/) lands in the image via the recursive `COPY . /opt/egg-runtime/` and is importable via PYTHONPATH=/opt/egg-runtime/sandbox; the single-file COPY + ENTRYPOINT stay unchanged and the shim's allowlist entry is droppable because the shim is tiny. (B) ALTERNATIVE -- update BOTH the `COPY sandbox/entrypoint.py ...` line and the ENTRYPOINT invocation together to launch the package.",
-          "acceptance_criteria": "After decomposition the container ENTRYPOINT still launches (the `python3 /usr/local/bin/entrypoint.py` path runs end-to-end); entrypoint source is under cap; sandbox/Dockerfile reflects the chosen fix; image build + entrypoint smoke succeed.",
+          "id": "task-9-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
           "files_affected": [
-            "sandbox/Dockerfile",
-            "sandbox/entrypoint.py"
+            "sandbox/tests/",
+            "tests/"
           ]
         },
         {
-          "id": "task-9-5",
-          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice. R3: ALSO build the affected container image and run a container import/entrypoint smoke at this landing boundary (make lint + make test-all run on the SOURCE TREE and cannot catch a missing Dockerfile COPY).",
-          "acceptance_criteria": "Green; no behavior change; the affected image builds and its import/entrypoint smoke passes.",
+          "id": "task-9-6",
+          "description": "R3 container ENTRYPOINT contract (BLOCKING, from reviewer_plan NACK v1 / risk_analyst R3): sandbox/Dockerfile:386 `COPY sandbox/entrypoint.py /usr/local/bin/entrypoint.py` copies a SINGLE FILE, invoked at ENTRYPOINT (line 391) as `python3 /usr/local/bin/entrypoint.py` at a fixed absolute path deliberately independent of env propagation (issue #1799). The thin-shim model (task-9-3) keeps entrypoint.py a single file, so the COPY (386) and ENTRYPOINT (391) stay UNCHANGED \u2014 the shim bootstraps sys.path and delegates to _entrypoint/, which ships via the whole-repo `COPY . /opt/egg-runtime/` (sandbox/Dockerfile:361, recursive). Verify by BUILDING the sandbox image and running a container-start smoke check that the entrypoint launches with no ModuleNotFoundError. (Alternative if the coder prefers a pure package: entrypoint/__init__.py + __main__.py and switch the Dockerfile to a package COPY + `python3 -m entrypoint` \u2014 update COPY and ENTRYPOINT together; this trades away #1799's env-independence, so the thin-shim is the recommended default.) List sandbox/Dockerfile in files.",
+          "acceptance_criteria": "The sandbox image builds and the container ENTRYPOINT starts (smoke check) with no ModuleNotFoundError; #1799's fixed-path, env-independent entrypoint behavior is preserved; if the package-COPY alternative is taken, COPY + ENTRYPOINT are updated together in the same slice.",
           "files_affected": [
             "sandbox/Dockerfile",
-            "sandbox/tests/",
-            "tests/"
+            "sandbox/entrypoint.py"
           ]
         }
       ]
@@ -597,21 +603,20 @@
           ]
         },
         {
-          "id": "task-10-docker",
-          "description": "Container packaging (R3): orchestrator/Dockerfile:44 `COPY orchestrator/*.py ./` is non-recursive. Converting peer_consensus.py to peer_consensus/ drops it from the image. In the SAME slice add `COPY orchestrator/peer_consensus/ ./peer_consensus/` to orchestrator/Dockerfile.",
-          "acceptance_criteria": "orchestrator/Dockerfile copies peer_consensus/; image build + `python -c 'import peer_consensus'` smoke succeeds.",
+          "id": "task-10-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
           "files_affected": [
-            "orchestrator/Dockerfile"
+            "orchestrator/tests/",
+            "tests/"
           ]
         },
         {
-          "id": "task-10-5",
-          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice. R3: ALSO build the affected container image and run a container import/entrypoint smoke at this landing boundary (make lint + make test-all run on the SOURCE TREE and cannot catch a missing Dockerfile COPY).",
-          "acceptance_criteria": "Green; no behavior change; the affected image builds and its import/entrypoint smoke passes.",
+          "id": "task-10-6",
+          "description": "R3 container-image COPY parity (BLOCKING, from reviewer_plan NACK v1 / risk_analyst R3): orchestrator/Dockerfile:44 `COPY orchestrator/*.py ./` is a NON-RECURSIVE glob \u2014 it copies only top-level .py files. Once peer_consensus.py becomes the package directory peer_consensus/, that glob stops copying it, so the shipped orchestrator image raises ModuleNotFoundError at runtime even though the source tree is fine. IN THIS SLICE add `COPY orchestrator/peer_consensus/ ./peer_consensus/` to orchestrator/Dockerfile (mirror the existing recursive `COPY orchestrator/routes/ ./routes/` at line 45). Then build the orchestrator image and run an import smoke check (`python -c \"import peer_consensus\"`). make lint + make test-all run on the SOURCE TREE and CANNOT catch a missing COPY \u2014 the image build + import smoke is the only gate that does.",
+          "acceptance_criteria": "orchestrator/Dockerfile recursively copies peer_consensus/ in the SAME slice/PR as the sub-package conversion; the orchestrator image builds and `import peer_consensus` succeeds with no ModuleNotFoundError.",
           "files_affected": [
-            "orchestrator/Dockerfile",
-            "orchestrator/tests/",
-            "tests/"
+            "orchestrator/Dockerfile"
           ]
         }
       ]
@@ -661,21 +666,20 @@
           ]
         },
         {
-          "id": "task-11-docker",
-          "description": "Container packaging (R3): gateway/Dockerfile:67 `COPY gateway/*.py ./` is a NON-recursive glob. Converting git_client.py to git_client/ drops it from the image -> ModuleNotFoundError at runtime (PYTHONPATH=/app). In the SAME slice add `COPY gateway/git_client/ ./git_client/` to gateway/Dockerfile.",
-          "acceptance_criteria": "gateway/Dockerfile copies git_client/; image build + `python -c 'import git_client'` smoke succeeds.",
+          "id": "task-11-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
           "files_affected": [
-            "gateway/Dockerfile"
+            "gateway/tests/",
+            "tests/"
           ]
         },
         {
-          "id": "task-11-5",
-          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice. R3: ALSO build the affected container image and run a container import/entrypoint smoke at this landing boundary (make lint + make test-all run on the SOURCE TREE and cannot catch a missing Dockerfile COPY).",
-          "acceptance_criteria": "Green; no behavior change; the affected image builds and its import/entrypoint smoke passes.",
+          "id": "task-11-6",
+          "description": "R3 container-image COPY parity (BLOCKING, from reviewer_plan NACK v1 / risk_analyst R3): gateway/Dockerfile:67 `COPY gateway/*.py ./` is a NON-RECURSIVE glob. Once this file becomes a package directory, the glob stops copying it -> ModuleNotFoundError in the shipped gateway image while the source tree stays green. IN THIS SLICE add `COPY gateway/git_client/ ./git_client/` to gateway/Dockerfile. Then build the gateway image and run an import smoke check (`python -c \"import git_client\"`). make lint + make test-all (source-tree gates) cannot catch a missing COPY.",
+          "acceptance_criteria": "gateway/Dockerfile recursively copies the new package dir in the SAME slice/PR; the gateway image builds and `import git_client` succeeds with no ModuleNotFoundError.",
           "files_affected": [
-            "gateway/Dockerfile",
-            "gateway/tests/",
-            "tests/"
+            "gateway/Dockerfile"
           ]
         }
       ]
@@ -725,21 +729,20 @@
           ]
         },
         {
-          "id": "task-12-docker",
-          "description": "Container packaging (R3): gateway/Dockerfile:67 non-recursive glob. Converting worktree_manager.py to worktree_manager/ drops it from the image. In the SAME slice add `COPY gateway/worktree_manager/ ./worktree_manager/` to gateway/Dockerfile.",
-          "acceptance_criteria": "gateway/Dockerfile copies worktree_manager/; image build + `python -c 'import worktree_manager'` smoke succeeds.",
+          "id": "task-12-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
           "files_affected": [
-            "gateway/Dockerfile"
+            "gateway/tests/",
+            "tests/"
           ]
         },
         {
-          "id": "task-12-5",
-          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice. R3: ALSO build the affected container image and run a container import/entrypoint smoke at this landing boundary (make lint + make test-all run on the SOURCE TREE and cannot catch a missing Dockerfile COPY).",
-          "acceptance_criteria": "Green; no behavior change; the affected image builds and its import/entrypoint smoke passes.",
+          "id": "task-12-6",
+          "description": "R3 container-image COPY parity (BLOCKING, from reviewer_plan NACK v1 / risk_analyst R3): gateway/Dockerfile:67 `COPY gateway/*.py ./` is a NON-RECURSIVE glob. Once this file becomes a package directory, the glob stops copying it -> ModuleNotFoundError in the shipped gateway image while the source tree stays green. IN THIS SLICE add `COPY gateway/worktree_manager/ ./worktree_manager/` to gateway/Dockerfile. Then build the gateway image and run an import smoke check (`python -c \"import worktree_manager\"`). make lint + make test-all (source-tree gates) cannot catch a missing COPY.",
+          "acceptance_criteria": "gateway/Dockerfile recursively copies the new package dir in the SAME slice/PR; the gateway image builds and `import worktree_manager` succeeds with no ModuleNotFoundError.",
           "files_affected": [
-            "gateway/Dockerfile",
-            "gateway/tests/",
-            "tests/"
+            "gateway/Dockerfile"
           ]
         }
       ]
@@ -789,21 +792,20 @@
           ]
         },
         {
-          "id": "task-13-docker",
-          "description": "Container packaging (R3): orchestrator/Dockerfile:44 non-recursive glob. Converting mcp_tools.py to mcp_tools/ drops it from the image. In the SAME slice add `COPY orchestrator/mcp_tools/ ./mcp_tools/` to orchestrator/Dockerfile.",
-          "acceptance_criteria": "orchestrator/Dockerfile copies mcp_tools/; image build + `python -c 'import mcp_tools'` smoke succeeds.",
+          "id": "task-13-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
           "files_affected": [
-            "orchestrator/Dockerfile"
+            "orchestrator/tests/",
+            "tests/"
           ]
         },
         {
-          "id": "task-13-5",
-          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice. R3: ALSO build the affected container image and run a container import/entrypoint smoke at this landing boundary (make lint + make test-all run on the SOURCE TREE and cannot catch a missing Dockerfile COPY).",
-          "acceptance_criteria": "Green; no behavior change; the affected image builds and its import/entrypoint smoke passes.",
+          "id": "task-13-6",
+          "description": "R3 container-image COPY parity (BLOCKING, from reviewer_plan NACK v1 / risk_analyst R3): orchestrator/Dockerfile:44 `COPY orchestrator/*.py ./` is a NON-RECURSIVE glob \u2014 it copies only top-level .py files. Once mcp_tools.py becomes the package directory mcp_tools/, that glob stops copying it, so the shipped orchestrator image raises ModuleNotFoundError at runtime even though the source tree is fine. IN THIS SLICE add `COPY orchestrator/mcp_tools/ ./mcp_tools/` to orchestrator/Dockerfile (mirror the existing recursive `COPY orchestrator/routes/ ./routes/` at line 45). Then build the orchestrator image and run an import smoke check (`python -c \"import mcp_tools\"`). make lint + make test-all run on the SOURCE TREE and CANNOT catch a missing COPY \u2014 the image build + import smoke is the only gate that does.",
+          "acceptance_criteria": "orchestrator/Dockerfile recursively copies mcp_tools/ in the SAME slice/PR as the sub-package conversion; the orchestrator image builds and `import mcp_tools` succeeds with no ModuleNotFoundError.",
           "files_affected": [
-            "orchestrator/Dockerfile",
-            "orchestrator/tests/",
-            "tests/"
+            "orchestrator/Dockerfile"
           ]
         }
       ]
@@ -853,21 +855,20 @@
           ]
         },
         {
-          "id": "task-14-docker",
-          "description": "Container packaging (R3): orchestrator/Dockerfile:44 non-recursive glob. Converting kubernetes_spawner.py to kubernetes_spawner/ drops it from the image. In the SAME slice add `COPY orchestrator/kubernetes_spawner/ ./kubernetes_spawner/` to orchestrator/Dockerfile.",
-          "acceptance_criteria": "orchestrator/Dockerfile copies kubernetes_spawner/; image build + `python -c 'import kubernetes_spawner'` smoke succeeds.",
+          "id": "task-14-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
           "files_affected": [
-            "orchestrator/Dockerfile"
+            "orchestrator/tests/",
+            "tests/"
           ]
         },
         {
-          "id": "task-14-5",
-          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice. R3: ALSO build the affected container image and run a container import/entrypoint smoke at this landing boundary (make lint + make test-all run on the SOURCE TREE and cannot catch a missing Dockerfile COPY).",
-          "acceptance_criteria": "Green; no behavior change; the affected image builds and its import/entrypoint smoke passes.",
+          "id": "task-14-6",
+          "description": "R3 container-image COPY parity (BLOCKING, from reviewer_plan NACK v1 / risk_analyst R3): orchestrator/Dockerfile:44 `COPY orchestrator/*.py ./` is a NON-RECURSIVE glob \u2014 it copies only top-level .py files. Once kubernetes_spawner.py becomes the package directory kubernetes_spawner/, that glob stops copying it, so the shipped orchestrator image raises ModuleNotFoundError at runtime even though the source tree is fine. IN THIS SLICE add `COPY orchestrator/kubernetes_spawner/ ./kubernetes_spawner/` to orchestrator/Dockerfile (mirror the existing recursive `COPY orchestrator/routes/ ./routes/` at line 45). Then build the orchestrator image and run an import smoke check (`python -c \"import kubernetes_spawner\"`). make lint + make test-all run on the SOURCE TREE and CANNOT catch a missing COPY \u2014 the image build + import smoke is the only gate that does.",
+          "acceptance_criteria": "orchestrator/Dockerfile recursively copies kubernetes_spawner/ in the SAME slice/PR as the sub-package conversion; the orchestrator image builds and `import kubernetes_spawner` succeeds with no ModuleNotFoundError.",
           "files_affected": [
-            "orchestrator/Dockerfile",
-            "orchestrator/tests/",
-            "tests/"
+            "orchestrator/Dockerfile"
           ]
         }
       ]
@@ -893,8 +894,8 @@
         },
         {
           "id": "task-15-2",
-          "description": "Step-0 git mv signals.py -> signals/__init__.py; green baseline commit.",
-          "acceptance_criteria": "Pure-move baseline commit green. Container packaging: routes/signals ships via recursive `COPY orchestrator/routes/` -- NO Dockerfile change needed.",
+          "description": "Step-0 git mv signals.py -> signals/__init__.py; green baseline commit. R3 packaging: routes/* ships via the RECURSIVE `COPY orchestrator/routes/ ./routes/` (orchestrator/Dockerfile:45), which is transparent to file->sub-package conversion \u2014 no Dockerfile change required for this slice (verified against the live tree).",
+          "acceptance_criteria": "Pure-move baseline commit green.",
           "files_affected": [
             "orchestrator/routes/signals/__init__.py"
           ]
@@ -972,21 +973,20 @@
           ]
         },
         {
-          "id": "task-16-docker",
-          "description": "Container packaging (R3): orchestrator/Dockerfile:44 non-recursive glob. Converting gateway_client.py to gateway_client/ drops it from the image. In the SAME slice add `COPY orchestrator/gateway_client/ ./gateway_client/` to orchestrator/Dockerfile.",
-          "acceptance_criteria": "orchestrator/Dockerfile copies gateway_client/; image build + `python -c 'import gateway_client'` smoke succeeds.",
+          "id": "task-16-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
           "files_affected": [
-            "orchestrator/Dockerfile"
+            "orchestrator/tests/",
+            "tests/"
           ]
         },
         {
-          "id": "task-16-5",
-          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice. R3: ALSO build the affected container image and run a container import/entrypoint smoke at this landing boundary (make lint + make test-all run on the SOURCE TREE and cannot catch a missing Dockerfile COPY).",
-          "acceptance_criteria": "Green; no behavior change; the affected image builds and its import/entrypoint smoke passes.",
+          "id": "task-16-6",
+          "description": "R3 container-image COPY parity (BLOCKING, from reviewer_plan NACK v1 / risk_analyst R3): orchestrator/Dockerfile:44 `COPY orchestrator/*.py ./` is a NON-RECURSIVE glob \u2014 it copies only top-level .py files. Once gateway_client.py becomes the package directory gateway_client/, that glob stops copying it, so the shipped orchestrator image raises ModuleNotFoundError at runtime even though the source tree is fine. IN THIS SLICE add `COPY orchestrator/gateway_client/ ./gateway_client/` to orchestrator/Dockerfile (mirror the existing recursive `COPY orchestrator/routes/ ./routes/` at line 45). Then build the orchestrator image and run an import smoke check (`python -c \"import gateway_client\"`). make lint + make test-all run on the SOURCE TREE and CANNOT catch a missing COPY \u2014 the image build + import smoke is the only gate that does.",
+          "acceptance_criteria": "orchestrator/Dockerfile recursively copies gateway_client/ in the SAME slice/PR as the sub-package conversion; the orchestrator image builds and `import gateway_client` succeeds with no ModuleNotFoundError.",
           "files_affected": [
-            "orchestrator/Dockerfile",
-            "orchestrator/tests/",
-            "tests/"
+            "orchestrator/Dockerfile"
           ]
         }
       ]
@@ -1013,7 +1013,7 @@
         {
           "id": "task-17-2",
           "description": "Step-0 git mv orch_cli.py -> orch_cli/__init__.py; green baseline commit. Preserve any console-script / module-execution entry (add __main__.py if executed as a script, mirroring scripts/select_tests/).",
-          "acceptance_criteria": "Pure-move baseline commit green; CLI entry resolves. Container packaging: sandbox/egg_lib/orch_cli ships via recursive `COPY . /opt/egg-runtime/` + PYTHONPATH -- NO Dockerfile change needed.",
+          "acceptance_criteria": "Pure-move baseline commit green; CLI entry resolves.",
           "files_affected": [
             "sandbox/egg_lib/orch_cli/__init__.py"
           ]
@@ -1042,6 +1042,14 @@
           "files_affected": [
             "sandbox/egg_lib/tests/",
             "tests/"
+          ]
+        },
+        {
+          "id": "task-17-6",
+          "description": "R3 packaging confirmation (reviewer_plan NACK v1 #4): sandbox/egg_lib/orch_cli.py ships to the sandbox image via the whole-repo `COPY . /opt/egg-runtime/` (sandbox/Dockerfile:361, RECURSIVE) with PYTHONPATH=/opt/egg-runtime/sandbox (line 378) \u2014 there is NO flat per-file `COPY sandbox/egg_lib/*.py` glob and no pip install of egg_lib, so file->sub-package conversion is TRANSPARENT and needs no Dockerfile change. Confirm at implement time by re-grounding (grep the Dockerfile for any egg_lib glob) and by building the sandbox image + running `python -c \"import egg_lib.orch_cli\"`; only if a flat glob is discovered, add the corresponding recursive COPY in this slice.",
+          "acceptance_criteria": "Confirmed: orch_cli.py ships via the recursive whole-repo copy; the sandbox image builds and `import egg_lib.orch_cli` succeeds; no Dockerfile change required (or, if a flat glob is found, the recursive COPY is added in-slice).",
+          "files_affected": [
+            "sandbox/Dockerfile"
           ]
         }
       ]
@@ -1100,21 +1108,20 @@
           ]
         },
         {
-          "id": "task-18-docker",
-          "description": "Container packaging (R3): gateway/Dockerfile:67 `COPY gateway/*.py ./` copies gateway/gateway.py -> /app/gateway.py. This slice moves gateway/gateway.py -> gateway/gateway/__init__.py, so the glob no longer copies it. In the SAME slice add `COPY gateway/gateway/ ./gateway/` to gateway/Dockerfile (targeting the new package dir).",
-          "acceptance_criteria": "gateway/Dockerfile copies the gateway/ package dir; image build + container import smoke + Flask app/route registration smoke succeed.",
+          "id": "task-18-6",
+          "description": "make lint + make test-all green at the slice boundary; mechanical patch-path rewrites in-slice; any latent bug surfaced is filed as a 'Part of #3312' follow-up, never bundled.",
+          "acceptance_criteria": "Green; no behavior change in the diff.",
           "files_affected": [
-            "gateway/Dockerfile"
+            "gateway/tests/",
+            "tests/"
           ]
         },
         {
-          "id": "task-18-6",
-          "description": "make lint + make test-all green at the slice boundary; mechanical patch-path rewrites in-slice; any latent bug surfaced is filed as a 'Part of #3312' follow-up, never bundled. R3: ALSO build the affected container image and run a container import/entrypoint smoke at this landing boundary (make lint + make test-all run on the SOURCE TREE and cannot catch a missing Dockerfile COPY).",
-          "acceptance_criteria": "Green; no behavior change in the diff; the affected image builds and its import/entrypoint smoke passes.",
+          "id": "task-18-7",
+          "description": "R3 container-image COPY parity (BLOCKING, from reviewer_plan NACK v1 / risk_analyst R3): gateway/Dockerfile:67 `COPY gateway/*.py ./` is a NON-RECURSIVE glob. Once this file becomes a package directory, the glob stops copying it -> ModuleNotFoundError in the shipped gateway image while the source tree stays green. IN THIS SLICE add `COPY gateway/gateway/ ./gateway/` to gateway/Dockerfile. Note: this slice moves gateway/gateway.py -> gateway/gateway/__init__.py, so the COPY targets the new package directory gateway/gateway/. Then build the gateway image and run an import smoke check (`python -c \"import gateway\"`). make lint + make test-all (source-tree gates) cannot catch a missing COPY.",
+          "acceptance_criteria": "gateway/Dockerfile recursively copies the new package dir in the SAME slice/PR; the gateway image builds and `import gateway` succeeds with no ModuleNotFoundError.",
           "files_affected": [
-            "gateway/Dockerfile",
-            "gateway/tests/",
-            "tests/"
+            "gateway/Dockerfile"
           ]
         }
       ]
@@ -1141,8 +1148,8 @@
         },
         {
           "id": "task-19-2",
-          "description": "Step-0 git mv pipelines.py -> pipelines/__init__.py; green baseline commit (move only, before ANY extraction). This is the bisectable cut between 'moved' and 'extracted'.",
-          "acceptance_criteria": "Pure-move baseline commit green (make test-all). Container packaging: routes/pipelines ships via recursive `COPY orchestrator/routes/` -- NO Dockerfile change needed.",
+          "description": "Step-0 git mv pipelines.py -> pipelines/__init__.py; green baseline commit (move only, before ANY extraction). This is the bisectable cut between 'moved' and 'extracted'. R3 packaging: routes/* ships via the RECURSIVE `COPY orchestrator/routes/ ./routes/` (orchestrator/Dockerfile:45), which is transparent to file->sub-package conversion \u2014 no Dockerfile change required for this slice (verified against the live tree).",
+          "acceptance_criteria": "Pure-move baseline commit green (make test-all).",
           "files_affected": [
             "orchestrator/routes/pipelines/__init__.py"
           ]
@@ -1187,12 +1194,12 @@
   "acceptance_criteria": [
     "AC-1: All 19 files in the issue table drop below the global cap (<=1,500 lines AND <=100 KB).",
     "AC-2: scripts/file-size-allowlist.yaml's files: map is EMPTY after the final slice lands.",
-    "AC-3: make lint and make test-all are green at EVERY landing boundary (every slice PR). NOTE (R3): these run against the SOURCE TREE, not a built image, so they CANNOT catch a missing Dockerfile COPY when a module becomes a package dir; the R3-affected slices additionally require an image build + container import/entrypoint smoke at their landing boundary.",
+    "AC-3: make lint and make test-all are green at EVERY landing boundary (every slice PR). NOTE (R3): these are SOURCE-TREE gates and CANNOT catch a missing/incorrect Dockerfile COPY \u2014 slices that convert a top-level module copied by a non-recursive glob ALSO require an image-build + import smoke check (AC-8).",
     "AC-4: No production importer breaks; no test patch target moves out from under an existing test without an in-PR rewrite \u2014 barrel re-exports preserve patch('<module>._foo') targets (~57 for routes.pipelines, ~12 for gateway.gateway re-verified at implement time).",
     "AC-5: Concrete submodule seam coverage exists for every in-scope file: rows in orchestrator/CLAUDE.md + gateway/CLAUDE.md, a NEW seam table in sandbox/CLAUDE.md, and a NEW shared/CLAUDE.md. (Creating concrete rows, not retagging placeholder rows \u2014 the live tree has none; retag any stale #2261 refs found in docs/ opportunistically, not as a gate.)",
     "AC-6: Test layout follows non-negotiable #10 (guidance, not a 1:1 gate): tests keep using the barrel surface so they don't move when internal layout shifts; matching tests/.../foo/ sub-packages where the mapping is clean; scenario-organized suites may stay topical.",
     "AC-7: Pure refactor \u2014 no behavior changes. _run_pipeline is split directly (non-negotiable #7), not deferred. Bugs surfaced get a separate 'Part of #3312' follow-up issue, never bundled. Branches prefixed egg/.",
-    "AC-8 (R3, container packaging): every slice that converts a NON-recursively-copied module into a package updates the relevant Dockerfile COPY (and, for entrypoint.py, the ENTRYPOINT) IN THE SAME SLICE, verified by an image build + import/entrypoint smoke. Affected: orchestrator/Dockerfile (slices 3/10/13/14/16); gateway/Dockerfile (slices 11/12/18); sandbox/Dockerfile (slice 9); slice 8 confirms overseer/ packaging. Slices under recursively-copied trees -- routes/* (2/4/5/6/15/19), egg_lib (1/17), shared/egg_contracts (7) -- need NO Dockerfile change."
+    "AC-8 (R3 container-image COPY parity): every slice that converts a top-level module copied by a NON-RECURSIVE Dockerfile glob adds the corresponding recursive `COPY <pkg>/` in the SAME slice and passes an image-build + import smoke check: orchestrator/Dockerfile (slices 3/10/13/14/16), gateway/Dockerfile (slices 11/12/18). entrypoint.py (slice-9) preserves its single-file COPY + ENTRYPOINT via a thin shim (or updates COPY+ENTRYPOINT together). Slices whose files ship via a recursive/whole-tree copy need NO Dockerfile change, confirmed by grounding + image smoke (not assumed): orchestrator/routes/* (slices 2/4/5/6/15/19), sandbox/egg_lib/* and overseer/ (slices 1/17/8)."
   ],
   "non_goals": [
     "No descope: every one of the 19 files, including pipelines.py (~27.2k) and gateway.py (~10.4k), is in scope; none are deferred to a follow-up (operator directive + resolved refine HITL).",
@@ -1202,7 +1209,7 @@
     "No new layout invented \u2014 the canonical sub-package + re-export-barrel pattern (PR #2335 / docs/guides/decomposition-pattern.md) is followed exactly."
   ],
   "risks_for_reviewers": [
-    "R3 (was the blocking NACK from reviewer_plan + risk_analyst, now MITIGATED in-plan): the container Dockerfiles ship top-level modules via NON-recursive `COPY <pkg>/*.py ./` globs, so converting a module to a package dir drops it from the image while the source-tree make lint/make test-all gate stays GREEN (image blind spot). Mitigation folded into the affected slices: a Dockerfile-COPY task (image in files) + image-build/import smoke at the landing boundary for slices 3/10/13/14/16 (orchestrator), 11/12/18 (gateway), 9 (sandbox entrypoint), and a packaging-confirmation task for slice 8 (overseer). Slices under recursive copies verified to need no change.",
+    "R3 CONTAINER-IMAGE COPY BLIND SPOT (raised by risk_analyst R3, NACK by reviewer_plan v1, now mitigated): orchestrator/Dockerfile `COPY orchestrator/*.py ./` and gateway/Dockerfile `COPY gateway/*.py ./` are NON-RECURSIVE globs; converting a top-level module to a sub-package dir silently drops it from the image -> runtime ModuleNotFoundError, while make lint + make test-all (source-tree gates) stay GREEN. Mitigation folded in: a same-slice recursive COPY task + image-build/import smoke for slices 3/9/10/11/12/13/14/16/18, AC-8, and confirmation tasks for the transparent-shipping slices (1/8/17 via the whole-repo copy; routes via the recursive routes/ COPY).",
     "Re-export drift is the dominant risk: a missed re-export surfaces as AttributeError in a test that patches the moved symbol. Mitigation: the per-slice external-importer audit (task-N-1) + explicit per-symbol re-exports (decision-5) + make test-all gate. pipelines.py (~57 targets) is the highest-exposure slice \u2014 scheduled last, after the pattern is proven on 17 simpler files.",
     "_run_pipeline behavior risk: splitting a phase-transition state machine with subtle ordering. Mitigation: per-phase handlers stay private and are exercised through the existing dense seam coverage; pure-refactor discipline; scheduled last (phase-19).",
     "Allowlist YAML is the only cross-slice contention point. With parallel slices it conflicts mechanically every time. Mitigation: section-(e) rebase recipe (take 'theirs' for other slices' removals, re-apply own). NOT a logical dependency \u2014 slices stay independent.",
@@ -1236,5 +1243,40 @@
     ],
     "dependency_model": "Single linear chain: phase-N depends on phase-(N-1). Forced by #3046 because all 19 slices edit scripts/file-size-allowlist.yaml. Ordering is easiest->hardest by line count; the two outliers (gateway.py, pipelines.py) are the chain tail, fully in scope, so a stall there does not block earlier landings.",
     "pr_packaging": "One PR per slice (per file). Each PR: drops exactly one allowlist entry + adds exactly one file's seam coverage + is independently make-lint/make-test-all green. The empty-allowlist acceptance criterion is satisfied cumulatively when phase-19's PR lands."
+  },
+  "container_packaging": {
+    "problem": "Dockerfiles copy code with a mix of NON-RECURSIVE per-file globs and RECURSIVE directory copies. A file->sub-package conversion silently breaks a non-recursive glob: the new package directory is not matched by `*.py`, so it never lands in the image -> ModuleNotFoundError at runtime. The source-tree gates (make lint / make test-all) do NOT build the image, so they stay green while the shipped artifact is broken. This is risk R3 (HIGH); reviewer_plan NACKed v1 for omitting it.",
+    "dispositions": [
+      {
+        "slices": "3,10,13,14,16",
+        "files": "state_store, peer_consensus, mcp_tools, kubernetes_spawner, gateway_client",
+        "mechanism": "orchestrator/Dockerfile:44 `COPY orchestrator/*.py ./` (NON-RECURSIVE)",
+        "action": "FIX in-slice: add `COPY orchestrator/<pkg>/ ./<pkg>/` + image-build/import smoke."
+      },
+      {
+        "slices": "11,12,18",
+        "files": "git_client, worktree_manager, gateway.py",
+        "mechanism": "gateway/Dockerfile:67 `COPY gateway/*.py ./` (NON-RECURSIVE)",
+        "action": "FIX in-slice: add `COPY gateway/<pkg>/ ./<pkg>/` (slice-18 -> gateway/gateway/) + smoke."
+      },
+      {
+        "slices": "9",
+        "files": "entrypoint.py",
+        "mechanism": "sandbox/Dockerfile:386 single-file COPY + ENTRYPOINT:391 (fixed path, #1799)",
+        "action": "FIX in-slice: thin shim keeps COPY+ENTRYPOINT unchanged, bulk -> _entrypoint/ (whole-repo copy); container-start smoke."
+      },
+      {
+        "slices": "2,4,5,6,15,19",
+        "files": "routes/* (decisions, phases, deployment, event_prompt, signals, pipelines)",
+        "mechanism": "orchestrator/Dockerfile:45 `COPY orchestrator/routes/ ./routes/` (RECURSIVE)",
+        "action": "NO change \u2014 transparent; annotated in step-0 task."
+      },
+      {
+        "slices": "1,17,8",
+        "files": "egg_lib/contract_cli, egg_lib/orch_cli, overseer/monitor",
+        "mechanism": "sandbox/Dockerfile:361 `COPY . /opt/egg-runtime/` whole-repo (RECURSIVE) + PYTHONPATH",
+        "action": "NO change expected \u2014 CONFIRM via grounding + image smoke; add a recursive COPY only if a flat glob is found (none today)."
+      }
+    ]
   }
 }
