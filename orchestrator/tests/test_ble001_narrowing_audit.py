@@ -120,11 +120,12 @@ def test_audit_window_retains_documented_ble001_population() -> None:
     [15131, 16105] to [15700, 16850] after slice-4 (#2548) inserted
     ~775 lines earlier in the file (eager-persist of
     ``parent_branch_at_creation``, merge-base fallback in
-    ``_resolve_slice_base_branch``, Layer-C bootstrap). The shifted
-    window captures the same audited handlers plus 3 additional
-    noqa sites added by slice-4 inside the same region (each
-    following the documented variable-name + inline-comment
-    pattern).
+    ``_resolve_slice_base_branch``, Layer-C bootstrap), then to
+    [15923, 17073] after the human-focused draft companion work
+    inserted ~223 lines earlier in the file (the ``simplifier``
+    role's orientation + task prompt, ``_get_human_draft_path`` /
+    ``_read_human_phase_draft`` helpers, reviewer-prep additions).
+    The shifted window captures the same audited handlers.
 
     We pin the population count loosely (>=10 sites in window — the
     audit allowed narrowing 4 of the original 20) rather than the
@@ -139,7 +140,7 @@ def test_audit_window_retains_documented_ble001_population() -> None:
     after the handler, others via a preceding block comment).
     """
     lines = _PIPELINES_SRC.splitlines()
-    audit_window = range(15700 - 1, 16850 + 1)  # zero-indexed slice
+    audit_window = range(15923 - 1, 17073 + 1)  # zero-indexed slice
     noqa_lines = [i for i, line in enumerate(lines) if "noqa: BLE001" in line and i in audit_window]
     assert len(noqa_lines) >= 10, (
         f"Expected at least 10 ``# noqa: BLE001`` swallow sites inside the "

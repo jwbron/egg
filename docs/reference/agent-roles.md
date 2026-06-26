@@ -9,7 +9,7 @@ Every agent role belongs to one of five categories. Categories enable dynamic te
 | Category | Purpose | Roles |
 |----------|---------|-------|
 | **EXECUTION** | Produce artifacts (code, tests, docs, Jira mutations) | `coder`, `tester`, `documenter`, `applier` |
-| **ANALYSIS** | Analyze tasks and plan work | `refiner`, `architect`, `task_planner`, `risk_analyst` |
+| **ANALYSIS** | Analyze tasks and plan work | `refiner`, `architect`, `task_planner`, `risk_analyst`, `simplifier` |
 | **REVIEW** | Validate quality and correctness | `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_refine`, `reviewer_plan`, `reviewer_agent_design`, `reviewer_security`, `reviewer_concurrency` |
 | **UTILITY** | Cross-cutting support tasks | `autofixer`, `conflict_resolver` |
 | **INTERFACE** | Pipeline health and monitoring | `overseer` |
@@ -21,12 +21,13 @@ Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by 
 | Role | Category | Phase | Parallel? | Depends On |
 |------|----------|-------|-----------|------------|
 | `refiner` | Analysis | Refine | No | — |
-| `reviewer_refine` | Review | Refine | Yes (with `reviewer_agent_design`) | refiner |
+| `simplifier` | Analysis (dual-role: advisory reviewer of the upstream producer) | Refine + Plan | Yes | refiner (refine) / task_planner (plan), advisory |
+| `reviewer_refine` | Review | Refine | Yes (with `reviewer_agent_design`) | refiner, simplifier |
 | `reviewer_agent_design` | Review | Refine (egg repo only) | Yes (with `reviewer_refine`) | refiner |
 | `architect` | Analysis | Plan | No | — |
 | `task_planner` | Analysis | Plan | Yes (with `risk_analyst`) | architect |
 | `risk_analyst` | Analysis (dual-role: also reviews `architect` + `task_planner`) | Plan | Yes (with `task_planner`) | architect |
-| `reviewer_plan` | Review | Plan | No | architect, task_planner, risk_analyst |
+| `reviewer_plan` | Review | Plan | No | architect, task_planner, risk_analyst, simplifier |
 | `applier` | Execution | Apply (epic-mode only) | No | — |
 | `coder` | Execution | Implement | No | — |
 | `tester` | Execution | Implement | Yes (with `documenter`) | coder |
@@ -79,6 +80,26 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 **Outputs**:
 - `.egg-state/reviews/{identifier}-refine-agent-design-review.json` — Verdict file
+
+### `simplifier`
+
+**Purpose**: Produce a **human-focused companion** to the agent draft — a simplified, higher-level, jargon-free summary for a technical human reviewer outside the pipeline. Runs in **both** the refine and plan phases. The agent-focused drafts (`-analysis.md` / `-plan.md`) are unchanged; the companion is an additional, mandatory artifact.
+
+**Dual-role**: like the implement-phase `tester`, the simplifier is a producer whose work depends on an upstream producer's draft. It carries an **advisory** review edge over the upstream producer (`refiner` in refine, `task_planner` in plan) purely so the BRC `ack` arm re-invokes it when that producer proposes — its verdict never blocks the upstream's consensus. It then reads the proposed draft, writes the companion, and proposes it. The companion is reviewed CRITICAL by `reviewer_refine` (refine) / `reviewer_plan` (plan).
+
+**File access**:
+- Allowed writes: `.egg-state/drafts/`, `.egg-state/agent-outputs/`
+- Blocked: All source code, `.egg-state/contracts/`
+
+**Outputs**:
+- `.egg-state/drafts/{identifier}-analysis-human.md` — Human companion to the refine analysis
+- `.egg-state/drafts/{identifier}-plan-human.md` — Human companion to the implementation plan
+
+**Surfacing**: the companion leads the refine/plan HITL gate comment (with a link to the full agent draft), and is linked from the context PR body. Registered in `shared/egg_contracts/artifact_spec.py` as `analysis-draft-human` / `plan-draft-human`, so its presence is enforced at propose time (existence-only — no parse check).
+
+**Reviewed by**: `reviewer_refine` (refine, CRITICAL) / `reviewer_plan` (plan, CRITICAL).
+
+**Failure surface & operator recovery**: because the companion is a mandatory, CRITICAL-reviewed producer artifact, a simplifier crash or a persistent reviewer NACK on the (cosmetic) summary stalls the refine/plan phase gate — a failure surface neither phase had before this role existed. There is intentionally **no automatic degraded fallback** (the gate does not silently proceed on the agent draft alone), so a missing companion is always surfaced rather than swallowed. To recover, the operator can either re-run the stalled phase so the simplifier re-attempts the companion, or — if the simplifier is repeatedly unable to land it — unblock the gate manually: the HITL gate comment falls back to the full agent draft inline whenever the companion is absent (see `_read_human_phase_draft` / the gate composition in `orchestrator/routes/pipelines.py`), so the operator still has the substantive draft in hand to approve against. The mandatory-producer coupling is a deliberate choice that keeps the human-readable summary from silently disappearing; the cost is that a summarization failure blocks substantive progress until the operator intervenes.
 
 ## Plan Phase
 

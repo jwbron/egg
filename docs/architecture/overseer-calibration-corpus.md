@@ -47,31 +47,43 @@ and tests are deterministic. It carries:
 
 ### The row (snapshot + label + expectation)
 
-Each row carries:
+Each row (`CorpusRow`) carries:
 
 | Field | Meaning |
 |-------|---------|
-| `id` | Stable row identifier (e.g. `false_stall_3230_normal`) |
+| `row_id` | Stable row identifier (e.g. `false_stall_3230__normal`) |
 | `snapshot` | The `EventStreamSnapshot` described above |
-| `label` | `known-normal` **or** `known-bad{class}` — the row's ground truth |
-| `class` | For `known-bad` rows: the fault class (e.g. `heartbeat_stall`, `branch_divergence`) |
-| `expected` | The expected detector verdict: `None`, or the expected `Finding` |
-| `detector` | Which detector this row exercises (lets later slices flip their own rows; see §5) |
+| `label` | `known_normal` **or** `known_bad` — the row's ground truth |
+| `incident` | Human-readable incident name |
+| `pins` | The issue / defect ids this row pins |
+| `expected` | The expected detector verdict: `None` for known-normal, or the expected `ExpectedFinding` for known-bad |
+| `detector_key` | Which detector this row exercises (lets later slices flip their own rows; see §5) |
+| `delivered_in_slice` | For known-bad rows, the slice (one of 4/7/8) that delivers the detector; `None` for known-normal |
+| `notes` | Why this row exists / what it pins |
+
+The fault class is **not** a standalone row field — it lives on the row's
+`expected` finding (`expected.finding_class`) for known-bad rows; known-normal
+rows carry no `expected` at all.
 
 ### The `Finding` shape (the detector output)
 
 A detector is a pure function `EventStreamSnapshot -> Optional[Finding]`. The
-`Finding` it may return is:
+`Finding` it may return is a structural (duck-typed) protocol with these
+attributes:
 
 ```
 Finding{
-    class,                  # the fault class detected
+    finding_class,          # the fault class detected
     severity,               # info | low | medium | high
     evidence,               # the snapshot facts that triggered it
     recommended_action,     # from the bounded corrective vocabulary (slice 6)
     requires_adjudication,  # bool — escalate to the on-demand adjudicator agent?
 }
 ```
+
+The corpus's `expected` label is the narrower `ExpectedFinding`
+(`finding_class`, `severity`, `requires_adjudication`); the harness matches a
+detector's `Finding` against it structurally via `match_finding`.
 
 `requires_adjudication=True` is the seam to the adjudication plane (slice 4): the
 orchestrator spawns a **normal** on-demand OVERSEER agent with the `Finding` +
@@ -107,14 +119,14 @@ Slice 1 lands these rows. They are the concrete failure modes that motivated the
 overhaul; each is encoded in **both** a `known-normal` and a `known-bad` variant
 where the distinction is the whole point.
 
-| Row | Class | Why it exists |
-|-----|-------|---------------|
-| Self-injection loop | `self_injection` | Overseer mis-reads its own bootstrap as a prompt-injection attack, refuses, respawns, alerts `[high]` each cycle |
+| Row | `finding_class` | Why it exists |
+|-----|-----------------|---------------|
+| Self-injection loop | `overseer_self_injection` | Overseer mis-reads its own bootstrap as a prompt-injection attack, refuses, respawns, alerts `[high]` each cycle |
 | Alert-reflection | `alert_reflection` | An overseer/orchestrator informational alert reflected back as a **binding** operator HITL directive |
-| #3230 false stall | `false_stall` | Producer drafting under **orchestrator-owned** spawn — normal, must NOT fire (this is the lifecycle-owner row) |
+| #3230 false stall | `phase_stall` | Producer drafting under **orchestrator-owned** spawn — normal, must NOT fire (this is the lifecycle-owner row) |
 | #2242 heartbeat-stall | `heartbeat_stall` | Agent emitting tool calls every 2–3s is alive — must NOT be flagged as stalled |
 | #2222/#2224 branch-divergence | `branch_divergence` | Detector must use **ancestor-of-`origin/main` OR patch-id** match, not `(#NNNN)` subject-regex matching |
-| #2948 transient kubelet eviction | `transient_eviction` | A transient evict/reschedule must NOT cascade to a producer-permanent-death `FAILED` |
+| #2948 transient kubelet eviction | `container_death` | A transient evict/reschedule must NOT cascade to a producer-permanent-death `FAILED` |
 
 Downstream slices add rows for their own detectors (the full §5 survey in slice 8
 is the largest addition). The seed set establishes the shape and the contract;
@@ -124,47 +136,59 @@ later slices extend, never reshape.
 
 ## 4. The scoreboard
 
-The harness emits a **scoreboard**: a detectors × rows matrix summarizing every
-assertion outcome. Each cell is one of:
+The harness emits a **scoreboard** (`Scoreboard`): a precision/recall tally over
+the whole corpus. `evaluate` runs each row through its resolved detector (falling
+back to the null detector for unregistered detectors) and counts each row into
+one bucket:
 
-| Cell | Meaning |
-|------|---------|
-| `pass` | Detector produced the expected verdict (`None` on normal, expected `Finding` on bad) |
-| `fail` | False positive (Finding on normal) or false negative / wrong-class (on bad) |
-| `xfail` | Row is registered for a detector that does not exist yet — expected to fail, does not break the build (see §5) |
-| `xpass` | An `xfail` row unexpectedly passed — the detector landed; **flip it to strict** |
+| Bucket | Meaning |
+|--------|---------|
+| `true_positive` | Known-bad row, detector fired with the correct class |
+| `false_positive` | Known-normal row, detector fired (over-fire) |
+| `false_negative` | Known-bad row, detector returned `None` / wrong class |
+| `true_negative` | Known-normal row, detector correctly silent |
+| `undelivered` | Rows whose detector is not yet registered (counted for visibility) |
 
-The scoreboard is the at-a-glance calibration health of the whole detection plane.
-A green scoreboard (no `fail`, no stray `xpass`) is the slice-1 acceptance signal
-and the standing regression gate for slices 4/7/8. `xfail`/`xpass` are surfaced
-loudly — a silently-passing `xfail` is how coverage rots.
+From these the scoreboard derives `precision` (TP / (TP + FP)) and `recall`
+(TP / (TP + FN)). The slice-1 acceptance signal is `false_positive == 0` and
+`precision == 1.0` (the baseline null detector never over-fires); as detectors
+land in slices 4/7/8 recall climbs toward 1.0 while precision must stay at 1.0.
+This precision/recall tally is distinct from the per-row pytest pass/`xfail`
+bookkeeping in the harness (see §5).
 
 ---
 
 ## 5. The xfail → strict flip convention (red → green workflow)
 
 Slice 1 defines corpus rows for detectors that **slices 4, 7, and 8 have not built
-yet**. Those rows cannot pass against code that does not exist, so they are
-registered up front as **`xfail`** (expected-to-fail). This is deliberate: the
-corpus is the *spec*, written before the detector.
+yet**. Those rows cannot pass against code that does not exist, so the harness
+marks each known-bad row whose detector is unregistered as **`xfail`**
+(expected-to-fail). This is deliberate: the corpus is the *spec*, written before
+the detector.
+
+The marker is applied **automatically and conditionally** in `_row_param`: a row
+is xfailed iff `resolve_detector(row.detector_key) is None` and the row is
+known-bad. The xfail is registered with `strict=False` — intentional for slice-1
+build-greenness, so the baseline run is green (`10 passed, 6 xfailed`) without
+any `xpass` failing the build. Nobody hand-marks individual rows.
 
 The workflow each downstream slice follows is **red → green**:
 
-1. **Red (slice 1).** The row for a future detector exists and is marked `xfail`.
-   It documents the exact `known-normal`/`known-bad` behaviour the future detector
-   must satisfy. The build stays green because `xfail` is tolerated.
-2. **Implement (slice 4/7/8).** The owning slice builds the detector to satisfy
-   its rows. The moment it does, the `xfail` row **`xpass`es** — the scoreboard
-   flags it.
-3. **Green (flip to strict).** The slice that landed the detector **removes the
-   `xfail` marker** so the row becomes a strict assertion. From then on the row is
-   a hard regression gate: any later change that breaks the detector fails the
-   build.
+1. **Red (slice 1).** The row for a future detector exists; because no detector
+   resolves for its `detector_key`, the harness marks it `xfail`. It documents the
+   exact `known_normal`/`known_bad` behaviour the future detector must satisfy. The
+   build stays green because `xfail` is tolerated.
+2. **Implement (slice 4/7/8).** The owning slice builds the detector and registers
+   it via `register_detector`. The moment it resolves, `_row_param` no longer
+   applies the xfail marker — the row becomes a strict assertion automatically (the
+   marker "evaporates" because the detector resolves).
+3. **Green.** From then on the row is a hard regression gate: any later change that
+   breaks the detector fails the build.
 
-> **Convention for downstream slices:** when you land a detector, you own flipping
-> its corpus rows from `xfail` to strict in the *same* change. A detector merged
-> without flipping its rows leaves a silent `xpass` — treat that as an incomplete
-> slice.
+> **Convention for downstream slices:** when you land a detector, register it so
+> the harness resolves it for the row's `detector_key`; the rows then flip to
+> strict on their own in the *same* change. A detector merged without registering
+> leaves its rows stuck at `xfail` — treat that as an incomplete slice.
 
 This keeps the corpus honest: every detector the design promises has a row from
 day one (red), and every detector that ships is permanently regression-locked

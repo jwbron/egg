@@ -50,7 +50,7 @@ from pathlib import Path
 import phase_filter
 import pytest
 from egg_restrictions.phase_patterns import phase_file_verdict
-from routes.pipelines import _get_draft_path
+from routes.pipelines import _get_draft_path, _get_human_draft_path
 
 # The spec module is the unit under test. ``all_specs`` is aliased on
 # import to avoid colliding with the pytest fixture of the same name —
@@ -168,7 +168,9 @@ class TestRegistryShape:
         # weakening every per-row test into a no-op iteration.
         expected = {
             "analysis-draft",
+            "analysis-draft-human",
             "plan-draft",
+            "plan-draft-human",
             "architect-output",
             "architect-slices",
             "risk-analyst-output",
@@ -226,6 +228,23 @@ class TestResolutionRoundTrip:
         rows = tuple(specs_for("plan", "task_planner"))
         assert len(rows) == 1
         assert rows[0].name == "plan-draft"
+
+    def test_human_companion_concrete_paths(self) -> None:
+        assert (
+            resolve_artifact_path("plan-draft-human", "3077")
+            == ".egg-state/drafts/3077-plan-human.md"
+        )
+        assert (
+            resolve_artifact_path("analysis-draft-human", "3077")
+            == ".egg-state/drafts/3077-analysis-human.md"
+        )
+
+    def test_specs_for_simplifier_is_per_phase_singleton(self) -> None:
+        # The simplifier produces exactly the human companion in each phase.
+        refine_rows = tuple(specs_for("refine", "simplifier"))
+        assert [r.name for r in refine_rows] == ["analysis-draft-human"]
+        plan_rows = tuple(specs_for("plan", "simplifier"))
+        assert [r.name for r in plan_rows] == ["plan-draft-human"]
 
     def test_specs_for_artifactless_role_returns_empty(self) -> None:
         # Roles that have no registered artifact must return an empty
@@ -333,6 +352,31 @@ class TestConsistencyB_GetDraftPathEquality:
             f"{spec_name}: _get_draft_path({phase!r}) → {legacy!r} but "
             f"spec resolved to {spec_resolved!r} (identifier={identifier!r})"
         )
+
+    @pytest.mark.parametrize(
+        "phase_to_spec",
+        [("refine", "analysis-draft-human"), ("plan", "plan-draft-human")],
+        ids=("refine", "plan"),
+    )
+    @pytest.mark.parametrize("identifier", _IDENTIFIERS, ids=("int", "str"))
+    def test_get_human_draft_path_equals_spec_resolution(
+        self,
+        phase_to_spec: tuple[str, str],
+        identifier: int | str,
+    ) -> None:
+        # The human-companion path helper routes through the same registry
+        # as ``_get_draft_path`` so the path knowledge stays single-sourced.
+        phase, spec_name = phase_to_spec
+        issue_number, pipeline_id = self._identifier_from(identifier)
+        human = _get_human_draft_path(phase, issue_number=issue_number, pipeline_id=pipeline_id)
+        spec_resolved = resolve_artifact_path(spec_name, identifier)
+        assert human == spec_resolved, (
+            f"{spec_name}: _get_human_draft_path({phase!r}) → {human!r} but "
+            f"spec resolved to {spec_resolved!r} (identifier={identifier!r})"
+        )
+
+    def test_get_human_draft_path_none_for_unregistered_phase(self) -> None:
+        assert _get_human_draft_path("implement", issue_number=3077) is None
 
 
 # ---------------------------------------------------------------------------
@@ -626,6 +670,11 @@ class TestNameForPath:
     def test_known_concrete_paths(self) -> None:
         assert name_for_path(".egg-state/drafts/3200-plan.md") == "plan-draft"
         assert name_for_path(".egg-state/drafts/3200-analysis.md") == "analysis-draft"
+        # Human companions reverse-resolve distinctly; the ``-human.md``
+        # suffix is disjoint from the plain ``-plan.md`` / ``-analysis.md``
+        # prefixes, so neither shadows the other (regression guard).
+        assert name_for_path(".egg-state/drafts/3200-plan-human.md") == "plan-draft-human"
+        assert name_for_path(".egg-state/drafts/3200-analysis-human.md") == "analysis-draft-human"
         assert (
             name_for_path(".egg-state/agent-outputs/3200-architect-output.json")
             == "architect-output"

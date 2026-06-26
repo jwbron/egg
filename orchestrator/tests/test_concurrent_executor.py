@@ -465,6 +465,23 @@ class TestReviewGraphIntegration:
         assert "reviewer_refine" in graph.critical_reviewers_for("refiner")
         assert "reviewer_agent_design" in graph.critical_reviewers_for("refiner")
 
+        # The simplifier produces the human-focused companion and is
+        # dual-role: CRITICAL-reviewed by reviewer_refine, and carrying an
+        # ADVISORY edge over the refiner so the BRC ``ack`` arm re-invokes
+        # it when the refiner proposes. These four properties are
+        # load-bearing — a regression that dropped the advisory edge or
+        # flipped its criticality would silently break the wake-up.
+        assert graph.is_producer("simplifier")
+        assert graph.is_reviewer("simplifier")
+        assert graph.is_dual_role("simplifier")
+        # reviewer_refine CRITICAL-reviews the simplifier's companion
+        assert "reviewer_refine" in graph.reviewers_for("simplifier")
+        assert "reviewer_refine" in graph.critical_reviewers_for("simplifier")
+        # simplifier reviews refiner ADVISORY (wake-up edge, never blocks)
+        assert "simplifier" in graph.reviewers_for("refiner")
+        assert "simplifier" in graph.advisory_reviewers_for("refiner")
+        assert "simplifier" not in graph.critical_reviewers_for("refiner")
+
         # Phase lookup returns same structure
         phase_graph = get_review_graph_for_phase("refine")
         assert len(phase_graph.edges) == len(graph.edges)
@@ -496,6 +513,24 @@ class TestReviewGraphIntegration:
         assert "risk_analyst" in graph.reviewers_for("task_planner")
         assert "risk_analyst" in graph.critical_reviewers_for("architect")
         assert "risk_analyst" in graph.critical_reviewers_for("task_planner")
+
+        # The simplifier produces the human-focused plan companion and is
+        # dual-role like the refine-phase simplifier: CRITICAL-reviewed by
+        # reviewer_plan, with an ADVISORY edge over task_planner so the BRC
+        # ``ack`` arm re-invokes it when task_planner proposes. These four
+        # properties are load-bearing — a regression that dropped the
+        # advisory edge or flipped its criticality would silently break the
+        # wake-up.
+        assert graph.is_producer("simplifier")
+        assert graph.is_reviewer("simplifier")
+        assert graph.is_dual_role("simplifier")
+        # reviewer_plan CRITICAL-reviews the simplifier's companion
+        assert "reviewer_plan" in graph.reviewers_for("simplifier")
+        assert "reviewer_plan" in graph.critical_reviewers_for("simplifier")
+        # simplifier reviews task_planner ADVISORY (wake-up edge, never blocks)
+        assert "simplifier" in graph.reviewers_for("task_planner")
+        assert "simplifier" in graph.advisory_reviewers_for("task_planner")
+        assert "simplifier" not in graph.critical_reviewers_for("task_planner")
 
         # Phase lookup returns same structure
         phase_graph = get_review_graph_for_phase("plan")
@@ -1608,3 +1643,83 @@ class TestSpawnRecordsResolvedModel:
         execution = executor._spawn_agent(AgentRole.CODER)
 
         assert execution.resolved_model == "opus"
+
+
+class TestEventSpawnReseedThreshold:
+    """#3279: the orchestrator computes the per-model reseed threshold at spawn
+    and exports it to the event pod as ``EGG_RESEED_THRESHOLD`` so the in-pod
+    resume-vs-reseed gate (#3200 slice-8) and the #3249 measurement resolve a
+    real-window boundary instead of ``None`` (the gate's ``no_threshold``
+    safe-reseed branch — ``orchestrator`` is off the pod's ``PYTHONPATH``).
+    """
+
+    def _event_spawner(self, pipeline, mock_spawn):
+        from concurrent_executor import ConcurrentPhaseExecutor, _ExecutorEventSpawner
+        from egg_orchestrator.types import AgentRole
+
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+        return _ExecutorEventSpawner(
+            executor=executor,
+            roles=[AgentRole.CODER, AgentRole.REVIEWER_CODE],
+            slice_id=None,
+        )
+
+    def test_build_event_spawn_params_returns_default_threshold(self):
+        """Default (opus) → ``reseed_threshold`` is the 400k floor
+        (``min(400k, 0.80 * 1M)``), returned as the 4th tuple element.
+        """
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
+
+        _command, _upstream, _upstream_model, threshold = executor._build_event_spawn_params(
+            AgentRole.CODER
+        )
+
+        assert threshold == 400_000
+
+    def test_event_spawn_injects_default_threshold_env(self):
+        """``spawn_event`` puts ``EGG_RESEED_THRESHOLD`` in the spawn_fn's
+        ``extra_env`` for a default-config (opus) pipeline.
+        """
+        pipeline = _make_pipeline()
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        spawner = self._event_spawner(pipeline, mock_spawn)
+
+        spawner.spawn_event(role="coder", action="propose", dedupe_key="k1")
+
+        env = mock_spawn.call_args.kwargs["extra_env"]
+        assert env["EGG_RESEED_THRESHOLD"] == "400000"
+
+    def test_event_spawn_threshold_uses_real_window_for_sub_1m_model(self):
+        """A sub-1M LiteLLM model resolves against its REAL backend window, not
+        the ``[1m]``-implied 1M: ``kimi-k2.7-code`` → ``int(0.80 * 262_144)``.
+        Guards the mis-trigger bug #3200 task-2-1 calls out.
+        """
+        pipeline = _make_pipeline()
+        pipeline.config.agent_models = {"coder": "kimi-k2.7-code"}
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        spawner = self._event_spawner(pipeline, mock_spawn)
+
+        spawner.spawn_event(role="coder", action="propose", dedupe_key="k1")
+
+        env = mock_spawn.call_args.kwargs["extra_env"]
+        assert env["EGG_RESEED_THRESHOLD"] == str(int(0.80 * 262_144))  # 209_715, NOT 400_000
+
+    def test_event_spawn_threshold_conservative_for_unregistered_litellm_model(self):
+        """An unregistered LiteLLM model (not in ``_SUB_1M_CONTEXT_MODELS``, not a
+        Claude alias) resolves against the conservative 200K window, so the
+        threshold is ``int(0.80 * 200_000)`` = ``160_000`` — the branch an operator
+        whose model isn't in the registry silently lands on.
+        """
+        pipeline = _make_pipeline()
+        pipeline.config.agent_models = {"coder": "qwen3-coder-30b"}
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        spawner = self._event_spawner(pipeline, mock_spawn)
+
+        spawner.spawn_event(role="coder", action="propose", dedupe_key="k1")
+
+        env = mock_spawn.call_args.kwargs["extra_env"]
+        assert env["EGG_RESEED_THRESHOLD"] == "160000"

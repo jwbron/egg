@@ -525,6 +525,27 @@ REFINER_PATTERNS = AgentFilePattern(
     ],
 )
 
+# Simplifier writes the human-focused draft companions; same write
+# surface as the refiner (drafts + agent-outputs, never code/contracts).
+SIMPLIFIER_PATTERNS = AgentFilePattern(
+    role=AgentRole.SIMPLIFIER,
+    description="drafts and agent-outputs only",
+    allowed_patterns=[
+        ".egg-state/drafts/",
+        ".egg-state/agent-outputs/",
+    ],
+    blocked_patterns=[
+        "**/*.py",
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx",
+        "**/*.go",
+        "**/*.java",
+        ".egg-state/contracts/",
+    ],
+)
+
 REVIEWER_REFINE_PATTERNS = AgentFilePattern(
     role=AgentRole.REVIEWER_REFINE,
     description="reviews and agent-outputs only",
@@ -728,6 +749,7 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.REVIEWER_CONTRACT: REVIEWER_CONTRACT_PATTERNS,
     AgentRole.REVIEWER_AGENT_DESIGN: REVIEWER_AGENT_DESIGN_PATTERNS,
     AgentRole.REFINER: REFINER_PATTERNS,
+    AgentRole.SIMPLIFIER: SIMPLIFIER_PATTERNS,
     AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_PATTERNS,
     AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_PATTERNS,
     AgentRole.REVIEWER_SECURITY: REVIEWER_SECURITY_PATTERNS,
@@ -830,6 +852,7 @@ def build_agent_patterns(
         AgentRole.REVIEWER_CONTRACT: REVIEWER_CONTRACT_PATTERNS,
         AgentRole.REVIEWER_AGENT_DESIGN: REVIEWER_AGENT_DESIGN_PATTERNS,
         AgentRole.REFINER: REFINER_PATTERNS,
+        AgentRole.SIMPLIFIER: SIMPLIFIER_PATTERNS,
         AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_PATTERNS,
         AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_PATTERNS,
         AgentRole.REVIEWER_SECURITY: REVIEWER_SECURITY_PATTERNS,

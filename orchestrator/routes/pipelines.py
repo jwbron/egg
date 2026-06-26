@@ -5660,6 +5660,34 @@ def _get_draft_path(
     return f".egg-state/drafts/{prefix}-{filename}"
 
 
+# Human-focused companion drafts (mandatory, produced by the simplifier).
+# Resolved through the same artifact-spec registry as the agent drafts so
+# the path knowledge lives in exactly one place. Kept separate from
+# ``_get_draft_path`` (which is pinned byte-for-byte by a consistency test
+# and switches on the real phase value) rather than overloading its phase
+# argument with a synthetic ``refine-human`` key.
+_HUMAN_SPEC_BY_PHASE = {"refine": "analysis-draft-human", "plan": "plan-draft-human"}
+
+
+def _get_human_draft_path(
+    phase: str,
+    issue_number: int | None = None,
+    pipeline_id: str | None = None,
+) -> str | None:
+    """Return the relative path to the human-focused companion draft.
+
+    Returns ``None`` for phases without a registered human companion
+    (currently only ``refine`` and ``plan`` have one).
+    """
+    spec_name = _HUMAN_SPEC_BY_PHASE.get(phase)
+    if spec_name is None:
+        return None
+    from egg_contracts.artifact_spec import resolve_artifact_path
+
+    identifier = _pipeline_identifier(issue_number, pipeline_id or "unknown")
+    return resolve_artifact_path(spec_name, identifier)
+
+
 def _cleanup_stale_generic_drafts(worktree_path: Path) -> bool:
     """Remove unprefixed generic draft files from a worktree.
 
@@ -6256,6 +6284,49 @@ def _read_phase_draft(
         if content is not None:
             logger.info(
                 "Read draft from remote tracking ref (local copy missing)",
+                phase=phase,
+                branch=branch,
+            )
+            return _truncate(content)
+
+    return None
+
+
+def _read_human_phase_draft(
+    repo_path: Path,
+    phase: str,
+    issue_number: int | None = None,
+    pipeline_id: str | None = None,
+    max_chars: int = 32000,
+    branch: str | None = None,
+) -> str | None:
+    """Read the human-focused companion draft for a phase.
+
+    Mirrors :func:`_read_phase_draft` (disk first, then the
+    ``git show origin/{branch}`` fallback for a copy that only landed on
+    the remote branch), but resolves the path via
+    :func:`_get_human_draft_path` and has no generic-path variant — the
+    companion is always pipeline-identified. Returns ``None`` when the
+    companion is absent (so the gate falls back to the agent draft).
+    """
+    human_rel = _get_human_draft_path(phase, issue_number=issue_number, pipeline_id=pipeline_id)
+    if not human_rel:
+        return None
+
+    def _truncate(content: str) -> str:
+        if len(content) > max_chars:
+            return content[:max_chars] + f"\n\n... (truncated, {len(content)} chars total)"
+        return content
+
+    human_path = repo_path / human_rel
+    if human_path.exists():
+        return _truncate(human_path.read_text(encoding="utf-8"))
+
+    if branch:
+        content = _git_show_draft(repo_path, branch, human_rel)
+        if content is not None:
+            logger.info(
+                "Read human companion draft from remote tracking ref (local copy missing)",
                 phase=phase,
                 branch=branch,
             )
@@ -9965,6 +10036,12 @@ def _compose_context_pr_body(
             )
             if rel_path and (worktree_repo_path / rel_path).is_file():
                 doc_links.append(f"[{label}]({link_base}/{rel_path})")
+            # Human-focused companion (the simplifier's ``*-human.md``), when present.
+            human_rel = _get_human_draft_path(
+                phase, issue_number=pipeline.issue_number, pipeline_id=pipeline.id
+            )
+            if human_rel and (worktree_repo_path / human_rel).is_file():
+                doc_links.append(f"[{label} (human summary)]({link_base}/{human_rel})")
         if doc_links:
             body_lines.append(f"- Docs: {', '.join(doc_links)}")
             has_meaningful_content = True
@@ -12767,6 +12844,7 @@ def _build_brc_preamble(
             "architect",
             "task_planner",
             "risk_analyst",
+            "simplifier",
         )
         is_reviewer = role_value in (
             "reviewer_code",
@@ -12776,6 +12854,10 @@ def _build_brc_preamble(
             "reviewer_refine",
             "reviewer_agent_design",
             "reviewer_plan",
+            # simplifier is dual-role: advisory reviewer of the upstream
+            # refine/plan producer (its wake-up arm), plus producer of the
+            # human-focused companion draft.
+            "simplifier",
         )
         reviewers = []
         producers = []
@@ -13294,6 +13376,11 @@ _ROLE_DESCRIPTIONS: dict[str, tuple[str, str]] = {
         "Reviews plan phase outputs",
         "ACK/NACK on architecture, tasks, and risk assessment",
     ),
+    "simplifier": (
+        "Distills the producer's draft into a jargon-free, human-focused "
+        "companion summary (depends on the producer's pushed draft)",
+        "a simplified `*-human.md` companion to the analysis/plan",
+    ),
 }
 
 
@@ -13451,10 +13538,22 @@ def _build_reviewer_preparation(
                 "task groups with no internal dependency. Name the seam in "
                 "your NACK so the architect's re-propose is actionable. "
                 "See criteria §11 for the full rubric and examples."
+                "\n\n"
+                "**Human-focused plan companion (the simplifier's "
+                "``*-plan-human.md``):** the simplifier produces a simplified, "
+                "jargon-free companion to the plan for a technical human "
+                "reviewer outside the pipeline. You review it (CRITICAL). ACK "
+                "only when it faithfully captures the plan's essence, stays "
+                "high-level and digestible, and is free of egg-internal jargon "
+                "(no BRC/consensus/slice-DAG/contract/role terms). NACK the "
+                "**simplifier** (not the task_planner) if it misrepresents the "
+                "plan, leaks pipeline jargon, omits a material point, or merely "
+                "duplicates the full plan. A missing or empty companion is a "
+                "NACK — the companion is mandatory."
             )
     elif phase == "refine":
         if role_value in ("reviewer_refine", "reviewer_agent_design"):
-            return (
+            base = (
                 "While waiting for the refiner's proposal, prepare by: "
                 "(a) reading the prior review feedback that triggered this "
                 "refinement cycle, "
@@ -13464,6 +13563,21 @@ def _build_reviewer_preparation(
                 "When the proposal arrives, focus on whether the specific "
                 "feedback items were addressed."
             )
+            if role_value == "reviewer_refine":
+                base += (
+                    "\n\n"
+                    "**Human-focused analysis companion (the simplifier's "
+                    "``*-analysis-human.md``):** the simplifier produces a "
+                    "simplified, jargon-free companion to the analysis for a "
+                    "technical human reviewer outside the pipeline. You review "
+                    "it (CRITICAL). ACK only when it faithfully captures the "
+                    "analysis's essence, stays high-level and digestible, and is "
+                    "free of egg-internal jargon. NACK the **simplifier** (not "
+                    "the refiner) if it misrepresents the analysis, leaks "
+                    "pipeline jargon, or merely duplicates the full draft. A "
+                    "missing or empty companion is a NACK — it is mandatory."
+                )
+            return base
 
     # Generic fallback
     return (
@@ -13670,6 +13784,40 @@ def _build_producer_orientation(
         reviewer_awareness = (
             f" Your work will be reviewed by **{reviewer_names}** — "
             "keep their review criteria in mind as you work."
+        )
+
+    # The simplifier runs in both the refine and plan phases and is
+    # DUAL-ROLE (advisory reviewer of the upstream producer + producer of
+    # the human-focused companion). Its producer WORK depends on the
+    # upstream producer's draft existing, so — like the implement-phase
+    # tester — it orients up-front and starts producing only once the
+    # upstream proposes (the event pump re-invokes it on that PROPOSE via
+    # its advisory review arm).
+    if role_value == "simplifier":
+        if phase == "plan":
+            upstream, draft_desc = "task_planner", "the implementation plan"
+        else:  # refine
+            upstream, draft_desc = "refiner", "the refine analysis"
+        sync_note = ""
+        if branch:
+            sync_note = (
+                f" When re-invoked on the PROPOSE, sync your worktree first: "
+                f"`git fetch origin && git merge origin/{branch} --no-edit`."
+            )
+        return (
+            f"your producer WORK depends on **{upstream}**'s draft of {draft_desc} "
+            "existing — do NOT write your companion before it is pushed. ORIENT "
+            "now (read the contract and the issue/task description so you "
+            "understand the subject), then exit; the event pump re-invokes you "
+            f"when **{upstream}** issues `CONSENSUS_PROPOSE`, carrying that "
+            "proposal in your event payload. On that invocation: read the "
+            "upstream draft, then write a simplified, higher-level companion "
+            "that captures its essence in plain, jargon-free language for a "
+            "technical reader outside the pipeline, and PROPOSE it. In the same "
+            f"pass, issue your ADVISORY review verdict on **{upstream}** — ACK "
+            "(you read the draft to summarize it), or NACK only if the draft is "
+            "too incoherent to faithfully summarize. Your verdict is advisory "
+            f"and never blocks **{upstream}**'s consensus." + sync_note + reviewer_awareness
         )
 
     if phase == "implement":
@@ -14059,6 +14207,9 @@ def _build_agent_prompt(
     _architect_output_path = _resolve_artifact_path("architect-output", _identifier)
     _architect_slices_path = _resolve_artifact_path("architect-slices", _identifier)
     _risk_analyst_output_path = _resolve_artifact_path("risk-analyst-output", _identifier)
+    # Human-focused companion drafts the simplifier produces (one per phase).
+    _analysis_human_path = _resolve_artifact_path("analysis-draft-human", _identifier)
+    _plan_human_path = _resolve_artifact_path("plan-draft-human", _identifier)
 
     # Role-specific instructions
     lines.append("## Your Task\n")
@@ -14848,6 +14999,73 @@ def _build_agent_prompt(
                 "notes. Be specific in ``feedback`` — name the file, "
                 "the slice, the missing mitigation — so the upstream "
                 "producer's re-propose is actionable.",
+                "",
+                *_EXPLORATION_SUBAGENT_GUIDANCE,
+            ]
+        )
+    elif role_value == "simplifier":
+        if phase == "plan":
+            _upstream = "task_planner"
+            _upstream_draft = "the implementation plan"
+            _human_path = _plan_human_path
+            _essence = (
+                "what will be built, the major steps/phases, the test strategy "
+                "in brief, and the key risks"
+            )
+        else:  # refine
+            _upstream = "refiner"
+            _upstream_draft = "the refine analysis"
+            _human_path = _analysis_human_path
+            _essence = "the problem, the recommended approach, and the key trade-offs"
+        lines.extend(
+            [
+                "**You are dual-role (producer AND advisory reviewer) in this "
+                "phase.** You produce a human-focused companion to "
+                f"{_upstream_draft}, and you carry an ADVISORY review edge over "
+                f"**{_upstream}** purely so the event pump re-invokes you when it "
+                "proposes — your verdict never blocks its consensus. The "
+                "*Dual-Role Execution Order* banner in your BRC preamble is the "
+                "authoritative ordering — read it first.",
+                "",
+                "## Producer role (human-focused companion)",
+                "",
+                f"Your WORK depends on **{_upstream}**'s draft existing. ORIENT "
+                f"now, then start producing only once **{_upstream}** issues "
+                "`CONSENSUS_PROPOSE` (the event pump re-invokes you carrying that "
+                "proposal). On that invocation:",
+                "",
+                f"1. Read **{_upstream}**'s draft of {_upstream_draft}.",
+                f"2. Write a HUMAN-FOCUSED companion to `{_human_path}`. This is a "
+                "simplified, higher-level summary for a **technical** human "
+                "reviewer who is NOT part of the pipeline. Capture the essence: "
+                f"{_essence}.",
+                "",
+                "   Rules:",
+                "   - **No egg-internal jargon.** Do not mention BRC, consensus, "
+                "propose/ACK/NACK, slices / slice-DAG, contracts, phases, "
+                "`serialized_chain_order`, Jaccard, or agent-role names. Describe "
+                "independently-shippable pieces in plain terms if you must "
+                "reference them at all.",
+                "   - **Much shorter and more digestible** than the upstream "
+                "draft — prose and short lists, not exhaustive enumeration.",
+                "   - **Faithful** — reflect the upstream draft accurately; "
+                "introduce no new scope, claims, or recommendations.",
+                "   - The audience is technical, so domain and code specifics are "
+                "fine; pipeline mechanics are not.",
+                "",
+                f"3. Commit and push `{_human_path}`, then PROPOSE it via "
+                "`egg-orch consensus propose`. The companion is **mandatory** — "
+                "always write at least a one-paragraph summary; do NOT take the "
+                "no-op propose path.",
+                "",
+                f"## Reviewer role (advisory, on {_upstream})",
+                "",
+                f"When **{_upstream}** proposes, emit an ADVISORY verdict in the "
+                "same pass: `egg-orch consensus ack` (you read the draft to "
+                "summarize it), or `egg-orch consensus nack` **only** if the "
+                "draft is too incoherent or incomplete to summarize faithfully. "
+                "Advisory means your verdict is recorded but never blocks "
+                f"**{_upstream}**'s consensus.",
                 "",
                 *_EXPLORATION_SUBAGENT_GUIDANCE,
             ]
@@ -24558,8 +24776,50 @@ def _run_pipeline(
                         f"or provide feedback to request changes."
                     )
 
-                    # Detect whether the draft changed compared to the
+                    # Lead the gate comment with the simplifier's human-focused
+                    # companion (simplified, jargon-free) when present, and link
+                    # the full agent draft for depth. Falls back to the full
+                    # draft inline when no companion exists (older pipelines,
+                    # or the companion failed to land).
+                    human_content = _read_human_phase_draft(
+                        worktree_repo_path,
+                        current_phase.value,
+                        issue_number=pipeline.issue_number,
+                        pipeline_id=pipeline_id,
+                        branch=pipeline.branch,
+                    )
+                    gate_context = draft_content
+                    if human_content:
+                        full_draft_link = ""
+                        draft_rel = _get_draft_path(
+                            current_phase.value,
+                            issue_number=pipeline.issue_number,
+                            pipeline_id=pipeline_id,
+                        )
+                        if pipeline.repo and pipeline.branch and draft_rel:
+                            blob = f"https://github.com/{pipeline.repo}/blob/{pipeline.branch}"
+                            full_draft_link = (
+                                f"\n\n[View the full detailed {phase_label} draft]"
+                                f"({blob}/{draft_rel})"
+                            )
+                        gate_context = f"{human_content}{full_draft_link}"
+
+                    # Detect whether the gate content changed compared to the
                     # previous phase_gate decision for this phase (if any).
+                    #
+                    # NB: this compares ``gate_context``, which leads with the
+                    # simplifier's human-focused summary when a companion
+                    # exists. That summary is intentionally high-level and
+                    # lossy, so a re-refinement that materially changes the
+                    # detailed agent draft *without* altering the summary will
+                    # report ``content_changed=False``. The flag only feeds the
+                    # overseer's no-op-rerun health heuristic
+                    # (``overseer/monitor.py`` ``_check_rerun_anomaly``) — it
+                    # never gates re-prompting — so a missed change here is at
+                    # worst a suppressed advisory alert, not a correctness
+                    # issue. We compare the gate content (not the full draft)
+                    # deliberately so the heuristic tracks what the operator
+                    # actually sees at the gate.
                     _content_changed: bool | None = None
                     _prev_gate = next(
                         (
@@ -24572,12 +24832,12 @@ def _run_pipeline(
                         None,
                     )
                     if _prev_gate is not None:
-                        _content_changed = draft_content != _prev_gate.context
+                        _content_changed = gate_context != _prev_gate.context
 
                     dq = get_decision_queue(pipeline_id, repo_path)
                     decision = dq.queue_decision(
                         question=question,
-                        context=draft_content,
+                        context=gate_context,
                         options=["approve", "request changes"],
                         decision_type="phase_gate",
                         phase=current_phase,

@@ -201,6 +201,16 @@ def get_default_refine_graph() -> ReviewGraph:
             ReviewEdge("reviewer_refine", "refiner", ReviewCriticality.CRITICAL),
             # reviewer_agent_design reviews refiner (critical)
             ReviewEdge("reviewer_agent_design", "refiner", ReviewCriticality.CRITICAL),
+            # The simplifier produces the human-focused analysis companion
+            # (faithful + jargon-free), gated CRITICAL by reviewer_refine.
+            # It is DUAL-ROLE — like the implement-phase tester — and carries
+            # an ADVISORY review edge over the refiner so the BRC ``ack`` arm
+            # re-invokes it when the refiner proposes (the proven wake-up the
+            # spawn-dedupe key relies on; a pure producer's first-propose key
+            # is constant and would never re-spawn). Advisory => the
+            # simplifier's verdict never blocks the refiner's consensus.
+            ReviewEdge("reviewer_refine", "simplifier", ReviewCriticality.CRITICAL),
+            ReviewEdge("simplifier", "refiner", ReviewCriticality.ADVISORY),
         ]
     )
 
@@ -242,6 +252,13 @@ def get_default_plan_graph() -> ReviewGraph:
             ReviewEdge("risk_analyst", "architect", ReviewCriticality.CRITICAL),
             # risk_analyst reviews task_planner (critical — risk lens, #2809)
             ReviewEdge("risk_analyst", "task_planner", ReviewCriticality.CRITICAL),
+            # The simplifier produces the human-focused plan companion,
+            # gated CRITICAL by reviewer_plan. Dual-role like the refine-phase
+            # simplifier: an ADVISORY edge over task_planner re-invokes it via
+            # the ``ack`` arm when task_planner proposes (the tester wake-up
+            # pattern). Advisory => it never blocks task_planner's consensus.
+            ReviewEdge("reviewer_plan", "simplifier", ReviewCriticality.CRITICAL),
+            ReviewEdge("simplifier", "task_planner", ReviewCriticality.ADVISORY),
         ]
     )
 

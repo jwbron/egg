@@ -197,22 +197,26 @@ switches, each read in exactly one place:
 | `EGG_CONTEXT_DISCIPLINE` | `egg_agent.context_discipline.context_discipline_enabled` | **Master switch** for the whole discipline (protected-root / queryable-environment split + JIT pull + threshold reseed). ON → every event-pump role takes the new path and `session_resume_enabled` is forced ON; OFF (default) → today's full-context inline path, byte-for-byte unchanged. Subsumes the narrower `EGG_SESSION_RESUME` knob (see below). |
 | `EGG_SESSION_RESUME` | `egg_agent.session.session_resume_enabled` | Narrower opt-in for warm resume. OFF (default) → a passed-in `session_id` is ignored and the agent cold-starts; the substrate is inert and the agent path is byte-for-byte the legacy cold-start. The master flag above subsumes this: `session_resume_enabled` returns `True` for `EGG_SESSION_RESUME` **or** `context_discipline_enabled()`. |
 | `EGG_SESSION_STATE_FILE` | `egg_agent.session.resolve_session_state_path` | Location of the cross-invocation session-state file. Unset → the round-trip is a no-op (substrate stays inert). |
-| `EGG_RESEED_THRESHOLD` | `egg_agent.reseed.resolve_reseed_threshold` | Cross-boundary integer override of the reseed threshold. The sandbox runs with `orchestrator` off `PYTHONPATH`, so the orchestrator side may compute `reseed_threshold(model)` and export the integer here; otherwise the gate imports the orchestrator helper when available, and falls back to `None` (safe reseed) when neither yields a value. |
+| `EGG_RESEED_THRESHOLD` | `egg_agent.reseed.resolve_reseed_threshold` | Cross-boundary integer override of the reseed threshold. The sandbox runs with `orchestrator` off `PYTHONPATH`, so the orchestrator **always** computes `reseed_threshold(model)` and exports the integer here via `_ExecutorEventSpawner.spawn_event` ([#3284](https://github.com/jwbron/egg/issues/3284)); the gate's `None` fallback branch is inert on the production event-pump path. In dev/CI (where `orchestrator` is on `PYTHONPATH`) the gate also imports the helper directly. |
 | `EGG_CONTEXT_MEASUREMENT` | `egg_agent.measurement.measurement_enabled` | Opt-in for the emit-only per-event measurement surfaces (#3249). ON (and `EGG_PIPELINE_ID` set) → after each BRC event the agent emits the six context-discipline metrics through the progress + heartbeat surfaces; OFF (default) → the legacy path is byte-identical (no measurement emit). |
 | `EGG_REAL_BACKEND_WINDOW` | `egg_agent.measurement._resolve_real_window` | Cross-boundary integer override of the model's real backend window, mirroring `EGG_RESEED_THRESHOLD`. Because `orchestrator` is off `PYTHONPATH` in-pod, this is the channel that populates the window-relative metrics (`real_backend_window` / `window_utilization`) in production; the orchestrator import is a dev/CI-only fallback, and both metrics degrade to `None` when neither yields a value. |
 
-**Setting the flags in production.** `EGG_CONTEXT_DISCIPLINE` and
-`EGG_SESSION_RESUME` are read in-pod but must be set on the **orchestrator
-deployment** — `orchestrator/kubernetes_spawner.py` forwards them from the
+**Setting the flags in production.** `EGG_CONTEXT_DISCIPLINE`,
+`EGG_CONTEXT_MEASUREMENT`, and `EGG_SESSION_RESUME` are read in-pod but must be
+set on the **orchestrator deployment** —
+`orchestrator/kubernetes_spawner.py` forwards them from the
 orchestrator's own environment into every spawned agent Job
 (`_FORWARDED_DISCIPLINE_ENV_KEYS`, added in
-[#3272](https://github.com/jwbron/egg/issues/3272)). Nothing else wires them
+[#3272](https://github.com/jwbron/egg/issues/3272); `EGG_CONTEXT_MEASUREMENT`
+added in [#3277](https://github.com/jwbron/egg/issues/3277) once #3271's in-pod
+consumer landed). Nothing else wires them
 into the Job env (`envFrom` is absent; `sandbox_env` is built from pipeline
 fields), so a `kubectl set env` on the pods directly has no effect. The
 forward runs before the per-spawn `extra_env` merge, so a targeted
-per-spawn override still wins. `EGG_SESSION_STATE_FILE` and
-`EGG_RESEED_THRESHOLD` carry per-pod values and are NOT blindly forwarded —
-they need explicit per-pod wiring.
+per-spawn override still wins. `EGG_SESSION_STATE_FILE` carries a per-pod
+value and is NOT blindly forwarded — it still needs explicit per-pod wiring.
+`EGG_RESEED_THRESHOLD` was similarly per-pod-only but is now always injected
+by `_ExecutorEventSpawner.spawn_event` ([#3284](https://github.com/jwbron/egg/issues/3284)).
 
 **Slice-9 master flag (`EGG_CONTEXT_DISCIPLINE`, shipped).** The terminal slice
 ([#3200](https://github.com/jwbron/egg/issues/3200) slice-9) introduced a single
