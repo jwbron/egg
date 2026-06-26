@@ -40,15 +40,14 @@ Path safety:
   ``transitions`` / ``worklog`` / ``attachments`` / ``watchers`` via
   ``/execute``.
 
-429 handling (refine Q5, architect D7):
+429 handling:
 
 - GET requests retry at most once on HTTP 429, honoring ``Retry-After`` up to
   30s.  Write verbs never retry (future-safety + at-most-once semantics for
   upstream Atlassian).  Both paths emit the ``jira_upstream_rate_limited``
-  audit event so operators see 429s on writes too (feedback Q1, decision-16
-  symmetry).
+  audit event so operators see 429s on writes too, symmetrically with reads.
 
-404 envelope (refine Q8, architect D8):
+404 envelope:
 
 - ``get_ticket`` and ``get_comments`` translate upstream 404 into a structured
   ``{"status": "not_found", "key": key, "upstream_status": 404}`` dict so the
@@ -129,7 +128,7 @@ ALLOWED_METHODS: frozenset[str] = frozenset({"GET"})
 # Paths / HTTP verbs that are permanently out of scope for the wrapper.
 # Even if a future maintainer widens ALLOWED_METHODS, the gateway will still
 # refuse these — they're the escape hatch that turns read-only audit trails
-# into real Jira mutations, and the refine phase explicitly blocked them.
+# into real Jira mutations, so they are permanently denied.
 JIRA_WRITE_VERBS_DENIED: frozenset[str] = frozenset(
     {
         # Path-segment denylist (checked against individual segments of the
@@ -158,9 +157,9 @@ _TICKET_KEY = rf"{_PROJECT_KEY}-\d+"
 JIRA_API_ALLOWED_PATHS: list[re.Pattern[str]] = [
     re.compile(rf"^issue/{_TICKET_KEY}$"),
     re.compile(rf"^issue/{_TICKET_KEY}/comment$"),
-    # Issue #1557 slice-2 — read-only ``GET /rest/api/3/issue/{key}/
-    # remotelink`` for the in-flight PR detection signal (decision-7
-    # signal b). Stays inside the GET-only ``ALLOWED_METHODS`` plus
+    # Read-only ``GET /rest/api/3/issue/{key}/remotelink`` for the
+    # in-flight PR detection signal. Stays inside the GET-only
+    # ``ALLOWED_METHODS`` plus
     # the ``JIRA_WRITE_VERBS_DENIED`` segment list, so POST / PUT /
     # DELETE on this path remain rejected.
     re.compile(rf"^issue/{_TICKET_KEY}/remotelink$"),
@@ -187,8 +186,7 @@ MAX_FIELDS: int = 32
 
 # Default expand parameters for issue reads.  Gives agents both the raw
 # Atlassian Document Format JSON and the server-rendered HTML in a single
-# request so they don't need to re-fetch with different expand values
-# (risk R6, architect Q4).
+# request so they don't need to re-fetch with different expand values.
 DEFAULT_EXPAND: tuple[str, ...] = ("renderedBody", "renderedFields")
 
 # Default ``maxResults`` when the caller doesn't pass one.  Capped at 100 by
@@ -329,8 +327,8 @@ class JiraClient:
     """Thin REST-API wrapper around Atlassian Cloud.
 
     The client is deliberately class-shaped (and not a bag of module-level
-    helpers) so that v1.1 multi-site support (refine decision #10) is a
-    single-file drop-in: wire a second instance with its own
+    helpers) so that v1.1 multi-site support is a single-file drop-in:
+    wire a second instance with its own
     ``creds_provider`` / ``http_client`` and the route layer can pick between
     them without refactoring the read paths.
     """
@@ -362,8 +360,7 @@ class JiraClient:
         Atlassian returned on the first try — at-most-once semantics for
         write verbs.  All 429 responses (read **and** write) emit the
         ``jira_upstream_rate_limited`` audit event so operators see write
-        rate-limit events even though writes don't auto-retry (refine
-        feedback Q1).
+        rate-limit events even though writes don't auto-retry.
         """
         creds = self.creds_provider()
         headers = {
@@ -443,10 +440,10 @@ class JiraClient:
         return _safe_json(response, f"issue/{key}/comment")
 
     def get_remotelinks(self, key: str) -> dict[str, Any]:
-        """Fetch the remote-link list for an issue (issue #1557 slice-2).
+        """Fetch the remote-link list for an issue.
 
-        Used by the reassess sweep's in-flight classifier (decision-7
-        signal b) — a child epic ticket whose remote-link list
+        Used by the reassess sweep's in-flight classifier — a child
+        epic ticket whose remote-link list
         includes a ``github.com/.../pull/<N>`` URL is treated as
         in-flight regardless of its Atlassian status. Same 404
         semantics as ``get_ticket`` / ``get_comments``.
@@ -477,7 +474,7 @@ class JiraClient:
         transition_name: str | None = None,
         comment_adf: dict[str, Any] | None = None,
     ) -> tuple[int, dict[str, Any]]:
-        """``POST /rest/api/3/issue/{key}/transitions`` — issue #1557 slice-2.
+        """``POST /rest/api/3/issue/{key}/transitions``.
 
         **Internal-only**: the public agent-facing surface continues to
         deny transitions via :data:`JIRA_WRITE_VERBS_DENIED`. The
@@ -709,7 +706,7 @@ class JiraClient:
         Callers that mix replace + incremental get a ``ValueError`` here
         (the route layer rejects with 400 first).
 
-        ``notify_users=False`` (refine decision-5 default) sends
+        ``notify_users=False`` (the default) sends
         ``?notifyUsers=false`` so an edit doesn't blast every watcher's
         inbox; pass ``True`` explicitly to opt in.
 
@@ -811,9 +808,8 @@ class JiraClient:
         """``POST /rest/api/3/issueLink`` — link two tickets.
 
         Atlassian does **not** dedupe identical ``(inward, outward, type)``
-        triples — a transient-error retry would create a duplicate link
-        (refine Open Q28).  The idempotency cache (decision-28) sidesteps
-        this for caller-driven retries.
+        triples — a transient-error retry would create a duplicate link.
+        The idempotency cache sidesteps this for caller-driven retries.
 
         The cache key namespaces the opaque ``idempotency_key`` by
         ``(jira_issue_link_create, "<inward>__<outward>__<type>", key)`` so
