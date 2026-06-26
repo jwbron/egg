@@ -67,7 +67,19 @@ detection_plane = pytest.importorskip("health_checks.detection_plane")
 models = pytest.importorskip("models")
 
 IssueDedupLedger = issue_filer.IssueDedupLedger
+file_diagnostic_issue = issue_filer.file_diagnostic_issue
 DetectionPlane = detection_plane.DetectionPlane
+
+
+def _run(coro):
+    """Run an async coroutine synchronously (mirrors test_two_tier_integration)."""
+    import asyncio
+
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 _CORPUS: list[CorpusRow] = load_corpus()
@@ -185,6 +197,90 @@ class TestIssueDedupLedger:
         # After reset both tiers are empty: the identical body files again with
         # no clock advance (proves Tier 2 cleared) and inside the window (Tier 1).
         assert ledger.should_file(anomaly_type="container_death", agent_role="coder", body=body)
+
+    def test_forget_reopens_filing_after_a_failed_attempt(self) -> None:
+        """``forget`` rolls back an admitting ``should_file`` so a *failed* filing
+        is retried rather than suppressed for the rest of the window.
+
+        Reverses exactly what the admitting call recorded: the same
+        ``(type, role)`` and the same exact body both file again immediately,
+        with no clock advance — proving both Tier-1 and Tier-2 records were
+        cleared."""
+        clock = _Clock()
+        ledger = IssueDedupLedger(window_seconds=300.0, clock=clock)
+
+        # Gate admits the anomaly (records it in both tiers)...
+        assert ledger.should_file(anomaly_type="container_death", agent_role="coder", body="body-A")
+        # ...but the filing failed, so we forget the recording.
+        ledger.forget(anomaly_type="container_death", agent_role="coder", body="body-A")
+
+        # The retry — same key, same exact body, no clock advance — is admitted
+        # again because both tiers were rolled back.
+        assert ledger.should_file(anomaly_type="container_death", agent_role="coder", body="body-A")
+
+    def test_forget_does_not_disturb_unrelated_records(self) -> None:
+        """``forget`` removes only the named ``(type, role)`` / body, leaving a
+        sibling anomaly's still-live suppression intact."""
+        clock = _Clock()
+        ledger = IssueDedupLedger(window_seconds=300.0, clock=clock)
+
+        assert ledger.should_file(
+            anomaly_type="container_death", agent_role="coder", body="b-coder"
+        )
+        assert ledger.should_file(
+            anomaly_type="container_death", agent_role="tester", body="b-tester"
+        )
+
+        # Forget only the coder record (simulating its filing failing).
+        ledger.forget(anomaly_type="container_death", agent_role="coder", body="b-coder")
+
+        # Coder reopens; tester's in-window suppression is untouched.
+        assert ledger.should_file(
+            anomaly_type="container_death", agent_role="coder", body="b-coder"
+        )
+        assert not ledger.should_file(
+            anomaly_type="container_death", agent_role="tester", body="b-tester"
+        )
+
+    def test_failed_filing_rolls_back_the_ledger_so_next_cycle_retries(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """End-to-end: when ``file_diagnostic_issue`` admits an anomaly through
+        the ledger but the ``gh`` filing fails, the ledger is rolled back so the
+        *next* poll cycle re-files instead of silently suppressing for the
+        window. Without the wiring, the second call would dedup to ``False``."""
+        ledger = IssueDedupLedger()
+        anomaly = {"type": "escalation", "description": "stuck agent"}
+
+        # Force the gh path to fail (CLI missing → FileNotFoundError branch).
+        async def _boom(*_args, **_kwargs):
+            raise FileNotFoundError("gh not on PATH")
+
+        monkeypatch.setattr(issue_filer.asyncio, "create_subprocess_exec", _boom)
+
+        first = _run(
+            file_diagnostic_issue(
+                pipeline_id="pipe-1",
+                agent_role="coder",
+                anomaly=anomaly,
+                context={"pipeline_id": "pipe-1"},
+                dedup_ledger=ledger,
+            )
+        )
+        assert first["filed"] is False
+        assert "deduplicated" not in first  # it was admitted, then the filing failed
+
+        # The retry is admitted again because the failed attempt was forgotten.
+        second = _run(
+            file_diagnostic_issue(
+                pipeline_id="pipe-1",
+                agent_role="coder",
+                anomaly=anomaly,
+                context={"pipeline_id": "pipe-1"},
+                dedup_ledger=ledger,
+            )
+        )
+        assert second.get("deduplicated") is not True
 
 
 # ===========================================================================

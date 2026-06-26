@@ -284,6 +284,26 @@ class IssueDedupLedger:
         self._tier2_hashes.add(body_hash)
         return True
 
+    def forget(self, *, anomaly_type: str, agent_role: str, body: str) -> None:
+        """Roll back a recording made by an admitting :meth:`should_file`.
+
+        Called when a filing the gate *admitted* (``should_file`` returned
+        True) subsequently fails — e.g. ``gh issue create`` returns non-zero,
+        times out, or ``gh`` is missing. Without this, the failed attempt would
+        leave the anomaly recorded in both tiers and suppress every retry for
+        the rest of the Tier-1 window, silently dropping the diagnostic. By
+        forgetting exactly what the admitting call recorded, the next poll
+        cycle re-evaluates the anomaly so it can be retried until actually
+        filed.
+
+        Precisely reverses the admitting call: that call only returns True when
+        the Tier-1 key was absent/expired and the body hash was novel, so both
+        entries removed here were added by it (never a still-live prior record).
+        """
+        key = (str(anomaly_type), str(agent_role))
+        self._tier1_seen.pop(key, None)
+        self._tier2_hashes.discard(self._body_hash(body))
+
     def reset(self) -> None:
         """Clear both dedup tiers (e.g. on orchestrator generation reset)."""
         self._tier1_seen.clear()
@@ -450,6 +470,13 @@ async def file_diagnostic_issue(
     for label in DIAGNOSTIC_LABELS:
         label_args.extend(["--label", label])
 
+    def _rollback_dedup() -> None:
+        # The gate admitted this filing above (should_file recorded it); if the
+        # filing now fails, forget that record so the next poll cycle retries
+        # rather than treating the anomaly as already-filed for the window.
+        if dedup_ledger is not None:
+            dedup_ledger.forget(anomaly_type=anomaly_type, agent_role=agent_role, body=body)
+
     try:
         cmd = [
             "gh",
@@ -492,10 +519,12 @@ async def file_diagnostic_issue(
             proc.returncode,
             stderr_text,
         )
+        _rollback_dedup()
         return {"issue_number": None, "filed": False, "template": body}
 
     except FileNotFoundError:
         logger.warning("gh CLI not found; cannot file diagnostic issue")
+        _rollback_dedup()
         return {"issue_number": None, "filed": False, "template": body}
 
     except TimeoutError:
@@ -505,8 +534,10 @@ async def file_diagnostic_issue(
         except ProcessLookupError:
             pass
         logger.warning("gh issue create timed out")
+        _rollback_dedup()
         return {"issue_number": None, "filed": False, "template": body}
 
     except Exception as exc:
         logger.warning("Failed to file diagnostic issue: %s", exc)
+        _rollback_dedup()
         return {"issue_number": None, "filed": False, "template": body}
