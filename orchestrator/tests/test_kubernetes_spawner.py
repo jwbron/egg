@@ -3112,6 +3112,7 @@ class TestSpawnAgentJobSpawnMsTiming:
         samples = self._spawn_with_clock(spawner, deltas)
 
         assert all(abs(s - d) < 1.0 for s, d in zip(samples, deltas, strict=True))
+        assert statistics.median(samples) >= 60_000
 
 
 # ---------------------------------------------------------------------------
