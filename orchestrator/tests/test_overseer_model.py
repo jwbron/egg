@@ -253,9 +253,9 @@ class TestOverseerDecisionModelDeprecation:
                 cfg = PipelineConfig()
                 _ = cfg  # construction only; do not access the deprecated field
 
-        assert not any(
-            issubclass(w.category, DeprecationWarning) for w in recorded
-        ), "constructing a default PipelineConfig must not emit a deprecation warning"
+        assert not any(issubclass(w.category, DeprecationWarning) for w in recorded), (
+            "constructing a default PipelineConfig must not emit a deprecation warning"
+        )
 
 
 # =============================================================================
