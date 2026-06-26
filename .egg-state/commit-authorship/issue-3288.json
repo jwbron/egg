@@ -8,6 +8,14 @@
       "repo": null,
       "role": "risk_analyst"
     },
+    "26ed3b4714867bdfffa61f620f394d8a63b0d202": {
+      "branch": "egg/issue-3288/work",
+      "patch_id": "449bf2c1bafa809f07cf4d257fa5110bbaa3eb81",
+      "pipeline_id": "issue-3288",
+      "registered_at": "2026-06-26T20:49:52.378707+00:00",
+      "repo": null,
+      "role": "task_planner"
+    },
     "3ab81bcfbe8ef732ee4bc51eb48083923400719c": {
       "branch": "egg/issue-3288/work",
       "patch_id": "2afbaedac9f0c595186423af38e40307e303ffe5",
