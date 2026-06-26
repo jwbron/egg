@@ -92,9 +92,28 @@
       "agent_exits": []
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Consensus timed out; consensus incomplete; agents never confirmed: reviewer_agent_design, refiner, simplifier, reviewer_refine. Committed work is preserved on the per-role branch — 'Retry phase' restarts with artifacts intact. How to proceed?",
+      "context": "",
+      "options": [
+        "Retry phase",
+        "Accept current state",
+        "Abort phase"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-06-26T20:28:07.868317Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
+    }
+  ],
   "created_at": "2026-06-26T19:57:59.841683Z",
-  "updated_at": "2026-06-26T20:25:28.331266Z",
+  "updated_at": "2026-06-26T20:28:07.868840Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -107,7 +126,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-26T20:25:20.195648Z",
-  "version": 11,
+  "version": 12,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
