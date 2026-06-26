@@ -567,16 +567,7 @@
           "max_cycles": 3,
           "escalated": false,
           "delegation_attempts": 0,
-          "gaps": [
-            {
-              "id": "gap-1",
-              "from_role": "tester",
-              "to_role": "coder",
-              "description": "Collection wiring for the new test root `shared/egg_agent/tests/` (home of the contract-named `test_midturn_messages.py`, task-7-5). This directory is NOT in `pyproject.toml::[tool.pytest.ini_options].testpaths` (currently `[\"tests\",\"gateway/tests\",\"orchestrator/tests\",\"shared/tests\"]`) nor in the `make test-all` roots (`pytest tests/ gateway/tests/ orchestrator/tests/ shared/tests/`). Both files are coder-owned (tester is gateway-blocked from pyproject.toml + Makefile). Without adding `shared/egg_agent/tests` to both, the #3123 golden-file + intent-discriminator regression never runs under `make test` / `make test-all` / CI (the selector fell back to the four full-suite roots, which exclude it). Please add `shared/egg_agent/tests` to testpaths and the test-all roots so the suite is collected. The test is self-contained on imports (inserts `shared/` on sys.path) and has its own conftest, so only the collection-root wiring is needed.",
-              "created_at": "2026-06-26T08:20:48Z",
-              "resolved": false
-            }
-          ],
+          "gaps": [],
           "jira_key": null,
           "jira_action": null,
           "jira_action_status": null
