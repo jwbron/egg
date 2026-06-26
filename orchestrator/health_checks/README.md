@@ -1,8 +1,148 @@
 # Health Check Framework
 
+This package now hosts **two related mechanisms**. Know which one you are
+touching:
+
+1. **Detection plane** (`detection_plane.py`, `Finding`/`FindingClass`/`Severity`
+   in `types.py`, and the `detect_*` functions in `tier1/`) — the
+   orchestrator-side overseership delivered by the overseer overhaul
+   ([#2270](https://github.com/jwbron/egg/issues/2270)). Cheap deterministic
+   detectors run over an `EventStreamSnapshot` on the event loop and return
+   `Finding | None`; ambiguous findings escalate to an on-demand overseer
+   adjudicator, routine ones flow to the bounded corrective vocabulary. **No LLM
+   for the normal majority.** See [Detection plane](#detection-plane-2270) below
+   and [docs/architecture/overseer.md](../../docs/architecture/overseer.md).
+2. **`HealthCheck` framework** (`HealthCheck` protocol + `HealthResult` in
+   `types.py`, `runner.py`, `context.py`, and the `*Check` classes in `tier1/`)
+   — the older lifecycle-triggered framework documented in the rest of this
+   file. Runs at `STARTUP` / `WAVE_COMPLETE` / `PHASE_COMPLETE` / etc., returns
+   `HealthResult`, and can block a phase advance via `FAIL_PIPELINE`.
+
+Both live in this package and both use `tier1/`; a `detect_*` function and a
+`*Check` class can sit side by side in the same module file.
+
+---
+
 Two-tier health check framework for proactive pipeline failure detection. Catches both infrastructure failures (containers missing, state inconsistencies) and semantic failures (agents completed but produced no artifacts).
 
 > **Tier 2 registration status:** The framework retains full two-tier *capability* — the `HealthTier.AGENT` enum and the Tier 1 → Tier 2 escalation logic in `runner.py` are intact, so a new Tier 2 check can be registered without framework changes. However, **no Tier 2 checks are currently registered.** `AgentInspectorCheck` (the only Tier 2 check) was removed as unused in [#2850](https://github.com/jwbron/egg/pull/2850); every active check below is Tier 1. The Tier 2 rows and notes in this doc describe framework behavior that activates only once a Tier 2 check is registered.
+
+## Detection plane (#2270)
+
+`detection_plane.py` is the structural replacement for the old respawning
+overseer watcher pod. Instead of a long-lived agent polling and an LLM
+classifying every observation, the orchestrator runs a set of cheap,
+deterministic **detectors** over an `EventStreamSnapshot` on its own event loop.
+
+### Snapshot and Finding types
+
+- **`EventStreamSnapshot`** — a frozen, point-in-time view of pipeline state a
+  detector evaluates: `running_agents` (each a `RunningAgent` annotated with its
+  `lifecycle_owner`), `consensus`, `phase_state`, `decision_state`,
+  `container_transitions`, `gateway_error_counters`, `cost_counters`,
+  `midturn_messages`, `git_state`, and a permissive `raw` passthrough. Built on
+  the event loop by `snapshot_from_health_context(context)`; in tests it is
+  parsed from the calibration corpus fixtures (same field names).
+- **`LifecycleOwner`** (`ORCHESTRATOR` / `AGENT` / `NONE`) — who owns the agent
+  lifecycle when the snapshot was taken. Under orchestrator-owned on-demand
+  spawning ([#3064](https://github.com/jwbron/egg/issues/3064)) a phase can be
+  RUNNING with zero live containers for a beat while the next one-shot agent is
+  about to spawn — `ORCHESTRATOR`/`AGENT` means progress is queued, `NONE` means
+  nothing is. This distinction is what makes the stall detector honest
+  ([#3230](https://github.com/jwbron/egg/issues/3230)).
+- **`Finding`** — a detector's output (`finding_class`, `severity`, `evidence`,
+  `recommended_action`, `requires_adjudication`, `detector_key`). Routine
+  findings carry `requires_adjudication=False` and are handled by the bounded
+  corrective vocabulary with no LLM; only an ambiguous / high-stakes finding
+  sets `requires_adjudication=True` and triggers the on-demand adjudicator.
+- **`Severity`** (`info`/`low`/`medium`/`high`) and **`FindingClass`** are
+  `StrEnum`s that compare equal to the plain strings the calibration corpus
+  asserts against, so the production types plug straight into the harness.
+
+### Detector protocol and the plane
+
+A `Detector` is any callable carrying `detector_key` and `name` attributes:
+
+```python
+def detect_something(snapshot: EventStreamSnapshot) -> Finding | None:
+    ...
+detect_something.detector_key = "something"
+detect_something.name = "something_detector"
+```
+
+The plane is a registry + evaluator:
+
+- `DetectionPlane.default()` / `default_detection_plane()` builds a plane
+  pre-wired with the lifecycle-owner-aware `PhaseStallDetector` (slice-4) plus
+  the §5 coverage-gap survey (slice-8, registered from the `tier1/` modules).
+- `plane.evaluate(snapshot)` runs every registered detector and collects the
+  non-`None` findings. Execution is **exception-isolated** — a detector that
+  raises degrades to "no finding" and is logged, never crashing the loop.
+- `plane.detectors` exposes the registry keyed by `detector_key`.
+- `escalate_findings(findings, spawn_adjudicator=…)` invokes the injected
+  spawner **once per finding whose `requires_adjudication` is set** — never for
+  the rest, and never at all when there are no findings. This is the cost guard.
+
+### Runtime wiring
+
+`routes/pipelines._run_overseer_detection_plane` builds the snapshot, evaluates
+the default plane, and routes findings:
+`_escalate_finding_to_adjudicator` spawns a normal on-demand OVERSEER agent for
+each `requires_adjudication` finding (which **advises** only), and
+`escalate_findings` is the canonical escalation gate. Routine findings are
+executed by the `CorrectiveExecutor` (see
+[overseer/README.md](../overseer/README.md)).
+
+### Detector catalogue
+
+`DetectionPlane.default()` registers these. **Adjudicate** = sets
+`requires_adjudication=True`.
+
+| Layer | `detector_key` | Adjudicate? |
+|-------|----------------|:-----------:|
+| core | `phase_stall` | ✅ |
+| container / k8s | `container_death` | — |
+| container / k8s | `container_oom_evicted` | — |
+| container / k8s | `container_restart_loop` | ✅ |
+| container / k8s | `overseer_self_injection` | — |
+| orchestrator runtime | `runtime_thread_liveness` | ✅ |
+| orchestrator runtime | `duration_drift` | — |
+| orchestrator runtime | `agent_restart_propagation` | — |
+| decision queue | `auto_advance_wedge` | ✅ |
+| decision queue | `approved_decision_orphaned` | — |
+| decision queue | `restarted_decision_replay` | — |
+| decision queue | `hitl_queue_backlog` | — |
+| worktree / branch | `worktree_corruption` | — |
+| worktree / branch | `disk_inode_pressure` | — |
+| worktree / branch | `pr_external_mutation` | — |
+| worktree / branch | `pushed_pr_not_updated` | — |
+| gateway | `gateway_error_spike` | — |
+| gateway | `gateway_repeated_denial` | — |
+| gateway | `gateway_token_expiry` | — |
+| BRC / thrashing | `brc_thrash` | ✅ |
+| BRC / thrashing | `incomplete_consensus_deferral` | — |
+| cost / budget | `cost_anomaly` | — |
+| LLM substrate | `llm_substrate_unreachable` | — |
+| LLM substrate | `effective_model_drift` | — |
+| LLM substrate | `anthropic_5xx` | — |
+| overseer self-health | `overseer_self_health` | — |
+
+> A detector only fires in a live run once `snapshot_from_health_context()`
+> populates the field it reads; until then it stays silent. The calibration
+> corpus ([overseer-calibration-corpus.md](../../docs/architecture/overseer-calibration-corpus.md))
+> drives every detector with fully-populated fixtures.
+
+### Adding a new detector
+
+1. Add `detect_<thing>(snapshot) -> Finding | None` to the relevant `tier1/`
+   module; attach `detector_key` / `name` attributes.
+2. Keep it pure and total — never raise, never call an LLM. Set
+   `requires_adjudication=True` only when the condition is genuinely ambiguous.
+3. Register it in `detection_plane._register_coverage_gap_detectors` (or
+   `DetectionPlane.default`).
+4. Add known-normal and known-bad rows to the calibration corpus.
+
+---
 
 ## Architecture
 
@@ -225,6 +365,10 @@ For Tier 2 checks specifically: use `HealthAction.ALERT` (not `FAIL_PIPELINE`) a
 
 ## Related
 
+- [Overseer Architecture](../../docs/architecture/overseer.md) — the detection plane, on-demand adjudicator, and bounded corrective vocabulary (#2270)
+- [Overseer package README](../overseer/README.md) — server-side adjudicator + corrective executor
+- [Calibration corpus](../../docs/architecture/overseer-calibration-corpus.md) — the detector calibration contract
 - [Orchestrator README](../README.md)
 - [Orchestrator Architecture](../../docs/architecture/orchestrator.md)
 - Issue [#850](https://github.com/jwbron/egg/issues/850) — Design and motivation
+- Issue [#2270](https://github.com/jwbron/egg/issues/2270) — Overseer overhaul
