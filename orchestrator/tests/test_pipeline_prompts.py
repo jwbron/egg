@@ -805,7 +805,9 @@ class TestBuildRoleContext:
         )
         assert "Phase Scope" in result
         assert "TASK-2-1" in result
-        assert "Focus your documentation" in result
+        # Snapshot framing: documents the current state, not "the changes".
+        assert "current state" in result.lower()
+        assert "Focus your documentation on changes from plan phase" not in result
 
     def test_tester_with_all_phases_shows_other_phases(self):
         """Tester sees other phases listed for orientation."""
@@ -1328,11 +1330,20 @@ class TestBuildRoleContextEdgeCases:
         assert "Other Phases" not in result
 
     def test_documenter_phase_intro_text(self):
-        """Documenter gets documentation-focused intro text."""
+        """Documenter intro frames the job as a current-state snapshot.
+
+        The per-phase summary must describe documenting how the system works
+        now, not "the changes from plan phase <id>" — the old phase-id-keyed
+        changelog framing is gone (snapshot-not-ledger, #3288).
+        """
         task = self._make_task("t-1", "Add feature")
         phase = self._make_phase(tasks=[task])
         result = _build_role_context("documenter", "# Issue", phase_obj=phase)
-        assert "Focus your documentation" in result
+        lower = result.lower()
+        assert "current state" in lower
+        assert "snapshot" in lower
+        # The removed changelog framing must not linger.
+        assert "Focus your documentation on changes from plan phase" not in result
 
     def test_non_tester_non_documenter_phase_intro(self):
         """Non-tester/non-documenter execution roles get generic phase intro."""
@@ -6859,3 +6870,105 @@ class TestPhaseIterationContext:
         assert summary.verdict_matrix["reviewer_refine->refiner"] == ApprovalState.NACKED.value
         assert summary.verdict_matrix["reviewer_agent_design->refiner"] == ApprovalState.ACKED.value
         assert any("missing planner sections" in r for r in summary.nack_reasons)
+
+
+class TestDocumenterSnapshotFraming:
+    """The documenter agent is framed as a snapshot author, not a changelog
+    author (#3288).
+
+    The documenter's ``## Your Task`` block and producer orientation must
+    instruct current-state (snapshot) documentation, forbid SDLC artifacts
+    (slice numbers, ``TASK-N`` ids, phase/HITL iteration numbers) in any doc/
+    docstring/comment it writes, and prefer rationale over chronology — while
+    preserving the ``--no-changes-needed`` no-op propose path unchanged. These
+    tests pin the contract so the framing cannot silently regress to the old
+    "document the changes" wording.
+    """
+
+    def _documenter_implement_prompt(self) -> str:
+        return _build_agent_prompt(
+            role_value="documenter",
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="Document the implementation.",
+            issue_number=3288,
+        )
+
+    def test_implement_prompt_instructs_current_state_snapshot(self):
+        """The implement-phase block instructs current-state (snapshot) docs."""
+        prompt = self._documenter_implement_prompt()
+        lower = prompt.lower()
+        assert "current state" in lower
+        # Snapshot framing, explicitly contrasted with changelogs.
+        assert "snapshot" in lower
+        assert "changelog" in lower
+
+    def test_implement_prompt_forbids_sdlc_artifact_references(self):
+        """The block forbids slice/TASK/phase/HITL references in written docs."""
+        prompt = self._documenter_implement_prompt()
+        lower = prompt.lower()
+        # The prohibition names each banned SDLC artifact class.
+        assert "sdlc artifact" in lower
+        assert "slice number" in lower
+        assert "task-n" in lower
+        assert "hitl" in lower
+        assert "phase" in lower
+        # And it is phrased as a hard prohibition, scoped to written docs.
+        assert "never reference" in lower
+        assert any(surface in lower for surface in ("docstring", "inline comment", "comment"))
+
+    def test_implement_prompt_prefers_rationale_over_chronology(self):
+        """The block prefers rationale ('why') over chronology ('what changed')."""
+        prompt = self._documenter_implement_prompt()
+        lower = prompt.lower()
+        assert "rationale" in lower
+        assert "chronology" in lower
+        # Folds new state into the snapshot and removes stale ledger entries
+        # rather than appending another historical layer.
+        assert "fold" in lower
+        assert "stale" in lower
+
+    def test_implement_prompt_drops_change_oriented_framing(self):
+        """No stale assertion or instruction references the removed strings."""
+        prompt = self._documenter_implement_prompt()
+        assert "Update documentation for the changes made by the CODER agent" not in prompt
+        assert "Clear explanation of any breaking changes" not in prompt
+
+    def test_implement_prompt_preserves_no_op_propose_path(self):
+        """The ``--no-changes-needed`` no-op propose path is still present and
+        its example reason no longer references a slice (#3027 path intact)."""
+        prompt = self._documenter_implement_prompt()
+        assert "--no-changes-needed" in prompt
+        assert "### When the slice warrants no doc updates" in prompt
+        # The reworded no-op example must not reintroduce a slice id.
+        assert "slice-3 is a pure decomposition" not in prompt
+
+    def test_per_phase_summary_uses_snapshot_framing(self):
+        """The per-phase documenter summary describes current state, not the
+        'changes from plan phase <id>' changelog framing."""
+        phase = MagicMock()
+        phase.id = "phase-1"
+        phase.name = "Core"
+        phase.status = "in_progress"
+        task = MagicMock()
+        task.id = "t-1"
+        task.description = "Add feature"
+        task.files_affected = None
+        task.acceptance_criteria = None
+        task.role = "documenter"
+        phase.tasks = [task]
+
+        result = _build_role_context("documenter", "# Issue", issue_number=1, phase_obj=phase)
+        lower = result.lower()
+        assert "current state" in lower
+        assert "snapshot" in lower
+        assert "Focus your documentation on changes from plan phase" not in result
+
+    def test_orientation_frames_docs_as_current_state_snapshot(self):
+        """Producer orientation frames doc work as folding state into a
+        current-behavior snapshot, not a list of 'docs that need updating'."""
+        orient = _build_producer_orientation("documenter", "implement", [])
+        lower = orient.lower()
+        assert "snapshot" in lower
+        assert "current behavior" in lower
