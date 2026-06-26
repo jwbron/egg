@@ -721,6 +721,11 @@ def _spawn_overseer_agent(
     )
     from egg_agent import build_agent_command
 
+    try:
+        from ..models import AgentRole
+    except ImportError:
+        from models import AgentRole  # type: ignore[no-redef]
+
     overseer_repo = pipeline_repos[0] if pipeline_repos else None
     try:
         overseer_decision = resolve_overseer_model(
