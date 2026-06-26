@@ -38,10 +38,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Enumerated + bounded sweep (Recommended): fully clean the files the issue names explicitly (the architecture pages, the listed docstrings/CLAUDE.md tables), plus a bounded sweep of the highest-density remaining files; explicitly defer the long tail to follow-up issues rather than block this pipeline on all 260\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-26T20:36:33.763290Z",
       "debounce_until": null
     },
     {
@@ -66,10 +66,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"No \u2014 out of scope (Recommended): the issue scopes this to a prompt change + corpus pass; a lint guard is a separate concern with false-positive tuning of its own. Note it as a candidate follow-up issue, don't build it here\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-26T20:36:38.790537Z",
       "debounce_until": null
     }
   ],
