@@ -146,10 +146,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Durability guardrail: the issue asks to change the documenter prompt and clean the corpus, but does not ask for an automated check to keep slice/TASK ledger references from re-entering docs later. Should this pipeline add one (e.g. a pre-commit / CI lint that flags `slice-N` / `TASK-N` in committed docs/docstrings)?",
+      "context": "Open contract question cq-2, registered by an agent during the refine phase.",
+      "options": [
+        "No — out of scope (Recommended): the issue scopes this to a prompt change + corpus pass; a lint guard is a separate concern with false-positive tuning of its own. Note it as a candidate follow-up issue, don't build it here",
+        "Yes — add a lightweight advisory lint guard in this pipeline so the cleanup doesn't rot back, accepting the added scope and tuning cost",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-06-26T20:35:18.508154Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-06-26T19:57:59.841683Z",
-  "updated_at": "2026-06-26T20:35:18.457184Z",
+  "updated_at": "2026-06-26T20:35:18.518971Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -162,7 +180,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-26T20:25:20.195648Z",
-  "version": 19,
+  "version": 20,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
