@@ -129,8 +129,9 @@ where the distinction is the whole point.
 | #2948 transient kubelet eviction | `container_death` | A transient evict/reschedule must NOT cascade to a producer-permanent-death `FAILED` |
 
 Downstream slices add rows for their own detectors (the full §5 survey in slice 8
-was the largest addition — 25 coverage-gap detectors across 8 modules in
-``health_checks/tier1/``). The seed set establishes the shape and the contract;
+was the largest addition — 25 coverage-gap detectors: 24 across 8 modules in
+``health_checks/tier1/`` plus ``detect_overseer_self_health`` in
+``overseer/self_monitor.py``). The seed set establishes the shape and the contract;
 later slices extend, never reshape.
 
 ---
