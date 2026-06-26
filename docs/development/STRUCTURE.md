@@ -137,6 +137,7 @@ orchestrator/
 ├── sse.py                  # Server-Sent Events streaming for pipeline visualization
 ├── startup_reconciliation.py # Startup reconciliation for orphaned containers
 ├── commit_authorship_store.py # Durable {sha → role} registry sharded by pipeline on the pipeline-state branch; backing store for the commit-authorship registry
+├── session_state_store.py  # Redis-backed cross-pod session-state store for BRC warm-resume: persists (session_id + window_occupancy + transcript) keyed (pipeline, slice, role) with 6-hour TTL; 32 MiB transcript cap degrades to pointer-only on overflow (#3278)
 ├── state_store.py          # Git-backed pipeline state
 ├── state_store_probe.py    # Background state-store self-heal probe; decouples curative git ops from kubelet probe traffic (#2191)
 ├── status_reporter.py      # Real-time status reporter for collaborators
@@ -180,6 +181,7 @@ orchestrator/
 │   ├── phases.py           # Phase management endpoints
 │   ├── pipelines.py        # Pipeline CRUD and visualization endpoints
 │   ├── progress.py         # Structured progress event endpoints (emit, query)
+│   ├── session_state.py    # Cross-pod warm-resume session-state endpoints (push/pull per (pipeline,slice,role); #3278)
 │   └── signals.py          # Signal handling endpoints (incl. readiness for concurrent mode)
 ├── Dockerfile              # Orchestrator container image
 ├── entrypoint.sh           # Container entry point
@@ -264,6 +266,8 @@ sandbox/
 │   ├── contract_cli.py     # SDLC contract CLI implementation
 │   ├── orchestration.py    # Multi-agent orchestration support
 │   ├── orch_cli.py         # Orchestrator CLI implementation
+│   ├── cli_session_state.py # `egg-orch session-state pull|push` — cross-pod warm-resume sync CLI (thin layer over session_state_sync; resolves identity from env, calls orchestrator /session-state route; #3278)
+│   ├── session_state_sync.py # Filesystem helpers for cross-pod session sync: slug math, transcript path resolution, write_pulled_state(), read_state_for_push() (#3278)
 │   ├── orch_client.py      # Orchestrator API client
 │   ├── sdlc_cli.py         # SDLC pipeline CLI
 │   ├── sdlc_hitl.py        # SDLC human-in-the-loop support
