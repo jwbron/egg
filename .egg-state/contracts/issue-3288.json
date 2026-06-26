@@ -165,7 +165,7 @@
       "id": "slice-3",
       "name": "Total-refactor load-bearing architecture pages",
       "goal": "Rewrite the architecture pages whose ledger framing is load-bearing into\ncurrent-state prose (not a line edit); preserve genuinely useful\nrationale, reframed and isolated where substantial. Highest judgment\ncost \u2014 isolated into its own slice.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -174,8 +174,8 @@
         {
           "id": "task-3-1",
           "description": "Rewrite docs/architecture/gateway-auto-filter.md: remove the \"## What\nwas removed\" inventory and the \"preserved for context\" description of\nthe removed historical #1882 design \u2014 keep only what a reader of the\ncurrent filter needs (a one-line rationale link is acceptable).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "ee79a2781adb3150d2d2a530b42f00136b905db4",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- gateway-auto-filter.md has no \"what was removed\" / \"preserved for\n  context\" historical-record section; current behavior stands alone.",
@@ -195,8 +195,8 @@
         {
           "id": "task-3-2",
           "description": "Rewrite docs/architecture/coordination-state.md: replace \"This page\ndescribes the final shape of the #3077 invariant. The epic was landed\nin six slices, all of which have now shipped\u2026\" with a direct\nstatement of the current invariant, and convert the\nThreat/Mitigation/Status tables full of \"Retired surface\" / \"now\nhistorical\" rows into the current threat model (drop retired rows or\nfold them into a short rationale note).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "ee79a2781adb3150d2d2a530b42f00136b905db4",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- coordination-state.md states the current invariant directly with no\n  \"landed in six slices\" chronology; status tables carry only live\n  rows (retired rows removed or reduced to rationale).",
@@ -216,8 +216,8 @@
         {
           "id": "task-3-3",
           "description": "Rewrite docs/architecture/slice-dag.md: replace \"The implement phase\nused to run as a single monolithic agent team\u2026 The slice-DAG model\nreplaces that\u2026\" with a description of the current slice-DAG model. A\nbrief rationale note on why the model exists is fine; the chronology\nis not. The word \"slice\" is a live domain concept here \u2014 keep it;\nstrip only the change-log narration and slice-NUMBER ledger\nreferences.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "ee79a2781adb3150d2d2a530b42f00136b905db4",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- slice-dag.md describes the current model; \"used to\u2026 replaces\n  that\u2026\" narration is gone; the live \"slice\" domain term is retained.",
@@ -239,11 +239,11 @@
         "slice-1"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3288/slice-1",
+      "integration_base_sha": "55352cc1114281975d6d942e0da923b559361c1e",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3320,
+      "pr_url": "https://github.com/jwbron/egg/pull/3320",
       "review_feedback": []
     },
     {
@@ -749,6 +749,72 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-2-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T21:46:49.895297Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.commit",
+      "old_value": null,
+      "new_value": "ee79a2781adb3150d2d2a530b42f00136b905db4",
+      "reason": "Linked commit ee79a27 to task-3-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T21:46:49.914396Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T21:46:50.317721Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.commit",
+      "old_value": null,
+      "new_value": "ee79a2781adb3150d2d2a530b42f00136b905db4",
+      "reason": "Linked commit ee79a27 to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T21:46:50.338563Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T21:46:50.722713Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.2.commit",
+      "old_value": null,
+      "new_value": "ee79a2781adb3150d2d2a530b42f00136b905db4",
+      "reason": "Linked commit ee79a27 to task-3-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T21:46:50.739057Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-3 as complete",
       "checkpoint_id": null
     }
   ],
