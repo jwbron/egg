@@ -48,6 +48,14 @@
       "repo": null,
       "role": "refiner"
     },
+    "ae69e5667a6c597378157556c10b3ac863400c65": {
+      "branch": "egg/issue-2270-overhaul/work",
+      "patch_id": "4f6b32e4803a378fd5f026c0236a5b6c14f78fc4",
+      "pipeline_id": "issue-2270-overhaul",
+      "registered_at": "2026-06-26T03:28:41.257628+00:00",
+      "repo": null,
+      "role": "task_planner"
+    },
     "eb9326892975bc04475285a2a6a602a66d43d437": {
       "branch": "egg/issue-2270-overhaul/work",
       "patch_id": "1b92dec489263c6d97c79c6867eb11d5f60fd420",
