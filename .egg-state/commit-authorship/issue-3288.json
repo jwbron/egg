@@ -71,6 +71,14 @@
       "registered_at": "2026-06-26T20:40:42.529084+00:00",
       "repo": null,
       "role": "architect"
+    },
+    "cee63a9f1c5bc8b72cc73b78aa02c48c432c2aa2": {
+      "branch": "egg/issue-3288/work",
+      "patch_id": "05b2ed15474af4e3a403f7bfff670e96d8db5147",
+      "pipeline_id": "issue-3288",
+      "registered_at": "2026-06-26T20:49:01.586968+00:00",
+      "repo": null,
+      "role": "risk_analyst"
     }
   },
   "version": 2
