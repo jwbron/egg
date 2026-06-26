@@ -102,18 +102,14 @@ class TestIssueDedupLedger:
 
     def test_first_file_of_a_kind_is_allowed(self) -> None:
         ledger = IssueDedupLedger(window_seconds=300.0, clock=_Clock())
-        assert ledger.should_file(
-            anomaly_type="container_death", agent_role="coder", body="first"
-        )
+        assert ledger.should_file(anomaly_type="container_death", agent_role="coder", body="first")
 
     def test_tier1_suppresses_same_type_role_within_window(self) -> None:
         """A persistent anomaly re-detected each poll cycle is filed once."""
         clock = _Clock()
         ledger = IssueDedupLedger(window_seconds=300.0, clock=clock)
 
-        assert ledger.should_file(
-            anomaly_type="container_death", agent_role="coder", body="body-A"
-        )
+        assert ledger.should_file(anomaly_type="container_death", agent_role="coder", body="body-A")
         # Same (type, role), *different* body, 100s later — still inside the
         # 300s window → Tier 1 suppresses it.
         clock.advance(100.0)
@@ -126,14 +122,10 @@ class TestIssueDedupLedger:
         clock = _Clock()
         ledger = IssueDedupLedger(window_seconds=300.0, clock=clock)
 
-        assert ledger.should_file(
-            anomaly_type="container_death", agent_role="coder", body="body-A"
-        )
+        assert ledger.should_file(anomaly_type="container_death", agent_role="coder", body="body-A")
         clock.advance(301.0)  # past the window
         # New body so Tier 2 does not block; window lapsed so Tier 1 allows it.
-        assert ledger.should_file(
-            anomaly_type="container_death", agent_role="coder", body="body-B"
-        )
+        assert ledger.should_file(anomaly_type="container_death", agent_role="coder", body="body-B")
 
     def test_tier2_suppresses_exact_body_even_after_window(self) -> None:
         """A byte-identical body is never filed twice — even past the window."""
@@ -155,17 +147,11 @@ class TestIssueDedupLedger:
         clock = _Clock()
         ledger = IssueDedupLedger(window_seconds=300.0, clock=clock)
 
-        assert ledger.should_file(
-            anomaly_type="container_death", agent_role="coder", body="b1"
-        )
+        assert ledger.should_file(anomaly_type="container_death", agent_role="coder", body="b1")
         # Different role → independent Tier-1 key, novel body → files.
-        assert ledger.should_file(
-            anomaly_type="container_death", agent_role="tester", body="b2"
-        )
+        assert ledger.should_file(anomaly_type="container_death", agent_role="tester", body="b2")
         # Different anomaly_type → independent Tier-1 key, novel body → files.
-        assert ledger.should_file(
-            anomaly_type="gateway_error_spike", agent_role="coder", body="b3"
-        )
+        assert ledger.should_file(anomaly_type="gateway_error_spike", agent_role="coder", body="b3")
 
     def test_suppressed_call_records_nothing_so_gate_is_idempotent(self) -> None:
         """A suppressed (False) call must not consume the window — the gate is
@@ -174,9 +160,7 @@ class TestIssueDedupLedger:
         clock = _Clock()
         ledger = IssueDedupLedger(window_seconds=300.0, clock=clock)
 
-        assert ledger.should_file(
-            anomaly_type="container_death", agent_role="coder", body="body-A"
-        )
+        assert ledger.should_file(anomaly_type="container_death", agent_role="coder", body="body-A")
         # Hammer the gate inside the window — all suppressed, none reset the clock.
         for _ in range(5):
             clock.advance(50.0)
@@ -185,9 +169,7 @@ class TestIssueDedupLedger:
             )
         # 250s elapsed; advance just past the original 300s window from t0.
         clock.advance(60.0)  # total 310s after the first file
-        assert ledger.should_file(
-            anomaly_type="container_death", agent_role="coder", body="body-Y"
-        )
+        assert ledger.should_file(anomaly_type="container_death", agent_role="coder", body="body-Y")
 
     def test_reset_clears_both_tiers(self) -> None:
         """``reset()`` (e.g. on generation reset) wipes both dedup tiers."""
@@ -195,20 +177,14 @@ class TestIssueDedupLedger:
         ledger = IssueDedupLedger(window_seconds=300.0, clock=clock)
 
         body = "same-body"
-        assert ledger.should_file(
-            anomaly_type="container_death", agent_role="coder", body=body
-        )
-        assert not ledger.should_file(
-            anomaly_type="container_death", agent_role="coder", body=body
-        )
+        assert ledger.should_file(anomaly_type="container_death", agent_role="coder", body=body)
+        assert not ledger.should_file(anomaly_type="container_death", agent_role="coder", body=body)
 
         ledger.reset()
 
         # After reset both tiers are empty: the identical body files again with
         # no clock advance (proves Tier 2 cleared) and inside the window (Tier 1).
-        assert ledger.should_file(
-            anomaly_type="container_death", agent_role="coder", body=body
-        )
+        assert ledger.should_file(anomaly_type="container_death", agent_role="coder", body=body)
 
 
 # ===========================================================================
@@ -321,9 +297,7 @@ class TestShadowEnforceGateDefault:
             assert getattr(cfg, self._FIELD) == mode
         # An unknown mode is rejected by the Literal type.
         with pytest.raises(ValidationError):
-            models.PipelineConfig.model_validate(
-                base | {self._FIELD: "enforce-everything"}
-            )
+            models.PipelineConfig.model_validate(base | {self._FIELD: "enforce-everything"})
 
 
 # ===========================================================================
@@ -379,9 +353,7 @@ class TestDetectionNotRegressedByCleanup:
 
         board: Scoreboard = evaluate(_CORPUS)
         bad_rows = [r for r in _CORPUS if r.is_known_bad]
-        registered_bad = [
-            r for r in bad_rows if resolve_detector(r.detector_key) is not None
-        ]
+        registered_bad = [r for r in bad_rows if resolve_detector(r.detector_key) is not None]
         # Recall is exactly the known-bad rows whose detector is registered.
         assert board.true_positive == len(registered_bad)
         if registered_bad:
