@@ -1,0 +1,169 @@
+pipeline_id: issue-2270-overhaul
+issue: 2270
+phase: plan
+agent: architect
+shape: "Option C (hybrid) — cq-1 resolved; cq-2 all-in-one"
+
+# DAG notes:
+# - Heavy file overlap forces a mostly-serialized spine: routes/pipelines.py is
+#   touched by slices 5/6/7; health_checks/ by 1/4/7/8; kubernetes_spawner.py by 2/3.
+# - Hard ordering invariant: the orchestrator-side DETECTION plane (slice 4) and its
+#   corpus (slice 1) MUST be live and corpus-validated BEFORE the standing pod /
+#   respawn machinery is removed (slice 5). Never delete the watcher before its
+#   replacement is proven against the corpus.
+# - Slice 1 (corpus) is the head and the regression bedrock every detector plugs into.
+# - Slice 9 (cleanup + docs) is the tail and is where net-negative is realized.
+
+slices:
+  - id: 1
+    name: "Calibration corpus + detector test harness (§2, DELIVERABLE #1)"
+    depends_on: []
+    acceptance: [ac-3]
+    goal: |-
+      Build the known-normal/known-bad EventStreamSnapshot fixtures package +
+      calibration test harness under orchestrator/health_checks/ (or a sibling
+      test-fixtures module). Corpus rows: self-injection loop, alert-reflection,
+      #3230 false stall (producer drafting under orchestrator-owned spawn),
+      #2242 heartbeat-stall (tool calls every 2-3s), #2222/#2224 branch-divergence
+      (ancestor/patch-id vs subject regex), #2948 transient kubelet eviction.
+      Each row is labelled known-normal | known-bad{class} with the expected
+      Finding (or None). Provide the harness contract: a detector under test MUST
+      yield None on known-normal rows and the expected Finding on known-bad rows.
+      No production detector changes yet — this is the bedrock + the AC-3 contract.
+      Head of the chain; no production-code file overlap.
+
+  - id: 2
+    name: "Model tiering via resolve_agent_model (§1, folds #2813)"
+    depends_on: []
+    acceptance: [ac-1]
+    goal: |-
+      Route the overseer decision/adjudication model through resolve_agent_model
+      (agent_model_resolution.py:497) with explicit tiering (Haiku classify /
+      Sonnet routine / Opus adversarial). Deprecate overseer_decision_maker_model
+      (models.py:726-728) behind a shim. Stop kubernetes_spawner.py:2919 routing
+      the overseer model through classify_model(decision_model). Tests: resolver
+      returns the tiered model per role/tier; deprecation shim warns + maps.
+      Independent of slice 1; overlaps kubernetes_spawner.py with slice 3 →
+      ordered before 3.
+
+  - id: 3
+    name: "Spawn normalization — fold spawn_overseer_job, drop bespoke flags + baked-in bootstrap (§1.5)"
+    depends_on: [2]
+    acceptance: [ac-2]
+    goal: |-
+      Fold spawn_overseer_job (kubernetes_spawner.py:2883-2960) into
+      spawn_agent_job(agent_role=OVERSEER) — AgentRole.OVERSEER is already
+      recognized (672). Remove EGG_OVERSEER_MODE/POLL_INTERVAL/DECISION_MODEL
+      (2922-2926) and the prompt that invokes overseer_monitor.py --once (2931).
+      Remove the baked-in sandbox/overseer_monitor.py (802 lines) + its Dockerfile
+      bake. Whatever monitoring the on-demand agent needs arrives via MCP/tools/
+      prompt. Serialized after slice 2 (shared kubernetes_spawner.py). Net-negative.
+
+  - id: 4
+    name: "Orchestrator-side detection plane + escalation→adjudicator path (Option C core spine)"
+    depends_on: [1, 3]
+    acceptance: [ac-1, ac-2, ac-6]
+    goal: |-
+      Build the in-process deterministic evaluator that runs detectors over an
+      EventStreamSnapshot on the orchestrator event loop, extending
+      health_checks/tier1/. Each detector returns Optional[Finding{class,
+      severity, evidence, recommended_action, requires_adjudication}]. Wire the
+      escalation path: when requires_adjudication is set, spawn a NORMAL on-demand
+      OVERSEER agent (slice-3 normalized path, Opus via slice-2 resolver) that
+      returns a structured verdict; orchestrator consumes it (authority plane,
+      slice 6). Corpus-validated against slice 1. Depends on 1 (corpus) + 3
+      (normalized spawn). This is the replacement that must exist before slice 5
+      deletes the pod.
+
+  - id: 5
+    name: "Lifecycle — retire respawn churn + restart/generation hygiene (§3)"
+    depends_on: [4]
+    acceptance: [ac-4]
+    goal: |-
+      Remove/fold _check_and_respawn_overseer (routes/pipelines.py:685-848) and
+      the standing-pod respawn loop now that slice 4 is the replacement. Guarantee
+      no overseer activity during HITL parks with zero agents running. Fold any
+      surviving restart need into the GENERAL agent-restart machinery (no
+      overseer-specific analog). Add escalation-history clear + generation-token
+      reset on restart/orchestrator recycle. Touches routes/pipelines.py. Ordered
+      strictly AFTER slice 4 (never delete the watcher before its replacement).
+      Net-negative.
+
+  - id: 6
+    name: "Authority — bounded corrective vocabulary executor, control-plane-side (§4)"
+    depends_on: [4]
+    acceptance: [ac-5]
+    goal: |-
+      Add the orchestrator-side CorrectiveExecutor with a CLOSED vocabulary
+      {open_operator_hitl, nudge_agent, respawn_cohort}. open_operator_hitl writes
+      a contract decision via the orchestrator identity (dissolves the gateway 403
+      — the real enforcement is gateway/agent_restrictions.py + contract RBAC, NOT
+      roles.py:can_modify). nudge_agent reuses _send_brc_confirmation_nudge.
+      respawn_cohort uses the general restart machinery. Every action rate-limited,
+      audit-logged, idempotent, and barred during zero-agent HITL parks. The
+      adjudicator agent only ADVISES; this plane executes. Overlaps
+      routes/pipelines.py with slice 5 → ordered after 5.
+
+  - id: 7
+    name: "Signal calibration fixes (§2)"
+    depends_on: [1, 4]
+    acceptance: [ac-3]
+    goal: |-
+      Apply the calibrated fixes, each asserted against the slice-1 corpus:
+      (a) lifecycle-owner-aware stall detector (#3230) — a producer drafting under
+      orchestrator-owned spawn is not 'a phase with 0 running agents';
+      (b) alert-reflection fix in shared/egg_agent/midturn_messages.py — gate
+      injection on intent (operator-directive vs informational/alert), NOT solely
+      from_role; overseer/orchestrator informational alerts (e.g. overseer_restart
+      [info]) MUST NOT render as BINDING course corrections; RETAIN the #3123
+      brc-confirmation-timeout nudge (golden-file regression test);
+      (c) branch-divergence ancestor-of-origin/main OR patch-id match, replacing
+      _BRANCH_DIVERGENCE_PR_RE subject matching (#2222/#2224), scan window capped;
+      (d) heartbeat-stall fix (#2242);
+      (e) #2059/#2132 thrashing/spinning/improper-tool-use definitions.
+
+  - id: 8
+    name: "Coverage-gap detector survey — full §5 (cq-2 all-in-one)"
+    depends_on: [4, 7]
+    acceptance: [ac-6]
+    goal: |-
+      Deliver the full §5 survey as corpus-tested, lifecycle-owner-aware
+      deterministic detectors plugged into the slice-4 framework, escalating to
+      adjudication only when ambiguous. Layers: orchestrator-runtime (_run_pipeline
+      thread liveness #2234/#3233, auto-advance wedge → Tier-1 #2219,
+      approved-decision-orphaned, duration drift, agent-restart propagation
+      deadline, restarted-decision replay); worktree/branch (ancestor/patch-id
+      git-history sanity, corruption/lock anomalies, disk/inode pressure);
+      container/k8s (funnel pod transitions through overseer #2210, repeated
+      same-role restarts, OOMKilled/evicted #2948); gateway (error-rate spikes,
+      repeated identical denials, token-expiry); BRC/thrashing (reviewer/producer
+      thrash, late CONFIRMED then re-NACK, cap unbounded incomplete-consensus
+      deferral); HITL/decision-queue; cost/budget (token-cost anomaly,
+      max_llm_cost_per_hour, fix incomplete cost tracking in self_monitor.py);
+      overseer self-health (classifier/advisor failure-rate wired to alert path —
+      resolve the check_health emit-vs-log nuance); external-state
+      (pr_external_mutation drift, pushed-but-PR-not-updated); LLM-substrate
+      (LiteLLM-proxy reachability #2769, effective-model drift, sustained
+      Anthropic 5xx). Each new class gets a paste-ready issue_template.py entry.
+      Largest scope surface — gated entirely behind the slice-1 corpus contract.
+
+  - id: 9
+    name: "Cleanup (§6, net-negative) + docs"
+    depends_on: [3, 5, 6, 8]
+    acceptance: [ac-7]
+    goal: |-
+      Collapse per-class fail-soft scaffolding; de-duplicate advisor-escalation
+      plumbing; harden the two-tier file_issue dedup. Confirm-then-remove
+      genuinely-dead code ONLY — do NOT delete issue_filer.py on the stale #1962
+      premise (it is imported overseer/__init__.py:27 + monitor.py:36, called
+      monitor.py:675). Do NOT re-decompose monitor.py (rides #2817). Update docs
+      (overseer architecture, the new orchestrator-side overseership model,
+      deprecation notes for overseer_decision_maker_model + EGG_OVERSEER_*). Verify
+      overall net-negative line count. Tail of the chain.
+
+invariants:
+  - "Flag/pod retirement ordering: slice 4 (detection plane) + slice 1 (corpus) MUST be live and corpus-validated before slice 5 deletes respawn machinery."
+  - "midturn_messages is shared egg_agent code — the intent-discriminator (slice 7b) must NOT drop the #3123 brc-confirmation-timeout nudge (golden-file test)."
+  - "Every §5 detector (slice 8) ships only if it passes the slice-1 corpus contract — corpus-tested == shippable, preventing new false-positive floods."
+  - "Authority plane (slice 6) executes real corrective actions — rate-limited, audit-logged, idempotent, barred during zero-agent HITL parks; shadow-telemetry before unattended auto-escalation."
+  - "issue_filer.py is USED — not deleted; monitor.py decomposition is OUT (rides #2817)."

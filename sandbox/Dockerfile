@@ -155,8 +155,11 @@ RUN pip3 install --no-cache-dir \
     requests \
     cryptography \
     PyJWT \
-    # Dev dependencies for linting and testing
-    ruff \
+    # Dev dependencies for linting and testing.
+    # ruff is pinned to the repo constraint (pyproject.toml) so the agent's
+    # `ruff format` output can't drift ahead of what CI's `ruff format --check`
+    # accepts and produce format diffs on PR open (#3299).
+    "ruff>=0.15.12,<0.16" \
     pytest \
     # Required by gateway (for running tests)
     flask \
@@ -172,8 +175,10 @@ RUN pip3 install --no-cache-dir \
     pyyaml toml python-dateutil orjson \
     # Testing frameworks
     pytest pytest-cov pytest-asyncio pytest-xdist hypothesis fakeredis \
-    # Code quality tools
-    black ruff mypy isort \
+    # Code quality tools.
+    # ruff is pinned to the repo constraint (pyproject.toml) to keep the
+    # agent's formatter output in lockstep with CI's `ruff format --check` (#3299).
+    black "ruff>=0.15.12,<0.16" mypy isort \
     # Type stubs
     types-requests types-PyYAML types-toml \
     # CLI and terminal

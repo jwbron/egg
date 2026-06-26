@@ -3119,3 +3119,130 @@ class TestSpawnAgentJobSpawnMsTiming:
 
         assert all(abs(s - d) < 1.0 for s, d in zip(samples, deltas, strict=True))
         assert statistics.median(samples) >= 60_000
+
+
+# ---------------------------------------------------------------------------
+# TestOverseerSpawnNormalization (#2270 §1.5, slice-3)
+# ---------------------------------------------------------------------------
+#
+# Slice-3 folds ``spawn_overseer_job`` into ``spawn_agent_job(agent_role=
+# OVERSEER, …)`` so the overseer runs through the SAME spawn/entrypoint path as
+# every other agent — "just a particular agent with different permissions and a
+# different prompt" (task description §1.5). The bespoke ``EGG_OVERSEER_*`` env
+# and the trust-and-run ``overseer_monitor.py --once`` bootstrap (the direct
+# cause of the §1 self-injection loop) are deleted.
+#
+# These tests encode the slice-3 acceptance gate:
+#   * the overseer spawns via the generic ``spawn_agent_job`` path (passes today),
+#   * the generic path injects NO bespoke ``EGG_OVERSEER_*`` env (passes today —
+#     guards against re-introducing special-case plumbing on this path),
+#   * the bespoke ``spawn_overseer_job`` / ``spawn_overseer_container`` helpers
+#     are gone (red until coder task-3-1 lands; green at slice integration),
+#   * the baked-in ``sandbox/overseer_monitor.py`` script and any reference to it
+#     in the spawner are gone (red until coder task-3-1/task-3-2 land).
+# The deletion-regression rows go red→green exactly like the slice-2 tester
+# contract did; they are strict (NOT xfail) because the coder work that flips
+# them green lands inside THIS slice, not a downstream one.
+
+
+class TestOverseerSpawnNormalization:
+    """The overseer is a normal agent — no parallel spawn plumbing (#2270 §1.5)."""
+
+    def _spawn_overseer(self, spawner, monkeypatch):
+        """Spawn the overseer through the generic agent path.
+
+        Mirrors ``test_spawn_reviewer_without_repos_succeeds``: the overseer is
+        in ``_ROLES_WITHOUT_WORKTREE`` so it needs no ``repos``; undo the
+        conftest autouse stub so the real worktree guard runs.
+        """
+        import kubernetes_spawner
+
+        monkeypatch.setattr(
+            kubernetes_spawner,
+            "_role_needs_worktree",
+            lambda role: role not in kubernetes_spawner._ROLES_WITHOUT_WORKTREE,
+        )
+        return spawner.spawn_agent_job(
+            pipeline_id="pipe-overseer",
+            agent_role=AgentRole.OVERSEER,
+            phase="implement",
+        )
+
+    def test_overseer_spawns_through_spawn_agent_job(self, spawner, monkeypatch):
+        """Overseer spawns via the generic ``spawn_agent_job`` path.
+
+        The role resolves to a normal SpawnedContainer with the standard agent
+        env — proving there is no special-case spawn entrypoint for the
+        overseer (the §1.5 hard constraint).
+        """
+        result = self._spawn_overseer(spawner, monkeypatch)
+
+        assert result.agent_role == AgentRole.OVERSEER
+        env = result.environment
+        assert env["EGG_AGENT_ROLE"] == "overseer"
+        assert env["EGG_PIPELINE_ID"] == "pipe-overseer"
+        # Standard agent wiring — same as every other role.
+        assert "EGG_SESSION_TOKEN" in env
+        assert "GATEWAY_URL" in env
+
+    def test_overseer_spawn_has_no_bespoke_overseer_env(self, spawner, monkeypatch):
+        """The generic spawn path injects no ``EGG_OVERSEER_*`` env.
+
+        ``EGG_OVERSEER_MODE`` / ``EGG_OVERSEER_POLL_INTERVAL`` /
+        ``EGG_OVERSEER_DECISION_MODEL`` were the symptoms of the special-case
+        shape. The folded path must carry none of them.
+        """
+        result = self._spawn_overseer(spawner, monkeypatch)
+        env = result.environment
+
+        bespoke = [k for k in env if k.startswith("EGG_OVERSEER_")]
+        assert bespoke == [], f"bespoke overseer env leaked into generic spawn: {bespoke}"
+        for key in (
+            "EGG_OVERSEER_MODE",
+            "EGG_OVERSEER_POLL_INTERVAL",
+            "EGG_OVERSEER_DECISION_MODEL",
+        ):
+            assert key not in env
+
+    def test_spawn_overseer_job_helper_removed(self, spawner):
+        """The bespoke ``spawn_overseer_job`` helper + alias are deleted.
+
+        Deletion regression for coder task-3-1: folding into
+        ``spawn_agent_job`` removes the dedicated method and its
+        ``spawn_overseer_container`` back-compat alias. Red until the fold
+        lands; green at slice integration.
+        """
+        assert not hasattr(spawner, "spawn_overseer_job"), (
+            "spawn_overseer_job must be folded into spawn_agent_job(OVERSEER) (#2270 §1.5)"
+        )
+        assert not hasattr(spawner, "spawn_overseer_container"), (
+            "the spawn_overseer_container alias must be removed alongside spawn_overseer_job"
+        )
+
+    def test_spawner_source_has_no_monitor_script_bootstrap(self):
+        """The spawner no longer references the baked-in monitor script.
+
+        Acceptance: "no monitor-script reference". The
+        ``overseer_monitor.py --once`` trust-and-run bootstrap (and the prompt
+        that injected it) is removed from ``kubernetes_spawner.py``.
+        """
+        import kubernetes_spawner
+
+        source = Path(kubernetes_spawner.__file__).read_text(encoding="utf-8")
+        assert "overseer_monitor" not in source, (
+            "kubernetes_spawner.py must not reference the deleted overseer_monitor.py script"
+        )
+
+    def test_overseer_monitor_script_deleted(self):
+        """The baked-in ``sandbox/overseer_monitor.py`` is deleted (net-negative).
+
+        Deletion regression for coder task-3-2. ``sandbox/`` is COPY-baked into
+        the image via the blanket ``COPY . /opt/egg-runtime/`` layer, so the
+        only thing to remove is the source file itself.
+        """
+        repo_root = Path(__file__).resolve().parents[2]
+        monitor = repo_root / "sandbox" / "overseer_monitor.py"
+        assert not monitor.exists(), (
+            f"{monitor} must be deleted — the on-demand overseer monitors via MCP/tools, "
+            "not a trust-and-run baked-in script (#2270 §1.5)"
+        )

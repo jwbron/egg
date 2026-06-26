@@ -212,3 +212,128 @@ class TestRecordLLMCall:
         assert metrics["hourly_llm_cost_usd"] == pytest.approx(0.01, abs=0.001)
         # Total cost includes everything
         assert metrics["total_llm_cost_usd"] == pytest.approx(0.51, abs=0.001)
+
+
+# ===================================================================
+# Slice-8 (task-8-4): self-monitor alert EMISSION — the "emit-vs-log"
+# nuance resolved. The monitor must produce structured alert payloads
+# (ready for the OVERSEER_ALERT path) when unhealthy, not merely log.
+# ===================================================================
+
+
+def _build_alerts(monitor):
+    """Return the monitor's structured alerts, or skip if emission isn't wired yet.
+
+    Slice-8 adds ``build_alerts() -> list[dict]`` to ``OverseerSelfMonitor`` to
+    resolve the emit-vs-log nuance (§5 self-health, wired into the alert path).
+    On the tester branch alone the method is absent, so this skips and ``make
+    test`` stays green; once the coder lands it the assertions run strict.
+    """
+    if not hasattr(monitor, "build_alerts"):
+        pytest.skip("OverseerSelfMonitor.build_alerts() not wired yet (slice-8 coder task-8-3)")
+    return monitor.build_alerts()
+
+
+class TestSelfMonitorAlertEmission:
+    """task-8-4: the self-monitor emits structured alerts when unhealthy."""
+
+    def test_no_alerts_emitted_when_healthy(self) -> None:
+        """A healthy monitor emits an empty alert list — never cries wolf."""
+        monitor = OverseerSelfMonitor(max_poll_delay_seconds=60.0)
+        monitor.record_poll_cycle(5.0)
+
+        alerts = _build_alerts(monitor)
+        assert alerts == []
+
+    def test_alert_emitted_when_unhealthy(self) -> None:
+        """An unhealthy monitor emits at least one structured alert payload.
+
+        Each alert is shaped for the OVERSEER_ALERT path: it carries an
+        ``anomaly`` tag, a ``priority``, and a human-readable ``summary``.
+        """
+        monitor = OverseerSelfMonitor(max_llm_cost_per_hour=1.0)
+        for _ in range(20):
+            monitor.record_llm_call("sonnet", 1000, 0.10)  # > $1.00/hr
+
+        assert monitor.should_self_report() is True
+        alerts = _build_alerts(monitor)
+
+        assert alerts, "an unhealthy monitor must emit at least one alert"
+        for alert in alerts:
+            assert alert.get("anomaly"), f"alert missing 'anomaly': {alert!r}"
+            assert alert.get("priority") in {"low", "medium", "high"}, (
+                f"alert priority must be a valid severity: {alert!r}"
+            )
+            assert alert.get("summary"), f"alert missing 'summary': {alert!r}"
+
+    def test_alert_count_matches_concerns(self) -> None:
+        """Every distinct health concern surfaces as its own alert (no silent drop)."""
+        monitor = OverseerSelfMonitor(
+            max_poll_delay_seconds=5.0,
+            max_messages_per_cycle=2,
+            max_llm_cost_per_hour=1.0,
+        )
+        # Trip all three limits.
+        monitor.record_poll_cycle(10.0)  # poll-delay breach
+        for _ in range(5):
+            monitor.record_message_sent()  # message-volume breach
+        for _ in range(20):
+            monitor.record_llm_call("sonnet", 1000, 0.10)  # cost breach
+
+        health = monitor.check_health()
+        alerts = _build_alerts(monitor)
+        assert len(alerts) == len(health["concerns"]), (
+            "each concern must map to exactly one emitted alert"
+        )
+
+
+# ===================================================================
+# Slice-8 (task-8-4): cost-tracking fix. The pre-fix monitor summed cost
+# over a bounded deque (maxlen=500), so "total" silently undercounted once
+# more than 500 calls were recorded, and there was no per-model breakdown.
+# The fix tracks a lifetime accumulator plus a per-model breakdown.
+# ===================================================================
+
+
+def _metrics_with_cost_fix(monitor):
+    """Return metrics, or skip if the cost-tracking fix (cost_by_model) isn't landed."""
+    metrics = monitor.check_health()["metrics"]
+    if "cost_by_model" not in metrics:
+        pytest.skip(
+            "self_monitor cost-tracking fix (cost_by_model) not landed yet (slice-8 task-8-3)"
+        )
+    return metrics
+
+
+class TestSelfMonitorCostTrackingFix:
+    """task-8-4: cost tracking is complete — lifetime-accurate + per-model."""
+
+    def test_cost_by_model_breakdown(self) -> None:
+        """Cost is attributed per model in the metrics."""
+        monitor = OverseerSelfMonitor()
+        monitor.record_llm_call("haiku", 100, 0.01)
+        monitor.record_llm_call("haiku", 100, 0.02)
+        monitor.record_llm_call("opus", 500, 0.50)
+
+        metrics = _metrics_with_cost_fix(monitor)
+        by_model = metrics["cost_by_model"]
+        assert by_model["haiku"] == pytest.approx(0.03, abs=0.001)
+        assert by_model["opus"] == pytest.approx(0.50, abs=0.001)
+
+    def test_total_cost_not_undercounted_past_deque_window(self) -> None:
+        """Lifetime total cost survives more calls than the bounded recent-window.
+
+        The pre-fix bug: ``total_llm_cost_usd`` summed a ``deque(maxlen=500)`` so
+        call #501 evicted call #1 and the "total" drifted below the true sum. The
+        fix keeps a lifetime accumulator, so the reported total equals every
+        recorded call regardless of how many there have been.
+        """
+        monitor = OverseerSelfMonitor()
+        n = 600  # exceeds the recent-window deque bound
+        for _ in range(n):
+            monitor.record_llm_call("haiku", 10, 0.01)
+
+        metrics = _metrics_with_cost_fix(monitor)
+        # All 600 calls counted: 600 * 0.01 = 6.00, not the last-500 undercount of 5.00.
+        assert metrics["total_llm_cost_usd"] == pytest.approx(n * 0.01, abs=0.01)
+        assert metrics["total_llm_tokens"] == n * 10

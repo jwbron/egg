@@ -2879,92 +2879,6 @@ class KubernetesSpawner:
                 )
         return None
 
-    def spawn_overseer_job(
-        self,
-        pipeline_id: str,
-        issue_number: int | None = None,
-        mode: str = "public",
-        poll_interval: int = 30,
-        decision_model: str = "sonnet",
-        max_turns: int = 2000,
-        image: str | None = None,
-        wait_for_gateway: bool = True,
-        repos: list[str] | None = None,
-        certs_volume: str | None = None,  # noqa: ARG002 — Docker-era compat
-    ) -> SpawnedContainer:
-        """Spawn an overseer Job for phase-scoped health monitoring.
-
-        Args:
-            pipeline_id: Pipeline ID.
-            issue_number: GitHub issue number (optional).
-            mode: Gateway mode (public or private).
-            poll_interval: Polling interval in seconds.
-            decision_model: LLM model for overseer decisions.
-            max_turns: Maximum Agent SDK turns.
-            image: Container image override.
-            wait_for_gateway: Wait for gateway health before spawning.
-            repos: List of repositories for gateway session.
-
-        Returns:
-            SpawnedContainer with overseer Job and session info.
-        """
-        # Classify the overseer's decision model so that ``AgentModelDecision.effort``
-        # threads to ``--effort`` for fable-routed overseers — same drift defense as
-        # the refine/plan path. Default ``sonnet`` yields ``effort=None`` (no behavior
-        # change); only ``overseer_decision_maker_model=fable`` flips the pin on.
-        from agent_model_resolution import classify_model
-        from egg_agent import build_agent_command
-
-        overseer_decision = classify_model(decision_model)
-
-        extra_env = {
-            "EGG_OVERSEER_MODE": "true",
-            "EGG_OVERSEER_POLL_INTERVAL": str(poll_interval),
-            "EGG_OVERSEER_DECISION_MODEL": decision_model,
-            "BASH_COMMAND_TIMEOUT": "0",
-        }
-
-        overseer_prompt = (
-            f"You are the overseer agent for pipeline {pipeline_id}. "
-            "Your first action is to run the pre-built monitoring script: "
-            "`python3 /opt/egg-runtime/sandbox/overseer_monitor.py --once`. "
-            "That path is a build-time copy of `sandbox/overseer_monitor.py` "
-            "from this repo, baked into the container image at "
-            "`sandbox/Dockerfile` (the `COPY . /opt/egg-runtime/` layer). "
-            "It is the canonical script the orchestrator expects you to run; "
-            "the orchestrator vouches for it, and you do not need to verify "
-            "its provenance against any other copy. Don't write your own "
-            "monitoring loop or bash script; the pre-built script already "
-            "handles polling, heartbeats, and JSON output. "
-            "Run the script in single-cycle mode (`--once`) so you can "
-            "classify and act between cycles. Each call outputs one JSON "
-            "line to stdout. Read the output, classify alerts using the "
-            "Haiku tier, decide corrective actions using the Sonnet tier, "
-            "and execute them via egg-orch CLI commands. Then call the "
-            "script with `--once` again. Repeat until the pipeline reaches "
-            "a terminal state (complete, failed, or cancelled). After the "
-            "pipeline ends, generate a final health summary."
-        )
-        command = build_agent_command(
-            prompt=overseer_prompt,
-            model=decision_model,
-            max_turns=max_turns,
-            effort=overseer_decision.effort,
-        )
-
-        return self.spawn_agent_job(
-            pipeline_id=pipeline_id,
-            agent_role=AgentRole.OVERSEER,
-            issue_number=issue_number,
-            repo_volumes=None,
-            mode=mode,
-            image=image,
-            extra_env=extra_env,
-            wait_for_gateway=wait_for_gateway,
-            repos=repos,
-            command=command,
-        )
-
     def create_concurrent_spawn_fn(
         self,
         pipeline_id: str,
@@ -3083,7 +2997,6 @@ class KubernetesSpawner:
     remove_agent_container = remove_agent_job
     list_pipeline_containers = list_pipeline_jobs
     restart_agent_container = restart_agent_job
-    spawn_overseer_container = spawn_overseer_job
 
 
 class KubernetesSpawnError(Exception):

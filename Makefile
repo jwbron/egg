@@ -253,7 +253,7 @@ lint-python: sync-venv-if-uv
 	$(RUFF) format --check . || failed="$$failed ruff-format"; \
 	echo "==> Mypy..."; \
 	if command -v $(MYPY) >/dev/null 2>&1; then \
-		$(MYPY) gateway shared sandbox --exclude 'gateway/tests/' --exclude 'shared/egg_contracts/tests/' --exclude 'shared/egg_anchor/tests/' --exclude 'shared/tests/' --exclude 'sandbox/tests/' || failed="$$failed mypy"; \
+		$(MYPY) gateway shared sandbox --exclude 'gateway/tests/' --exclude 'shared/egg_contracts/tests/' --exclude 'shared/egg_anchor/tests/' --exclude 'shared/egg_agent/tests/' --exclude 'shared/tests/' --exclude 'sandbox/tests/' || failed="$$failed mypy"; \
 	else \
 		echo "SKIP: mypy not installed"; \
 	fi; \
@@ -352,7 +352,7 @@ test: sync-venv-if-uv
 	selector_rc=$$?; \
 	if [ "$$selector_rc" -ne 0 ]; then \
 		echo "select-tests: selector exited $$selector_rc; running full suite as fallback"; \
-		printf '%s\n' tests gateway/tests orchestrator/tests shared/tests shared/egg_anchor/tests shared/egg_contracts/tests sandbox/tests scripts/tests >"$$selected_file"; \
+		printf '%s\n' tests gateway/tests orchestrator/tests shared/tests shared/egg_anchor/tests shared/egg_contracts/tests shared/egg_agent/tests sandbox/tests scripts/tests >"$$selected_file"; \
 	fi; \
 	bypass=0; \
 	if [ ! -s "$$selected_file" ]; then \
@@ -397,7 +397,7 @@ test: sync-venv-if-uv
 test-all: export PYTHONPATH := shared:gateway:orchestrator
 test-all: sync-venv-if-uv  ## Run the full unit-test suite + record LKG on green
 	@echo "==> Running full unit-test suite (issue #1973: this updates LKG on green)..."
-	@$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ shared/tests/ shared/egg_anchor/tests/ shared/egg_contracts/tests/ sandbox/tests/ scripts/tests/ -v $(PYTEST_ARGS); \
+	@$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ shared/tests/ shared/egg_anchor/tests/ shared/egg_contracts/tests/ shared/egg_agent/tests/ sandbox/tests/ scripts/tests/ -v $(PYTEST_ARGS); \
 	pytest_rc=$$?; \
 	if [ "$$pytest_rc" -eq 0 ]; then \
 		env -u PYTHONPATH $(PYTHON) scripts/select_tests/__main__.py --record-good \

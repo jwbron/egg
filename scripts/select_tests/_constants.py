@@ -126,6 +126,7 @@ TEST_ROOT_DIRS: tuple[str, ...] = (
     "shared/tests",
     "shared/egg_anchor/tests",
     "shared/egg_contracts/tests",
+    "shared/egg_agent/tests",
     "sandbox/tests",
     "scripts/tests",
 )

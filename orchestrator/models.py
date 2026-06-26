@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Literal, NamedTuple
 
+from agent_model_resolution import OVERSEER_TIER_MODELS
 from egg_contracts.models import PipelinePhase
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from slice_id_validation import SLICE_ID_PATTERN
@@ -724,20 +725,61 @@ class PipelineConfig(BaseModel):
         default=2, ge=1, description="Max redirect attempts before HITL escalation"
     )
     overseer_decision_maker_model: str = Field(
-        default="sonnet", description="LLM model for overseer decision-making tier"
+        # Default is the routine-tier model; sourced from the single tier
+        # table so it can never drift from the resolver's default detection
+        # (`_overseer_decision_override` / the deprecation shims below).
+        default=OVERSEER_TIER_MODELS["routine"],
+        description=(
+            "Deprecated (#2270 §1, folds #2813): no longer drives the overseer "
+            "spawn's base model, which now resolves through the per-agent "
+            "resolver (resolve_agent_model(OVERSEER) -> opus by default; "
+            "override via agent_models['overseer']). The overseer's decision "
+            "work is tiered instead — classify on haiku, routine corrective "
+            "decisions on sonnet, adversarial/high-stakes on the resolved opus "
+            "tier. Retained for backwards compatibility (the routine-tier "
+            "default is still read by overseer/monitor.py); slice-9 makes the "
+            "field fully inert."
+        ),
     )
+
+    @field_validator("overseer_decision_maker_model")
+    @classmethod
+    def _warn_overseer_decision_maker_model_deprecated(cls, v: str) -> str:
+        """Surface a deprecation notice when the deprecated field is set (#2270 §1).
+
+        The field validator runs only when the value is *provided* at
+        construction (Pydantic does not validate omitted defaults), so a
+        default ``PipelineConfig()`` stays silent while an explicit
+        non-default value logs a one-line deprecation warning. The value is
+        still honoured — ``agent_model_resolution.resolve_overseer_model``
+        maps it through to the adversarial/decision tier for back-compat —
+        so this is a notice, not a rejection. ``slice-9`` makes the field
+        fully inert.
+        """
+        if v and v != OVERSEER_TIER_MODELS["routine"]:
+            import logging as _logging
+
+            _logging.getLogger("orchestrator.models").warning(
+                "PipelineConfig.overseer_decision_maker_model=%r is deprecated "
+                "(#2270 §1, folds #2813): the overseer model now resolves via "
+                "resolve_overseer_model / resolve_agent_model(OVERSEER) -> opus "
+                "by default. Set agent_models['overseer'] instead; this field "
+                "is retained for back-compat and goes inert in slice-9.",
+                v,
+            )
+        return v
+
     overseer_max_turns: int = Field(
         default=2000,
         ge=100,
         le=10000,
         description="Max Agent SDK turns for the overseer agent per phase",
     )
-    overseer_max_respawns: int = Field(
-        default=3,
-        ge=0,
-        le=50,
-        description="Max times to respawn the overseer if it exits mid-pipeline",
-    )
+    # overseer_max_respawns removed in #2270 slice-5: the standing-pod overseer
+    # respawn loop was retired (orchestrator-side detection plane + on-demand
+    # adjudicator is the replacement; any surviving restart need goes through the
+    # general agent-restart machinery). PipelineConfig uses extra='ignore', so a
+    # persisted config still carrying this key loads cleanly.
     overseer_rerun_min_work_seconds: int = Field(
         default=60,
         ge=1,
