@@ -1723,3 +1723,42 @@ class TestEventSpawnReseedThreshold:
 
         env = mock_spawn.call_args.kwargs["extra_env"]
         assert env["EGG_RESEED_THRESHOLD"] == "160000"
+
+
+class TestEventSpawnSessionStoreEnv:
+    """#3278: the warm-resume session-store env (CLAUDE_CONFIG_DIR + the pointer
+    file the slice-8 gate round-trips) is injected into event pods only when warm
+    resume is enabled, so a default pod stays byte-identical to the legacy path.
+    """
+
+    def _event_spawner(self, pipeline, mock_spawn):
+        from concurrent_executor import ConcurrentPhaseExecutor, _ExecutorEventSpawner
+        from egg_orchestrator.types import AgentRole
+
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+        return _ExecutorEventSpawner(executor=executor, roles=[AgentRole.CODER], slice_id=None)
+
+    def _spawn_env(self, monkeypatch, *, discipline):
+        # session_resume_enabled() reads these off the orchestrator's env.
+        monkeypatch.delenv("EGG_SESSION_RESUME", raising=False)
+        if discipline:
+            monkeypatch.setenv("EGG_CONTEXT_DISCIPLINE", "true")
+        else:
+            monkeypatch.delenv("EGG_CONTEXT_DISCIPLINE", raising=False)
+        pipeline = _make_pipeline()
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        spawner = self._event_spawner(pipeline, mock_spawn)
+        spawner.spawn_event(role="coder", action="propose", dedupe_key="k1")
+        return mock_spawn.call_args.kwargs["extra_env"]
+
+    def test_injected_when_resume_enabled(self, monkeypatch):
+        env = self._spawn_env(monkeypatch, discipline=True)
+        assert env["CLAUDE_CONFIG_DIR"] == "/home/egg/.claude"
+        assert env["EGG_SESSION_STATE_FILE"] == "/tmp/egg-session-state.json"  # noqa: S108
+
+    def test_omitted_when_resume_disabled(self, monkeypatch):
+        env = self._spawn_env(monkeypatch, discipline=False)
+        assert "CLAUDE_CONFIG_DIR" not in env
+        assert "EGG_SESSION_STATE_FILE" not in env
+        # The threshold rides regardless (#3279) — it's inert data, not substrate env.
+        assert env["EGG_RESEED_THRESHOLD"] == "400000"

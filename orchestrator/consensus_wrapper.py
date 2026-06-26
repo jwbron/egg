@@ -247,7 +247,25 @@ invoke_agent_for_event() {{
         prompt="${{SYNC_FAILURE_BANNERS}}${{prompt}}"
         SYNC_FAILURE_BANNERS=""
     fi
+    # Warm-resume session-store sync (#3278). The orchestrator sets
+    # ``EGG_SESSION_STATE_FILE`` only when warm resume is enabled, so its
+    # presence gates the round-trip. ``pull`` re-materialises the prior
+    # event's transcript + pointer into this pod's ephemeral Claude store so
+    # ``--resume`` (the slice-8 gate's resume branch) finds a real session;
+    # ``push`` ships the updated session back after the agent exits. Both are
+    # best-effort (``|| true``, bounded by ``timeout``) — a failed sync
+    # degrades to a safe cold reseed and never wedges the event. The agent's
+    # own return code is preserved as this function's rc (the one-shot
+    # handler exits with it), so the post-agent push can't mask it.
+    if [ -n "${{EGG_SESSION_STATE_FILE:-}}" ]; then
+        timeout 60 egg-orch session-state pull 2>&1 | sed 's/^/[session-state] /' >&2 || true
+    fi
     {agent_command_prefix} "$prompt"
+    local _agent_rc=$?
+    if [ -n "${{EGG_SESSION_STATE_FILE:-}}" ]; then
+        timeout 60 egg-orch session-state push 2>&1 | sed 's/^/[session-state] /' >&2 || true
+    fi
+    return "$_agent_rc"
 }}
 
 # Sync-to-proposal (#3076 / #3077 clause 2): before a review invocation
