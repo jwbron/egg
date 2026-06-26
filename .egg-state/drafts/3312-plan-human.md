@@ -23,11 +23,11 @@ time to merge them**. Sequencing them into one chain side-steps that collision
 entirely: each slice starts from the finished result of the one before it, so the
 allow-list is only ever changed by one slice at a time.
 
-(A handful of slices also touch a second shared file — the container "build
-recipe" that lists which code goes into the shipped image, see below — which
-reinforces the same need to go one at a time. The one-time "set up the splitting
-pattern" groundwork that an earlier attempt depended on already shipped in merged
-PR #2335, so the only things forcing a sequence are those shared files.)
+(The one-time "set up the splitting pattern" groundwork that an earlier attempt
+depended on already shipped in merged PR #2335, so the only thing forcing a
+sequence is that shared allow-list file. A few slices must *also* touch the
+container's "build recipe" — a separate issue covered below — but that's handled
+inside those slices, not an additional reason for the ordering.)
 
 ## The order: easiest first, giants last
 
@@ -67,7 +67,7 @@ Every slice follows the identical, proven recipe:
    copied into the shipped container image *by name* (or by a pattern that only
    grabs loose files, not folders). When such a file becomes a folder, it would
    silently vanish from the image unless the build recipe is updated in the same
-   slice. The plan lists exactly which slices need this (eight of them) and which
+   slice. The plan lists exactly which slices need this (nine of them) and which
    don't, and those slices additionally build the image and check the code still
    loads inside it.
 6. **Prove it's green** — the style check and the full test suite must both pass
