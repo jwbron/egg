@@ -19,7 +19,7 @@ channel with a served read: any sandbox session can fetch a registered
 artifact by name + commit SHA, regardless of whether the commit
 resolves locally.
 
-STRICT (HITL Q2 of #3077): the request schema has no ``path`` field;
+Strict no-path schema (#3077): the request schema has no ``path`` field;
 agents pass a spec-registered ``name`` (``plan-draft``,
 ``analysis-draft``, ...) and the gateway / orchestrator resolve the
 repo-relative path through :mod:`egg_contracts.artifact_spec`.  An

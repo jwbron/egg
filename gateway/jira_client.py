@@ -327,8 +327,8 @@ class JiraClient:
     """Thin REST-API wrapper around Atlassian Cloud.
 
     The client is deliberately class-shaped (and not a bag of module-level
-    helpers) so that v1.1 multi-site support (refine decision #10) is a
-    single-file drop-in: wire a second instance with its own
+    helpers) so that v1.1 multi-site support is a single-file drop-in:
+    wire a second instance with its own
     ``creds_provider`` / ``http_client`` and the route layer can pick between
     them without refactoring the read paths.
     """
