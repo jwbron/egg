@@ -2885,7 +2885,6 @@ class KubernetesSpawner:
         pipeline_id: str,
         issue_number: int | None = None,
         mode: str = "public",
-        poll_interval: int = 30,
         decision_model: str = "sonnet",
         max_turns: int = 2000,
         image: str | None = None,
@@ -2893,20 +2892,30 @@ class KubernetesSpawner:
         repos: list[str] | None = None,
         certs_volume: str | None = None,  # noqa: ARG002 — Docker-era compat
     ) -> SpawnedContainer:
-        """Spawn an overseer Job for phase-scoped health monitoring.
+        """Spawn the overseer as a normal agent Job (#2270 §1.5).
+
+        The overseer is just a particular agent with monitoring permissions and
+        a monitoring prompt — it spawns through the generic
+        :meth:`spawn_agent_job` path with a command built by
+        ``build_agent_command`` exactly like every other agent. This method is a
+        thin role convenience that resolves the overseer's model tier and builds
+        that command; it adds **no** parallel plumbing — no bespoke
+        ``EGG_OVERSEER_*`` env and no baked-in ``overseer_monitor.py`` bootstrap.
+        Whatever the overseer needs to observe arrives via its MCP tools / the
+        ``egg-orch`` CLI, not a trust-and-run script (which was the direct cause
+        of the §1 self-injection loop).
 
         Args:
             pipeline_id: Pipeline ID.
             issue_number: GitHub issue number (optional).
             mode: Gateway mode (public or private).
-            poll_interval: Polling interval in seconds.
             decision_model: DEPRECATED (#2270 §1, folds #2813). No longer drives
                 the overseer's base model — that now resolves via
                 ``resolve_agent_model(AgentRole.OVERSEER, …)`` (``opus`` by
                 default; override through ``agent_models["overseer"]``). Retained
-                for call-site compatibility until slice-3 folds this method into
-                ``spawn_agent_job``; a non-default value logs a deprecation
-                warning and is otherwise ignored on this path.
+                inert for call-site compatibility; a non-default value logs a
+                deprecation warning and is otherwise ignored. Final removal of
+                the shim is slice-9.
             max_turns: Maximum Agent SDK turns.
             image: Container image override.
             wait_for_gateway: Wait for gateway health before spawning.
@@ -2964,39 +2973,48 @@ class KubernetesSpawner:
                 overseer_decision.claude_code_alias,
             )
 
-        # Custom-model registration + context guardrails from the resolved
-        # decision (#2832 / #3175), so a LiteLLM-routed overseer opts into the
-        # right compaction profile exactly like every other agent. The
-        # ``EGG_OVERSEER_DECISION_MODEL`` env (derived from the deprecated
-        # field, never read in the sandbox) is dropped — slice-3 removes the
-        # remaining bespoke ``EGG_OVERSEER_*`` env entirely.
+        # #2270 §1.5: no bespoke ``EGG_OVERSEER_*`` env. The former
+        # ``EGG_OVERSEER_MODE`` / ``EGG_OVERSEER_POLL_INTERVAL`` /
+        # ``EGG_OVERSEER_DECISION_MODEL`` flags were symptoms of the
+        # special-case spawn shape and are removed — none was read in the
+        # sandbox except by the now-deleted ``overseer_monitor.py``. Only the
+        # generic ``BASH_COMMAND_TIMEOUT`` (so long-poll CLI calls don't time
+        # out) and the resolved-decision model env (custom-model registration +
+        # context guardrails, #2832 / #3175) remain, exactly as for any other
+        # LiteLLM-routable agent.
         extra_env = {
-            "EGG_OVERSEER_MODE": "true",
-            "EGG_OVERSEER_POLL_INTERVAL": str(poll_interval),
             "BASH_COMMAND_TIMEOUT": "0",
             **overseer_decision.env_vars(),
         }
 
+        # #2270 §1.5: monitoring arrives via MCP tools / the ``egg-orch`` CLI,
+        # NOT a baked-in script the agent is told to trust and run (that
+        # trust-and-run bootstrap was the direct cause of the §1 self-injection
+        # loop). The prompt describes the observe→classify→alert loop and leaves
+        # the mechanics to the agent's normal tools.
         overseer_prompt = (
-            f"You are the overseer agent for pipeline {pipeline_id}. "
-            "Your first action is to run the pre-built monitoring script: "
-            "`python3 /opt/egg-runtime/sandbox/overseer_monitor.py --once`. "
-            "That path is a build-time copy of `sandbox/overseer_monitor.py` "
-            "from this repo, baked into the container image at "
-            "`sandbox/Dockerfile` (the `COPY . /opt/egg-runtime/` layer). "
-            "It is the canonical script the orchestrator expects you to run; "
-            "the orchestrator vouches for it, and you do not need to verify "
-            "its provenance against any other copy. Don't write your own "
-            "monitoring loop or bash script; the pre-built script already "
-            "handles polling, heartbeats, and JSON output. "
-            "Run the script in single-cycle mode (`--once`) so you can "
-            "classify and act between cycles. Each call outputs one JSON "
-            "line to stdout. Read the output, classify alerts using the "
-            "Haiku tier, decide corrective actions using the Sonnet tier, "
-            "and execute them via egg-orch CLI commands. Then call the "
-            "script with `--once` again. Repeat until the pipeline reaches "
-            "a terminal state (complete, failed, or cancelled). After the "
-            "pipeline ends, generate a final health summary."
+            f"You are the overseer agent for pipeline {pipeline_id}. You are a "
+            "normal egg agent with read-only monitoring permissions: there is "
+            "no baked-in script to run and no pre-built monitoring loop to "
+            "trust. Observe pipeline health using your MCP tools and the "
+            "`egg-orch` CLI, and surface only genuine anomalies.\n\n"
+            "Loop until the pipeline reaches a terminal state (complete, "
+            "failed, or cancelled):\n"
+            "1. Read the live pipeline state (`mcp__progress__query_status` or "
+            "`egg-orch pipeline status`), the BRC consensus matrix "
+            "(`mcp__brc__get_state`), and recent agent messages.\n"
+            "2. Classify what you see. The overwhelming majority of "
+            "observations are normal — only a wedged phase transition, a real "
+            "consensus deadlock, repeated agent crashes, or similar genuine "
+            "failures warrant action.\n"
+            "3. When (and only when) you find a real problem, broadcast a "
+            "single OVERSEER_ALERT with `mcp__progress__overseer_alert`, "
+            "setting priority by severity and naming the anomaly, the "
+            "evidence, and a recommended operator action.\n"
+            "4. Otherwise wait briefly and repeat.\n\n"
+            "Be conservative: a false alarm trains operators to ignore you, so "
+            "prefer silence over a low-confidence alert. When the pipeline "
+            "ends, emit a final health summary."
         )
         command = build_agent_command(
             prompt=overseer_prompt,
