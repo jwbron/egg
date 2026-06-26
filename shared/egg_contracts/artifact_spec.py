@@ -134,6 +134,17 @@ _SPECS: tuple[ArtifactSpec, ...] = (
             "risk_analyst",
         ),
     ),
+    # Human-focused companion to the refine analysis (mandatory). Produced
+    # by the simplifier after the refiner proposes; the refine reviewer
+    # gates it on "faithful + jargon-free". Existence-only at propose time
+    # (no parse check — that is keyed on "plan-draft" alone in signals.py).
+    ArtifactSpec(
+        name="analysis-draft-human",
+        path_template=".egg-state/drafts/{identifier}-analysis-human.md",
+        phase="refine",
+        producer_role="simplifier",
+        consumer_roles=("reviewer_refine",),
+    ),
     ArtifactSpec(
         name="plan-draft",
         path_template=".egg-state/drafts/{identifier}-plan.md",
@@ -146,6 +157,16 @@ _SPECS: tuple[ArtifactSpec, ...] = (
             "tester",
             "documenter",
         ),
+    ),
+    # Human-focused companion to the implementation plan (mandatory).
+    # Produced by the simplifier after the task_planner proposes; the plan
+    # reviewer gates it. Existence-only at propose time.
+    ArtifactSpec(
+        name="plan-draft-human",
+        path_template=".egg-state/drafts/{identifier}-plan-human.md",
+        phase="plan",
+        producer_role="simplifier",
+        consumer_roles=("reviewer_plan",),
     ),
     ArtifactSpec(
         name="architect-output",
