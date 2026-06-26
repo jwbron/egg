@@ -19,6 +19,13 @@ from overseer.classifier import (
     classify_stall,
     detect_loop,
 )
+from overseer.corrective import (
+    CorrectiveAction,
+    CorrectiveContext,
+    CorrectiveExecutor,
+    CorrectiveOutcome,
+    CorrectiveStatus,
+)
 from overseer.decision_maker import (
     compose_redirect_message,
     decide_corrective_action,
@@ -33,6 +40,11 @@ __all__ = [
     "classify_error",
     "classify_stall",
     "compose_redirect_message",
+    "CorrectiveAction",
+    "CorrectiveContext",
+    "CorrectiveExecutor",
+    "CorrectiveOutcome",
+    "CorrectiveStatus",
     "decide_corrective_action",
     "decide_escalation_level",
     "detect_loop",

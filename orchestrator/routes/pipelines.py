@@ -450,6 +450,7 @@ if TYPE_CHECKING:
     from egg_container import MountSpec
     from egg_contracts.agent_roles import AgentRole as ContractAgentRole
     from egg_contracts.models import Slice as ContractSlice
+    from overseer.corrective import CorrectiveExecutor
     from overseer.decision_maker import AdjudicationVerdict
 
     try:
@@ -1113,6 +1114,229 @@ def _send_brc_confirmation_nudge(
             error=str(send_err),
         )
         return False
+
+
+# ---------------------------------------------------------------------------
+# Overseer authority plane (#2270 slice-6, §4) — the orchestrator-side seams the
+# CorrectiveExecutor dispatches to. The overseer ADVISES (returns a verdict); the
+# control plane EXECUTES exactly three bounded actions. Agents — including the
+# overseer — cannot reach these directly: the shared RBAC predicate denies them,
+# and the executor re-checks it. See orchestrator/overseer/corrective.py.
+# ---------------------------------------------------------------------------
+
+
+def _corrective_open_operator_hitl(context: Any) -> str:
+    """``open_operator_hitl`` seam: open a HITL contract decision (orchestrator id).
+
+    The decision is written via :func:`apply_mutation` under ``Role.IMPLEMENTER``
+    — the same ``decisions.*`` owner the ``register_open_question`` MCP tool and
+    the impasse router use — with an orchestrator-side actor so the audit trail
+    stays distinct from agent-authored decisions. This is the REAL enforcement
+    point: contract RBAC gates the write, and the corrective RBAC predicate keeps
+    agents (incl. the overseer) off this path entirely, so an operator HITL gate
+    can only be opened by the control plane.
+    """
+    from egg_contracts.decisions import next_cq_id
+    from egg_contracts.loader import load_contract, save_contract
+    from egg_contracts.models import Decision, DecisionOption, DecisionType
+    from egg_contracts.roles import Role
+    from egg_contracts.validator import apply_mutation
+
+    payload = context.payload or {}
+    pipeline_id = context.pipeline_id
+    issue_number = payload.get("issue_number")
+    finding = payload.get("finding")
+    verdict = payload.get("verdict")
+
+    identifier = _pipeline_identifier(issue_number, pipeline_id)
+    repo_path = payload.get("repo_path") or get_repo_path()
+    contract = load_contract(identifier, repo_path)
+    existing = contract.decisions or []
+    next_idx = len(existing)
+    decision_id = next_cq_id(existing)
+
+    finding_class = context.finding_class or str(
+        getattr(finding, "finding_class", "") or getattr(verdict, "finding_class", "")
+    )
+    severity = str(getattr(verdict, "severity", "") or getattr(finding, "severity", "") or "medium")
+    reasoning = context.reason or str(getattr(verdict, "reasoning", "") or "")
+
+    question_lines = [
+        f"The overseer detection plane flagged ``{finding_class or 'an anomaly'}`` "
+        f"(severity ``{severity}``) in pipeline ``{pipeline_id}`` and the on-demand "
+        "adjudicator escalated it for operator judgement.",
+        "",
+        f"**Adjudicator reasoning**: {reasoning or '(none provided)'}",
+    ]
+    evidence = getattr(finding, "evidence", None)
+    if evidence:
+        question_lines.append(f"**Evidence**: {evidence}")
+
+    options = [
+        DecisionOption(id="opt-1", label="Intervene now (operator will act manually)"),
+        DecisionOption(id="opt-2", label="Dismiss — detector over-fired (calibration data)"),
+        DecisionOption(id="opt-3", label="Other (explain in reply)"),
+    ]
+    decision = Decision(
+        id=decision_id,
+        question="\n".join(question_lines),
+        type=DecisionType.HITL,
+        phase=contract.current_phase,
+        options=options,
+    )
+    result = apply_mutation(
+        contract,
+        role=Role.IMPLEMENTER,
+        actor="orchestrator-overseer-corrective",
+        field_path=f"decisions.{next_idx}",
+        new_value=decision,
+        reason=(
+            f"Overseer corrective: open operator HITL for "
+            f"{finding_class or 'finding'}"
+        ),
+    )
+    if not result.success:
+        raise RuntimeError(f"failed to open operator HITL decision: {result.message}")
+    save_contract(contract, repo_path)
+    return f"opened operator HITL decision {decision_id}"
+
+
+def _corrective_nudge_agent(context: Any) -> str:
+    """``nudge_agent`` seam: deliver the deterministic BRC-confirmation nudge.
+
+    Wires to :func:`_send_brc_confirmation_nudge` (the #2079 directed wake), which
+    posts an ``OVERSEER_ALERT`` the stuck producer's wait-loop filters admit. The
+    escalation dict is taken from the payload when present, otherwise synthesized
+    in the ``brc_confirmation_timeout`` shape that helper requires.
+    """
+    payload = context.payload or {}
+    escalation = dict(payload.get("escalation") or {})
+    escalation.setdefault("alert_type", "brc_confirmation_timeout")
+    escalation.setdefault("agent_id", context.target)
+    elapsed = escalation.get("elapsed_seconds", payload.get("elapsed_seconds"))
+    escalation["elapsed_seconds"] = elapsed if (elapsed and elapsed > 0) else 1
+
+    delivered = _send_brc_confirmation_nudge(escalation, context.pipeline_id, context.phase)
+    if not delivered:
+        raise RuntimeError(f"nudge to {context.target!r} was not delivered")
+    return f"nudged {context.target}"
+
+
+def _corrective_respawn_cohort(context: Any) -> str:
+    """``respawn_cohort`` seam: restart the target role(s) via the general path.
+
+    Delegates to the orchestrator's public restart endpoint
+    (``POST /agents/<role>/restart``) — the same general-restart machinery the
+    overseer monitor's ``_execute_restart_agent`` uses — so restart-budget
+    enforcement, consensus reset, and one-shot Job teardown all happen
+    server-side, with no bespoke respawn plumbing. ``target`` may be a single
+    role or a comma-separated cohort.
+    """
+    import urllib.request
+    from urllib.parse import quote
+
+    roles = [r.strip() for r in str(context.target).split(",") if r.strip()]
+    if not roles:
+        raise RuntimeError("respawn_cohort: empty target cohort")
+
+    orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL", "http://localhost:9849")
+    reason = (context.reason or "overseer corrective respawn")[:500]
+    restarted: list[str] = []
+    for role in roles:
+        restart_url = (
+            f"{orchestrator_url}/api/v1/pipelines/"
+            f"{quote(context.pipeline_id, safe='')}/agents/{quote(role, safe='')}/restart"
+        )
+        req = urllib.request.Request(
+            restart_url,
+            data=json.dumps({"reason": reason}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=60) as resp:
+            result = json.loads(resp.read().decode())
+        if not result.get("success"):
+            raise RuntimeError(
+                f"restart of {role!r} failed: {result.get('message', 'unknown error')}"
+            )
+        restarted.append(role)
+    return f"respawned cohort: {', '.join(restarted)}"
+
+
+def _build_overseer_corrective_executor(
+    *,
+    open_hitl: Any = None,
+    nudge: Any = None,
+    respawn: Any = None,
+    config: Any = None,
+) -> "CorrectiveExecutor":  # noqa: UP037
+    """Construct the §4 :class:`CorrectiveExecutor` wired to the production seams.
+
+    Seams are injectable so the path stays unit-testable without a live
+    orchestrator. Rate-limit / idempotency windows derive from the overseer
+    config when present, falling back to the executor defaults.
+    """
+    from overseer.corrective import CorrectiveExecutor
+
+    window = getattr(config, "overseer_infra_error_dedup_window_seconds", None)
+    kwargs: dict[str, Any] = {}
+    if isinstance(window, int) and window > 0:
+        kwargs["rate_limit_window_seconds"] = window
+        kwargs["idempotency_window_seconds"] = window
+
+    return CorrectiveExecutor(
+        open_hitl=open_hitl or _corrective_open_operator_hitl,
+        nudge=nudge or _corrective_nudge_agent,
+        respawn=respawn or _corrective_respawn_cohort,
+        **kwargs,
+    )
+
+
+def _execute_overseer_verdicts(
+    results: list[tuple[Any, Any]],
+    *,
+    pipeline_id: str,
+    issue_number: int | None,
+    running_agent_count: int,
+    phase: str | None = None,
+    executor: Any = None,
+) -> list[Any]:
+    """Run the §4 authority plane over adjudicated ``(finding, verdict)`` pairs.
+
+    For each pair carrying a confirmed verdict, dispatch the recommended action
+    through the :class:`CorrectiveExecutor` under the orchestrator identity. The
+    executor enforces the closed vocabulary, RBAC, the zero-agent-park bar,
+    rate-limiting, idempotency, and audit logging. Returns the per-verdict
+    :class:`CorrectiveOutcome` list (empty when nothing was adjudicated).
+    """
+    from overseer.corrective import CorrectiveContext
+
+    active = executor or _build_overseer_corrective_executor()
+    outcomes: list[Any] = []
+    for finding, verdict in results:
+        if verdict is None:
+            continue  # routine finding — handled deterministically, no action
+        evidence = getattr(finding, "evidence", None) or {}
+        target = str(getattr(verdict, "target", "") or "") or str(
+            evidence.get("agent_role") or evidence.get("agent_id") or ""
+        )
+        context = CorrectiveContext(
+            pipeline_id=pipeline_id,
+            running_agent_count=running_agent_count,
+            caller_identity="orchestrator",
+            target=target,
+            phase=phase,
+            finding_class=str(getattr(finding, "finding_class", "") or ""),
+            reason=str(getattr(verdict, "reasoning", "") or ""),
+            payload={
+                "finding": finding,
+                "verdict": verdict,
+                "issue_number": issue_number,
+            },
+        )
+        outcomes.append(active.execute_verdict(verdict, context))
+    return outcomes
 
 
 def _teardown_phase_overseer(

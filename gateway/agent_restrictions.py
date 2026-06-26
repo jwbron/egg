@@ -34,6 +34,11 @@ from egg_restrictions.checker import (
     get_agent_pattern,
     validate_agent_push,
 )
+from egg_restrictions.corrective import (
+    CORRECTIVE_ACTIONS,
+    ORCHESTRATOR_CONTROL_PLANE_IDENTITY,
+    corrective_action_authorized,
+)
 from egg_restrictions.patterns import (
     AGENT_PATTERNS,
     AUTOFIXER_PATTERNS,
@@ -108,6 +113,8 @@ def partition_files_by_role(
 __all__ = [
     "AGENT_PATTERNS",
     "AUTOFIXER_PATTERNS",
+    "CORRECTIVE_ACTIONS",
+    "ORCHESTRATOR_CONTROL_PLANE_IDENTITY",
     "AgentFilePattern",
     "AgentRestrictionResult",
     "AgentRole",
@@ -119,6 +126,7 @@ __all__ = [
     "build_agent_patterns",
     "check_agent_file_access",
     "check_agent_gh_operation",
+    "corrective_action_authorized",
     "get_agent_pattern",
     "get_agent_pattern_for_repo",
     "get_agent_patterns_for_repo",
