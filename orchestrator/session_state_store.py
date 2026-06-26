@@ -41,6 +41,7 @@ __all__ = [
     "SessionStateStore",
     "get_session_state_store",
     "reset_session_state_store",
+    "set_session_state_store",
 ]
 
 # Key prefix for the per-(pipeline, slice, role) record. The slice segment is
@@ -206,19 +207,6 @@ class SessionStateStore:
             _coerce_occupancy(data.get("window_occupancy")),
             transcript,
         )
-
-    def delete(self, pipeline_id: str, slice_id: str | None, role: str) -> None:
-        """Best-effort delete (e.g. on slice/pipeline teardown). Never raises."""
-        try:
-            self._redis.delete(self._key(pipeline_id, slice_id, role))
-        except Exception as exc:  # noqa: BLE001 — best-effort
-            logger.warning(
-                "Failed to delete session state (pipeline=%s slice=%s role=%s): %s",
-                pipeline_id,
-                slice_id,
-                role,
-                exc,
-            )
 
 
 _store: SessionStateStore | None = None

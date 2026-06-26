@@ -62,11 +62,6 @@ class TestRoundTrip:
         assert rec.session_id == "new"
         assert rec.window_occupancy == 2
 
-    def test_delete_removes_record(self, store):
-        store.put("issue-1", "slice-3", "coder", session_id="a")
-        store.delete("issue-1", "slice-3", "coder")
-        assert store.get("issue-1", "slice-3", "coder") is None
-
 
 class TestTtl:
     def test_put_sets_ttl(self, store):

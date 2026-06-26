@@ -88,10 +88,11 @@ class TestRoundTrip:
         # --- push: ships the (unchanged) state back, scoped to slice+role ---
         sent = {}
 
-        def _capture(endpoint, method="GET", data=None):
+        def _capture(endpoint, method="GET", data=None, timeout=None):
             sent["endpoint"] = endpoint
             sent["method"] = method
             sent["data"] = data
+            sent["timeout"] = timeout
             return {"success": True, "stored": True}
 
         monkeypatch.setattr(orch_cli, "orch_request", _capture)
@@ -102,3 +103,5 @@ class TestRoundTrip:
         assert sent["data"]["role"] == "coder"
         assert sent["data"]["slice_id"] == "slice-3"
         assert sent["data"]["transcript"] == '{"l":1}\n'
+        # Transcript round-trip gets a payload-sized HTTP timeout, not the 15s default.
+        assert sent["timeout"] == cli._SESSION_STATE_HTTP_TIMEOUT

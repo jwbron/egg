@@ -28,6 +28,7 @@ from typing import Any
 
 __all__ = [
     "claude_project_slug",
+    "is_safe_session_id",
     "read_state_for_push",
     "resolve_config_dir",
     "resolve_repo_path",
@@ -41,6 +42,23 @@ __all__ = [
 # empirically against the installed build, e.g.
 # ``/home/egg/repos/My_Repo.v2`` -> ``-home-egg-repos-My-Repo-v2``.
 _SLUG_NON_ALNUM = re.compile(r"[^a-zA-Z0-9]")
+
+# A Claude session id is a UUID (the SDK mints it), so it can only contain
+# hex/dash. We never interpolate anything outside this class into a filesystem
+# path: a ``../``-bearing, slash-bearing, or empty-after-strip value would
+# escape ``…/projects/<slug>/`` when joined. Guarding the path build is cheap
+# defense-in-depth and hardens the Redis→pull direction (where the value
+# originates off-pod) without coupling to the exact UUID layout.
+_SAFE_SESSION_ID = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_-]*\Z")
+
+
+def is_safe_session_id(session_id: str) -> bool:
+    """Return whether *session_id* is safe to interpolate into a filesystem path.
+
+    Rejects empty / path-traversal (``..``) / separator-bearing values; accepts
+    the UUID/token shape the Claude SDK actually produces.
+    """
+    return bool(_SAFE_SESSION_ID.fullmatch(session_id))
 
 
 def claude_project_slug(repo_path: str | os.PathLike[str]) -> str:
@@ -67,7 +85,14 @@ def transcript_path(
     repo_path: str | os.PathLike[str],
     session_id: str,
 ) -> Path:
-    """Return ``<config_dir>/projects/<cwd-slug>/<session_id>.jsonl``."""
+    """Return ``<config_dir>/projects/<cwd-slug>/<session_id>.jsonl``.
+
+    Raises ``ValueError`` if *session_id* is not path-safe (see
+    :func:`is_safe_session_id`) so a malformed value can never escape the
+    project dir; callers treat the raise as "nothing to resume" and reseed.
+    """
+    if not is_safe_session_id(session_id):
+        raise ValueError(f"unsafe session_id for transcript path: {session_id!r}")
     slug = claude_project_slug(repo_path)
     return Path(config_dir) / "projects" / slug / f"{session_id}.jsonl"
 
@@ -91,7 +116,7 @@ def write_pulled_state(
     Best-effort: any I/O failure returns ``False`` rather than raising.
     """
     session_id = str(record.get("session_id") or "").strip()
-    if not session_id:
+    if not session_id or not is_safe_session_id(session_id):
         return False
     occupancy = record.get("window_occupancy")
     if isinstance(occupancy, bool) or not isinstance(occupancy, int):
@@ -144,7 +169,7 @@ def read_state_for_push(
     if not isinstance(pointer, dict):
         return None
     session_id = str(pointer.get("session_id") or "").strip()
-    if not session_id:
+    if not session_id or not is_safe_session_id(session_id):
         return None
     occupancy = pointer.get("window_occupancy")
     if isinstance(occupancy, bool) or not isinstance(occupancy, int):

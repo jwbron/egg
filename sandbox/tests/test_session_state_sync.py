@@ -30,6 +30,51 @@ class TestSlug:
         assert p == Path("/cfg/projects/-home-egg-repos-webapp/sid-1.jsonl")
 
 
+class TestSafeSessionId:
+    def test_accepts_uuid_and_token_shapes(self):
+        assert sync.is_safe_session_id("550e8400-e29b-41d4-a716-446655440000")
+        assert sync.is_safe_session_id("sid_1")
+
+    def test_rejects_traversal_and_separators(self):
+        assert not sync.is_safe_session_id("")
+        assert not sync.is_safe_session_id("..")
+        assert not sync.is_safe_session_id("../../etc/passwd")
+        assert not sync.is_safe_session_id("a/b")
+        assert not sync.is_safe_session_id(".hidden")
+
+    def test_transcript_path_raises_on_unsafe_id(self):
+        import pytest
+
+        with pytest.raises(ValueError):
+            sync.transcript_path("/cfg", "/repo", "../escape")
+
+    def test_pull_rejects_unsafe_id_without_escaping(self, tmp_path):
+        cfg = tmp_path / "cfg"
+        ssf = tmp_path / "state.json"
+        # A traversal-bearing session_id must not write anything (no escape).
+        assert (
+            sync.write_pulled_state(
+                {"session_id": "../evil", "transcript": "x"},
+                repo_path="/repo",
+                config_dir=cfg,
+                session_state_file=str(ssf),
+            )
+            is False
+        )
+        assert not ssf.exists()
+        assert not (cfg / "projects").exists()
+
+    def test_push_rejects_unsafe_id(self, tmp_path):
+        ssf = tmp_path / "state.json"
+        ssf.write_text(json.dumps({"session_id": "../evil", "window_occupancy": 7}))
+        assert (
+            sync.read_state_for_push(
+                repo_path="/repo", config_dir=tmp_path / "cfg", session_state_file=str(ssf)
+            )
+            is None
+        )
+
+
 class TestResolvers:
     def test_config_dir_explicit_wins(self, monkeypatch):
         monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/env")

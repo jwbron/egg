@@ -20,6 +20,14 @@ from urllib.parse import urlencode
 
 from egg_lib import session_state_sync
 
+# The transcript can be up to ``MAX_TRANSCRIPT_BYTES`` (32 MiB). ``orch_request``
+# defaults to a 15s HTTP timeout, which a large transcript on a slow link can
+# blow past — silently degrading to a reseed every event with no signal. Give the
+# transcript round-trip a budget that fits the payload class while staying under
+# the wrapper's outer ``timeout 60`` process bound (so the HTTP layer, not the
+# kill, is what bounds a genuinely stuck call).
+_SESSION_STATE_HTTP_TIMEOUT = 45
+
 
 def _identity() -> tuple[str, str, str | None] | None:
     """Resolve ``(pipeline_id, role, slice_id)`` from env, or ``None`` if incomplete."""
@@ -63,7 +71,7 @@ def cmd_session_state_pull(args: argparse.Namespace) -> int:
     try:
         from egg_lib.orch_cli import orch_request
 
-        result = orch_request(endpoint, method="GET")
+        result = orch_request(endpoint, method="GET", timeout=_SESSION_STATE_HTTP_TIMEOUT)
     except (Exception, SystemExit) as exc:  # noqa: BLE001 — best-effort; never wedge the wrapper
         print(
             f"session-state pull: orchestrator request failed ({exc}); cold-starting",
@@ -120,7 +128,12 @@ def cmd_session_state_push(args: argparse.Namespace) -> int:
     try:
         from egg_lib.orch_cli import orch_request
 
-        orch_request(f"/api/v1/pipelines/{pipeline_id}/session-state", method="POST", data=body)
+        orch_request(
+            f"/api/v1/pipelines/{pipeline_id}/session-state",
+            method="POST",
+            data=body,
+            timeout=_SESSION_STATE_HTTP_TIMEOUT,
+        )
     except (Exception, SystemExit) as exc:  # noqa: BLE001 — best-effort; never wedge the wrapper
         print(
             f"session-state push: orchestrator request failed ({exc}); state not persisted",
