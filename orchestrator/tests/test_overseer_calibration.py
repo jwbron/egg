@@ -100,8 +100,7 @@ def test_every_incident_class_has_both_polarities() -> None:
         by_key.setdefault(row.detector_key, set()).add(row.label)
     for key, labels in by_key.items():
         assert labels == {Label.KNOWN_NORMAL, Label.KNOWN_BAD}, (
-            f"detector {key!r} needs both a known-normal and a known-bad row; "
-            f"got {sorted(labels)}"
+            f"detector {key!r} needs both a known-normal and a known-bad row; got {sorted(labels)}"
         )
 
 

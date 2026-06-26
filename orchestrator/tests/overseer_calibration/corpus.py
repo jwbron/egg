@@ -180,9 +180,7 @@ class EventStreamSnapshot:
             snapshot_id=data["snapshot_id"],
             pipeline_id=data.get("pipeline_id", ""),
             phase=data.get("phase", ""),
-            running_agents=tuple(
-                RunningAgent.from_dict(a) for a in data.get("running_agents", [])
-            ),
+            running_agents=tuple(RunningAgent.from_dict(a) for a in data.get("running_agents", [])),
             consensus=dict(data.get("consensus", {})),
             phase_state=dict(data.get("phase_state", {})),
             decision_state=dict(data.get("decision_state", {})),
@@ -373,8 +371,7 @@ def match_finding(result: Finding | None, expected: ExpectedFinding | None) -> b
     return (
         getattr(result, "finding_class", None) == expected.finding_class
         and getattr(result, "severity", None) == expected.severity
-        and bool(getattr(result, "requires_adjudication", False))
-        == expected.requires_adjudication
+        and bool(getattr(result, "requires_adjudication", False)) == expected.requires_adjudication
     )
 
 
@@ -412,12 +409,7 @@ class Scoreboard:
 
     @property
     def total(self) -> int:
-        return (
-            self.true_positive
-            + self.false_positive
-            + self.false_negative
-            + self.true_negative
-        )
+        return self.true_positive + self.false_positive + self.false_negative + self.true_negative
 
     @property
     def precision(self) -> float:
