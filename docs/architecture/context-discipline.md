@@ -182,6 +182,37 @@ JSON file and reads it back:
   (temp file + `os.replace`) and equally defensive: a persistence failure
   returns `False` and never crashes the run it is bookkeeping for.
 
+### Cross-pod persistence ([#3278](https://github.com/jwbron/egg/issues/3278))
+
+The pointer file above is *pod-local*, but under the orchestrator-owned event
+loop ([#3164](https://github.com/jwbron/egg/issues/3164)) **every BRC event is a
+fresh one-shot pod** — so the pointer dies with the pod, and, crucially, so does
+the Claude Code **session transcript** (`$CLAUDE_CONFIG_DIR/projects/<cwd-slug>/<session_id>.jsonl`)
+that `claude --resume` reads back. Persisting the pointer alone is necessary but
+not sufficient: `--resume <session_id>` against a pod whose transcript is gone
+silently cold-starts, so the gate would record `below_threshold` "resume"
+decisions while every event actually reseeds. The substrate must carry the
+**transcript** across pods, not just the pointer.
+
+Because the sandbox has no direct write access to host state, the durable copy is
+**orchestrator-owned** and reached only over the controlled API:
+
+- **Durable store** — `orchestrator/session_state_store.py` keeps one Redis record
+  per `(pipeline, slice, role)` holding the pointer **and** the transcript
+  together (one key, no split-brain), under a TTL that reaps abandoned state.
+  Only the orchestrator writes it; the sandbox reaches it through
+  `POST/GET /api/v1/pipelines/<pid>/session-state`.
+- **Live store stays ephemeral** — the agent's `$CLAUDE_CONFIG_DIR` is the pod's
+  own filesystem (no host mount), so Claude Code writes the transcript locally
+  during the run exactly as before.
+- **Round-trip in the wrapper** — `egg-orch session-state pull` (before the agent)
+  re-materialises the prior transcript + pointer into this pod so `--resume`
+  finds a real session; `egg-orch session-state push` (after) ships the updated
+  session back. Both are best-effort (`|| true`, `timeout`-bounded) and gated on
+  warm resume being enabled, so a failed sync degrades to a cold reseed and the
+  default path is byte-identical. The agent's own return code is preserved across
+  the push.
+
 Mid-phase restarts additionally need the BRC *message record* to survive so a
 reseeded session can re-pull it and re-derive the #3189 anchors
 ([#3200](https://github.com/jwbron/egg/issues/3200) slice-7); `_write_brc_history`
@@ -196,7 +227,8 @@ switches, each read in exactly one place:
 |---------|---------|--------|
 | `EGG_CONTEXT_DISCIPLINE` | `egg_agent.context_discipline.context_discipline_enabled` | **Master switch** for the whole discipline (protected-root / queryable-environment split + JIT pull + threshold reseed). ON → every event-pump role takes the new path and `session_resume_enabled` is forced ON; OFF (default) → today's full-context inline path, byte-for-byte unchanged. Subsumes the narrower `EGG_SESSION_RESUME` knob (see below). |
 | `EGG_SESSION_RESUME` | `egg_agent.session.session_resume_enabled` | Narrower opt-in for warm resume. OFF (default) → a passed-in `session_id` is ignored and the agent cold-starts; the substrate is inert and the agent path is byte-for-byte the legacy cold-start. The master flag above subsumes this: `session_resume_enabled` returns `True` for `EGG_SESSION_RESUME` **or** `context_discipline_enabled()`. |
-| `EGG_SESSION_STATE_FILE` | `egg_agent.session.resolve_session_state_path` | Location of the cross-invocation session-state file. Unset → the round-trip is a no-op (substrate stays inert). |
+| `EGG_SESSION_STATE_FILE` | `egg_agent.session.resolve_session_state_path` | Location of the (pod-local) cross-invocation pointer file. The orchestrator injects an ephemeral pod path (`/tmp/egg-session-state.json`) into event pods **only when warm resume is enabled** (#3278); unset → the round-trip is a no-op (substrate stays inert). Its presence in the pod also gates the wrapper's `egg-orch session-state pull/push`. |
+| `CLAUDE_CONFIG_DIR` | Claude Code (+ `egg_lib.session_state_sync`) | Pins the Claude session-store root (`/home/egg/.claude`) so the wrapper's pull/push and the agent agree on the transcript path regardless of HOME resolution. Injected into event pods alongside `EGG_SESSION_STATE_FILE` when warm resume is enabled (#3278). |
 | `EGG_RESEED_THRESHOLD` | `egg_agent.reseed.resolve_reseed_threshold` | Cross-boundary integer override of the reseed threshold. The sandbox runs with `orchestrator` off `PYTHONPATH`, so the orchestrator side may compute `reseed_threshold(model)` and export the integer here; otherwise the gate imports the orchestrator helper when available, and falls back to `None` (safe reseed) when neither yields a value. |
 | `EGG_CONTEXT_MEASUREMENT` | `egg_agent.measurement.measurement_enabled` | Opt-in for the emit-only per-event measurement surfaces (#3249). ON (and `EGG_PIPELINE_ID` set) → after each BRC event the agent emits the six context-discipline metrics through the progress + heartbeat surfaces; OFF (default) → the legacy path is byte-identical (no measurement emit). |
 | `EGG_REAL_BACKEND_WINDOW` | `egg_agent.measurement._resolve_real_window` | Cross-boundary integer override of the model's real backend window, mirroring `EGG_RESEED_THRESHOLD`. Because `orchestrator` is off `PYTHONPATH` in-pod, this is the channel that populates the window-relative metrics (`real_backend_window` / `window_utilization`) in production; the orchestrator import is a dev/CI-only fallback, and both metrics degrade to `None` when neither yields a value. |
