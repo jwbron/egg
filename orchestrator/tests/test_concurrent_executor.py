@@ -1666,7 +1666,8 @@ class TestEventSpawnReseedThreshold:
 
     def test_build_event_spawn_params_returns_default_threshold(self):
         """Default (opus) → ``reseed_threshold`` is the 400k floor
-        (``min(400k, 0.80 * 1M)``), returned as the 4th tuple element.
+        (``min(400k, 0.80 * 1M)``), returned as the 4th tuple element, and the
+        real backend window (1M) is returned as the 5th (#3316).
         """
         from concurrent_executor import ConcurrentPhaseExecutor
         from egg_orchestrator.types import AgentRole
@@ -1674,11 +1675,16 @@ class TestEventSpawnReseedThreshold:
         pipeline = _make_pipeline()
         executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
 
-        _command, _upstream, _upstream_model, threshold = executor._build_event_spawn_params(
-            AgentRole.CODER
-        )
+        (
+            _command,
+            _upstream,
+            _upstream_model,
+            threshold,
+            real_window,
+        ) = executor._build_event_spawn_params(AgentRole.CODER)
 
         assert threshold == 400_000
+        assert real_window == 1_000_000
 
     def test_event_spawn_injects_default_threshold_env(self):
         """``spawn_event`` puts ``EGG_RESEED_THRESHOLD`` in the spawn_fn's
@@ -1723,3 +1729,69 @@ class TestEventSpawnReseedThreshold:
 
         env = mock_spawn.call_args.kwargs["extra_env"]
         assert env["EGG_RESEED_THRESHOLD"] == "160000"
+
+
+class TestEventSpawnRealBackendWindow:
+    """#3316: the orchestrator computes the REAL backend context window at spawn
+    and exports it to the event pod as ``EGG_REAL_BACKEND_WINDOW`` so the in-pod
+    #3249 measurement resolves ``real_backend_window`` / ``window_utilization``
+    instead of ``None`` (``orchestrator`` is off the pod's ``PYTHONPATH``, so
+    ``measurement.py``'s fallback import can't compute it). Symmetric with the
+    parallel ``EGG_RESEED_THRESHOLD`` injection (#3279).
+    """
+
+    def _event_spawner(self, pipeline, mock_spawn):
+        from concurrent_executor import ConcurrentPhaseExecutor, _ExecutorEventSpawner
+        from egg_orchestrator.types import AgentRole
+
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+        return _ExecutorEventSpawner(
+            executor=executor,
+            roles=[AgentRole.CODER, AgentRole.REVIEWER_CODE],
+            slice_id=None,
+        )
+
+    def test_event_spawn_injects_default_real_window_env(self):
+        """``spawn_event`` puts ``EGG_REAL_BACKEND_WINDOW`` (1M, the Claude
+        backend window) in the spawn_fn's ``extra_env`` for a default (opus)
+        pipeline.
+        """
+        pipeline = _make_pipeline()
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        spawner = self._event_spawner(pipeline, mock_spawn)
+
+        spawner.spawn_event(role="coder", action="propose", dedupe_key="k1")
+
+        env = mock_spawn.call_args.kwargs["extra_env"]
+        assert env["EGG_REAL_BACKEND_WINDOW"] == "1000000"
+
+    def test_event_spawn_real_window_for_sub_1m_model(self):
+        """A sub-1M LiteLLM model exports its REAL backend window, not the
+        ``[1m]``-implied 1M: ``kimi-k2.7-code`` → ``262144``. This is the value
+        ``window_utilization`` divides occupancy by, so a wrong 1M would deflate
+        the central #3200 utilization signal.
+        """
+        pipeline = _make_pipeline()
+        pipeline.config.agent_models = {"coder": "kimi-k2.7-code"}
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        spawner = self._event_spawner(pipeline, mock_spawn)
+
+        spawner.spawn_event(role="coder", action="propose", dedupe_key="k1")
+
+        env = mock_spawn.call_args.kwargs["extra_env"]
+        assert env["EGG_REAL_BACKEND_WINDOW"] == "262144"
+
+    def test_event_spawn_real_window_conservative_for_unregistered_model(self):
+        """An unregistered LiteLLM model (not in ``_SUB_1M_CONTEXT_MODELS``, not a
+        Claude alias) exports the conservative 200K window — the branch an
+        operator whose model isn't in the registry silently lands on.
+        """
+        pipeline = _make_pipeline()
+        pipeline.config.agent_models = {"coder": "qwen3-coder-30b"}
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        spawner = self._event_spawner(pipeline, mock_spawn)
+
+        spawner.spawn_event(role="coder", action="propose", dedupe_key="k1")
+
+        env = mock_spawn.call_args.kwargs["extra_env"]
+        assert env["EGG_REAL_BACKEND_WINDOW"] == "200000"
