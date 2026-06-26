@@ -16428,16 +16428,22 @@ def _emit_producer_death_alert(
         )
 
 
-# Pipeline-branch divergence alert (#2224 PR 3).
+# Pipeline-branch divergence alert (#2224 PR 3; #2270 §2 calibration).
 #
 # Watches ``origin/<pipeline_branch>`` for the contamination shape from
-# #2222: branch is more than ``BRANCH_DIVERGENCE_THRESHOLD`` commits
-# ahead of ``origin/<base>`` AND those ahead-commits contain merged-PR
-# subject signatures (``(#NNNN)``).  A real pipeline branch grows by
-# refine/plan/implement/state-file commits authored by agents — none of
-# those would carry a ``(#NNNN)`` suffix in the subject.  When that
-# signature appears, the branch has absorbed merged-main commits, which
-# is the exact failure mode #2222 fixed at the root.
+# #2222: the branch has absorbed already-merged main commits (a bad
+# rebase / merge re-introduces commits that already live in
+# ``origin/<base>``).  The original detector keyed on a ``(#NNNN)``
+# subject regex, which both *false-positives* (an agent legitimately
+# references a PR number in a commit subject) and *false-negatives* (a
+# reabsorbed commit whose subject was rewritten).  The #2270 calibration
+# replaces that brittle heuristic with a git-history signal: an
+# ahead-commit is contamination when its **patch-id matches a commit
+# already in ``origin/<base>``** (it is a reabsorbed merged-main commit),
+# or — at branch granularity — the branch is neither an ancestor of base
+# nor patch-id-equivalent to it.  The scan window is capped
+# (``_BRANCH_DIVERGENCE_SCAN_CAP``) so a long-lived branch / deep base
+# history cannot make the tick unbounded.
 #
 # Detection latency: the polling thread checks every 30 s, but the
 # orchestrator's local ``origin/<pipeline_branch>`` only refreshes
@@ -16448,12 +16454,55 @@ def _emit_producer_death_alert(
 # 30 s.  This is **phase-boundary granularity, not real time** —
 # strictly better than detecting at PR open, but defense-in-depth
 # only; PR 1 (#2282) remains the primary gate.
-#
-# The signature heuristic is intentionally cheap and false-positive-
-# tolerant — per the issue, "we'd rather over-alert than miss another
-# contaminated PR."
 BRANCH_DIVERGENCE_THRESHOLD = 20
-_BRANCH_DIVERGENCE_PR_RE = re.compile(r"\(#\d+\)")
+# Cap on how many commits we patch-id on each side of the comparison. The
+# contamination we care about is recent (a bad rebase during this pipeline),
+# so bounding the window keeps the per-tick git work flat regardless of how
+# far the branch / base have grown.
+_BRANCH_DIVERGENCE_SCAN_CAP = 200
+
+
+def detect_branch_divergence(snapshot: Any) -> Any | None:
+    """Calibration detector for the ``branch_divergence`` corpus rows (#2222/#2224).
+
+    Keys on the git-history signal in ``snapshot.git_state`` rather than the
+    brittle PR-subject regex: the branch is genuinely diverged only when it is
+    **neither** an ancestor of base **nor** patch-id-equivalent to the merged
+    commit. A branch that is an ancestor of base, or whose patch-id matches the
+    merged commit, is NOT diverged — even if its PR-style subject would have
+    tripped the old regex. Deterministic and cheap → ``requires_adjudication=
+    False``.
+    """
+    from health_checks.types import Finding, FindingClass, Severity
+
+    git_state = getattr(snapshot, "git_state", {}) or {}
+    if not isinstance(git_state, dict):
+        return None
+
+    is_ancestor = bool(git_state.get("is_ancestor_of_base"))
+    patch_id_matches = bool(git_state.get("patch_id_matches"))
+    # An ancestor-of-base branch (or a patch-id match against the merged commit)
+    # is fully accounted for in main — not divergence.
+    if is_ancestor or patch_id_matches:
+        return None
+
+    return Finding(
+        finding_class=FindingClass.BRANCH_DIVERGENCE,
+        severity=Severity.MEDIUM,
+        evidence={
+            "branch": git_state.get("branch"),
+            "is_ancestor_of_base": is_ancestor,
+            "patch_id_matches": patch_id_matches,
+            "pr_subject_divergence": bool(git_state.get("pr_subject_divergence")),
+        },
+        recommended_action=(
+            "Pipeline branch is neither an ancestor of base nor patch-id-"
+            "equivalent to the merged commit — it has genuinely diverged "
+            "(see #2222 recovery: rebase --onto the correct base)."
+        ),
+        requires_adjudication=False,
+        detector_key="branch_divergence",
+    )
 
 
 def _check_branch_divergence_for_alert(
@@ -16462,16 +16511,19 @@ def _check_branch_divergence_for_alert(
     pipeline_branch: str,
     base_branch: str,
     threshold: int = BRANCH_DIVERGENCE_THRESHOLD,
+    scan_cap: int = _BRANCH_DIVERGENCE_SCAN_CAP,
 ) -> tuple[int, list[tuple[str, str]]]:
     """Return ``(ahead_count, offenders)``.
 
-    ``offenders`` is the list of ahead-commits whose subjects look like
-    merged-main PRs (``(#NNNN)``) when the pipeline branch is more
-    than ``threshold`` commits ahead of base.  Returns ``(0, [])`` when
-    the branch is not far enough ahead, no signatures match, or any
-    git invocation fails (best-effort — observability must never
-    block the pipeline).  The caller relies on ``ahead_count`` for
-    the alert body and uses ``offenders`` to decide whether to fire.
+    ``offenders`` is the list of ahead-commits that are **reabsorbed merged-main
+    commits** — an ahead-commit whose patch-id matches a commit already present
+    in ``origin/<base>`` (within the capped scan window) — when the pipeline
+    branch is more than ``threshold`` commits ahead of base.  This replaces the
+    old ``(#NNNN)`` subject regex with a patch-id signal that neither
+    false-positives on legitimate PR references nor false-negatives on rewritten
+    subjects.  Returns ``(ahead, [])`` when the branch is not far enough ahead,
+    nothing reabsorbed matches, or any git invocation fails (best-effort —
+    observability must never block the pipeline).
     """
     if not pipeline_branch or not base_branch or pipeline_branch == base_branch:
         return 0, []
@@ -16504,6 +16556,43 @@ def _check_branch_divergence_for_alert(
             )
             return None
 
+    def _patch_id_to_sha(rev_range: str) -> dict[str, str]:
+        """Map ``patch_id -> sha`` for up to ``scan_cap`` commits in ``rev_range``.
+
+        Runs ``git log -p | git patch-id --stable``. Best-effort: any failure
+        yields an empty map (the caller degrades to "no offenders").
+        """
+        log_p = _run(
+            [
+                "log",
+                "-p",
+                "--no-merges",
+                f"--max-count={scan_cap}",
+                rev_range,
+            ]
+        )
+        if log_p is None or log_p.returncode != 0 or not log_p.stdout:
+            return {}
+        try:
+            pid = subprocess.run(
+                [*git_base, "patch-id", "--stable"],
+                input=log_p.stdout,
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+        except subprocess.TimeoutExpired, OSError:
+            return {}
+        if pid.returncode != 0:
+            return {}
+        mapping: dict[str, str] = {}
+        for line in (pid.stdout or "").splitlines():
+            parts = line.split()
+            if len(parts) >= 2:
+                mapping[parts[0]] = parts[1]
+        return mapping
+
     count = _run(
         [
             "rev-list",
@@ -16520,11 +16609,23 @@ def _check_branch_divergence_for_alert(
     if ahead <= threshold:
         return ahead, []
 
+    # Patch-ids present in recent base history — the set an ahead-commit must
+    # collide with to count as a reabsorbed merged-main commit.
+    base_patch_ids = set(_patch_id_to_sha(f"origin/{base_branch}").keys())
+    if not base_patch_ids:
+        return ahead, []
+    ahead_sha_by_patch_id = _patch_id_to_sha(f"origin/{base_branch}..origin/{pipeline_branch}")
+    contaminated_shas = {sha for pid, sha in ahead_sha_by_patch_id.items() if pid in base_patch_ids}
+    if not contaminated_shas:
+        return ahead, []
+
+    # Re-read subjects (capped, ordered newest-first) for the alert body.
     log = _run(
         [
             "log",
             "--no-merges",
             "--pretty=format:%H%x09%s",
+            f"--max-count={scan_cap}",
             f"origin/{base_branch}..origin/{pipeline_branch}",
         ]
     )
@@ -16537,10 +16638,10 @@ def _check_branch_divergence_for_alert(
         if not line:
             continue
         sha, _, subject = line.partition("\t")
-        if not sha or not subject:
+        if not sha:
             continue
-        if _BRANCH_DIVERGENCE_PR_RE.search(subject):
-            offenders.append((sha, subject))
+        if sha in contaminated_shas:
+            offenders.append((sha, subject or "(no subject)"))
     return ahead, offenders
 
 
@@ -16570,15 +16671,14 @@ def _publish_branch_divergence_alert(
     body = (
         f"Pipeline branch ``origin/{pipeline_branch}`` is {ahead_count} commits "
         f"ahead of ``origin/{base_branch}`` and contains {len(offenders)} "
-        f"commit(s) whose subjects look like merged-main PRs "
-        f"(``(#NNNN)`` signature).  This is the contamination shape "
-        f"investigated in #2222 (Phase 4 / #2224 detector).\n\n"
+        f"commit(s) whose **patch-id matches a commit already merged into "
+        f"base** — i.e. reabsorbed merged-main commits.  This is the "
+        f"contamination shape investigated in #2222 (Phase 4 / #2224 "
+        f"detector; #2270 §2 patch-id calibration).\n\n"
         f"Offending commits:\n{offender_render}\n\n"
         f"If this is real contamination, the resulting PR will show a "
         f"borked diff against current main — see #2222 recovery procedure "
-        f"(rebase ``--onto`` the right base).  If this is a false positive "
-        f"(e.g. an agent legitimately copied a ``(#NNNN)`` reference into "
-        f"a commit subject), no action is required."
+        f"(rebase ``--onto`` the right base)."
     )
     metadata: dict[str, Any] = {
         "anomaly_type": "branch-divergence",

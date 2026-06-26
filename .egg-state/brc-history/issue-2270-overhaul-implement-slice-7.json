@@ -1,0 +1,804 @@
+[
+  {
+    "id": "5d74e094-5207-4c",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-7)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:01:05.189286+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d679e45a-862d-42",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-7)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:01:05.214962+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "72758443-90e5-4f",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-7)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:01:06.224396+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "bdf6bdcd-6d11-45",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from documenter",
+    "body": "Documenter has no work in slice-7 (Signal calibration fixes, \u00a72). The slice delivers calibrated signal fixes (lifecycle-owner-aware stall #3230, alert-reflection intent-discriminator with #3123-nudge retention, ancestor/patch-id branch-divergence #2222/#2224, heartbeat-stall #2242, #2059/#2132 thrashing defs) plus their tests \u2014 all coder/tester tasks. Documentation for the delivered overseer shape is scoped to slice-9 (task-9-4: overseer.md, health_checks/README.md, overseer/README.md), which is downstream. Proposing as a non-blocking no-op so consensus is not held on the documenter edge.",
+    "metadata": {
+      "payload": {
+        "summary": "Documenter has no work in slice-7 (Signal calibration fixes, \u00a72). The slice delivers calibrated signal fixes (lifecycle-owner-aware stall #3230, alert-reflection intent-discriminator with #3123-nudge retention, ancestor/patch-id branch-divergence #2222/#2224, heartbeat-stall #2242, #2059/#2132 thrashing defs) plus their tests \u2014 all coder/tester tasks. Documentation for the delivered overseer shape is scoped to slice-9 (task-9-4: overseer.md, health_checks/README.md, overseer/README.md), which is downstream. Proposing as a non-blocking no-op so consensus is not held on the documenter edge.",
+        "attestation": {},
+        "artifacts": [],
+        "risk_considered": "",
+        "commit_sha": "",
+        "files_changed": [],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": true,
+        "no_changes_reason": "slice-7 (\"Signal calibration fixes, \u00a72\") contains only coder/tester tasks (task-7-1\u2026task-7-5: lifecycle-aware stall detector, alert-reflection intent-discriminator, ancestor/patch-id branch-divergence, heartbeat-stall + thrashing defs, and their tests). No documenter task is assigned to this slice. Documenter work is scoped to slice-1 (task-1-3, complete), slice-3 (task-3-3, complete), and slice-9 (task-9-4, docs refresh \u2014 pending, downstream). Nothing to document for the calibration-fix code in this slice."
+      },
+      "version": 1,
+      "commit_sha": "",
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:01:48.066841+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c72e5c30-8114-48",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from coder",
+    "body": "slice-7 signal-calibration fixes (\u00a72 \"stop crying wolf\"), tasks 7-1..7-4, commit d38ce7f35. Four false-alarm vectors fixed, each with a co-located corpus detector that strict-passes the slice-1 overseer-calibration rows (registered by the slice-7 test):\n\n\u2022 task-7-1 (phase_output.py, context.py): add PipelineHealthContext.awaiting_spawn; gate PhaseOutputPresenceCheck so a producer drafting under orchestrator-owned spawn (lifecycle_owner=orchestrator + awaiting_spawn) is HEALTHY, not a DEGRADED zero-commit stall (#3230).\n\n\u2022 task-7-2 (midturn_messages.py, client.py): mid-turn injection gates on message INTENT, not from_role. classify_message_intent + split _render_block render informational overseer/orchestrator OVERSEER_ALERTs NON-binding, while operator directives AND the #3123 brc_confirmation_timeout nudge (metadata.alert_type) stay BINDING. New detect_alert_reflection.\n\n\u2022 task-7-3 (pipelines.py): replaced _BRANCH_DIVERGENCE_PR_RE \"(#NNNN)\" subject regex with a patch-id signal (contamination = ahead-commit whose patch-id matches a base-merged commit); capped scan window. New detect_branch_divergence keys on git_state ancestor/patch-id (#2222/#2224).\n\n\u2022 task-7-4 (consensus_stall.py, classifier.py): detect_heartbeat_stall keys on tool-call recency so a busy agent (tool calls every 2-3s) is never flagged (#2242). Added first-class ActivityPattern verdicts + classify_activity_pattern, closed/coerced vocabulary (#2059/#2132).\n\nDetectors delivered as importable callables for the tester to register via register_detector; production-plane wiring is slice-8 scope.",
+    "metadata": {
+      "payload": {
+        "summary": "slice-7 signal-calibration fixes (\u00a72 \"stop crying wolf\"), tasks 7-1..7-4, commit d38ce7f35. Four false-alarm vectors fixed, each with a co-located corpus detector that strict-passes the slice-1 overseer-calibration rows (registered by the slice-7 test):\n\n\u2022 task-7-1 (phase_output.py, context.py): add PipelineHealthContext.awaiting_spawn; gate PhaseOutputPresenceCheck so a producer drafting under orchestrator-owned spawn (lifecycle_owner=orchestrator + awaiting_spawn) is HEALTHY, not a DEGRADED zero-commit stall (#3230).\n\n\u2022 task-7-2 (midturn_messages.py, client.py): mid-turn injection gates on message INTENT, not from_role. classify_message_intent + split _render_block render informational overseer/orchestrator OVERSEER_ALERTs NON-binding, while operator directives AND the #3123 brc_confirmation_timeout nudge (metadata.alert_type) stay BINDING. New detect_alert_reflection.\n\n\u2022 task-7-3 (pipelines.py): replaced _BRANCH_DIVERGENCE_PR_RE \"(#NNNN)\" subject regex with a patch-id signal (contamination = ahead-commit whose patch-id matches a base-merged commit); capped scan window. New detect_branch_divergence keys on git_state ancestor/patch-id (#2222/#2224).\n\n\u2022 task-7-4 (consensus_stall.py, classifier.py): detect_heartbeat_stall keys on tool-call recency so a busy agent (tool calls every 2-3s) is never flagged (#2242). Added first-class ActivityPattern verdicts + classify_activity_pattern, closed/coerced vocabulary (#2059/#2132).\n\nDetectors delivered as importable callables for the tester to register via register_detector; production-plane wiring is slice-8 scope.",
+        "attestation": {
+          "commit_shas": [
+            "d38ce7f35c7aed27a8fc9f7214ff31b496ab8d52"
+          ],
+          "files_changed": [
+            "orchestrator/health_checks/context.py",
+            "orchestrator/health_checks/tier1/phase_output.py",
+            "shared/egg_agent/midturn_messages.py",
+            "shared/egg_agent/client.py",
+            "orchestrator/routes/pipelines.py",
+            "orchestrator/health_checks/tier1/consensus_stall.py",
+            "orchestrator/overseer/classifier.py"
+          ],
+          "corpus_rows_strict_pass": [
+            "alert_reflection__bad",
+            "alert_reflection__normal",
+            "heartbeat_stall_2242__bad",
+            "heartbeat_stall_2242__normal",
+            "branch_divergence_2224__bad",
+            "branch_divergence_2222__normal"
+          ],
+          "ruff": "clean",
+          "py_compile": "clean",
+          "venv_available": false
+        },
+        "artifacts": [
+          "d38ce7f35c7aed27a8fc9f7214ff31b496ab8d52"
+        ],
+        "risk_considered": "No venv \u2192 full suite runs in CI/tester; mitigated with py_compile (clean), ruff 0.15.16 (clean), and a direct smoke run of all 6 slice-7 corpus rows (all strict-pass) + intent-split + lifecycle-guard assertions. Branch-divergence refactor changes git semantics (patch-id vs subject regex), kept best-effort/fail-soft + window-capped. Informational alerts surfaced non-binding, not dropped. detection_plane.py untouched per task boundaries.",
+        "commit_sha": "d38ce7f35c7aed27a8fc9f7214ff31b496ab8d52",
+        "files_changed": [
+          "orchestrator/health_checks/context.py",
+          "orchestrator/health_checks/tier1/phase_output.py",
+          "shared/egg_agent/midturn_messages.py",
+          "shared/egg_agent/client.py",
+          "orchestrator/routes/pipelines.py",
+          "orchestrator/health_checks/tier1/consensus_stall.py",
+          "orchestrator/overseer/classifier.py"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-7-1",
+          "task-7-2",
+          "task-7-3",
+          "task-7-4"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "d38ce7f35c7aed27a8fc9f7214ff31b496ab8d52",
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:17:37.981480+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9357d7a0-68c4-40",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-7)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:17:47.770528+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "05d38ade-9965-4e",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-7)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:17:47.778677+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e4d1cc00-5daf-4b",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-7)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:17:47.797011+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "1fb2b696-5579-45",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-7)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:17:49.541059+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "54b69928-14e1-46",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-7)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:17:50.536281+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3f16acdc-769c-42",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_concurrency",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_concurrency for coder",
+    "body": "Concurrency lens \u2014 clean. No new locks, no new shared mutable state, no atomicity gaps introduced. (1) classifier.py classify_activity_pattern reuses module _cache/_cache_put with no new lock, identical to the 5 existing sibling async classifiers; the check-then-await-then-put gap permits only a benign idempotent cache stampede that is pre-existing, not a regression. (2) midturn_messages.py additions (classify_message_intent, _render_message, detect_alert_reflection, frozen _AlertReflectionFinding) are all pure/stateless; _render_block refactor operates on local lists only; frozen dataclass is immutable. Threaded poller's shared state untouched. (3) pipelines.py branch-divergence runs in the 30s poll thread using local subprocess calls only, 15s timeout-bounded, detector pure. (4) health_checks awaiting_spawn is a single atomic bool getattr; detectors pure \u2014 no tearing under GIL. No concurrency hazards.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/overseer/classifier.py",
+          "shared/egg_agent/midturn_messages.py",
+          "shared/egg_agent/client.py",
+          "orchestrator/routes/pipelines.py",
+          "orchestrator/health_checks/context.py",
+          "orchestrator/health_checks/tier1/consensus_stall.py",
+          "orchestrator/health_checks/tier1/phase_output.py"
+        ],
+        "reason": "Concurrency lens \u2014 clean. No new locks, no new shared mutable state, no atomicity gaps introduced. (1) classifier.py classify_activity_pattern reuses module _cache/_cache_put with no new lock, identical to the 5 existing sibling async classifiers; the check-then-await-then-put gap permits only a benign idempotent cache stampede that is pre-existing, not a regression. (2) midturn_messages.py additions (classify_message_intent, _render_message, detect_alert_reflection, frozen _AlertReflectionFinding) are all pure/stateless; _render_block refactor operates on local lists only; frozen dataclass is immutable. Threaded poller's shared state untouched. (3) pipelines.py branch-divergence runs in the 30s poll thread using local subprocess calls only, 15s timeout-bounded, detector pure. (4) health_checks awaiting_spawn is a single atomic bool getattr; detectors pure \u2014 no tearing under GIL. No concurrency hazards.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:19:14.681483+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d541c0e4-5778-4f",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_contract",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_contract for coder",
+    "body": "Slice-7 coder proposal d38ce7f35 satisfies its contract tasks. task-7-1: awaiting_spawn property (context.py) + conjunctive lifecycle-owner guard (phase_output.py) returns HEALTHY only when orchestrator owns lifecycle AND a spawn is queued \u2014 genuine stalls still DEGRADE (#3230). task-7-2: intent-discriminator in midturn_messages.py segments binding directives from informational overseer/orchestrator alerts; #3123 brc_confirmation_timeout retained binding via metadata.alert_type; client.py comment updated. task-7-3: _BRANCH_DIVERGENCE_PR_RE replaced with ancestor/patch-id reabsorption signal, scan window capped (#2222/#2224). task-7-4: detect_heartbeat_stall keyed on tool-call recency exempts busy agents (#2242); closed ActivityPattern vocabulary + coerced classifier (#2059/#2132). All touched files are within the coder tasks' files_affected \u2014 no scope violations. FindingClass.HEARTBEAT_STALL/BRANCH_DIVERGENCE and the Finding contract exist from slice-4. Corpus strict-flip is the slice-7 tester deliverable (task-7-5), correctly out of coder scope.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/health_checks/context.py",
+          "orchestrator/health_checks/tier1/phase_output.py",
+          "orchestrator/health_checks/tier1/consensus_stall.py",
+          "orchestrator/overseer/classifier.py",
+          "orchestrator/routes/pipelines.py",
+          "shared/egg_agent/midturn_messages.py",
+          "shared/egg_agent/client.py"
+        ],
+        "reason": "Slice-7 coder proposal d38ce7f35 satisfies its contract tasks. task-7-1: awaiting_spawn property (context.py) + conjunctive lifecycle-owner guard (phase_output.py) returns HEALTHY only when orchestrator owns lifecycle AND a spawn is queued \u2014 genuine stalls still DEGRADE (#3230). task-7-2: intent-discriminator in midturn_messages.py segments binding directives from informational overseer/orchestrator alerts; #3123 brc_confirmation_timeout retained binding via metadata.alert_type; client.py comment updated. task-7-3: _BRANCH_DIVERGENCE_PR_RE replaced with ancestor/patch-id reabsorption signal, scan window capped (#2222/#2224). task-7-4: detect_heartbeat_stall keyed on tool-call recency exempts busy agents (#2242); closed ActivityPattern vocabulary + coerced classifier (#2059/#2132). All touched files are within the coder tasks' files_affected \u2014 no scope violations. FindingClass.HEARTBEAT_STALL/BRANCH_DIVERGENCE and the Finding contract exist from slice-4. Corpus strict-flip is the slice-7 tester deliverable (task-7-5), correctly out of coder scope.",
+        "ack_version": 1,
+        "attestation": {
+          "tasks_verified": [
+            "task-7-1",
+            "task-7-2",
+            "task-7-3",
+            "task-7-4"
+          ]
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:19:35.317255+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "7a295b37-e510-45",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_security",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_security for coder",
+    "body": "Security review clean for slice-7 (task-7-1..7-4). The delta is security-positive: the \u00a72 intent-discrimination fix in midturn_messages.py closes the alert-reflection privilege-confusion vector \u2014 informational overseer/orchestrator OVERSEER_ALERTs reflected into a producer stream now render non-binding, and only genuine operator directives stay BINDING. Trust model verified sound: classify_message_intent trusts an explicit message[\"intent\"] field, but no agent-facing path sets it (send_message route and overseer-alert tool expose no intent param), and OVERSEER_ALERTs fall through narrow from_role/message_type/alert_type allowlists to the safe INFORMATIONAL default. branch-divergence patch-id detector uses git via list args (no shell=True), 15s timeouts, scan capped at 200, rev-ranges prefixed origin/ so branch names cannot inject git options. heartbeat_stall/phase_output/context/classifier are pure logic with no new credential/secret handling, path traversal, or unsafe input parsing. No security defects.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "shared/egg_agent/midturn_messages.py",
+          "shared/egg_agent/client.py",
+          "orchestrator/routes/pipelines.py",
+          "orchestrator/overseer/classifier.py",
+          "orchestrator/health_checks/tier1/consensus_stall.py",
+          "orchestrator/health_checks/tier1/phase_output.py",
+          "orchestrator/health_checks/context.py"
+        ],
+        "reason": "Security review clean for slice-7 (task-7-1..7-4). The delta is security-positive: the \u00a72 intent-discrimination fix in midturn_messages.py closes the alert-reflection privilege-confusion vector \u2014 informational overseer/orchestrator OVERSEER_ALERTs reflected into a producer stream now render non-binding, and only genuine operator directives stay BINDING. Trust model verified sound: classify_message_intent trusts an explicit message[\"intent\"] field, but no agent-facing path sets it (send_message route and overseer-alert tool expose no intent param), and OVERSEER_ALERTs fall through narrow from_role/message_type/alert_type allowlists to the safe INFORMATIONAL default. branch-divergence patch-id detector uses git via list args (no shell=True), 15s timeouts, scan capped at 200, rev-ranges prefixed origin/ so branch names cannot inject git options. heartbeat_stall/phase_output/context/classifier are pure logic with no new credential/secret handling, path traversal, or unsafe input parsing. No security defects.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:19:57.098216+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "1680c557-01b8-4b",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code_holistic for coder",
+    "body": "Holistic ACK of slice-7 \u00a72 signal-calibration. Coherent with the overhaul's \"stop crying wolf\" deliverable: four false-alarm vectors each co-located with the production behavior they guard. Verified holistically \u2014 (1) dependency integrity: FindingClass.HEARTBEAT_STALL/BRANCH_DIVERGENCE, Severity.HIGH/MEDIUM, and Finding(detector_key=) all exist, so detectors construct cleanly; (2) no collateral damage: `re` still used elsewhere (regex removal not a dead import), subprocess imported for patch-id path, classify_activity_pattern reuses detect_loop's cache/classifier helpers; (3) the intent fix wires through \u2014 _INJECT_FROM_ROLES already includes overseer/orchestrator, so the intent-segmented renderer receives those broadcasts and now renders them non-binding, closing the alert-reflection defect at the right seam with a safe informational default; (4) lifecycle-owner-aware stall guard correctly separates orchestrator-owned drafting (awaiting_spawn) from a wedge; patch-id branch-divergence kills both the old regex's FP and FN modes; heartbeat-stall keys on tool-call recency. All 7 changed files py_compile clean. Non-blocking note: detect_branch_divergence fires when neither snapshot.git_state ancestor/patch-id bool is set \u2014 fine as a corpus detector fed synthetic git_state, but confirm the live snapshot builder populates those keys before wiring it into the production detection plane (future slice concern, not this slice).",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/health_checks/context.py",
+          "orchestrator/health_checks/tier1/consensus_stall.py",
+          "orchestrator/health_checks/tier1/phase_output.py",
+          "orchestrator/overseer/classifier.py",
+          "orchestrator/routes/pipelines.py",
+          "shared/egg_agent/client.py",
+          "shared/egg_agent/midturn_messages.py"
+        ],
+        "reason": "Holistic ACK of slice-7 \u00a72 signal-calibration. Coherent with the overhaul's \"stop crying wolf\" deliverable: four false-alarm vectors each co-located with the production behavior they guard. Verified holistically \u2014 (1) dependency integrity: FindingClass.HEARTBEAT_STALL/BRANCH_DIVERGENCE, Severity.HIGH/MEDIUM, and Finding(detector_key=) all exist, so detectors construct cleanly; (2) no collateral damage: `re` still used elsewhere (regex removal not a dead import), subprocess imported for patch-id path, classify_activity_pattern reuses detect_loop's cache/classifier helpers; (3) the intent fix wires through \u2014 _INJECT_FROM_ROLES already includes overseer/orchestrator, so the intent-segmented renderer receives those broadcasts and now renders them non-binding, closing the alert-reflection defect at the right seam with a safe informational default; (4) lifecycle-owner-aware stall guard correctly separates orchestrator-owned drafting (awaiting_spawn) from a wedge; patch-id branch-divergence kills both the old regex's FP and FN modes; heartbeat-stall keys on tool-call recency. All 7 changed files py_compile clean. Non-blocking note: detect_branch_divergence fires when neither snapshot.git_state ancestor/patch-id bool is set \u2014 fine as a corpus detector fed synthetic git_state, but confirm the live snapshot builder populates those keys before wiring it into the production detection plane (future slice concern, not this slice).",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:20:05.680427+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4a709d2b-1d6b-4d",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_code",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for coder",
+    "body": "ACK slice-7 (task-7-1..7-4). The coder's diff is correct and runtime-sound on every changed file. task-7-1: context.awaiting_spawn feeds the slice-4 plane via snapshot_from_health_context (already reads awaiting_spawn) and the phase_output.py guard covers the legacy Tier-1 PhaseOutputPresenceCheck; guard ordering correct (new-commits->HEALTHY, awaiting_spawn->HEALTHY, else DEGRADED). task-7-2: classify_message_intent precedence (explicit intent -> operator from_role -> directive message_type -> metadata.alert_type -> informational default) is sound; genuine operator directives still render BINDING (no regression), informational overseer/orchestrator alerts now non-binding, #3123 brc_confirmation_timeout nudge retained via both the NUDGE type and metadata.alert_type. task-7-3: patch-id signal replaces _BRANCH_DIVERGENCE_PR_RE; git_base/subprocess/_run all in scope; scan window capped at 200; the live caller fires only on new_offenders so returning (ahead, []) cannot false-positive. task-7-4: detect_heartbeat_stall requires BOTH last_tool_call_age and last_heartbeat_age past the window (busy agent exempt), ActivityPattern is a closed StrEnum with out-of-vocab coercion to PRODUCTIVE; all classifier helpers exist. Finding/FindingClass/Severity/detector_key usages all valid. One blocking-but-out-of-scope finding surfaced as a pre-merge obligation: detection_plane.py:341 carries an inherited Python-3 SyntaxError from the slice-4 base \u2014 not in this diff, masked by the sandbox python3, but it will fail real-CI import and the #3230 corpus row. Not NACKing the coder for code outside their slice; it must be fixed in the stack before merge.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/health_checks/context.py",
+          "orchestrator/health_checks/tier1/phase_output.py",
+          "orchestrator/health_checks/tier1/consensus_stall.py",
+          "orchestrator/overseer/classifier.py",
+          "orchestrator/routes/pipelines.py",
+          "shared/egg_agent/midturn_messages.py",
+          "shared/egg_agent/client.py"
+        ],
+        "reason": "ACK slice-7 (task-7-1..7-4). The coder's diff is correct and runtime-sound on every changed file. task-7-1: context.awaiting_spawn feeds the slice-4 plane via snapshot_from_health_context (already reads awaiting_spawn) and the phase_output.py guard covers the legacy Tier-1 PhaseOutputPresenceCheck; guard ordering correct (new-commits->HEALTHY, awaiting_spawn->HEALTHY, else DEGRADED). task-7-2: classify_message_intent precedence (explicit intent -> operator from_role -> directive message_type -> metadata.alert_type -> informational default) is sound; genuine operator directives still render BINDING (no regression), informational overseer/orchestrator alerts now non-binding, #3123 brc_confirmation_timeout nudge retained via both the NUDGE type and metadata.alert_type. task-7-3: patch-id signal replaces _BRANCH_DIVERGENCE_PR_RE; git_base/subprocess/_run all in scope; scan window capped at 200; the live caller fires only on new_offenders so returning (ahead, []) cannot false-positive. task-7-4: detect_heartbeat_stall requires BOTH last_tool_call_age and last_heartbeat_age past the window (busy agent exempt), ActivityPattern is a closed StrEnum with out-of-vocab coercion to PRODUCTIVE; all classifier helpers exist. Finding/FindingClass/Severity/detector_key usages all valid. One blocking-but-out-of-scope finding surfaced as a pre-merge obligation: detection_plane.py:341 carries an inherited Python-3 SyntaxError from the slice-4 base \u2014 not in this diff, masked by the sandbox python3, but it will fail real-CI import and the #3230 corpus row. Not NACKing the coder for code outside their slice; it must be fixed in the stack before merge.",
+        "ack_version": 1,
+        "attestation": {
+          "files_reviewed": [
+            "orchestrator/health_checks/context.py",
+            "orchestrator/health_checks/tier1/phase_output.py",
+            "orchestrator/health_checks/tier1/consensus_stall.py",
+            "orchestrator/overseer/classifier.py",
+            "orchestrator/routes/pipelines.py",
+            "shared/egg_agent/midturn_messages.py",
+            "shared/egg_agent/client.py"
+          ],
+          "issues_found": 1,
+          "tasks_reviewed": [
+            "task-7-1",
+            "task-7-2",
+            "task-7-3",
+            "task-7-4"
+          ]
+        },
+        "pre_merge_condition": "Fix the inherited Python-3 SyntaxError at orchestrator/health_checks/detection_plane.py:341 (`except TypeError, ValueError:` -> `except (TypeError, ValueError):`) before merging this stack. It is NOT in the slice-7 diff (inherited from the slice-4 base) and is masked by the sandbox's lenient python3, but it breaks `import detection_plane` under real Python 3 and will fail the #3230 phase-stall corpus row that task-7-1 depends on."
+      },
+      "version": 1,
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:25:17.267268+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "22e96464-1967-4e",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from tester",
+    "body": "slice-7 \u00a72 signal-calibration tester contract (task-7-5), reconciled to the coder's shipped API. Three test files pin the four \u00a72 calibration fixes and pass STRICT against the production code (56 passed, 0 skipped, 2 xfail for slice-8 rows): test_overseer_calibration.py (slice-7 corpus bridge + strict-flip of alert_reflection/heartbeat_stall/branch_divergence rows + focused units for #3230 lifecycle stall, #2242 heartbeat gate, branch-divergence snapshot detector, and the closed ActivityPattern vocabulary/classify_activity_pattern coercion #2059/#2132); shared/egg_agent/tests/test_midturn_messages.py (#3123 nudge-retention golden-file + classify_message_intent units + poll() binding/non-binding split); test_branch_divergence_alert.py (patch-id-collision classification replacing the (#NNNN) subject regex #2222/#2224, scan-window cap, subject-false-positive fix). Collection wiring for the new shared/egg_agent/tests root handed off via task-7-2 gap-1.",
+    "metadata": {
+      "payload": {
+        "summary": "slice-7 \u00a72 signal-calibration tester contract (task-7-5), reconciled to the coder's shipped API. Three test files pin the four \u00a72 calibration fixes and pass STRICT against the production code (56 passed, 0 skipped, 2 xfail for slice-8 rows): test_overseer_calibration.py (slice-7 corpus bridge + strict-flip of alert_reflection/heartbeat_stall/branch_divergence rows + focused units for #3230 lifecycle stall, #2242 heartbeat gate, branch-divergence snapshot detector, and the closed ActivityPattern vocabulary/classify_activity_pattern coercion #2059/#2132); shared/egg_agent/tests/test_midturn_messages.py (#3123 nudge-retention golden-file + classify_message_intent units + poll() binding/non-binding split); test_branch_divergence_alert.py (patch-id-collision classification replacing the (#NNNN) subject regex #2222/#2224, scan-window cap, subject-false-positive fix). Collection wiring for the new shared/egg_agent/tests root handed off via task-7-2 gap-1.",
+        "attestation": {
+          "tests_run": 56,
+          "checks_passed": [
+            "lint",
+            "test",
+            "security"
+          ],
+          "notes": "ruff check + ruff format --check clean; pytest 56 passed / 0 skipped / 2 xfailed against the coder's production code (d38ce7f35); make security skips cleanly (bandit not installed). All slice-7 \u00a72 detector rows flip strict and pass."
+        },
+        "artifacts": [
+          "2906bee46",
+          "orchestrator/tests/test_overseer_calibration.py",
+          "orchestrator/tests/test_branch_divergence_alert.py",
+          "shared/egg_agent/tests/test_midturn_messages.py",
+          "shared/egg_agent/tests/conftest.py"
+        ],
+        "risk_considered": "Reconciled to the coder's actual surface. Midturn test lives at the contract-named shared/egg_agent/tests/ which is outside testpaths and the make test-all roots (both coder-owned); collection wiring handed off via task-7-2 gap-1.",
+        "commit_sha": "2906bee46",
+        "files_changed": [
+          "orchestrator/tests/test_overseer_calibration.py",
+          "orchestrator/tests/test_branch_divergence_alert.py",
+          "shared/egg_agent/tests/test_midturn_messages.py",
+          "shared/egg_agent/tests/conftest.py"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-7-5"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "2906bee46",
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:34:12.862440+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "fc188167-c6c4-45",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "orchestrator",
+    "to_role": "coder",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1,
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:34:12.863685+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f4d1042a-e248-4d",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "orchestrator",
+    "to_role": "documenter",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1,
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:34:12.864240+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "bc3354b7-03c1-43",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by coder",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:34:14.352741+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5a45f1d7-fb8d-4f",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by documenter",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:34:14.357025+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3b8f4ace-4cfc-4b",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_concurrency",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_concurrency for tester",
+    "body": "Concurrency lens \u2014 clean. Tester proposal is test-only (test_overseer_calibration.py, test_branch_divergence_alert.py, test_midturn_messages.py, conftest.py); no production code, so no new locks, shared mutable state, or atomicity gaps introduced. (1) Each MidturnMessagePoller is constructed with an isolated tmp_path cursor dir and monkeypatched _fetch \u2014 no cross-test shared cursor file, and poll() is invoked synchronously, not via the threaded poll path. (2) classifier._cache.clear() in the async vocabulary test mutates module-global cache state but is serial test setup, not a production race. (3) branch-divergence and heartbeat-stall detectors are exercised as pure functions over mocked subprocess.run / dict-built EventStreamSnapshots \u2014 no real threads, timers, or shared state. Consistent with the prior coder ACK: production detectors are pure / poll-thread-local and timeout-bounded. No concurrency hazards.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_overseer_calibration.py",
+          "orchestrator/tests/test_branch_divergence_alert.py",
+          "shared/egg_agent/tests/test_midturn_messages.py",
+          "shared/egg_agent/tests/conftest.py"
+        ],
+        "reason": "Concurrency lens \u2014 clean. Tester proposal is test-only (test_overseer_calibration.py, test_branch_divergence_alert.py, test_midturn_messages.py, conftest.py); no production code, so no new locks, shared mutable state, or atomicity gaps introduced. (1) Each MidturnMessagePoller is constructed with an isolated tmp_path cursor dir and monkeypatched _fetch \u2014 no cross-test shared cursor file, and poll() is invoked synchronously, not via the threaded poll path. (2) classifier._cache.clear() in the async vocabulary test mutates module-global cache state but is serial test setup, not a production race. (3) branch-divergence and heartbeat-stall detectors are exercised as pure functions over mocked subprocess.run / dict-built EventStreamSnapshots \u2014 no real threads, timers, or shared state. Consistent with the prior coder ACK: production detectors are pure / poll-thread-local and timeout-bounded. No concurrency hazards.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:34:58.473902+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6c3a4f58-f5e7-44",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_concurrency",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:35:00.376284+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5d7e99ec-2c96-41",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_security",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_security for tester",
+    "body": "Security review clean for the slice-7 tester delta (task-7-5, test-only). All four files are tests/conftest with no production attack surface: test_branch_divergence_alert.py drives a pure mock _git_responder (no real subprocess, no shell=True, no untrusted input); test_overseer_calibration.py registers detectors and builds in-memory snapshots (pure logic); conftest.py inserts a deterministic computed local path (Path(__file__).resolve().parents[2]) into sys.path, mirroring the existing shared/tests/conftest.py \u2014 no untrusted input; test_midturn_messages.py pins the intent discriminator. Trust-boundary check: test_explicit_intent_field_overrides codifies that classify_message_intent honors an explicit message[\"intent\"], but this only documents the already-ACKed production behavior \u2014 no agent-facing path (send_message route, overseer-alert tool) exposes an intent param, so an untrusted producer cannot self-promote an informational OVERSEER_ALERT to operator_directive. Tests lock in the safe contract and add no new surface. No credential/secret handling, path traversal, or unsafe deserialization. No security defects.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_branch_divergence_alert.py",
+          "orchestrator/tests/test_overseer_calibration.py",
+          "shared/egg_agent/tests/conftest.py",
+          "shared/egg_agent/tests/test_midturn_messages.py"
+        ],
+        "reason": "Security review clean for the slice-7 tester delta (task-7-5, test-only). All four files are tests/conftest with no production attack surface: test_branch_divergence_alert.py drives a pure mock _git_responder (no real subprocess, no shell=True, no untrusted input); test_overseer_calibration.py registers detectors and builds in-memory snapshots (pure logic); conftest.py inserts a deterministic computed local path (Path(__file__).resolve().parents[2]) into sys.path, mirroring the existing shared/tests/conftest.py \u2014 no untrusted input; test_midturn_messages.py pins the intent discriminator. Trust-boundary check: test_explicit_intent_field_overrides codifies that classify_message_intent honors an explicit message[\"intent\"], but this only documents the already-ACKed production behavior \u2014 no agent-facing path (send_message route, overseer-alert tool) exposes an intent param, so an untrusted producer cannot self-promote an informational OVERSEER_ALERT to operator_directive. Tests lock in the safe contract and add no new surface. No credential/secret handling, path traversal, or unsafe deserialization. No security defects.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:35:15.556825+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c54a55b2-5971-4e",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_security",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:35:16.515620+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "dac50c0e-65a5-45",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code_holistic for tester",
+    "body": "Holistic ACK of slice-7 \u00a72 signal-calibration tester contract (task-7-5) @2906bee46. Reconciles cleanly to the coder API already ACKed. (1) Every production symbol the tests import exists post-reconcile: classify_message_intent/INTENT_OPERATOR_DIRECTIVE/INTENT_INFORMATIONAL/_render_block/MidturnMessagePoller.{poll,_write_cursor,_read_cursor,_fetch}; _BRANCH_DIVERGENCE_SCAN_CAP=200 (so _HAS_NEW_IMPL True \u2192 \u00a72c patch-id tests run STRICT, not skipped); BRANCH_DIVERGENCE_THRESHOLD=20; detect_phase_stall. (2) Gating coherent: _requires_new_impl skipif + importorskip(health_checks.detection_plane) + slice-4 register_detector bridge keep the suite green on the tester branch alone and flip to strict once the coder lands \u2014 the contracted \"flip rows to strict\" behavior. (3) Golden _EXPECTED_NUDGE_BLOCK and the binding/non-binding headers match production _render_block verbatim, pinning #3123 binding-retention and \u00a72b alert-reflection split to the real renderer. (4) All 4 files py_compile clean. Non-blocking: shared/egg_agent/tests not yet in testpaths/make test-all (coder-owned) \u2014 correctly recorded as the task-7-2 gap-1 tester\u2192coder coverage handoff, not a defect in this artifact.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_overseer_calibration.py",
+          "orchestrator/tests/test_branch_divergence_alert.py",
+          "shared/egg_agent/tests/test_midturn_messages.py",
+          "shared/egg_agent/tests/conftest.py"
+        ],
+        "reason": "Holistic ACK of slice-7 \u00a72 signal-calibration tester contract (task-7-5) @2906bee46. Reconciles cleanly to the coder API already ACKed. (1) Every production symbol the tests import exists post-reconcile: classify_message_intent/INTENT_OPERATOR_DIRECTIVE/INTENT_INFORMATIONAL/_render_block/MidturnMessagePoller.{poll,_write_cursor,_read_cursor,_fetch}; _BRANCH_DIVERGENCE_SCAN_CAP=200 (so _HAS_NEW_IMPL True \u2192 \u00a72c patch-id tests run STRICT, not skipped); BRANCH_DIVERGENCE_THRESHOLD=20; detect_phase_stall. (2) Gating coherent: _requires_new_impl skipif + importorskip(health_checks.detection_plane) + slice-4 register_detector bridge keep the suite green on the tester branch alone and flip to strict once the coder lands \u2014 the contracted \"flip rows to strict\" behavior. (3) Golden _EXPECTED_NUDGE_BLOCK and the binding/non-binding headers match production _render_block verbatim, pinning #3123 binding-retention and \u00a72b alert-reflection split to the real renderer. (4) All 4 files py_compile clean. Non-blocking: shared/egg_agent/tests not yet in testpaths/make test-all (coder-owned) \u2014 correctly recorded as the task-7-2 gap-1 tester\u2192coder coverage handoff, not a defect in this artifact.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:36:17.816938+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "30a2ad39-80eb-4a",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_code_holistic",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:36:19.485783+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ca1d8828-57c9-4f",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_contract",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_contract for tester",
+    "body": "ACK task-7-5. The tester contract for the \u00a72 signal-calibration fixes is faithfully encoded and passes strict against the live production code (coder d38ce7f35). Each task-7-5 sub-requirement is verified: (1) the \u00a72 corpus rows flip to strict \u2014 test_slice7_signal_calibration_rows_are_strict registers detect_alert_reflection (egg_agent.midturn_messages), detect_heartbeat_stall (health_checks.tier1.consensus_stall), detect_branch_divergence (routes.pipelines) and asserts each known-bad row fires AND its known-normal companion stays silent; the alert_reflection__bad / heartbeat_stall_2242__bad / branch_divergence_2224__bad rows now PASS (no longer xfail). (2) #3123 nudge-retention golden file (exact _EXPECTED_NUDGE_BLOCK). (3) intent-discriminator units (classify_message_intent: operator/#3123-nudge=directive vs overseer/orchestrator broadcasts + peer protocol=informational; poll() binding/non-binding split). (4) lifecycle-owner-aware stall #3230 (silent when orchestrator-owned spawn queued, fires + requires_adjudication when nothing queued). (5) ancestor/patch-id branch divergence #2222/#2224 (patch-id collision classification, subject-false-positive fix, scan-window cap, retired _BRANCH_DIVERGENCE_PR_RE). (6) heartbeat-stall #2242 (live tool calls exempt a 45s heartbeat gap; 900s no-tool-call fires high). (7) closed ActivityPattern vocab + OOV coercion #2059/#2132. Ran all three suites: 44 passed / 2 xfailed orchestrator-side (the 2 xfails are non-slice-7 rows) + 12 passed shared-side. Files are exactly task-7-5's three plus a sys.path-only conftest.py for the new tester test root \u2014 in scope, no role violation. Conditional only: the new test root is not yet in the CI collection roots (coder-owned, correctly handed off as gap-1 on task-7-2) \u2014 see pre_merge_condition.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_overseer_calibration.py",
+          "orchestrator/tests/test_branch_divergence_alert.py",
+          "shared/egg_agent/tests/test_midturn_messages.py",
+          "shared/egg_agent/tests/conftest.py"
+        ],
+        "reason": "ACK task-7-5. The tester contract for the \u00a72 signal-calibration fixes is faithfully encoded and passes strict against the live production code (coder d38ce7f35). Each task-7-5 sub-requirement is verified: (1) the \u00a72 corpus rows flip to strict \u2014 test_slice7_signal_calibration_rows_are_strict registers detect_alert_reflection (egg_agent.midturn_messages), detect_heartbeat_stall (health_checks.tier1.consensus_stall), detect_branch_divergence (routes.pipelines) and asserts each known-bad row fires AND its known-normal companion stays silent; the alert_reflection__bad / heartbeat_stall_2242__bad / branch_divergence_2224__bad rows now PASS (no longer xfail). (2) #3123 nudge-retention golden file (exact _EXPECTED_NUDGE_BLOCK). (3) intent-discriminator units (classify_message_intent: operator/#3123-nudge=directive vs overseer/orchestrator broadcasts + peer protocol=informational; poll() binding/non-binding split). (4) lifecycle-owner-aware stall #3230 (silent when orchestrator-owned spawn queued, fires + requires_adjudication when nothing queued). (5) ancestor/patch-id branch divergence #2222/#2224 (patch-id collision classification, subject-false-positive fix, scan-window cap, retired _BRANCH_DIVERGENCE_PR_RE). (6) heartbeat-stall #2242 (live tool calls exempt a 45s heartbeat gap; 900s no-tool-call fires high). (7) closed ActivityPattern vocab + OOV coercion #2059/#2132. Ran all three suites: 44 passed / 2 xfailed orchestrator-side (the 2 xfails are non-slice-7 rows) + 12 passed shared-side. Files are exactly task-7-5's three plus a sys.path-only conftest.py for the new tester test root \u2014 in scope, no role violation. Conditional only: the new test root is not yet in the CI collection roots (coder-owned, correctly handed off as gap-1 on task-7-2) \u2014 see pre_merge_condition.",
+        "ack_version": 1,
+        "attestation": {
+          "tasks_verified": [
+            "task-7-5"
+          ],
+          "tests_run": 56,
+          "checks_passed": [
+            "test_overseer_calibration.py: 22 passed / 2 xfailed (xfails are non-slice-7 rows self_injection_loop__bad + container_death_2948__bad)",
+            "test_branch_divergence_alert.py: included in 44 orchestrator-side pass",
+            "test_midturn_messages.py: 12 passed (run via PYTHONPATH=shared)"
+          ],
+          "verification_method": "ran all three suites against production code at HEAD 2906bee46 (coder impl d38ce7f35 already ACKed); confirmed \u00a72 corpus rows flip strict and every task-7-5 sub-requirement maps to a passing test"
+        },
+        "pre_merge_condition": "Add `shared/egg_agent/tests` to `pyproject.toml::[tool.pytest.ini_options].testpaths` AND the `make test-all` roots (Makefile) \u2014 coder-owned per task-7-2 gap-1. Until then `shared/egg_agent/tests/test_midturn_messages.py` (the #3123 golden-file + intent-discriminator regression) passes only when run directly and is NOT collected by `make test`/`make test-all`/CI, so the \u00a72b alert-reflection regression guard would silently not run."
+      },
+      "version": 1,
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:37:33.636470+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5ba79998-a994-43",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_contract",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:37:39.184690+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "df71615d-2203-41",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_code",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for tester",
+    "body": "ACK slice-7 \u00a72 tester contract (task-7-5). I ran every suite against the REAL slice-7 production code (HEAD=2906bee46, built on the coder commit):\n\n- test_midturn_messages.py \u2192 12 passed. classify_message_intent splits operator_directive vs informational correctly; the #3123 brc-confirmation-timeout nudge golden block (_EXPECTED_NUDGE_BLOCK) matches the real _render_block byte-for-byte; poll() binding/non-binding split and peer-protocol suppression hold. Behavioral, non-tautological assertions against the production API.\n- test_overseer_calibration.py + test_branch_divergence_alert.py \u2192 44 passed, 2 xfailed (intentional not-yet-delivered baseline rows). test_slice7_signal_calibration_rows_are_strict PASSED (NOT skipped) \u2014 all three \u00a72 detectors (alert_reflection, heartbeat_stall, branch_divergence) registered; both known-bad rows AND known-normal companions satisfy AC-3 under the real detectors. Patch-id branch-divergence tests ran active (coder's _BRANCH_DIVERGENCE_SCAN_CAP present); _git_responder models the real rev-list/log-p|patch-id pipeline. Focused units for #3230 lifecycle stall, #2242 tool-call-recency gate, and the closed ActivityPattern vocab+coercion all pass.\n\nThe tester correctly recorded \u2014 not papered over \u2014 the two coder-owned CI-collection gaps; test code is correct and complete. No tester defects.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_overseer_calibration.py",
+          "orchestrator/tests/test_branch_divergence_alert.py",
+          "shared/egg_agent/tests/test_midturn_messages.py",
+          "shared/egg_agent/tests/conftest.py"
+        ],
+        "reason": "ACK slice-7 \u00a72 tester contract (task-7-5). I ran every suite against the REAL slice-7 production code (HEAD=2906bee46, built on the coder commit):\n\n- test_midturn_messages.py \u2192 12 passed. classify_message_intent splits operator_directive vs informational correctly; the #3123 brc-confirmation-timeout nudge golden block (_EXPECTED_NUDGE_BLOCK) matches the real _render_block byte-for-byte; poll() binding/non-binding split and peer-protocol suppression hold. Behavioral, non-tautological assertions against the production API.\n- test_overseer_calibration.py + test_branch_divergence_alert.py \u2192 44 passed, 2 xfailed (intentional not-yet-delivered baseline rows). test_slice7_signal_calibration_rows_are_strict PASSED (NOT skipped) \u2014 all three \u00a72 detectors (alert_reflection, heartbeat_stall, branch_divergence) registered; both known-bad rows AND known-normal companions satisfy AC-3 under the real detectors. Patch-id branch-divergence tests ran active (coder's _BRANCH_DIVERGENCE_SCAN_CAP present); _git_responder models the real rev-list/log-p|patch-id pipeline. Focused units for #3230 lifecycle stall, #2242 tool-call-recency gate, and the closed ActivityPattern vocab+coercion all pass.\n\nThe tester correctly recorded \u2014 not papered over \u2014 the two coder-owned CI-collection gaps; test code is correct and complete. No tester defects.",
+        "ack_version": 1,
+        "attestation": {
+          "files_reviewed": [
+            "orchestrator/tests/test_overseer_calibration.py",
+            "orchestrator/tests/test_branch_divergence_alert.py",
+            "shared/egg_agent/tests/test_midturn_messages.py",
+            "shared/egg_agent/tests/conftest.py"
+          ],
+          "issues_found": 0,
+          "tests_run": 58,
+          "checks_passed": [
+            "test_midturn_messages: 12 passed",
+            "test_overseer_calibration + test_branch_divergence_alert: 44 passed, 2 xfailed",
+            "test_slice7_signal_calibration_rows_are_strict: PASSED (not skipped)"
+          ],
+          "verified_against_production": true
+        },
+        "pre_merge_condition": "Two coder-owned CI-fidelity fixes (both already tracked) must land before merge, else slice-7 \u00a72 strict coverage is green-because-SKIPPED under real CI \u2014 the false-green this slice targets: (1) Fix orchestrator/health_checks/detection_plane.py:341 `except TypeError, ValueError:` \u2192 `except (TypeError, ValueError):`. This sandbox's lenient python3 accepts it; standard CI Python raises SyntaxError, breaking `import health_checks.detection_plane` so the tester's importorskip SILENTLY SKIPS test_slice7_signal_calibration_rows_are_strict + lifecycle-stall units (same obligation as my coder ACK). (2) Add `shared/egg_agent/tests` to pyproject.toml testpaths + make test-all roots (tester\u2192coder gap task-7-2 gap-1) so test_midturn_messages.py (12 tests) is collected by CI \u2014 today it is not and would never run."
+      },
+      "version": 1,
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:38:52.120166+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "78da000e-74b0-4f",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "orchestrator",
+    "to_role": "tester",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1,
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:38:52.122536+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "7f90959e-25f3-48",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by tester",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:38:57.189942+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "cef33ca0-f3b8-4e",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_code",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:38:57.195146+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "423c8211-f079-4a",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_code_holistic",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:38:57.197034+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8d4838b3-87db-46",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_contract",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:38:57.198817+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "1288e973-1230-4a",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_security",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:38:57.200031+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "88aee662-3e8f-49",
+    "pipeline_id": "issue-2270-overhaul",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_concurrency",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-7"
+    },
+    "timestamp": "2026-06-26T08:38:57.201146+00:00",
+    "phase": "implement"
+  }
+]

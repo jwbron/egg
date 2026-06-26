@@ -252,7 +252,7 @@ lint-python: sync-venv-if-uv
 	@$(RUFF) format --check .
 	@echo "==> Mypy..."
 	@if command -v $(MYPY) >/dev/null 2>&1; then \
-		$(MYPY) gateway shared sandbox --exclude 'gateway/tests/' --exclude 'shared/egg_contracts/tests/' --exclude 'shared/tests/'; \
+		$(MYPY) gateway shared sandbox --exclude 'gateway/tests/' --exclude 'shared/egg_contracts/tests/' --exclude 'shared/tests/' --exclude 'shared/egg_agent/tests/'; \
 	else \
 		echo "SKIP: mypy not installed"; \
 	fi
@@ -346,7 +346,7 @@ test: sync-venv-if-uv
 	selector_rc=$$?; \
 	if [ "$$selector_rc" -ne 0 ]; then \
 		echo "select-tests: selector exited $$selector_rc; running full suite as fallback"; \
-		printf '%s\n' tests gateway/tests orchestrator/tests shared/tests >"$$selected_file"; \
+		printf '%s\n' tests gateway/tests orchestrator/tests shared/tests shared/egg_agent/tests >"$$selected_file"; \
 	fi; \
 	bypass=0; \
 	if [ ! -s "$$selected_file" ]; then \
@@ -376,7 +376,7 @@ test: sync-venv-if-uv
 	exit $$pytest_rc
 
 ## Full-suite escape hatch (issue #1973).  Runs the historical
-## `pytest tests/ gateway/tests/ orchestrator/tests/ shared/tests/`
+## `pytest tests/ gateway/tests/ orchestrator/tests/ shared/tests/ shared/egg_agent/tests/`
 ## command unconditionally — no narrowing, no fallback evaluation.
 ## On green exit, atomically writes the LKG sidecar at
 ## `.egg-state/last-known-good/<branch>.sha` so the next
@@ -390,7 +390,7 @@ test: sync-venv-if-uv
 test-all: export PYTHONPATH := shared:gateway:orchestrator
 test-all: sync-venv-if-uv  ## Run the full unit-test suite + record LKG on green
 	@echo "==> Running full unit-test suite (issue #1973: this updates LKG on green)..."
-	@$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ shared/tests/ -v $(PYTEST_ARGS); \
+	@$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ shared/tests/ shared/egg_agent/tests/ -v $(PYTEST_ARGS); \
 	pytest_rc=$$?; \
 	if [ "$$pytest_rc" -eq 0 ]; then \
 		env -u PYTHONPATH $(PYTHON) scripts/select_tests/__main__.py --record-good \
