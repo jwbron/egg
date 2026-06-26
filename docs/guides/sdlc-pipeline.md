@@ -327,7 +327,7 @@ The refine and plan phases include an automated internal review step before huma
 
 1. **Producer agent runs** — The refine/plan agent writes its output to `.egg-state/drafts/{identifier}-{analysis|plan}.md`
 2. **Simplifier runs** — Once the producer proposes, the simplifier reads the draft and writes a human-focused companion (`{identifier}-{analysis|plan}-human.md`) free of pipeline jargon, for the human reviewer's benefit
-3. **Reviewer agents run in parallel** — Each reviewer reads the draft and the simplifier's companion, then writes its verdict to its own file
+3. **Reviewer agents run in parallel** — Each reviewer reads the draft (the relevant reviewer also reviews the simplifier's companion), then writes its verdict to its own file
 4. **Verdicts aggregated** — If any reviewer needs revision, the aggregate verdict is `needs_revision`
 5. **If approved** — The final draft (and companion) is posted to the issue with an approval checkbox for human review
 6. **If needs revision** — Producer agent is re-dispatched with combined feedback; cycle repeats without posting to issue
