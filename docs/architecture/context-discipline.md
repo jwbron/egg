@@ -201,12 +201,15 @@ switches, each read in exactly one place:
 | `EGG_CONTEXT_MEASUREMENT` | `egg_agent.measurement.measurement_enabled` | Opt-in for the emit-only per-event measurement surfaces (#3249). ON (and `EGG_PIPELINE_ID` set) → after each BRC event the agent emits the six context-discipline metrics through the progress + heartbeat surfaces; OFF (default) → the legacy path is byte-identical (no measurement emit). |
 | `EGG_REAL_BACKEND_WINDOW` | `egg_agent.measurement._resolve_real_window` | Cross-boundary integer override of the model's real backend window, mirroring `EGG_RESEED_THRESHOLD`. Because `orchestrator` is off `PYTHONPATH` in-pod, this is the channel that populates the window-relative metrics (`real_backend_window` / `window_utilization`) in production; the orchestrator import is a dev/CI-only fallback, and both metrics degrade to `None` when neither yields a value. |
 
-**Setting the flags in production.** `EGG_CONTEXT_DISCIPLINE` and
-`EGG_SESSION_RESUME` are read in-pod but must be set on the **orchestrator
-deployment** — `orchestrator/kubernetes_spawner.py` forwards them from the
+**Setting the flags in production.** `EGG_CONTEXT_DISCIPLINE`,
+`EGG_CONTEXT_MEASUREMENT`, and `EGG_SESSION_RESUME` are read in-pod but must be
+set on the **orchestrator deployment** —
+`orchestrator/kubernetes_spawner.py` forwards them from the
 orchestrator's own environment into every spawned agent Job
 (`_FORWARDED_DISCIPLINE_ENV_KEYS`, added in
-[#3272](https://github.com/jwbron/egg/issues/3272)). Nothing else wires them
+[#3272](https://github.com/jwbron/egg/issues/3272); `EGG_CONTEXT_MEASUREMENT`
+added in [#3277](https://github.com/jwbron/egg/issues/3277) once #3271's in-pod
+consumer landed). Nothing else wires them
 into the Job env (`envFrom` is absent; `sandbox_env` is built from pipeline
 fields), so a `kubectl set env` on the pods directly has no effect. The
 forward runs before the per-spawn `extra_env` merge, so a targeted
