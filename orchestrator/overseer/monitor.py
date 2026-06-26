@@ -116,6 +116,12 @@ class OverseerMonitor:
         self._running = False
         # agent_role -> bounded deque of escalations (keep last 50 per agent)
         self._escalation_history: dict[str, deque] = {}
+        # Generation token (#2270 slice-5): reset on orchestrator pod recycle
+        # via ``reset_generation``. Every escalation record is stamped with the
+        # generation that produced it, and redirect-history reads filter to the
+        # current generation, so stale escalation state from a prior generation
+        # can never cascade into a fresh run's corrective decisions.
+        self.generation: int = 0
 
         # Allow dependency injection for testing
         self._classifier = classifier
@@ -385,6 +391,39 @@ class OverseerMonitor:
         logger.info("Overseer monitor stopped for pipeline %s", self.pipeline_id)
 
     # -----------------------------------------------------------------
+    # Restart / generation hygiene (#2270 slice-5)
+    # -----------------------------------------------------------------
+
+    def reset_escalation_history(self) -> None:
+        """Drop all accumulated escalation history so a restart starts clean.
+
+        Called when an agent is restarted (``restart_agent`` /
+        ``restart_phase``): the pre-restart redirect history would otherwise
+        survive and inflate ``redirect_count``, pushing a freshly-restarted
+        agent straight to HITL escalation on its first stall (#2270 §3).
+        Idempotent — resetting an already-empty history is a harmless no-op.
+        """
+        self._escalation_history.clear()
+
+    def reset_generation(self, generation: int | None = None) -> None:
+        """Reset the generation token and clear all escalation history.
+
+        Called on orchestrator pod recycle. With ``generation`` provided the
+        token is set to that explicit value; with ``generation=None`` (the
+        default recycle shape) the token is advanced by one. Either way the
+        escalation history is cleared, so stale escalation state can never
+        cascade into the new generation's corrective decisions. The
+        generation stamp on each record plus the generation-filtered
+        redirect-history reads make this leak-proof even if a record somehow
+        survives the clear (e.g. via persisted/replayed state).
+        """
+        if generation is None:
+            self.generation += 1
+        else:
+            self.generation = generation
+        self.reset_escalation_history()
+
+    # -----------------------------------------------------------------
     # Core poll cycle
     # -----------------------------------------------------------------
 
@@ -606,8 +645,16 @@ class OverseerMonitor:
             container_logs=container_logs or None,
         )
 
-        # Check redirect history for this agent
-        history = list(self._escalation_history.get(agent_role, []))
+        # Check redirect history for this agent. Filter to the current
+        # generation (#2270 slice-5) so escalations stamped before an
+        # orchestrator recycle can never inflate this run's redirect_count.
+        # Records predating generation stamping default to the current
+        # generation (backwards compatible).
+        history = [
+            h
+            for h in self._escalation_history.get(agent_role, [])
+            if h.get("generation", self.generation) == self.generation
+        ]
         max_redirects = getattr(self.config, "overseer_max_redirects_before_escalation", 2)
 
         redirect_count = sum(1 for h in history if h.get("action") == "redirect")
@@ -647,6 +694,7 @@ class OverseerMonitor:
                 "action": decision.get("action"),
                 "classification": classification,
                 "timestamp": time.time(),
+                "generation": self.generation,
             }
         )
 

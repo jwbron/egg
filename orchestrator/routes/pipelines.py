@@ -846,6 +846,66 @@ def _consume_adjudicator_verdict(spawned: Any, finding: Any) -> "AdjudicationVer
     return parse_adjudication_verdict(raw, finding=finding)
 
 
+def _overseer_should_be_present(
+    *, running_agent_count: int, pipeline_status: PipelineStatus
+) -> bool:
+    """Gate overseer presence on agents actually running (#2270 slice-5, §3).
+
+    Decisive rules (the tester contract pins these exactly):
+
+    * ``running_agent_count <= 0`` ⇒ ``False`` regardless of status — the §3
+      guarantee that a multi-hour *zero-agent* HITL park spawns no overseer.
+    * a terminal pipeline status (``COMPLETE`` / ``FAILED`` / ``CANCELLED``) ⇒
+      ``False`` regardless of the count — nothing left to monitor.
+    * otherwise (agents in flight, non-terminal) ⇒ ``True``.
+
+    The overseer is only useful while a phase is actively executing agents, so
+    presence tracks "are there agents to watch", not the phase calendar.
+    """
+    if running_agent_count <= 0:
+        return False
+    if pipeline_status in (
+        PipelineStatus.COMPLETE,
+        PipelineStatus.FAILED,
+        PipelineStatus.CANCELLED,
+    ):
+        return False
+    return True
+
+
+def _count_phase_agents(pipeline: Pipeline, phase: PipelinePhase) -> int:
+    """Count the agents a phase is about to run (#2270 slice-5 roster source).
+
+    Prefers the runtime roster cached on the phase execution (populated once
+    the phase has spawned); falls back to the deterministic
+    ``get_roles_for_phase`` source the concurrent executor itself consults, so
+    a not-yet-spawned phase still reports its imminent cohort. A derivation
+    failure returns 0 — conservatively *no* overseer rather than guessing,
+    which keeps the §3 "no overseer with zero agents" invariant safe.
+    """
+    phase_exec = pipeline.phases.get(phase)
+    if phase_exec is not None and getattr(phase_exec, "agents", None):
+        return len(phase_exec.agents)
+    try:
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        roles = get_roles_for_phase(
+            phase.value,
+            include_reviewers=True,
+            repo=pipeline.repo,
+            has_contract=getattr(pipeline, "has_contract", True),
+        )
+        return len(list(roles))
+    except Exception as exc:  # noqa: BLE001 - roster derivation is best-effort
+        logger.debug(
+            "Could not derive phase roster for overseer presence gate",
+            pipeline_id=getattr(pipeline, "id", None),
+            phase=getattr(phase, "value", str(phase)),
+            error=str(exc),
+        )
+        return 0
+
+
 def _escalate_finding_to_adjudicator(
     finding: Any,
     *,
@@ -947,171 +1007,6 @@ def _run_overseer_detection_plane(
     # for routine ones — a single source of truth shared with the tester contract.
     escalate_findings(findings, spawn_adjudicator=_spawn_adjudicator)
     return results
-
-
-def _check_and_respawn_overseer(
-    *,
-    spawner: "ContainerSpawner",  # noqa: UP037
-    store: StateStore,
-    pipeline_id: str,
-    pipeline: Pipeline,
-    overseer_container_id: str | None,
-    overseer_respawn_count: int,
-    max_overseer_respawns: int,
-    gateway_mode: str,
-    pipeline_repos: list | None,
-    certs_volume: str | None,
-    expected_run_epoch: datetime | None = None,
-) -> tuple[str | None, int]:
-    """Check overseer container liveness and respawn if it exited mid-pipeline.
-
-    Returns (updated_container_id, updated_respawn_count).
-
-    ``expected_run_epoch`` is the ``pipeline.run_epoch`` captured by the
-    caller's ``_run_pipeline`` thread.  When ``advance_phase(force=true)``
-    or ``restart_phase`` bumps ``run_epoch``, the old run's poll thread
-    can outlive the transition and see its externally-stopped overseer
-    as EXITED.  Without this guard the old and new runs would each
-    respawn independently, producing parallel respawn chains (#1916).
-    """
-    if not overseer_container_id or overseer_respawn_count >= max_overseer_respawns:
-        return overseer_container_id, overseer_respawn_count
-
-    try:
-        info = spawner.backend.get_container_info(overseer_container_id)
-        needs_respawn = info.status in (
-            ContainerStatus.EXITED,
-            ContainerStatus.FAILED,
-            ContainerStatus.REMOVED,
-        )
-        exit_code = info.exit_code
-    except ContainerNotFoundError:
-        # Container completely deleted from Docker daemon — treat as respawn trigger.
-        needs_respawn = True
-        exit_code = None
-        logger.warning(
-            "Overseer container not found in Docker, will check for respawn",
-            pipeline_id=pipeline_id,
-            container_id=overseer_container_id[:12],
-        )
-    except Exception as respawn_err:
-        logger.warning(
-            "Overseer liveness check error",
-            pipeline_id=pipeline_id,
-            error=str(respawn_err),
-        )
-        return overseer_container_id, overseer_respawn_count
-
-    if needs_respawn:
-        # Capture log tail from the old container before respawning (best-effort).
-        log_tail = "unavailable"
-        try:
-            log_tail = spawner.backend.get_container_logs(overseer_container_id, tail=20)
-        except Exception:
-            # Container may already be purged — fall back to "unavailable".
-            pass
-
-        try:
-            pipeline_check = store.load_pipeline(pipeline_id)
-
-            # Skip respawn when this poll thread belongs to a stale
-            # _run_pipeline that has been superseded.  Without this guard,
-            # the old run and the new run each respawn the overseer on
-            # their own counter, producing two parallel respawn chains
-            # (#1916).
-            if expected_run_epoch is not None:
-                current_epoch = pipeline_check.run_epoch or pipeline_check.created_at
-                if current_epoch != expected_run_epoch:
-                    logger.info(
-                        "Skipping overseer respawn — pipeline run_epoch "
-                        "changed (force-advance or restart superseded "
-                        "this run)",
-                        pipeline_id=pipeline_id,
-                        container_id=overseer_container_id[:12],
-                        expected_epoch=expected_run_epoch.isoformat(),
-                        current_epoch=current_epoch.isoformat(),
-                    )
-                    return overseer_container_id, overseer_respawn_count
-            else:
-                logger.debug(
-                    "Epoch guard skipped — expected_run_epoch not provided",
-                    pipeline_id=pipeline_id,
-                    container_id=overseer_container_id[:12],
-                )
-
-            if pipeline_check.status in (PipelineStatus.RUNNING, PipelineStatus.AWAITING_HUMAN):
-                logger.warning(
-                    "Overseer exited mid-pipeline, respawning",
-                    pipeline_id=pipeline_id,
-                    exit_code=exit_code,
-                    respawn_attempt=overseer_respawn_count + 1,
-                    max_respawns=max_overseer_respawns,
-                )
-                new_result = _spawn_overseer_agent(
-                    spawner=spawner,
-                    pipeline_id=pipeline_id,
-                    issue_number=pipeline.issue_number,
-                    gateway_mode=gateway_mode,
-                    pipeline_repos=pipeline_repos if pipeline_repos else None,
-                    max_turns=pipeline.config.overseer_max_turns,
-                    decision_model=pipeline.config.overseer_decision_maker_model,
-                )
-                new_container_id = new_result.container_info.container_id
-                overseer_respawn_count += 1
-                logger.info(
-                    "Overseer respawned successfully",
-                    pipeline_id=pipeline_id,
-                    container_id=new_container_id[:12],
-                    respawn_attempt=overseer_respawn_count,
-                )
-
-                # Broadcast OVERSEER_ALERT with respawn diagnostics (best-effort).
-                try:
-                    from message_store import Message, MessageType
-
-                    store_fn = _get_message_store()
-                    if store_fn is not None:
-                        msg_store = store_fn()
-                        msg_store.add_message(
-                            Message(
-                                pipeline_id=pipeline_id,
-                                from_role="orchestrator",
-                                to_role="all",
-                                message_type=MessageType.OVERSEER_ALERT,
-                                subject="overseer_restart: overseer [info]",
-                                body=(
-                                    f"Overseer container was respawned. "
-                                    f"Old container {overseer_container_id[:12]} exited "
-                                    f"with code {exit_code}. "
-                                    f"New container {new_container_id[:12]} is now running."
-                                ),
-                                metadata={
-                                    "exit_code": exit_code,
-                                    "old_container_id": overseer_container_id,
-                                    "new_container_id": new_container_id,
-                                    "log_tail": log_tail,
-                                    "respawn_attempt": overseer_respawn_count,
-                                    "max_respawns": max_overseer_respawns,
-                                },
-                                phase=pipeline_check.current_phase.value,
-                            )
-                        )
-                except Exception as broadcast_err:
-                    logger.warning(
-                        "Failed to broadcast overseer respawn alert (non-fatal)",
-                        pipeline_id=pipeline_id,
-                        error=str(broadcast_err),
-                    )
-
-                return new_container_id, overseer_respawn_count
-        except Exception as respawn_err:
-            logger.warning(
-                "Overseer respawn failed",
-                pipeline_id=pipeline_id,
-                error=str(respawn_err),
-            )
-
-    return overseer_container_id, overseer_respawn_count
 
 
 def _send_brc_confirmation_nudge(
@@ -3468,6 +3363,15 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     # Reset health-monitor anchor so the pre-respawn _last_heartbeat does not
     # generate a stale-elapsed heartbeat_timeout alert against the fresh
     # container (issue #2084).
+    #
+    # #2270 slice-5 (restart hygiene): ``reset_agent`` also drops the agent's
+    # accumulated per-agent escalation state (escalation flags, error counts,
+    # active alerts). Clearing it on restart is what stops a freshly-restarted
+    # agent from inheriting a stale redirect/escalation history that would push
+    # it straight to HITL on its first post-restart stall. The Tier-2 overseer's
+    # own escalation-history clear + generation reset live on
+    # ``OverseerMonitor`` (overseer/monitor.py:reset_escalation_history /
+    # reset_generation), which the on-demand adjudicator constructs fresh.
     try:
         try:
             from health_monitor import get_health_monitor
@@ -23754,16 +23658,12 @@ def _run_pipeline(
             # Start a background polling thread for time-based tripwires
             health_monitor_timer = threading.Event()
 
-            overseer_respawn_count = 0
-            max_overseer_respawns = pipeline.config.overseer_max_respawns
-
             # SHAs we've already raised a branch-divergence alert for
             # (#2224 PR 3).  Per-pipeline dedupe so we fire once per
             # offending commit, not once per 30s tick.
             divergence_alerted_shas: set[str] = set()
 
             def _health_monitor_poll(monitor, stop_event: threading.Event, interval: float = 30.0):
-                nonlocal overseer_container_id, overseer_respawn_count, phase_overseer_active
                 while not stop_event.is_set():
                     try:
                         # Tier 1 no longer sends nudges directly — it raises
@@ -23788,31 +23688,15 @@ def _run_pipeline(
                         alerted_shas=divergence_alerted_shas,
                     )
 
-                    # Check overseer liveness and respawn if it exited mid-phase.
-                    # Only check when phase_overseer_active is True — the overseer
-                    # is intentionally absent between phases, and respawning it
-                    # there would waste resources.
-                    # The lock prevents a race with the main thread's phase-boundary
-                    # teardown: without it, the poll thread could see the container
-                    # as EXITED (because the main thread just stopped it) and respawn
-                    # an orphaned overseer that nobody will clean up.
-                    with overseer_lock:
-                        if phase_overseer_active:
-                            overseer_container_id, overseer_respawn_count = (
-                                _check_and_respawn_overseer(
-                                    spawner=spawner,
-                                    store=store,
-                                    pipeline_id=pipeline_id,
-                                    pipeline=pipeline,
-                                    overseer_container_id=overseer_container_id,
-                                    overseer_respawn_count=overseer_respawn_count,
-                                    max_overseer_respawns=max_overseer_respawns,
-                                    gateway_mode=gateway_mode,
-                                    pipeline_repos=pipeline_repos,
-                                    certs_volume=certs_volume,
-                                    expected_run_epoch=run_epoch,
-                                )
-                            )
+                    # NOTE (#2270 slice-5): the standing-pod overseer respawn loop
+                    # was removed here. The overseer is no longer a respawned
+                    # standing pod — orchestrator-side detection (slice-4
+                    # ``health_checks.detection_plane``) runs in-process and the
+                    # only agent spawned is the on-demand adjudicator. Any
+                    # surviving restart need is served by the general
+                    # agent-restart machinery (``restart_agent``), not a bespoke
+                    # overseer respawn. This also means a multi-hour zero-agent
+                    # HITL park spawns nothing from this loop (§3).
 
                     stop_event.wait(interval)
 
@@ -23951,7 +23835,20 @@ def _run_pipeline(
             # The overseer is phase-scoped: spawned at phase start and torn
             # down at phase completion/advance/failure.  Each phase gets a
             # fresh overseer instance with no accumulated state.
-            if pipeline.config.overseer_enabled:
+            #
+            # #2270 slice-5: gate overseer presence on "agents actually
+            # running". During a zero-agent HITL park the pipeline has no phase
+            # agents in flight, so spawning an overseer there is pure churn
+            # (§3). The respawn loop that used to keep it alive across such
+            # parks was removed; this gate stops the phase-start spawn from
+            # doing the same thing. The agent count is the deterministic phase
+            # roster the concurrent executor itself consults — the cohort this
+            # phase is about to run.
+            _phase_agent_count = _count_phase_agents(pipeline, current_phase)
+            if pipeline.config.overseer_enabled and _overseer_should_be_present(
+                running_agent_count=_phase_agent_count,
+                pipeline_status=pipeline.status,
+            ):
                 try:
                     overseer_result = _spawn_overseer_agent(
                         spawner=spawner,
@@ -23965,7 +23862,6 @@ def _run_pipeline(
                     with overseer_lock:
                         overseer_container_id = overseer_result.container_info.container_id
                         phase_overseer_active = True
-                        overseer_respawn_count = 0
                     logger.info(
                         "Overseer container spawned for phase",
                         pipeline_id=pipeline_id,
