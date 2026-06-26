@@ -1,0 +1,110 @@
+{
+  "issue": 3288,
+  "phase": "plan",
+  "agent": "architect",
+  "title": "Documenter snapshot doctrine + bounded corpus de-ledgering: a prompt/role retrain (WS1) plus a package-sliced, file-disjoint cleanup (WS2)",
+  "summary": "Two coupled work streams. WS1 retrains the documenter agent to write current-state snapshots, not change-logs: edit the documenter task block in orchestrator/routes/pipelines.py and DOCUMENTER_ROLE in shared/egg_contracts/agent_roles.py to (a) describe code as it exists after the change as if pipeline machinery never existed, (b) never emit SDLC artifacts (slice/TASK/phase/HITL iteration numbers) into any doc/docstring/comment, (c) include history only when tangibly valuable, rationale over chronology, (d) fold-and-remove stale ledger entries instead of appending, (e) keep the BRC no-op propose path intact. WS1 is two files, text-only, low risk (no test asserts the literal prompt strings). WS2 cleans the existing corpus, bounded by HITL cq-1 (opt-1: named targets + bounded high-density sweep, long tail deferred to a logged follow-up). WS2 splits into two edit classes: mechanical line-edits (strip slice/TASK tags, reword 'used to / now' to present tense) vs. total-refactors of pages where the ledger framing is load-bearing (gateway-auto-filter.md 'what was removed', coordination-state.md 'final shape of #3077, six slices', slice-dag.md). Planner slices WS2 by package/doc-area so slices are file-disjoint and independently reviewable. Hard invariants: documenter gateway write-boundaries unchanged; BRC no-op path preserved; not 'delete all issue references' (rationale links stay, reframed); no new lint/CI guard (HITL cq-2 opt-1).",
+  "problem_statement": {
+    "description": "egg's documentation has drifted from a snapshot of current state into a ledger of changes. Two coupled causes, two matching fixes. (1) The documenter agent's task instructions frame its job as documenting THE CHANGE ('Update documentation for the changes made by the CODER agent'; 'Focus your documentation on changes from plan phase {id}'), which nudges toward change-log prose and leaks SDLC artifacts (slice-N, TASK-N, phase/HITL iteration numbers) into durable docs/docstrings/comments. (2) By accretion the existing corpus now carries that framing across ~260 files in docs/, gateway/, orchestrator/, shared/. Goal: docs read as if the SDLC machinery never existed; historical context survives only where tangibly valuable to a current reader (rationale over chronology). Explicitly NOT 'delete all issue references' — links that justify why the current design is shaped as it is stay, reframed as rationale.",
+    "grounded_against_tree": "2026-06-26; live issue #3288 body fetched via gh; both WS1 source locations and the named WS2 targets confirmed to exist."
+  },
+  "current_architecture": {
+    "ws1_documenter_prompt_assembly": {
+      "orchestrator/routes/pipelines.py": [
+        "~14781-14829 (role_value == 'documenter', implement-phase '## Your Task' block): opens with 'Update documentation for the changes made by the CODER agent:' and a 'Focus on: - Accurate descriptions of new features or changes / - Clear explanation of any breaking changes' list. This is the primary ledger-nudging text.",
+        "~6761-6763 (per-phase task summary for execution roles): injects 'Focus your documentation on changes from plan phase `{phase_obj.id}`.' — change-oriented framing.",
+        "~14157-14180 (documenter plan-phase orientation + no-op branch): orientation prose plus the generic '--no-changes-needed' no-op propose. The no-op block MUST be preserved.",
+        "~14800-14820 (implement-phase no-op block, '### When the slice warrants no doc updates (#3027)'): MUST be preserved. Note: its example reason string literally reads 'e.g. slice-3 is a pure decomposition…' — an ephemeral CLI arg, not a durable doc, so strictly out of the issue's target, but rewording the EXAMPLE to a non-slice phrasing would model the desired behavior (low priority, optional)."
+      ],
+      "shared/egg_contracts/agent_roles.py": [
+        "DOCUMENTER_ROLE (~306-346): description='Updates documentation for the changes'; responsibilities are change-oriented ('Update relevant documentation', 'Ensure README files are current'). file_access.allowed_write = [docs/, **/README.md, **/*.md, .egg-state/agent-outputs/]; blocked_write blocks **/*.py|ts|tsx|js|jsx|go|java, tests/, .egg-state/contracts/, .github/. These write boundaries are a HARD constraint to preserve — only the wording of description/responsibilities changes."
+      ]
+    },
+    "ws2_corpus": {
+      "scale": "~260 files under docs/, gateway/, orchestrator/, shared/ carry slice-N / TASK-N / process-ledger references (issue survey; grep-confirmed). kubernetes_spawner.py alone carries 67 ledger references — the densest single offender.",
+      "named_high_value_targets": {
+        "architecture_docs": ["docs/architecture/brc-memory.md", "docs/architecture/orchestrator.md", "docs/architecture/slice-dag.md", "docs/architecture/gateway-auto-filter.md", "docs/architecture/coordination-state.md"],
+        "docstrings_inline": ["gateway/artifact_api.py", "gateway/jira_client.py", "orchestrator/kubernetes_spawner.py (67 markers)", "shared/egg_anchor/protected_root.py", "shared/egg_agent/context_discipline.py", "shared/egg_agent/__main__.py"],
+        "claude_md_seam_tables": ["gateway/CLAUDE.md", "orchestrator/CLAUDE.md"]
+      },
+      "no_existing_guardrail": "No automated check flags slice-N/TASK-N in committed docs today (scripts/, .pre-commit-config.yaml, Makefile checked). HITL cq-2 resolved opt-1: do NOT add one in this pipeline; note as candidate follow-up."
+    }
+  },
+  "findings": [
+    {"id": "F1", "finding": "WS1 is small and self-contained: exactly two files (pipelines.py prompt blocks + agent_roles.py description/responsibilities), text-only. No test asserts the literal documenter prompt strings (grep for the exact phrases hit only the two source files), so the WS1 blast radius is bounded to the prompt text itself.", "confidence": "high"},
+    {"id": "F2", "finding": "The no-op / no-doc-impact propose path appears in BOTH the implement-phase block (~14800) and the plan-phase branch (~14157). Both must remain functionally intact (generic '--no-changes-needed' propose still produced). This is a regression surface the reviewer must guard.", "confidence": "high"},
+    {"id": "F3", "finding": "WS2 has two distinct edit classes that must be sliced differently. (a) Mechanical line-edits: strip slice/TASK tags from docstrings/comments, reword 'used to… now…' into present tense — low risk, batchable by package. (b) Total-refactors: pages where the ledger framing is LOAD-BEARING — gateway-auto-filter.md ('## What was removed' / 'preserved for context' for removed #1882 code), coordination-state.md ('final shape of the #3077 invariant… landed in six slices, all shipped' + Threat/Mitigation/Status tables with 'Retired surface'), slice-dag.md ('used to run as a single monolithic agent team… replaces that'). These need rewrite into current-state prose, not a line edit, and should be isolated into their own tasks.", "confidence": "high"},
+    {"id": "F4", "finding": "WS1 and WS2 are file-disjoint (WS1 = pipelines.py + agent_roles.py; WS2 = docs/ + docstrings + CLAUDE.md). They could run in parallel, but sequencing WS1 first is preferred so the snapshot doctrine is the established go-forward standard the cleanup then follows. Within WS2, slicing by package/doc-area keeps slices file-disjoint and independently reviewable, avoiding same-file merge collisions.", "confidence": "high"},
+    {"id": "F5", "finding": "The distinguishing test for every WS2 edit is chronology-as-default (strip) vs. rationale-where-valuable (keep, reframe). 'slice-N added X / it used to Y / removed in #NNNN' is chronology → strip or rewrite to present tense. 'intentionally email-allowlist-based because impersonation is the threat model' is rationale → keep. Issue links that justify current shape stay (reframed as rationale, isolated into a clearly-marked note where substantial).", "confidence": "high"},
+    {"id": "F6", "finding": "The snapshot doctrine applies to THIS pipeline's own work too. The cleanup's commits/PRs carry process context in their messages (fine), but any doc/docstring/comment they touch must not reference these very slices/tasks. The documenter and coder for WS2 slices must not re-introduce ledger framing while removing it elsewhere.", "confidence": "high"},
+    {"id": "F7", "finding": "Self-evidencing: orchestrator/CLAUDE.md and gateway/CLAUDE.md submodule seam tables are themselves keyed by 'which slice landed each decomposition' (e.g. 'TBD (#2261 slice-15)', 'slice-12', 'slice-7'), exactly the anti-pattern. The fix is to re-key these tables by current submodule structure, retaining the decomposition-pattern rationale link but dropping the per-slice rollout chronology.", "confidence": "high"}
+  ],
+  "recommended_approach": {
+    "ws1_documenter_retrain": {
+      "files": ["orchestrator/routes/pipelines.py", "shared/egg_contracts/agent_roles.py"],
+      "snapshot_doctrine_to_inject": [
+        "Describe the CURRENT STATE of the code as it exists after the change — write as if the slice/pipeline machinery never existed.",
+        "NEVER reference SDLC artifacts (slice numbers, TASK-N ids, phase/HITL iteration numbers) in any doc, docstring, or inline comment.",
+        "Include historical context (issue refs, 'previously X' rationale, migration notes) ONLY when tangibly valuable to a reader of the current system; prefer rationale ('why it is this way') over chronology ('what it used to be / when it changed').",
+        "When updating an existing doc, FOLD the new state into the snapshot and REMOVE now-stale ledger/historical entries — replace, do not append another layer.",
+        "Keep the no-op / no-doc-impact path intact: BRC still requires a propose; the generic '--no-changes-needed' propose is unchanged."
+      ],
+      "concrete_edits": [
+        "pipelines.py ~14781-14794: replace 'Update documentation for the changes made by the CODER agent' + the 'Focus on: new features or changes / breaking changes' list with snapshot-framed instructions (describe resulting current state; fold-and-remove; no SDLC artifacts; rationale over chronology).",
+        "pipelines.py ~6761-6763: reframe 'Focus your documentation on changes from plan phase {id}' to current-state framing (e.g. 'Document the current behavior of the code touched by this phase', without the iteration id leaking into durable docs).",
+        "pipelines.py ~14157-14180: reframe the plan-phase documenter orientation to the snapshot doctrine while preserving the no-op propose path verbatim in behavior.",
+        "agent_roles.py DOCUMENTER_ROLE: description 'Updates documentation for the changes' -> snapshot-oriented (e.g. 'Maintains documentation as a current-state snapshot of the code'); rewrite the responsibilities list to current-state framing. PRESERVE file_access (allowed_write/blocked_write) byte-for-byte.",
+        "Optional/low-priority: reword the no-op EXAMPLE reason string at ~14817 so the example itself does not model a 'slice-3' reference."
+      ]
+    },
+    "ws2_corpus_cleanup": {
+      "scope_boundary": "HITL cq-1 resolved opt-1: fully clean the issue-named targets (architecture pages, listed docstrings, CLAUDE.md tables) PLUS a bounded sweep of the highest-density remaining files; explicitly DEFER the long tail to a follow-up issue and LOG what was deferred (do not silently drop — name the deferred files/areas so coverage is auditable).",
+      "slicing_guidance_for_planner": [
+        "Slice by package / doc-area so slices are file-disjoint and independently reviewable: docs/architecture/* ; gateway/ docstrings + gateway/CLAUDE.md ; orchestrator/ docstrings + orchestrator/CLAUDE.md (kubernetes_spawner.py is the dense one) ; shared/ docstrings.",
+        "Isolate the load-bearing total-refactor pages (gateway-auto-filter.md, coordination-state.md, slice-dag.md) into their own task(s) — they need a rewrite into current-state prose, not a line edit, and carry the highest judgment cost.",
+        "Re-key the CLAUDE.md submodule seam tables by current submodule structure rather than by which slice landed each decomposition; keep the decomposition-pattern rationale link.",
+        "File-disjoint WS2 slices may run in parallel; same-file edits must be in the same slice to avoid merge collisions."
+      ]
+    },
+    "sequencing": "WS1 first (or its own early slice) to set the go-forward standard, then WS2 fanned out by package. WS1<->WS2 are file-disjoint so strict blocking is not required, but the doctrine-first ordering is preferred. Final DAG is the task_planner's call; this artifact gives the dependency facts (file-disjointness, edit classes, load-bearing pages) it needs."
+  },
+  "implementation_plan": {
+    "note": "Architect recommends; task_planner owns the final slice DAG. Recommended shape:",
+    "slices": [
+      {"id": "S1", "title": "WS1 — retrain documenter to snapshot doctrine", "files": ["orchestrator/routes/pipelines.py", "shared/egg_contracts/agent_roles.py"], "depends_on": [], "risk": "low", "notes": "text-only prompt/role edits; preserve no-op path + gateway write boundaries; update any prompt-assembly test that drifts (none assert the literal strings today)."},
+      {"id": "S2", "title": "WS2a — docs/architecture/* de-ledger (line-edit pages: brc-memory.md, orchestrator.md)", "files": ["docs/architecture/brc-memory.md", "docs/architecture/orchestrator.md"], "depends_on": ["S1"], "risk": "low-medium"},
+      {"id": "S3", "title": "WS2b — docs/architecture/* total-refactors (load-bearing: gateway-auto-filter.md, coordination-state.md, slice-dag.md)", "files": ["docs/architecture/gateway-auto-filter.md", "docs/architecture/coordination-state.md", "docs/architecture/slice-dag.md"], "depends_on": ["S1"], "risk": "medium", "notes": "rewrite into current-state prose; preserve genuinely useful rationale reframed."},
+      {"id": "S4", "title": "WS2c — gateway/ docstrings + gateway/CLAUDE.md", "files": ["gateway/artifact_api.py", "gateway/jira_client.py", "gateway/CLAUDE.md"], "depends_on": ["S1"], "risk": "low-medium"},
+      {"id": "S5", "title": "WS2d — orchestrator/ docstrings + orchestrator/CLAUDE.md (kubernetes_spawner.py dense)", "files": ["orchestrator/kubernetes_spawner.py", "orchestrator/CLAUDE.md"], "depends_on": ["S1"], "risk": "medium", "notes": "67 ledger markers in kubernetes_spawner.py; comment/docstring-only edits, no code-behavior change."},
+      {"id": "S6", "title": "WS2e — shared/ docstrings + bounded high-density sweep; log deferred long tail", "files": ["shared/egg_anchor/protected_root.py", "shared/egg_agent/context_discipline.py", "shared/egg_agent/__main__.py"], "depends_on": ["S1"], "risk": "low-medium", "notes": "close with an explicit list of deferred files/areas for the follow-up issue."}
+    ],
+    "parallelism": "S2..S6 are file-disjoint and may run in parallel after S1. The planner may merge/split these (e.g. fold S2 into S3) per its load-balancing; the binding facts are file-disjointness and the line-edit vs total-refactor distinction."
+  },
+  "open_questions": [
+    {"id": "cq-1", "status": "resolved", "resolution": "opt-1 — enumerated named targets + bounded high-density sweep; defer long tail to a logged follow-up issue. Binds WS2 scope."},
+    {"id": "cq-2", "status": "resolved", "resolution": "opt-1 — no automated lint/CI guard in this pipeline; note as candidate follow-up. Keeps scope to prompt change + corpus pass."}
+  ],
+  "risk_assessment": [
+    {"risk": "WS1 prompt edit breaks a prompt-assembly test", "likelihood": "low", "impact": "low", "mitigation": "No test asserts the literal documenter strings today; run the prompt-assembly / compose-event-prompt suites after the edit and update any assertion that legitimately drifts."},
+    {"risk": "WS1 accidentally damages the BRC no-op propose path or the documenter gateway write boundaries", "likelihood": "low", "impact": "high", "mitigation": "Treat both no-op blocks (~14157, ~14800) and DOCUMENTER_ROLE.file_access as preserve-verbatim invariants; reviewer explicitly verifies the '--no-changes-needed' path and the allowed_write/blocked_write lists are unchanged."},
+    {"risk": "WS2 over-strips genuinely useful rationale (throws out the 'why' with the chronology)", "likelihood": "medium", "impact": "medium", "mitigation": "Apply F5's chronology-vs-rationale test on every edit; total-refactor (not delete) the load-bearing pages, preserving rationale reframed; reviewer judgment on each."},
+    {"risk": "WS2 large-diff churn / merge conflicts", "likelihood": "medium", "impact": "medium", "mitigation": "Slice by package/doc-area so slices are file-disjoint; bound scope per HITL cq-1; same-file edits stay in one slice."},
+    {"risk": "Cleanup silently leaves the long tail looking 'done'", "likelihood": "medium", "impact": "low-medium", "mitigation": "Explicitly enumerate and log the deferred files/areas in the closing slice and as a follow-up issue; never imply 100% coverage."},
+    {"risk": "WS2 edits re-introduce ledger framing referencing THIS pipeline's slices", "likelihood": "low", "impact": "medium", "mitigation": "Apply the snapshot doctrine to this pipeline's own doc touches; reviewer checks new prose for slice/TASK references."}
+  ],
+  "binding_invariants": [
+    "Documenter gateway file boundaries (allowed_write: docs/, **/README.md, **/*.md, .egg-state/agent-outputs/; blocked_write: code/tests/.egg-state/contracts/.github/) are UNCHANGED — only prompt/role wording changes.",
+    "BRC no-op / no-doc-impact propose path ('--no-changes-needed') preserved in both implement (~14800) and plan (~14157) branches.",
+    "NOT 'delete all issue references' — issue links justifying current design stay, reframed as rationale (chronology-as-default strip vs. rationale-where-valuable keep).",
+    "No new lint/CI guard in this pipeline (HITL cq-2 opt-1).",
+    "WS2 scope is bounded (HITL cq-1 opt-1): named targets + bounded high-density sweep; long tail deferred and logged, not silently dropped.",
+    "Docs are a snapshot of current state, never a ledger of how the work was sequenced — including this pipeline's own slices."
+  ],
+  "metrics": {
+    "ws1_files": 2,
+    "ws2_corpus_files_affected_estimate": 260,
+    "ws2_named_targets": 13,
+    "densest_offender": "orchestrator/kubernetes_spawner.py (67 ledger references)",
+    "recommended_slices": 6
+  }
+}
