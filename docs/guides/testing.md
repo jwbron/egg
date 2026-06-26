@@ -35,7 +35,7 @@ The goals are:
 | Target | What it does | When to use it |
 |---|---|---|
 | `make test` | Runs only the tests reachable from the diff between your branch and a known-green baseline. Falls back to the full suite if static analysis can't be trusted. Writes a per-invocation JSON record at `.egg-state/selection/<sha>.json`. **Does not** update LKG, even on green. | The default inner loop — what you run repeatedly while iterating on a change. |
-| `make test-all` | Runs the full unit-test suite (`tests/`, `gateway/tests/`, `orchestrator/tests/`, `shared/tests/`) — the same command CI runs. On green, writes the current `HEAD` sha to the LKG sidecar so the next `make test` has a tight baseline. | Before pushing, when CI flagged something narrow runs missed, when you want to seed a fresh branch's LKG, or whenever you want full ground truth. |
+| `make test-all` | Runs the full unit-test suite (all wired test roots — `tests/`, `gateway/tests/`, `orchestrator/tests/`, `shared/tests/`, `shared/egg_anchor/tests/`, `shared/egg_contracts/tests/`, `shared/egg_agent/tests/`, `sandbox/tests/`, `scripts/tests/`) — the same command CI runs. On green, writes the current `HEAD` sha to the LKG sidecar so the next `make test` has a tight baseline. | Before pushing, when CI flagged something narrow runs missed, when you want to seed a fresh branch's LKG, or whenever you want full ground truth. |
 | `make test-record-good` | Manual override: writes the current `HEAD` sha to the LKG sidecar without running pytest. | When you know the suite is green from a path that did not go through `make test-all` (e.g. you ran `pytest` directly with custom args, or a green CI run on this exact sha). |
 
 `PYTEST_ARGS` is honored by all three: flags compose with narrowing
@@ -83,8 +83,8 @@ The algorithm is:
 4. **Build the grimp graph.** A module-level static import graph
    over a single `PACKAGES` constant covering every source package
    (`gateway`, `orchestrator`, `sandbox`, all `shared.egg_*`
-   subpackages) AND the four test roots (`tests`, `gateway.tests`,
-   `orchestrator.tests`, `shared.tests`). Test roots **must** be
+   subpackages) AND all registered test roots (see `TEST_ROOT_DIRS` in
+   `scripts/select_tests/_constants.py`). Test roots **must** be
    registered — grimp only reports edges between modules it has been
    told about, and an un-registered test root would make the
    downstream-mapping step return an empty set. The graph is cached
@@ -271,7 +271,7 @@ Every invocation also persists a structured record. The schema:
 | `mode` | string | `"narrow"`, `"full_suite"`, or `"bypass"` (PYTEST_ARGS path-bypass). |
 | `trigger` | string | Explicit trigger enum value, or `"none"` for a clean narrow. |
 | `selected_count` | integer | Number of test files emitted. |
-| `total_count` | integer | Total number of test files in the four roots. |
+| `total_count` | integer | Total number of test files across all registered test roots. |
 | `compute_ms` | integer | Selector wall-clock in milliseconds. |
 | `pytest_ms` | integer | Pytest wall-clock in milliseconds; written by the Makefile after pytest returns (`select_tests/__main__.py --patch-selection-json --head <sha> --pytest-ms <int>`). |
 | `timestamp` | string | ISO-8601 UTC timestamp. |
@@ -430,6 +430,21 @@ not need a baseline-ref fetch (no narrowing path). `make test`
 remains the agent/developer fast path; only local inner loops see
 the speedup.
 
+### Orphan-root guard
+
+A CI lint check (`scripts/check-test-roots.py`) ensures every
+discovered Python test root (`*/tests/` containing at least one
+`test_*.py`) is consistently wired into all four enumeration sites:
+`pyproject.toml` `testpaths`, the `make test-all` pytest invocation,
+the `make test` full-suite fallback list, and `TEST_ROOT_DIRS` in
+`scripts/select_tests/_constants.py`. Any test root under a `mypy`
+package root (`gateway/`, `shared/`, `sandbox/`) must also appear in
+the `--exclude` list of the `make lint-python` mypy invocation.
+
+Adding a new `*/tests/` directory without updating all four locations
+(and the mypy exclude if applicable) causes CI to fail with an
+explicit error message listing which sites are out of sync.
+
 ---
 
 ## 9. Housekeeping
@@ -543,3 +558,6 @@ suite anyway, use `make test-all`.
 - [`scripts/select_tests/`](../../scripts/select_tests/__init__.py) — the
   selector package (entry point at `scripts/select_tests/__main__.py`),
   with `--why` and `--record-good` available as CLI flags.
+- [`scripts/check-test-roots.py`](../../scripts/check-test-roots.py) — CI
+  guard that fails if any discovered test root is not wired consistently
+  across all four enumeration sites (see §8).
