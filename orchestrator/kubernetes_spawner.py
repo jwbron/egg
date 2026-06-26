@@ -37,6 +37,7 @@ except ImportError:
 
 
 import agent_salvage
+from agent_model_resolution import OVERSEER_TIER_MODELS
 from egg_config import GATEWAY_PORT, GATEWAY_PROXY_PORT
 from gateway_client import (
     GatewayClient,
@@ -2885,7 +2886,7 @@ class KubernetesSpawner:
         issue_number: int | None = None,
         mode: str = "public",
         poll_interval: int = 30,
-        decision_model: str = "sonnet",
+        decision_model: str = OVERSEER_TIER_MODELS["routine"],
         max_turns: int = 2000,
         image: str | None = None,
         wait_for_gateway: bool = True,
@@ -2899,7 +2900,13 @@ class KubernetesSpawner:
             issue_number: GitHub issue number (optional).
             mode: Gateway mode (public or private).
             poll_interval: Polling interval in seconds.
-            decision_model: LLM model for overseer decisions.
+            decision_model: DEPRECATED (#2270 §1, folds #2813). No longer drives
+                the overseer's base model — that now resolves via
+                ``resolve_agent_model(AgentRole.OVERSEER, …)`` (``opus`` by
+                default; override through ``agent_models["overseer"]``). Retained
+                for call-site compatibility until slice-3 folds this method into
+                ``spawn_agent_job``; a non-default value logs a deprecation
+                warning and is otherwise ignored on this path.
             max_turns: Maximum Agent SDK turns.
             image: Container image override.
             wait_for_gateway: Wait for gateway health before spawning.
@@ -2908,20 +2915,66 @@ class KubernetesSpawner:
         Returns:
             SpawnedContainer with overseer Job and session info.
         """
-        # Classify the overseer's decision model so that ``AgentModelDecision.effort``
-        # threads to ``--effort`` for fable-routed overseers — same drift defense as
-        # the refine/plan path. Default ``sonnet`` yields ``effort=None`` (no behavior
-        # change); only ``overseer_decision_maker_model=fable`` flips the pin on.
-        from agent_model_resolution import classify_model
+        # #2270 §1 (folds #2813): resolve the overseer's base model through the
+        # per-agent resolver instead of handing the deprecated
+        # ``overseer_decision_maker_model`` straight to the builder. The overseer
+        # pod IS the adversarial/decision tier, so it resolves through
+        # ``resolve_overseer_model("adversarial", …)`` — ``opus`` (the fleet
+        # standard) by default, honouring the repo-level override. This also
+        # threads ``AgentModelDecision.effort`` / upstream routing identically to
+        # ``concurrent_executor._spawn_agent``. A resolver regression must not
+        # crash spawn for every pipeline, so we degrade to the built-in
+        # opus/anthropic default and log, mirroring the restart path.
+        from agent_model_resolution import (
+            DEFAULT_AGENT_MODEL,
+            UPSTREAM_ANTHROPIC,
+            classify_model,
+            resolve_overseer_model,
+        )
         from egg_agent import build_agent_command
 
-        overseer_decision = classify_model(decision_model)
+        overseer_repo = repos[0] if repos else None
+        try:
+            # pipeline_config is not threaded into this legacy spawn path
+            # (slice-3 folds it into spawn_agent_job); the repo-level default
+            # and built-in opus still apply.
+            overseer_decision = resolve_overseer_model(
+                "adversarial",
+                pipeline_config=None,
+                repo=overseer_repo,
+            )
+        except Exception as resolve_err:  # noqa: BLE001 — degrade, don't crash
+            logger.warning(
+                "Failed to resolve overseer model decision for spawn; "
+                "falling back to built-in opus / anthropic default",
+                error=str(resolve_err),
+            )
+            overseer_decision = classify_model(DEFAULT_AGENT_MODEL)
 
+        # The bespoke ``overseer_decision_maker_model`` (passed as
+        # ``decision_model``) no longer drives the spawn. If an operator still
+        # sets it to a non-default value, warn that it is inert on this path.
+        if decision_model and decision_model != OVERSEER_TIER_MODELS["routine"]:
+            logger.warning(
+                "overseer_decision_maker_model=%r is deprecated and no longer "
+                "drives the overseer spawn; the base model now resolves via "
+                "resolve_agent_model(OVERSEER) -> %s. Set "
+                "agent_models['overseer'] to override. See #2270 §1 / #2813.",
+                decision_model,
+                overseer_decision.claude_code_alias,
+            )
+
+        # Custom-model registration + context guardrails from the resolved
+        # decision (#2832 / #3175), so a LiteLLM-routed overseer opts into the
+        # right compaction profile exactly like every other agent. The
+        # ``EGG_OVERSEER_DECISION_MODEL`` env (derived from the deprecated
+        # field, never read in the sandbox) is dropped — slice-3 removes the
+        # remaining bespoke ``EGG_OVERSEER_*`` env entirely.
         extra_env = {
             "EGG_OVERSEER_MODE": "true",
             "EGG_OVERSEER_POLL_INTERVAL": str(poll_interval),
-            "EGG_OVERSEER_DECISION_MODEL": decision_model,
             "BASH_COMMAND_TIMEOUT": "0",
+            **overseer_decision.env_vars(),
         }
 
         overseer_prompt = (
@@ -2947,23 +3000,34 @@ class KubernetesSpawner:
         )
         command = build_agent_command(
             prompt=overseer_prompt,
-            model=decision_model,
+            model=overseer_decision.claude_code_alias,
             max_turns=max_turns,
             effort=overseer_decision.effort,
         )
 
-        return self.spawn_agent_job(
-            pipeline_id=pipeline_id,
-            agent_role=AgentRole.OVERSEER,
-            issue_number=issue_number,
-            repo_volumes=None,
-            mode=mode,
-            image=image,
-            extra_env=extra_env,
-            wait_for_gateway=wait_for_gateway,
-            repos=repos,
-            command=command,
-        )
+        spawn_kwargs: dict[str, Any] = {
+            "pipeline_id": pipeline_id,
+            "agent_role": AgentRole.OVERSEER,
+            "issue_number": issue_number,
+            "repo_volumes": None,
+            "mode": mode,
+            "image": image,
+            "extra_env": extra_env,
+            "wait_for_gateway": wait_for_gateway,
+            "repos": repos,
+            "command": command,
+        }
+        # Forward per-agent upstream routing only when it would change behavior,
+        # so the default Anthropic overseer keeps the pre-#2769 call signature
+        # (mirrors ``concurrent_executor._spawn_agent``).
+        if (
+            overseer_decision.upstream != UPSTREAM_ANTHROPIC
+            or overseer_decision.upstream_model is not None
+        ):
+            spawn_kwargs["upstream"] = overseer_decision.upstream
+            spawn_kwargs["upstream_model"] = overseer_decision.upstream_model
+
+        return self.spawn_agent_job(**spawn_kwargs)
 
     def create_concurrent_spawn_fn(
         self,

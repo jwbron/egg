@@ -93,6 +93,32 @@ _FABLE_DEFAULT_ROLES: frozenset[str] = frozenset(
     for role in get_roles_for_phase(phase, include_reviewers=True, repo=EGG_REPO)
 )
 
+# Overseer decision-tier models (#2270 §1, folds #2813). The overseer's work
+# is split across three cost/capability tiers instead of the single bespoke
+# ``overseer_decision_maker_model`` field (now deprecated):
+#
+#   - ``classify``    (haiku)  — high-volume, single-shot Haiku-tier
+#     classification (``overseer/classifier.py``).
+#   - ``routine``     (sonnet) — routine corrective decisions
+#     (``overseer/decision_maker.py``).
+#   - ``adversarial`` (opus)   — high-stakes / adversarial adjudication. The
+#     §1 headline fix: this decision tier runs on Opus (the fleet standard),
+#     NOT Sonnet — Sonnet mis-classifies the overseer's own bootstrap as a
+#     prompt-injection attack and crash-loops.
+#
+# This is the tier→default-model table. ``resolve_overseer_model`` turns a tier
+# into a full :class:`AgentModelDecision` through the SAME per-agent resolver
+# every other agent uses, so the spawn path gets the Claude-Code alias +
+# upstream identically — no bespoke field. The classify / routine tiers are
+# fixed cheap defaults; the operator override surface is the ``overseer`` entry
+# in ``agent_models`` (and, for back-compat, the deprecated field), which apply
+# to the adversarial/decision tier.
+OVERSEER_TIER_MODELS: dict[str, str] = {
+    "classify": "haiku",
+    "routine": "sonnet",
+    "adversarial": "opus",
+}
+
 # Upstream identifiers used by the gateway's UpstreamRegistry
 # (gateway/upstream_registry.py).
 UPSTREAM_ANTHROPIC = "anthropic"
@@ -561,11 +587,98 @@ def resolve_agent_model(
     return classify_model(DEFAULT_AGENT_MODEL)
 
 
+def _overseer_decision_override(pipeline_config: object | None) -> str | None:
+    """Operator override for the overseer's adversarial/decision tier, or None.
+
+    Precedence:
+      1. ``agent_models["overseer"]`` — the per-pipeline per-role surface
+         (accepted only once ``overseer`` is promoted into
+         ``MODEL_OVERRIDE_ROLES``; defensive read so it works either way).
+      2. ``overseer_decision_maker_model`` — DEPRECATED back-compat. A
+         non-default value still maps through rather than being a silent
+         no-op (its full inertness lands in slice-9).
+
+    Returns the raw model string to classify, or ``None`` when neither is set
+    (the tier default then applies).
+    """
+    if pipeline_config is None:
+        return None
+    agent_models = getattr(pipeline_config, "agent_models", None)
+    if isinstance(agent_models, dict):
+        override = agent_models.get("overseer")
+        if override:
+            return override
+    deprecated = getattr(pipeline_config, "overseer_decision_maker_model", None)
+    # The field default is the routine-tier model ("sonnet"); only a value the
+    # operator deliberately changed counts as an override.
+    if deprecated and deprecated != OVERSEER_TIER_MODELS["routine"]:
+        return deprecated
+    return None
+
+
+def resolve_overseer_model(
+    tier: str,
+    pipeline_config: object | None = None,
+    repo: str | None = None,
+) -> AgentModelDecision:
+    """Resolve one overseer decision *tier* to an :class:`AgentModelDecision`.
+
+    #2270 §1 (folds #2813). The overseer's model flows through the SAME
+    per-agent resolver every other agent uses — there is no bespoke spawn
+    path that reads ``overseer_decision_maker_model`` directly.
+
+    Tiers (:data:`OVERSEER_TIER_MODELS`):
+      - ``classify``    -> haiku  (cheap, high-volume classification);
+      - ``routine``     -> sonnet (routine corrective decisions);
+      - ``adversarial`` -> opus   (high-stakes / adversarial adjudication —
+        the §1 fix that stops the overseer running its decision tier on
+        Sonnet and mis-flagging its own bootstrap as an attack).
+
+    Override precedence for the **adversarial/decision** tier: an explicit
+    ``agent_models["overseer"]`` (per-pipeline) or the deprecated
+    ``overseer_decision_maker_model`` beats the tier default; otherwise the
+    tier resolves through :func:`resolve_agent_model` for
+    :data:`AgentRole.OVERSEER` (repo-level default → built-in ``opus``). The
+    classify and routine tiers stay on their fixed cheap defaults regardless
+    of the override, so a stray decision-model override can never inflate the
+    high-volume classifier's cost.
+
+    Args:
+        tier: One of ``"classify"``, ``"routine"``, ``"adversarial"``.
+        pipeline_config: A ``PipelineConfig`` (typed loosely to avoid an
+            import cycle) or ``None``.
+        repo: Repository in ``owner/repo`` form, or ``None``.
+
+    Returns:
+        The resolved :class:`AgentModelDecision` for the tier.
+
+    Raises:
+        ValueError: If *tier* is not a recognised overseer tier.
+    """
+    if tier not in OVERSEER_TIER_MODELS:
+        raise ValueError(
+            f"Unknown overseer tier {tier!r}; expected one of {sorted(OVERSEER_TIER_MODELS)}"
+        )
+
+    if tier == "adversarial":
+        override = _overseer_decision_override(pipeline_config)
+        if override:
+            return classify_model(override)
+        # No explicit override: resolve like every other agent so the
+        # repo-level default and built-in opus apply.
+        return resolve_agent_model(AgentRole.OVERSEER, pipeline_config, repo)
+
+    # classify / routine: fixed cheap tiers, never overridden by the decision
+    # model so the high-volume classifier stays on haiku.
+    return classify_model(OVERSEER_TIER_MODELS[tier])
+
+
 __all__ = [
     "AgentModelDecision",
     "DEFAULT_AGENT_MODEL",
     "FABLE_DEFAULT_MODEL",
     "FABLE_EFFORT",
+    "OVERSEER_TIER_MODELS",
     "RESEED_THRESHOLD_FLOOR",
     "RESEED_THRESHOLD_MARGIN",
     "UPSTREAM_ANTHROPIC",
@@ -575,4 +688,5 @@ __all__ = [
     "real_backend_window",
     "reseed_threshold",
     "resolve_agent_model",
+    "resolve_overseer_model",
 ]

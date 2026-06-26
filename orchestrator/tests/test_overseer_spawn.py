@@ -211,12 +211,15 @@ class TestSpawnOverseerCommand:
         assert "--model" in command
         assert "issue-cmd" in command[-1]  # prompt references pipeline_id
 
-    def test_spawn_overseer_command_uses_decision_model(self, spawner, mock_docker_client):
-        """Overseer command uses the decision_model parameter."""
+    def test_spawn_overseer_command_resolves_model_via_resolver(self, spawner, mock_docker_client):
+        """#2270 §1 (folds #2813): the overseer command's ``--model`` comes from
+        ``resolve_agent_model(OVERSEER)`` (``opus`` by default), NOT from the
+        deprecated ``decision_model`` param. A stale ``decision_model='sonnet'``
+        is ignored — the resolved base model is still ``opus``."""
         spawner.spawn_overseer_container(
             pipeline_id="issue-model",
             issue_number=43,
-            decision_model="opus",
+            decision_model="sonnet",
         )
 
         create_call = mock_docker_client.create_container.call_args
@@ -245,10 +248,15 @@ class TestSpawnOverseerEnvVars:
         env = result.environment
         assert env.get("EGG_OVERSEER_MODE") == "true"
         assert env.get("EGG_OVERSEER_POLL_INTERVAL") == "45"
-        assert env.get("EGG_OVERSEER_DECISION_MODEL") == "opus"
+        # #2270 §1 (folds #2813): the deprecated EGG_OVERSEER_DECISION_MODEL env
+        # (derived from overseer_decision_maker_model, never read in the sandbox)
+        # is no longer injected — the base model resolves via
+        # resolve_agent_model(OVERSEER) instead.
+        assert "EGG_OVERSEER_DECISION_MODEL" not in env
 
     def test_spawn_overseer_default_env_vars(self, spawner):
-        """Overseer uses default poll_interval and decision_model when not specified."""
+        """Overseer uses default poll_interval when not specified; the
+        deprecated decision-model env is no longer injected (#2270 §1)."""
         result = spawner.spawn_overseer_container(
             pipeline_id="issue-300",
         )
@@ -256,7 +264,7 @@ class TestSpawnOverseerEnvVars:
         env = result.environment
         assert env.get("EGG_OVERSEER_MODE") == "true"
         assert env.get("EGG_OVERSEER_POLL_INTERVAL") == "30"
-        assert env.get("EGG_OVERSEER_DECISION_MODEL") == "sonnet"
+        assert "EGG_OVERSEER_DECISION_MODEL" not in env
         assert env.get("BASH_COMMAND_TIMEOUT") == "0"
 
     def test_spawn_overseer_disables_bash_timeout(self, spawner):
@@ -335,7 +343,8 @@ class TestAutoSpawnWhenEnabled:
 
         env = result.environment
         assert env.get("EGG_OVERSEER_POLL_INTERVAL") == "15"
-        assert env.get("EGG_OVERSEER_DECISION_MODEL") == "opus"
+        # #2270 §1: deprecated decision-model env no longer injected.
+        assert "EGG_OVERSEER_DECISION_MODEL" not in env
 
 
 # ---------------------------------------------------------------------------
