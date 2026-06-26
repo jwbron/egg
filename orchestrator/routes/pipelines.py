@@ -6760,8 +6760,9 @@ def _build_role_context(
             )
         elif role_value == "documenter":
             lines.append(
-                f"Focus your documentation on changes from plan phase `{phase_obj.id}`. "
-                "The following tasks were implemented in this phase:\n"
+                "Document the current state of the code in the areas these tasks "
+                "touch — a snapshot of how the system works now, not a log of what "
+                "changed. The following tasks were implemented in this phase:\n"
             )
         else:
             lines.append("The following tasks were implemented in this phase:\n")
@@ -14165,8 +14166,9 @@ def _build_producer_orientation(
                 "read the contract (`egg-contract show`) to understand what is "
                 "being implemented. Check existing documentation structure — "
                 "README files, doc directories, inline documentation patterns. "
-                "Identify which docs will need updating once the implementation "
-                "is complete. "
+                "Identify which docs describe the surfaces this work touches, so "
+                "you can fold the resulting state into them as a snapshot of "
+                "current behavior once the implementation is complete. "
                 "**You MUST propose** even when the slice warrants no doc "
                 "updates (pure refactor / test-only / internal-only with no "
                 "documented-surface impact): the BRC consensus blocks until "
@@ -14781,17 +14783,28 @@ def _build_agent_prompt(
     elif role_value == "documenter":
         lines.extend(
             [
-                "Update documentation for the changes made by the CODER agent:",
+                "Document the CURRENT STATE of the code after this change. "
+                "Write as if the code has always worked this way — the "
+                "slice/pipeline machinery that produced the change does not "
+                "belong in the documentation:",
                 "",
                 "1. Review the changed files (available in handoff data or via git diff)",
-                "2. Update relevant documentation (READMEs, docstrings, API docs)",
-                "3. Add or update inline code comments where helpful",
+                "2. Update relevant documentation (READMEs, docstrings, API docs) so it "
+                "describes how the system works now",
+                "3. Add or update inline code comments where they clarify current behavior",
                 "4. Commit documentation changes with descriptive messages",
                 "",
-                "Focus on:",
-                "- Accurate descriptions of new features or changes",
-                "- Updated usage examples if APIs changed",
-                "- Clear explanation of any breaking changes",
+                "Write snapshots, not changelogs:",
+                "- Describe what the code does now, not what changed or when it changed.",
+                "- NEVER reference SDLC artifacts — slice numbers, TASK-N ids, phase or "
+                "HITL iteration numbers — in any doc, docstring, or inline comment you write.",
+                "- Include historical context (issue links, \"previously X\" rationale, "
+                "migration notes) ONLY when it is tangibly valuable to a reader of the "
+                "current system, and prefer rationale (\"why it is this way\") over "
+                "chronology (\"what it used to be / when it changed\").",
+                "- When updating an existing doc, fold the new state into the snapshot and "
+                "REMOVE now-stale ledger or historical entries rather than appending "
+                "another layer.",
                 "",
                 "When documenting third-party integrations or external APIs, use WebSearch "
                 "and WebFetch (when available) to verify current API signatures, link to "
@@ -14814,7 +14827,7 @@ def _build_agent_prompt(
                 "docstring contracts that drift.",
                 "2. Propose a no-op: `egg-orch consensus propose "
                 "--no-changes-needed --no-changes-reason '<concrete reason, "
-                "e.g. slice-3 is a pure decomposition: symbol moves between "
+                "e.g. a pure decomposition: symbol moves between "
                 "submodules, no surfaced API change; no README / docs/ / "
                 "docstring surface impacted>'`. No artifacts or commit-sha "
                 "are needed.",
