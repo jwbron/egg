@@ -250,7 +250,7 @@
       "id": "slice-4",
       "name": "Gateway docstrings + gateway/CLAUDE.md",
       "goal": "De-ledger gateway/ .py docstrings and inline comments (coder) and re-key\nthe gateway/CLAUDE.md submodule seam tables by current structure\n(documenter). Docstring/comment edits only \u2014 no code-behavior change;\nkeep load-bearing rationale links.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -259,8 +259,8 @@
         {
           "id": "task-4-1",
           "description": "Clean gateway/ .py docstrings and comments. In gateway/artifact_api.py,\nrewrite the module docstring `\"\"\"Artifact API endpoints on the\ngateway (#3077 slice-4).\"\"\"` to describe the endpoints' current\npurpose without the slice tag (keep a bare #3077 rationale link only\nif it explains why the endpoint exists). In gateway/jira_client.py,\nstrip the `# Issue #1557 slice-2 \u2026` markers from the affected methods,\nkeeping any genuinely useful rationale as a present-tense comment. No\ncode/control-flow changes \u2014 comments/docstrings only.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "837dae5b4cb4a41f27bd7aa7194354db48950ee9",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- artifact_api.py module docstring describes current behavior with no\n  \"slice-4\" tag.\n- jira_client.py method comments carry no \"slice-2\" ledger markers;\n  retained text is current-state rationale.\n- No behavior change; the gateway test suite stays green.",
@@ -281,8 +281,8 @@
         {
           "id": "task-4-2",
           "description": "Re-key the submodule seam tables in gateway/CLAUDE.md. Today they are\norganized by which slice landed each decomposition; reorganize them\nto describe the current submodule structure (module \u2192\nresponsibility), dropping the slice-landed column. Keep the\ndecomposition-pattern rationale link.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "883cac00733d917707f799008a7503f7688ab010",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- The gateway/CLAUDE.md seam tables are organized by current\n  structure, not by which slice landed each piece; no slice-N\n  references remain; retained links are rationale.",
@@ -304,11 +304,11 @@
         "slice-1"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3288/slice-1",
+      "integration_base_sha": "55352cc1114281975d6d942e0da923b559361c1e",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3321,
+      "pr_url": "https://github.com/jwbron/egg/pull/3321",
       "review_feedback": []
     },
     {
@@ -815,6 +815,50 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-3-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T21:54:52.680066Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.commit",
+      "old_value": null,
+      "new_value": "837dae5b4cb4a41f27bd7aa7194354db48950ee9",
+      "reason": "Linked commit 837dae5 to task-4-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T21:54:52.703641Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T21:54:58.462817Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.commit",
+      "old_value": null,
+      "new_value": "883cac00733d917707f799008a7503f7688ab010",
+      "reason": "Linked commit 883cac0 to task-4-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T21:54:58.481333Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-2 as complete",
       "checkpoint_id": null
     }
   ],
