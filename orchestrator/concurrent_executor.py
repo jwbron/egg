@@ -37,6 +37,7 @@ from agent_model_resolution import (
     UPSTREAM_ANTHROPIC,
     AgentModelDecision,
     classify_model,
+    reseed_threshold,
     resolve_agent_model,
 )
 from consensus_wrapper import build_consensus_wrapped_command
@@ -153,7 +154,15 @@ class _ExecutorEventSpawner:
         # ``spawn_event_job`` via ``event_action`` below), not on an
         # ownership flag — the EGG_EVENT_LOOP_OWNER env was retired in #3164.
         env = self._ex.get_agent_env(agent_role)
-        command, upstream, upstream_model = self._ex._build_event_spawn_params(agent_role)
+        command, upstream, upstream_model, threshold = self._ex._build_event_spawn_params(
+            agent_role
+        )
+        # Export the per-model reseed threshold so the in-pod resume-vs-reseed
+        # gate (#3200 slice-8) and the #3249 measurement resolve a real-window
+        # boundary instead of None (the gate's ``no_threshold`` safe-reseed
+        # branch). Inert unless a discipline/resume/measurement flag is on in the
+        # pod — the only consumers read it (#3279); a plain default pod ignores it.
+        env["EGG_RESEED_THRESHOLD"] = str(threshold)
         return self._ex.spawn_fn(
             role=agent_role,
             branch=branch,
@@ -562,8 +571,8 @@ class ConcurrentPhaseExecutor:
 
     def _build_event_spawn_params(
         self, role: AgentRole
-    ) -> tuple[list[str], str | None, str | None]:
-        """Return ``(command, upstream, upstream_model)`` for a role's event pod.
+    ) -> tuple[list[str], str | None, str | None, int]:
+        """Return ``(command, upstream, upstream_model, reseed_threshold)`` for a role's event pod.
 
         The event-pump template composes its own per-event prompt at runtime
         (``invoke_agent_for_event``), so the initial prompt is irrelevant —
@@ -571,6 +580,18 @@ class ConcurrentPhaseExecutor:
         ``upstream``/``upstream_model`` are returned only when they differ
         from the default Anthropic decision (mirroring ``_spawn_agent``'s
         conditional forwarding) so the default-Claude wire shape is unchanged.
+
+        ``reseed_threshold`` is the per-model token-occupancy boundary the
+        in-pod resume-vs-reseed gate (#3200 slice-8) compares against. The
+        orchestrator computes it here — it has the model decision, and the
+        agent pod can't (``orchestrator`` is off the pod's ``PYTHONPATH``, so
+        ``egg_agent.reseed.resolve_reseed_threshold`` resolves ``None`` without
+        the ``EGG_RESEED_THRESHOLD`` override, taking the gate's ``no_threshold``
+        safe-reseed branch every event). It is resolved against ``claude_code_alias``
+        — the same string passed to ``--model`` and the #3249 measurement, so the
+        injected threshold and the emitted measurement agree by construction, and
+        sub-1M LiteLLM models (whose bare alias carries their real-backend identity)
+        resolve against their real window, not the ``[1m]``-implied 1M (#3279).
         """
         decision = self._resolve_model_decision(role)
         command = build_consensus_wrapped_command(
@@ -581,7 +602,8 @@ class ConcurrentPhaseExecutor:
         if decision.upstream != UPSTREAM_ANTHROPIC or decision.upstream_model is not None:
             upstream = decision.upstream
             upstream_model = decision.upstream_model
-        return command, upstream, upstream_model
+        threshold = reseed_threshold(decision.claude_code_alias)
+        return command, upstream, upstream_model, threshold
 
     def _orchestrator_side_confirm(self, tracker: Any, role: str) -> None:
         """Record a ``confirm``/``complete`` orchestrator-side — no pod (#3064).

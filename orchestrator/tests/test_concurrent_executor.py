@@ -1608,3 +1608,67 @@ class TestSpawnRecordsResolvedModel:
         execution = executor._spawn_agent(AgentRole.CODER)
 
         assert execution.resolved_model == "opus"
+
+
+class TestEventSpawnReseedThreshold:
+    """#3279: the orchestrator computes the per-model reseed threshold at spawn
+    and exports it to the event pod as ``EGG_RESEED_THRESHOLD`` so the in-pod
+    resume-vs-reseed gate (#3200 slice-8) and the #3249 measurement resolve a
+    real-window boundary instead of ``None`` (the gate's ``no_threshold``
+    safe-reseed branch — ``orchestrator`` is off the pod's ``PYTHONPATH``).
+    """
+
+    def _event_spawner(self, pipeline, mock_spawn):
+        from concurrent_executor import ConcurrentPhaseExecutor, _ExecutorEventSpawner
+        from egg_orchestrator.types import AgentRole
+
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+        return _ExecutorEventSpawner(
+            executor=executor,
+            roles=[AgentRole.CODER, AgentRole.REVIEWER_CODE],
+            slice_id=None,
+        )
+
+    def test_build_event_spawn_params_returns_default_threshold(self):
+        """Default (opus) → ``reseed_threshold`` is the 400k floor
+        (``min(400k, 0.80 * 1M)``), returned as the 4th tuple element.
+        """
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
+
+        _command, _upstream, _upstream_model, threshold = executor._build_event_spawn_params(
+            AgentRole.CODER
+        )
+
+        assert threshold == 400_000
+
+    def test_event_spawn_injects_default_threshold_env(self):
+        """``spawn_event`` puts ``EGG_RESEED_THRESHOLD`` in the spawn_fn's
+        ``extra_env`` for a default-config (opus) pipeline.
+        """
+        pipeline = _make_pipeline()
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        spawner = self._event_spawner(pipeline, mock_spawn)
+
+        spawner.spawn_event(role="coder", action="propose", dedupe_key="k1")
+
+        env = mock_spawn.call_args.kwargs["extra_env"]
+        assert env["EGG_RESEED_THRESHOLD"] == "400000"
+
+    def test_event_spawn_threshold_uses_real_window_for_sub_1m_model(self):
+        """A sub-1M LiteLLM model resolves against its REAL backend window, not
+        the ``[1m]``-implied 1M: ``kimi-k2.7-code`` → ``int(0.80 * 262_144)``.
+        Guards the mis-trigger bug #3200 task-2-1 calls out.
+        """
+        pipeline = _make_pipeline()
+        pipeline.config.agent_models = {"coder": "kimi-k2.7-code"}
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        spawner = self._event_spawner(pipeline, mock_spawn)
+
+        spawner.spawn_event(role="coder", action="propose", dedupe_key="k1")
+
+        env = mock_spawn.call_args.kwargs["extra_env"]
+        assert env["EGG_RESEED_THRESHOLD"] == str(int(0.80 * 262_144))  # 209_715, NOT 400_000
