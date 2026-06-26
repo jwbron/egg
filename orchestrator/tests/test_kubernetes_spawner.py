@@ -975,6 +975,7 @@ class TestContextDisciplineFlagForward:
         self, spawner, mock_k8s_client, mock_gateway, monkeypatch
     ):
         monkeypatch.setenv("EGG_CONTEXT_DISCIPLINE", "true")
+        monkeypatch.setenv("EGG_CONTEXT_MEASUREMENT", "true")
         monkeypatch.setenv("EGG_SESSION_RESUME", "1")
         result = spawner.spawn_agent_job(
             pipeline_id="pipe-cd",
@@ -985,10 +986,14 @@ class TestContextDisciplineFlagForward:
         )
         env = result.environment
         assert env["EGG_CONTEXT_DISCIPLINE"] == "true"
+        # #3277: the measurement knob must ride along, else #3271's emit
+        # surfaces no-op in-pod and the proving run captures zero metrics.
+        assert env["EGG_CONTEXT_MEASUREMENT"] == "true"
         assert env["EGG_SESSION_RESUME"] == "1"
 
     def test_flags_absent_when_unset(self, spawner, mock_k8s_client, mock_gateway, monkeypatch):
         monkeypatch.delenv("EGG_CONTEXT_DISCIPLINE", raising=False)
+        monkeypatch.delenv("EGG_CONTEXT_MEASUREMENT", raising=False)
         monkeypatch.delenv("EGG_SESSION_RESUME", raising=False)
         result = spawner.spawn_agent_job(
             pipeline_id="pipe-cd2",
@@ -999,6 +1004,7 @@ class TestContextDisciplineFlagForward:
         )
         env = result.environment
         assert "EGG_CONTEXT_DISCIPLINE" not in env
+        assert "EGG_CONTEXT_MEASUREMENT" not in env
         assert "EGG_SESSION_RESUME" not in env
 
     def test_extra_env_overrides_forwarded_flag(
