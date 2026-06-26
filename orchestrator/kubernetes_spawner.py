@@ -157,7 +157,7 @@ _PROTECTED_ENV_KEYS: frozenset[str] = frozenset(
         # /resolve. Blocking the key here is defense in depth; the base
         # spawner env below never sets it to begin with.
         "EGG_LIFECYCLE_SECRET",
-        # Slice scope (#2410, v2 review follow-up). The spawner is the
+        # Slice scope (#2410). The spawner is the
         # single source of truth: ``EGG_SLICE_ID`` is derived from the
         # ``slice_id`` parameter that already drives Job naming and
         # worktree id. Protecting the key prevents a future caller from
@@ -251,11 +251,11 @@ def _forwarded_discipline_env(source: Mapping[str, str]) -> dict[str, str]:
     return out
 
 
-# --- #3064 slice-2: orchestrator-owned one-shot event spawns ------------
+# --- Orchestrator-owned one-shot event spawns --------------------------
 #
 # When the orchestrator (not the in-pod wait-loop) owns the BRC event loop
 # it spawns a per-event Job that handles exactly one ``propose|ack|nack``
-# and exits (the slice-1 wrapper arm). The Job carries the event identity in
+# and exits (the wrapper's one-shot event arm). The Job carries the event identity in
 # env so the wrapper arm engages, and the dedupe key as a *label* so the
 # event loop can reconcile in-flight Jobs after an orchestrator restart
 # without persisting any spawn bookkeeping.
@@ -306,7 +306,7 @@ class _EventJobStatusView:
     """Maps a one-shot event Job's k8s status onto the loop's outcome vocabulary.
 
     Constructed via :meth:`KubernetesSpawner.create_event_job_status_view` and
-    consumed by ``OrchestratorEventLoop`` (#3064 slice-3). Kept module-level
+    consumed by ``OrchestratorEventLoop``. Kept module-level
     (not a closure) so it is trivially unit-testable with a stub spawner. The
     outcome strings are sourced from ``event_loop`` so the two sides can never
     drift; the dual-path import mirrors the rest of this module.
@@ -345,7 +345,7 @@ class _EventJobStatusView:
             return self._ABNORMAL
         # Live = PENDING/CREATING/RUNNING — the same single-source set the
         # adoption filter (``_event_dedupe_key_live``) and live-pod accounting
-        # use, so a CREATING Job is classified live here too (#3181 re-review).
+        # use, so a CREATING Job is classified live here too (#3181).
         if any(s in LIVE_POD_STATUSES for s in statuses):
             return self._RUNNING
         if any(s == ContainerStatus.EXITED for s in statuses):
@@ -358,7 +358,7 @@ class _EventJobStatusView:
         Called by the loop's ``abnormal`` branch right after it records an
         abort. The crashed Job's ``FAILED`` status otherwise lingers for the
         ~600s ``ttlSecondsAfterFinished`` window, and that lingering object is
-        what dead-ends the bounded respawn (#3181 re-review):
+        what dead-ends the bounded respawn (#3181):
 
           * the *next* poll's :meth:`outcome_for` would re-read the same FAILED
             Job and re-increment the streak against one dead pod — climbing to
@@ -432,7 +432,7 @@ class SpawnedContainer:
     agent_role: AgentRole
     pipeline_id: str
     environment: dict[str, str]
-    # #3064 slice-4: wall-clock spawn→invoke latency in milliseconds, measured
+    # Wall-clock spawn→invoke latency in milliseconds, measured
     # across ``spawn_agent_job`` (worktree re-attach/create + session
     # reuse/register + k8s Job create). Used by the p50<60s budget assertion.
     # ``None`` only on paths that bypass the spawn timer.
@@ -507,7 +507,7 @@ def _classify_spawn_error(e: BaseException | None) -> str | None:
 
 
 # ------------------------------------------------------------------
-# #3064 slice-4: worktree re-attach helpers
+# Worktree re-attach helpers
 # ------------------------------------------------------------------
 
 
@@ -516,7 +516,7 @@ def _validate_worktree_for_reuse(
     repos: list[str],
     branch: str | None,
 ) -> dict[str, str] | None:
-    """Validate an existing worktree for re-attach (#3064 slice-4).
+    """Validate an existing worktree for re-attach.
 
     Checks the filesystem worktree at ``WORKTREE_BASE_DIR / agent_worktree_id / <repo>``
     for directory existence, ``.git`` integrity (``git rev-parse --git-dir``), lock
@@ -564,7 +564,7 @@ def _validate_worktree_for_reuse(
                 # host_uid worktree owned by a different uid than the
                 # orchestrator process does not trip git's "dubious ownership"
                 # guard — which would fail rev-parse and silently degrade
-                # re-attach to create-with-retry on every event (#3064 review).
+                # re-attach to create-with-retry on every event.
                 ["git", "-C", str(d), "-c", "safe.directory=*", "rev-parse", "--git-dir"],
                 capture_output=True,
                 text=True,
@@ -806,28 +806,27 @@ class KubernetesSpawner:
         # pattern as state_store.py).
         self._restart_locks: dict[tuple[str, str, str | None], threading.Lock] = {}
         self._restart_locks_lock = threading.Lock()
-        # #3064 slice-4: per-role gateway-session token cache.
+        # Per-role gateway-session token cache.
         # Key: (pipeline_id, agent_role_value, slice_id, session_container_id)
         # where ``session_container_id`` is the STABLE per-role+slice base Job
         # name (``_build_k8s_job_names``) — NOT the per-event discriminated Job
         # name. Keying on the stable id is what lets a session be reused across
         # a role's successive one-shot events (propose, ack, …); keying on the
-        # per-event name (the pre-review behaviour) missed the cache every
-        # distinct event and re-registered. Both the write side (``spawn_agent_
+        # per-event name would miss the cache on every distinct event and
+        # re-register. Both the write side (``spawn_agent_
         # job`` via ``session_container_id``) and the read side (``_get_or_
         # create_session``) build this element from the same stable base name
         # and use ``agent_role.value`` (str), never the enum member directly.
         # ``_teardown_session`` / ``cleanup_pipeline`` evict entries so the
         # cache stays bounded by roster size.
         self._session_token_cache: dict[tuple[str, str, str | None, str], str] = {}
-        # #3064 slice-4: monotonic clock for the spawn→invoke latency budget.
+        # Monotonic clock for the spawn→invoke latency budget.
         # Injectable so the p50<60s budget test can drive a simulated clock
         # (no real sleeps). Defaults to ``time.monotonic``.
         self._clock: "Callable[[], float]" = clock or time.monotonic  # noqa: UP037
 
     # ------------------------------------------------------------------
-    # #3064 slice-4: worktree re-attach instance methods (test-first
-    # contract — tests expect these names and signatures)
+    # Worktree re-attach instance methods
     # ------------------------------------------------------------------
 
     def _try_reuse_worktree(
@@ -956,8 +955,8 @@ class KubernetesSpawner:
             # to recreate (return False): continuing on the current HEAD would
             # leak the predecessor's unproposed commit into the successor's
             # worktree — and its next proposal — which is exactly the residue
-            # leak the R6 dirty-state policy exists to forbid (#3064 slice-4,
-            # review). A transient ``fetch origin`` blip is precisely what this
+            # leak the R6 dirty-state policy exists to forbid. A transient
+            # ``fetch origin`` blip is precisely what this
             # resilience path must survive, so it is fatal-to-reuse, not
             # silently swallowed.
             if branch:
@@ -1062,7 +1061,7 @@ class KubernetesSpawner:
                     # boundary — phase end tears the session down (see
                     # ``cleanup_pipeline`` / ``_teardown_session``), so the next
                     # phase re-registers fresh rather than inheriting stale
-                    # gateway policy (#3064 slice-4 re-review).
+                    # gateway policy.
                     logger.info(
                         "Reusing live cached session",
                         job_name=job_name,
@@ -1104,7 +1103,7 @@ class KubernetesSpawner:
                 branch=branch,
                 base_branch=base_branch,
                 jira_ticket=jira_ticket,
-                # Per-agent upstream routing (#2769 slice-2) — forward so a
+                # Per-agent upstream routing — forward so a
                 # session reused via this path keeps its litellm routing
                 # instead of silently falling back to the Anthropic default.
                 upstream=upstream,
@@ -1128,7 +1127,7 @@ class KubernetesSpawner:
         agent_role: AgentRole,
         slice_id: str | None = None,
     ) -> None:
-        """Tear down a role's reused gateway session (#3064 slice-4).
+        """Tear down a role's reused gateway session.
 
         In orchestrator-ownership mode a single gateway session is reused
         across a role's successive one-shot event spawns (see
@@ -1276,11 +1275,11 @@ class KubernetesSpawner:
                 worktree-creation failures. ``0`` disables retry (#1839).
             spawn_retry_initial_backoff_seconds: Initial backoff between retries;
                 subsequent attempts scale by ``_SPAWN_RETRY_BACKOFF_MULTIPLIER``.
-            upstream: Per-agent upstream identifier (#2769 slice-2).
+            upstream: Per-agent upstream identifier.
                 Forwarded to the gateway session-create call only when
                 set; ``None`` keeps the default Anthropic routing.
             upstream_model: Upstream-side model name to rewrite the
-                request body's ``model`` field to (#2769 slice-2).
+                request body's ``model`` field to.
                 ``None`` on the Anthropic path — the body is forwarded
                 unchanged.
             reuse_worktree_id: When set, skip ``create_worktrees()`` and use
@@ -1288,19 +1287,19 @@ class KubernetesSpawner:
                 was validated by the caller via
                 :func:`_validate_worktree_for_reuse`). The caller supplies the
                 resolved ``repo_volumes`` separately. ``None`` preserves the
-                existing create-with-retry path (#3064 slice-4).
+                existing create-with-retry path.
             existing_session_token: When set, skip gateway session
                 registration and use this token directly. ``None`` registers
                 a fresh session. Used together with ``reuse_worktree_id``
                 to avoid redundant gateway round-trips across successive
-                one-shot event spawns (#3064 slice-4).
+                one-shot event spawns.
             session_container_id: Stable identifier under which the gateway
                 session is registered, heartbeat, cached, and torn down — kept
                 distinct from the per-event k8s Job name so the session
                 survives (and is reused) across a role's successive one-shot
                 event spawns whose Job names each carry a per-event
                 discriminator. ``None`` (the pod-mode default) registers the
-                session under ``job_name`` exactly as before (#3064 slice-4).
+                session under ``job_name`` exactly as before.
 
         Returns:
             SpawnedContainer with Job and session info
@@ -1308,13 +1307,13 @@ class KubernetesSpawner:
         Raises:
             KubernetesSpawnError: If spawning fails
         """
-        # #3064 slice-4: spawn→invoke latency timer (p50<60s budget). Uses the
+        # Spawn→invoke latency timer (p50<60s budget). Uses the
         # injectable monotonic clock so tests can drive a simulated clock.
         _spawn_start = self._clock()
         job_name, actual_k8s_job_name = self._build_k8s_job_names(
             pipeline_id, agent_role, slice_id=slice_id
         )
-        # One-shot event spawns (#3064 slice-2) append a deterministic
+        # One-shot event spawns append a deterministic
         # per-event discriminator so distinct events for one role don't
         # collide on a single Job name (which would make the pre-spawn
         # cleanup below delete a sibling event's in-flight Job).
@@ -1374,7 +1373,7 @@ class KubernetesSpawner:
         # filter without parsing Job names) — see #2666.
         if slice_id is not None:
             labels[LABEL_SLICE_ID] = slice_id
-        # One-shot event labels (#3064 slice-2): the dedupe-key label is the
+        # One-shot event labels: the dedupe-key label is the
         # reconciliation handle the orchestrator event loop queries to detect
         # an in-flight Job for a given event after a restart. Applied last so
         # the caller's event labels are authoritative.
@@ -1392,7 +1391,7 @@ class KubernetesSpawner:
         # races with it during cleanup). The id is also the agent's
         # ``CONTAINER_ID`` env and the gateway worktree key, so the
         # whole gateway / agent / orchestrator triangle agrees on it.
-        # When ``reuse_worktree_id`` is set (#3064 slice-4), the caller
+        # When ``reuse_worktree_id`` is set, the caller
         # already validated the worktree via ``_validate_worktree_for_reuse``.
         if reuse_worktree_id:
             agent_worktree_id = reuse_worktree_id
@@ -1551,16 +1550,16 @@ class KubernetesSpawner:
 
         # Register gateway session (token-only, no container_ip)
         session_info = None
-        session_token = existing_session_token  # #3064 slice-4: reuse when supplied
+        session_token = existing_session_token  # reuse when supplied
         agent_anchor_id = f"{agent_role.value}-{job_name[:8]}"
-        # #3064 slice-4: the gateway session is keyed by a stable id (per
+        # The gateway session is keyed by a stable id (per
         # role+slice) when the event path supplies one, so it persists across
         # the per-event Job names; pod mode falls back to the Job name.
         session_id = session_container_id or job_name
 
         try:
             if existing_session_token:
-                # #3064 slice-4: caller provided a validated, live session
+                # Caller provided a validated, live session
                 # token — skip gateway registration. Build a minimal
                 # SessionInfo stub so downstream env injection works.
                 logger.info(
@@ -1605,10 +1604,10 @@ class KubernetesSpawner:
                     worktree_container_id=(
                         agent_worktree_id if worktree_created_this_call else None
                     ),
-                    # Per-agent upstream routing (#2769 slice-2). Both fields
+                    # Per-agent upstream routing. Both fields
                     # are forwarded to the gateway only when set, so the
                     # default-Claude case keeps the request body byte-
-                    # identical to the pre-#2769 wire shape.
+                    # identical to the Anthropic-default wire shape.
                     upstream=upstream,
                     upstream_model=upstream_model,
                     # #2869 — a transient DNS/connection blip to the gateway
@@ -1626,7 +1625,7 @@ class KubernetesSpawner:
                 )
 
                 # Cache the session token for potential reuse on the next
-                # one-shot event spawn (#3064 slice-4). Keyed by the stable
+                # one-shot event spawn. Keyed by the stable
                 # ``session_id`` (not the per-event Job name) so a subsequent
                 # event for the same role+slice hits this entry.
                 cache_key = (pipeline_id, agent_role.value, slice_id, session_id)
@@ -1757,7 +1756,7 @@ class KubernetesSpawner:
             # signals would land on the pipeline-level tracker, which has
             # no record of the agent (failure mode #3 from #2410).
             #
-            # Single source of truth (v2 review follow-up): the spawner is
+            # Single source of truth: the spawner is
             # the only writer; ``EGG_SLICE_ID`` is in ``_PROTECTED_ENV_KEYS``
             # so any ``extra_env`` value is logged and dropped, guaranteeing
             # the env stays consistent with the Job name + worktree id that
@@ -1770,7 +1769,7 @@ class KubernetesSpawner:
             # Both consumers — the consensus wrapper and the event-prompt
             # composer — read ``EGG_BASE_BRANCH`` and default to ``main`` when
             # it's unset; nothing exported it before, so the delta errored on
-            # every non-``main`` repo and reviewers silently lost the slice-3
+            # every non-``main`` repo and reviewers silently lost the
             # diff. The caller (``_run_concurrent_phase``) hands us the
             # already-resolved branch (explicit base, else the repo's detected
             # default), so this is the single source of truth. Protected below
@@ -1865,7 +1864,7 @@ class KubernetesSpawner:
                 has_session=session_info is not None,
                 # Emit the per-spawn latency so the finer ``spawn_agent_job``
                 # sub-metric is observable in logs (the p50 budget itself reads
-                # the coarser slice-2 ``spawn_dispatch_seconds`` timing field).
+                # the coarser ``spawn_dispatch_seconds`` timing field).
                 spawn_ms=round(spawn_ms, 3),
             )
 
@@ -1880,7 +1879,7 @@ class KubernetesSpawner:
 
         except KubernetesClientError as e:
             # Clean up gateway session only if WE registered one in this call.
-            # On the #3064 slice-4 reuse path (``existing_session_token``
+            # On the session-reuse path (``existing_session_token``
             # supplied) ``session_info`` is a stub wrapping a token registered
             # by an earlier event and still cached under the stable base id —
             # deleting it here would tear down the session the next event would
@@ -1901,7 +1900,7 @@ class KubernetesSpawner:
             raise KubernetesSpawnError(f"Failed to spawn Job: {e}") from e
 
     # ------------------------------------------------------------------
-    # #3064 slice-2 — orchestrator-owned one-shot event spawns
+    # Orchestrator-owned one-shot event spawns
     # ------------------------------------------------------------------
     def _event_dedupe_key_live(self, dedupe_key: str) -> bool:
         """Return True iff a Job already carries this dedupe-key label.
@@ -1941,7 +1940,7 @@ class KubernetesSpawner:
         # crashed propose arm would be "adopted" (no new pod) for the whole TTL
         # while its FAILED status keeps re-incrementing the abort streak, so a
         # transient crash falsely escalates to AGENT_FAILED without ever
-        # retrying (#3181 re-review). Mirrors ``LIVE_POD_STATUSES`` — the single
+        # retrying (#3181). Mirrors ``LIVE_POD_STATUSES`` — the single
         # source of truth shared with ``_count_live_pods_for_pipeline`` /
         # startup reconciliation. A non-sequence (e.g. an unconfigured mock) is
         # treated as "no live Job" so the spawn proceeds.
@@ -1950,7 +1949,7 @@ class KubernetesSpawner:
         return any(getattr(j, "status", None) in LIVE_POD_STATUSES for j in jobs)
 
     def create_event_job_status_view(self) -> _EventJobStatusView:
-        """Return the loop's Job-status observer (#3064 slice-3 supervision).
+        """Return the loop's Job-status observer for event-loop supervision.
 
         The orchestrator-owned event loop calls ``outcome_for(dedupe_key)``
         once per live key per poll to drive ``JobSupervisor``. Classification
@@ -2023,7 +2022,7 @@ class KubernetesSpawner:
             )
             return None
 
-        # --- #3064 slice-4: attempt worktree re-attach + session reuse ---
+        # --- Attempt worktree re-attach + session reuse ---
         reuse_worktree_id: str | None = None
         reuse_repo_volumes: dict[str, str] | None = None
         reuse_session_token: str | None = None
@@ -2054,7 +2053,7 @@ class KubernetesSpawner:
                     role=agent_role.value,
                 )
 
-        # Session reuse (#3064 slice-4). The gateway session is keyed by the
+        # Session reuse. The gateway session is keyed by the
         # STABLE per-role+slice base Job name (no per-event discriminator), so
         # it survives across the distinct Job names of successive events and
         # can actually be reused. ``_get_or_create_session`` owns the
@@ -2118,8 +2117,8 @@ class KubernetesSpawner:
 
         # Pop ``repo_volumes`` from ``spawn_kwargs`` to prevent the stale
         # pre-allocation value (from ``_spawn``'s ``common_kwargs``) from
-        # leaking through ``**spawn_kwargs`` to ``spawn_agent_job`` (#3064
-        # slice-4, v2 NACK items 1 & 4). When re-attach succeeded, the
+        # leaking through ``**spawn_kwargs`` to ``spawn_agent_job``. When
+        # re-attach succeeded, the
         # validated ``reuse_repo_volumes`` replaces it; when re-attach
         # failed, the original value from ``spawn_kwargs`` is passed
         # explicitly so ``spawn_agent_job``'s create-with-retry path
@@ -2140,8 +2139,8 @@ class KubernetesSpawner:
             reuse_worktree_id=reuse_worktree_id,
             existing_session_token=reuse_session_token,
             # Register/cache/heartbeat the session under the stable base id so
-            # it is reused across the role's successive event spawns (#3064
-            # slice-4), rather than re-registered under each per-event Job name.
+            # it is reused across the role's successive event spawns, rather
+            # than re-registered under each per-event Job name.
             session_container_id=session_base_id,
             **spawn_kwargs,
         )
@@ -2296,7 +2295,7 @@ class KubernetesSpawner:
                     error=str(e),
                 )
 
-        # #3064 slice-4: tear down any long-lived event-mode gateway sessions
+        # Tear down any long-lived event-mode gateway sessions
         # reused across this pipeline's one-shot event spawns. They are keyed
         # by a stable base ``container_id`` (not the per-event Job name), so the
         # per-Job ``remove_agent_job`` calls above do not reach them; this is
@@ -2560,13 +2559,13 @@ class KubernetesSpawner:
                 slice gets an independent budget.
             wait_for_gateway: Wait for gateway health before respawning.
                 Forwarded to ``spawn_agent_job``.
-            upstream: Per-agent upstream identifier (#2769 slice-2),
+            upstream: Per-agent upstream identifier,
                 forwarded to ``spawn_agent_job`` so the restarted Job
                 registers its gateway session against the same upstream
                 as the initial spawn. ``None`` keeps the default
                 Anthropic routing.
             upstream_model: Upstream-side model name to rewrite the
-                request body's ``model`` field to (#2769 slice-2),
+                request body's ``model`` field to,
                 forwarded to ``spawn_agent_job``. ``None`` on the
                 Anthropic path — the body is forwarded unchanged.
 
@@ -2725,7 +2724,7 @@ class KubernetesSpawner:
                 spawn_max_retries=spawn_max_retries,
                 spawn_retry_initial_backoff_seconds=spawn_retry_initial_backoff_seconds,
                 slice_id=slice_id,
-                # Per-agent upstream routing (#2769 slice-2). Forwarded so a
+                # Per-agent upstream routing. Forwarded so a
                 # restart picks the same upstream as the initial spawn — the
                 # gateway session is otherwise rebuilt against the
                 # ``anthropic`` default and would silently route the
@@ -2949,7 +2948,7 @@ class KubernetesSpawner:
                 "upstream": upstream,
                 "upstream_model": upstream_model,
             }
-            # #3064 slice-2: orchestrator-owned one-shot event spawn. Routes
+            # Orchestrator-owned one-shot event spawn. Routes
             # through ``spawn_one_shot_event_job`` so the Job gets the event
             # identity (env + labels) and adoption-on-dedupe-hit; the
             # long-lived ``spawn_agent_job`` pod-mode path is taken otherwise,
@@ -2974,7 +2973,7 @@ class KubernetesSpawner:
         def _teardown_event_session(role: AgentRole) -> None:
             """Tear down a role's reused orchestrator-mode gateway session.
 
-            #3064 slice-4: the event loop's supervisor calls this when a role's
+            The event loop's supervisor calls this when a role's
             event arm exhausts its retry budget (the ``_exhausted`` transition).
             Routes to :meth:`_teardown_session` under this closure's captured
             ``pipeline_id`` / ``slice_id`` so the delete-by-base-id + cache

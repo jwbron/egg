@@ -1,0 +1,1842 @@
+# BRC Consensus History — implement phase, slice-4
+
+Generated: 2026-06-26T22:07:35Z
+Pipeline: issue-3288
+Slice: slice-4
+
+### [2026-06-26T21:52:58Z] coder (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-4)
+
+````yaml
+id: 88c755e8-6e95-4b
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:53:00Z] tester (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-4)
+
+````yaml
+id: 12347d49-6382-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:53:01Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-4)
+
+````yaml
+id: bba0eb36-e7a8-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:53:41Z] tester (CONSENSUS_PROPOSE): Proposal from tester
+
+Tester no-op for slice-4: this slice contains only coder (task-4-1) and documenter (task-4-2) docstring/comment-cleanup work with no behavior change and no assigned tester task. No new or modified tests are required; the existing gateway test suite is the regression guard the coder/reviewers rely on, and my slice-1 test work (task-1-3) is already complete and merged.
+
+````yaml
+id: 9b12a425-b557-4e
+phase: implement
+metadata:
+  payload:
+    summary: 'Tester no-op for slice-4: this slice contains only coder (task-4-1)
+      and documenter (task-4-2) docstring/comment-cleanup work with no behavior change
+      and no assigned tester task. No new or modified tests are required; the existing
+      gateway test suite is the regression guard the coder/reviewers rely on, and
+      my slice-1 test work (task-1-3) is already complete and merged.'
+    attestation: {}
+    artifacts: []
+    risk_considered: ''
+    commit_sha: ''
+    files_changed: []
+    tests_run: []
+    tasks_satisfied: []
+    no_changes_needed: true
+    no_changes_reason: "slice-4 (Gateway docstrings + gateway/CLAUDE.md) has no tester\
+      \ task. Its two tasks are task-4-1 (coder: de-ledger gateway/*.py docstrings/comments)\
+      \ and task-4-2 (documenter: re-key gateway/CLAUDE.md seam tables) \u2014 both\
+      \ comment/docstring-only with no behavior change. The plan specifies no new\
+      \ test artifact for this slice; verification is review-by-grep plus the existing\
+      \ gateway suite staying green, which the coder/reviewers own. My only tester\
+      \ task (task-1-3) was in slice-1 and is complete (commit 51ac07d11). No test\
+      \ changes are needed for slice-4."
+  version: 1
+  commit_sha: ''
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:55:15Z] coder (CONSENSUS_PROPOSE): Proposal from coder
+
+Strip slice/decision process-ledger markers from gateway docstrings (task-4-1, slice-4). artifact_api.py: module docstring drops the "(#3077 slice-4)" tag and the identifier comment drops "slice-2 spec" — both now describe current behavior; the "Why this endpoint exists" rationale paragraph and #3002/#3077 design links are retained. jira_client.py: the remotelink allowlist comment, get_remotelinks docstring, and transition_issue docstring drop the "issue #1557 slice-2 / decision-7 signal b" ledger markers, keeping the present-tense rationale (GET-only allowlist, in-flight PR classifier, internal-only transition). Comments and docstrings only — no code or control-flow change; both files AST-parse clean.
+
+````yaml
+id: 93b20340-4743-4b
+phase: implement
+metadata:
+  payload:
+    summary: "Strip slice/decision process-ledger markers from gateway docstrings\
+      \ (task-4-1, slice-4). artifact_api.py: module docstring drops the \"(#3077\
+      \ slice-4)\" tag and the identifier comment drops \"slice-2 spec\" \u2014 both\
+      \ now describe current behavior; the \"Why this endpoint exists\" rationale\
+      \ paragraph and #3002/#3077 design links are retained. jira_client.py: the remotelink\
+      \ allowlist comment, get_remotelinks docstring, and transition_issue docstring\
+      \ drop the \"issue #1557 slice-2 / decision-7 signal b\" ledger markers, keeping\
+      \ the present-tense rationale (GET-only allowlist, in-flight PR classifier,\
+      \ internal-only transition). Comments and docstrings only \u2014 no code or\
+      \ control-flow change; both files AST-parse clean."
+    attestation: {}
+    artifacts:
+    - gateway/artifact_api.py
+    - gateway/jira_client.py
+    - 837dae5b4cb4a41f27bd7aa7194354db48950ee9
+    risk_considered: "Docstring/comment-only change; no runtime behavior altered.\
+      \ Risk of over-stripping rationale mitigated by retaining the present-tense\
+      \ \"why\" text and design issue links (#3077/#3002). FileAccessPattern unaffected\
+      \ (gateway/*.py is the coder's domain). Tests could not be executed locally\
+      \ (venv sync requires blocked network egress), but no executable lines changed\
+      \ \u2014 both files validated via ast.parse."
+    commit_sha: 837dae5b4cb4a41f27bd7aa7194354db48950ee9
+    files_changed:
+    - gateway/artifact_api.py
+    - gateway/jira_client.py
+    tests_run: []
+    tasks_satisfied:
+    - task-4-1
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 1
+  commit_sha: 837dae5b4cb4a41f27bd7aa7194354db48950ee9
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:55:24Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-4)
+
+````yaml
+id: b2c7c323-a844-43
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:55:25Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-4)
+
+````yaml
+id: 6db75a58-62bc-45
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:55:27Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-4)
+
+````yaml
+id: 579be36f-2368-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:55:28Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-4)
+
+````yaml
+id: 2dd5593f-6276-41
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:55:29Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-4)
+
+````yaml
+id: 27062fe7-bee4-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:55:55Z] reviewer_security → coder (CONSENSUS_ACK): ACK from reviewer_security for coder
+
+Comment/docstring-only edit stripping slice-N / decision-N ledger tags from gateway/artifact_api.py (module docstring + identifier comment) and gateway/jira_client.py (remotelink allowlist comment, get_remotelinks + transition docstrings). All security-relevant invariants are byte-unchanged: JIRA_API_ALLOWED_PATHS regexes including ^issue/{key}/remotelink$, the GET-only ALLOWED_METHODS gating, and JIRA_WRITE_VERBS_DENIED. The reworded comments still accurately document that remotelink stays GET-only and that transition is internal-only with public write-verb denial. No auth, credential, allowlist, or method-gating logic touched. No attack surface change.
+
+````yaml
+id: 6e5327f3-c61f-47
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/artifact_api.py
+    - gateway/jira_client.py
+    reason: 'Comment/docstring-only edit stripping slice-N / decision-N ledger tags
+      from gateway/artifact_api.py (module docstring + identifier comment) and gateway/jira_client.py
+      (remotelink allowlist comment, get_remotelinks + transition docstrings). All
+      security-relevant invariants are byte-unchanged: JIRA_API_ALLOWED_PATHS regexes
+      including ^issue/{key}/remotelink$, the GET-only ALLOWED_METHODS gating, and
+      JIRA_WRITE_VERBS_DENIED. The reworded comments still accurately document that
+      remotelink stays GET-only and that transition is internal-only with public write-verb
+      denial. No auth, credential, allowlist, or method-gating logic touched. No attack
+      surface change.'
+    ack_version: 1
+  version: 1
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:55:59Z] documenter (CONSENSUS_PROPOSE): Proposal from documenter
+
+De-ledger gateway/CLAUDE.md seam tables (task-4-2, slice-4). The prior "Submodule seam tables" section was pure forward-looking ledger: TBD placeholders for a gateway/gateway/ subpackage that does not exist, "Slice-14 of #2261 lands the decomposition" narration, and a slice-landed column for git_client.py/worktree_manager.py decompositions that have not landed (verified live: gateway.py is still a single ~10,385-line module, no gateway/gateway/ subpackage exists). Replaced it with a current-state "Module layout" table mapping each live gateway module to its responsibility, derived from the actual module docstrings. Dropped all slice-N references; kept the decomposition-pattern doc link as forward rationale and the barrel-as-public-API rule as a conditional note. No slice/TASK/TBD ledger references remain; the only issue link is the pre-existing #2769 rationale on the upstream-routing line. Merged coder's gateway-docstring de-ledger commit (837dae5b4) cleanly before proposing.
+
+````yaml
+id: 07dbcbba-25c7-43
+phase: implement
+metadata:
+  payload:
+    summary: 'De-ledger gateway/CLAUDE.md seam tables (task-4-2, slice-4). The prior
+      "Submodule seam tables" section was pure forward-looking ledger: TBD placeholders
+      for a gateway/gateway/ subpackage that does not exist, "Slice-14 of #2261 lands
+      the decomposition" narration, and a slice-landed column for git_client.py/worktree_manager.py
+      decompositions that have not landed (verified live: gateway.py is still a single
+      ~10,385-line module, no gateway/gateway/ subpackage exists). Replaced it with
+      a current-state "Module layout" table mapping each live gateway module to its
+      responsibility, derived from the actual module docstrings. Dropped all slice-N
+      references; kept the decomposition-pattern doc link as forward rationale and
+      the barrel-as-public-API rule as a conditional note. No slice/TASK/TBD ledger
+      references remain; the only issue link is the pre-existing #2769 rationale on
+      the upstream-routing line. Merged coder''s gateway-docstring de-ledger commit
+      (837dae5b4) cleanly before proposing.'
+    attestation: {}
+    artifacts:
+    - gateway/CLAUDE.md
+    risk_considered: Task assumed decompositions had landed and the tables were keyed
+      by which slice landed each piece; live verification showed none have landed,
+      so the honest snapshot describes current single-file modules rather than inventing
+      a submodule structure. Acceptance (organized by current structure, no slice-N
+      refs, retained links are rationale) is met. Preserved documenter gateway boundaries
+      and the BRC no-op path.
+    commit_sha: 1ee2c6f45e36bb4cc41fb4a997e2d22cbc069ba2
+    files_changed:
+    - gateway/CLAUDE.md
+    tests_run: []
+    tasks_satisfied:
+    - task-4-2
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 1
+  commit_sha: 1ee2c6f45e36bb4cc41fb4a997e2d22cbc069ba2
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:56:04Z] reviewer_concurrency → coder (CONSENSUS_ACK): ACK from reviewer_concurrency for coder
+
+Concurrency review: comments/docstrings-only change (9 ins / 9 del across two files). The proposal commit 837dae5b strips slice-N/decision-N process-ledger markers from the artifact_api.py module docstring + identifier comment and the jira_client.py remotelink/transition comments, while preserving substantive rationale (GET-only allowed-path/method security constraints, 404 semantics, in-flight-PR detection purpose). No code, control-flow, locking, shared-state, ordering, or atomicity changes — zero concurrency/thread-safety/race implications. Consistent with the #3288 directive (de-ledger comments, keep useful rationale; issue links justifying current shape retained).
+
+````yaml
+id: f4dad541-8e97-4e
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/artifact_api.py
+    - gateway/jira_client.py
+    reason: "Concurrency review: comments/docstrings-only change (9 ins / 9 del across\
+      \ two files). The proposal commit 837dae5b strips slice-N/decision-N process-ledger\
+      \ markers from the artifact_api.py module docstring + identifier comment and\
+      \ the jira_client.py remotelink/transition comments, while preserving substantive\
+      \ rationale (GET-only allowed-path/method security constraints, 404 semantics,\
+      \ in-flight-PR detection purpose). No code, control-flow, locking, shared-state,\
+      \ ordering, or atomicity changes \u2014 zero concurrency/thread-safety/race\
+      \ implications. Consistent with the #3288 directive (de-ledger comments, keep\
+      \ useful rationale; issue links justifying current shape retained)."
+    ack_version: 1
+  version: 1
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:56:07Z] reviewer_security (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_security
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 93fded35-59a5-4f
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:56:07Z] reviewer_concurrency (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_concurrency
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 8ed2eee3-30a5-46
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:56:47Z] reviewer_code → coder (CONSENSUS_ACK): ACK from reviewer_code for coder
+
+Code-correct and on-task. Comment/docstring-only diff — every changed line sits inside a triple-quoted docstring or # comment; no code, signature, or control-flow change. Both files py_compile clean. No test asserts on the changed strings (no __doc__ introspection on get_remotelinks/transition_issue/get_artifact; the only conftest hit is the test file's own prose, not an assertion). WS2 de-ledger done correctly: artifact_api.py module docstring drops `#3077 slice-4` and `slice-2 spec` → `identifier spec` (intent retained); jira_client.py strips `#1557 slice-2` / `decision-7 signal b` ledger tags from the remotelink allowlist comment and the get_remotelinks/transition_issue docstrings while fully preserving the security-relevant rationale (read-only, GET-only ALLOWED_METHODS + JIRA_WRITE_VERBS_DENIED, in-flight PR detection). Removed refs were provenance ledger tags, not standalone justification links — not over-deletion. Minor non-blocking cosmetic: a couple of rewrapped comment/docstring lines wrap awkwardly, but lengths are fine and it's non-functional.
+
+````yaml
+id: 4c7b4146-886a-4f
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/artifact_api.py
+    - gateway/jira_client.py
+    reason: "Code-correct and on-task. Comment/docstring-only diff \u2014 every changed\
+      \ line sits inside a triple-quoted docstring or # comment; no code, signature,\
+      \ or control-flow change. Both files py_compile clean. No test asserts on the\
+      \ changed strings (no __doc__ introspection on get_remotelinks/transition_issue/get_artifact;\
+      \ the only conftest hit is the test file's own prose, not an assertion). WS2\
+      \ de-ledger done correctly: artifact_api.py module docstring drops `#3077 slice-4`\
+      \ and `slice-2 spec` \u2192 `identifier spec` (intent retained); jira_client.py\
+      \ strips `#1557 slice-2` / `decision-7 signal b` ledger tags from the remotelink\
+      \ allowlist comment and the get_remotelinks/transition_issue docstrings while\
+      \ fully preserving the security-relevant rationale (read-only, GET-only ALLOWED_METHODS\
+      \ + JIRA_WRITE_VERBS_DENIED, in-flight PR detection). Removed refs were provenance\
+      \ ledger tags, not standalone justification links \u2014 not over-deletion.\
+      \ Minor non-blocking cosmetic: a couple of rewrapped comment/docstring lines\
+      \ wrap awkwardly, but lengths are fine and it's non-functional."
+    ack_version: 1
+  version: 1
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:57:00Z] reviewer_code → coder (CONSENSUS_ACK): ACK from reviewer_code for coder
+
+Code-correct and on-task. Both files py_compile clean; edits are docstring/comment only with no code or control-flow change. Strips SDLC process-ledger tags (#3077 slice-4, slice-2 spec, issue #1557 slice-2, decision-7 signal b) from the artifact_api.py module docstring + identifier comment and the jira_client.py remotelink/transition comments, while preserving the current-behavior descriptions (str|int identifier coercion, remotelink in-flight PR classifier, GET-only ALLOWED_METHODS + JIRA_WRITE_VERBS_DENIED invariant, internal-only transition deny note). No test asserts on the changed literals (grep hits are descriptive comments in test files, not assertions). Remaining decision-16/5/28 refs in jira_client.py sit on lines this commit does not touch — out of scope for this slice, not a defect.
+
+````yaml
+id: ad82564e-147a-43
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/artifact_api.py
+    - gateway/jira_client.py
+    reason: "Code-correct and on-task. Both files py_compile clean; edits are docstring/comment\
+      \ only with no code or control-flow change. Strips SDLC process-ledger tags\
+      \ (#3077 slice-4, slice-2 spec, issue #1557 slice-2, decision-7 signal b) from\
+      \ the artifact_api.py module docstring + identifier comment and the jira_client.py\
+      \ remotelink/transition comments, while preserving the current-behavior descriptions\
+      \ (str|int identifier coercion, remotelink in-flight PR classifier, GET-only\
+      \ ALLOWED_METHODS + JIRA_WRITE_VERBS_DENIED invariant, internal-only transition\
+      \ deny note). No test asserts on the changed literals (grep hits are descriptive\
+      \ comments in test files, not assertions). Remaining decision-16/5/28 refs in\
+      \ jira_client.py sit on lines this commit does not touch \u2014 out of scope\
+      \ for this slice, not a defect."
+    ack_version: 1
+  version: 1
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:57:04Z] reviewer_code → documenter (CONSENSUS_ACK): ACK from reviewer_code for documenter
+
+Doc snapshot, accurate against live code. Replaces the slice-keyed 'Submodule seam tables' (TBD placeholders, 'lands in slice-N' narration, slice-landed columns for decompositions that have not landed) with a current-state 'Module layout' table. Verified all 18 listed gateway modules (policy, phase_filter, agent_restrictions, git_client, github_client, worktree_manager, session_manager, token_refresher, jira_client, jira_policy, confluence_client, routing_policy, repo_parser, repo_visibility, private_repo_policy, rate_limiter, commit_observer, phase_api) exist on disk — table is factually correct. Decomposition pattern retained as forward rationale (not deleted) and the file-size cap reference kept, matching the directive to keep residue genuinely useful to a current reader. Markdown only, within documenter's **/*.md boundary.
+
+````yaml
+id: 959032ba-a42a-48
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/CLAUDE.md
+    reason: "Doc snapshot, accurate against live code. Replaces the slice-keyed 'Submodule\
+      \ seam tables' (TBD placeholders, 'lands in slice-N' narration, slice-landed\
+      \ columns for decompositions that have not landed) with a current-state 'Module\
+      \ layout' table. Verified all 18 listed gateway modules (policy, phase_filter,\
+      \ agent_restrictions, git_client, github_client, worktree_manager, session_manager,\
+      \ token_refresher, jira_client, jira_policy, confluence_client, routing_policy,\
+      \ repo_parser, repo_visibility, private_repo_policy, rate_limiter, commit_observer,\
+      \ phase_api) exist on disk \u2014 table is factually correct. Decomposition\
+      \ pattern retained as forward rationale (not deleted) and the file-size cap\
+      \ reference kept, matching the directive to keep residue genuinely useful to\
+      \ a current reader. Markdown only, within documenter's **/*.md boundary."
+    ack_version: 1
+  version: 1
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:57:06Z] reviewer_code (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_code
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 54968069-017b-40
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:57:09Z] reviewer_code_holistic → coder (CONSENSUS_NACK): NACK from reviewer_code_holistic for coder
+
+The artifact_api.py and jira_client.py `# Issue #1557 slice-2` rewrites are correct (comment/docstring-only, behavior preserved, rationale kept) — but the proposal is materially incomplete against slice-4 (WS2c) scope. Two blocking gaps:
+
+1. gateway/CLAUDE.md is UNTOUCHED, yet the slice goal explicitly requires re-keying its submodule seam tables "by current submodule structure rather than by which slice landed each decomposition." It still contains: `### gateway/gateway/ — TBD (#2261 slice-14)` (L19), `Slice-14 of #2261 lands the decomposition` (L21), `The terminal slice (#2261 slice-14) replaces the TBD rows` (L33), the slice-keyed seam table rows `slice-8 (#2261)` / `slice-6 (#2261)` (L43-44), and `(HITL decision-7 of #2261)` / `(HITL decision-8, refine feedback Q5)` (L17). Rewrite these tables to describe the current submodule structure; keep the #2261 issue link only where it justifies the decomposition pattern (rationale, not chronology).
+
+2. jira_client.py is only partially de-ledgered. Beyond the `# Issue #1557 slice-2` markers you fixed, the same file still carries process-ledger refs the WS2 doctrine targets (phase/decision/open-question ids): `(feedback Q1, decision-16 symmetry)` (L48), `(refine decision-5 default)` (L712), `(refine Open Q28)` and `(decision-28)` (L815). Reword these to current-behavior prose (e.g. drop the `decision-N`/`Q-N` tags, keep the substantive rationale).
+
+No-op/no-doc-impact propose path and gateway file boundaries are unaffected by these. Re-propose once gateway/CLAUDE.md is re-keyed and the residual jira_client.py decision/Q markers are stripped.
+
+````yaml
+id: f9d0c07b-3900-48
+phase: implement
+metadata:
+  payload:
+    reason: "The artifact_api.py and jira_client.py `# Issue #1557 slice-2` rewrites\
+      \ are correct (comment/docstring-only, behavior preserved, rationale kept) \u2014\
+      \ but the proposal is materially incomplete against slice-4 (WS2c) scope. Two\
+      \ blocking gaps:\n\n1. gateway/CLAUDE.md is UNTOUCHED, yet the slice goal explicitly\
+      \ requires re-keying its submodule seam tables \"by current submodule structure\
+      \ rather than by which slice landed each decomposition.\" It still contains:\
+      \ `### gateway/gateway/ \u2014 TBD (#2261 slice-14)` (L19), `Slice-14 of #2261\
+      \ lands the decomposition` (L21), `The terminal slice (#2261 slice-14) replaces\
+      \ the TBD rows` (L33), the slice-keyed seam table rows `slice-8 (#2261)` / `slice-6\
+      \ (#2261)` (L43-44), and `(HITL decision-7 of #2261)` / `(HITL decision-8, refine\
+      \ feedback Q5)` (L17). Rewrite these tables to describe the current submodule\
+      \ structure; keep the #2261 issue link only where it justifies the decomposition\
+      \ pattern (rationale, not chronology).\n\n2. jira_client.py is only partially\
+      \ de-ledgered. Beyond the `# Issue #1557 slice-2` markers you fixed, the same\
+      \ file still carries process-ledger refs the WS2 doctrine targets (phase/decision/open-question\
+      \ ids): `(feedback Q1, decision-16 symmetry)` (L48), `(refine decision-5 default)`\
+      \ (L712), `(refine Open Q28)` and `(decision-28)` (L815). Reword these to current-behavior\
+      \ prose (e.g. drop the `decision-N`/`Q-N` tags, keep the substantive rationale).\n\
+      \nNo-op/no-doc-impact propose path and gateway file boundaries are unaffected\
+      \ by these. Re-propose once gateway/CLAUDE.md is re-keyed and the residual jira_client.py\
+      \ decision/Q markers are stripped."
+    artifact_references:
+    - gateway/artifact_api.py
+    - gateway/jira_client.py
+    - gateway/CLAUDE.md
+    nack_version: 1
+  reason: "The artifact_api.py and jira_client.py `# Issue #1557 slice-2` rewrites\
+    \ are correct (comment/docstring-only, behavior preserved, rationale kept) \u2014\
+    \ but the proposal is materially incomplete against slice-4 (WS2c) scope. Two\
+    \ blocking gaps:\n\n1. gateway/CLAUDE.md is UNTOUCHED, yet the slice goal explicitly\
+    \ requires re-keying its submodule seam tables \"by current submodule structure\
+    \ rather than by which slice landed each decomposition.\" It still contains: `###\
+    \ gateway/gateway/ \u2014 TBD (#2261 slice-14)` (L19), `Slice-14 of #2261 lands\
+    \ the decomposition` (L21), `The terminal slice (#2261 slice-14) replaces the\
+    \ TBD rows` (L33), the slice-keyed seam table rows `slice-8 (#2261)` / `slice-6\
+    \ (#2261)` (L43-44), and `(HITL decision-7 of #2261)` / `(HITL decision-8, refine\
+    \ feedback Q5)` (L17). Rewrite these tables to describe the current submodule\
+    \ structure; keep the #2261 issue link only where it justifies the decomposition\
+    \ pattern (rationale, not chronology).\n\n2. jira_client.py is only partially\
+    \ de-ledgered. Beyond the `# Issue #1557 slice-2` markers you fixed, the same\
+    \ file still carries process-ledger refs the WS2 doctrine targets (phase/decision/open-question\
+    \ ids): `(feedback Q1, decision-16 symmetry)` (L48), `(refine decision-5 default)`\
+    \ (L712), `(refine Open Q28)` and `(decision-28)` (L815). Reword these to current-behavior\
+    \ prose (e.g. drop the `decision-N`/`Q-N` tags, keep the substantive rationale).\n\
+    \nNo-op/no-doc-impact propose path and gateway file boundaries are unaffected\
+    \ by these. Re-propose once gateway/CLAUDE.md is re-keyed and the residual jira_client.py\
+    \ decision/Q markers are stripped."
+  revision_count: 1
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:57:18Z] reviewer_contract → coder (CONSENSUS_ACK): ACK from reviewer_contract for coder
+
+task-4-1 satisfied. artifact_api.py module docstring de-tagged (#3077 slice-4 -> bare current-state) and the identifier comment 'slice-2 spec' -> 'per the identifier spec'. jira_client.py remotelink/transition method comments stripped of 'Issue #1557 slice-2' / 'decision-7 signal b' markers, rationale retained in present tense. Diff is docstrings/comments only — no code or control-flow change, behavior preserved. Residual decision-N refs in unrelated methods (audit/notify_users/idempotency) are outside task-4-1's named scope and fall under HITL cq-1 bounded-sweep deferral.
+
+````yaml
+id: 032a9d4f-0895-49
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/artifact_api.py
+    - gateway/jira_client.py
+    reason: "task-4-1 satisfied. artifact_api.py module docstring de-tagged (#3077\
+      \ slice-4 -> bare current-state) and the identifier comment 'slice-2 spec' ->\
+      \ 'per the identifier spec'. jira_client.py remotelink/transition method comments\
+      \ stripped of 'Issue #1557 slice-2' / 'decision-7 signal b' markers, rationale\
+      \ retained in present tense. Diff is docstrings/comments only \u2014 no code\
+      \ or control-flow change, behavior preserved. Residual decision-N refs in unrelated\
+      \ methods (audit/notify_users/idempotency) are outside task-4-1's named scope\
+      \ and fall under HITL cq-1 bounded-sweep deferral."
+    ack_version: 1
+    attestation:
+      tasks_verified:
+      - task-4-1
+  version: 1
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:57:21Z] reviewer_contract → documenter (CONSENSUS_ACK): ACK from reviewer_contract for documenter
+
+task-4-2 satisfied. The slice-keyed 'Submodule seam tables' (TBD placeholders, 'lands in slice-N' narration, slice-landed columns, HITL decision-N tags) are replaced by a current-state 'Module layout' table mapping each live gateway module to its responsibility. No slice-N / TBD ledger references remain; the decomposition-pattern link is retained as forward rationale only. Every module named in the table exists under gateway/; the snapshot is accurate and introduces no false claims. Within documenter's **/*.md write boundary.
+
+````yaml
+id: 4ee470d1-6555-4e
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/CLAUDE.md
+    reason: task-4-2 satisfied. The slice-keyed 'Submodule seam tables' (TBD placeholders,
+      'lands in slice-N' narration, slice-landed columns, HITL decision-N tags) are
+      replaced by a current-state 'Module layout' table mapping each live gateway
+      module to its responsibility. No slice-N / TBD ledger references remain; the
+      decomposition-pattern link is retained as forward rationale only. Every module
+      named in the table exists under gateway/; the snapshot is accurate and introduces
+      no false claims. Within documenter's **/*.md write boundary.
+    ack_version: 1
+    attestation:
+      tasks_verified:
+      - task-4-2
+  version: 1
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:57:21Z] orchestrator → documenter (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 748ef579-1e46-49
+phase: implement
+metadata:
+  ready_to_confirm: true
+  version: 1
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:57:26Z] documenter (CONSENSUS_CONFIRMED): Consensus confirmed by documenter
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 4f859028-621f-4a
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:57:26Z] reviewer_contract (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_contract
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 4dc342a8-5cfe-42
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:57:56Z] reviewer_code → documenter (CONSENSUS_ACK): ACK from reviewer_code for documenter
+
+De-ledger of gateway/CLAUDE.md is correct and accurate. The removed 'Submodule seam tables' section was pure ledger (TBD placeholders, 'lands in slice-N' narration, #2261 slice-14/8/6 columns, HITL decision-7/8 / refine-feedback-Q5 refs) describing a decomposition that never landed — gateway.py is still a flat 10,385-line monolith with no gateway/gateway/ subpackage. The replacement 'Module layout' table is a verified current-state snapshot: every listed module exists in gateway/, and responsibility descriptions match the actual module docstrings (policy.py, phase_filter.py, agent_restrictions.py, session_manager.py spot-checked). Decomposition pattern retained as forward rationale (not a ledger) with the decomposition-pattern.md link preserved — useful to a current reader. No residual slice/TASK/HITL/process-ledger references; documenter's doc file boundary respected.
+
+````yaml
+id: 5ea542e3-358a-42
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/CLAUDE.md
+    reason: "De-ledger of gateway/CLAUDE.md is correct and accurate. The removed 'Submodule\
+      \ seam tables' section was pure ledger (TBD placeholders, 'lands in slice-N'\
+      \ narration, #2261 slice-14/8/6 columns, HITL decision-7/8 / refine-feedback-Q5\
+      \ refs) describing a decomposition that never landed \u2014 gateway.py is still\
+      \ a flat 10,385-line monolith with no gateway/gateway/ subpackage. The replacement\
+      \ 'Module layout' table is a verified current-state snapshot: every listed module\
+      \ exists in gateway/, and responsibility descriptions match the actual module\
+      \ docstrings (policy.py, phase_filter.py, agent_restrictions.py, session_manager.py\
+      \ spot-checked). Decomposition pattern retained as forward rationale (not a\
+      \ ledger) with the decomposition-pattern.md link preserved \u2014 useful to\
+      \ a current reader. No residual slice/TASK/HITL/process-ledger references; documenter's\
+      \ doc file boundary respected."
+    ack_version: 1
+    attestation:
+      files_reviewed:
+      - gateway/CLAUDE.md
+      issues_found: 0
+  version: 1
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:58:25Z] tester → coder (CONSENSUS_NACK): NACK from tester for coder
+
+Comment/docstring-only change with no test impact (both files parse; no test asserts on the edited strings) — clean from the testing lane. Blocking on an in-scope completeness gap against slice-4 acceptance: the slice de-ledgers gateway .py docstrings/comments with artifact_api.py and jira_client.py as enumerated targets (not deferred long-tail), and your commit message claims to remove decision-N process-ledger tags, but these process-ledger markers remain in the SAME two files: gateway/artifact_api.py:22 'STRICT (HITL Q2 of #3077)'; gateway/jira_client.py:48 '(feedback Q1, decision-16 symmetry)'; :51 '404 envelope (refine Q8, architect D8):'; :712 '(refine decision-5 default)'; :815 '(refine Open Q28)' and '(decision-28)'. Keep the load-bearing rationale in each (path-traversal hardening, 429 symmetry, notify_users default, link de-dup) but strip the HITL-Q / decision-N / refine-Q / architect-D ledger tags so these files describe current behavior without process-ledger references. Re-propose once the enumerated gateway .py targets are fully de-ledgered.
+
+````yaml
+id: c300e774-9fda-4b
+phase: implement
+metadata:
+  payload:
+    reason: "Comment/docstring-only change with no test impact (both files parse;\
+      \ no test asserts on the edited strings) \u2014 clean from the testing lane.\
+      \ Blocking on an in-scope completeness gap against slice-4 acceptance: the slice\
+      \ de-ledgers gateway .py docstrings/comments with artifact_api.py and jira_client.py\
+      \ as enumerated targets (not deferred long-tail), and your commit message claims\
+      \ to remove decision-N process-ledger tags, but these process-ledger markers\
+      \ remain in the SAME two files: gateway/artifact_api.py:22 'STRICT (HITL Q2\
+      \ of #3077)'; gateway/jira_client.py:48 '(feedback Q1, decision-16 symmetry)';\
+      \ :51 '404 envelope (refine Q8, architect D8):'; :712 '(refine decision-5 default)';\
+      \ :815 '(refine Open Q28)' and '(decision-28)'. Keep the load-bearing rationale\
+      \ in each (path-traversal hardening, 429 symmetry, notify_users default, link\
+      \ de-dup) but strip the HITL-Q / decision-N / refine-Q / architect-D ledger\
+      \ tags so these files describe current behavior without process-ledger references.\
+      \ Re-propose once the enumerated gateway .py targets are fully de-ledgered."
+    artifact_references:
+    - gateway/artifact_api.py
+    - gateway/jira_client.py
+    nack_version: 1
+  reason: "Comment/docstring-only change with no test impact (both files parse; no\
+    \ test asserts on the edited strings) \u2014 clean from the testing lane. Blocking\
+    \ on an in-scope completeness gap against slice-4 acceptance: the slice de-ledgers\
+    \ gateway .py docstrings/comments with artifact_api.py and jira_client.py as enumerated\
+    \ targets (not deferred long-tail), and your commit message claims to remove decision-N\
+    \ process-ledger tags, but these process-ledger markers remain in the SAME two\
+    \ files: gateway/artifact_api.py:22 'STRICT (HITL Q2 of #3077)'; gateway/jira_client.py:48\
+    \ '(feedback Q1, decision-16 symmetry)'; :51 '404 envelope (refine Q8, architect\
+    \ D8):'; :712 '(refine decision-5 default)'; :815 '(refine Open Q28)' and '(decision-28)'.\
+    \ Keep the load-bearing rationale in each (path-traversal hardening, 429 symmetry,\
+    \ notify_users default, link de-dup) but strip the HITL-Q / decision-N / refine-Q\
+    \ / architect-D ledger tags so these files describe current behavior without process-ledger\
+    \ references. Re-propose once the enumerated gateway .py targets are fully de-ledgered."
+  revision_count: 1
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:58:25Z] reviewer_contract → coder (CONSENSUS_ACK): ACK from reviewer_contract for coder
+
+Contract-dimension ACK of slice-4 / task-4-1 (gateway docstring de-ledger). artifact_api.py: module docstring drops the `(#3077 slice-4)` tag and the identifier comment drops "slice-2 spec" (reframed "per the identifier spec"); the #3077/#3002 design rationale links are retained in the body, satisfying "keep a bare #3077 rationale link". jira_client.py: the `# Issue #1557 slice-2 … decision-7 signal b` markers are stripped from the remotelink allowlist comment, get_remotelinks docstring, and transition_issue docstring, with present-tense rationale (GET-only allowlist, in-flight PR classifier, internal-only transition) preserved. Acceptance met: no slice-4 tag in the artifact_api module docstring; no slice-2 ledger markers in the jira_client method comments; comments/docstrings only — both files AST-parse clean, no code/control-flow change. The plan test_plan verification grep `slice-[0-9]|TASK-[0-9]` over both touched files returns zero non-live hits. Residual `HITL Q2 of #3077` / `decision-16` / `decision-5` / `Open Q28` / `decision-28` markers sit in methods task-4-1 did not enumerate (module STRICT note, rate-limit docstring, edit_ticket, create_issue_link), read as design rationale, and fall outside this task's acceptance criteria and the slice-/TASK- verification bar — not a contract gap. Test-execution (venv blocked by private-network mode) is the tester/reviewer_code dimension, orthogonal to contract fidelity.
+
+````yaml
+id: c294957c-5564-46
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/artifact_api.py
+    - gateway/jira_client.py
+    reason: "Contract-dimension ACK of slice-4 / task-4-1 (gateway docstring de-ledger).\
+      \ artifact_api.py: module docstring drops the `(#3077 slice-4)` tag and the\
+      \ identifier comment drops \"slice-2 spec\" (reframed \"per the identifier spec\"\
+      ); the #3077/#3002 design rationale links are retained in the body, satisfying\
+      \ \"keep a bare #3077 rationale link\". jira_client.py: the `# Issue #1557 slice-2\
+      \ \u2026 decision-7 signal b` markers are stripped from the remotelink allowlist\
+      \ comment, get_remotelinks docstring, and transition_issue docstring, with present-tense\
+      \ rationale (GET-only allowlist, in-flight PR classifier, internal-only transition)\
+      \ preserved. Acceptance met: no slice-4 tag in the artifact_api module docstring;\
+      \ no slice-2 ledger markers in the jira_client method comments; comments/docstrings\
+      \ only \u2014 both files AST-parse clean, no code/control-flow change. The plan\
+      \ test_plan verification grep `slice-[0-9]|TASK-[0-9]` over both touched files\
+      \ returns zero non-live hits. Residual `HITL Q2 of #3077` / `decision-16` /\
+      \ `decision-5` / `Open Q28` / `decision-28` markers sit in methods task-4-1\
+      \ did not enumerate (module STRICT note, rate-limit docstring, edit_ticket,\
+      \ create_issue_link), read as design rationale, and fall outside this task's\
+      \ acceptance criteria and the slice-/TASK- verification bar \u2014 not a contract\
+      \ gap. Test-execution (venv blocked by private-network mode) is the tester/reviewer_code\
+      \ dimension, orthogonal to contract fidelity."
+    ack_version: 1
+    attestation:
+      tasks_verified:
+      - task-4-1
+  version: 1
+  slice_id: slice-4
+````
+
+### [2026-06-26T21:58:28Z] reviewer_contract → documenter (CONSENSUS_ACK): ACK from reviewer_contract for documenter
+
+task-4-2 satisfied: the slice-keyed 'Submodule seam tables' (TBD gateway/gateway/ placeholder, 'Slice-14 of #2261 lands…' narration, slice-landed columns for git_client.py/worktree_manager.py decompositions that never landed) are replaced with a current-state 'Module layout' table mapping each live gateway module to its responsibility. Verified live: every module in the new table exists and no gateway/gateway/ sub-package exists, so the honest flat-package snapshot is correct. Slice-landed column dropped; decomposition-pattern rationale link and file-size cap retained as forward rationale (not a ledger). No slice/TASK/TBD/HITL-decision references remain; the sole #2769 link is pre-existing upstream-routing rationale, in-scope-to-keep. File within documenter's **/*.md boundary. Snapshot-not-ledger directive met.
+
+````yaml
+id: 3949ca23-7f35-41
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/CLAUDE.md
+    reason: "task-4-2 satisfied: the slice-keyed 'Submodule seam tables' (TBD gateway/gateway/\
+      \ placeholder, 'Slice-14 of #2261 lands\u2026' narration, slice-landed columns\
+      \ for git_client.py/worktree_manager.py decompositions that never landed) are\
+      \ replaced with a current-state 'Module layout' table mapping each live gateway\
+      \ module to its responsibility. Verified live: every module in the new table\
+      \ exists and no gateway/gateway/ sub-package exists, so the honest flat-package\
+      \ snapshot is correct. Slice-landed column dropped; decomposition-pattern rationale\
+      \ link and file-size cap retained as forward rationale (not a ledger). No slice/TASK/TBD/HITL-decision\
+      \ references remain; the sole #2769 link is pre-existing upstream-routing rationale,\
+      \ in-scope-to-keep. File within documenter's **/*.md boundary. Snapshot-not-ledger\
+      \ directive met."
+    ack_version: 1
+    attestation:
+      tasks_verified:
+      - task-4-2
+  version: 1
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:02:28Z] coder (CONSENSUS_PROPOSE): Proposal from coder
+
+v2 re-propose for slice-4 (gateway .py de-ledger), addressing both v1 NACKs (reviewer_code_holistic + tester) in one round. jira_client.py: stripped ALL residual process-ledger tags the WS2 doctrine targets — refine Q5/architect D7 and feedback Q1/decision-16 (429-handling block), refine Q8/architect D8 (404-envelope), risk R6/architect Q4 (DEFAULT_EXPAND), refine feedback Q1 (_request), refine decision-5 (edit_issue notify_users), refine Open Q28/decision-28 (create_issue_link), and refine decision #10 (JiraClient class docstring). Load-bearing rationale preserved in every case (429 read/write symmetry, not_found envelope, single-fetch expand, at-most-once writes, notify_users=False default, link de-dup, multi-site single-file drop-in). artifact_api.py: "STRICT (HITL Q2 of #3077)" -> "Strict no-path schema (#3077)", keeping the path-traversal-hardening rationale and the justifying #3077 link while dropping the HITL-Q ledger tag. reviewer_code_holistic gap #1 (gateway/CLAUDE.md seam-table re-keying) is already satisfied in-tree by the documenter in commit 883cac007 — coder is gateway-blocked from .md paths (alternative_role=documenter), so the reviewer's NACK was against the pre-merge v1 SHA. Docstring/comment-only; no code or control-flow change; both files ast.parse clean; no-op propose path and gateway file boundaries untouched.
+
+**Adversarial re-review**
+
+**Your v2 review has TWO equal-weight mandates:**
+
+1. **Verify named v1 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` — the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** — ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v1 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: 77fbabc3-232e-40
+phase: implement
+metadata:
+  payload:
+    summary: "v2 re-propose for slice-4 (gateway .py de-ledger), addressing both v1\
+      \ NACKs (reviewer_code_holistic + tester) in one round. jira_client.py: stripped\
+      \ ALL residual process-ledger tags the WS2 doctrine targets \u2014 refine Q5/architect\
+      \ D7 and feedback Q1/decision-16 (429-handling block), refine Q8/architect D8\
+      \ (404-envelope), risk R6/architect Q4 (DEFAULT_EXPAND), refine feedback Q1\
+      \ (_request), refine decision-5 (edit_issue notify_users), refine Open Q28/decision-28\
+      \ (create_issue_link), and refine decision #10 (JiraClient class docstring).\
+      \ Load-bearing rationale preserved in every case (429 read/write symmetry, not_found\
+      \ envelope, single-fetch expand, at-most-once writes, notify_users=False default,\
+      \ link de-dup, multi-site single-file drop-in). artifact_api.py: \"STRICT (HITL\
+      \ Q2 of #3077)\" -> \"Strict no-path schema (#3077)\", keeping the path-traversal-hardening\
+      \ rationale and the justifying #3077 link while dropping the HITL-Q ledger tag.\
+      \ reviewer_code_holistic gap #1 (gateway/CLAUDE.md seam-table re-keying) is\
+      \ already satisfied in-tree by the documenter in commit 883cac007 \u2014 coder\
+      \ is gateway-blocked from .md paths (alternative_role=documenter), so the reviewer's\
+      \ NACK was against the pre-merge v1 SHA. Docstring/comment-only; no code or\
+      \ control-flow change; both files ast.parse clean; no-op propose path and gateway\
+      \ file boundaries untouched."
+    attestation: {}
+    artifacts:
+    - gateway/jira_client.py
+    - gateway/artifact_api.py
+    risk_considered: Docstring/comment-only edits; no executable lines changed (both
+      files parse clean under py3.14). No test asserts on the edited strings, so the
+      gateway suite is unaffected. Scope held to coder-owned gateway .py files; gateway/CLAUDE.md
+      left to the documenter (already de-ledgered upstream). No-op/no-doc-impact BRC
+      propose path and documenter file boundaries unchanged.
+    commit_sha: 1232ae1e4
+    files_changed:
+    - gateway/jira_client.py
+    - gateway/artifact_api.py
+    tests_run: []
+    tasks_satisfied:
+    - task-4-1
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 2
+  commit_sha: 1232ae1e4
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:02:28Z] orchestrator → reviewer_code (CONSENSUS_RE_REVIEW): Re-review required: coder submitted new proposal v2
+
+Producer coder has submitted a new proposal (version 2) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.
+
+**Adversarial re-review**
+
+**Your v2 review has TWO equal-weight mandates:**
+
+1. **Verify named v1 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (`git log 837dae5b4cb4a41f27bd7aa7194354db48950ee9..1232ae1e4 --not origin/<base> -p` — the commits landed since the version you last verdicted) as a fresh reviewer** — ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (`837dae5b4cb4a41f27bd7aa7194354db48950ee9..1232ae1e4`) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (`837dae5b4cb4a41f27bd7aa7194354db48950ee9..1232ae1e4`) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v1 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: 8b759c34-4995-40
+phase: implement
+metadata:
+  producer_role: coder
+  version: 2
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:02:28Z] orchestrator → reviewer_contract (CONSENSUS_RE_REVIEW): Re-review required: coder submitted new proposal v2
+
+Producer coder has submitted a new proposal (version 2) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.
+
+**Adversarial re-review**
+
+**Your v2 review has TWO equal-weight mandates:**
+
+1. **Verify named v1 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (`git log 837dae5b4cb4a41f27bd7aa7194354db48950ee9..1232ae1e4 --not origin/<base> -p` — the commits landed since the version you last verdicted) as a fresh reviewer** — ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (`837dae5b4cb4a41f27bd7aa7194354db48950ee9..1232ae1e4`) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (`837dae5b4cb4a41f27bd7aa7194354db48950ee9..1232ae1e4`) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v1 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: 6750bec5-8e7a-43
+phase: implement
+metadata:
+  producer_role: coder
+  version: 2
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:02:28Z] orchestrator → reviewer_security (CONSENSUS_RE_REVIEW): Re-review required: coder submitted new proposal v2
+
+Producer coder has submitted a new proposal (version 2) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.
+
+**Adversarial re-review**
+
+**Your v2 review has TWO equal-weight mandates:**
+
+1. **Verify named v1 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (`git log 837dae5b4cb4a41f27bd7aa7194354db48950ee9..1232ae1e4 --not origin/<base> -p` — the commits landed since the version you last verdicted) as a fresh reviewer** — ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (`837dae5b4cb4a41f27bd7aa7194354db48950ee9..1232ae1e4`) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (`837dae5b4cb4a41f27bd7aa7194354db48950ee9..1232ae1e4`) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v1 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: 653bd2ea-e439-47
+phase: implement
+metadata:
+  producer_role: coder
+  version: 2
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:02:28Z] orchestrator → reviewer_concurrency (CONSENSUS_RE_REVIEW): Re-review required: coder submitted new proposal v2
+
+Producer coder has submitted a new proposal (version 2) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.
+
+**Adversarial re-review**
+
+**Your v2 review has TWO equal-weight mandates:**
+
+1. **Verify named v1 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (`git log 837dae5b4cb4a41f27bd7aa7194354db48950ee9..1232ae1e4 --not origin/<base> -p` — the commits landed since the version you last verdicted) as a fresh reviewer** — ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (`837dae5b4cb4a41f27bd7aa7194354db48950ee9..1232ae1e4`) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (`837dae5b4cb4a41f27bd7aa7194354db48950ee9..1232ae1e4`) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v1 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: ccd7ac21-1477-40
+phase: implement
+metadata:
+  producer_role: coder
+  version: 2
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:02:38Z] coder (CONSENSUS_PROPOSE): Proposal from coder
+
+Re-propose task-4-1 (gateway .py de-ledger) addressing BOTH v1 NACKs (reviewer_code_holistic + tester). New HEAD 1232ae1e4.
+
+TESTER findings — ALL FIXED (gateway/artifact_api.py + gateway/jira_client.py now grep-clean of HITL/decision/refine-Q/architect-D/Open-Q/risk-R/slice tags):
+  - artifact_api.py:22 "STRICT (HITL Q2 of #3077):" -> "Strict no-path schema (#3077):" (drops HITL-Q tag, keeps bare #3077 rationale link + path-resolution rationale)
+  - jira_client.py:48 "(feedback Q1, decision-16 symmetry)" -> "symmetrically with reads"
+  - jira_client.py:51 "404 envelope (refine Q8, architect D8):" -> "404 envelope:"
+  - jira_client.py:712 "(refine decision-5 default)" -> "(the default)"
+  - jira_client.py:815 "(refine Open Q28)... (decision-28)" -> tags dropped, dedupe rationale kept
+  - also swept the same class beyond the flagged lines: :43 "(refine Q5, architect D7)", :191 "(risk R6, architect Q4)", :366 "(refine feedback Q1)", and the class docstring "v1.1 multi-site support (refine decision #10)" -> "v1.1 multi-site support". Load-bearing rationale (path-traversal hardening, 429 symmetry, notify_users default, link de-dup, multi-site drop-in) all retained.
+
+REVIEWER_CODE_HOLISTIC gap 2 (jira_client.py decision/Q markers) — FIXED, same edits as above; grep for decision-N/Open-Q/refine-Q/architect-D/feedback-Q is empty.
+
+REVIEWER_CODE_HOLISTIC gap 1 (gateway/CLAUDE.md re-keying) — already satisfied on this branch + outside coder boundary:
+  - The live gateway/CLAUDE.md at HEAD is already in snapshot form (a "Module layout" table keyed by current submodule structure; grep for slice-N / "TBD (#2261 slice-14)" / "decision-7/8" / "HITL decision" is EMPTY). It was de-ledgered by ancestor commit 883cac007 "implement(#3288): de-ledger gateway/CLAUDE.md seam tables" (the documenter's slice-4 markdown task). The reviewer's quoted L17-44 slice content reviewed a STALE pre-883cac007 SHA; this re-propose pushes HEAD so the re-review sees the clean file.
+  - gateway/CLAUDE.md is a **/*.md file owned by the documenter role: check_file_restriction returns can_write=false, blocked_by=role, alternative_role=documenter for coder, and it is NOT in task-4-1's file list (artifact_api.py, jira_client.py). It is structurally not coder work.
+
+Both .py files ast.parse clean; comment/docstring-only; zero control-flow change. No-op/no-doc-impact propose path and documenter gateway boundaries untouched.
+
+**Adversarial re-review**
+
+**Your v3 review has TWO equal-weight mandates:**
+
+1. **Verify named v2 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` — the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** — ignore your v2 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v3 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v3 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v2 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: 04441034-c9fd-42
+phase: implement
+metadata:
+  payload:
+    summary: "Re-propose task-4-1 (gateway .py de-ledger) addressing BOTH v1 NACKs\
+      \ (reviewer_code_holistic + tester). New HEAD 1232ae1e4.\n\nTESTER findings\
+      \ \u2014 ALL FIXED (gateway/artifact_api.py + gateway/jira_client.py now grep-clean\
+      \ of HITL/decision/refine-Q/architect-D/Open-Q/risk-R/slice tags):\n  - artifact_api.py:22\
+      \ \"STRICT (HITL Q2 of #3077):\" -> \"Strict no-path schema (#3077):\" (drops\
+      \ HITL-Q tag, keeps bare #3077 rationale link + path-resolution rationale)\n\
+      \  - jira_client.py:48 \"(feedback Q1, decision-16 symmetry)\" -> \"symmetrically\
+      \ with reads\"\n  - jira_client.py:51 \"404 envelope (refine Q8, architect D8):\"\
+      \ -> \"404 envelope:\"\n  - jira_client.py:712 \"(refine decision-5 default)\"\
+      \ -> \"(the default)\"\n  - jira_client.py:815 \"(refine Open Q28)... (decision-28)\"\
+      \ -> tags dropped, dedupe rationale kept\n  - also swept the same class beyond\
+      \ the flagged lines: :43 \"(refine Q5, architect D7)\", :191 \"(risk R6, architect\
+      \ Q4)\", :366 \"(refine feedback Q1)\", and the class docstring \"v1.1 multi-site\
+      \ support (refine decision #10)\" -> \"v1.1 multi-site support\". Load-bearing\
+      \ rationale (path-traversal hardening, 429 symmetry, notify_users default, link\
+      \ de-dup, multi-site drop-in) all retained.\n\nREVIEWER_CODE_HOLISTIC gap 2\
+      \ (jira_client.py decision/Q markers) \u2014 FIXED, same edits as above; grep\
+      \ for decision-N/Open-Q/refine-Q/architect-D/feedback-Q is empty.\n\nREVIEWER_CODE_HOLISTIC\
+      \ gap 1 (gateway/CLAUDE.md re-keying) \u2014 already satisfied on this branch\
+      \ + outside coder boundary:\n  - The live gateway/CLAUDE.md at HEAD is already\
+      \ in snapshot form (a \"Module layout\" table keyed by current submodule structure;\
+      \ grep for slice-N / \"TBD (#2261 slice-14)\" / \"decision-7/8\" / \"HITL decision\"\
+      \ is EMPTY). It was de-ledgered by ancestor commit 883cac007 \"implement(#3288):\
+      \ de-ledger gateway/CLAUDE.md seam tables\" (the documenter's slice-4 markdown\
+      \ task). The reviewer's quoted L17-44 slice content reviewed a STALE pre-883cac007\
+      \ SHA; this re-propose pushes HEAD so the re-review sees the clean file.\n \
+      \ - gateway/CLAUDE.md is a **/*.md file owned by the documenter role: check_file_restriction\
+      \ returns can_write=false, blocked_by=role, alternative_role=documenter for\
+      \ coder, and it is NOT in task-4-1's file list (artifact_api.py, jira_client.py).\
+      \ It is structurally not coder work.\n\nBoth .py files ast.parse clean; comment/docstring-only;\
+      \ zero control-flow change. No-op/no-doc-impact propose path and documenter\
+      \ gateway boundaries untouched."
+    attestation: {}
+    artifacts:
+    - gateway/artifact_api.py
+    - gateway/jira_client.py
+    risk_considered: "Comment/docstring-only edits across both gateway .py files;\
+      \ ast.parse clean; no executable lines changed so gateway runtime behavior is\
+      \ unchanged. gateway/CLAUDE.md (reviewer gap 1) is documenter-owned and already\
+      \ de-ledgered on-branch. Test execution blocked locally (network egress blocked\
+      \ for venv sync; venv lacks pytest) \u2014 verified via static parse + exhaustive\
+      \ grep instead."
+    commit_sha: 1232ae1e4
+    files_changed:
+    - gateway/artifact_api.py
+    - gateway/jira_client.py
+    tests_run: []
+    tasks_satisfied:
+    - task-4-1
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 3
+  commit_sha: 1232ae1e4
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:03:10Z] reviewer_concurrency → coder (CONSENSUS_ACK): ACK from reviewer_concurrency for coder
+
+Concurrency dimension: no-op. The v3 delta is docstring/comment/Markdown-only — strips SDLC-ledger tags (HITL-Q2 #3077, refine decision-#10/#5/#28, architect D7/D8/Q4, risk R6, feedback Q1) from artifact_api.py and jira_client.py docstrings, and refreshes gateway/CLAUDE.md seam tables to a current-state module layout. Verified no executable lines changed: all added content is inside docstrings/doc prose (429-handling/404-envelope headers, JiraClient class-docstring continuation). No locking, shared-state, threading/async, or I/O-ordering constructs touched. Substantive rationale (429 retry policy, at-most-once write semantics, idempotency-cache dedupe) preserved. No concurrency risk.
+
+````yaml
+id: 1965f762-07cc-46
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/artifact_api.py
+    - gateway/jira_client.py
+    - gateway/CLAUDE.md
+    reason: "Concurrency dimension: no-op. The v3 delta is docstring/comment/Markdown-only\
+      \ \u2014 strips SDLC-ledger tags (HITL-Q2 #3077, refine decision-#10/#5/#28,\
+      \ architect D7/D8/Q4, risk R6, feedback Q1) from artifact_api.py and jira_client.py\
+      \ docstrings, and refreshes gateway/CLAUDE.md seam tables to a current-state\
+      \ module layout. Verified no executable lines changed: all added content is\
+      \ inside docstrings/doc prose (429-handling/404-envelope headers, JiraClient\
+      \ class-docstring continuation). No locking, shared-state, threading/async,\
+      \ or I/O-ordering constructs touched. Substantive rationale (429 retry policy,\
+      \ at-most-once write semantics, idempotency-cache dedupe) preserved. No concurrency\
+      \ risk."
+    ack_version: 3
+  version: 3
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:03:10Z] reviewer_concurrency (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_concurrency
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 45ee1432-1269-4b
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:03:29Z] reviewer_security → coder (CONSENSUS_ACK): ACK from reviewer_security for coder
+
+Docstring/comment-only ledger-tag stripping (v1→v3 delta). artifact_api.py: 'STRICT (HITL Q2 of #3077)' → 'Strict no-path schema (#3077)' — preserves the path-traversal-hardening rationale and keeps the justifying #3077 link (per directive, justifying issue links are in-scope to keep). jira_client.py: refine-Q/architect-D/decision-N/feedback-Q/risk-R/Open-Q iteration tags removed from module + _request/edit_ticket/link_create/class docstrings and the DEFAULT_EXPAND comment, keeping substantive present-tense rationale (429 retry policy, 404 envelope, notify_users default, idempotency dedupe, multi-site drop-in). Security invariants byte-unchanged: JIRA_API_ALLOWED_PATHS regexes, GET-only ALLOWED_METHODS gating, JIRA_WRITE_VERBS_DENIED, and the no-path request schema are untouched; no auth/credential/allowlist/method-gating logic modified. Both files parse clean. No attack-surface change.
+
+````yaml
+id: d4f2784e-2989-4d
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/artifact_api.py
+    - gateway/jira_client.py
+    reason: "Docstring/comment-only ledger-tag stripping (v1\u2192v3 delta). artifact_api.py:\
+      \ 'STRICT (HITL Q2 of #3077)' \u2192 'Strict no-path schema (#3077)' \u2014\
+      \ preserves the path-traversal-hardening rationale and keeps the justifying\
+      \ #3077 link (per directive, justifying issue links are in-scope to keep). jira_client.py:\
+      \ refine-Q/architect-D/decision-N/feedback-Q/risk-R/Open-Q iteration tags removed\
+      \ from module + _request/edit_ticket/link_create/class docstrings and the DEFAULT_EXPAND\
+      \ comment, keeping substantive present-tense rationale (429 retry policy, 404\
+      \ envelope, notify_users default, idempotency dedupe, multi-site drop-in). Security\
+      \ invariants byte-unchanged: JIRA_API_ALLOWED_PATHS regexes, GET-only ALLOWED_METHODS\
+      \ gating, JIRA_WRITE_VERBS_DENIED, and the no-path request schema are untouched;\
+      \ no auth/credential/allowlist/method-gating logic modified. Both files parse\
+      \ clean. No attack-surface change."
+    ack_version: 3
+  version: 3
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:03:32Z] reviewer_security (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_security
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 7e0b8a42-bc05-46
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:03:33Z] reviewer_code → coder (CONSENSUS_ACK): ACK from reviewer_code for coder
+
+Code-correct and on-task. Docstring-only de-ledger of the two enumerated gateway targets; both files compile (ast.parse OK) with no signature or control-flow change. artifact_api.py: `STRICT (HITL Q2 of #3077):` -> `Strict no-path schema (#3077):` drops the HITL-Q iteration tag while preserving the #3077 justifying link and the path-traversal-hardening rationale. jira_client.py: strips refine Q5/architect D7/Q8/D8, feedback Q1, decision-16/5/28, risk R6/architect Q4, Open Q28, and `refine decision #10` from the module/class/_request/edit_ticket/link_create docstrings, rewriting change-log phrasing into current-behavior prose (symmetrically with reads, "the default", single-file multi-site drop-in rationale retained). Substantive behavior descriptions (429 retry policy, 404 envelope, notify_users default, idempotency dedupe) preserved; issue link kept per directive (not over-deletion). Residual ledger-tag grep over both files now returns NONE. No test asserts on the changed docstrings. (v3 re-proposal is the same commit 1232ae1e4 — review unchanged.)
+
+````yaml
+id: 3a47aacd-3215-4a
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/artifact_api.py
+    - gateway/jira_client.py
+    reason: "Code-correct and on-task. Docstring-only de-ledger of the two enumerated\
+      \ gateway targets; both files compile (ast.parse OK) with no signature or control-flow\
+      \ change. artifact_api.py: `STRICT (HITL Q2 of #3077):` -> `Strict no-path schema\
+      \ (#3077):` drops the HITL-Q iteration tag while preserving the #3077 justifying\
+      \ link and the path-traversal-hardening rationale. jira_client.py: strips refine\
+      \ Q5/architect D7/Q8/D8, feedback Q1, decision-16/5/28, risk R6/architect Q4,\
+      \ Open Q28, and `refine decision #10` from the module/class/_request/edit_ticket/link_create\
+      \ docstrings, rewriting change-log phrasing into current-behavior prose (symmetrically\
+      \ with reads, \"the default\", single-file multi-site drop-in rationale retained).\
+      \ Substantive behavior descriptions (429 retry policy, 404 envelope, notify_users\
+      \ default, idempotency dedupe) preserved; issue link kept per directive (not\
+      \ over-deletion). Residual ledger-tag grep over both files now returns NONE.\
+      \ No test asserts on the changed docstrings. (v3 re-proposal is the same commit\
+      \ 1232ae1e4 \u2014 review unchanged.)"
+    ack_version: 3
+  version: 3
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:03:38Z] reviewer_code (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_code
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 4d2242ff-6d18-4e
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:04:27Z] reviewer_code_holistic → coder (CONSENSUS_NACK): NACK from reviewer_code_holistic for coder
+
+Re-NACK at v3 (proposal commit unchanged at 1232ae1e4; my review applies verbatim).
+
+Both round-1 blocking gaps are fully resolved — verified against the live files:
+1. gateway/CLAUDE.md (883cac007): slice-keyed seam tables (TBD #2261 slice-14, slice-8/slice-6 rows, HITL decision-7/8 tags) replaced with a current-state Module layout table. Clean.
+2. jira_client.py / artifact_api.py: the cited markers AND the broader set (refine Q5/architect D7, 404 Q8/D8, risk R6/architect Q4, refine decision #10, STRICT HITL Q2) are stripped, substantive rationale preserved. artifact_api.py clean; #3002/#3077 links correctly kept as current-system rationale.
+
+One residual violation blocks ACK, in a named artifact:
+
+gateway/jira_client.py L128-131 (the JIRA_WRITE_VERBS_DENIED comment): "...they're the escape hatch that turns read-only audit trails into real Jira mutations, and the refine phase explicitly blocked them." The clause "and the refine phase explicitly blocked them" references the SDLC refine phase — a process-ledger reference the doctrine forbids in inline comments ("never referencing SDLC artifacts ... phase ... in any doc/docstring/inline comment"). It adds no value for a current reader; the substantive rationale ("these turn read-only audit access into real mutations, so they are permanently out of scope") is already fully stated. Drop the clause or reword to current-state, e.g. "...into real Jira mutations, so they are permanently denied." This is the only remaining item — I swept both named files exhaustively for phase/process refs; nothing else outstanding. Re-propose with this one clause reworded and I ACK.
+
+````yaml
+id: 2938bc71-77ac-4a
+phase: implement
+metadata:
+  payload:
+    reason: "Re-NACK at v3 (proposal commit unchanged at 1232ae1e4; my review applies\
+      \ verbatim).\n\nBoth round-1 blocking gaps are fully resolved \u2014 verified\
+      \ against the live files:\n1. gateway/CLAUDE.md (883cac007): slice-keyed seam\
+      \ tables (TBD #2261 slice-14, slice-8/slice-6 rows, HITL decision-7/8 tags)\
+      \ replaced with a current-state Module layout table. Clean.\n2. jira_client.py\
+      \ / artifact_api.py: the cited markers AND the broader set (refine Q5/architect\
+      \ D7, 404 Q8/D8, risk R6/architect Q4, refine decision #10, STRICT HITL Q2)\
+      \ are stripped, substantive rationale preserved. artifact_api.py clean; #3002/#3077\
+      \ links correctly kept as current-system rationale.\n\nOne residual violation\
+      \ blocks ACK, in a named artifact:\n\ngateway/jira_client.py L128-131 (the JIRA_WRITE_VERBS_DENIED\
+      \ comment): \"...they're the escape hatch that turns read-only audit trails\
+      \ into real Jira mutations, and the refine phase explicitly blocked them.\"\
+      \ The clause \"and the refine phase explicitly blocked them\" references the\
+      \ SDLC refine phase \u2014 a process-ledger reference the doctrine forbids in\
+      \ inline comments (\"never referencing SDLC artifacts ... phase ... in any doc/docstring/inline\
+      \ comment\"). It adds no value for a current reader; the substantive rationale\
+      \ (\"these turn read-only audit access into real mutations, so they are permanently\
+      \ out of scope\") is already fully stated. Drop the clause or reword to current-state,\
+      \ e.g. \"...into real Jira mutations, so they are permanently denied.\" This\
+      \ is the only remaining item \u2014 I swept both named files exhaustively for\
+      \ phase/process refs; nothing else outstanding. Re-propose with this one clause\
+      \ reworded and I ACK."
+    artifact_references:
+    - gateway/jira_client.py
+    - gateway/artifact_api.py
+    - gateway/CLAUDE.md
+    nack_version: 3
+  reason: "Re-NACK at v3 (proposal commit unchanged at 1232ae1e4; my review applies\
+    \ verbatim).\n\nBoth round-1 blocking gaps are fully resolved \u2014 verified\
+    \ against the live files:\n1. gateway/CLAUDE.md (883cac007): slice-keyed seam\
+    \ tables (TBD #2261 slice-14, slice-8/slice-6 rows, HITL decision-7/8 tags) replaced\
+    \ with a current-state Module layout table. Clean.\n2. jira_client.py / artifact_api.py:\
+    \ the cited markers AND the broader set (refine Q5/architect D7, 404 Q8/D8, risk\
+    \ R6/architect Q4, refine decision #10, STRICT HITL Q2) are stripped, substantive\
+    \ rationale preserved. artifact_api.py clean; #3002/#3077 links correctly kept\
+    \ as current-system rationale.\n\nOne residual violation blocks ACK, in a named\
+    \ artifact:\n\ngateway/jira_client.py L128-131 (the JIRA_WRITE_VERBS_DENIED comment):\
+    \ \"...they're the escape hatch that turns read-only audit trails into real Jira\
+    \ mutations, and the refine phase explicitly blocked them.\" The clause \"and\
+    \ the refine phase explicitly blocked them\" references the SDLC refine phase\
+    \ \u2014 a process-ledger reference the doctrine forbids in inline comments (\"\
+    never referencing SDLC artifacts ... phase ... in any doc/docstring/inline comment\"\
+    ). It adds no value for a current reader; the substantive rationale (\"these turn\
+    \ read-only audit access into real mutations, so they are permanently out of scope\"\
+    ) is already fully stated. Drop the clause or reword to current-state, e.g. \"\
+    ...into real Jira mutations, so they are permanently denied.\" This is the only\
+    \ remaining item \u2014 I swept both named files exhaustively for phase/process\
+    \ refs; nothing else outstanding. Re-propose with this one clause reworded and\
+    \ I ACK."
+  revision_count: 2
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:04:38Z] reviewer_contract → coder (CONSENSUS_ACK): ACK from reviewer_contract for coder
+
+ACK task-4-1 (slice-4) v3 @1232ae1e (same SHA as v2; v3 is a re-propose with expanded summary, no artifact change). Mandate 1: the v1 residue I flagged (HITL Q2 of #3077, decision-16, decision-5, Open Q28/decision-28, refine decision #10) is all stripped — confirmed by grep slice-[0-9]|TASK-[0-9] = 0 hits AND broader ledger-tag grep (HITL/decision-N/refine-Q/architect-D/feedback-Q/Open-Q/risk-R) = 0 hits over both files. Mandate 2 (fresh-reviewer audit of delta cee55dab+1232ae1e): comment/docstring-only; both files ast.parse clean; zero control-flow change; load-bearing rationale preserved in every hunk (path-traversal hardening, 429 read/write symmetry, not_found envelope, notify_users=False default, link de-dup, multi-site drop-in); retained #3077/#3002/#1556/#1924 links read as current-state rationale (why the system is shaped this way — in-scope per directive), not chronology. Checked for over-stripping, behavior change, link-as-chronology, parse breakage — none found. Contract acceptance for task-4-1 satisfied. Note (NOT blocking, outside this delta + outside task-4-1's enumerated method scope + doesn't match the deterministic verification grep): jira_client.py:782 retains 'reviewer_code_holistic cycle 1 finding #2' — flagged for a potential corpus-wide WS2 sweep, not task-4-1 acceptance.
+
+````yaml
+id: bc547c2a-9aa8-47
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/artifact_api.py
+    - gateway/jira_client.py
+    reason: "ACK task-4-1 (slice-4) v3 @1232ae1e (same SHA as v2; v3 is a re-propose\
+      \ with expanded summary, no artifact change). Mandate 1: the v1 residue I flagged\
+      \ (HITL Q2 of #3077, decision-16, decision-5, Open Q28/decision-28, refine decision\
+      \ #10) is all stripped \u2014 confirmed by grep slice-[0-9]|TASK-[0-9] = 0 hits\
+      \ AND broader ledger-tag grep (HITL/decision-N/refine-Q/architect-D/feedback-Q/Open-Q/risk-R)\
+      \ = 0 hits over both files. Mandate 2 (fresh-reviewer audit of delta cee55dab+1232ae1e):\
+      \ comment/docstring-only; both files ast.parse clean; zero control-flow change;\
+      \ load-bearing rationale preserved in every hunk (path-traversal hardening,\
+      \ 429 read/write symmetry, not_found envelope, notify_users=False default, link\
+      \ de-dup, multi-site drop-in); retained #3077/#3002/#1556/#1924 links read as\
+      \ current-state rationale (why the system is shaped this way \u2014 in-scope\
+      \ per directive), not chronology. Checked for over-stripping, behavior change,\
+      \ link-as-chronology, parse breakage \u2014 none found. Contract acceptance\
+      \ for task-4-1 satisfied. Note (NOT blocking, outside this delta + outside task-4-1's\
+      \ enumerated method scope + doesn't match the deterministic verification grep):\
+      \ jira_client.py:782 retains 'reviewer_code_holistic cycle 1 finding #2' \u2014\
+      \ flagged for a potential corpus-wide WS2 sweep, not task-4-1 acceptance."
+    ack_version: 3
+    attestation:
+      tasks_verified:
+      - task-4-1
+  version: 3
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:04:40Z] reviewer_contract (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_contract
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 8f61ee96-915c-45
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:05:13Z] coder (CONSENSUS_PROPOSE): Proposal from coder
+
+Re-propose addressing reviewer_code_holistic v3 NACK. Reworded the JIRA_WRITE_VERBS_DENIED comment in gateway/jira_client.py (L128-131) to drop the "and the refine phase explicitly blocked them" clause — the only residual SDLC process-ledger reference flagged. The substantive rationale (these turn read-only audit access into real Jira mutations, so they are permanently denied) is preserved as a current-state statement, no chronology/phase reference. This was the sole outstanding blocker; both round-1 gaps (gateway/CLAUDE.md slice-keyed tables, jira_client/artifact_api process markers) were already resolved and re-verified clean by the reviewer.
+
+**Adversarial re-review**
+
+**Your v4 review has TWO equal-weight mandates:**
+
+1. **Verify named v3 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` — the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** — ignore your v3 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v4 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v4 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v3 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: 62c9ba82-b041-4c
+phase: implement
+metadata:
+  payload:
+    summary: "Re-propose addressing reviewer_code_holistic v3 NACK. Reworded the JIRA_WRITE_VERBS_DENIED\
+      \ comment in gateway/jira_client.py (L128-131) to drop the \"and the refine\
+      \ phase explicitly blocked them\" clause \u2014 the only residual SDLC process-ledger\
+      \ reference flagged. The substantive rationale (these turn read-only audit access\
+      \ into real Jira mutations, so they are permanently denied) is preserved as\
+      \ a current-state statement, no chronology/phase reference. This was the sole\
+      \ outstanding blocker; both round-1 gaps (gateway/CLAUDE.md slice-keyed tables,\
+      \ jira_client/artifact_api process markers) were already resolved and re-verified\
+      \ clean by the reviewer."
+    attestation: {}
+    artifacts:
+    - gateway/jira_client.py
+    - gateway/artifact_api.py
+    - gateway/CLAUDE.md
+    risk_considered: Comment-only change; no behavioral impact. Rewording preserves
+      the permanent-denial rationale while removing the forbidden phase reference
+      per the documenter snapshot doctrine.
+    commit_sha: db1ce745f1821af62209f6e3d0342a2d5325ef83
+    files_changed:
+    - gateway/jira_client.py
+    tests_run: []
+    tasks_satisfied: []
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 4
+  commit_sha: db1ce745f1821af62209f6e3d0342a2d5325ef83
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:05:13Z] orchestrator → reviewer_code (CONSENSUS_RE_REVIEW): Re-review required: coder submitted new proposal v4
+
+Producer coder has submitted a new proposal (version 4) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.
+
+**Adversarial re-review**
+
+**Your v4 review has TWO equal-weight mandates:**
+
+1. **Verify named v3 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (`git log 1232ae1e4..db1ce745f1821af62209f6e3d0342a2d5325ef83 --not origin/<base> -p` — the commits landed since the version you last verdicted) as a fresh reviewer** — ignore your v3 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v4 verdict, ask: would a reviewer who has only seen this delta (`1232ae1e4..db1ce745f1821af62209f6e3d0342a2d5325ef83`) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (`1232ae1e4..db1ce745f1821af62209f6e3d0342a2d5325ef83`) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v4 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v3 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: 9152d5ca-05af-47
+phase: implement
+metadata:
+  producer_role: coder
+  version: 4
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:05:13Z] orchestrator → reviewer_contract (CONSENSUS_RE_REVIEW): Re-review required: coder submitted new proposal v4
+
+Producer coder has submitted a new proposal (version 4) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.
+
+**Adversarial re-review**
+
+**Your v4 review has TWO equal-weight mandates:**
+
+1. **Verify named v3 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (`git log 1232ae1e4..db1ce745f1821af62209f6e3d0342a2d5325ef83 --not origin/<base> -p` — the commits landed since the version you last verdicted) as a fresh reviewer** — ignore your v3 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v4 verdict, ask: would a reviewer who has only seen this delta (`1232ae1e4..db1ce745f1821af62209f6e3d0342a2d5325ef83`) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (`1232ae1e4..db1ce745f1821af62209f6e3d0342a2d5325ef83`) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v4 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v3 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: f94a10af-506b-44
+phase: implement
+metadata:
+  producer_role: coder
+  version: 4
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:05:13Z] orchestrator → reviewer_security (CONSENSUS_RE_REVIEW): Re-review required: coder submitted new proposal v4
+
+Producer coder has submitted a new proposal (version 4) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.
+
+**Adversarial re-review**
+
+**Your v4 review has TWO equal-weight mandates:**
+
+1. **Verify named v3 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (`git log 1232ae1e4..db1ce745f1821af62209f6e3d0342a2d5325ef83 --not origin/<base> -p` — the commits landed since the version you last verdicted) as a fresh reviewer** — ignore your v3 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v4 verdict, ask: would a reviewer who has only seen this delta (`1232ae1e4..db1ce745f1821af62209f6e3d0342a2d5325ef83`) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (`1232ae1e4..db1ce745f1821af62209f6e3d0342a2d5325ef83`) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v4 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v3 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: 027bf029-07d3-44
+phase: implement
+metadata:
+  producer_role: coder
+  version: 4
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:05:13Z] orchestrator → reviewer_concurrency (CONSENSUS_RE_REVIEW): Re-review required: coder submitted new proposal v4
+
+Producer coder has submitted a new proposal (version 4) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.
+
+**Adversarial re-review**
+
+**Your v4 review has TWO equal-weight mandates:**
+
+1. **Verify named v3 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (`git log 1232ae1e4..db1ce745f1821af62209f6e3d0342a2d5325ef83 --not origin/<base> -p` — the commits landed since the version you last verdicted) as a fresh reviewer** — ignore your v3 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v4 verdict, ask: would a reviewer who has only seen this delta (`1232ae1e4..db1ce745f1821af62209f6e3d0342a2d5325ef83`) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (`1232ae1e4..db1ce745f1821af62209f6e3d0342a2d5325ef83`) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v4 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v3 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: 9f24e836-e7cf-4a
+phase: implement
+metadata:
+  producer_role: coder
+  version: 4
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:05:47Z] reviewer_concurrency → coder (CONSENSUS_ACK): ACK from reviewer_concurrency for coder
+
+Concurrency dimension: no-op. The v3→v4 delta is a single comment-line reword in gateway/jira_client.py — the JIRA_WRITE_VERBS_DENIED comment drops "the refine phase explicitly blocked them" in favor of stating permanent-denial rationale as current behavior. No executable lines changed; the comment annotates an immutable frozenset constant. No locking, shared-state, threading/async, or I/O-ordering constructs touched. Substantive security rationale (escape-hatch denylist for read-only audit trails vs. real Jira mutations) preserved. Consistent with the #3288 de-ledger directive. No concurrency risk.
+
+````yaml
+id: b14f2659-b29a-48
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/jira_client.py
+    reason: "Concurrency dimension: no-op. The v3\u2192v4 delta is a single comment-line\
+      \ reword in gateway/jira_client.py \u2014 the JIRA_WRITE_VERBS_DENIED comment\
+      \ drops \"the refine phase explicitly blocked them\" in favor of stating permanent-denial\
+      \ rationale as current behavior. No executable lines changed; the comment annotates\
+      \ an immutable frozenset constant. No locking, shared-state, threading/async,\
+      \ or I/O-ordering constructs touched. Substantive security rationale (escape-hatch\
+      \ denylist for read-only audit trails vs. real Jira mutations) preserved. Consistent\
+      \ with the #3288 de-ledger directive. No concurrency risk."
+    ack_version: 4
+  version: 4
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:05:50Z] reviewer_concurrency (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_concurrency
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 6f470132-b599-49
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:05:51Z] reviewer_code_holistic → coder (CONSENSUS_ACK): ACK from reviewer_code_holistic for coder
+
+v4 resolves the sole residual violation from my v3 NACK. gateway/jira_client.py JIRA_WRITE_VERBS_DENIED comment: the clause "and the refine phase explicitly blocked them" (SDLC refine-phase process-ledger reference, forbidden in inline comments) is reworded to "so they are permanently denied" — current-state rationale, substantive content (read-only-audit-to-real-mutation escape hatch, permanent denial) preserved. v3→v4 delta is this one line only; no regressions. All prior blocking gaps already resolved at v3 (CLAUDE.md slice-keyed seam tables replaced with current-state module layout; broader phase/process markers stripped from both jira files; legitimate #3002/#3077/#1557 rationale links correctly kept). Clean ACK.
+
+````yaml
+id: 5d7571f8-a22b-47
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/jira_client.py
+    - gateway/artifact_api.py
+    - gateway/CLAUDE.md
+    reason: "v4 resolves the sole residual violation from my v3 NACK. gateway/jira_client.py\
+      \ JIRA_WRITE_VERBS_DENIED comment: the clause \"and the refine phase explicitly\
+      \ blocked them\" (SDLC refine-phase process-ledger reference, forbidden in inline\
+      \ comments) is reworded to \"so they are permanently denied\" \u2014 current-state\
+      \ rationale, substantive content (read-only-audit-to-real-mutation escape hatch,\
+      \ permanent denial) preserved. v3\u2192v4 delta is this one line only; no regressions.\
+      \ All prior blocking gaps already resolved at v3 (CLAUDE.md slice-keyed seam\
+      \ tables replaced with current-state module layout; broader phase/process markers\
+      \ stripped from both jira files; legitimate #3002/#3077/#1557 rationale links\
+      \ correctly kept). Clean ACK."
+    ack_version: 4
+  version: 4
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:05:53Z] reviewer_code → coder (CONSENSUS_ACK): ACK from reviewer_code for coder
+
+Code-correct and on-task. Single-commit delta (db1ce745) is a one-line comment-only change to the JIRA_WRITE_VERBS_DENIED block in gateway/jira_client.py: drops the SDLC refine-phase process reference ("and the refine phase explicitly blocked them") and restates the rationale as current behavior ("so they are permanently denied"). The security-relevant rationale is fully preserved — the comment still explains these verbs are the escape hatch that turns read-only audit trails into real Jira mutations and are refused even if ALLOWED_METHODS is widened. ast.parse clean; comment-only with no code, signature, or control-flow change. No residual slice/TASK/decision/HITL ledger tags on or near the changed line. Not over-deletion (this is exactly the directive's "rewrite change-log-style phrasing into current-behavior"). No test asserts on the changed comment.
+
+````yaml
+id: 91a4f2a7-41c1-47
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/jira_client.py
+    reason: "Code-correct and on-task. Single-commit delta (db1ce745) is a one-line\
+      \ comment-only change to the JIRA_WRITE_VERBS_DENIED block in gateway/jira_client.py:\
+      \ drops the SDLC refine-phase process reference (\"and the refine phase explicitly\
+      \ blocked them\") and restates the rationale as current behavior (\"so they\
+      \ are permanently denied\"). The security-relevant rationale is fully preserved\
+      \ \u2014 the comment still explains these verbs are the escape hatch that turns\
+      \ read-only audit trails into real Jira mutations and are refused even if ALLOWED_METHODS\
+      \ is widened. ast.parse clean; comment-only with no code, signature, or control-flow\
+      \ change. No residual slice/TASK/decision/HITL ledger tags on or near the changed\
+      \ line. Not over-deletion (this is exactly the directive's \"rewrite change-log-style\
+      \ phrasing into current-behavior\"). No test asserts on the changed comment."
+    ack_version: 4
+    attestation:
+      files_reviewed:
+      - gateway/jira_client.py
+      issues_found: 0
+  version: 4
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:05:56Z] reviewer_code (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_code
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 978ddb49-18a5-48
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:05:56Z] reviewer_code_holistic (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_code_holistic
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: ac4f97a8-f14a-4a
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:06:03Z] reviewer_security → coder (CONSENSUS_ACK): ACK from reviewer_security for coder
+
+v4 delta (1232ae1e4..db1ce745f) is a single-line comment reword in gateway/jira_client.py: the JIRA_WRITE_VERBS_DENIED comment dropped the SDLC refine-phase reference ("and the refine phase explicitly blocked them") and restates the permanent-denial rationale as current behavior. The JIRA_WRITE_VERBS_DENIED frozenset content is byte-unchanged; GET-only ALLOWED_METHODS gating and JIRA_API_ALLOWED_PATHS regexes are untouched. In-scope ledger-tag strip per directive #1, with the escape-hatch security rationale preserved. Pure comment edit, parses clean. No attack-surface change.
+
+````yaml
+id: 2428348a-d81b-48
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/jira_client.py
+    reason: 'v4 delta (1232ae1e4..db1ce745f) is a single-line comment reword in gateway/jira_client.py:
+      the JIRA_WRITE_VERBS_DENIED comment dropped the SDLC refine-phase reference
+      ("and the refine phase explicitly blocked them") and restates the permanent-denial
+      rationale as current behavior. The JIRA_WRITE_VERBS_DENIED frozenset content
+      is byte-unchanged; GET-only ALLOWED_METHODS gating and JIRA_API_ALLOWED_PATHS
+      regexes are untouched. In-scope ledger-tag strip per directive #1, with the
+      escape-hatch security rationale preserved. Pure comment edit, parses clean.
+      No attack-surface change.'
+    ack_version: 4
+  version: 4
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:06:06Z] reviewer_security (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_security
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 02c3fb9d-cf78-4a
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:07:14Z] reviewer_contract → coder (CONSENSUS_ACK): ACK from reviewer_contract for coder
+
+ACK task-4-1 (slice-4) v4 @db1ce745. Delta over v3 = one comment line in gateway/jira_client.py: strips the SDLC process-ledger phrase "and the refine phase explicitly blocked them" and rewrites the JIRA_WRITE_VERBS_DENIED rationale as current-state ("so they are permanently denied") — directive-aligned (rationale over chronology, no phase/iteration reference). Verified: ast.parse clean, zero control-flow/code change, comment-only. task-4-1 acceptance re-confirmed — artifact_api.py carries no slice-4 tag; jira_client.py carries no slice-2 ledger markers (grep slice-N = 0); no behavior change. Non-blocking note (unchanged from v3, NOT a task-4-1 acceptance item): jira_client.py:171 and :782 retain "reviewer_code[_holistic] cycle 1 finding #N" references — a process-ledger pattern outside this task's enumerated scope and not covered by any later contract task; flagged as a candidate for a corpus-wide WS2 sweep, not a blocker here.
+
+````yaml
+id: 8dd9fc06-486f-4b
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/jira_client.py
+    - gateway/artifact_api.py
+    - gateway/CLAUDE.md
+    reason: "ACK task-4-1 (slice-4) v4 @db1ce745. Delta over v3 = one comment line\
+      \ in gateway/jira_client.py: strips the SDLC process-ledger phrase \"and the\
+      \ refine phase explicitly blocked them\" and rewrites the JIRA_WRITE_VERBS_DENIED\
+      \ rationale as current-state (\"so they are permanently denied\") \u2014 directive-aligned\
+      \ (rationale over chronology, no phase/iteration reference). Verified: ast.parse\
+      \ clean, zero control-flow/code change, comment-only. task-4-1 acceptance re-confirmed\
+      \ \u2014 artifact_api.py carries no slice-4 tag; jira_client.py carries no slice-2\
+      \ ledger markers (grep slice-N = 0); no behavior change. Non-blocking note (unchanged\
+      \ from v3, NOT a task-4-1 acceptance item): jira_client.py:171 and :782 retain\
+      \ \"reviewer_code[_holistic] cycle 1 finding #N\" references \u2014 a process-ledger\
+      \ pattern outside this task's enumerated scope and not covered by any later\
+      \ contract task; flagged as a candidate for a corpus-wide WS2 sweep, not a blocker\
+      \ here."
+    ack_version: 4
+    attestation:
+      tasks_verified:
+      - task-4-1
+  version: 4
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:07:19Z] reviewer_contract (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_contract
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 7f041ae7-fb98-47
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:07:34Z] tester → coder (CONSENSUS_ACK): ACK from tester for coder
+
+ACK from the testing lane. Doc/comment-only change across the slice; zero test impact.
+
+Mandate 1 (named blockers verified-fixed): all 5 sites from my v1 NACK are resolved and grep-clean across v2–v4 — artifact_api.py "STRICT (HITL Q2 of #3077)" → "Strict no-path schema (#3077)"; jira_client.py "(feedback Q1, decision-16 symmetry)", "404 envelope (refine Q8, architect D8)", "(refine decision-5 default)", "(refine Open Q28)/(decision-28)" all stripped with load-bearing rationale retained. artifact_api.py is fully de-ledgered (only residual hit `architect-output` is a spec-registered artifact NAME, legitimate).
+
+Mandate 2 (fresh audit of the v4 delta, testing lane): the v4 delta is a single comment-line reword in front of JIRA_WRITE_VERBS_DENIED ("...the refine phase explicitly blocked them" → "...so they are permanently denied"). I verified the JIRA_WRITE_VERBS_DENIED frozenset is byte-for-byte UNCHANGED (git diff 1232ae1e4..db1ce745f shows only the comment line moved). Shapes I checked and did NOT find a problem in: denylist-contents drift (none — write-verb rejection behavior intact), control-flow/executable change (none), AST validity (both files parse clean), and test fixtures/asserts referencing the edited comment or docstring strings (none — no test depends on these strings). Therefore the gateway test suite is unaffected; no tests to run for a comment-only edit.
+
+Note on residual references: the attribution refs still present in jira_client.py (L171 "reviewer_code cycle 1 finding #3", L183 "architect guidance", L193 "(architect)", L782 "reviewer_code_holistic cycle 1 finding #2, #1924") are a different class than my v1-enumerated tags and squarely belong to the holistic de-ledger lane. reviewer_code_holistic explicitly adjudicated L131 as the sole remaining process-ledger blocker (now fixed) and treats those as acceptable; the bare #1924 is a legitimate justifying issue link per the task scope-note. From the testing lane the artifact is clean — ACK.
+
+````yaml
+id: 84082524-1a29-48
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/jira_client.py
+    - gateway/artifact_api.py
+    reason: "ACK from the testing lane. Doc/comment-only change across the slice;\
+      \ zero test impact.\n\nMandate 1 (named blockers verified-fixed): all 5 sites\
+      \ from my v1 NACK are resolved and grep-clean across v2\u2013v4 \u2014 artifact_api.py\
+      \ \"STRICT (HITL Q2 of #3077)\" \u2192 \"Strict no-path schema (#3077)\"; jira_client.py\
+      \ \"(feedback Q1, decision-16 symmetry)\", \"404 envelope (refine Q8, architect\
+      \ D8)\", \"(refine decision-5 default)\", \"(refine Open Q28)/(decision-28)\"\
+      \ all stripped with load-bearing rationale retained. artifact_api.py is fully\
+      \ de-ledgered (only residual hit `architect-output` is a spec-registered artifact\
+      \ NAME, legitimate).\n\nMandate 2 (fresh audit of the v4 delta, testing lane):\
+      \ the v4 delta is a single comment-line reword in front of JIRA_WRITE_VERBS_DENIED\
+      \ (\"...the refine phase explicitly blocked them\" \u2192 \"...so they are permanently\
+      \ denied\"). I verified the JIRA_WRITE_VERBS_DENIED frozenset is byte-for-byte\
+      \ UNCHANGED (git diff 1232ae1e4..db1ce745f shows only the comment line moved).\
+      \ Shapes I checked and did NOT find a problem in: denylist-contents drift (none\
+      \ \u2014 write-verb rejection behavior intact), control-flow/executable change\
+      \ (none), AST validity (both files parse clean), and test fixtures/asserts referencing\
+      \ the edited comment or docstring strings (none \u2014 no test depends on these\
+      \ strings). Therefore the gateway test suite is unaffected; no tests to run\
+      \ for a comment-only edit.\n\nNote on residual references: the attribution refs\
+      \ still present in jira_client.py (L171 \"reviewer_code cycle 1 finding #3\"\
+      , L183 \"architect guidance\", L193 \"(architect)\", L782 \"reviewer_code_holistic\
+      \ cycle 1 finding #2, #1924\") are a different class than my v1-enumerated tags\
+      \ and squarely belong to the holistic de-ledger lane. reviewer_code_holistic\
+      \ explicitly adjudicated L131 as the sole remaining process-ledger blocker (now\
+      \ fixed) and treats those as acceptable; the bare #1924 is a legitimate justifying\
+      \ issue link per the task scope-note. From the testing lane the artifact is\
+      \ clean \u2014 ACK."
+    ack_version: 4
+  version: 4
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:07:34Z] orchestrator → coder (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 4) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: b6c878f2-a60d-4b
+phase: implement
+metadata:
+  ready_to_confirm: true
+  version: 4
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:07:34Z] orchestrator → tester (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: ef8f9719-4902-4f
+phase: implement
+metadata:
+  ready_to_confirm: true
+  version: 1
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:07:35Z] coder (CONSENSUS_CONFIRMED): Consensus confirmed by coder
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: a3074a70-adaf-46
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:07:35Z] tester (CONSENSUS_CONFIRMED): Consensus confirmed by tester
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 741abf76-4725-46
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:07:35Z] documenter (CONSENSUS_CONFIRMED): Consensus confirmed by documenter
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 8db76e95-2c6d-4b
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:07:35Z] reviewer_code (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_code
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 810a2ec3-47d6-47
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:07:35Z] reviewer_code_holistic (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_code_holistic
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: f81f561e-765c-48
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:07:35Z] reviewer_contract (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_contract
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 1157fb72-45d5-48
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:07:35Z] reviewer_security (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_security
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 9e6e59ed-bca7-48
+phase: implement
+metadata:
+  slice_id: slice-4
+````
+
+### [2026-06-26T22:07:35Z] reviewer_concurrency (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_concurrency
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 4bf0422f-eb5e-41
+phase: implement
+metadata:
+  slice_id: slice-4
+````
