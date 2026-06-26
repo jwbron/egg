@@ -230,7 +230,7 @@ def detect_heartbeat_stall(
         try:
             tool_age_f = float(tool_age)
             hb_age_f = float(hb_age)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         if tool_age_f < stall_seconds or hb_age_f < stall_seconds:
             continue

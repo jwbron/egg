@@ -16364,7 +16364,7 @@ def _check_branch_divergence_for_alert(
                 timeout=15,
                 check=False,
             )
-        except (subprocess.TimeoutExpired, OSError):
+        except subprocess.TimeoutExpired, OSError:
             return {}
         if pid.returncode != 0:
             return {}
@@ -16396,12 +16396,8 @@ def _check_branch_divergence_for_alert(
     base_patch_ids = set(_patch_id_to_sha(f"origin/{base_branch}").keys())
     if not base_patch_ids:
         return ahead, []
-    ahead_sha_by_patch_id = _patch_id_to_sha(
-        f"origin/{base_branch}..origin/{pipeline_branch}"
-    )
-    contaminated_shas = {
-        sha for pid, sha in ahead_sha_by_patch_id.items() if pid in base_patch_ids
-    }
+    ahead_sha_by_patch_id = _patch_id_to_sha(f"origin/{base_branch}..origin/{pipeline_branch}")
+    contaminated_shas = {sha for pid, sha in ahead_sha_by_patch_id.items() if pid in base_patch_ids}
     if not contaminated_shas:
         return ahead, []
 
