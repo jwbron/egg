@@ -21978,6 +21978,158 @@ def _queue_and_await_contract_decisions(
             _save_contract_update(_apply_fb)
 
 
+def _await_unresolved_gap_gate(
+    store: Any,
+    pipeline_id: str,
+    repo_path: Path,
+    worktree_repo_path: Path,
+    pipeline_identifier: int | str,
+    phase: PipelinePhase,
+) -> bool:
+    """Block phase finalize while the contract carries unresolved TaskGaps.
+
+    A tester→coder :class:`TaskGap` left ``resolved == False`` ships into
+    the committed contract snapshot and fails ``test_models_gaps.py`` red
+    in CI on the already-open PR (#3298 class 4). The implement phase is
+    **not** in ``_HITL_GATE_PHASES``, so the autonomous run loop would
+    otherwise mark it complete and finalize with the gap open and no
+    human in the loop. This surfaces a blocking ``phase_gate`` HITL
+    decision listing the open gaps and waits — mirroring the
+    unresolved-HITL guard in ``complete_phase`` (#1788) and honoring the
+    "always surface HITL, never auto-resolve" rule (so it fires
+    regardless of ``config.hitl_gates``). See #3300.
+
+    The operator resolves the gap (set the gap's ``resolved=true`` via
+    the contract-mutate path, e.g. by re-running/kicking the coder) and
+    approves, or picks the override option to ship with the gap open. The
+    contract is re-read after each approval so a stale ``approve`` cannot
+    advance with a gap still open. Returns ``True`` when a gate was
+    surfaced (resolved or overridden), ``False`` when the contract was
+    already clean (the common path, no gate shown).
+
+    A best-effort scan: contract load failures fail open (log + return)
+    so a transient read error can never strand the pipeline.
+    """
+    try:
+        from egg_contracts.loader import load_contract
+    except ImportError:
+        logger.warning(
+            "egg_contracts not available, skipping unresolved-gap gate",
+            pipeline_id=pipeline_id,
+        )
+        return False
+
+    def _load_open_gaps() -> list[tuple[str, Any]] | None:
+        try:
+            contract = load_contract(pipeline_identifier, worktree_repo_path)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "Could not load contract for unresolved-gap gate (skipping)",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+            return None
+        return contract.unresolved_gaps()
+
+    open_gaps = _load_open_gaps()
+    if not open_gaps:
+        return False
+
+    dq = get_decision_queue(pipeline_id, repo_path)
+    gated = False
+
+    while open_gaps:
+        gated = True
+        gap_lines = "\n".join(
+            f"- `{task_id}` / `{gap.id}` ({gap.from_role}→{gap.to_role}): {gap.description}"
+            for task_id, gap in open_gaps
+        )
+        question = (
+            f"The {phase.value} phase has {len(open_gaps)} unresolved coverage "
+            f"gap{'s' if len(open_gaps) != 1 else ''}. Resolve "
+            f"{'them' if len(open_gaps) != 1 else 'it'} (mark the gap resolved "
+            "via the contract) and approve, or choose 'override' to finalize "
+            "with the gap open."
+        )
+        context = (
+            "These tester→coder coverage gaps are still open on the contract. "
+            "Finalizing with an open gap ships it into the committed contract "
+            "and fails CI (test_models_gaps.py) red on the PR.\n\n"
+            f"{gap_lines}"
+        )
+        decision = dq.queue_decision(
+            question=question,
+            context=context,
+            options=["approve", "override"],
+            decision_type="phase_gate",
+            phase=phase,
+        )
+
+        # Mark AWAITING_HUMAN + surface to event watchers, mirroring the
+        # phase_gate block so the operator's wait-status monitor wakes.
+        with get_pipeline_state_lock(pipeline_id):
+            pipeline = store.load_pipeline(pipeline_id)
+            pipeline.status = PipelineStatus.AWAITING_HUMAN
+            store.save_pipeline(pipeline)
+        report_pipeline_status(
+            pipeline,
+            event_type="phase.gap_gate",
+            message=f"{phase.value} phase has unresolved coverage gaps",
+        )
+        if _emit_event is not None:
+            _emit_event(
+                EventType.DECISION_CREATED,
+                pipeline_id,
+                data={"phase": phase.value},
+            )
+
+        resolved = dq.wait_for_decision(decision.id)
+        # Restore RUNNING now the gate cleared (re-set to AWAITING_HUMAN
+        # above on the next loop if gaps remain).
+        with get_pipeline_state_lock(pipeline_id):
+            pipeline = store.load_pipeline(pipeline_id)
+            pipeline.status = PipelineStatus.RUNNING
+            store.save_pipeline(pipeline)
+
+        if resolved.status != DecisionStatus.RESOLVED:
+            # Cancelled / abandoned — don't spin; let the loop proceed so
+            # a cancel can tear the pipeline down.
+            logger.warning(
+                "Unresolved-gap gate ended without resolution; proceeding",
+                pipeline_id=pipeline_id,
+                phase=phase.value,
+                decision_status=getattr(resolved.status, "value", resolved.status),
+            )
+            return gated
+
+        resolution = (resolved.resolution or "").strip().lower()
+        if "override" in resolution:
+            logger.warning(
+                "Unresolved-gap gate overridden — finalizing with open gaps",
+                pipeline_id=pipeline_id,
+                phase=phase.value,
+                open_gap_ids=[f"{t}/{g.id}" for t, g in open_gaps],
+            )
+            return gated
+
+        # Approval path: re-read the contract. If the operator actually
+        # marked the gaps resolved, the gate clears; otherwise re-surface.
+        reloaded = _load_open_gaps()
+        if reloaded is None:
+            # Load failed — fail open rather than strand the pipeline.
+            return gated
+        open_gaps = reloaded
+        if open_gaps:
+            logger.info(
+                "Unresolved-gap gate approved but gaps still open; re-surfacing",
+                pipeline_id=pipeline_id,
+                phase=phase.value,
+                remaining=len(open_gaps),
+            )
+
+    return gated
+
+
 # ---------------------------------------------------------------------------
 # Jira-epic SDLC scheduling helpers (issue #1557 — task-1-4 / task-2-7)
 # ---------------------------------------------------------------------------
@@ -24579,6 +24731,39 @@ def _run_pipeline(
                         pipeline_id=pipeline_id,
                         phase=current_phase,
                         error=str(push_err),
+                    )
+
+            # --- Unresolved-gap gate (#3300) ---
+            # Block finalize while the contract carries an unresolved
+            # tester→coder TaskGap. Runs after the worktree sync above so
+            # the contract reflects the agents' final writes, and BEFORE
+            # the phase_gate / advance / finalize below so the gap can't
+            # ship into the committed contract (which would fail
+            # test_models_gaps.py red in CI on the already-open PR —
+            # #3298 class 4). Scoped to IMPLEMENT, where gaps are written;
+            # no-ops on a clean contract. Fires regardless of
+            # config.hitl_gates: an open gap is an escalation, not a
+            # routine phase approval.
+            if current_phase == PipelinePhase.IMPLEMENT:
+                try:
+                    _await_unresolved_gap_gate(
+                        store,
+                        pipeline_id,
+                        repo_path,
+                        worktree_repo_path,
+                        _pipeline_identifier(pipeline.issue_number, pipeline_id),
+                        current_phase,
+                    )
+                    pipeline = store.load_pipeline(pipeline_id)
+                except Exception as gap_gate_err:  # noqa: BLE001
+                    # Never let a gate bug strand the pipeline — the
+                    # reactive test_models_gaps.py CI check remains the
+                    # backstop if this fails open.
+                    logger.warning(
+                        "Unresolved-gap gate raised (continuing)",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        error=str(gap_gate_err),
                     )
 
             # --- HITL gate: pause for human approval ---

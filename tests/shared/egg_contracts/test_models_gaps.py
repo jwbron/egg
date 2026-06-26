@@ -292,6 +292,111 @@ class TestContractJsonSchema:
 # --------------------------------------------------------------------
 
 
+class TestContractUnresolvedGaps:
+    """``Contract.unresolved_gaps()`` powers the finalize/PR-open gate
+    (#3300): it must surface every open gap across all slices so the
+    pipeline can block before committing a contract that would fail
+    ``test_models_gaps.py`` red in CI."""
+
+    def _contract_with_gaps(self, gaps_by_task):
+        return Contract(
+            pipeline_id="issue-3300",
+            slices=[
+                {
+                    "id": "slice-1",
+                    "name": "n",
+                    "tasks": [
+                        {"id": task_id, "description": "d", "gaps": gaps}
+                        for task_id, gaps in gaps_by_task
+                    ],
+                }
+            ],
+        )
+
+    def test_clean_contract_returns_empty(self):
+        contract = self._contract_with_gaps([("task-1-1", [])])
+        assert contract.unresolved_gaps() == []
+
+    def test_resolved_gaps_excluded(self):
+        contract = self._contract_with_gaps(
+            [
+                (
+                    "task-1-1",
+                    [
+                        {
+                            "id": "gap-1",
+                            "from_role": "tester",
+                            "to_role": "coder",
+                            "description": "d",
+                            "resolved": True,
+                        }
+                    ],
+                )
+            ]
+        )
+        assert contract.unresolved_gaps() == []
+
+    def test_open_gap_surfaced_with_task_id(self):
+        contract = self._contract_with_gaps(
+            [
+                (
+                    "task-1-2",
+                    [
+                        {
+                            "id": "gap-3",
+                            "from_role": "tester",
+                            "to_role": "coder",
+                            "description": "no error-path test",
+                        }
+                    ],
+                )
+            ]
+        )
+        open_gaps = contract.unresolved_gaps()
+        assert len(open_gaps) == 1
+        task_id, gap = open_gaps[0]
+        assert task_id == "task-1-2"
+        assert gap.id == "gap-3"
+        assert gap.resolved is False
+
+    def test_mixed_resolved_and_open_across_tasks(self):
+        contract = self._contract_with_gaps(
+            [
+                (
+                    "task-1-1",
+                    [
+                        {
+                            "id": "gap-1",
+                            "from_role": "tester",
+                            "to_role": "coder",
+                            "description": "open",
+                        },
+                        {
+                            "id": "gap-2",
+                            "from_role": "tester",
+                            "to_role": "coder",
+                            "description": "closed",
+                            "resolved": True,
+                        },
+                    ],
+                ),
+                (
+                    "task-1-2",
+                    [
+                        {
+                            "id": "gap-3",
+                            "from_role": "reviewer_code",
+                            "to_role": "coder",
+                            "description": "also open",
+                        }
+                    ],
+                ),
+            ]
+        )
+        ids = sorted(f"{t}/{g.id}" for t, g in contract.unresolved_gaps())
+        assert ids == ["task-1-1/gap-1", "task-1-2/gap-3"]
+
+
 class TestGapsMutationAuthorization:
     """The tester role hits the gateway as IMPLEMENTER; the reviewer
     roles hit as REVIEWER.  Both must be allowed to write gaps."""

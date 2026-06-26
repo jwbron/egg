@@ -1191,6 +1191,30 @@ class Contract(EggContractBaseModel):
                 return decision
         return None
 
+    def unresolved_gaps(self) -> list[tuple[str, TaskGap]]:
+        """Return ``(task_id, gap)`` pairs for every unresolved ``TaskGap``.
+
+        A :class:`TaskGap` is a tester→coder coverage-gap handoff with a
+        ``resolved`` flag.  An unresolved gap left on the contract at
+        finalize ships into the committed contract snapshot and fails
+        ``test_models_gaps.py`` red in CI on the already-open PR (#3298
+        class 4).  This walks every task across every slice and surfaces
+        the open gaps so the finalize/PR-open gate (#3300) can block
+        before the contract is committed, rather than discovering it
+        reactively in CI.
+
+        Gaps are not phase-scoped: at finalize *every* gap should be
+        resolved, so the scan spans all tasks.  Returns an empty list
+        when the contract is clean (the common case).
+        """
+        open_gaps: list[tuple[str, TaskGap]] = []
+        for slice_ in self.slices:
+            for task in slice_.tasks:
+                for gap in task.gaps:
+                    if not gap.resolved:
+                        open_gaps.append((task.id, gap))
+        return open_gaps
+
     def get_agent_execution(self, role: AgentRoleType | str) -> AgentExecutionModel | None:
         """Get the execution state for an agent role.
 

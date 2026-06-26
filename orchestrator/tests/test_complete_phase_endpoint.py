@@ -621,3 +621,125 @@ class TestCompletePhasePendingDecisions:
             resp = client.post("/api/v1/pipelines/issue-42/phase/complete")
 
         assert resp.status_code == 200
+
+    # ------------------------------------------------------------------
+    # #3300 — unresolved contract gaps block finalize
+    # ------------------------------------------------------------------
+
+    def _contract_with_gap(self, *, resolved: bool):
+        from egg_contracts.models import Contract
+
+        return Contract(
+            pipeline_id="issue-42",
+            slices=[
+                {
+                    "id": "slice-1",
+                    "name": "n",
+                    "tasks": [
+                        {
+                            "id": "task-1-2",
+                            "description": "d",
+                            "gaps": [
+                                {
+                                    "id": "gap-1",
+                                    "from_role": "tester",
+                                    "to_role": "coder",
+                                    "description": "no error-path test",
+                                    "resolved": resolved,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        )
+
+    @patch("routes.phases._clear_concurrent_state")
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_unresolved_gap_blocks_finalize(self, mock_get_store, _mock_clear, client):
+        """An open tester→coder TaskGap must 409 the phase-complete with
+        reason=unresolved_contract_gaps (#3300, #3298 class 4)."""
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+        )
+        pipeline.current_phase = PipelinePhase.IMPLEMENT
+        mock_store = MagicMock()
+        mock_get_store.return_value = (mock_store, pipeline)
+
+        with (
+            patch("routes.pipelines._pipeline_identifier", return_value=42),
+            patch("routes.resolve_worktree_path", side_effect=lambda _pid, rp: rp),
+            patch(
+                "egg_contracts.loader.load_contract",
+                return_value=self._contract_with_gap(resolved=False),
+            ),
+        ):
+            resp = client.post("/api/v1/pipelines/issue-42/phase/complete")
+
+        assert resp.status_code == 409
+        body = json.loads(resp.data)
+        assert body["reason"] == "unresolved_contract_gaps"
+        assert body["details"]["unresolved_gap_ids"] == ["task-1-2/gap-1"]
+        mock_store.save_pipeline.assert_not_called()
+
+    @patch("routes.phases._clear_concurrent_state")
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_resolved_gap_does_not_block(self, mock_get_store, _mock_clear, client):
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+        )
+        pipeline.current_phase = PipelinePhase.IMPLEMENT
+        mock_store = MagicMock()
+        mock_get_store.return_value = (mock_store, pipeline)
+
+        with (
+            patch("routes.pipelines._pipeline_identifier", return_value=42),
+            patch("routes.resolve_worktree_path", side_effect=lambda _pid, rp: rp),
+            patch(
+                "egg_contracts.loader.load_contract",
+                return_value=self._contract_with_gap(resolved=True),
+            ),
+        ):
+            resp = client.post("/api/v1/pipelines/issue-42/phase/complete")
+
+        assert resp.status_code == 200
+
+    @patch("routes.phases._clear_concurrent_state")
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_force_overrides_gap_and_audits(self, mock_get_store, _mock_clear, client):
+        """force=true ships past an open gap and records the override on the
+        frozen phase artifacts for audit."""
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+        )
+        pipeline.current_phase = PipelinePhase.IMPLEMENT
+        mock_store = MagicMock()
+        mock_get_store.return_value = (mock_store, pipeline)
+
+        with (
+            patch("routes.pipelines._pipeline_identifier", return_value=42),
+            patch("routes.resolve_worktree_path", side_effect=lambda _pid, rp: rp),
+            patch("routes.pipelines._persist_phase_brc_history"),
+            patch(
+                "egg_contracts.loader.load_contract",
+                return_value=self._contract_with_gap(resolved=False),
+            ),
+        ):
+            resp = client.post(
+                "/api/v1/pipelines/issue-42/phase/complete",
+                json={"force": True, "force_reason": "shipping with known gap"},
+            )
+
+        assert resp.status_code == 200
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        assert phase_exec.artifacts["force_completed_gaps"] == json.dumps(["task-1-2/gap-1"])
+        assert phase_exec.artifacts["force_reason"] == "shipping with known gap"
