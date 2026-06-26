@@ -4978,6 +4978,11 @@ def create_parser() -> argparse.ArgumentParser:
 
     register_push_subcommand(subparsers)
 
+    # --- session-state (cross-pod warm-resume sync, #3278) ---
+    from egg_lib.cli_session_state import register_session_state_subcommand
+
+    register_session_state_subcommand(subparsers)
+
     return parser
 
 
