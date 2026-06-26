@@ -99,7 +99,7 @@
       "id": "slice-2",
       "name": "Model tiering via resolve_agent_model (\u00a71, folds #2813)",
       "goal": "Route the overseer decision/adjudication model through `resolve_agent_model` with explicit\ntiering (Haiku classify / Sonnet routine / Opus adversarial); deprecate\n`overseer_decision_maker_model` behind a shim; stop `kubernetes_spawner.py:2919` routing the\noverseer model through `classify_model(decision_model)`.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -108,8 +108,8 @@
         {
           "id": "task-2-1",
           "description": "Route the overseer model through `resolve_agent_model` (`agent_model_resolution.py:497`) with\ntiering; add a deprecation shim for `overseer_decision_maker_model` (`models.py:726-728`);\nremove the `classify_model(decision_model)` bypass at `kubernetes_spawner.py:2919`; wire the\ndecision_maker/classifier to the resolved per-tier models.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "23d18d5a0",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Resolver returns Opus for adversarial and cheaper tiers for classify/routine; the deprecated\nfield warns and no longer drives spawn (#2813 regression covered).",
@@ -133,8 +133,8 @@
         {
           "id": "task-2-2",
           "description": "Tests: resolver returns the tiered model per role/tier; the deprecation shim warns + maps;\nthe spawn path no longer reads `overseer_decision_maker_model`.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "767c61c64",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Tiering + deprecation-shim + #2813-bypass-removal assertions pass.",
@@ -157,11 +157,11 @@
         "slice-1"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-2270-overhaul/slice-1",
+      "integration_base_sha": "f6806b2a9ad98a6c0d744de1350abc7896a16ce5",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3283,
+      "pr_url": "https://github.com/jwbron/egg/pull/3283",
       "review_feedback": []
     },
     {
@@ -1111,6 +1111,61 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T04:03:23.127527Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": null,
+      "new_value": "e20a735be",
+      "reason": "Linked commit e20a735 to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T04:03:23.148994Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T04:10:38.510762Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": "e20a735be",
+      "new_value": "23d18d5a0",
+      "reason": "Linked commit 23d18d5 to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T04:25:06.574040Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": null,
+      "new_value": "767c61c64",
+      "reason": "Linked commit 767c61c to task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T04:25:06.594905Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-2 as complete",
       "checkpoint_id": null
     }
   ],
