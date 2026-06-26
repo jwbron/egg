@@ -20,7 +20,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Orchestrator Architecture](architecture/orchestrator.md) | Orchestrator deployment modes and sandbox-to-orchestrator communication |
 | [Overseer Architecture](architecture/overseer.md) | Orchestrator-side overseership model (#2270): deterministic detection plane, on-demand adjudicator (Opus), bounded corrective vocabulary, model tiering, and the shadow→live auto-issue-filing gate |
 | [Git Isolation](architecture/git-isolation.md) | Gateway sidecar design for worktree isolation and credential separation |
-| [Gateway Auto-Filter](architecture/gateway-auto-filter.md) | Restricted-path rejection on push (`403 restricted_path_modified`) and the commit-authorship registry that backs attribution |
+| [Gateway Restricted-Path Rejection](architecture/gateway-auto-filter.md) | Restricted-path rejection on push (`403 restricted_path_modified`) and the commit-authorship registry that backs attribution |
 | [Credential Injection](architecture/credential-injection.md) | Zero-credential sandbox with API key proxy via gateway |
 | [Network Isolation](architecture/network-isolation.md) | Public/private network modes and domain allowlist |
 | [Upstream Routing](architecture/upstream-routing.md) | `UpstreamRegistry` gateway seam for per-agent non-Claude backends, LiteLLM topology in `egg-system`, per-session routing decision, credential layout, and the no-op-by-default invariant ([#2769](https://github.com/jwbron/egg/issues/2769)); the gateway-as-single-router hot-reloadable `routing-policy.yaml` with proactive `switchover` + reactive `fallbacks` chain, per-hop credential rebuild, and quota/5xx triggers ([#2987](https://github.com/jwbron/egg/issues/2987)) |
@@ -125,7 +125,7 @@ Each major component has detailed documentation:
 
 | Task Type | Read First | Also Helpful |
 |-----------|------------|--------------|
-| **Gateway changes** | [Architecture Overview](architecture/README.md) | [Git Isolation](architecture/git-isolation.md), [Gateway Auto-Filter](architecture/gateway-auto-filter.md), [Gateway README](../gateway/README.md) |
+| **Gateway changes** | [Architecture Overview](architecture/README.md) | [Git Isolation](architecture/git-isolation.md), [Gateway Restricted-Path Rejection](architecture/gateway-auto-filter.md), [Gateway README](../gateway/README.md) |
 | **Security-related changes** | [Architecture Overview](architecture/README.md) | [Git Isolation](architecture/git-isolation.md) |
 | **Sandbox changes** | [Sandbox README](../sandbox/README.md) | [Architecture Overview](architecture/README.md) |
 | **Configuration changes** | [Config README](../config/README.md) | [egg_config README](../shared/egg_config/README.md) |

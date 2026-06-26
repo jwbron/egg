@@ -33,7 +33,7 @@ See the [main README](../../README.md) for the architecture diagram.
 - File-level access restrictions (role-based blocking of sensitive files like contract files)
 - Filesystem-level readonly mounts (phase-protected `.egg-state/` directories mounted readonly)
 - Commit-time validation (staged files checked against phase restrictions before commit)
-- Agent role-based file access (Coder, Tester, Documenter have distinct write permissions; gateway rejects pushes that modify restricted paths with `403 restricted_path_modified` — see [Gateway Auto-Filter](gateway-auto-filter.md). `EGG_AGENT_RESTRICTIONS_ENFORCE=false` is the kill switch that short-circuits to plain push)
+- Agent role-based file access (Coder, Tester, Documenter have distinct write permissions; gateway rejects pushes that modify restricted paths with `403 restricted_path_modified` — see [Gateway Restricted-Path Rejection](gateway-auto-filter.md). `EGG_AGENT_RESTRICTIONS_ENFORCE=false` is the kill switch that short-circuits to plain push)
 - Anchor file write-scoping (agents can only write their own `.egg-state/agent-anchors/{agent-id}.json`, enforced via `AGENT_ANCHOR_ID`)
 - Role-based contract mutations (implementer, reviewer, human roles with field-level permissions)
 - No merge capability (gateway has no merge endpoint)
@@ -138,7 +138,7 @@ The SDLC pipeline orchestrates agent-based development with structurally enforce
 ## Key Architectural Decisions
 
 - [Git Isolation](git-isolation.md) - Worktree isolation via gateway
-- [Gateway Auto-Filter](gateway-auto-filter.md) - Restricted-path rejection on push and the commit-authorship registry that backs attribution
+- [Gateway Restricted-Path Rejection](gateway-auto-filter.md) - Restricted-path rejection on push and the commit-authorship registry that backs attribution
 - [Credential Injection](credential-injection.md) - Zero-credential sandbox with API key proxy
 - [Network Isolation](network-isolation.md) - Public/private network modes
 - [Upstream Routing](upstream-routing.md) - `UpstreamRegistry` seam, LiteLLM topology, per-session routing decision, and no-op-by-default invariant for non-Claude agent backends ([#2769](https://github.com/jwbron/egg/issues/2769))
