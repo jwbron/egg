@@ -67,8 +67,7 @@ _POLL_SUBPROCESS_TIMEOUT_SECS = 16
 # overseer role) and overseer monitor alerts; ``orchestrator`` covers
 # deterministic nudges that originate in the orchestrator itself —
 # notably the ``brc_confirmation_timeout`` directed wake to a stuck
-# producer (``orchestrator/routes/pipelines.py::_send_brc_confirmation_nudge``)
-# and the overseer-respawn broadcast (same module, ``_handle_overseer_respawn``).
+# producer (``orchestrator/routes/pipelines.py::_send_brc_confirmation_nudge``).
 # Without ``orchestrator`` in this set the brc-confirmation-timeout nudge
 # would be silently dropped — the producer's poll fetches it, advances
 # the cursor past it, and injects nothing, which is exactly the
