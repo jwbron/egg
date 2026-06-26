@@ -315,7 +315,7 @@
       "id": "slice-5",
       "name": "Orchestrator docstrings + orchestrator/CLAUDE.md",
       "goal": "De-ledger orchestrator/ .py docstrings and inline comments \u2014 the dense\noffender is kubernetes_spawner.py (\"# #3064 slice-N:\" section markers)\n(coder) \u2014 and re-key the orchestrator/CLAUDE.md submodule seam tables by\ncurrent structure (documenter). Comment/docstring edits only; no change\nto code behavior.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -324,10 +324,10 @@
         {
           "id": "task-5-1",
           "description": "Clean orchestrator/kubernetes_spawner.py. Rewrite the dense `# #NNNN\nslice-N: \u2026` section markers and comments into plain current-behavior\nsection comments (e.g. \"# #3064 slice-2: build the pod spec\" \u2192 \"#\nBuild the pod spec\"), preserving any rationale that explains a\nnon-obvious choice (reframed without the slice tag). No code/\ncontrol-flow changes \u2014 comments/docstrings only.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "ed4fbd76e",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Rewrote all `#NNNN slice-N:` ledger markers and process-iteration qualifiers (v2 review follow-up, re-review, NACK items, pre-review) in orchestrator/kubernetes_spawner.py into plain current-behavior section comments/docstrings. Preserved: justifying issue links (e.g. #2967, #1857, #1869, #3024, failure-mode references) and the slice-scope RUNTIME concept (EGG_SLICE_ID, slice_id param, slice-scoped Job naming example egg-agent-issue-2261-v7-slice-2-coder, \"Slice scope (#2403)\" feature descriptions) \u2014 these are current-state vocabulary, not ledger. Comments/docstrings only; no code/control-flow change. ruff check + format clean. Tests: 157 passed / 11 failed, identical to clean tree (pre-existing sandbox failure: `git init -b egg/issue-3064/slice-4` fails on slashed branch names) \u2014 change is behavior-neutral.",
           "acceptance_criteria": "- No `# #NNNN slice-N:` ledger markers remain; section comments\n  describe current behavior.\n- No code/control-flow changes; the orchestrator test suite stays\n  green.",
           "files_affected": [
             "orchestrator/kubernetes_spawner.py"
@@ -345,8 +345,8 @@
         {
           "id": "task-5-2",
           "description": "Re-key the submodule seam tables in orchestrator/CLAUDE.md. Today\nthey are keyed by which slice landed each decomposition (\"TBD (#2261\nslice-15)\", \"slice-12\", \"slice-7\"). Reorganize by current submodule\nstructure (module \u2192 responsibility), dropping the slice-landed\ncolumn; keep a rationale link only where it explains why a seam\nexists.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "35e8cf451",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- The orchestrator/CLAUDE.md seam tables are organized by current\n  structure; no slice-N references remain; retained links are\n  rationale.",
@@ -368,11 +368,11 @@
         "slice-1"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3288/slice-1",
+      "integration_base_sha": "55352cc1114281975d6d942e0da923b559361c1e",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3322,
+      "pr_url": "https://github.com/jwbron/egg/pull/3322",
       "review_feedback": []
     },
     {
@@ -859,6 +859,83 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-4-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T22:12:40.826549Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.1.commit",
+      "old_value": null,
+      "new_value": "35e8cf451",
+      "reason": "Linked commit 35e8cf4 to task-5-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T22:12:40.845457Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-5-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T22:16:50.085131Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.commit",
+      "old_value": null,
+      "new_value": "d9d62dbbb",
+      "reason": "Linked commit d9d62db to task-5-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T22:16:54.527685Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.notes",
+      "old_value": "",
+      "new_value": "Rewrote all `#NNNN slice-N:` ledger markers and process-iteration qualifiers (v2 review follow-up, re-review, NACK items, pre-review) in orchestrator/kubernetes_spawner.py into plain current-behavior section comments/docstrings. Preserved: justifying issue links (e.g. #2967, #1857, #1869, #3024, failure-mode references) and the slice-scope RUNTIME concept (EGG_SLICE_ID, slice_id param, slice-scoped Job naming example egg-agent-issue-2261-v7-slice-2-coder, \"Slice scope (#2403)\" feature descriptions) \u2014 these are current-state vocabulary, not ledger. Comments/docstrings only; no code/control-flow change. ruff check + format clean. Tests: 157 passed / 11 failed, identical to clean tree (pre-existing sandbox failure: `git init -b egg/issue-3064/slice-4` fails on slashed branch names) \u2014 change is behavior-neutral.",
+      "reason": "Updated notes for task-5-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T22:16:58.264626Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.commit",
+      "old_value": "d9d62dbbb",
+      "new_value": "d9d62dbbb",
+      "reason": "Linked commit d9d62db to task-5-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T22:16:58.280370Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-5-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T22:17:41.810229Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.commit",
+      "old_value": "d9d62dbbb",
+      "new_value": "ed4fbd76e",
+      "reason": "Linked commit ed4fbd7 to task-5-1",
       "checkpoint_id": null
     }
   ],
