@@ -23,10 +23,11 @@ time to merge them**. Sequencing them into one chain side-steps that collision
 entirely: each slice starts from the finished result of the one before it, so the
 allow-list is only ever changed by one slice at a time.
 
-(There's no other reason they need to be ordered — the one-time "set up the
-splitting pattern" groundwork that an earlier attempt depended on already shipped
-in merged PR #2335, so the only thing forcing a sequence is that shared
-allow-list file.)
+(A handful of slices also touch a second shared file — the container "build
+recipe" that lists which code goes into the shipped image, see below — which
+reinforces the same need to go one at a time. The one-time "set up the splitting
+pattern" groundwork that an earlier attempt depended on already shipped in merged
+PR #2335, so the only things forcing a sequence are those shared files.)
 
 ## The order: easiest first, giants last
 
@@ -62,7 +63,14 @@ Every slice follows the identical, proven recipe:
    untouched.
 4. **Tidy the bookkeeping** — remove the file's allow-list line and add an
    accurate "here's the new layout" entry to the relevant map.
-5. **Prove it's green** — the style check and the full test suite must both pass
+5. **Update the container build, for the files that need it** — some files are
+   copied into the shipped container image *by name* (or by a pattern that only
+   grabs loose files, not folders). When such a file becomes a folder, it would
+   silently vanish from the image unless the build recipe is updated in the same
+   slice. The plan lists exactly which slices need this (eight of them) and which
+   don't, and those slices additionally build the image and check the code still
+   loads inside it.
+6. **Prove it's green** — the style check and the full test suite must both pass
    before the slice is done.
 
 A couple of files need a little extra care, all called out in the plan:
@@ -91,7 +99,9 @@ A couple of files need a little extra care, all called out in the plan:
   split file, a new section in the sandbox map, and a brand-new `shared` map).
 - Nothing that used the old files broke, and no test lost track of an internal
   hook it relies on.
-- Every slice passed the style check and the full test suite.
+- Every slice passed the style check and the full test suite — and the slices
+  that change a by-name container copy also built the image and confirmed the
+  code still loads inside it.
 - No behavior changed anywhere; any bug noticed along the way is written up
   separately rather than fixed in passing.
 
@@ -113,6 +123,12 @@ reorganization* like this could still go wrong:
 - **The main branch drifting** under a long-running giant slice — handled by the
   easy-first ordering and by re-checking against the latest code at the start of
   each slice.
+- **A file silently disappearing from the shipped container image** when it turns
+  into a folder — because a file copied into the image by a filename pattern (or
+  as a single named file) is no longer picked up once it becomes a folder, and the
+  normal style check and tests pass anyway since they run against the source code,
+  not the built image. Caught by updating the image's copy step in the same slice
+  and building the image to confirm the code still loads.
 
 ## Anything for a human to decide?
 
