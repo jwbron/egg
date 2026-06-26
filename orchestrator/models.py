@@ -724,7 +724,18 @@ class PipelineConfig(BaseModel):
         default=2, ge=1, description="Max redirect attempts before HITL escalation"
     )
     overseer_decision_maker_model: str = Field(
-        default="sonnet", description="LLM model for overseer decision-making tier"
+        default="sonnet",
+        description=(
+            "Deprecated (#2270 §1, folds #2813): no longer drives the overseer "
+            "spawn's base model, which now resolves through the per-agent "
+            "resolver (resolve_agent_model(OVERSEER) -> opus by default; "
+            "override via agent_models['overseer']). The overseer's decision "
+            "work is tiered instead — classify on haiku, routine corrective "
+            "decisions on sonnet, adversarial/high-stakes on the resolved opus "
+            "tier. Retained for backwards compatibility (the routine-tier "
+            "default is still read by overseer/monitor.py); slice-9 makes the "
+            "field fully inert."
+        ),
     )
     overseer_max_turns: int = Field(
         default=2000,

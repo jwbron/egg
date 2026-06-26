@@ -337,10 +337,14 @@ class TestSpawnOverseerEffort:
             "sonnet-routed overseer must inherit Claude Code's default effort"
         )
 
-    def test_fable_decision_model_pins_high_effort(self, spawner, mock_docker_client):
-        """An operator who sets ``overseer_decision_maker_model='fable'``
-        gets ``--effort high`` threaded through, matching the refine/plan
-        path's drift defense."""
+    def test_deprecated_decision_model_is_inert(self, spawner, mock_docker_client):
+        """#2270 §1 (folds #2813): ``decision_model`` (the deprecated
+        ``overseer_decision_maker_model``) no longer drives the overseer
+        spawn. Even ``decision_model='fable'`` — which used to pin
+        ``--effort high`` via ``classify_model`` — is now inert: the base
+        model resolves through ``resolve_agent_model(OVERSEER)`` to ``opus``
+        (effort ``None``), so no ``--effort`` flag is threaded and the model
+        is ``opus`` regardless of the deprecated field's value."""
         spawner.spawn_overseer_container(
             pipeline_id="issue-1562-fable",
             issue_number=1562,
@@ -349,9 +353,15 @@ class TestSpawnOverseerEffort:
 
         create_call = mock_docker_client.create_container.call_args
         command = create_call.kwargs.get("command", [])
-        assert "--effort" in command, "fable-routed overseer must pin --effort high"
-        effort_idx = command.index("--effort")
-        assert command[effort_idx + 1] == "high"
+        assert "--effort" not in command, (
+            "deprecated decision_model='fable' must no longer pin --effort; "
+            "the overseer base model resolves to opus via resolve_agent_model"
+        )
+        model_idx = command.index("--model")
+        assert command[model_idx + 1] == "opus", (
+            "deprecated decision_model must not drive the base model; "
+            "resolve_agent_model(OVERSEER) -> opus"
+        )
 
 
 # ---------------------------------------------------------------------------

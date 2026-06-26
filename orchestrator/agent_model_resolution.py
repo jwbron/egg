@@ -93,6 +93,28 @@ _FABLE_DEFAULT_ROLES: frozenset[str] = frozenset(
     for role in get_roles_for_phase(phase, include_reviewers=True, repo=EGG_REPO)
 )
 
+# Overseer decision-tier models (#2270 §1, folds #2813). The overseer's work
+# is split across three cost/capability tiers instead of the single bespoke
+# ``overseer_decision_maker_model`` field (now deprecated):
+#
+#   - classify    (:data:`OVERSEER_CLASSIFY_MODEL`, haiku) — high-volume,
+#     single-shot Haiku-tier classification (``overseer/classifier.py``).
+#   - routine     (:data:`OVERSEER_ROUTINE_MODEL`, sonnet) — routine corrective
+#     decisions (``overseer/decision_maker.py``).
+#   - adversarial — the overseer agent's OWN resolved model, i.e.
+#     ``resolve_agent_model(AgentRole.OVERSEER, …).claude_code_alias``, which is
+#     ``opus`` (the fleet standard) by default and honours the per-pipeline
+#     ``agent_models["overseer"]`` / repo-level override. Only adversarial /
+#     high-stakes adjudication runs on this tier; keeping classify + routine on
+#     the cheaper fixed tiers is what bounds the cost.
+#
+# The classify / routine tiers are deliberately fixed cheap defaults rather than
+# operator knobs in this slice — the per-role override surface is the OVERSEER
+# entry in ``agent_models`` (the adversarial tier), not the retired bespoke
+# field. Resolve all three together via :func:`resolve_overseer_models`.
+OVERSEER_CLASSIFY_MODEL = "haiku"
+OVERSEER_ROUTINE_MODEL = "sonnet"
+
 # Upstream identifiers used by the gateway's UpstreamRegistry
 # (gateway/upstream_registry.py).
 UPSTREAM_ANTHROPIC = "anthropic"
@@ -561,11 +583,68 @@ def resolve_agent_model(
     return classify_model(DEFAULT_AGENT_MODEL)
 
 
+@dataclass(frozen=True)
+class OverseerModelTiers:
+    """The overseer's three resolved decision tiers (#2270 §1).
+
+    Attributes:
+        classify: Model alias for the cheap, high-volume Haiku-tier
+            classifier (``overseer/classifier.py``).
+        routine: Model alias for routine corrective decisions
+            (``overseer/decision_maker.py``).
+        adversarial: Model alias for adversarial / high-stakes
+            adjudication — the overseer agent's own resolved model
+            (:func:`resolve_agent_model` for :data:`AgentRole.OVERSEER`),
+            ``opus`` by default.
+    """
+
+    classify: str
+    routine: str
+    adversarial: str
+
+
+def resolve_overseer_models(
+    pipeline_config: object | None = None,
+    repo: str | None = None,
+) -> OverseerModelTiers:
+    """Resolve the overseer's three decision tiers (#2270 §1, folds #2813).
+
+    The adversarial tier flows through :func:`resolve_agent_model` for
+    :data:`AgentRole.OVERSEER`, so it honours the same precedence as every
+    other agent (per-pipeline ``agent_models["overseer"]`` → repo-level
+    default → built-in ``opus``). The classify and routine tiers are the
+    fixed cheap defaults :data:`OVERSEER_CLASSIFY_MODEL` /
+    :data:`OVERSEER_ROUTINE_MODEL` — only the adversarial tier is operator-
+    tunable, via the per-role config surface rather than the retired
+    ``overseer_decision_maker_model`` field.
+
+    Args:
+        pipeline_config: A ``PipelineConfig`` (typed loosely to avoid an
+            import cycle) or ``None`` to fall through to repo/built-in.
+        repo: Repository in ``owner/repo`` form, or ``None``.
+
+    Returns:
+        An :class:`OverseerModelTiers` with ``opus`` for the adversarial
+        tier (by default) and the cheaper fixed tiers for classify/routine.
+    """
+    adversarial = resolve_agent_model(
+        AgentRole.OVERSEER, pipeline_config, repo
+    ).claude_code_alias
+    return OverseerModelTiers(
+        classify=OVERSEER_CLASSIFY_MODEL,
+        routine=OVERSEER_ROUTINE_MODEL,
+        adversarial=adversarial,
+    )
+
+
 __all__ = [
     "AgentModelDecision",
     "DEFAULT_AGENT_MODEL",
     "FABLE_DEFAULT_MODEL",
     "FABLE_EFFORT",
+    "OVERSEER_CLASSIFY_MODEL",
+    "OVERSEER_ROUTINE_MODEL",
+    "OverseerModelTiers",
     "RESEED_THRESHOLD_FLOOR",
     "RESEED_THRESHOLD_MARGIN",
     "UPSTREAM_ANTHROPIC",
@@ -575,4 +654,5 @@ __all__ = [
     "real_backend_window",
     "reseed_threshold",
     "resolve_agent_model",
+    "resolve_overseer_models",
 ]
