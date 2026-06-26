@@ -10,9 +10,153 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "Work stream 2 (corpus cleanup) completeness target: ~260 files under docs/, gateway/, orchestrator/, shared/ contain slice-N / TASK-N ledger references. How exhaustive should this pipeline's cleanup be? This sets the scope boundary the planner slices against.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Enumerated + bounded sweep (Recommended): fully clean the files the issue names explicitly (the architecture pages, the listed docstrings/CLAUDE.md tables), plus a bounded sweep of the highest-density remaining files; explicitly defer the long tail to follow-up issues rather than block this pipeline on all 260",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Exhaustive repo-wide: every doc/docstring/comment carrying a ledger reference is cleaned in this pipeline before it can complete (largest scope, many slices, highest risk of churn/merge conflict)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Documenter-agent change only now: land work stream 1 (the prompt/role change) this pipeline and split the entire corpus cleanup into its own follow-up pipeline",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-2",
+      "question": "Durability guardrail: the issue asks to change the documenter prompt and clean the corpus, but does not ask for an automated check to keep slice/TASK ledger references from re-entering docs later. Should this pipeline add one (e.g. a pre-commit / CI lint that flags `slice-N` / `TASK-N` in committed docs/docstrings)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "No \u2014 out of scope (Recommended): the issue scopes this to a prompt change + corpus pass; a lint guard is a separate concern with false-positive tuning of its own. Note it as a candidate follow-up issue, don't build it here",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Yes \u2014 add a lightweight advisory lint guard in this pipeline so the cleanup doesn't rot back, accepting the added scope and tuning cost",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-06-26T20:27:16.048103Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "Work stream 2 (corpus cleanup) completeness target: ~260 files under docs/, gateway/, orchestrator/, shared/ contain slice-N / TASK-N ledger references. How exhaustive should this pipeline's cleanup be? This sets the scope boundary the planner slices against.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Enumerated + bounded sweep (Recommended): fully clean the files the issue names explicitly (the architecture pages, the listed docstrings/CLAUDE.md tables), plus a bounded sweep of the highest-density remaining files; explicitly defer the long tail to follow-up issues rather than block this pipeline on all 260",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Exhaustive repo-wide: every doc/docstring/comment carrying a ledger reference is cleaned in this pipeline before it can complete (largest scope, many slices, highest risk of churn/merge conflict)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Documenter-agent change only now: land work stream 1 (the prompt/role change) this pipeline and split the entire corpus cleanup into its own follow-up pipeline",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Work stream 2 (corpus cleanup) completeness target...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T20:27:20.225083Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "Durability guardrail: the issue asks to change the documenter prompt and clean the corpus, but does not ask for an automated check to keep slice/TASK ledger references from re-entering docs later. Should this pipeline add one (e.g. a pre-commit / CI lint that flags `slice-N` / `TASK-N` in committed docs/docstrings)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "No \u2014 out of scope (Recommended): the issue scopes this to a prompt change + corpus pass; a lint guard is a separate concern with false-positive tuning of its own. Note it as a candidate follow-up issue, don't build it here",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Yes \u2014 add a lightweight advisory lint guard in this pipeline so the cleanup doesn't rot back, accepting the added scope and tuning cost",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Durability guardrail: the issue asks to change the...",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
