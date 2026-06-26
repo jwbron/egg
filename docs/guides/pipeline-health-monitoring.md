@@ -291,7 +291,6 @@ Tripwire thresholds are configurable in `PipelineConfig`:
 | `overseer_max_redirects_before_escalation` | `2` | Redirect attempts before HITL escalation |
 | `overseer_decision_maker_model` | `"sonnet"` | **Deprecated and runtime-inert since #2270 slice-9.** No longer drives the overseer's decision path; model tiering is now resolved via `resolve_overseer_model` (haiku/sonnet/opus tiers). A non-default value still feeds the adversarial tier as a back-compat override when `agent_models['overseer']` is unset. Set `agent_models['overseer']` instead; this field will be removed in a future release. |
 | `overseer_max_turns` | `2000` | Maximum Agent SDK turns for the overseer agent per phase. The overseer's continuous poll-classify-act loop consumes ~2–10 turns per 30-second cycle depending on alert activity, so the previous hardcoded value of 500 could be exhausted in ~25 minutes during active consensus negotiation. Valid range: 100–10,000. |
-| `overseer_max_respawns` | `3` | Max times to auto-respawn the overseer if it exits mid-phase (0 disables respawning). The respawn counter resets at each phase boundary since each phase spawns a fresh overseer instance. |
 | `overseer_rerun_min_work_seconds` | `60` | Minimum work duration required after a `request_changes` phase-gate decision; completions faster than this with `content_changed=False` are flagged as re-run anomalies |
 | `overseer_hitl_propagation_timeout_seconds` | `300` | Seconds to wait for a resolved phase-gate decision to appear in the SDLC contract before raising a propagation-failure alert |
 | `overseer_infra_error_dedup_window_seconds` | `300` | Time window for deduplicating infrastructure error escalations between Tier 1 and Tier 2 (same agent + same error pattern) |
@@ -318,8 +317,7 @@ The overseer is a phase-scoped, read-only agent that handles cases the orchestra
 - **Phase-scoped** — the overseer is spawned at the start of each pipeline phase and torn down when that phase completes, advances, or fails. Each phase gets a fresh overseer instance with no accumulated state from prior phases.
 - **Auto-spawned** on every pipeline (when `overseer_enabled` is true)
 - **Configurable turn budget** — the overseer runs with `overseer_max_turns` (default 2000) Agent SDK turns per phase, configurable in `PipelineConfig`. This replaced a hardcoded value of 500 that caused premature exits during active consensus negotiation (~480 turns consumed in ~25 minutes).
-- **Auto-respawned** if the overseer exits before the current phase reaches a terminal state (up to `overseer_max_respawns` attempts, checked every 30 seconds by the orchestrator's health monitor thread). The respawn logic is gated by a `phase_overseer_active` flag — the health monitor thread will not attempt to respawn the overseer between phases when it has been intentionally stopped.
-- **Respawn visibility** — when the overseer is respawned, the orchestrator captures the exited container's last 20 log lines (best-effort) and broadcasts an `OVERSEER_ALERT` message to the message bus with diagnostic metadata: `exit_code`, `old_container_id`, `new_container_id`, `log_tail`, `respawn_attempt`, and `max_respawns`. This ensures respawn events are visible via `get_status`/`recent_messages` and the `/sdlc` monitoring session. The broadcast is best-effort — it never blocks the respawn if the message store is unavailable or log capture fails.
+- **Presence-gated** — the overseer is only spawned when agents are actively running in the phase. Zero-agent HITL parks do not spawn an overseer; the presence check uses the deterministic phase roster that the concurrent executor itself consults (#2270 slice-5). If the overseer exits mid-phase, any restart need goes through the general agent-restart machinery (the bespoke `_check_and_respawn_overseer` loop was retired in #2270 slice-5).
 - **One overseer per pipeline phase** — only one overseer container runs at a time
 - **No code access** — cannot clone, checkout, or modify code
 
@@ -629,7 +627,8 @@ The overseer reads the authoritative restart count from the spawner's REST API r
 The overseer monitors itself:
 - **Poll cycle timing** — warns if a cycle takes >2x expected duration
 - **Message volume** — alerts if sending >10 redirects per minute
-- **LLM call costs** — reduces poll frequency if exceeding budget
+- **LLM call costs** — reduces poll frequency if exceeding budget; lifetime costs are tracked per-model so a routing anomaly (e.g., Opus billed when Haiku was requested) is visible
+- **Classifier/advisor failure rate** — fires the `overseer_self_health` detection-plane finding when the Haiku classifier or Opus advisor failure rate breaches the configured threshold, signalling that the overseer's own reasoning substrate is unreliable; in-flight alerts are emitted via `alert_sink` the first time a new concern set appears (not just at completion time)
 - **Self-reporting** — files an issue about itself and signals `BLOCKED` if malfunctioning
 
 ## Overseer vs. Mediator Boundary

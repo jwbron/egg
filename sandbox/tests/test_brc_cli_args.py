@@ -24,7 +24,7 @@ _sandbox_path = str(Path(__file__).parent.parent)
 if _sandbox_path not in sys.path:
     sys.path.insert(0, _sandbox_path)
 
-from egg_lib.orch_cli import cmd_message_poll, create_parser
+from egg_lib.orch_cli import cmd_consensus_ack, cmd_message_poll, create_parser
 
 # ---------------------------------------------------------------------------
 # ACK: --reason is required
@@ -35,22 +35,31 @@ class TestAckReasonRequired:
     """``egg-orch consensus ack`` requires --reason."""
 
     def test_ack_exits_nonzero_without_reason(self):
-        """Omitting --reason causes argparse to exit non-zero."""
+        """Omitting --reason makes the ack command exit non-zero.
+
+        --reason is enforced at the handler layer (``_resolve_prose_arg``
+        with ``required=True``) rather than by argparse, so that
+        ``--reason-file PATH`` and the ``--reason -`` stdin sentinel are
+        valid alternative sources (#2741, #2908 slice-5). Argparse parsing
+        therefore succeeds; the command itself returns non-zero.
+        """
         parser = create_parser()
-        with pytest.raises(SystemExit) as exc_info:
-            parser.parse_args(
-                [
-                    "consensus",
-                    "ack",
-                    "coder",
-                    "issue-42",
-                    "--files-reviewed",
-                    "src/a.py",
-                    "--ack-version",
-                    "1",
-                ]
-            )
-        assert exc_info.value.code != 0
+        args = parser.parse_args(
+            [
+                "consensus",
+                "ack",
+                "coder",
+                "issue-42",
+                "--role",
+                "reviewer",
+                "--files-reviewed",
+                "src/a.py",
+                "--ack-version",
+                "1",
+            ]
+        )
+        rc = cmd_consensus_ack(args)
+        assert rc != 0
 
     def test_ack_succeeds_with_reason(self):
         """Providing --reason parses successfully."""
