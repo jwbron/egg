@@ -211,9 +211,7 @@ class TestSpawnOverseerCommand:
         assert "--model" in command
         assert "issue-cmd" in command[-1]  # prompt references pipeline_id
 
-    def test_spawn_overseer_command_resolves_model_via_resolver(
-        self, spawner, mock_docker_client
-    ):
+    def test_spawn_overseer_command_resolves_model_via_resolver(self, spawner, mock_docker_client):
         """#2270 §1 (folds #2813): the overseer command's ``--model`` comes from
         ``resolve_agent_model(OVERSEER)`` (``opus`` by default), NOT from the
         deprecated ``decision_model`` param. A stale ``decision_model='sonnet'``

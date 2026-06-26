@@ -657,8 +657,7 @@ def resolve_overseer_model(
     """
     if tier not in OVERSEER_TIER_MODELS:
         raise ValueError(
-            f"Unknown overseer tier {tier!r}; expected one of "
-            f"{sorted(OVERSEER_TIER_MODELS)}"
+            f"Unknown overseer tier {tier!r}; expected one of {sorted(OVERSEER_TIER_MODELS)}"
         )
 
     if tier == "adversarial":
