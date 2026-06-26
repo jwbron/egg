@@ -20,24 +20,20 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from agent_model_resolution import OVERSEER_TIER_MODELS
+from agent_model_resolution import resolve_overseer_model
 from models import PipelineStatus
 from overseer.classifier import (
-    check_alignment,
     check_decision_consistency,
-    classify_error,
     classify_stall,
-    detect_loop,
 )
 from overseer.decision_maker import (
     AdjudicationVerdict,
     build_adjudication_prompt,
-    compose_redirect_message,
     decide_corrective_action,
     decide_escalation_level,
     parse_adjudication_verdict,
 )
-from overseer.issue_filer import file_diagnostic_issue
+from overseer.issue_filer import IssueDedupLedger, file_diagnostic_issue
 from overseer.self_monitor import OverseerSelfMonitor
 
 try:
@@ -83,7 +79,6 @@ class _DefaultConfig:
 
     overseer_poll_interval_seconds: int = 30
     overseer_max_redirects_before_escalation: int = 2
-    overseer_decision_maker_model: str = OVERSEER_TIER_MODELS["routine"]
     overseer_rerun_min_work_seconds: int = 60
     overseer_hitl_propagation_timeout_seconds: int = 300
     overseer_infra_error_dedup_window_seconds: int = 300
@@ -158,6 +153,12 @@ class OverseerMonitor:
         # Infrastructure error deduplication between Tier 1 and Tier 2 (#1489)
         # Maps (agent_id, error_hash) -> timestamp of first escalation
         self._infra_error_dedup: dict[tuple[str, str], float] = {}
+
+        # Two-tier diagnostic-issue dedup (#2270 §5/§6, slice-9): a single
+        # persistent ledger so a repeated "issue" corrective action for the
+        # same anomaly never files a duplicate GitHub issue. Reset on a
+        # generation recycle so a fresh run starts with a clean slate.
+        self._issue_dedup_ledger = IssueDedupLedger()
 
         # Agent restart tracking: the spawner (via the REST API) is the single
         # source of truth for restart counts and limit enforcement.  We track
@@ -241,29 +242,21 @@ class OverseerMonitor:
             logs, progress, consensus=consensus, container_logs=container_logs
         )
 
-    async def _classify_error(self, error_context: dict, container_logs: str | None = None) -> dict:
-        if self._classifier and hasattr(self._classifier, "classify_error"):
-            return await self._classifier.classify_error(
-                error_context, container_logs=container_logs
-            )
-        return await classify_error(error_context, container_logs=container_logs)
-
-    async def _detect_loop(self, recent_actions: list[dict]) -> dict:
-        if self._classifier and hasattr(self._classifier, "detect_loop"):
-            return await self._classifier.detect_loop(recent_actions)
-        return await detect_loop(recent_actions)
-
-    async def _check_alignment(self, activity: list[dict], contract: dict) -> dict:
-        if self._classifier and hasattr(self._classifier, "check_alignment"):
-            return await self._classifier.check_alignment(activity, contract)
-        return await check_alignment(activity, contract)
-
     async def _check_decision_consistency_cls(
         self, phase_output: dict, prior_decisions: list[dict]
     ) -> dict:
         if self._classifier and hasattr(self._classifier, "check_decision_consistency"):
             return await self._classifier.check_decision_consistency(phase_output, prior_decisions)
         return await check_decision_consistency(phase_output, prior_decisions)
+
+    def _resolve_tier_model(self, tier: str) -> str:
+        """Resolve an overseer decision *tier* (classify/routine/adversarial)
+        to a model alias via :func:`resolve_overseer_model` (#2270 slice-9).
+
+        Single source of model plumbing so the deprecated
+        ``overseer_decision_maker_model`` field is inert at this layer.
+        """
+        return resolve_overseer_model(tier, self.config).claude_code_alias
 
     async def _decide_corrective_action(
         self,
@@ -272,9 +265,7 @@ class OverseerMonitor:
         *,
         redirect_history: list[dict] | None = None,
     ) -> dict:
-        model = getattr(
-            self.config, "overseer_decision_maker_model", OVERSEER_TIER_MODELS["routine"]
-        )
+        model = self._resolve_tier_model("routine")
         if self._decision_maker and hasattr(self._decision_maker, "decide_corrective_action"):
             method = self._decision_maker.decide_corrective_action
             if _accepts_kwarg(method, "redirect_history"):
@@ -297,22 +288,10 @@ class OverseerMonitor:
             redirect_history=redirect_history,
         )
 
-    async def _compose_redirect_message(self, agent_role: str, issue: str, context: dict) -> str:
-        model = getattr(
-            self.config, "overseer_decision_maker_model", OVERSEER_TIER_MODELS["routine"]
-        )
-        if self._decision_maker and hasattr(self._decision_maker, "compose_redirect_message"):
-            return await self._decision_maker.compose_redirect_message(
-                agent_role, issue, context, model=model
-            )
-        return await compose_redirect_message(agent_role, issue, context, model=model)
-
     async def _decide_escalation_level(
         self, classification: dict, redirect_history: list[dict], context: dict | None = None
     ) -> dict:
-        model = getattr(
-            self.config, "overseer_decision_maker_model", OVERSEER_TIER_MODELS["routine"]
-        )
+        model = self._resolve_tier_model("routine")
         if self._decision_maker and hasattr(self._decision_maker, "decide_escalation_level"):
             return await self._decision_maker.decide_escalation_level(
                 classification, redirect_history, context=context, model=model
@@ -364,7 +343,9 @@ class OverseerMonitor:
         dropping the finding.
         """
         prompt = build_adjudication_prompt(finding)
-        model = getattr(self.config, "overseer_decision_maker_model", "sonnet")
+        # Adjudication is the high-stakes / adversarial tier — resolves to Opus
+        # (#2270 §1), never the deprecated decision-maker field.
+        model = self._resolve_tier_model("adversarial")
         try:
             if self._decision_maker and hasattr(self._decision_maker, "adjudicate"):
                 raw = await self._decision_maker.adjudicate(finding, model=model)
@@ -422,6 +403,9 @@ class OverseerMonitor:
         else:
             self.generation = generation
         self.reset_escalation_history()
+        # A new generation re-files diagnostics for anomalies that persist
+        # across the recycle, so clear the dedup ledger too (#2270 slice-9).
+        self._issue_dedup_ledger.reset()
 
     # -----------------------------------------------------------------
     # Core poll cycle
@@ -772,15 +756,28 @@ class OverseerMonitor:
             self.self_monitor.record_message_sent()
 
         elif action == "issue":
-            issue_context: dict = {"pipeline_id": self.pipeline_id}
-            if container_logs:
-                issue_context["container_logs"] = container_logs[-4000:]
-            await file_diagnostic_issue(
-                pipeline_id=self.pipeline_id,
-                agent_role=agent_role,
-                anomaly={"type": "escalation", "description": message},
-                context=issue_context,
-            )
+            # Guarded shadow->enforce gate (#2270 §6): the alert broadcast above
+            # already surfaces the finding; the gh filing (through the two-tier
+            # dedup ledger) only fires in "live" mode, so the default "shadow"
+            # mode can never auto-spam the tracker on a mis-calibrated detector.
+            if getattr(self.config, "overseer_auto_file_issues_mode", "shadow") == "live":
+                issue_context: dict = {"pipeline_id": self.pipeline_id}
+                if container_logs:
+                    issue_context["container_logs"] = container_logs[-4000:]
+                await file_diagnostic_issue(
+                    pipeline_id=self.pipeline_id,
+                    agent_role=agent_role,
+                    anomaly={"type": "escalation", "description": message},
+                    context=issue_context,
+                    dedup_ledger=self._issue_dedup_ledger,
+                )
+            else:
+                logger.info(
+                    "auto-file-issues in shadow mode; surfacing diagnostic for %s "
+                    "via alert instead of filing (pipeline %s)",
+                    agent_role,
+                    self.pipeline_id,
+                )
 
         elif action == "slack":
             await self._send_slack_notification(agent_role, message)
