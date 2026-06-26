@@ -2,10 +2,10 @@
 
 > **Status:** Contract definition for the overseer overhaul ([#2270](https://github.com/jwbron/egg/issues/2270), slice 1).
 > This is **deliverable #1** and the regression bedrock every downstream detector plugs into.
-> It satisfies acceptance criterion **AC-3**.
+> It satisfies acceptance criterion **AC-3**. Slices 4, 7, and 8 have all landed — the corpus xfails for those slices have flipped to strict assertions.
 
 The overseer overhaul replaces a noisy, respawning watcher pod with an
-orchestrator-side **detection plane** of deterministic detectors (slices 4, 7, 8).
+orchestrator-side **detection plane** of deterministic detectors (slices 4, 7, 8 — all delivered).
 The single biggest risk in that work is *recalibration regressions* — a detector
 that goes quiet on a real fault, or one that floods operators with false alarms.
 The **calibration corpus** is how we make that risk testable: a fixed set of
@@ -129,7 +129,8 @@ where the distinction is the whole point.
 | #2948 transient kubelet eviction | `container_death` | A transient evict/reschedule must NOT cascade to a producer-permanent-death `FAILED` |
 
 Downstream slices add rows for their own detectors (the full §5 survey in slice 8
-is the largest addition). The seed set establishes the shape and the contract;
+was the largest addition — 25 coverage-gap detectors across 8 modules in
+``health_checks/tier1/``). The seed set establishes the shape and the contract;
 later slices extend, never reshape.
 
 ---
@@ -151,8 +152,8 @@ one bucket:
 
 From these the scoreboard derives `precision` (TP / (TP + FP)) and `recall`
 (TP / (TP + FN)). The slice-1 acceptance signal is `false_positive == 0` and
-`precision == 1.0` (the baseline null detector never over-fires); as detectors
-land in slices 4/7/8 recall climbs toward 1.0 while precision must stay at 1.0.
+`precision == 1.0` (the baseline null detector never over-fires); with all
+slices (4/7/8) delivered, recall is at 1.0 and precision must remain there.
 This precision/recall tally is distinct from the per-row pytest pass/`xfail`
 bookkeeping in the harness (see §5).
 
@@ -160,8 +161,8 @@ bookkeeping in the harness (see §5).
 
 ## 5. The xfail → strict flip convention (red → green workflow)
 
-Slice 1 defines corpus rows for detectors that **slices 4, 7, and 8 have not built
-yet**. Those rows cannot pass against code that does not exist, so the harness
+Slice 1 defined corpus rows for detectors that slices 4, 7, and 8 had not built
+yet. Those rows cannot pass against code that does not exist, so the harness
 marks each known-bad row whose detector is unregistered as **`xfail`**
 (expected-to-fail). This is deliberate: the corpus is the *spec*, written before
 the detector.
