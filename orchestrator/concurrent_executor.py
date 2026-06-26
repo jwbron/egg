@@ -619,10 +619,14 @@ class ConcurrentPhaseExecutor:
         ``egg_agent.reseed.resolve_reseed_threshold`` resolves ``None`` without
         the ``EGG_RESEED_THRESHOLD`` override, taking the gate's ``no_threshold``
         safe-reseed branch every event). It is resolved against ``claude_code_alias``
-        — the same string passed to ``--model`` and the #3249 measurement, so the
-        injected threshold and the emitted measurement agree by construction, and
-        sub-1M LiteLLM models (whose bare alias carries their real-backend identity)
-        resolve against their real window, not the ``[1m]``-implied 1M (#3279).
+        — the same string passed to ``--model``. Both in-pod consumers (the reseed
+        gate, ``reseed.py:126-134``, and the #3249 measurement,
+        ``measurement.py:252-262``) read this ``EGG_RESEED_THRESHOLD`` override
+        first, so once it is always injected on the event path the injected
+        threshold and the emitted measurement agree because they read the *same env
+        var* — not because each independently re-resolves ``args.model``. And sub-1M
+        LiteLLM models (whose bare alias carries their real-backend identity) resolve
+        against their real window, not the ``[1m]``-implied 1M (#3279).
         """
         decision = self._resolve_model_decision(role)
         command = build_consensus_wrapped_command(
