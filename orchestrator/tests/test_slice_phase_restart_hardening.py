@@ -1,90 +1,69 @@
-"""Slice/phase restart hardening tests (#2777 slice-4, TASK-4-6).
+"""Slice/phase restart hardening tests (#2777, bundles #2409 / #2928).
 
-Covers the five sub-tasks of slice-4 (#2777):
+Covers the restart- and recovery-hardening surface that keeps a sliced
+implement phase consistent across operator restarts and orchestrator-pod
+recycles:
 
-* **TASK-4-1** — Slice-aware ``restart_phase`` consensus-clear: in
-  addition to the pipeline-level ``tracker.clear()`` at
-  ``orchestrator/routes/pipelines.py:3270-3289``, the handler now
-  loads the contract, iterates ``contract.slices`` and calls
-  ``get_peer_consensus_tracker(pipeline_id, slice_id=s.id).clear()``
-  for each slice. Mirrors the slice-aware ``restart_agent`` path at
-  ``pipelines.py:~2859``.
+* **Slice-aware ``restart_phase`` consensus-clear** — in addition to the
+  pipeline-level ``tracker.clear()`` in ``orchestrator/routes/pipelines.py``,
+  the handler loads the contract, iterates ``contract.slices`` and calls
+  ``get_peer_consensus_tracker(pipeline_id, slice_id=s.id).clear()`` for each
+  slice (mirroring the slice-aware ``restart_agent`` path). Empty
+  ``contract.slices`` still clears the pipeline-level tracker, and a contract
+  load failure falls back to pipeline-level-only clearing rather than blocking
+  the restart.
 
-* **TASK-4-2** — Eager-persist ``parent_branch_at_creation`` + IN_PROGRESS
-  flip: the existing parent-branch persist site at ``pipelines.py:~15703``
-  now also flips ``SliceStatus.PENDING → IN_PROGRESS`` in the SAME
-  contract-locked write. A crash between the status flip and the branch
-  creation cannot leave the field empty (cq-9 / crash recovery).
-  Idempotent on re-entry: only PENDING is flipped; COMPLETE / BLOCKED
-  / IN_PROGRESS are left untouched.
+* **Eager-persist ``parent_branch_at_creation`` + ``PENDING → IN_PROGRESS``
+  flip** — the parent-branch persist site flips the slice status in the SAME
+  contract-locked write, so a crash between the status flip and branch
+  creation cannot leave the field empty. The flip is idempotent: only PENDING
+  is flipped; COMPLETE / BLOCKED / IN_PROGRESS are left untouched.
 
-* **TASK-4-3 / #2928** — Parent-existence gate in
-  ``_resolve_slice_base_branch``: an optional
-  ``parent_branch_exists(parent_branch) -> bool`` callback decides
-  the base for a non-root slice with no recorded parent. ``True`` →
-  the dependency-derived parent (correct for fresh AND legacy
-  slices). ``False`` → ``pipeline_branch`` (the parent PR merged into
-  ``work`` and its branch was cascade-deleted, so ``work`` already
-  contains its commits). A raised probe is caught and treated
-  conservatively as ``True`` (never silently swap a real slice onto
-  ``work`` on a flaky gateway). #2928 replaced the original
-  merge-base probe, which probed the slice's OWN not-yet-created
-  integration branch and so mis-based every fresh non-root slice onto
-  ``work`` whenever ``work`` had advanced ahead of the parent.
+* **Parent-existence gate in ``_resolve_slice_base_branch`` (#2928)** — an
+  optional ``parent_branch_exists(parent_branch) -> bool`` callback decides the
+  base for a non-root slice with no recorded parent. ``True`` → the
+  dependency-derived parent (correct for fresh AND legacy slices). ``False`` →
+  ``pipeline_branch`` (the parent PR merged into ``work`` and its branch was
+  cascade-deleted, so ``work`` already contains its commits). A raised probe is
+  treated conservatively as ``True`` so a flaky gateway never silently swaps a
+  real slice onto ``work``. This replaced an earlier merge-base probe that
+  probed the slice's OWN not-yet-created integration branch and so mis-based
+  every fresh non-root slice onto ``work`` whenever ``work`` had advanced ahead
+  of the parent.
 
-* **TASK-4-4** — Bootstrap reconciliation 5-way classification.
-  Module-level ``_classify_non_complete_slice`` returns one of five
-  labels for every non-COMPLETE slice:
+* **Bootstrap reconciliation 5-way classification** — module-level
+  ``_classify_non_complete_slice`` returns one of five labels for every
+  non-COMPLETE slice:
 
-  - ``"fresh"`` — case (1) IN_PROGRESS/PENDING + no commits on origin
-    → no Layer-C action; scheduler re-yields READY.
-  - ``"resume"`` — case (2) IN_PROGRESS + commits + no consensus →
+  - ``"fresh"`` — IN_PROGRESS/PENDING + no commits on origin → no Layer-C
+    action; scheduler re-yields READY.
+  - ``"resume"`` — IN_PROGRESS + commits + no consensus →
     ``scheduler.mark_spawned``, no respawn.
-  - ``"consensus_complete"`` — case (3) IN_PROGRESS + commits +
-    consensus REACHED → mark COMPLETE so the slice-PR opener fires.
-  - ``"blocked"`` — case (4) BLOCKED → preserve status; caller
-    escalates via ``_escalate_blocked_slice_to_hitl`` (writes a
-    new HITL ``Decision`` to the contract) when no pending decision
-    is found.
-  - ``"corrupt"`` — case (5) impossible status enum or contradictory
-    state combination → caller escalates via
-    ``_escalate_corrupt_slice_to_hitl`` (writes a new HITL
-    ``Decision`` to the contract).
+  - ``"consensus_complete"`` — IN_PROGRESS + commits + consensus REACHED →
+    mark COMPLETE so the slice-PR opener fires.
+  - ``"blocked"`` — BLOCKED → preserve status; caller escalates via
+    ``_escalate_blocked_slice_to_hitl`` (writes a new HITL ``Decision`` to the
+    contract) when no pending decision is found.
+  - ``"corrupt"`` — impossible status enum or contradictory state combination
+    → caller escalates via ``_escalate_corrupt_slice_to_hitl``. PENDING +
+    commits-on-origin is one such impossibility (the status flip above lands
+    before any commits could), so the classifier wakes the operator instead of
+    re-yielding READY.
 
-* **TASK-4-5** — Per-slice consensus tracker reconstruction
-  (#2409): ``startup_reconciliation.py`` iterates ``contract.slices``
-  via ``_enumerate_contract_slices`` and calls
-  ``reconstruct_tracker_from_messages(pipeline_id, graph,
-  slice_id=s.id)`` for each slice in addition to the existing
-  pipeline-level call. ``handle_consensus_confirmed_signal`` in
-  ``orchestrator/routes/signals.py`` no longer skips reconstruction
-  when ``slice_id`` is supplied — the metadata filter at
-  ``message_store.py:407-418`` (#2725) is the canonical scope
-  mechanism.
+* **Per-slice consensus tracker reconstruction (#2409)** —
+  ``startup_reconciliation.py`` iterates ``contract.slices`` via
+  ``_enumerate_contract_slices`` and calls
+  ``reconstruct_tracker_from_messages(pipeline_id, graph, slice_id=s.id)`` for
+  each slice in addition to the pipeline-level call.
+  ``handle_consensus_confirmed_signal`` reconstructs even when ``slice_id`` is
+  supplied — the metadata filter in ``message_store.py`` (#2725) is the
+  canonical scope mechanism. Two concurrent slices reconstruct via the
+  slice-id filter without one slice's ack/propose records bleeding into the
+  other's tracker.
 
-Adversarial probes baked into this file (each was on my "what could
-the coder have missed?" list):
-
-* Slice-aware ``restart_phase`` calls ``get_peer_consensus_tracker``
-  with the per-slice key shape, not a bare inline format that drifts
-  from ``_tracker_key``.
-* Empty ``contract.slices`` (non-sliced pipeline) ⇒ still clears the
-  pipeline-level tracker; the per-slice iteration no-ops cleanly.
-* Contract load failure under ``restart_phase`` falls back to the
-  pre-slice-4 pipeline-level-only behaviour rather than blocking the
-  restart.
-* TASK-4-2 PENDING → IN_PROGRESS flip is idempotent: COMPLETE /
-  BLOCKED / IN_PROGRESS slices keep their status across a re-entry.
-* TASK-4-3 / #2928 fallback to ``pipeline_branch`` only fires when
-  ``parent_branch_exists`` returns ``False``; a probe exception is
-  treated as ``True`` and falls through to the derived-parent path
-  (never silently swaps to ``pipeline_branch`` on a flaky gateway).
-* TASK-4-4 case 5: PENDING + commits-on-origin is impossible (TASK-4-2
-  flips before commits could land) — the classifier must return
-  ``"corrupt"`` so the operator is woken instead of the scheduler
-  re-yielding READY.
-* AC-16: two slices reconstruct via the slice-id filter and the
-  slice-2 tracker has NO slice-1 ack/propose records.
+The classes below also cover ``_slice_agents_alive`` (#2914 / #2916), the
+``_escalate_layer_c_hitl`` HITL persistence helpers, and
+``GatewayClient.merge_base`` strict SHA-shape + session-auth bootstrapping.
 """
 
 from __future__ import annotations
@@ -269,7 +248,7 @@ def _confirmed_message(
 
 
 # ---------------------------------------------------------------------------
-# TASK-4-1: Slice-aware restart_phase consensus-clear
+# Slice-aware restart_phase consensus-clear
 # ---------------------------------------------------------------------------
 
 
@@ -538,7 +517,7 @@ class TestRestartPhaseClearsPerSliceTrackers:
 
 
 # ---------------------------------------------------------------------------
-# TASK-4-2: Eager-persist parent_branch_at_creation + PENDING → IN_PROGRESS flip
+# Eager-persist parent_branch_at_creation + PENDING → IN_PROGRESS flip
 # ---------------------------------------------------------------------------
 
 
@@ -691,7 +670,7 @@ class TestEagerPersistParentBranchAtCreationAndStatusFlip:
 
 
 # ---------------------------------------------------------------------------
-# TASK-4-3: ``branch_has_origin_commits`` fallback in _resolve_slice_base_branch
+# ``branch_has_origin_commits`` fallback in _resolve_slice_base_branch
 # ---------------------------------------------------------------------------
 
 
@@ -895,7 +874,7 @@ class TestResolveSliceBaseBranchParentExistenceGate:
 
 
 # ---------------------------------------------------------------------------
-# TASK-4-4: Bootstrap reconciliation 5-way classification
+# Bootstrap reconciliation 5-way classification
 # ---------------------------------------------------------------------------
 
 
@@ -1270,24 +1249,18 @@ class TestSliceHasPendingDecision:
 
 
 # ---------------------------------------------------------------------------
-# TASK-4-4 (v3): HITL escalation helpers — adversarial probes for the v3
-# refactor that removed ``_state_store_or_none()`` and threaded
-# ``worktree_repo_path`` + ``current_phase`` from the Layer-C caller.
+# HITL escalation helpers — Layer-C operator-pause persistence
 #
-# These tests pin down the v2→v3 fix: the v2 helper called
-# ``get_state_store()`` (no-arg) which raised ``TypeError`` that the bare
-# ``except Exception`` swallowed → store was None → the
-# ``if store is None: return`` arm short-circuited the HITL persist → no
-# Decision was appended → fail-open of the operator-pause gate. v3 removes
-# the state-store path entirely and writes directly via
+# ``_escalate_layer_c_hitl`` writes the HITL ``Decision`` directly via
 # ``load_contract(pipeline_id, worktree_repo_path)`` /
-# ``save_contract(contract, worktree_repo_path)``.
-#
-# We also pin the ``next_cq_id`` allocator (replacing the v2
-# ``decision-{len(decisions)+1}`` collision pattern flagged on
-# ``Decision.id``'s docstring), the ``current_phase`` thread-through
-# (replacing the v2 hard-coded ``PipelinePhase.IMPLEMENT``), and the
-# removal of the v2 ``context_prefix`` kwarg.
+# ``save_contract(contract, worktree_repo_path)`` (no state-store
+# indirection), so a corrupt / unclassifiable slice reliably pauses for the
+# operator instead of silently failing open. The tests pin: the Decision is
+# actually persisted to disk; the ``next_cq_id`` allocator skips legacy
+# ``decision-N`` ids and allocates from the ``cq-N`` namespace; the
+# caller-threaded ``current_phase`` is recorded (falling back to IMPLEMENT
+# when None); and the signature does not accept a ``context_prefix`` kwarg
+# (the routing discriminator lives in the ``question`` text).
 # ---------------------------------------------------------------------------
 
 
@@ -1992,7 +1965,7 @@ class TestEscalateBlockedSliceToHITL:
 
 
 # ---------------------------------------------------------------------------
-# TASK-4-5: Per-slice consensus tracker reconstruction (#2409 / AC-16)
+# Per-slice consensus tracker reconstruction (#2409 / AC-16)
 # ---------------------------------------------------------------------------
 
 
