@@ -964,6 +964,100 @@ def _escalate_finding_to_adjudicator(
     return verdict
 
 
+def register_coverage_gap_detectors(plane: Any) -> Any:
+    """Register the slice-8 §5 coverage-gap detectors onto a detection plane.
+
+    Slice-4 ships the plane with the lifecycle-owner-aware ``PhaseStallDetector``
+    only. Slice-8 (#2270 §5) delivers the coverage-gap survey: container/k8s,
+    orchestrator-runtime, decision-queue, worktree/branch, gateway, BRC-thrash,
+    cost/budget, and LLM-substrate detectors. They are deterministic
+    (``requires_adjudication=False`` except the orchestrator-thread-death case),
+    so the bounded corrective executor (slice-6) consumes their findings without
+    an LLM. Registration is idempotent: a detector whose ``detector_key`` is
+    already present is skipped, so this is safe to call on every plane build.
+
+    Note: a detector only fires in production once ``snapshot_from_health_context``
+    populates the field it reads (``container_transitions``, ``cost_counters``,
+    ``git_state``, ``gateway_error_counters``, ``decision_state`` …). The
+    calibration corpus drives every detector with fully-populated fixtures today;
+    the live snapshot builder is enriched per-field as the signals come online.
+    """
+    from health_checks.tier1.brc_thrashing import (
+        detect_brc_thrashing,
+        detect_incomplete_consensus_deferral,
+        detect_late_confirm_renack,
+    )
+    from health_checks.tier1.container_k8s import (
+        detect_container_death,
+        detect_overseer_self_injection,
+        detect_repeated_role_restarts,
+    )
+    from health_checks.tier1.cost_budget import (
+        detect_cost_per_hour_breach,
+        detect_token_cost_anomaly,
+    )
+    from health_checks.tier1.decision_queue import (
+        detect_approved_decision_orphaned,
+        detect_auto_advance_wedge,
+        detect_restarted_decision_replay,
+    )
+    from health_checks.tier1.gateway_health import (
+        detect_gateway_error_spike,
+        detect_gateway_token_expiry,
+        detect_repeated_identical_denials,
+    )
+    from health_checks.tier1.llm_substrate import (
+        detect_anthropic_5xx_sustained,
+        detect_effective_model_drift,
+        detect_litellm_unreachable,
+    )
+    from health_checks.tier1.runtime_liveness import (
+        detect_agent_restart_propagation,
+        detect_duration_drift,
+        detect_run_pipeline_thread_liveness,
+    )
+    from health_checks.tier1.worktree_branch import (
+        detect_disk_inode_pressure,
+        detect_pr_external_mutation,
+        detect_pushed_pr_not_updated,
+        detect_worktree_corruption,
+    )
+
+    coverage_gap_detectors = (
+        detect_container_death,
+        detect_overseer_self_injection,
+        detect_repeated_role_restarts,
+        detect_run_pipeline_thread_liveness,
+        detect_duration_drift,
+        detect_agent_restart_propagation,
+        detect_auto_advance_wedge,
+        detect_approved_decision_orphaned,
+        detect_restarted_decision_replay,
+        detect_worktree_corruption,
+        detect_disk_inode_pressure,
+        detect_pr_external_mutation,
+        detect_pushed_pr_not_updated,
+        detect_gateway_error_spike,
+        detect_repeated_identical_denials,
+        detect_gateway_token_expiry,
+        detect_brc_thrashing,
+        detect_late_confirm_renack,
+        detect_incomplete_consensus_deferral,
+        detect_cost_per_hour_breach,
+        detect_token_cost_anomaly,
+        detect_litellm_unreachable,
+        detect_effective_model_drift,
+        detect_anthropic_5xx_sustained,
+    )
+
+    existing = set(getattr(plane, "detectors", {}) or {})
+    for detector in coverage_gap_detectors:
+        if getattr(detector, "detector_key", None) in existing:
+            continue
+        plane.register(detector)
+    return plane
+
+
 def _run_overseer_detection_plane(
     snapshot: Any,
     *,
@@ -982,10 +1076,17 @@ def _run_overseer_detection_plane(
     findings carrying ``requires_adjudication`` to the on-demand adjudicator.
     Returns ``(finding, verdict)`` pairs — ``verdict`` is ``None`` for routine
     findings that were handled deterministically without an agent.
+
+    When the caller does not supply a ``plane`` we build the default plane and
+    register the slice-8 coverage-gap detectors onto it, so production runs the
+    full §5 detector set; a caller-supplied plane is used verbatim.
     """
     from health_checks.detection_plane import default_detection_plane, escalate_findings
 
-    active_plane = plane or default_detection_plane()
+    if plane is not None:
+        active_plane = plane
+    else:
+        active_plane = register_coverage_gap_detectors(default_detection_plane())
     findings = active_plane.evaluate(snapshot)
 
     results: list[tuple[Any, Any]] = []
