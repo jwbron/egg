@@ -25,7 +25,7 @@ Run `egg-orch --help` for full usage. All commands support `--json` for machine-
 | `egg-orch phase start [<id>]` | Start current phase |
 | `egg-orch phase complete [<id>]` | Complete current phase |
 | `egg-orch phase get-context [<pipeline_id>] [--phase <p>] [--role <r>] [--no-artifacts]` | Bundle phase context — pipeline ID, phase, role, role-filtered task list, and prior-phase artifact paths (verb-level alias for `mcp__phase__get_context`; used by event-pump wrapper). Output is always JSON. |
-| `egg-orch brc next-action [<pipeline_id>] [--role <role>] [--slice-id <id>] [--json]` | Derive the next BRC action (`wait`/`propose`/`ack`/`nack`/`confirm`/`complete`) for a role from the orchestrator's `POST /consensus/next-action` route; used by the event-pump wrapper to drive agents one-shot per event. `nack` is reserved in the schema (`_VALID_ACTIONS`) for symmetry with the BRC verb set but is not emitted by the current slice-1 derivation logic. |
+| `egg-orch brc next-action [<pipeline_id>] [--role <role>] [--slice-id <id>] [--json]` | Derive the next BRC action (`wait`/`propose`/`ack`/`nack`/`confirm`/`complete`) for a role from the orchestrator's `POST /consensus/next-action` route; used by the event-pump wrapper to drive agents one-shot per event. `nack` is reserved in the schema (`_VALID_ACTIONS`) for symmetry with the BRC verb set but is not emitted by the current derivation logic. |
 | `egg-orch brc get-state [<pipeline_id>] [--slice-id <id>] [--verbose]` | Return the BRC consensus state as structured JSON (verb-level alias for `mcp__brc__get_state`; `--verbose` includes raw orchestrator payload under `raw`). Output is always JSON. |
 | `egg-orch brc list-blocking [<pipeline_id>] [--json]` | List roles currently blocking consensus, newline-delimited by default (verb-level alias for `mcp__brc__list_blocking`) |
 | `egg-orch decision list [<id>]` | List HITL decisions |
@@ -78,8 +78,7 @@ Agent role can be omitted when `EGG_AGENT_ROLE` is set.
 | `EGG_AUTHORSHIP_REPO` | Override which repo the commit-authorship store uses in multi-repo deployments. Accepts an absolute path or a repo directory name relative to `EGG_REPO_PATH`. When unset, the store prefers a repo named `egg`; falls back to the first repo alphabetically. |
 | `GATEWAY_URL` | Gateway URL (default: `http://egg-gateway:9848`) |
 | `EGG_CONCURRENT_MODE` | `true` when running in concurrent execution mode |
-| `EGG_BRC_MEMORY` | BRC memory writer mode for reviewers. `full` (default since slice-4) — handlers write and the event-pump reads the file on re-entry; `write-only` — handlers populate the per-role memory file but the reader stays inert; `off` — writes are no-ops (one-release rollback escape hatch). See [BRC Memory Artifact](../architecture/brc-memory.md). |
-| `EGG_EVENT_LOOP_OWNER` | **Removed in [#3164](https://github.com/jwbron/egg/issues/3164).** During the #3064 rollout this flag selected `pod` (in-pod event-pump wait-loop in `consensus_wrapper.py`) vs `orchestrator` (orchestrator-owned event loop spawning one-shot pods). #3164 retired the in-pod wait arm — orchestrator ownership is the only mode — and removed the read from `orchestrator/env_config.py`. The variable is no longer consulted; operators can drop the row. |
+| `EGG_BRC_MEMORY` | BRC memory writer mode for reviewers. `full` (default) — handlers write and the event-pump reads the file on re-entry; `write-only` — handlers populate the per-role memory file but the reader stays inert; `off` — writes are no-ops (one-release rollback escape hatch). See [BRC Memory Artifact](../architecture/brc-memory.md). |
 | `EGG_MESSAGE_POLL_INTERVAL` | Suggested message polling interval in seconds (default: 30) |
 | `EGG_MESSAGE_POLL_MAX_WAIT` | Server-side cap (seconds) on `message wait --timeout`. Default `60`, minimum `1`. Values `> 90` trigger a startup `warnings.warn` + WARNING log because the gateway's baked-in Squid `read_timeout` / `request_timeout` directives cap backend long-polls at ~60s — raising the cap above that requires a gateway image rebuild, not a ConfigMap edit. See [Agent Wait Patterns §6](agent-wait-patterns.md#6-egg_message_poll_max_wait--long-poll-cap-coupling). |
 | `EGG_SLICE_ID` | Set by `kubernetes_spawner` for every slice-scoped agent. When set, `message wait` / `message wait-loop` only match messages whose `metadata.slice_id` equals this value OR is null (pipeline-level passthrough — OVERSEER_ALERT and global phase signals continue to wake every waiter). Override with `--slice`. See [Agent Wait Patterns — Auto-scoping](agent-wait-patterns.md#auto-scoping-by-slice-and-producer-allowlist-2725). |
@@ -216,7 +215,7 @@ egg-orch phase restart implement \
 
 Agent restart preserves the agent's existing worktree (including committed work on the branch) and resets only that agent's consensus state (proposals, ACKs, NACKs, confirmations). Phase restart resets all consensus state and review cycle counters for the phase, then respawns all agents from scratch. **Per-role branch tips are NOT preserved**: per-agent worktrees and their local branches are deleted; fresh worktrees re-fork from the shared work branch tip (`origin/<assigned_branch>`, base-branch fallback when the assigned branch is not yet pushed — see [#3068](https://github.com/jwbron/egg/issues/3068)). Only state pushed to the shared work branch survives into the respawned agents' trees; anything that lived only on a per-role branch (e.g. a reviewer's local merge history) is discarded. Before deleting worktrees, phase restart enumerates all per-agent worktrees from disk (including slice-scoped worktrees) and auto-salvages any committed-but-unpushed work to `egg/recovered/…` refs — the same salvage path as `cleanup_pipeline`. Use `restart_agent` instead when you need to preserve a specific agent's worktree.
 
-**Slice-aware tracker clearing ([#2777](https://github.com/jwbron/egg/issues/2777) slice-4 TASK-4-1, bundles [#2409](https://github.com/jwbron/egg/issues/2409)).** In slice-aware mode (issue mode with `contract.slices`) the implement phase registers each per-slice BRC tracker under the nested key `{pipeline_id}/{slice_id}`. Phase restart now iterates `contract.slices` and calls `clear()` on each per-slice tracker via `get_peer_consensus_tracker(pipeline_id, slice_id=<slice>)` in addition to clearing the pipeline-level tracker — without this, the restarted phase would see stale slice-scoped consensus state from the prior run and deadlock waiting on agents that have already been killed. Per-slice clearing is best-effort: if the contract cannot be loaded (e.g. its worktree was lost or never materialised) the restart preserves the historical pipeline-level-only behaviour rather than failing the operator's restart request. See [`Slice/phase restart hardening`](../architecture/orchestrator.md#slicephase-restart-hardening-2777-slice-4-bundles-2409) in the orchestrator architecture doc for the full mechanism, including the Layer-C bootstrap reconciliation that runs on next-startup recovery and the per-slice consensus tracker reconstruction that closes [#2409](https://github.com/jwbron/egg/issues/2409).
+**Slice-aware tracker clearing ([#2777](https://github.com/jwbron/egg/issues/2777), bundles [#2409](https://github.com/jwbron/egg/issues/2409)).** In slice-aware mode (issue mode with `contract.slices`) the implement phase registers each per-slice BRC tracker under the nested key `{pipeline_id}/{slice_id}`. Phase restart now iterates `contract.slices` and calls `clear()` on each per-slice tracker via `get_peer_consensus_tracker(pipeline_id, slice_id=<slice>)` in addition to clearing the pipeline-level tracker — without this, the restarted phase would see stale slice-scoped consensus state from the prior run and deadlock waiting on agents that have already been killed. Per-slice clearing is best-effort: if the contract cannot be loaded (e.g. its worktree was lost or never materialised) the restart preserves the historical pipeline-level-only behaviour rather than failing the operator's restart request. See [`Slice/phase restart hardening`](../architecture/orchestrator.md#slicephase-restart-hardening-2777-slice-4-bundles-2409) in the orchestrator architecture doc for the full mechanism, including the Layer-C bootstrap reconciliation that runs on next-startup recovery and the per-slice consensus tracker reconstruction that closes [#2409](https://github.com/jwbron/egg/issues/2409).
 
 > **Note:** CLI commands for restart are pending implementation. In the meantime, use the REST API directly or the MCP tools:
 > ```bash
@@ -561,7 +560,7 @@ egg-orch consensus ack coder --files-reviewed-file /tmp/files.txt \
   --ack-version 2
 ```
 
-**Why the three channels exist.** When an event-pump wrapper composes a CLI command in bash, prose like `$VAR`, backticks, `;`, `&&`, or embedded newlines in the payload can be reinterpreted by the shell before argparse ever sees them — the wrapper bash silently corrupts the review body. The `--*-file` and stdin paths bypass argv entirely so the prose round-trips byte-for-byte through the orchestrator. See [#2741](https://github.com/jwbron/egg/issues/2741) for the original shell-injection finding and slice-5 of #2908 for the structured channels that mitigate it.
+**Why the three channels exist.** When an event-pump wrapper composes a CLI command in bash, prose like `$VAR`, backticks, `;`, `&&`, or embedded newlines in the payload can be reinterpreted by the shell before argparse ever sees them — the wrapper bash silently corrupts the review body. The `--*-file` and stdin paths bypass argv entirely so the prose round-trips byte-for-byte through the orchestrator. See [#2741](https://github.com/jwbron/egg/issues/2741) for the original shell-injection finding that the structured channels mitigate.
 
 **Deprecation status of argv `--summary` / `--reason`.** The argv path still works, but each invocation now writes a deprecation warning to stderr. New wrappers and agent scripts should prefer `--*-file` or stdin; the argv form is retained only for legacy compatibility and is scheduled for removal in a follow-up cycle. The structured `--ack-version` / `--nack-version` integer flags, the boolean `--push`, and other non-prose args are not affected.
 
@@ -582,7 +581,7 @@ The `consensus_producer_push` signal accepts `agent_role`, `commit_sha`, and opt
 
 ## BRC verb-level operations (`egg-orch brc`)
 
-`egg-orch brc` is the verb-level surface used by the event-pump consensus wrapper (#2908 slice-2) and by agent scripts that need to drive BRC operations from bash without the MCP transport. Every subcommand is a thin CLI shim over the corresponding `mcp__brc__*` handler — the two surfaces share one handler function so they cannot drift (the `tests/tools/test_mcp_cli_drift.py` gate enforces it). Read-side / derive-side verbs live under `brc`; write-side verbs (propose / ack / nack / withdraw / confirmed) remain under `consensus` to preserve the existing CLI surface.
+`egg-orch brc` is the verb-level surface used by the event-pump consensus wrapper and by agent scripts that need to drive BRC operations from bash without the MCP transport. Every subcommand is a thin CLI shim over the corresponding `mcp__brc__*` handler — the two surfaces share one handler function so they cannot drift (the `tests/tools/test_mcp_cli_drift.py` gate enforces it). Read-side / derive-side verbs live under `brc`; write-side verbs (propose / ack / nack / withdraw / confirmed) remain under `consensus` to preserve the existing CLI surface.
 
 ```bash
 # brc next-action — derive the next BRC action for a role from the orchestrator
@@ -622,7 +621,7 @@ egg-orch brc resolve-obligation \
 # brc read-peer-artifact — dual-source BRC transcript read: the orchestrator's
 # live /brc-transcript route (in-flight phase, message store) merged with the
 # on-disk .egg-state/brc-history/<id>-<phase>.json files (completed phases).
-# Used by reviewers (and the prompt composer in slice-3) to reconstruct peer-to-
+# Used by reviewers (and the prompt composer) to reconstruct peer-to-
 # peer review history without hand-grepping JSON off disk. --phase is required;
 # --peer-role / --producer-role narrows by sender; --message-type can be repeated
 # to filter by CONSENSUS_* / STATUS / HANDOFF / etc. --limit defaults to 50,
@@ -638,7 +637,7 @@ egg-orch brc read-peer-artifact --phase implement --peer-role coder \
 
 | Subcommand | MCP counterpart | Purpose |
 |------------|-----------------|---------|
-| `brc next-action` | — *(new in slice-1 of #2908; no MCP counterpart — the wrapper bash needs the bare derivation, not an LLM round-trip)* | Derive the next BRC action for a role: `wait`, `propose`, `ack`, `nack`, `confirm`, or `complete`, plus the matching event payload. |
+| `brc next-action` | — *(no MCP counterpart — the wrapper bash needs the bare derivation, not an LLM round-trip)* | Derive the next BRC action for a role: `wait`, `propose`, `ack`, `nack`, `confirm`, or `complete`, plus the matching event payload. |
 | `brc get-state` | `mcp__brc__get_state` | Full BRC consensus state. `--verbose` includes the full pipeline-status payload. |
 | `brc list-blocking` | `mcp__brc__list_blocking` | Roles currently blocking consensus. Newline-delimited by default; `--json` returns the array. |
 | `brc resolve-obligation` | `mcp__brc__resolve_obligation` | Mark a reviewer's conditional-ACK obligation satisfied in-cycle (#2338). |
@@ -664,7 +663,7 @@ gh pr view <context_pr_number>
 gh pr list --head egg/<pipeline-id>/work --base <base_branch> --state open
 ```
 
-The contract's `PRMetadata` was simplified in schema v1.2 ([#2777](https://github.com/jwbron/egg/issues/2777)). Three redundant framing fields introduced in v1.1 (#2548) were **hard-removed** when the two-branch topology was collapsed onto a single work branch; see the [v1.1 → v1.2 schema migration note](../architecture/sdlc-pipeline.md#schema-v11--v12-migration-note-2777) for the exact field names and replacements. The surviving context-PR fields are:
+The contract's `PRMetadata` carries the context-PR fields below. The single work branch is itself the Context PR's head, so no separate branch-framing fields are needed; see the [v1.1 → v1.2 schema migration note](../architecture/sdlc-pipeline.md#schema-v11--v12-migration-note-2777) for the field-name history. The context-PR fields are:
 
 | Field | Schema | Author | Description |
 |-------|--------|--------|-------------|

@@ -1,4 +1,4 @@
-"""Deterministic protected-root renderer (#3200, slice-4).
+"""Deterministic protected-root renderer (#3200).
 
 Assembles the small, stable, permanently-resident *protected root* for an
 event-pump BRC agent in a FIXED four-section order:
@@ -7,14 +7,14 @@ event-pump BRC agent in a FIXED four-section order:
   (b) task anchor                 — ``compose_task_description`` output (#3163)
   (c) #3189 deterministic anchors — last-reviewed SHA per producer, latest
                                     verdicts, open NACKs, conditional-ACK
-                                    obligations (``BRCDerivedAnchors``, slice-3)
+                                    obligations (``BRCDerivedAnchors``)
   (d) queryable-environment POINTERS — the JIT-pull recipe + served-read
                                     handles that REPLACE the inlined bulk
                                     (delta + memory excerpt) so only small
-                                    pointers stay resident (slice-5,
-                                    optional). The bulk is pulled
-                                    just-in-time; the pull does NOT bound
-                                    the window — the slice-6 reseed does.
+                                    pointers stay resident (optional). The
+                                    bulk is pulled just-in-time; the pull
+                                    does NOT bound the window — the
+                                    threshold reseed does.
   (e) non-negotiable directives
 
 **Byte stability.** The render is byte-identical for identical input: every

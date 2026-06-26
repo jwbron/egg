@@ -1,9 +1,9 @@
-"""Master feature flag for the #3200 BRC context discipline (slice-9, task-9-1).
+"""Master feature flag for the #3200 BRC context discipline.
 
 A SINGLE switch gating the whole context discipline end-to-end:
 
-* the protected-root / queryable-environment split + JIT pull (slice-4/5), and
-* the threshold reseed warm-resume substrate (slice-6/8).
+* the protected-root / queryable-environment split + JIT pull, and
+* the threshold reseed warm-resume substrate.
 
 ``ON`` drives every event-pump role — producers (``coder`` / ``architect`` /
 ``task_planner`` / ``risk_analyst`` …) and reviewers (``reviewer_code`` /
@@ -11,7 +11,7 @@ A SINGLE switch gating the whole context discipline end-to-end:
 per-event composer (``orchestrator.routes.event_prompt.compose_event_prompt``)
 renders the role-parameterized protected root with bulk moved to JIT pull, and
 the warm-resume gate (``egg_agent.session.session_resume_enabled``) activates so
-the slice-8 occupancy-vs-threshold gate can resume-or-reseed. ``OFF`` — the
+the occupancy-vs-threshold gate can resume-or-reseed. ``OFF`` — the
 rollout default — preserves today's full-context INLINE path byte-for-byte.
 
 **Read in ONE place on the normal import path.** This module owns the only read
@@ -26,11 +26,11 @@ semantics, for the wrapper-bash standalone case where ``egg_agent`` is off
 ``PYTHONPATH``) — that fallback exists precisely to preserve this single-source
 semantics when the import is unavailable.
 
-**Subsumes the narrower staging knobs.** Earlier slices shipped each component
-behind its own staging switch (``EGG_SESSION_RESUME`` for the warm-resume
-substrate). Those remain as finer-grained overrides for staged rollout, but the
-master flag subsumes them: turning :func:`context_discipline_enabled` on turns
-the whole discipline on regardless of the narrower switches.
+**Subsumes the narrower staging knobs.** Each component also has its own
+finer-grained staging switch (``EGG_SESSION_RESUME`` for the warm-resume
+substrate) for staged rollout, but the master flag subsumes them: turning
+:func:`context_discipline_enabled` on turns the whole discipline on regardless
+of the narrower switches.
 
 **Default OFF, fail-safe.** An unset / blank / unrecognised value reads as OFF
 so production stays on the legacy path until an operator opts in. Accepts the
