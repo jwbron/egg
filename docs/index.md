@@ -18,6 +18,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 |----------|-------------|
 | [Architecture Overview](architecture/README.md) | High-level system design and security model |
 | [Orchestrator Architecture](architecture/orchestrator.md) | Orchestrator deployment modes and sandbox-to-orchestrator communication |
+| [Overseer Architecture](architecture/overseer.md) | Orchestrator-side overseership model (#2270): deterministic detection plane, on-demand adjudicator (Opus), bounded corrective vocabulary, model tiering, and the shadow→live auto-issue-filing gate |
 | [Git Isolation](architecture/git-isolation.md) | Gateway sidecar design for worktree isolation and credential separation |
 | [Gateway Auto-Filter](architecture/gateway-auto-filter.md) | Restricted-path rejection on push (`403 restricted_path_modified`) and the commit-authorship registry that backs attribution |
 | [Credential Injection](architecture/credential-injection.md) | Zero-credential sandbox with API key proxy via gateway |
@@ -152,7 +153,7 @@ Each major component has detailed documentation:
 | **Per-agent worktree isolation** | [Concurrent Execution Guide](guides/concurrent-execution.md#per-agent-worktree-isolation) | [Git Isolation Architecture](architecture/git-isolation.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Secret redaction** | [Redaction Reference](reference/redaction.md) | [Architecture Overview](architecture/README.md) |
 | **Health check framework** | [Health Checks README](../orchestrator/health_checks/README.md) | [Orchestrator Architecture](architecture/orchestrator.md), [Orchestrator README](../orchestrator/README.md) |
-| **Pipeline health monitoring** | [Pipeline Health Monitoring](guides/pipeline-health-monitoring.md) | [Health Checks README](../orchestrator/health_checks/README.md), [Agent Roles](reference/agent-roles.md), [Orchestrator Architecture](architecture/orchestrator.md) |
+| **Pipeline health monitoring** | [Pipeline Health Monitoring](guides/pipeline-health-monitoring.md) | [Overseer Architecture](architecture/overseer.md), [Health Checks README](../orchestrator/health_checks/README.md), [Agent Roles](reference/agent-roles.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Generating repository documentation** | [GitHub Automation: Documentation Onboarding](guides/github-automation.md#documentation-onboarding) | [Onboarding prompt](../shared/prompts/onboarding-docs-prompt.md), `egg-onboarding-docs` CLI |
 | **Running a single agent on a non-Claude model** | [Per-Agent Models](guides/per-agent-models.md) | [Upstream Routing](architecture/upstream-routing.md), [Agent Roles](reference/agent-roles.md), `orchestrator/agent_model_resolution.py` |
 | **Changing models on a live pipeline (swap + restart)** | [Per-Agent Models § Changing models on a live pipeline](guides/per-agent-models.md#changing-models-on-a-live-pipeline-3174) | `update_pipeline_config` MCP tool, `orchestrator/routes/pipelines.py` (`update_pipeline_config`), [#3174](https://github.com/jwbron/egg/issues/3174) |
