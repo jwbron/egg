@@ -4,33 +4,29 @@
   "agent": "task_planner",
   "title": "Decompose 19 oversize Python source files to clear the file-size allowlist (refresh of #3111)",
   "version": 1,
-  "summary": "v1 task breakdown for #3312. Decomposes ALL 19 allowlisted oversize Python files (issue table, live counts verified in the refine analysis 2026-06-26) into sub-packages following the canonical pattern (docs/guides/decomposition-pattern.md + the merged template PR #2335 + worked reference scripts/select_tests/), driving scripts/file-size-allowlist.yaml's files: map to EMPTY. SCOPE IS LOCKED by operator directive + the resolved refine HITL: no descope, no deferral of the structural outliers (pipelines.py ~27.2k, gateway.py ~10.4k), and _run_pipeline is addressed head-on (non-negotiable #7). Structured as 19 independent per-file decomposition slices (one phase == one slice == one PR), ordered easiest->hardest (smallest line count first; the two outliers last) so independent slices land value even if pipelines.py/gateway.py stall again — exactly the ordering heuristic the issue recommends given the failed-attempt history (#2817 implement-phase failure, #3111 never run). The pattern-adoption parent that anchored the #2261 DAG is ALREADY MERGED (#2335), so there is NO parent slice and NO inter-slice DAG dependency: slices are siblings, mutually independent at the source level, conflicting ONLY mechanically on scripts/file-size-allowlist.yaml (resolved by the section-(e) rebase recipe). Each slice: external-importer audit -> step-0 git mv baseline commit -> cluster extraction with explicit per-symbol re-export barrel -> allowlist-entry drop + CLAUDE.md seam coverage -> make lint + make test-all green. Acceptance carried from the refine analysis (AC-1..AC-7). The architect owns the technical slice DAG / cluster shapes; this artifact owns the per-file task decomposition, ordering, and PR packaging (one PR per file).",
-
+  "summary": "v1 task breakdown for #3312. Decomposes ALL 19 allowlisted oversize Python files (issue table, live counts verified in the refine analysis 2026-06-26) into sub-packages following the canonical pattern (docs/guides/decomposition-pattern.md + the merged template PR #2335 + worked reference scripts/select_tests/), driving scripts/file-size-allowlist.yaml's files: map to EMPTY. SCOPE IS LOCKED by operator directive + the resolved refine HITL: no descope, no deferral of the structural outliers (pipelines.py ~27.2k, gateway.py ~10.4k), and _run_pipeline is addressed head-on (non-negotiable #7). Structured as 19 independent per-file decomposition slices (one phase == one slice == one PR), ordered easiest->hardest (smallest line count first; the two outliers last) so independent slices land value even if pipelines.py/gateway.py stall again \u2014 exactly the ordering heuristic the issue recommends given the failed-attempt history (#2817 implement-phase failure, #3111 never run). The pattern-adoption parent that anchored the #2261 DAG is ALREADY MERGED (#2335), so there is NO parent slice and NO inter-slice DAG dependency: slices are siblings, mutually independent at the source level, conflicting ONLY mechanically on scripts/file-size-allowlist.yaml (resolved by the section-(e) rebase recipe). Each slice: external-importer audit -> step-0 git mv baseline commit -> cluster extraction with explicit per-symbol re-export barrel -> allowlist-entry drop + CLAUDE.md seam coverage -> make lint + make test-all green. Acceptance carried from the refine analysis (AC-1..AC-7). The architect owns the technical slice DAG / cluster shapes; this artifact owns the per-file task decomposition, ordering, and PR packaging (one PR per file).",
   "scope_notes": {
     "in_scope": "All 19 files in the issue table (live counts in the refine analysis are authoritative; the issue table is a snapshot). Each decomposed into a sub-package with an __init__.py re-export barrel + underscore-prefixed private submodules per docs/guides/decomposition-pattern.md. Allowlist files: map driven to empty. Concrete CLAUDE.md seam coverage for every in-scope file: rows in orchestrator/CLAUDE.md + gateway/CLAUDE.md, a NEW seam table in sandbox/CLAUDE.md, and a NEW shared/CLAUDE.md. _run_pipeline phase-transition state machine split directly inside the pipelines.py slice (non-negotiable #7). gateway.py @app.route decorators stay in __init__.py with bodies delegating to submodules (non-negotiable #8). make lint + make test-all green at every landing boundary. Pure refactor.",
     "out_of_scope": "Behavior changes (pure refactor; bugs surfaced get a separate 'Part of #3312' follow-up issue, never bundled). Test file size (lint exempts test_*.py / *_test.py / tests/**). Non-Python files (JSON/YAML/Markdown). Decomposing files NOT in the 19-file table. Retargeting #2562 / retagging docs/ #2261 refs is optional bookkeeping, NOT an acceptance gate (see grounding correction).",
     "binding_decisions": "Operator directive (contract task_description) + resolved refine HITL decision-1 (2026-06-26): scope = all 19 files including pipelines.py (~27k) and gateway.py (~10k); _run_pipeline tackled head-on; NO descoping; planner owns ordering/packaging only, not scope reduction. Pattern HITL decisions carried from #2261 via the pattern doc: decision-1 (sub-package not sibling files), decision-5 (explicit per-symbol re-exports), decision-6 (underscore-prefixed submodules), decision-7 (barrel is the stable public API), decision-8 (route decorators stay in __init__.py).",
     "grounding_correction_honored": "The refine analysis corrected a stale issue claim: orchestrator/CLAUDE.md and gateway/CLAUDE.md do NOT currently carry '#2261 slice-N / TBD' placeholder rows (those #2261 refs live in docs/, not the seam tables). So the seam-table work is CREATE concrete submodule rows per landing, not RETAG existing placeholder rows. sandbox/CLAUDE.md exists with no seam table (add one); shared/CLAUDE.md is ABSENT (create it). Binding criterion: concrete seam coverage exists for every in-scope file at its landing.",
-    "ordering_rationale": "Front-load independent per-file slices, structural outliers last (issue 'History' recommendation + refine 'planner owns' note). Given two prior attempts never landed a single decomposition slice, ordering easiest->hardest maximizes banked value: 17 simpler files can land even if pipelines.py/gateway.py stall a third time. The outliers are NOT dropped — they are scheduled last, still in scope, with their own enriched task sets."
+    "ordering_rationale": "Front-load independent per-file slices, structural outliers last (issue 'History' recommendation + refine 'planner owns' note). Given two prior attempts never landed a single decomposition slice, ordering easiest->hardest maximizes banked value: 17 simpler files can land even if pipelines.py/gateway.py stall a third time. The outliers are NOT dropped \u2014 they are scheduled last, still in scope, with their own enriched task sets."
   },
-
   "grounding": {
-    "pattern_doc": "docs/guides/decomposition-pattern.md (present, 13,292 bytes) — canonical recipe: (a) sub-package layout, (b) step-0 git mv to __init__.py as its own bisectable baseline commit, (c) method-modules-on-class pattern for class-dominated files, (d) external-importer git grep audit, (e) allowlist-drop + parallel-slice rebase recipe, (f) routes-handling convention (decorators in __init__.py), (g) further-split in-slice rather than a fresh allowlist entry, (h) follow-up-issue convention for surfaced bugs.",
-    "worked_reference": "scripts/select_tests/ — __init__.py barrel + __main__.py + _cli.py/_constants.py/_graph.py/_io.py private submodules; already absent from the allowlist. Copy this exact shape. tests/tools/select_tests/ is the canonical scenario-organized test example (no retrofit required).",
-    "template_pr": "PR #2335 (merged 2026-04-30) — pattern-adoption parent. Coder MUST read its diff before the first decomposition slice.",
+    "pattern_doc": "docs/guides/decomposition-pattern.md (present, 13,292 bytes) \u2014 canonical recipe: (a) sub-package layout, (b) step-0 git mv to __init__.py as its own bisectable baseline commit, (c) method-modules-on-class pattern for class-dominated files, (d) external-importer git grep audit, (e) allowlist-drop + parallel-slice rebase recipe, (f) routes-handling convention (decorators in __init__.py), (g) further-split in-slice rather than a fresh allowlist entry, (h) follow-up-issue convention for surfaced bugs.",
+    "worked_reference": "scripts/select_tests/ \u2014 __init__.py barrel + __main__.py + _cli.py/_constants.py/_graph.py/_io.py private submodules; already absent from the allowlist. Copy this exact shape. tests/tools/select_tests/ is the canonical scenario-organized test example (no retrofit required).",
+    "template_pr": "PR #2335 (merged 2026-04-30) \u2014 pattern-adoption parent. Coder MUST read its diff before the first decomposition slice.",
     "live_sizes_authoritative": "Refine analysis table (verified 2026-06-26, this worktree): 19 files, 9 over the byte cap (pipelines.py, gateway.py, orch_cli.py, gateway_client.py, signals.py, kubernetes_spawner.py, mcp_tools.py, worktree_manager.py, peer_consensus.py). Caps: hard_lines 1500 / hard_bytes 100000. Counts drift UP between snapshots (lint ratchets non-allowlisted files but lets allowlisted ones grow); the coder re-checks live size at slice start.",
     "back_compat_surface": "Refine re-derivation: routes.pipelines.* ~57 distinct patch targets across ~137 test files (dominant surface); gateway.gateway.* ~12 distinct patch targets. These are sizing estimates; the coder re-runs the section-(d) audit per cluster at implement time (counts shift as main drifts). Every extracted symbol with an external reference is re-exported through the barrel so unittest.mock.patch keeps resolving.",
-    "run_pipeline": "pipelines.py contains the _run_pipeline phase-transition state machine — the hardest piece, mechanical extraction won't work, deferral OFF the table (non-negotiable #7). Prior design (pattern doc) splits it into per-phase handlers + a thin orchestration loop (the _run_loop.py / per-cluster shape). Addressed directly inside the pipelines.py slice (phase-19).",
+    "run_pipeline": "pipelines.py contains the _run_pipeline phase-transition state machine \u2014 the hardest piece, mechanical extraction won't work, deferral OFF the table (non-negotiable #7). Prior design (pattern doc) splits it into per-phase handlers + a thin orchestration loop (the _run_loop.py / per-cluster shape). Addressed directly inside the pipelines.py slice (phase-19).",
     "claude_md_targets": "orchestrator/CLAUDE.md (12 files), gateway/CLAUDE.md (3 files), sandbox/CLAUDE.md (3 files; add seam table), shared/CLAUDE.md (1 file; create new)."
   },
-
   "approach": {
-    "slice_model": "19 independent per-file decomposition slices. One phase here == one slice == one PR. No pattern-adoption parent (already merged in #2335). dependency: null for every slice — they are mutually independent at the source level. The ONLY shared file is scripts/file-size-allowlist.yaml (each slice removes its own entry); this is a mechanical conflict resolved by the section-(e) rebase recipe (take 'theirs' for other slices' removals, re-apply your own), NOT a logical dependency. The architect may choose to serialize a subset for integration safety; this artifact's recommendation is maximum parallelism with the allowlist treated as a rebase-merge file.",
+    "slice_model": "19 per-file decomposition slices (one phase == one slice == one PR), ordered easiest->hardest. SERIALIZED into a single linear dependency chain slice-1 -> slice-2 -> ... -> slice-19: every slice edits scripts/file-size-allowlist.yaml (each removes its own entry), so per #3046 the slices must be ordered along one chain \u2014 independent branches off the shared base would collide at integration on that file. No pattern-adoption parent (merged in #2335). The chain preserves easiest-first ordering so 17 simpler files bank value before the two structural outliers, which sit at the tail.",
     "per_slice_template": "Every slice follows the same five-task internal shape parameterized on the file F: (1) external-importer audit (git grep every public symbol in F), (2) step-0 git mv F.py -> F/__init__.py as a standalone green baseline commit, (3) cluster extraction into _<cluster>.py submodules + explicit per-symbol re-export barrel, (4) allowlist-entry drop + CLAUDE.md seam-table row (further-split in-slice if any submodule lands over the cap; never a fresh allowlist entry), (5) make lint + make test-all green; mechanical test patch-path rewrites in-slice, test-logic rewrites filed as follow-ups.",
     "pr_packaging": "One PR per slice (per file). Each PR drops exactly one allowlist entry and adds exactly one file's seam coverage. The terminal-state acceptance check (allowlist files: map empty) is satisfied cumulatively as the 19th PR lands. Branches prefixed egg/. PR titles: 'refactor(<area>): decompose <file> into a sub-package (Part of #3312)'.",
     "outlier_handling": "gateway.py (phase-18) and pipelines.py (phase-19) carry enriched task sets: pre-allocated cluster lists, the route-decorator convention (gateway), and the _run_pipeline per-phase-handler split (pipelines). They remain single slices each but with explicit further-split tasks because mechanical extraction alone will leave submodules over the cap."
   },
-
   "phases": [
     {
       "id": "phase-1",
@@ -43,11 +39,48 @@
       "dependency": null,
       "pr": "one PR; drops contract_cli.py allowlist entry; CREATES the sandbox/CLAUDE.md decomposition seam table",
       "tasks": [
-        {"id": "task-1-1", "description": "External-importer audit: git grep -nE every public symbol of contract_cli.py per the section-(d) recipe across tests/, sandbox/, orchestrator/, gateway/, shared/. Record which symbols have external references (must be re-exported) vs underscore-prefixed package-internal-only (may be skipped).", "acceptance_criteria": "Audit output lists every public symbol with its external-reference status; the re-export set is derived from it.", "files_affected": ["sandbox/egg_lib/contract_cli.py"]},
-        {"id": "task-1-2", "description": "Step-0 baseline: git mv sandbox/egg_lib/contract_cli.py sandbox/egg_lib/contract_cli/__init__.py; verify imports resolve with make test-all; commit as a standalone bisectable baseline (move only, no extraction).", "acceptance_criteria": "Sub-package baseline commit is green (make test-all); diff is a pure move.", "files_affected": ["sandbox/egg_lib/contract_cli/__init__.py"]},
-        {"id": "task-1-3", "description": "Extract cohesive clusters into _<cluster>.py submodules (group by command/responsibility, e.g. argument parsing vs subcommand handlers vs IO helpers); __init__.py does explicit per-symbol re-exports for every externally-referenced symbol from task-1-1; keep one import style (dual-import or relative) consistent within the sub-package.", "acceptance_criteria": "All submodules <=1500 lines / <=100KB; barrel re-exports every external symbol; patch('...contract_cli._foo') targets still resolve.", "files_affected": ["sandbox/egg_lib/contract_cli/"]},
-        {"id": "task-1-4", "description": "Drop contract_cli.py's entry from scripts/file-size-allowlist.yaml; CREATE a decomposition seam table in sandbox/CLAUDE.md (the file exists but has none) documenting the contract_cli/ submodule layout. This is the first sandbox/ slice so it stands up the table other sandbox slices append to.", "acceptance_criteria": "Allowlist entry removed; sandbox/CLAUDE.md has a seam table with a concrete contract_cli/ row; make lint passes the ratchet.", "files_affected": ["scripts/file-size-allowlist.yaml", "sandbox/CLAUDE.md"]},
-        {"id": "task-1-5", "description": "Green the boundary: make lint + make test-all; apply mechanical test patch-path rewrites in-slice if any; file test-logic rewrites or surfaced bugs as 'Part of #3312' follow-ups.", "acceptance_criteria": "make lint + make test-all green; no behavior change in the diff.", "files_affected": ["sandbox/egg_lib/tests/", "tests/"]}
+        {
+          "id": "task-1-1",
+          "description": "External-importer audit: git grep -nE every public symbol of contract_cli.py per the section-(d) recipe across tests/, sandbox/, orchestrator/, gateway/, shared/. Record which symbols have external references (must be re-exported) vs underscore-prefixed package-internal-only (may be skipped).",
+          "acceptance_criteria": "Audit output lists every public symbol with its external-reference status; the re-export set is derived from it.",
+          "files_affected": [
+            "sandbox/egg_lib/contract_cli.py"
+          ]
+        },
+        {
+          "id": "task-1-2",
+          "description": "Step-0 baseline: git mv sandbox/egg_lib/contract_cli.py sandbox/egg_lib/contract_cli/__init__.py; verify imports resolve with make test-all; commit as a standalone bisectable baseline (move only, no extraction).",
+          "acceptance_criteria": "Sub-package baseline commit is green (make test-all); diff is a pure move.",
+          "files_affected": [
+            "sandbox/egg_lib/contract_cli/__init__.py"
+          ]
+        },
+        {
+          "id": "task-1-3",
+          "description": "Extract cohesive clusters into _<cluster>.py submodules (group by command/responsibility, e.g. argument parsing vs subcommand handlers vs IO helpers); __init__.py does explicit per-symbol re-exports for every externally-referenced symbol from task-1-1; keep one import style (dual-import or relative) consistent within the sub-package.",
+          "acceptance_criteria": "All submodules <=1500 lines / <=100KB; barrel re-exports every external symbol; patch('...contract_cli._foo') targets still resolve.",
+          "files_affected": [
+            "sandbox/egg_lib/contract_cli/"
+          ]
+        },
+        {
+          "id": "task-1-4",
+          "description": "Drop contract_cli.py's entry from scripts/file-size-allowlist.yaml; CREATE a decomposition seam table in sandbox/CLAUDE.md (the file exists but has none) documenting the contract_cli/ submodule layout. This is the first sandbox/ slice so it stands up the table other sandbox slices append to.",
+          "acceptance_criteria": "Allowlist entry removed; sandbox/CLAUDE.md has a seam table with a concrete contract_cli/ row; make lint passes the ratchet.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml",
+            "sandbox/CLAUDE.md"
+          ]
+        },
+        {
+          "id": "task-1-5",
+          "description": "Green the boundary: make lint + make test-all; apply mechanical test patch-path rewrites in-slice if any; file test-logic rewrites or surfaced bugs as 'Part of #3312' follow-ups.",
+          "acceptance_criteria": "make lint + make test-all green; no behavior change in the diff.",
+          "files_affected": [
+            "sandbox/egg_lib/tests/",
+            "tests/"
+          ]
+        }
       ]
     },
     {
@@ -58,14 +91,51 @@
       "lines": 1562,
       "over_byte_cap": false,
       "claude_md": "orchestrator/CLAUDE.md",
-      "dependency": null,
+      "dependency": "phase-1",
       "pr": "one PR; drops decisions.py allowlist entry; adds orchestrator/CLAUDE.md row",
       "tasks": [
-        {"id": "task-2-1", "description": "External-importer audit (section-(d)) for decisions.py public symbols.", "acceptance_criteria": "Re-export set derived from external-reference audit.", "files_affected": ["orchestrator/routes/decisions.py"]},
-        {"id": "task-2-2", "description": "Step-0 git mv decisions.py -> decisions/__init__.py; green baseline commit.", "acceptance_criteria": "Pure-move baseline commit green.", "files_affected": ["orchestrator/routes/decisions/__init__.py"]},
-        {"id": "task-2-3", "description": "Extract clusters into _<cluster>.py submodules following the routes convention (non-negotiable #8): Flask Blueprint @bp.route decorators stay on thin wrappers in __init__.py; bodies delegate to submodules. Explicit per-symbol re-export barrel.", "acceptance_criteria": "All submodules under cap; decorators remain in __init__.py; barrel re-exports every external symbol; route registration unchanged.", "files_affected": ["orchestrator/routes/decisions/"]},
-        {"id": "task-2-4", "description": "Drop decisions.py allowlist entry; add a concrete decisions/ row to orchestrator/CLAUDE.md seam coverage.", "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.", "files_affected": ["scripts/file-size-allowlist.yaml", "orchestrator/CLAUDE.md"]},
-        {"id": "task-2-5", "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice; follow-ups filed for anything more.", "acceptance_criteria": "Green; no behavior change.", "files_affected": ["orchestrator/tests/", "tests/"]}
+        {
+          "id": "task-2-1",
+          "description": "External-importer audit (section-(d)) for decisions.py public symbols.",
+          "acceptance_criteria": "Re-export set derived from external-reference audit.",
+          "files_affected": [
+            "orchestrator/routes/decisions.py"
+          ]
+        },
+        {
+          "id": "task-2-2",
+          "description": "Step-0 git mv decisions.py -> decisions/__init__.py; green baseline commit.",
+          "acceptance_criteria": "Pure-move baseline commit green.",
+          "files_affected": [
+            "orchestrator/routes/decisions/__init__.py"
+          ]
+        },
+        {
+          "id": "task-2-3",
+          "description": "Extract clusters into _<cluster>.py submodules following the routes convention (non-negotiable #8): Flask Blueprint @bp.route decorators stay on thin wrappers in __init__.py; bodies delegate to submodules. Explicit per-symbol re-export barrel.",
+          "acceptance_criteria": "All submodules under cap; decorators remain in __init__.py; barrel re-exports every external symbol; route registration unchanged.",
+          "files_affected": [
+            "orchestrator/routes/decisions/"
+          ]
+        },
+        {
+          "id": "task-2-4",
+          "description": "Drop decisions.py allowlist entry; add a concrete decisions/ row to orchestrator/CLAUDE.md seam coverage.",
+          "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml",
+            "orchestrator/CLAUDE.md"
+          ]
+        },
+        {
+          "id": "task-2-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice; follow-ups filed for anything more.",
+          "acceptance_criteria": "Green; no behavior change.",
+          "files_affected": [
+            "orchestrator/tests/",
+            "tests/"
+          ]
+        }
       ]
     },
     {
@@ -76,14 +146,51 @@
       "lines": 1635,
       "over_byte_cap": false,
       "claude_md": "orchestrator/CLAUDE.md",
-      "dependency": null,
+      "dependency": "phase-2",
       "pr": "one PR; drops state_store.py allowlist entry; adds orchestrator/CLAUDE.md row",
       "tasks": [
-        {"id": "task-3-1", "description": "External-importer audit (section-(d)) for state_store.py — likely a high-traffic module; enumerate every external reference carefully.", "acceptance_criteria": "Re-export set derived from external-reference audit.", "files_affected": ["orchestrator/state_store.py"]},
-        {"id": "task-3-2", "description": "Step-0 git mv state_store.py -> state_store/__init__.py; green baseline commit.", "acceptance_criteria": "Pure-move baseline commit green.", "files_affected": ["orchestrator/state_store/__init__.py"]},
-        {"id": "task-3-3", "description": "Extract clusters into _<cluster>.py submodules grouped by responsibility (read/write helpers, serialization, key schema). If state_store is class-dominated, use the method-modules-on-class pattern (section-(c)): keep the class in __init__.py, extract method bodies to module-level functions taking self explicitly. Explicit per-symbol re-export barrel.", "acceptance_criteria": "All submodules under cap; class identity (if any) stays on the original module path; barrel re-exports every external symbol.", "files_affected": ["orchestrator/state_store/"]},
-        {"id": "task-3-4", "description": "Drop state_store.py allowlist entry; add concrete state_store/ row to orchestrator/CLAUDE.md.", "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.", "files_affected": ["scripts/file-size-allowlist.yaml", "orchestrator/CLAUDE.md"]},
-        {"id": "task-3-5", "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.", "acceptance_criteria": "Green; no behavior change.", "files_affected": ["orchestrator/tests/", "tests/"]}
+        {
+          "id": "task-3-1",
+          "description": "External-importer audit (section-(d)) for state_store.py \u2014 likely a high-traffic module; enumerate every external reference carefully.",
+          "acceptance_criteria": "Re-export set derived from external-reference audit.",
+          "files_affected": [
+            "orchestrator/state_store.py"
+          ]
+        },
+        {
+          "id": "task-3-2",
+          "description": "Step-0 git mv state_store.py -> state_store/__init__.py; green baseline commit.",
+          "acceptance_criteria": "Pure-move baseline commit green.",
+          "files_affected": [
+            "orchestrator/state_store/__init__.py"
+          ]
+        },
+        {
+          "id": "task-3-3",
+          "description": "Extract clusters into _<cluster>.py submodules grouped by responsibility (read/write helpers, serialization, key schema). If state_store is class-dominated, use the method-modules-on-class pattern (section-(c)): keep the class in __init__.py, extract method bodies to module-level functions taking self explicitly. Explicit per-symbol re-export barrel.",
+          "acceptance_criteria": "All submodules under cap; class identity (if any) stays on the original module path; barrel re-exports every external symbol.",
+          "files_affected": [
+            "orchestrator/state_store/"
+          ]
+        },
+        {
+          "id": "task-3-4",
+          "description": "Drop state_store.py allowlist entry; add concrete state_store/ row to orchestrator/CLAUDE.md.",
+          "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml",
+            "orchestrator/CLAUDE.md"
+          ]
+        },
+        {
+          "id": "task-3-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
+          "files_affected": [
+            "orchestrator/tests/",
+            "tests/"
+          ]
+        }
       ]
     },
     {
@@ -94,14 +201,51 @@
       "lines": 1736,
       "over_byte_cap": false,
       "claude_md": "orchestrator/CLAUDE.md",
-      "dependency": null,
+      "dependency": "phase-3",
       "pr": "one PR; drops phases.py allowlist entry (provenance #2261); adds orchestrator/CLAUDE.md row; retag the stale #2261 provenance field while editing the allowlist",
       "tasks": [
-        {"id": "task-4-1", "description": "External-importer audit (section-(d)) for phases.py. Note phases.py already uses the lazy/dual-import precedent the pattern doc cites — preserve that import shape.", "acceptance_criteria": "Re-export set derived from external-reference audit.", "files_affected": ["orchestrator/routes/phases.py"]},
-        {"id": "task-4-2", "description": "Step-0 git mv phases.py -> phases/__init__.py; green baseline commit.", "acceptance_criteria": "Pure-move baseline commit green.", "files_affected": ["orchestrator/routes/phases/__init__.py"]},
-        {"id": "task-4-3", "description": "Extract clusters into _<cluster>.py submodules; routes convention (decorators in __init__.py); explicit per-symbol re-export barrel; consistent dual-import shape.", "acceptance_criteria": "All submodules under cap; decorators stay in __init__.py; barrel re-exports every external symbol.", "files_affected": ["orchestrator/routes/phases/"]},
-        {"id": "task-4-4", "description": "Drop phases.py allowlist entry; add concrete phases/ row to orchestrator/CLAUDE.md; opportunistically retag the entry's stale issue:'2261' provenance note (optional bookkeeping, not a gate).", "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.", "files_affected": ["scripts/file-size-allowlist.yaml", "orchestrator/CLAUDE.md"]},
-        {"id": "task-4-5", "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.", "acceptance_criteria": "Green; no behavior change.", "files_affected": ["orchestrator/tests/", "tests/"]}
+        {
+          "id": "task-4-1",
+          "description": "External-importer audit (section-(d)) for phases.py. Note phases.py already uses the lazy/dual-import precedent the pattern doc cites \u2014 preserve that import shape.",
+          "acceptance_criteria": "Re-export set derived from external-reference audit.",
+          "files_affected": [
+            "orchestrator/routes/phases.py"
+          ]
+        },
+        {
+          "id": "task-4-2",
+          "description": "Step-0 git mv phases.py -> phases/__init__.py; green baseline commit.",
+          "acceptance_criteria": "Pure-move baseline commit green.",
+          "files_affected": [
+            "orchestrator/routes/phases/__init__.py"
+          ]
+        },
+        {
+          "id": "task-4-3",
+          "description": "Extract clusters into _<cluster>.py submodules; routes convention (decorators in __init__.py); explicit per-symbol re-export barrel; consistent dual-import shape.",
+          "acceptance_criteria": "All submodules under cap; decorators stay in __init__.py; barrel re-exports every external symbol.",
+          "files_affected": [
+            "orchestrator/routes/phases/"
+          ]
+        },
+        {
+          "id": "task-4-4",
+          "description": "Drop phases.py allowlist entry; add concrete phases/ row to orchestrator/CLAUDE.md; opportunistically retag the entry's stale issue:'2261' provenance note (optional bookkeeping, not a gate).",
+          "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml",
+            "orchestrator/CLAUDE.md"
+          ]
+        },
+        {
+          "id": "task-4-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
+          "files_affected": [
+            "orchestrator/tests/",
+            "tests/"
+          ]
+        }
       ]
     },
     {
@@ -112,14 +256,51 @@
       "lines": 1854,
       "over_byte_cap": false,
       "claude_md": "orchestrator/CLAUDE.md",
-      "dependency": null,
+      "dependency": "phase-4",
       "pr": "one PR; drops deployment.py allowlist entry; adds orchestrator/CLAUDE.md row",
       "tasks": [
-        {"id": "task-5-1", "description": "External-importer audit (section-(d)) for deployment.py.", "acceptance_criteria": "Re-export set derived from external-reference audit.", "files_affected": ["orchestrator/routes/deployment.py"]},
-        {"id": "task-5-2", "description": "Step-0 git mv deployment.py -> deployment/__init__.py; green baseline commit.", "acceptance_criteria": "Pure-move baseline commit green.", "files_affected": ["orchestrator/routes/deployment/__init__.py"]},
-        {"id": "task-5-3", "description": "Extract clusters into _<cluster>.py submodules; routes convention; explicit per-symbol re-export barrel.", "acceptance_criteria": "All submodules under cap; decorators in __init__.py; barrel re-exports every external symbol.", "files_affected": ["orchestrator/routes/deployment/"]},
-        {"id": "task-5-4", "description": "Drop deployment.py allowlist entry; add concrete deployment/ row to orchestrator/CLAUDE.md.", "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.", "files_affected": ["scripts/file-size-allowlist.yaml", "orchestrator/CLAUDE.md"]},
-        {"id": "task-5-5", "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.", "acceptance_criteria": "Green; no behavior change.", "files_affected": ["orchestrator/tests/", "tests/"]}
+        {
+          "id": "task-5-1",
+          "description": "External-importer audit (section-(d)) for deployment.py.",
+          "acceptance_criteria": "Re-export set derived from external-reference audit.",
+          "files_affected": [
+            "orchestrator/routes/deployment.py"
+          ]
+        },
+        {
+          "id": "task-5-2",
+          "description": "Step-0 git mv deployment.py -> deployment/__init__.py; green baseline commit.",
+          "acceptance_criteria": "Pure-move baseline commit green.",
+          "files_affected": [
+            "orchestrator/routes/deployment/__init__.py"
+          ]
+        },
+        {
+          "id": "task-5-3",
+          "description": "Extract clusters into _<cluster>.py submodules; routes convention; explicit per-symbol re-export barrel.",
+          "acceptance_criteria": "All submodules under cap; decorators in __init__.py; barrel re-exports every external symbol.",
+          "files_affected": [
+            "orchestrator/routes/deployment/"
+          ]
+        },
+        {
+          "id": "task-5-4",
+          "description": "Drop deployment.py allowlist entry; add concrete deployment/ row to orchestrator/CLAUDE.md.",
+          "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml",
+            "orchestrator/CLAUDE.md"
+          ]
+        },
+        {
+          "id": "task-5-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
+          "files_affected": [
+            "orchestrator/tests/",
+            "tests/"
+          ]
+        }
       ]
     },
     {
@@ -130,14 +311,51 @@
       "lines": 1895,
       "over_byte_cap": false,
       "claude_md": "orchestrator/CLAUDE.md",
-      "dependency": null,
+      "dependency": "phase-5",
       "pr": "one PR; drops event_prompt.py allowlist entry (provenance #3231); adds orchestrator/CLAUDE.md row",
       "tasks": [
-        {"id": "task-6-1", "description": "External-importer audit (section-(d)) for event_prompt.py (renderers like _render_producer_delta_section / _render_nacks_section are referenced by other plan/BRC code — audit carefully).", "acceptance_criteria": "Re-export set derived from external-reference audit.", "files_affected": ["orchestrator/routes/event_prompt.py"]},
-        {"id": "task-6-2", "description": "Step-0 git mv event_prompt.py -> event_prompt/__init__.py; green baseline commit.", "acceptance_criteria": "Pure-move baseline commit green.", "files_affected": ["orchestrator/routes/event_prompt/__init__.py"]},
-        {"id": "task-6-3", "description": "Extract clusters into _<cluster>.py submodules grouped by rendered section; explicit per-symbol re-export barrel.", "acceptance_criteria": "All submodules under cap; barrel re-exports every external symbol.", "files_affected": ["orchestrator/routes/event_prompt/"]},
-        {"id": "task-6-4", "description": "Drop event_prompt.py allowlist entry; add concrete event_prompt/ row to orchestrator/CLAUDE.md.", "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.", "files_affected": ["scripts/file-size-allowlist.yaml", "orchestrator/CLAUDE.md"]},
-        {"id": "task-6-5", "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.", "acceptance_criteria": "Green; no behavior change.", "files_affected": ["orchestrator/tests/", "tests/"]}
+        {
+          "id": "task-6-1",
+          "description": "External-importer audit (section-(d)) for event_prompt.py (renderers like _render_producer_delta_section / _render_nacks_section are referenced by other plan/BRC code \u2014 audit carefully).",
+          "acceptance_criteria": "Re-export set derived from external-reference audit.",
+          "files_affected": [
+            "orchestrator/routes/event_prompt.py"
+          ]
+        },
+        {
+          "id": "task-6-2",
+          "description": "Step-0 git mv event_prompt.py -> event_prompt/__init__.py; green baseline commit.",
+          "acceptance_criteria": "Pure-move baseline commit green.",
+          "files_affected": [
+            "orchestrator/routes/event_prompt/__init__.py"
+          ]
+        },
+        {
+          "id": "task-6-3",
+          "description": "Extract clusters into _<cluster>.py submodules grouped by rendered section; explicit per-symbol re-export barrel.",
+          "acceptance_criteria": "All submodules under cap; barrel re-exports every external symbol.",
+          "files_affected": [
+            "orchestrator/routes/event_prompt/"
+          ]
+        },
+        {
+          "id": "task-6-4",
+          "description": "Drop event_prompt.py allowlist entry; add concrete event_prompt/ row to orchestrator/CLAUDE.md.",
+          "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml",
+            "orchestrator/CLAUDE.md"
+          ]
+        },
+        {
+          "id": "task-6-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
+          "files_affected": [
+            "orchestrator/tests/",
+            "tests/"
+          ]
+        }
       ]
     },
     {
@@ -148,14 +366,51 @@
       "lines": 1952,
       "over_byte_cap": false,
       "claude_md": "shared/CLAUDE.md (NEW file)",
-      "dependency": null,
+      "dependency": "phase-6",
       "pr": "one PR; drops plan_parser.py allowlist entry (provenance #2548); CREATES shared/CLAUDE.md",
       "tasks": [
-        {"id": "task-7-1", "description": "External-importer audit (section-(d)) for plan_parser.py across the whole tree (the plan parser is consumed by orchestrator + contract tooling — wide surface).", "acceptance_criteria": "Re-export set derived from external-reference audit.", "files_affected": ["shared/egg_contracts/plan_parser.py"]},
-        {"id": "task-7-2", "description": "Step-0 git mv plan_parser.py -> plan_parser/__init__.py; green baseline commit.", "acceptance_criteria": "Pure-move baseline commit green.", "files_affected": ["shared/egg_contracts/plan_parser/__init__.py"]},
-        {"id": "task-7-3", "description": "Extract clusters into _<cluster>.py submodules (tokenizer/grammar vs section parsers vs model construction); explicit per-symbol re-export barrel.", "acceptance_criteria": "All submodules under cap; barrel re-exports every external symbol.", "files_affected": ["shared/egg_contracts/plan_parser/"]},
-        {"id": "task-7-4", "description": "Drop plan_parser.py allowlist entry; CREATE shared/CLAUDE.md (currently ABSENT) with a decomposition seam table documenting the plan_parser/ layout — this is the only in-scope shared/ file, so the new file covers it.", "acceptance_criteria": "Allowlist entry removed; shared/CLAUDE.md exists with a concrete plan_parser/ seam row; lint ratchet passes.", "files_affected": ["scripts/file-size-allowlist.yaml", "shared/CLAUDE.md"]},
-        {"id": "task-7-5", "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.", "acceptance_criteria": "Green; no behavior change.", "files_affected": ["shared/egg_contracts/tests/", "tests/"]}
+        {
+          "id": "task-7-1",
+          "description": "External-importer audit (section-(d)) for plan_parser.py across the whole tree (the plan parser is consumed by orchestrator + contract tooling \u2014 wide surface).",
+          "acceptance_criteria": "Re-export set derived from external-reference audit.",
+          "files_affected": [
+            "shared/egg_contracts/plan_parser.py"
+          ]
+        },
+        {
+          "id": "task-7-2",
+          "description": "Step-0 git mv plan_parser.py -> plan_parser/__init__.py; green baseline commit.",
+          "acceptance_criteria": "Pure-move baseline commit green.",
+          "files_affected": [
+            "shared/egg_contracts/plan_parser/__init__.py"
+          ]
+        },
+        {
+          "id": "task-7-3",
+          "description": "Extract clusters into _<cluster>.py submodules (tokenizer/grammar vs section parsers vs model construction); explicit per-symbol re-export barrel.",
+          "acceptance_criteria": "All submodules under cap; barrel re-exports every external symbol.",
+          "files_affected": [
+            "shared/egg_contracts/plan_parser/"
+          ]
+        },
+        {
+          "id": "task-7-4",
+          "description": "Drop plan_parser.py allowlist entry; CREATE shared/CLAUDE.md (currently ABSENT) with a decomposition seam table documenting the plan_parser/ layout \u2014 this is the only in-scope shared/ file, so the new file covers it.",
+          "acceptance_criteria": "Allowlist entry removed; shared/CLAUDE.md exists with a concrete plan_parser/ seam row; lint ratchet passes.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml",
+            "shared/CLAUDE.md"
+          ]
+        },
+        {
+          "id": "task-7-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
+          "files_affected": [
+            "shared/egg_contracts/tests/",
+            "tests/"
+          ]
+        }
       ]
     },
     {
@@ -166,14 +421,51 @@
       "lines": 2130,
       "over_byte_cap": false,
       "claude_md": "orchestrator/CLAUDE.md",
-      "dependency": null,
+      "dependency": "phase-7",
       "pr": "one PR; drops monitor.py allowlist entry; adds orchestrator/CLAUDE.md row",
       "tasks": [
-        {"id": "task-8-1", "description": "External-importer audit (section-(d)) for monitor.py.", "acceptance_criteria": "Re-export set derived from external-reference audit.", "files_affected": ["orchestrator/overseer/monitor.py"]},
-        {"id": "task-8-2", "description": "Step-0 git mv monitor.py -> monitor/__init__.py; green baseline commit.", "acceptance_criteria": "Pure-move baseline commit green.", "files_affected": ["orchestrator/overseer/monitor/__init__.py"]},
-        {"id": "task-8-3", "description": "Extract clusters into _<cluster>.py submodules (anomaly detectors vs alerting vs health polling); method-modules-on-class pattern if class-dominated; explicit per-symbol re-export barrel.", "acceptance_criteria": "All submodules under cap; barrel re-exports every external symbol.", "files_affected": ["orchestrator/overseer/monitor/"]},
-        {"id": "task-8-4", "description": "Drop monitor.py allowlist entry; add concrete monitor/ row to orchestrator/CLAUDE.md.", "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.", "files_affected": ["scripts/file-size-allowlist.yaml", "orchestrator/CLAUDE.md"]},
-        {"id": "task-8-5", "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.", "acceptance_criteria": "Green; no behavior change.", "files_affected": ["orchestrator/tests/", "tests/"]}
+        {
+          "id": "task-8-1",
+          "description": "External-importer audit (section-(d)) for monitor.py.",
+          "acceptance_criteria": "Re-export set derived from external-reference audit.",
+          "files_affected": [
+            "orchestrator/overseer/monitor.py"
+          ]
+        },
+        {
+          "id": "task-8-2",
+          "description": "Step-0 git mv monitor.py -> monitor/__init__.py; green baseline commit.",
+          "acceptance_criteria": "Pure-move baseline commit green.",
+          "files_affected": [
+            "orchestrator/overseer/monitor/__init__.py"
+          ]
+        },
+        {
+          "id": "task-8-3",
+          "description": "Extract clusters into _<cluster>.py submodules (anomaly detectors vs alerting vs health polling); method-modules-on-class pattern if class-dominated; explicit per-symbol re-export barrel.",
+          "acceptance_criteria": "All submodules under cap; barrel re-exports every external symbol.",
+          "files_affected": [
+            "orchestrator/overseer/monitor/"
+          ]
+        },
+        {
+          "id": "task-8-4",
+          "description": "Drop monitor.py allowlist entry; add concrete monitor/ row to orchestrator/CLAUDE.md.",
+          "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml",
+            "orchestrator/CLAUDE.md"
+          ]
+        },
+        {
+          "id": "task-8-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
+          "files_affected": [
+            "orchestrator/tests/",
+            "tests/"
+          ]
+        }
       ]
     },
     {
@@ -184,14 +476,51 @@
       "lines": 2212,
       "over_byte_cap": false,
       "claude_md": "sandbox/CLAUDE.md (append row)",
-      "dependency": null,
+      "dependency": "phase-8",
       "pr": "one PR; drops entrypoint.py allowlist entry; appends sandbox/CLAUDE.md row",
       "tasks": [
-        {"id": "task-9-1", "description": "External-importer audit (section-(d)) for entrypoint.py.", "acceptance_criteria": "Re-export set derived from external-reference audit.", "files_affected": ["sandbox/entrypoint.py"]},
-        {"id": "task-9-2", "description": "Step-0 git mv entrypoint.py -> entrypoint/__init__.py; green baseline commit. NOTE: verify the container ENTRYPOINT / module-execution path (python -m / direct invocation) still resolves after the package conversion — entrypoint.py may be the image's launch target.", "acceptance_criteria": "Pure-move baseline commit green; container launch path still resolves.", "files_affected": ["sandbox/entrypoint/__init__.py"]},
-        {"id": "task-9-3", "description": "Extract clusters into _<cluster>.py submodules; add __main__.py if the module is executed as a script (mirror scripts/select_tests/ which has __main__.py); explicit per-symbol re-export barrel.", "acceptance_criteria": "All submodules under cap; script-execution entry preserved; barrel re-exports every external symbol.", "files_affected": ["sandbox/entrypoint/"]},
-        {"id": "task-9-4", "description": "Drop entrypoint.py allowlist entry; append a concrete entrypoint/ row to the sandbox/CLAUDE.md seam table created in slice-1.", "acceptance_criteria": "Allowlist entry removed; sandbox/CLAUDE.md row added; lint ratchet passes.", "files_affected": ["scripts/file-size-allowlist.yaml", "sandbox/CLAUDE.md"]},
-        {"id": "task-9-5", "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.", "acceptance_criteria": "Green; no behavior change.", "files_affected": ["sandbox/tests/", "tests/"]}
+        {
+          "id": "task-9-1",
+          "description": "External-importer audit (section-(d)) for entrypoint.py.",
+          "acceptance_criteria": "Re-export set derived from external-reference audit.",
+          "files_affected": [
+            "sandbox/entrypoint.py"
+          ]
+        },
+        {
+          "id": "task-9-2",
+          "description": "Step-0 git mv entrypoint.py -> entrypoint/__init__.py; green baseline commit. NOTE: verify the container ENTRYPOINT / module-execution path (python -m / direct invocation) still resolves after the package conversion \u2014 entrypoint.py may be the image's launch target.",
+          "acceptance_criteria": "Pure-move baseline commit green; container launch path still resolves.",
+          "files_affected": [
+            "sandbox/entrypoint/__init__.py"
+          ]
+        },
+        {
+          "id": "task-9-3",
+          "description": "Extract clusters into _<cluster>.py submodules; add __main__.py if the module is executed as a script (mirror scripts/select_tests/ which has __main__.py); explicit per-symbol re-export barrel.",
+          "acceptance_criteria": "All submodules under cap; script-execution entry preserved; barrel re-exports every external symbol.",
+          "files_affected": [
+            "sandbox/entrypoint/"
+          ]
+        },
+        {
+          "id": "task-9-4",
+          "description": "Drop entrypoint.py allowlist entry; append a concrete entrypoint/ row to the sandbox/CLAUDE.md seam table created in slice-1.",
+          "acceptance_criteria": "Allowlist entry removed; sandbox/CLAUDE.md row added; lint ratchet passes.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml",
+            "sandbox/CLAUDE.md"
+          ]
+        },
+        {
+          "id": "task-9-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
+          "files_affected": [
+            "sandbox/tests/",
+            "tests/"
+          ]
+        }
       ]
     },
     {
@@ -202,14 +531,51 @@
       "lines": 2326,
       "over_byte_cap": true,
       "claude_md": "orchestrator/CLAUDE.md",
-      "dependency": null,
+      "dependency": "phase-9",
       "pr": "one PR; drops peer_consensus.py allowlist entry; adds orchestrator/CLAUDE.md row",
       "tasks": [
-        {"id": "task-10-1", "description": "External-importer audit (section-(d)) for peer_consensus.py — PeerConsensusTracker.matrix and consensus helpers are referenced by routes/consensus + event_prompt; audit carefully.", "acceptance_criteria": "Re-export set derived from external-reference audit.", "files_affected": ["orchestrator/peer_consensus.py"]},
-        {"id": "task-10-2", "description": "Step-0 git mv peer_consensus.py -> peer_consensus/__init__.py; green baseline commit.", "acceptance_criteria": "Pure-move baseline commit green.", "files_affected": ["orchestrator/peer_consensus/__init__.py"]},
-        {"id": "task-10-3", "description": "Extract clusters into _<cluster>.py submodules; method-modules-on-class pattern for PeerConsensusTracker (keep the class in __init__.py, extract method bodies); explicit per-symbol re-export barrel. Verify every submodule is under BOTH line and byte caps (this file breaches the byte cap).", "acceptance_criteria": "All submodules <=1500 lines AND <=100KB; class identity preserved; barrel re-exports every external symbol.", "files_affected": ["orchestrator/peer_consensus/"]},
-        {"id": "task-10-4", "description": "Drop peer_consensus.py allowlist entry; add concrete peer_consensus/ row to orchestrator/CLAUDE.md.", "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.", "files_affected": ["scripts/file-size-allowlist.yaml", "orchestrator/CLAUDE.md"]},
-        {"id": "task-10-5", "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.", "acceptance_criteria": "Green; no behavior change.", "files_affected": ["orchestrator/tests/", "tests/"]}
+        {
+          "id": "task-10-1",
+          "description": "External-importer audit (section-(d)) for peer_consensus.py \u2014 PeerConsensusTracker.matrix and consensus helpers are referenced by routes/consensus + event_prompt; audit carefully.",
+          "acceptance_criteria": "Re-export set derived from external-reference audit.",
+          "files_affected": [
+            "orchestrator/peer_consensus.py"
+          ]
+        },
+        {
+          "id": "task-10-2",
+          "description": "Step-0 git mv peer_consensus.py -> peer_consensus/__init__.py; green baseline commit.",
+          "acceptance_criteria": "Pure-move baseline commit green.",
+          "files_affected": [
+            "orchestrator/peer_consensus/__init__.py"
+          ]
+        },
+        {
+          "id": "task-10-3",
+          "description": "Extract clusters into _<cluster>.py submodules; method-modules-on-class pattern for PeerConsensusTracker (keep the class in __init__.py, extract method bodies); explicit per-symbol re-export barrel. Verify every submodule is under BOTH line and byte caps (this file breaches the byte cap).",
+          "acceptance_criteria": "All submodules <=1500 lines AND <=100KB; class identity preserved; barrel re-exports every external symbol.",
+          "files_affected": [
+            "orchestrator/peer_consensus/"
+          ]
+        },
+        {
+          "id": "task-10-4",
+          "description": "Drop peer_consensus.py allowlist entry; add concrete peer_consensus/ row to orchestrator/CLAUDE.md.",
+          "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml",
+            "orchestrator/CLAUDE.md"
+          ]
+        },
+        {
+          "id": "task-10-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
+          "files_affected": [
+            "orchestrator/tests/",
+            "tests/"
+          ]
+        }
       ]
     },
     {
@@ -220,14 +586,51 @@
       "lines": 2393,
       "over_byte_cap": false,
       "claude_md": "gateway/CLAUDE.md",
-      "dependency": null,
+      "dependency": "phase-10",
       "pr": "one PR; drops git_client.py allowlist entry; adds gateway/CLAUDE.md row",
       "tasks": [
-        {"id": "task-11-1", "description": "External-importer audit (section-(d)) for git_client.py.", "acceptance_criteria": "Re-export set derived from external-reference audit.", "files_affected": ["gateway/git_client.py"]},
-        {"id": "task-11-2", "description": "Step-0 git mv git_client.py -> git_client/__init__.py; green baseline commit.", "acceptance_criteria": "Pure-move baseline commit green.", "files_affected": ["gateway/git_client/__init__.py"]},
-        {"id": "task-11-3", "description": "Extract clusters into _<cluster>.py submodules (method-modules-on-class if dominated by a GitClient class); explicit per-symbol re-export barrel.", "acceptance_criteria": "All submodules under cap; class identity preserved; barrel re-exports every external symbol.", "files_affected": ["gateway/git_client/"]},
-        {"id": "task-11-4", "description": "Drop git_client.py allowlist entry; add concrete git_client/ row to gateway/CLAUDE.md.", "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.", "files_affected": ["scripts/file-size-allowlist.yaml", "gateway/CLAUDE.md"]},
-        {"id": "task-11-5", "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.", "acceptance_criteria": "Green; no behavior change.", "files_affected": ["gateway/tests/", "tests/"]}
+        {
+          "id": "task-11-1",
+          "description": "External-importer audit (section-(d)) for git_client.py.",
+          "acceptance_criteria": "Re-export set derived from external-reference audit.",
+          "files_affected": [
+            "gateway/git_client.py"
+          ]
+        },
+        {
+          "id": "task-11-2",
+          "description": "Step-0 git mv git_client.py -> git_client/__init__.py; green baseline commit.",
+          "acceptance_criteria": "Pure-move baseline commit green.",
+          "files_affected": [
+            "gateway/git_client/__init__.py"
+          ]
+        },
+        {
+          "id": "task-11-3",
+          "description": "Extract clusters into _<cluster>.py submodules (method-modules-on-class if dominated by a GitClient class); explicit per-symbol re-export barrel.",
+          "acceptance_criteria": "All submodules under cap; class identity preserved; barrel re-exports every external symbol.",
+          "files_affected": [
+            "gateway/git_client/"
+          ]
+        },
+        {
+          "id": "task-11-4",
+          "description": "Drop git_client.py allowlist entry; add concrete git_client/ row to gateway/CLAUDE.md.",
+          "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml",
+            "gateway/CLAUDE.md"
+          ]
+        },
+        {
+          "id": "task-11-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
+          "files_affected": [
+            "gateway/tests/",
+            "tests/"
+          ]
+        }
       ]
     },
     {
@@ -238,14 +641,51 @@
       "lines": 2507,
       "over_byte_cap": true,
       "claude_md": "gateway/CLAUDE.md",
-      "dependency": null,
+      "dependency": "phase-11",
       "pr": "one PR; drops worktree_manager.py allowlist entry; adds gateway/CLAUDE.md row",
       "tasks": [
-        {"id": "task-12-1", "description": "External-importer audit (section-(d)) for worktree_manager.py.", "acceptance_criteria": "Re-export set derived from external-reference audit.", "files_affected": ["gateway/worktree_manager.py"]},
-        {"id": "task-12-2", "description": "Step-0 git mv worktree_manager.py -> worktree_manager/__init__.py; green baseline commit.", "acceptance_criteria": "Pure-move baseline commit green.", "files_affected": ["gateway/worktree_manager/__init__.py"]},
-        {"id": "task-12-3", "description": "Extract clusters into _<cluster>.py submodules; method-modules-on-class if dominated by a manager class; explicit per-symbol re-export barrel. Verify every submodule under BOTH caps (byte-cap breach).", "acceptance_criteria": "All submodules <=1500 lines AND <=100KB; barrel re-exports every external symbol.", "files_affected": ["gateway/worktree_manager/"]},
-        {"id": "task-12-4", "description": "Drop worktree_manager.py allowlist entry; add concrete worktree_manager/ row to gateway/CLAUDE.md.", "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.", "files_affected": ["scripts/file-size-allowlist.yaml", "gateway/CLAUDE.md"]},
-        {"id": "task-12-5", "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.", "acceptance_criteria": "Green; no behavior change.", "files_affected": ["gateway/tests/", "tests/"]}
+        {
+          "id": "task-12-1",
+          "description": "External-importer audit (section-(d)) for worktree_manager.py.",
+          "acceptance_criteria": "Re-export set derived from external-reference audit.",
+          "files_affected": [
+            "gateway/worktree_manager.py"
+          ]
+        },
+        {
+          "id": "task-12-2",
+          "description": "Step-0 git mv worktree_manager.py -> worktree_manager/__init__.py; green baseline commit.",
+          "acceptance_criteria": "Pure-move baseline commit green.",
+          "files_affected": [
+            "gateway/worktree_manager/__init__.py"
+          ]
+        },
+        {
+          "id": "task-12-3",
+          "description": "Extract clusters into _<cluster>.py submodules; method-modules-on-class if dominated by a manager class; explicit per-symbol re-export barrel. Verify every submodule under BOTH caps (byte-cap breach).",
+          "acceptance_criteria": "All submodules <=1500 lines AND <=100KB; barrel re-exports every external symbol.",
+          "files_affected": [
+            "gateway/worktree_manager/"
+          ]
+        },
+        {
+          "id": "task-12-4",
+          "description": "Drop worktree_manager.py allowlist entry; add concrete worktree_manager/ row to gateway/CLAUDE.md.",
+          "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml",
+            "gateway/CLAUDE.md"
+          ]
+        },
+        {
+          "id": "task-12-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
+          "files_affected": [
+            "gateway/tests/",
+            "tests/"
+          ]
+        }
       ]
     },
     {
@@ -256,14 +696,51 @@
       "lines": 2948,
       "over_byte_cap": true,
       "claude_md": "orchestrator/CLAUDE.md",
-      "dependency": null,
+      "dependency": "phase-12",
       "pr": "one PR; drops mcp_tools.py allowlist entry; adds orchestrator/CLAUDE.md row",
       "tasks": [
-        {"id": "task-13-1", "description": "External-importer audit (section-(d)) for mcp_tools.py. The pattern doc names PipelineToolHandler (~30 _handle_* methods) as the canonical method-modules-on-class example — confirm the class shape.", "acceptance_criteria": "Re-export set derived from external-reference audit; PipelineToolHandler method inventory captured.", "files_affected": ["orchestrator/mcp_tools.py"]},
-        {"id": "task-13-2", "description": "Step-0 git mv mcp_tools.py -> mcp_tools/__init__.py; green baseline commit.", "acceptance_criteria": "Pure-move baseline commit green.", "files_affected": ["orchestrator/mcp_tools/__init__.py"]},
-        {"id": "task-13-3", "description": "Apply the method-modules-on-class pattern (section-(c)): keep PipelineToolHandler in __init__.py; extract _handle_* method bodies into module-level functions in responsibility-grouped submodules (_dispatch.py, _status.py, _health.py, ...) each taking self explicitly; methods become thin delegating wrappers. Barrel re-exports the class + any externally-referenced module-level helpers. Verify every submodule under BOTH caps.", "acceptance_criteria": "PipelineToolHandler stays on mcp_tools module path; all submodules <=1500 lines AND <=100KB; patch('mcp_tools.PipelineToolHandler') and method-target patches still resolve.", "files_affected": ["orchestrator/mcp_tools/"]},
-        {"id": "task-13-4", "description": "Drop mcp_tools.py allowlist entry; add concrete mcp_tools/ row to orchestrator/CLAUDE.md.", "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.", "files_affected": ["scripts/file-size-allowlist.yaml", "orchestrator/CLAUDE.md"]},
-        {"id": "task-13-5", "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.", "acceptance_criteria": "Green; no behavior change.", "files_affected": ["orchestrator/tests/", "tests/"]}
+        {
+          "id": "task-13-1",
+          "description": "External-importer audit (section-(d)) for mcp_tools.py. The pattern doc names PipelineToolHandler (~30 _handle_* methods) as the canonical method-modules-on-class example \u2014 confirm the class shape.",
+          "acceptance_criteria": "Re-export set derived from external-reference audit; PipelineToolHandler method inventory captured.",
+          "files_affected": [
+            "orchestrator/mcp_tools.py"
+          ]
+        },
+        {
+          "id": "task-13-2",
+          "description": "Step-0 git mv mcp_tools.py -> mcp_tools/__init__.py; green baseline commit.",
+          "acceptance_criteria": "Pure-move baseline commit green.",
+          "files_affected": [
+            "orchestrator/mcp_tools/__init__.py"
+          ]
+        },
+        {
+          "id": "task-13-3",
+          "description": "Apply the method-modules-on-class pattern (section-(c)): keep PipelineToolHandler in __init__.py; extract _handle_* method bodies into module-level functions in responsibility-grouped submodules (_dispatch.py, _status.py, _health.py, ...) each taking self explicitly; methods become thin delegating wrappers. Barrel re-exports the class + any externally-referenced module-level helpers. Verify every submodule under BOTH caps.",
+          "acceptance_criteria": "PipelineToolHandler stays on mcp_tools module path; all submodules <=1500 lines AND <=100KB; patch('mcp_tools.PipelineToolHandler') and method-target patches still resolve.",
+          "files_affected": [
+            "orchestrator/mcp_tools/"
+          ]
+        },
+        {
+          "id": "task-13-4",
+          "description": "Drop mcp_tools.py allowlist entry; add concrete mcp_tools/ row to orchestrator/CLAUDE.md.",
+          "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml",
+            "orchestrator/CLAUDE.md"
+          ]
+        },
+        {
+          "id": "task-13-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
+          "files_affected": [
+            "orchestrator/tests/",
+            "tests/"
+          ]
+        }
       ]
     },
     {
@@ -274,14 +751,51 @@
       "lines": 3041,
       "over_byte_cap": true,
       "claude_md": "orchestrator/CLAUDE.md",
-      "dependency": null,
+      "dependency": "phase-13",
       "pr": "one PR; drops kubernetes_spawner.py allowlist entry; adds orchestrator/CLAUDE.md row",
       "tasks": [
-        {"id": "task-14-1", "description": "External-importer audit (section-(d)) for kubernetes_spawner.py (grew 1,909 -> 3,041; now also over the byte cap).", "acceptance_criteria": "Re-export set derived from external-reference audit.", "files_affected": ["orchestrator/kubernetes_spawner.py"]},
-        {"id": "task-14-2", "description": "Step-0 git mv kubernetes_spawner.py -> kubernetes_spawner/__init__.py; green baseline commit.", "acceptance_criteria": "Pure-move baseline commit green.", "files_affected": ["orchestrator/kubernetes_spawner/__init__.py"]},
-        {"id": "task-14-3", "description": "Extract clusters into _<cluster>.py submodules (pod-spec building vs lifecycle/spawn vs status/teardown vs manifest templating); method-modules-on-class if spawner-class-dominated; explicit per-symbol re-export barrel. Verify submodules under BOTH caps; further-split in-slice if any lands over (section-(g)).", "acceptance_criteria": "All submodules <=1500 lines AND <=100KB; barrel re-exports every external symbol.", "files_affected": ["orchestrator/kubernetes_spawner/"]},
-        {"id": "task-14-4", "description": "Drop kubernetes_spawner.py allowlist entry; add concrete kubernetes_spawner/ row to orchestrator/CLAUDE.md (no prior row — new entry).", "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.", "files_affected": ["scripts/file-size-allowlist.yaml", "orchestrator/CLAUDE.md"]},
-        {"id": "task-14-5", "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.", "acceptance_criteria": "Green; no behavior change.", "files_affected": ["orchestrator/tests/", "tests/"]}
+        {
+          "id": "task-14-1",
+          "description": "External-importer audit (section-(d)) for kubernetes_spawner.py (grew 1,909 -> 3,041; now also over the byte cap).",
+          "acceptance_criteria": "Re-export set derived from external-reference audit.",
+          "files_affected": [
+            "orchestrator/kubernetes_spawner.py"
+          ]
+        },
+        {
+          "id": "task-14-2",
+          "description": "Step-0 git mv kubernetes_spawner.py -> kubernetes_spawner/__init__.py; green baseline commit.",
+          "acceptance_criteria": "Pure-move baseline commit green.",
+          "files_affected": [
+            "orchestrator/kubernetes_spawner/__init__.py"
+          ]
+        },
+        {
+          "id": "task-14-3",
+          "description": "Extract clusters into _<cluster>.py submodules (pod-spec building vs lifecycle/spawn vs status/teardown vs manifest templating); method-modules-on-class if spawner-class-dominated; explicit per-symbol re-export barrel. Verify submodules under BOTH caps; further-split in-slice if any lands over (section-(g)).",
+          "acceptance_criteria": "All submodules <=1500 lines AND <=100KB; barrel re-exports every external symbol.",
+          "files_affected": [
+            "orchestrator/kubernetes_spawner/"
+          ]
+        },
+        {
+          "id": "task-14-4",
+          "description": "Drop kubernetes_spawner.py allowlist entry; add concrete kubernetes_spawner/ row to orchestrator/CLAUDE.md (no prior row \u2014 new entry).",
+          "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml",
+            "orchestrator/CLAUDE.md"
+          ]
+        },
+        {
+          "id": "task-14-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
+          "files_affected": [
+            "orchestrator/tests/",
+            "tests/"
+          ]
+        }
       ]
     },
     {
@@ -292,14 +806,51 @@
       "lines": 3398,
       "over_byte_cap": true,
       "claude_md": "orchestrator/CLAUDE.md",
-      "dependency": null,
+      "dependency": "phase-14",
       "pr": "one PR; drops signals.py allowlist entry; adds orchestrator/CLAUDE.md row",
       "tasks": [
-        {"id": "task-15-1", "description": "External-importer audit (section-(d)) for signals.py.", "acceptance_criteria": "Re-export set derived from external-reference audit.", "files_affected": ["orchestrator/routes/signals.py"]},
-        {"id": "task-15-2", "description": "Step-0 git mv signals.py -> signals/__init__.py; green baseline commit.", "acceptance_criteria": "Pure-move baseline commit green.", "files_affected": ["orchestrator/routes/signals/__init__.py"]},
-        {"id": "task-15-3", "description": "Extract clusters into _<cluster>.py submodules grouped by signal type; routes convention (decorators in __init__.py); explicit per-symbol re-export barrel. Verify submodules under BOTH caps.", "acceptance_criteria": "All submodules <=1500 lines AND <=100KB; decorators in __init__.py; barrel re-exports every external symbol.", "files_affected": ["orchestrator/routes/signals/"]},
-        {"id": "task-15-4", "description": "Drop signals.py allowlist entry; add concrete signals/ row to orchestrator/CLAUDE.md.", "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.", "files_affected": ["scripts/file-size-allowlist.yaml", "orchestrator/CLAUDE.md"]},
-        {"id": "task-15-5", "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.", "acceptance_criteria": "Green; no behavior change.", "files_affected": ["orchestrator/tests/", "tests/"]}
+        {
+          "id": "task-15-1",
+          "description": "External-importer audit (section-(d)) for signals.py.",
+          "acceptance_criteria": "Re-export set derived from external-reference audit.",
+          "files_affected": [
+            "orchestrator/routes/signals.py"
+          ]
+        },
+        {
+          "id": "task-15-2",
+          "description": "Step-0 git mv signals.py -> signals/__init__.py; green baseline commit.",
+          "acceptance_criteria": "Pure-move baseline commit green.",
+          "files_affected": [
+            "orchestrator/routes/signals/__init__.py"
+          ]
+        },
+        {
+          "id": "task-15-3",
+          "description": "Extract clusters into _<cluster>.py submodules grouped by signal type; routes convention (decorators in __init__.py); explicit per-symbol re-export barrel. Verify submodules under BOTH caps.",
+          "acceptance_criteria": "All submodules <=1500 lines AND <=100KB; decorators in __init__.py; barrel re-exports every external symbol.",
+          "files_affected": [
+            "orchestrator/routes/signals/"
+          ]
+        },
+        {
+          "id": "task-15-4",
+          "description": "Drop signals.py allowlist entry; add concrete signals/ row to orchestrator/CLAUDE.md.",
+          "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml",
+            "orchestrator/CLAUDE.md"
+          ]
+        },
+        {
+          "id": "task-15-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
+          "files_affected": [
+            "orchestrator/tests/",
+            "tests/"
+          ]
+        }
       ]
     },
     {
@@ -310,14 +861,51 @@
       "lines": 4326,
       "over_byte_cap": true,
       "claude_md": "orchestrator/CLAUDE.md",
-      "dependency": null,
+      "dependency": "phase-15",
       "pr": "one PR; drops gateway_client.py allowlist entry; adds orchestrator/CLAUDE.md row",
       "tasks": [
-        {"id": "task-16-1", "description": "External-importer audit (section-(d)) for gateway_client.py. The pattern doc names GatewayClient as a method-modules-on-class candidate — confirm class shape and method inventory.", "acceptance_criteria": "Re-export set derived from external-reference audit; GatewayClient method inventory captured.", "files_affected": ["orchestrator/gateway_client.py"]},
-        {"id": "task-16-2", "description": "Step-0 git mv gateway_client.py -> gateway_client/__init__.py; green baseline commit.", "acceptance_criteria": "Pure-move baseline commit green.", "files_affected": ["orchestrator/gateway_client/__init__.py"]},
-        {"id": "task-16-3", "description": "Method-modules-on-class (section-(c)): keep GatewayClient in __init__.py; extract method bodies to module-level functions in responsibility-grouped submodules (git ops vs gh/PR ops vs auth/credential injection vs request plumbing); methods become thin wrappers; barrel re-exports the class + external helpers. Verify submodules under BOTH caps; further-split in-slice if needed.", "acceptance_criteria": "GatewayClient stays on the module path; all submodules <=1500 lines AND <=100KB; barrel re-exports every external symbol.", "files_affected": ["orchestrator/gateway_client/"]},
-        {"id": "task-16-4", "description": "Drop gateway_client.py allowlist entry; add concrete gateway_client/ row to orchestrator/CLAUDE.md.", "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.", "files_affected": ["scripts/file-size-allowlist.yaml", "orchestrator/CLAUDE.md"]},
-        {"id": "task-16-5", "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.", "acceptance_criteria": "Green; no behavior change.", "files_affected": ["orchestrator/tests/", "tests/"]}
+        {
+          "id": "task-16-1",
+          "description": "External-importer audit (section-(d)) for gateway_client.py. The pattern doc names GatewayClient as a method-modules-on-class candidate \u2014 confirm class shape and method inventory.",
+          "acceptance_criteria": "Re-export set derived from external-reference audit; GatewayClient method inventory captured.",
+          "files_affected": [
+            "orchestrator/gateway_client.py"
+          ]
+        },
+        {
+          "id": "task-16-2",
+          "description": "Step-0 git mv gateway_client.py -> gateway_client/__init__.py; green baseline commit.",
+          "acceptance_criteria": "Pure-move baseline commit green.",
+          "files_affected": [
+            "orchestrator/gateway_client/__init__.py"
+          ]
+        },
+        {
+          "id": "task-16-3",
+          "description": "Method-modules-on-class (section-(c)): keep GatewayClient in __init__.py; extract method bodies to module-level functions in responsibility-grouped submodules (git ops vs gh/PR ops vs auth/credential injection vs request plumbing); methods become thin wrappers; barrel re-exports the class + external helpers. Verify submodules under BOTH caps; further-split in-slice if needed.",
+          "acceptance_criteria": "GatewayClient stays on the module path; all submodules <=1500 lines AND <=100KB; barrel re-exports every external symbol.",
+          "files_affected": [
+            "orchestrator/gateway_client/"
+          ]
+        },
+        {
+          "id": "task-16-4",
+          "description": "Drop gateway_client.py allowlist entry; add concrete gateway_client/ row to orchestrator/CLAUDE.md.",
+          "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml",
+            "orchestrator/CLAUDE.md"
+          ]
+        },
+        {
+          "id": "task-16-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
+          "files_affected": [
+            "orchestrator/tests/",
+            "tests/"
+          ]
+        }
       ]
     },
     {
@@ -328,90 +916,231 @@
       "lines": 5012,
       "over_byte_cap": true,
       "claude_md": "sandbox/CLAUDE.md (append row)",
-      "dependency": null,
+      "dependency": "phase-16",
       "pr": "one PR; drops orch_cli.py allowlist entry; appends sandbox/CLAUDE.md row",
       "tasks": [
-        {"id": "task-17-1", "description": "External-importer audit (section-(d)) for orch_cli.py (largest of the simpler-than-outliers files; many CLI subcommands).", "acceptance_criteria": "Re-export set + subcommand inventory derived from audit.", "files_affected": ["sandbox/egg_lib/orch_cli.py"]},
-        {"id": "task-17-2", "description": "Step-0 git mv orch_cli.py -> orch_cli/__init__.py; green baseline commit. Preserve any console-script / module-execution entry (add __main__.py if executed as a script, mirroring scripts/select_tests/).", "acceptance_criteria": "Pure-move baseline commit green; CLI entry resolves.", "files_affected": ["sandbox/egg_lib/orch_cli/__init__.py"]},
-        {"id": "task-17-3", "description": "Extract clusters into _<cluster>.py submodules grouped by subcommand family; explicit per-symbol re-export barrel. Verify every submodule under BOTH caps; further-split in-slice if any lands over (section-(g)).", "acceptance_criteria": "All submodules <=1500 lines AND <=100KB; barrel re-exports every external symbol.", "files_affected": ["sandbox/egg_lib/orch_cli/"]},
-        {"id": "task-17-4", "description": "Drop orch_cli.py allowlist entry; append a concrete orch_cli/ row to the sandbox/CLAUDE.md seam table.", "acceptance_criteria": "Allowlist entry removed; sandbox/CLAUDE.md row added; lint ratchet passes.", "files_affected": ["scripts/file-size-allowlist.yaml", "sandbox/CLAUDE.md"]},
-        {"id": "task-17-5", "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.", "acceptance_criteria": "Green; no behavior change.", "files_affected": ["sandbox/egg_lib/tests/", "tests/"]}
+        {
+          "id": "task-17-1",
+          "description": "External-importer audit (section-(d)) for orch_cli.py (largest of the simpler-than-outliers files; many CLI subcommands).",
+          "acceptance_criteria": "Re-export set + subcommand inventory derived from audit.",
+          "files_affected": [
+            "sandbox/egg_lib/orch_cli.py"
+          ]
+        },
+        {
+          "id": "task-17-2",
+          "description": "Step-0 git mv orch_cli.py -> orch_cli/__init__.py; green baseline commit. Preserve any console-script / module-execution entry (add __main__.py if executed as a script, mirroring scripts/select_tests/).",
+          "acceptance_criteria": "Pure-move baseline commit green; CLI entry resolves.",
+          "files_affected": [
+            "sandbox/egg_lib/orch_cli/__init__.py"
+          ]
+        },
+        {
+          "id": "task-17-3",
+          "description": "Extract clusters into _<cluster>.py submodules grouped by subcommand family; explicit per-symbol re-export barrel. Verify every submodule under BOTH caps; further-split in-slice if any lands over (section-(g)).",
+          "acceptance_criteria": "All submodules <=1500 lines AND <=100KB; barrel re-exports every external symbol.",
+          "files_affected": [
+            "sandbox/egg_lib/orch_cli/"
+          ]
+        },
+        {
+          "id": "task-17-4",
+          "description": "Drop orch_cli.py allowlist entry; append a concrete orch_cli/ row to the sandbox/CLAUDE.md seam table.",
+          "acceptance_criteria": "Allowlist entry removed; sandbox/CLAUDE.md row added; lint ratchet passes.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml",
+            "sandbox/CLAUDE.md"
+          ]
+        },
+        {
+          "id": "task-17-5",
+          "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
+          "acceptance_criteria": "Green; no behavior change.",
+          "files_affected": [
+            "sandbox/egg_lib/tests/",
+            "tests/"
+          ]
+        }
       ]
     },
     {
       "id": "phase-18",
       "slice": "slice-18",
-      "name": "Decompose gateway/gateway.py (10,385 lines, STRUCTURAL OUTLIER, OVER BYTE CAP) — Flask @app.route seam",
+      "name": "Decompose gateway/gateway.py (10,385 lines, STRUCTURAL OUTLIER, OVER BYTE CAP) \u2014 Flask @app.route seam",
       "file": "gateway/gateway.py",
       "lines": 10385,
       "over_byte_cap": true,
       "claude_md": "gateway/CLAUDE.md",
-      "dependency": null,
+      "dependency": "phase-17",
       "outlier": true,
       "pr": "one PR (may land as a stacked sequence of commits internally); drops gateway.py allowlist entry; adds gateway/CLAUDE.md submodule layout",
       "tasks": [
-        {"id": "task-18-1", "description": "External-importer audit (section-(d)) for gateway.py — the refine analysis sized ~12 distinct gateway.gateway.* patch targets; re-run the audit live (counts shift). Enumerate every @app.route handler and every externally-referenced helper (e.g. get_anthropic_client).", "acceptance_criteria": "Full route+symbol inventory captured; re-export set derived; ~12 patch-target estimate re-verified against the live tree.", "files_affected": ["gateway/gateway.py"]},
-        {"id": "task-18-2", "description": "Step-0 git mv gateway.py -> gateway/__init__.py; green baseline commit (move only). Confirm the Flask app object and all @app.route registrations still resolve on import.", "acceptance_criteria": "Pure-move baseline commit green; Flask app + routes register identically.", "files_affected": ["gateway/gateway/__init__.py"]},
-        {"id": "task-18-3", "description": "Apply the routes-handling convention (non-negotiable #8 / section-(f)): @app.route decorators stay on thin wrapper functions in __init__.py; wrapper bodies delegate to implementation functions in responsibility-grouped _<cluster>.py submodules (e.g. _git_ops, _pr_lifecycle, _credentials/auth, _validation/policy, _checkpoint, _worktree). Do NOT move the decorators. Explicit per-symbol re-export barrel for every externally-referenced helper.", "acceptance_criteria": "All decorators remain in __init__.py; route URL->handler map unchanged; submodules hold the bodies; barrel re-exports every external symbol; patch('gateway.gateway.*') targets resolve.", "files_affected": ["gateway/gateway/"]},
-        {"id": "task-18-4", "description": "Pre-allocate and verify cluster sizing: because the file is ~10.4k lines, several submodules will themselves approach the cap — further-split in-slice (section-(g), recursive barrel pattern) rather than adding any fresh allowlist entry. Confirm EVERY resulting module is under BOTH caps.", "acceptance_criteria": "No submodule over 1500 lines / 100KB; any further-split uses a nested barrel; zero new allowlist entries.", "files_affected": ["gateway/gateway/"]},
-        {"id": "task-18-5", "description": "Drop gateway.py allowlist entry; replace/author the concrete gateway/ submodule layout in gateway/CLAUDE.md (create the decomposition seam rows; the live file has no #2261 placeholder to retag — grounding correction).", "acceptance_criteria": "Allowlist entry removed; gateway/CLAUDE.md carries the concrete submodule layout; lint ratchet passes.", "files_affected": ["scripts/file-size-allowlist.yaml", "gateway/CLAUDE.md"]},
-        {"id": "task-18-6", "description": "make lint + make test-all green at the slice boundary; mechanical patch-path rewrites in-slice; any latent bug surfaced is filed as a 'Part of #3312' follow-up, never bundled.", "acceptance_criteria": "Green; no behavior change in the diff.", "files_affected": ["gateway/tests/", "tests/"]}
+        {
+          "id": "task-18-1",
+          "description": "External-importer audit (section-(d)) for gateway.py \u2014 the refine analysis sized ~12 distinct gateway.gateway.* patch targets; re-run the audit live (counts shift). Enumerate every @app.route handler and every externally-referenced helper (e.g. get_anthropic_client).",
+          "acceptance_criteria": "Full route+symbol inventory captured; re-export set derived; ~12 patch-target estimate re-verified against the live tree.",
+          "files_affected": [
+            "gateway/gateway.py"
+          ]
+        },
+        {
+          "id": "task-18-2",
+          "description": "Step-0 git mv gateway.py -> gateway/__init__.py; green baseline commit (move only). Confirm the Flask app object and all @app.route registrations still resolve on import.",
+          "acceptance_criteria": "Pure-move baseline commit green; Flask app + routes register identically.",
+          "files_affected": [
+            "gateway/gateway/__init__.py"
+          ]
+        },
+        {
+          "id": "task-18-3",
+          "description": "Apply the routes-handling convention (non-negotiable #8 / section-(f)): @app.route decorators stay on thin wrapper functions in __init__.py; wrapper bodies delegate to implementation functions in responsibility-grouped _<cluster>.py submodules (e.g. _git_ops, _pr_lifecycle, _credentials/auth, _validation/policy, _checkpoint, _worktree). Do NOT move the decorators. Explicit per-symbol re-export barrel for every externally-referenced helper.",
+          "acceptance_criteria": "All decorators remain in __init__.py; route URL->handler map unchanged; submodules hold the bodies; barrel re-exports every external symbol; patch('gateway.gateway.*') targets resolve.",
+          "files_affected": [
+            "gateway/gateway/"
+          ]
+        },
+        {
+          "id": "task-18-4",
+          "description": "Pre-allocate and verify cluster sizing: because the file is ~10.4k lines, several submodules will themselves approach the cap \u2014 further-split in-slice (section-(g), recursive barrel pattern) rather than adding any fresh allowlist entry. Confirm EVERY resulting module is under BOTH caps.",
+          "acceptance_criteria": "No submodule over 1500 lines / 100KB; any further-split uses a nested barrel; zero new allowlist entries.",
+          "files_affected": [
+            "gateway/gateway/"
+          ]
+        },
+        {
+          "id": "task-18-5",
+          "description": "Drop gateway.py allowlist entry; replace/author the concrete gateway/ submodule layout in gateway/CLAUDE.md (create the decomposition seam rows; the live file has no #2261 placeholder to retag \u2014 grounding correction).",
+          "acceptance_criteria": "Allowlist entry removed; gateway/CLAUDE.md carries the concrete submodule layout; lint ratchet passes.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml",
+            "gateway/CLAUDE.md"
+          ]
+        },
+        {
+          "id": "task-18-6",
+          "description": "make lint + make test-all green at the slice boundary; mechanical patch-path rewrites in-slice; any latent bug surfaced is filed as a 'Part of #3312' follow-up, never bundled.",
+          "acceptance_criteria": "Green; no behavior change in the diff.",
+          "files_affected": [
+            "gateway/tests/",
+            "tests/"
+          ]
+        }
       ]
     },
     {
       "id": "phase-19",
       "slice": "slice-19",
-      "name": "Decompose orchestrator/routes/pipelines.py (27,211 lines, STRUCTURAL OUTLIER, OVER BYTE CAP) — _run_pipeline split (non-negotiable #7)",
+      "name": "Decompose orchestrator/routes/pipelines.py (27,211 lines, STRUCTURAL OUTLIER, OVER BYTE CAP) \u2014 _run_pipeline split (non-negotiable #7)",
       "file": "orchestrator/routes/pipelines.py",
       "lines": 27211,
       "over_byte_cap": true,
       "claude_md": "orchestrator/CLAUDE.md",
-      "dependency": null,
+      "dependency": "phase-18",
       "outlier": true,
-      "pr": "one slice scheduled LAST (largest, hardest); may land as a stacked sequence of internal commits but is one decomposition unit; drops pipelines.py allowlist entry — the FINAL allowlist entry, satisfying the empty-map acceptance criterion",
+      "pr": "one slice scheduled LAST (largest, hardest); may land as a stacked sequence of internal commits but is one decomposition unit; drops pipelines.py allowlist entry \u2014 the FINAL allowlist entry, satisfying the empty-map acceptance criterion",
       "tasks": [
-        {"id": "task-19-1", "description": "External-importer audit (section-(d)) for pipelines.py — the dominant back-compat surface (refine estimate: ~57 distinct patch targets across ~137 test files). Re-run the audit live per cluster; build the complete re-export inventory. This is the load-bearing risk for the whole program.", "acceptance_criteria": "Complete external-symbol inventory captured; ~57-target estimate re-verified live; re-export set derived per cluster.", "files_affected": ["orchestrator/routes/pipelines.py"]},
-        {"id": "task-19-2", "description": "Step-0 git mv pipelines.py -> pipelines/__init__.py; green baseline commit (move only, before ANY extraction). This is the bisectable cut between 'moved' and 'extracted'.", "acceptance_criteria": "Pure-move baseline commit green (make test-all).", "files_affected": ["orchestrator/routes/pipelines/__init__.py"]},
-        {"id": "task-19-3", "description": "_run_pipeline split (non-negotiable #7, addressed head-on): split the phase-transition state machine into per-phase handlers (_run_refine_phase, _run_plan_phase, the existing _run_implement_phase_slices, _run_pr_phase) plus a thin orchestration loop in _run_loop.py, per the pattern doc's prior design. Per-phase handlers stay PRIVATE and are tested through _run_pipeline for this refactor (isolation tests are a follow-up). Preserve ordering/transition semantics exactly — pure refactor.", "acceptance_criteria": "_run_pipeline becomes a thin loop delegating to per-phase handlers; no transition-ordering behavior change; existing dense seam coverage (test_consensus_polling, test_brc_nack_iteration, test_concurrent_*, test_advance_phase_*) stays green.", "files_affected": ["orchestrator/routes/pipelines/"]},
-        {"id": "task-19-4", "description": "Extract the remaining clusters into _<cluster>.py submodules (e.g. _criteria, _pr_lifecycle, _decisions, _readers, prompt-building as a nested sub-sub-package _prompt_building/ per section-(g)); routes convention (Blueprint decorators stay in __init__.py); explicit per-symbol re-export barrel re-exporting EVERY externally-referenced symbol from task-19-1; recursive barrel where a cluster further-splits. Confirm EVERY module under BOTH caps.", "acceptance_criteria": "All submodules (and nested sub-packages) <=1500 lines AND <=100KB; decorators in __init__.py; barrel (and nested barrels) re-export every external symbol; all ~57 patch targets resolve through the barrel.", "files_affected": ["orchestrator/routes/pipelines/"]},
-        {"id": "task-19-5", "description": "Drop pipelines.py allowlist entry — this is the LAST entry; confirm scripts/file-size-allowlist.yaml's files: map is now EMPTY (the program's terminal acceptance criterion). Author the concrete pipelines/ submodule layout in orchestrator/CLAUDE.md.", "acceptance_criteria": "pipelines.py entry removed; files: map empty; orchestrator/CLAUDE.md carries the concrete pipelines/ + _run_pipeline submodule layout; lint passes with an empty allowlist.", "files_affected": ["scripts/file-size-allowlist.yaml", "orchestrator/CLAUDE.md"]},
-        {"id": "task-19-6", "description": "make lint + make test-all green at the slice boundary. Mechanical patch-path rewrites in-slice; any latent bug surfaced by the _run_pipeline split is filed as a 'Part of #3312' follow-up, never bundled. Final program verification: empty allowlist + all 19 files under cap + every CLAUDE.md seam table populated.", "acceptance_criteria": "Green; allowlist empty; no behavior change; full acceptance set satisfied.", "files_affected": ["orchestrator/tests/", "tests/"]}
+        {
+          "id": "task-19-1",
+          "description": "External-importer audit (section-(d)) for pipelines.py \u2014 the dominant back-compat surface (refine estimate: ~57 distinct patch targets across ~137 test files). Re-run the audit live per cluster; build the complete re-export inventory. This is the load-bearing risk for the whole program.",
+          "acceptance_criteria": "Complete external-symbol inventory captured; ~57-target estimate re-verified live; re-export set derived per cluster.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ]
+        },
+        {
+          "id": "task-19-2",
+          "description": "Step-0 git mv pipelines.py -> pipelines/__init__.py; green baseline commit (move only, before ANY extraction). This is the bisectable cut between 'moved' and 'extracted'.",
+          "acceptance_criteria": "Pure-move baseline commit green (make test-all).",
+          "files_affected": [
+            "orchestrator/routes/pipelines/__init__.py"
+          ]
+        },
+        {
+          "id": "task-19-3",
+          "description": "_run_pipeline split (non-negotiable #7, addressed head-on): split the phase-transition state machine into per-phase handlers (_run_refine_phase, _run_plan_phase, the existing _run_implement_phase_slices, _run_pr_phase) plus a thin orchestration loop in _run_loop.py, per the pattern doc's prior design. Per-phase handlers stay PRIVATE and are tested through _run_pipeline for this refactor (isolation tests are a follow-up). Preserve ordering/transition semantics exactly \u2014 pure refactor.",
+          "acceptance_criteria": "_run_pipeline becomes a thin loop delegating to per-phase handlers; no transition-ordering behavior change; existing dense seam coverage (test_consensus_polling, test_brc_nack_iteration, test_concurrent_*, test_advance_phase_*) stays green.",
+          "files_affected": [
+            "orchestrator/routes/pipelines/"
+          ]
+        },
+        {
+          "id": "task-19-4",
+          "description": "Extract the remaining clusters into _<cluster>.py submodules (e.g. _criteria, _pr_lifecycle, _decisions, _readers, prompt-building as a nested sub-sub-package _prompt_building/ per section-(g)); routes convention (Blueprint decorators stay in __init__.py); explicit per-symbol re-export barrel re-exporting EVERY externally-referenced symbol from task-19-1; recursive barrel where a cluster further-splits. Confirm EVERY module under BOTH caps.",
+          "acceptance_criteria": "All submodules (and nested sub-packages) <=1500 lines AND <=100KB; decorators in __init__.py; barrel (and nested barrels) re-export every external symbol; all ~57 patch targets resolve through the barrel.",
+          "files_affected": [
+            "orchestrator/routes/pipelines/"
+          ]
+        },
+        {
+          "id": "task-19-5",
+          "description": "Drop pipelines.py allowlist entry \u2014 this is the LAST entry; confirm scripts/file-size-allowlist.yaml's files: map is now EMPTY (the program's terminal acceptance criterion). Author the concrete pipelines/ submodule layout in orchestrator/CLAUDE.md.",
+          "acceptance_criteria": "pipelines.py entry removed; files: map empty; orchestrator/CLAUDE.md carries the concrete pipelines/ + _run_pipeline submodule layout; lint passes with an empty allowlist.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml",
+            "orchestrator/CLAUDE.md"
+          ]
+        },
+        {
+          "id": "task-19-6",
+          "description": "make lint + make test-all green at the slice boundary. Mechanical patch-path rewrites in-slice; any latent bug surfaced by the _run_pipeline split is filed as a 'Part of #3312' follow-up, never bundled. Final program verification: empty allowlist + all 19 files under cap + every CLAUDE.md seam table populated.",
+          "acceptance_criteria": "Green; allowlist empty; no behavior change; full acceptance set satisfied.",
+          "files_affected": [
+            "orchestrator/tests/",
+            "tests/"
+          ]
+        }
       ]
     }
   ],
-
   "acceptance_criteria": [
     "AC-1: All 19 files in the issue table drop below the global cap (<=1,500 lines AND <=100 KB).",
     "AC-2: scripts/file-size-allowlist.yaml's files: map is EMPTY after the final slice lands.",
     "AC-3: make lint and make test-all are green at EVERY landing boundary (every slice PR).",
-    "AC-4: No production importer breaks; no test patch target moves out from under an existing test without an in-PR rewrite — barrel re-exports preserve patch('<module>._foo') targets (~57 for routes.pipelines, ~12 for gateway.gateway re-verified at implement time).",
-    "AC-5: Concrete submodule seam coverage exists for every in-scope file: rows in orchestrator/CLAUDE.md + gateway/CLAUDE.md, a NEW seam table in sandbox/CLAUDE.md, and a NEW shared/CLAUDE.md. (Creating concrete rows, not retagging placeholder rows — the live tree has none; retag any stale #2261 refs found in docs/ opportunistically, not as a gate.)",
+    "AC-4: No production importer breaks; no test patch target moves out from under an existing test without an in-PR rewrite \u2014 barrel re-exports preserve patch('<module>._foo') targets (~57 for routes.pipelines, ~12 for gateway.gateway re-verified at implement time).",
+    "AC-5: Concrete submodule seam coverage exists for every in-scope file: rows in orchestrator/CLAUDE.md + gateway/CLAUDE.md, a NEW seam table in sandbox/CLAUDE.md, and a NEW shared/CLAUDE.md. (Creating concrete rows, not retagging placeholder rows \u2014 the live tree has none; retag any stale #2261 refs found in docs/ opportunistically, not as a gate.)",
     "AC-6: Test layout follows non-negotiable #10 (guidance, not a 1:1 gate): tests keep using the barrel surface so they don't move when internal layout shifts; matching tests/.../foo/ sub-packages where the mapping is clean; scenario-organized suites may stay topical.",
-    "AC-7: Pure refactor — no behavior changes. _run_pipeline is split directly (non-negotiable #7), not deferred. Bugs surfaced get a separate 'Part of #3312' follow-up issue, never bundled. Branches prefixed egg/."
+    "AC-7: Pure refactor \u2014 no behavior changes. _run_pipeline is split directly (non-negotiable #7), not deferred. Bugs surfaced get a separate 'Part of #3312' follow-up issue, never bundled. Branches prefixed egg/."
   ],
-
   "non_goals": [
     "No descope: every one of the 19 files, including pipelines.py (~27.2k) and gateway.py (~10.4k), is in scope; none are deferred to a follow-up (operator directive + resolved refine HITL).",
     "No behavior changes (pure refactor); surfaced bugs are separate follow-ups.",
     "No decomposition of test files (lint-exempt) or non-Python files.",
     "No decomposition of files outside the 19-file table.",
-    "No new layout invented — the canonical sub-package + re-export-barrel pattern (PR #2335 / docs/guides/decomposition-pattern.md) is followed exactly."
+    "No new layout invented \u2014 the canonical sub-package + re-export-barrel pattern (PR #2335 / docs/guides/decomposition-pattern.md) is followed exactly."
   ],
-
   "risks_for_reviewers": [
-    "Re-export drift is the dominant risk: a missed re-export surfaces as AttributeError in a test that patches the moved symbol. Mitigation: the per-slice external-importer audit (task-N-1) + explicit per-symbol re-exports (decision-5) + make test-all gate. pipelines.py (~57 targets) is the highest-exposure slice — scheduled last, after the pattern is proven on 17 simpler files.",
+    "Re-export drift is the dominant risk: a missed re-export surfaces as AttributeError in a test that patches the moved symbol. Mitigation: the per-slice external-importer audit (task-N-1) + explicit per-symbol re-exports (decision-5) + make test-all gate. pipelines.py (~57 targets) is the highest-exposure slice \u2014 scheduled last, after the pattern is proven on 17 simpler files.",
     "_run_pipeline behavior risk: splitting a phase-transition state machine with subtle ordering. Mitigation: per-phase handlers stay private and are exercised through the existing dense seam coverage; pure-refactor discipline; scheduled last (phase-19).",
-    "Allowlist YAML is the only cross-slice contention point. With parallel slices it conflicts mechanically every time. Mitigation: section-(e) rebase recipe (take 'theirs' for other slices' removals, re-apply own). NOT a logical dependency — slices stay independent.",
+    "Allowlist YAML is the only cross-slice contention point. With parallel slices it conflicts mechanically every time. Mitigation: section-(e) rebase recipe (take 'theirs' for other slices' removals, re-apply own). NOT a logical dependency \u2014 slices stay independent.",
     "Submodule-over-cap after extraction: a naive split leaves a submodule still over the cap. Mitigation: per-slice task to verify EVERY submodule under BOTH caps + further-split in-slice (section-(g)), never a fresh allowlist entry; outliers (phases 18-19) have explicit further-split tasks.",
     "Sub-package circular imports may surface latent cycles masked by the single-file shape (esp. pipelines.py / gateway.py). Mitigation: the existing routes/phases.py lazy/dual-import precedent; one consistent import style per sub-package.",
     "Failed-attempt history (#2817 implement-phase failure, #3111 never run, #2902 closed unmerged after main drift): main can drift under a long-running slice. Mitigation: easiest-first ordering banks value early; each slice rebases + re-runs the live audit at start; outliers land last so their longer review windows don't block the 17 simpler wins.",
-    "entrypoint.py / orch_cli.py have script-execution entry points (container ENTRYPOINT / console scripts) that a package conversion can break — flagged in those slices' step-0 tasks; mirror scripts/select_tests/'s __main__.py."
+    "entrypoint.py / orch_cli.py have script-execution entry points (container ENTRYPOINT / console scripts) that a package conversion can break \u2014 flagged in those slices' step-0 tasks; mirror scripts/select_tests/'s __main__.py."
   ],
-
   "ordering": {
     "rationale": "Easiest -> hardest by line count; the two structural outliers (gateway.py, pipelines.py) last. Front-loads independent per-file wins so 17 files can land even if the outliers stall a third time, exactly as the issue 'History' section recommends.",
-    "sequence": ["phase-1 contract_cli.py (1,501)", "phase-2 decisions.py (1,562)", "phase-3 state_store.py (1,635)", "phase-4 phases.py (1,736)", "phase-5 deployment.py (1,854)", "phase-6 event_prompt.py (1,895)", "phase-7 plan_parser.py (1,952)", "phase-8 monitor.py (2,130)", "phase-9 entrypoint.py (2,212)", "phase-10 peer_consensus.py (2,326)", "phase-11 git_client.py (2,393)", "phase-12 worktree_manager.py (2,507)", "phase-13 mcp_tools.py (2,948)", "phase-14 kubernetes_spawner.py (3,041)", "phase-15 signals.py (3,398)", "phase-16 gateway_client.py (4,326)", "phase-17 orch_cli.py (5,012)", "phase-18 gateway.py (10,385)", "phase-19 pipelines.py (27,211)"],
-    "dependency_model": "All slices dependency: null (mutually independent at the source level; the merged pattern parent #2335 removes the need for a DAG parent). The architect may serialize a subset for integration safety; this artifact recommends maximum parallelism with scripts/file-size-allowlist.yaml treated as a rebase-merge file (section-(e)).",
+    "sequence": [
+      "phase-1 contract_cli.py (1,501)",
+      "phase-2 decisions.py (1,562)",
+      "phase-3 state_store.py (1,635)",
+      "phase-4 phases.py (1,736)",
+      "phase-5 deployment.py (1,854)",
+      "phase-6 event_prompt.py (1,895)",
+      "phase-7 plan_parser.py (1,952)",
+      "phase-8 monitor.py (2,130)",
+      "phase-9 entrypoint.py (2,212)",
+      "phase-10 peer_consensus.py (2,326)",
+      "phase-11 git_client.py (2,393)",
+      "phase-12 worktree_manager.py (2,507)",
+      "phase-13 mcp_tools.py (2,948)",
+      "phase-14 kubernetes_spawner.py (3,041)",
+      "phase-15 signals.py (3,398)",
+      "phase-16 gateway_client.py (4,326)",
+      "phase-17 orch_cli.py (5,012)",
+      "phase-18 gateway.py (10,385)",
+      "phase-19 pipelines.py (27,211)"
+    ],
+    "dependency_model": "Single linear chain: phase-N depends on phase-(N-1). Forced by #3046 because all 19 slices edit scripts/file-size-allowlist.yaml. Ordering is easiest->hardest by line count; the two outliers (gateway.py, pipelines.py) are the chain tail, fully in scope, so a stall there does not block earlier landings.",
     "pr_packaging": "One PR per slice (per file). Each PR: drops exactly one allowlist entry + adds exactly one file's seam coverage + is independently make-lint/make-test-all green. The empty-allowlist acceptance criterion is satisfied cumulatively when phase-19's PR lands."
   }
 }
