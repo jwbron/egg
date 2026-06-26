@@ -95,6 +95,14 @@
       "registered_at": "2026-06-26T20:49:01.586968+00:00",
       "repo": null,
       "role": "risk_analyst"
+    },
+    "d1f432db75995331ecb44365eb6a88b4f5e361c1": {
+      "branch": "egg/issue-3288/work",
+      "patch_id": "2daf87d0d05da2d3b9232049edd448928b4bffa6",
+      "pipeline_id": "issue-3288",
+      "registered_at": "2026-06-26T20:52:25.738724+00:00",
+      "repo": null,
+      "role": "simplifier"
     }
   },
   "version": 2
