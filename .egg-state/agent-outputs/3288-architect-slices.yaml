@@ -1,0 +1,99 @@
+slices:
+  - id: 1
+    name: |-
+      Retrain the documenter agent to the snapshot doctrine (WS1)
+    goal: |-
+      Text-only prompt/role edits making the documenter write
+      current-state snapshots, not change-logs. Edit the documenter
+      "## Your Task" block in orchestrator/routes/pipelines.py
+      (implement-phase block ~14781 "Update documentation for the
+      changes…/Focus on: new features or changes/breaking changes";
+      per-phase summary ~6761 "Focus your documentation on changes
+      from plan phase {id}"; plan-phase orientation ~14157) and
+      DOCUMENTER_ROLE in shared/egg_contracts/agent_roles.py
+      (description "Updates documentation for the changes" +
+      change-oriented responsibilities). Inject the doctrine:
+      describe the current state as if pipeline machinery never
+      existed; NEVER emit slice/TASK/phase/HITL ids into any
+      doc/docstring/comment; include history only when tangibly
+      valuable (rationale over chronology); when editing an existing
+      doc, fold new state into the snapshot and REMOVE stale ledger
+      entries (replace, not append). Preserve verbatim: the BRC
+      no-op "--no-changes-needed" propose path in both branches
+      (~14157, ~14800) and the DOCUMENTER_ROLE file_access
+      allowed_write/blocked_write boundaries. Optional low-priority:
+      reword the no-op example reason string (~14817) so the example
+      itself does not model a slice reference. Update any
+      prompt-assembly test that legitimately drifts (none assert the
+      literal strings today).
+    # root slice — establishes the go-forward standard before cleanup
+  - id: 2
+    name: |-
+      De-ledger docs/architecture line-edit pages (WS2a)
+    goal: |-
+      Mechanical de-ledgering of the architecture pages that need
+      sentence-level edits rather than a rewrite: brc-memory.md
+      ("Introduced by #2908, slice-1", "Slice-1 lands… slice-3…
+      Slice-4 flipped…", "Added in #3200 slice-5") and
+      orchestrator.md (behavioral sections keyed on "slice-4
+      TASK-4-5", "TASK-4-1 used to clear only…", the slice-1→slice-4
+      "slice lifecycle" change-log section). Strip slice/TASK ids;
+      rewrite "used to… now…" into present-tense current behavior;
+      keep issue links that justify the current design, reframed as
+      rationale.
+    dependencies: slice-1
+  - id: 3
+    name: |-
+      Total-refactor load-bearing architecture pages (WS2b)
+    goal: |-
+      Pages where the ledger framing is load-bearing and need a
+      rewrite into current-state prose, not a line edit:
+      gateway-auto-filter.md ("## What was removed", "preserved for
+      context" describing removed #1882 code), coordination-state.md
+      ("final shape of the #3077 invariant… landed in six slices,
+      all shipped"; Threat/Mitigation/Status tables with "Retired
+      surface"/"now historical"), slice-dag.md ("used to run as a
+      single monolithic agent team… replaces that"). Rewrite each to
+      describe the current system; preserve genuinely useful
+      rationale, reframed and isolated where substantial. Highest
+      judgment cost — isolated into its own slice.
+    dependencies: slice-1
+  - id: 4
+    name: |-
+      Gateway docstrings + gateway/CLAUDE.md (WS2c)
+    goal: |-
+      De-ledger gateway/ docstrings and inline comments
+      (artifact_api.py:1 "Artifact API endpoints on the gateway
+      (#3077 slice-4)", jira_client.py "# Issue #1557 slice-2 …" on
+      multiple methods) and re-key the gateway/CLAUDE.md submodule
+      seam tables by current submodule structure rather than by
+      which slice landed each decomposition. Docstring/comment edits
+      only — no code-behavior change; keep the decomposition-pattern
+      rationale link.
+    dependencies: slice-1
+  - id: 5
+    name: |-
+      Orchestrator docstrings + orchestrator/CLAUDE.md (WS2d)
+    goal: |-
+      De-ledger orchestrator/ docstrings and inline comments — the
+      dense offender is kubernetes_spawner.py (67 "# #3064 slice-N:"
+      section markers/comments) — and re-key the orchestrator/
+      CLAUDE.md submodule seam tables ("TBD (#2261 slice-15)",
+      "slice-12", "slice-7"…) by current submodule structure.
+      Comment/docstring edits only; no change to code behavior.
+    dependencies: slice-1
+  - id: 6
+    name: |-
+      Shared docstrings + bounded high-density sweep; log deferred long tail (WS2e)
+    goal: |-
+      De-ledger shared/ module/param docstrings
+      (egg_anchor/protected_root.py:1, egg_agent/context_discipline.py:1,
+      egg_agent/__main__.py — framed by slice numbers like "warm
+      resume, #3200 slice-6", "the slice-8 gate") plus a bounded
+      sweep of the highest-density remaining files. Per HITL cq-1
+      opt-1, DEFER the long tail (~260 files total) to a follow-up
+      issue and CLOSE with an explicit enumerated list of the
+      deferred files/areas so coverage is auditable — never imply
+      100% coverage. No automated lint/CI guard is added (HITL cq-2
+      opt-1); note it as a candidate follow-up.
+    dependencies: slice-1

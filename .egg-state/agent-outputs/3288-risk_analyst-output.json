@@ -1,0 +1,123 @@
+{
+  "issue": 3288,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "title": "Risk Assessment: documenter agent snapshot-not-ledger + bounded documentation-corpus cleanup",
+  "summary": "Technical risk assessment for #3288 as scoped by the operator and resolved HITL (cq-1 = enumerated targets + bounded sweep, defer long tail; cq-2 = no automated guardrail this round). Two coupled work streams: (1) a small, text-only revision of the documenter agent's task instructions (orchestrator/routes/pipelines.py 'Your Task' assembly + shared/egg_contracts/agent_roles.py DOCUMENTER_ROLE) so it writes current-state snapshots and never leaks SDLC artifacts (slice-N/TASK-N/phase/HITL ids) into durable docs; (2) a bounded pass over the existing corpus (263 files carry ledger refs, grep-verified 2026-06-26) to strip ledger narration while preserving design rationale. Overall risk is LOW-MEDIUM. Work stream 1 is genuinely low risk (text edits, no behavior change) with two concrete test-preservation seams. The dominant risk lives in work stream 2 and is one of JUDGMENT and ROLE-ROUTING, not engineering: (a) the documenter's own gateway boundary BLOCKS code-file writes, so any docstring/inline-comment cleanup in *.py files cannot be done by the documenter and must be routed to coder or the cleanup will hit a gateway impasse; (b) over-zealous deletion can strip load-bearing rationale the issue explicitly says to keep; (c) with no automated guardrail (cq-2), the only durable anti-drift mechanism is the strength of the work-stream-1 prompt revision itself.",
+  "overall_risk_level": "LOW-MEDIUM",
+  "overall_risk": "LOW-MEDIUM",
+  "recommendation": "PROCEED_WITH_MITIGATIONS",
+  "verdict": "PROCEED_WITH_MITIGATIONS",
+  "scope_note": "Grounded against the confirmed refine analysis (.egg-state/drafts/3288-analysis.md), the live issue task_description, both resolved HITL decisions (cq-1, cq-2), the architect's plan-phase analysis/slices, and the working tree on 2026-06-26. The task_planner plan artifact was not yet present on this branch when this assessment was drafted; risks are framed against the issue's two work streams and the real code touchpoints. Reconcile against the planner's slice DAG on review — see plan_reconciliation_pending.",
+  "scope_basis": "issue #3288 task_description + refine analysis (3288-analysis.md) + resolved HITL cq-1/cq-2 + live tree grep on 2026-06-26",
+  "grounding": {
+    "documenter_task_block": "orchestrator/routes/pipelines.py:14781-14830 (role_value=='documenter' 'Your Task' assembly): opens 'Update documentation for the changes made by the CODER agent:'; 'Focus on: ... new features or changes ... breaking changes'; the '### When the slice warrants no doc updates (#3027)' no-op block at 14800-14826 (must be preserved).",
+    "documenter_phase_summary": "orchestrator/routes/pipelines.py:6761-6763 — injects f'Focus your documentation on changes from plan phase `{phase_obj.id}`.' (references a phase id in the PROMPT, not a durable doc; see R1).",
+    "documenter_noop_example_string": "orchestrator/routes/pipelines.py:14817 — the no-op example reason literally reads 'e.g. slice-3 is a pure decomposition ...' (ephemeral CLI arg example, not a durable doc; low priority, see R2).",
+    "documenter_role_def": "shared/egg_contracts/agent_roles.py:306-340 DOCUMENTER_ROLE — description='Updates documentation for the changes'; change-oriented responsibilities; allowed_write=[docs/, **/README.md, **/*.md, .egg-state/agent-outputs/]; blocked_write includes **/*.py, **/*.ts, **/*.go, **/*.java etc. (the BLOCKED code-file write is the crux of R5).",
+    "corpus_scale": "grep -rlIE 'slice-[0-9]|TASK-[0-9]|slice [0-9]' docs/ gateway/ orchestrator/ shared/ => 263 files (2026-06-26).",
+    "self_example_corpus_doc": "orchestrator/CLAUDE.md is itself a ledger doc (TBD submodule tables keyed by 'which slice lands each decomposition', '#2261 slice-15 lands ...') — a representative work-stream-2 target.",
+    "tests_at_risk": "orchestrator/tests/test_pipeline_prompts.py: test_documenter_phase_intro_text asserts \"Focus your documentation\" in result (~line 1335); test_documenter_prompt_includes_external_research asserts 'WebSearch'/'WebFetch' in prompt (~line 3827). No test asserts the exact 'Update documentation for the changes made by the CODER agent' string (grep-verified). No-op path tests: test_no_op_propose.py, test_pipeline_prompts.py."
+  },
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Prompt-revision string assertions in test_pipeline_prompts.py",
+      "category": "testing",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "Work-stream-1 edit breaks documenter prompt-assertion tests if string changes aren't mirrored.",
+      "description": "The work-stream-1 edit rewrites the documenter 'Your Task' text. Two assertions constrain it: test_documenter_phase_intro_text requires substring 'Focus your documentation' to survive (from 6761-6763), and test_documenter_prompt_includes_external_research requires the WebSearch/WebFetch external-research block (14796-14798) to remain. The 6763 line embeds `phase_obj.id` (a phase iteration number) but it lives in the PROMPT the agent reads, not a durable doc, so the 'no SDLC artifacts in docs' rule does not strictly forbid it; still, dropping the 'changes from plan phase {id}' chronological framing better models the snapshot principle.",
+      "affected_files": ["orchestrator/routes/pipelines.py", "orchestrator/tests/test_pipeline_prompts.py"],
+      "mitigation": "Run test_pipeline_prompts.py after the edit and update assertions in lockstep with intentional wording changes. Prefer ADDING a positive assertion that the new snapshot-principle instruction text is present, so the standard is regression-guarded (the only durable anti-drift guard given cq-2).",
+      "requires_human_review": false
+    },
+    {
+      "id": "R2",
+      "title": "BRC no-op / no-doc-impact propose path regression",
+      "category": "behavior",
+      "severity": "MEDIUM",
+      "likelihood": "LOW",
+      "impact": "A documenter that no longer proposes a no-op blocks BRC consensus indefinitely.",
+      "description": "The issue and CLAUDE directive REQUIRE preserving the no-op propose path (the '### When the slice warrants no doc updates (#3027)' block at 14800-14826 and the plan-phase variant ~14157). A cleanup pass touching this block to scrub its 'e.g. slice-3 is a pure decomposition' example (14817) could accidentally alter the `--no-changes-needed --no-changes-reason` mechanics or delete the instruction to still propose.",
+      "affected_files": ["orchestrator/routes/pipelines.py", "orchestrator/tests/test_no_op_propose.py"],
+      "mitigation": "Treat the no-op block as behavior-bearing: limit edits to the EXAMPLE reason string (reword 'slice-3 ...' to a non-ledger example), never the surrounding mechanics. Run test_no_op_propose.py and the no-op assertions in test_pipeline_prompts.py. Scope this reword into work stream 1 so it lands with the other prompt edits under one reviewer.",
+      "requires_human_review": false
+    },
+    {
+      "id": "R5",
+      "title": "Documenter gateway boundary blocks code-docstring cleanup -> role-routing impasse",
+      "category": "process/role-routing",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "A documenter-assigned *.py docstring cleanup task is rejected at the gateway push and dead-ends in an impasse.",
+      "description": "Work stream 2 explicitly includes 'code docstrings/comments' (gateway/artifact_api.py:1, orchestrator/kubernetes_spawner.py with 30+ '# #3064 slice-N:' markers, shared/egg_anchor/protected_root.py:1). But DOCUMENTER_ROLE.blocked_write blocks **/*.py (and .ts/.go/.java...). The documenter CANNOT edit docstrings/inline comments inside source files — only docs/ and **/*.md. Mis-routing is the single most likely concrete failure mode of the plan.",
+      "affected_files": ["shared/egg_contracts/agent_roles.py", "gateway/artifact_api.py", "orchestrator/kubernetes_spawner.py", "shared/egg_anchor/protected_root.py"],
+      "mitigation": "Planner MUST split work stream 2 by FILE TYPE as well as area: (a) pure-markdown targets (docs/, **/README.md, **/CLAUDE.md, **/*.md) -> documenter; (b) docstring/inline-comment targets inside *.py / source files -> coder. Never route a *.py docstring task to the documenter. Reviewers check each slice's task.role against the file extensions it touches before ACK. Preserve the documenter boundary; do not widen its write access.",
+      "requires_human_review": false
+    },
+    {
+      "id": "R3",
+      "title": "Corpus scope creep / merge churn vs HITL-bounded sweep",
+      "category": "scope",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "Unbounded sweep silently becomes the operator-declined exhaustive option; large diffs collide with active main churn; partial cleanup mistaken for complete.",
+      "description": "263 files carry ledger refs. cq-1 resolved to opt-1: enumerated named targets + bounded sweep of highest-density files, long tail deferred to follow-ups.",
+      "affected_files": ["docs/architecture/brc-memory.md", "docs/architecture/orchestrator.md", "docs/architecture/slice-dag.md", "docs/architecture/gateway-auto-filter.md", "docs/architecture/coordination-state.md", "gateway/CLAUDE.md", "orchestrator/CLAUDE.md"],
+      "mitigation": "Planner must (1) enumerate EXACT target files per slice plus a NAMED, COUNTED density-ranked sweep set; (2) slice by doc-area/package so slices don't collide; (3) emit an explicit 'deferred long tail' list (candidate follow-up issue) so completeness is auditable. Keep per-slice diffs reviewable.",
+      "requires_human_review": false
+    },
+    {
+      "id": "R4",
+      "title": "Over-deletion of load-bearing rationale (chronology vs rationale)",
+      "category": "correctness/quality",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "Mechanical token-stripping destroys genuine design rationale the issue says to keep, degrading the docs the work is meant to improve.",
+      "description": "The issue's sharpest boundary: 'not delete all issue references' — issue links/history that justify WHY the current system is shaped this way must stay (reframed as rationale). Load-bearing pages: gateway-auto-filter.md ('what was removed / preserved for context'); coordination-state.md ('#3077 invariant ... final shape', Threat/Mitigation tables).",
+      "affected_files": ["docs/architecture/gateway-auto-filter.md", "docs/architecture/coordination-state.md"],
+      "mitigation": "Per-edit discipline: strip CHRONOLOGY (slice-N narration, 'landed in six slices', phase/HITL iteration numbers, change-log entries) but KEEP RATIONALE (why the design exists), reframed to present tense and isolated into a marked rationale note where substantial. Flag load-bearing pages for TOTAL REFACTOR into current-state prose, not line-edits — planner names these explicitly. Reviewers verify each rewritten page still answers 'why is it built this way'. When in doubt, keep the rationale, drop only the dated framing.",
+      "requires_human_review": true,
+      "review_reason": "Distinguishing load-bearing rationale from disposable chronology on the named load-bearing pages is a judgment call the operator may want to spot-check."
+    },
+    {
+      "id": "R6",
+      "title": "Self-referential ledger leak from this pipeline's own slices",
+      "category": "quality",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "Cleanup reintroduces the anti-pattern by referencing its own slices in the docs it cleans.",
+      "description": "The cleanup is sliced; agents could leave 'slice-N'/'#3288' references in the docs they clean. Docs must be snapshots; process context belongs in commit messages/PRs.",
+      "affected_files": [],
+      "mitigation": "Acceptance check: grep touched files post-edit for slice-N/TASK-N/this-pipeline references; confirm none introduced. Put process context only in commit messages.",
+      "requires_human_review": false
+    },
+    {
+      "id": "R7",
+      "title": "Re-drift after cleanup (no automated guardrail per cq-2)",
+      "category": "durability",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "Corpus re-accumulates ledger prose over time; the one-shot pass amortizes poorly.",
+      "description": "cq-2 resolved to NOT add a lint/CI guard this round. The only durable anti-drift mechanism is the work-stream-1 documenter prompt revision.",
+      "affected_files": ["orchestrator/routes/pipelines.py", "shared/egg_contracts/agent_roles.py"],
+      "mitigation": "Make the work-stream-1 revision EXPLICIT and TESTABLE: concrete imperative instructions (write current-state snapshots; never emit slice/TASK/phase/HITL ids in docs/docstrings/comments; fold new state in and DELETE stale ledger lines rather than append; include history only as rationale). Add a unit assertion that the new instruction text is present (R1 mitigation). Record 'automated guardrail' as an operator-approved follow-up, not a silent gap.",
+      "requires_human_review": false
+    }
+  ],
+  "areas_requiring_human_review": [
+    "R4 — on the named load-bearing pages (gateway-auto-filter, coordination-state), a human spot-check that design rationale survived the de-ledgering is worthwhile."
+  ],
+  "sequencing_recommendation": "Land work stream 1 first (or in an early standalone slice): small (two files, text-only), establishes the snapshot standard the corpus pass follows, and carries the no-op-block reword (R2) under one reviewer. Then slice work stream 2 by area AND file-type (markdown->documenter, code-docstrings->coder; R5), named-targets-first then a bounded density sweep with an explicit deferred list (R3).",
+  "reviewer_checklist_for_plan": [
+    "test_pipeline_prompts.py and test_no_op_propose.py green after work-stream-1 edits (R1, R2).",
+    "No documenter-role task targets a non-markdown source file; every *.py docstring/comment task is routed to coder (R5).",
+    "Each rewritten load-bearing page (gateway-auto-filter, coordination-state, *CLAUDE.md seam tables) still conveys design rationale, with chronology removed (R4).",
+    "Touched files contain no newly-introduced slice-N/TASK-N/#3288 ledger references (R6).",
+    "An explicit deferred-long-tail list exists so cq-1's bounded scope is auditable (R3).",
+    "Documenter gateway boundaries (allowed_write/blocked_write) and the BRC no-op propose path are unchanged in behavior (issue hard constraints)."
+  ],
+  "rollback_plan": "Work stream 1 is a text-only revert of two files (pipelines.py prompt block + agent_roles.py description/responsibilities). Work stream 2 slices are independent doc/docstring diffs, each revertible in isolation without affecting code behavior. No runtime/behavioral surface changes; no data migration; rollback is a git revert of the offending slice.",
+  "plan_reconciliation_pending": "task_planner plan artifact not yet on branch at draft time; reconcile R3/R5 against the planner's slice DAG and per-slice role assignments during review. Primary check: every slice that edits *.py docstrings is assigned role=coder, and the corpus sweep is explicitly bounded with a deferred list."
+}

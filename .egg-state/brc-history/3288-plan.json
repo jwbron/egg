@@ -1,0 +1,863 @@
+[
+  {
+    "id": "9860e85a-2eb5-46",
+    "pipeline_id": "issue-3288",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-26T20:36:52.932651+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6e9a184f-ebb2-4f",
+    "pipeline_id": "issue-3288",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-26T20:36:54.440782+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4767920f-cf5e-4c",
+    "pipeline_id": "issue-3288",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-26T20:36:56.047269+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8dab489f-7299-48",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan-phase simplifier blocked on input: task_planner has not yet proposed the plan (.egg-state/drafts/3288-plan.md absent, no CONSENSUS_PROPOSE in plan history). My plan_draft_human companion is strictly gated on task_breakdown. Will produce 3288-plan-human.md once the plan lands.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-06-26T20:38:09.796177+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "56b0852c-b220-45",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=70517 util=n/a cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-26T20:38:17.156874+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "779fe266-e939-49",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "simplifier (PLAN producer) blocked on input: task_planner has not proposed; no 3288-plan.md in BRC plan history or git. Cannot write jargon-free companion 3288-plan-human.md without the plan. Not a no-op \u2014 real work pending input.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-06-26T20:39:03.401924+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0ee741d2-a843-4e",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=63618 util=n/a cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-26T20:39:27.792169+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "928f76ac-35e8-49",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "simplifier (plan_draft_human producer) blocked on task_planner's plan. Verified live: 0 CONSENSUS_PROPOSE in plan BRC history, no 3288-plan.md in drafts, HEAD 1b1fe77c2 unchanged. Will write the jargon-free companion once the plan is proposed.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-06-26T20:39:58.877878+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d26b9195-3db3-40",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=52536 util=n/a cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-26T20:40:11.168289+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "184dec0c-8428-4a",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "PLAN phase: simplifier produces 3288-plan-human.md, the jargon-free companion to task_planner's 3288-plan.md. Blocked purely on upstream input \u2014 task_planner has not yet proposed (BRC plan history live=true, 0 CONSENSUS_PROPOSE; no 3288-plan.md in drafts or git; HEAD 1b1fe77c2). Not a no_changes_needed no-op: I have real work, only awaiting input.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-06-26T20:40:45.129773+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5778d13d-05f9-40",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=61601 util=n/a cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-26T20:40:59.802442+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5c1a2224-a904-47",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "simplifier (PLAN producer) blocked on input: no 3288-plan.md / task_breakdown yet. Architect analysis landed at HEAD b97cc198e but task_planner has not proposed (0 CONSENSUS_PROPOSE, live=true). Will write the jargon-free companion 3288-plan-human.md once the plan is pushed.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-06-26T20:41:45.816025+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "36fc3e02-7dac-49",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=57203 util=n/a cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-26T20:42:01.486081+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f7745f7f-9a47-44",
+    "pipeline_id": "issue-3288",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from architect",
+    "body": "Architect plan analysis for #3288: two coupled work streams. WS1 (slice-1) retrains the documenter agent to write current-state snapshots (not change-logs) via text-only edits to the documenter '## Your Task' block in orchestrator/routes/pipelines.py (~14781 implement, ~6761 phase summary, ~14157 plan orientation) and DOCUMENTER_ROLE in shared/egg_contracts/agent_roles.py \u2014 injecting the snapshot doctrine (current-state framing; never emit slice/TASK/phase/HITL ids into any doc/docstring/comment; history only when tangibly valuable, rationale over chronology; fold-and-remove stale ledger entries; keep the no-op propose path). WS2 (slices 2-6) cleans the existing corpus bounded by HITL cq-1 opt-1 (named targets + bounded high-density sweep, long tail deferred and logged), split into two edit classes \u2014 mechanical line-edits (brc-memory.md, orchestrator.md) vs. total-refactors of load-bearing pages (gateway-auto-filter.md, coordination-state.md, slice-dag.md) \u2014 plus gateway/orchestrator/shared docstrings + CLAUDE.md seam-table re-keying, sliced by package/doc-area so slices are file-disjoint and parallelizable after slice-1. Binding invariants: documenter gateway write-boundaries unchanged; BRC no-op '--no-changes-needed' path preserved in both branches; not 'delete all issue references' (rationale links stay, reframed); no new lint/CI guard (cq-2 opt-1). Artifacts: 3288-architect-output.json + 3288-architect-slices.yaml.",
+    "metadata": {
+      "payload": {
+        "summary": "Architect plan analysis for #3288: two coupled work streams. WS1 (slice-1) retrains the documenter agent to write current-state snapshots (not change-logs) via text-only edits to the documenter '## Your Task' block in orchestrator/routes/pipelines.py (~14781 implement, ~6761 phase summary, ~14157 plan orientation) and DOCUMENTER_ROLE in shared/egg_contracts/agent_roles.py \u2014 injecting the snapshot doctrine (current-state framing; never emit slice/TASK/phase/HITL ids into any doc/docstring/comment; history only when tangibly valuable, rationale over chronology; fold-and-remove stale ledger entries; keep the no-op propose path). WS2 (slices 2-6) cleans the existing corpus bounded by HITL cq-1 opt-1 (named targets + bounded high-density sweep, long tail deferred and logged), split into two edit classes \u2014 mechanical line-edits (brc-memory.md, orchestrator.md) vs. total-refactors of load-bearing pages (gateway-auto-filter.md, coordination-state.md, slice-dag.md) \u2014 plus gateway/orchestrator/shared docstrings + CLAUDE.md seam-table re-keying, sliced by package/doc-area so slices are file-disjoint and parallelizable after slice-1. Binding invariants: documenter gateway write-boundaries unchanged; BRC no-op '--no-changes-needed' path preserved in both branches; not 'delete all issue references' (rationale links stay, reframed); no new lint/CI guard (cq-2 opt-1). Artifacts: 3288-architect-output.json + 3288-architect-slices.yaml.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/3288-architect-output.json",
+          ".egg-state/agent-outputs/3288-architect-slices.yaml"
+        ],
+        "risk_considered": "WS1 prompt edit risk is low (no test asserts the literal strings); main regression surfaces are the BRC no-op path and documenter gateway write-boundaries (guarded as preserve-verbatim invariants). WS2 risks: over-stripping useful rationale (mitigated by chronology-vs-rationale test + total-refactor not delete on load-bearing pages), merge churn (mitigated by file-disjoint package slicing + bounded scope), silent long-tail (mitigated by explicit deferred-list logging in slice-6).",
+        "commit_sha": "76330b20e1f00bc9f9cc810787d92444c2b7dc2a",
+        "files_changed": [
+          ".egg-state/agent-outputs/3288-architect-output.json",
+          ".egg-state/agent-outputs/3288-architect-slices.yaml",
+          ".egg-state/drafts/3288-plan-architect-analysis.json",
+          ".egg-state/agent-outputs/architect/brc-memory-issue-3288.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "76330b20e1f00bc9f9cc810787d92444c2b7dc2a"
+    },
+    "timestamp": "2026-06-26T20:42:17.027534+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "50ecfa41-bbeb-41",
+    "pipeline_id": "issue-3288",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-26T20:42:22.924723+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3f919315-7429-49",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "PLAN: simplifier blocked on input. task_planner producer_phase=WORKING, no 3288-plan.md in drafts (only 3288-plan-architect-analysis.json) or git (HEAD 7faab25db). Architect has proposed but that is not my input dependency. Will write 3288-plan-human.md once task_planner proposes.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-06-26T20:42:39.793986+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "39908f7d-87ca-43",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=63838 util=n/a cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-26T20:42:50.345716+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8624d270-3534-45",
+    "pipeline_id": "issue-3288",
+    "from_role": "reviewer_plan",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for architect",
+    "body": "Plan is faithful to the operator directive and grounded against the live tree. WS1 (slice 1) edits the correct two surfaces (pipelines.py documenter '## Your Task' blocks + DOCUMENTER_ROLE) and injects the snapshot doctrine while explicitly preserving the BRC no-op '--no-changes-needed' propose path and the documenter gateway write boundaries. WS2 (slices 2-6) cleans the corpus sliced by package/doc-area (file-disjoint, independently reviewable), correctly separating mechanical line-edits from load-bearing total-refactors. Both HITL resolutions are verified human-resolved and faithfully encoded: cq-1 opt-1 (enumerated targets + bounded high-density sweep, long tail deferred AND logged in slice 6, never implying 100% coverage) and cq-2 opt-1 (no lint/CI guard, noted as follow-up). Binding invariants all captured: gateway boundaries unchanged, no-op path preserved in both ~14157/~14800 branches, NOT 'delete all issue references' (rationale links reframed/kept), snapshot doctrine applied to this pipeline's own doc touches. slices.yaml and output.json are mutually consistent; sequencing (WS1 root -> WS2 fan-out after slice-1) is sound. Line-number anchors in the plan artifact are planning references, not durable docs, so they do not violate the no-ledger doctrine. No blocking issues.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3288-architect-output.json",
+          ".egg-state/agent-outputs/3288-architect-slices.yaml"
+        ],
+        "reason": "Plan is faithful to the operator directive and grounded against the live tree. WS1 (slice 1) edits the correct two surfaces (pipelines.py documenter '## Your Task' blocks + DOCUMENTER_ROLE) and injects the snapshot doctrine while explicitly preserving the BRC no-op '--no-changes-needed' propose path and the documenter gateway write boundaries. WS2 (slices 2-6) cleans the corpus sliced by package/doc-area (file-disjoint, independently reviewable), correctly separating mechanical line-edits from load-bearing total-refactors. Both HITL resolutions are verified human-resolved and faithfully encoded: cq-1 opt-1 (enumerated targets + bounded high-density sweep, long tail deferred AND logged in slice 6, never implying 100% coverage) and cq-2 opt-1 (no lint/CI guard, noted as follow-up). Binding invariants all captured: gateway boundaries unchanged, no-op path preserved in both ~14157/~14800 branches, NOT 'delete all issue references' (rationale links reframed/kept), snapshot doctrine applied to this pipeline's own doc touches. slices.yaml and output.json are mutually consistent; sequencing (WS1 root -> WS2 fan-out after slice-1) is sound. Line-number anchors in the plan artifact are planning references, not durable docs, so they do not violate the no-ledger doctrine. No blocking issues.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-06-26T20:43:20.579263+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cea9b771-2181-43",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "PLAN: blocked on task_planner. Only architect has proposed (CONSENSUS_PROPOSE v1, SHA 76330b20e); task_planner producer_phase=WORKING, 0 task_planner CONSENSUS_PROPOSE in BRC plan history (live=true). No 3288-plan.md in drafts (only 3288-plan-architect-analysis.json) or git. Cannot write plan companion until task_breakdown lands.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-06-26T20:43:30.560077+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e7cb73c9-c445-43",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=63955 util=n/a cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-26T20:43:42.833030+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f94321fe-cd6d-4c",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "PLAN: blocked on task_planner. Need 3288-plan.md (task_breakdown) to produce my jargon-free companion 3288-plan-human.md. Plan history shows only architect v1 CONSENSUS_PROPOSE; no task_planner proposal yet (HEAD 76330b20e).",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-06-26T20:44:15.588698+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0fd7e48c-8615-4e",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=64352 util=n/a cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-26T20:44:27.444332+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8fcdcf29-b124-47",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "simplifier (PLAN producer of 3288-plan-human.md) blocked on task_planner's 3288-plan.md. Re-verified at HEAD 76330b20e: plan BRC history live=true shows only architect v1, 0 task_planner CONSENSUS_PROPOSE; no 3288-plan.md in drafts or git. Will distill the jargon-free companion as soon as the plan lands.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-06-26T20:45:03.122564+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "dbb9e0d9-a62b-42",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=64275 util=n/a cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-26T20:45:18.499541+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "be9a8333-88cf-4a",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "PLAN: blocked on task_planner. Need 3288-plan.md (task_breakdown) to write jargon-free companion 3288-plan-human.md. Only architect v1 proposed; HEAD 76330b20e; no plan draft yet.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-06-26T20:45:48.170932+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "599184f0-4327-4e",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=54703 util=n/a cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-26T20:45:58.989753+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "11b5270e-ba5e-43",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "PLAN companion blocked on input: 3288-plan.md is committed (3af1b03f7d) but task_planner has not yet CONSENSUS_PROPOSEd (producer_phase=WORKING, 0 task_planner proposals in plan history). Waiting for the proposal so I read at the final proposed SHA.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-06-26T20:47:10.975533+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "394b75ae-9fcb-45",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=57952 util=n/a cache_hit=0.93 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-26T20:47:23.697093+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2ee4173a-6a7b-4f",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "PLAN producer blocked on input: task_planner has not CONSENSUS_PROPOSEd (producer_phase=WORKING; plan history live=true, only architect v1 @76330b20e). No 3288-plan.md at HEAD 76330b20e. Waiting to read the plan at its proposed SHA before producing 3288-plan-human.md companion.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-06-26T20:47:51.781787+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "de558ba1-8d7c-4a",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=57148 util=n/a cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-26T20:48:04.049233+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3b15f990-0373-40",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "simplifier (PLAN producer) blocked on input: task_planner has committed 3288-plan.md at 4463da62c0 but has NOT yet CONSENSUS_PROPOSEd (plan BRC history = architect v1 only; task_planner producer_phase=WORKING). Will read 3288-plan.md at the proposed SHA and produce the jargon-free companion 3288-plan-human.md once task_planner proposes.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-06-26T20:49:02.808334+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "12ab5ec3-bfe6-40",
+    "pipeline_id": "issue-3288",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from risk_analyst",
+    "body": "Risk assessment for #3288 (documenter snapshot-not-ledger + bounded corpus cleanup). Overall LOW-MEDIUM, PROCEED_WITH_MITIGATIONS. Work stream 1 (documenter prompt/role edit in pipelines.py + agent_roles.py) is low risk, text-only, with two test-preservation seams (R1: test_documenter_phase_intro_text 'Focus your documentation' + external-research WebSearch/WebFetch assertions; R2: preserve the #3027 no-op propose path mechanics, reword only the example string). Dominant risks are in work stream 2 and are judgment/routing, not engineering: R5 (HIGH) \u2014 documenter gateway blocks **/*.py, so docstring/comment cleanup MUST route to coder or it impasses; R4 (HIGH) \u2014 over-deletion can strip load-bearing rationale the issue says to keep (gateway-auto-filter 'what was removed', coordination-state #3077 invariant): strip chronology, keep rationale, total-refactor load-bearing pages; R3 (MED) \u2014 bound the 263-file sweep per cq-1 with an explicit deferred list; R6/R7 (LOW). Sequence work stream 1 first. Reconcile R5 against the planner slice role assignments when the plan lands. Canonical artifact at .egg-state/agent-outputs/3288-risk_analyst-output.json.",
+    "metadata": {
+      "payload": {
+        "summary": "Risk assessment for #3288 (documenter snapshot-not-ledger + bounded corpus cleanup). Overall LOW-MEDIUM, PROCEED_WITH_MITIGATIONS. Work stream 1 (documenter prompt/role edit in pipelines.py + agent_roles.py) is low risk, text-only, with two test-preservation seams (R1: test_documenter_phase_intro_text 'Focus your documentation' + external-research WebSearch/WebFetch assertions; R2: preserve the #3027 no-op propose path mechanics, reword only the example string). Dominant risks are in work stream 2 and are judgment/routing, not engineering: R5 (HIGH) \u2014 documenter gateway blocks **/*.py, so docstring/comment cleanup MUST route to coder or it impasses; R4 (HIGH) \u2014 over-deletion can strip load-bearing rationale the issue says to keep (gateway-auto-filter 'what was removed', coordination-state #3077 invariant): strip chronology, keep rationale, total-refactor load-bearing pages; R3 (MED) \u2014 bound the 263-file sweep per cq-1 with an explicit deferred list; R6/R7 (LOW). Sequence work stream 1 first. Reconcile R5 against the planner slice role assignments when the plan lands. Canonical artifact at .egg-state/agent-outputs/3288-risk_analyst-output.json.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/3288-risk_analyst-output.json"
+        ],
+        "risk_considered": "Documenter gateway boundary blocks code-file writes (docstring cleanup must go to coder); over-deletion of design rationale; corpus scope creep vs HITL-bounded sweep; no-op propose path regression; prompt-assertion test breakage; re-drift with no automated guardrail per cq-2.",
+        "commit_sha": "cee63a9f1c5bc8b72cc73b78aa02c48c432c2aa2",
+        "files_changed": [
+          ".egg-state/agent-outputs/3288-risk_analyst-output.json",
+          ".egg-state/drafts/3288-plan-risk-analyst.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "cee63a9f1c5bc8b72cc73b78aa02c48c432c2aa2"
+    },
+    "timestamp": "2026-06-26T20:49:16.512037+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d524c71c-46c2-44",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=61136 util=n/a cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-26T20:49:18.445107+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "32cd5495-0412-4d",
+    "pipeline_id": "issue-3288",
+    "from_role": "reviewer_plan",
+    "to_role": "risk_analyst",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for risk_analyst",
+    "body": "Risk assessment is faithful, accurate, and consistent with the operator directive and the architect's ACKed plan. Verified grounding against the live tree: DOCUMENTER_ROLE blocked_write does include **/*.py with allowed_write limited to docs/ + **/README.md + **/*.md + .egg-state/agent-outputs/ (confirming R5's role-routing crux), and the corpus grep yields 263 ledger-bearing files exactly as claimed (R3). The two HIGH risks are the right ones: R5 (code docstring/inline-comment cleanup cannot be done by the documenter due to its gateway boundary and must route to coder) and R4 (mechanical de-ledgering can strip load-bearing rationale the issue explicitly says to keep). Mitigations are concrete and actionable: slice WS2 by file-type as well as area (markdown->documenter, *.py docstrings->coder); strip chronology but keep rationale reframed to present tense; total-refactor the named load-bearing pages (gateway-auto-filter.md, coordination-state.md) rather than line-editing; enumerate exact targets + a counted density sweep with an explicit deferred long-tail list (honors cq-1 opt-1); reword the no-op example string only, never the no-op mechanics (R2), preserving the #3027 propose path; make WS1 prompt revision explicit/testable as the sole anti-drift guard given cq-2 (R7). Sequencing (WS1 first, then WS2 fan-out) matches the architect's plan. The plan_reconciliation_pending caveat is honest and already satisfied by the ACKed planner DAG. No blocking issues.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3288-risk_analyst-output.json"
+        ],
+        "reason": "Risk assessment is faithful, accurate, and consistent with the operator directive and the architect's ACKed plan. Verified grounding against the live tree: DOCUMENTER_ROLE blocked_write does include **/*.py with allowed_write limited to docs/ + **/README.md + **/*.md + .egg-state/agent-outputs/ (confirming R5's role-routing crux), and the corpus grep yields 263 ledger-bearing files exactly as claimed (R3). The two HIGH risks are the right ones: R5 (code docstring/inline-comment cleanup cannot be done by the documenter due to its gateway boundary and must route to coder) and R4 (mechanical de-ledgering can strip load-bearing rationale the issue explicitly says to keep). Mitigations are concrete and actionable: slice WS2 by file-type as well as area (markdown->documenter, *.py docstrings->coder); strip chronology but keep rationale reframed to present tense; total-refactor the named load-bearing pages (gateway-auto-filter.md, coordination-state.md) rather than line-editing; enumerate exact targets + a counted density sweep with an explicit deferred long-tail list (honors cq-1 opt-1); reword the no-op example string only, never the no-op mechanics (R2), preserving the #3027 propose path; make WS1 prompt revision explicit/testable as the sole anti-drift guard given cq-2 (R7). Sequencing (WS1 first, then WS2 fan-out) matches the architect's plan. The plan_reconciliation_pending caveat is honest and already satisfied by the ACKed planner DAG. No blocking issues.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-06-26T20:50:04.535208+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2cf1c049-442a-49",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Blocked on task_planner CONSENSUS_PROPOSE for plan. task_planner has committed a newer plan (b5e7ca4a25, \"adopt architect 6-slice DAG\", supersedes 4463da62c0) but has not proposed: plan BRC history live=true, total_available=2 = architect v1 + risk_analyst v1 only, 0 task_planner propose; producer_phase=WORKING. Will read 3288-plan.md at the proposed SHA once task_planner proposes, then produce the jargon-free companion 3288-plan-human.md.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-06-26T20:50:08.007304+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d69c2f05-484a-43",
+    "pipeline_id": "issue-3288",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Plan for #3288 ADOPTS the architect's 6-slice DAG (3288-architect-slices.yaml). Slice 1 (root, coder+tester) retrains the documenter agent: pipelines.py \"## Your Task\" blocks (implement ~14781, per-phase ~6761, plan-phase no-op ~14157) + DOCUMENTER_ROLE in agent_roles.py move from \"document the changes\" to current-state snapshots that never emit slice/TASK/phase/HITL ids in any doc/docstring/comment; the #3027 no-op propose path and the DOCUMENTER_ROLE allowed_write/blocked_write boundaries are preserved verbatim. Slices 2-6 each depend only on slice 1 and are mutually file-disjoint (forest=[], overlap=[]): slice 2 line-edits brc-memory.md/orchestrator.md + remaining lower-density architecture pages (documenter); slice 3 total-refactors the load-bearing pages gateway-auto-filter.md/coordination-state.md/slice-dag.md (documenter); slices 4/5 pair .py docstring de-ledger (coder) with that package's CLAUDE.md re-key (documenter) for gateway (artifact_api.py, jira_client.py) and orchestrator (kubernetes_spawner.py); slice 6 cleans shared/ docstrings (coder), sweeps the highest-density remaining reference/guide docs (documenter), and closes with an explicit enumerated deferred-tail list in the PR body. Role split (documenter blocked from .py \u2192 coder owns docstrings) verified via check_file_restriction; the .py sweep guards live-machinery refs (prompt strings, TASK-N plan type, slice scheduling) as out-of-scope-to-strip. HITL cq-1=enumerated+bounded-sweep and cq-2=no-lint-guard honored. Validators clean: parse_plan success/0 warnings, preflight OK, forest=[], overlap=[], role_alignment=[] (default + jwbron/egg). 14 tasks across 6 slices.",
+    "metadata": {
+      "payload": {
+        "summary": "Plan for #3288 ADOPTS the architect's 6-slice DAG (3288-architect-slices.yaml). Slice 1 (root, coder+tester) retrains the documenter agent: pipelines.py \"## Your Task\" blocks (implement ~14781, per-phase ~6761, plan-phase no-op ~14157) + DOCUMENTER_ROLE in agent_roles.py move from \"document the changes\" to current-state snapshots that never emit slice/TASK/phase/HITL ids in any doc/docstring/comment; the #3027 no-op propose path and the DOCUMENTER_ROLE allowed_write/blocked_write boundaries are preserved verbatim. Slices 2-6 each depend only on slice 1 and are mutually file-disjoint (forest=[], overlap=[]): slice 2 line-edits brc-memory.md/orchestrator.md + remaining lower-density architecture pages (documenter); slice 3 total-refactors the load-bearing pages gateway-auto-filter.md/coordination-state.md/slice-dag.md (documenter); slices 4/5 pair .py docstring de-ledger (coder) with that package's CLAUDE.md re-key (documenter) for gateway (artifact_api.py, jira_client.py) and orchestrator (kubernetes_spawner.py); slice 6 cleans shared/ docstrings (coder), sweeps the highest-density remaining reference/guide docs (documenter), and closes with an explicit enumerated deferred-tail list in the PR body. Role split (documenter blocked from .py \u2192 coder owns docstrings) verified via check_file_restriction; the .py sweep guards live-machinery refs (prompt strings, TASK-N plan type, slice scheduling) as out-of-scope-to-strip. HITL cq-1=enumerated+bounded-sweep and cq-2=no-lint-guard honored. Validators clean: parse_plan success/0 warnings, preflight OK, forest=[], overlap=[], role_alignment=[] (default + jwbron/egg). 14 tasks across 6 slices.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/3288-plan.md"
+        ],
+        "risk_considered": "Adopted the architect's topology to avoid a task_planner\u2194architect DAG divergence NACK. Main residual risk is .py-sweep scope ambiguity (archaeology vs live machinery); plan states the guard rule and excludes plan_parser/event_prompt/pipelines from the sweep. Slices 4/5/6 mix coder+documenter but files are disjoint within and across slices (validated). No-op propose path and documenter file boundaries explicitly preserved. Deferred long-tail + lint guard recorded as follow-ups per HITL, with slice 6 enumerating deferred files in the PR body so coverage stays auditable.",
+        "commit_sha": "26ed3b4714867bdfffa61f620f394d8a63b0d202",
+        "files_changed": [
+          ".egg-state/drafts/3288-plan.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "26ed3b4714867bdfffa61f620f394d8a63b0d202"
+    },
+    "timestamp": "2026-06-26T20:50:11.064551+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a259fb7e-b1f3-4a",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=59886 util=n/a cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-26T20:50:25.275497+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "137a53ac-a435-4f",
+    "pipeline_id": "issue-3288",
+    "from_role": "risk_analyst",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from risk_analyst for architect",
+    "body": "Risk verdict: PROCEED_WITH_MITIGATIONS (LOW-MEDIUM). The 6-slice forest satisfies every flagged risk. R5 (HIGH, top failure mode): all .py docstring/comment cleanup is isolated from the documenter \u2014 slices 4/5/6 split .py (coder) from CLAUDE.md (documenter), avoiding the documenter blocked_write **/*.py impasse. R4 (HIGH): slice 3 correctly isolates load-bearing pages (gateway-auto-filter, coordination-state, slice-dag) for total rewrite rather than line edits. R3 (MED): slice 6 is a bounded high-density sweep with an explicit enumerated deferred-tail list (cq-1 opt-1), never implying 100%. Slice 1 as the single root establishes the snapshot doctrine before the corpus is cleaned, and the no-op propose path + gateway boundaries are preserved. DAG is a file-disjoint forest (\u22641 parent), no collisions.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3288-architect-slices.yaml",
+          ".egg-state/agent-outputs/3288-architect-output.json"
+        ],
+        "reason": "Risk verdict: PROCEED_WITH_MITIGATIONS (LOW-MEDIUM). The 6-slice forest satisfies every flagged risk. R5 (HIGH, top failure mode): all .py docstring/comment cleanup is isolated from the documenter \u2014 slices 4/5/6 split .py (coder) from CLAUDE.md (documenter), avoiding the documenter blocked_write **/*.py impasse. R4 (HIGH): slice 3 correctly isolates load-bearing pages (gateway-auto-filter, coordination-state, slice-dag) for total rewrite rather than line edits. R3 (MED): slice 6 is a bounded high-density sweep with an explicit enumerated deferred-tail list (cq-1 opt-1), never implying 100%. Slice 1 as the single root establishes the snapshot doctrine before the corpus is cleaned, and the no-op propose path + gateway boundaries are preserved. DAG is a file-disjoint forest (\u22641 parent), no collisions.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-06-26T20:51:22.507044+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0d7ac9a3-200b-4a",
+    "pipeline_id": "issue-3288",
+    "from_role": "risk_analyst",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from risk_analyst for architect",
+    "body": "ACK. Architect's plan analysis + slices scaffold is sound and HITL-accurate. Verified against ground truth: HITL cq-1=opt-1 (enumerated named targets + bounded high-density sweep, defer long tail to logged follow-up) and cq-2=opt-1 (no lint/CI guard this pipeline) match the architect's representation exactly; the BRC no-op `--no-changes-needed` propose path and DOCUMENTER_ROLE allowed_write/blocked_write boundaries exist as described and are correctly listed as preserve-verbatim invariants. The risk_assessment is comprehensive (prompt-test drift, no-op/boundary regression, over-stripping rationale, churn/merge, silent long-tail, self-referential ledger re-introduction) and the binding_invariants are correct, including \"not delete all issue references.\" No blocking defect in this advisory artifact. One routing concern carried forward to task_planner review (not blocking the architect, who explicitly defers slicing): slices S4/S5/S6 bundle *.py docstrings (gateway/*.py, kubernetes_spawner.py, shared/*.py) with *.md in one area-slice \u2014 since the documenter's blocked_write blocks **/*.py, those *.py docstring/comment edits must route to the coder role and a single slice must not require both roles. I will NACK the planner if it assigns *.py cleanup to the documenter or fails to bound the sweep with an explicit deferred list.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3288-architect-output.json",
+          ".egg-state/agent-outputs/3288-architect-slices.yaml"
+        ],
+        "reason": "ACK. Architect's plan analysis + slices scaffold is sound and HITL-accurate. Verified against ground truth: HITL cq-1=opt-1 (enumerated named targets + bounded high-density sweep, defer long tail to logged follow-up) and cq-2=opt-1 (no lint/CI guard this pipeline) match the architect's representation exactly; the BRC no-op `--no-changes-needed` propose path and DOCUMENTER_ROLE allowed_write/blocked_write boundaries exist as described and are correctly listed as preserve-verbatim invariants. The risk_assessment is comprehensive (prompt-test drift, no-op/boundary regression, over-stripping rationale, churn/merge, silent long-tail, self-referential ledger re-introduction) and the binding_invariants are correct, including \"not delete all issue references.\" No blocking defect in this advisory artifact. One routing concern carried forward to task_planner review (not blocking the architect, who explicitly defers slicing): slices S4/S5/S6 bundle *.py docstrings (gateway/*.py, kubernetes_spawner.py, shared/*.py) with *.md in one area-slice \u2014 since the documenter's blocked_write blocks **/*.py, those *.py docstring/comment edits must route to the coder role and a single slice must not require both roles. I will NACK the planner if it assigns *.py cleanup to the documenter or fails to bound the sweep with an explicit deferred list.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-06-26T20:51:22.789878+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5ebb852d-c62f-40",
+    "pipeline_id": "issue-3288",
+    "from_role": "risk_analyst",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from risk_analyst for task_planner",
+    "body": "Risk verdict: PROCEED_WITH_MITIGATIONS (LOW-MEDIUM). Reconciliation from prior BRC memory complete \u2014 the landed plan resolves every open item. R5 (HIGH): verified via task roles, not just prose \u2014 every .py file is role=coder (TASK-1-1 pipelines.py, TASK-1-2 agent_roles.py, TASK-4-1 gateway .py, TASK-5-1 kubernetes_spawner.py, TASK-6-1 shared .py), test files are role=tester (TASK-1-3), and all markdown is role=documenter; the explicit Role/file split section confirms the documenter blocked_write **/*.py boundary is respected. R4 (HIGH): slice 3 total-refactors the load-bearing pages with acceptance criteria that preserve rationale while dropping chronology. R3 (MED): TASK-6-2 bounds the sweep to 4 enumerated docs and records the deferred long tail explicitly in PR/handoff (no new ledger doc). R2 (MED): TASK-1-1 keeps the #3027 --no-changes-needed path behaviorally unchanged, rewording only the slice example; TASK-1-3 asserts it. R1: prompt-assertion tests updated with positive snapshot assertions. R7: slice 1 prompt revision is the durable guard. The Live-machinery-vs-archaeology scope guard correctly protects the live TASK-N plan format and runtime prompt strings, honoring the issue's 'not delete all references' boundary. No blocking risks.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3288-plan.md"
+        ],
+        "reason": "Risk verdict: PROCEED_WITH_MITIGATIONS (LOW-MEDIUM). Reconciliation from prior BRC memory complete \u2014 the landed plan resolves every open item. R5 (HIGH): verified via task roles, not just prose \u2014 every .py file is role=coder (TASK-1-1 pipelines.py, TASK-1-2 agent_roles.py, TASK-4-1 gateway .py, TASK-5-1 kubernetes_spawner.py, TASK-6-1 shared .py), test files are role=tester (TASK-1-3), and all markdown is role=documenter; the explicit Role/file split section confirms the documenter blocked_write **/*.py boundary is respected. R4 (HIGH): slice 3 total-refactors the load-bearing pages with acceptance criteria that preserve rationale while dropping chronology. R3 (MED): TASK-6-2 bounds the sweep to 4 enumerated docs and records the deferred long tail explicitly in PR/handoff (no new ledger doc). R2 (MED): TASK-1-1 keeps the #3027 --no-changes-needed path behaviorally unchanged, rewording only the slice example; TASK-1-3 asserts it. R1: prompt-assertion tests updated with positive snapshot assertions. R7: slice 1 prompt revision is the durable guard. The Live-machinery-vs-archaeology scope guard correctly protects the live TASK-N plan format and runtime prompt strings, honoring the issue's 'not delete all references' boundary. No blocking risks.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-06-26T20:51:28.809867+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e2d8357c-8c8a-43",
+    "pipeline_id": "issue-3288",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for task_planner",
+    "body": "ACK. Plan faithfully adopts the already-ACKed architect 6-slice DAG and is well-grounded against the live tree. Slice 1 (root) reframes the two correct surfaces \u2014 documenter '## Your Task' blocks in orchestrator/routes/pipelines.py (anchors verified ~14784/14817) and DOCUMENTER_ROLE in shared/egg_contracts/agent_roles.py:308 \u2014 to current-state snapshot doctrine, while explicitly preserving the #3027 no-op '--no-changes-needed' propose path (only the 'slice-3 pure decomposition' example string reworded) and the documenter gateway write boundaries verbatim. Slices 2-6 each depend only on [1], are mutually file-disjoint, and split correctly by file type: documenter owns .md (verified can_write on gateway/CLAUDE.md), coder owns .py docstrings (verified documenter blocked from .py, alternative_role=coder), tester owns tests. All 13 enumerated targets exist and are dense (brc-memory.md 36 refs, kubernetes_spawner.py 43 slice markers, artifact_api.py:1 '#3077 slice-4'). Both HITL decisions verified human-resolved to opt-1 and faithfully encoded: cq-1 enumerated+bounded-sweep with the deferred long tail enumerated in slice 6 (never implying 100%), cq-2 no lint guard noted as follow-up. Not 'delete all issue references' \u2014 rationale links kept/reframed. Plan-artifact slice/TASK anchors live in .egg-state/drafts, not durable docs, so they do not violate the no-ledger doctrine. No blocking issues.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3288-plan.md"
+        ],
+        "reason": "ACK. Plan faithfully adopts the already-ACKed architect 6-slice DAG and is well-grounded against the live tree. Slice 1 (root) reframes the two correct surfaces \u2014 documenter '## Your Task' blocks in orchestrator/routes/pipelines.py (anchors verified ~14784/14817) and DOCUMENTER_ROLE in shared/egg_contracts/agent_roles.py:308 \u2014 to current-state snapshot doctrine, while explicitly preserving the #3027 no-op '--no-changes-needed' propose path (only the 'slice-3 pure decomposition' example string reworded) and the documenter gateway write boundaries verbatim. Slices 2-6 each depend only on [1], are mutually file-disjoint, and split correctly by file type: documenter owns .md (verified can_write on gateway/CLAUDE.md), coder owns .py docstrings (verified documenter blocked from .py, alternative_role=coder), tester owns tests. All 13 enumerated targets exist and are dense (brc-memory.md 36 refs, kubernetes_spawner.py 43 slice markers, artifact_api.py:1 '#3077 slice-4'). Both HITL decisions verified human-resolved to opt-1 and faithfully encoded: cq-1 enumerated+bounded-sweep with the deferred long tail enumerated in slice 6 (never implying 100%), cq-2 no lint guard noted as follow-up. Not 'delete all issue references' \u2014 rationale links kept/reframed. Plan-artifact slice/TASK anchors live in .egg-state/drafts, not durable docs, so they do not violate the no-ledger doctrine. No blocking issues.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-06-26T20:51:49.003835+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "14333aee-a71d-4c",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from simplifier",
+    "body": "Jargon-free, ledger-free human companion to the task_planner's plan for issue #3288. Distills the plan (read at proposed SHA 26ed3b471) into plain language for a non-specialist reader: the problem (docs drifted from current-state snapshots into change-logs), the two coupled work streams (reword the documentation-writing agent's instructions to produce snapshots; bounded cleanup of the existing docs/code-comments), the foundational-first ordering with independent parallel cleanup passes by area, what is kept (issue links reframed as rationale) vs deferred (low-density long tail and the optional guard), and the verification/post-merge story. No new scope; faithfully mirrors the plan. Forbidden-jargon grep clean.",
+    "metadata": {
+      "payload": {
+        "summary": "Jargon-free, ledger-free human companion to the task_planner's plan for issue #3288. Distills the plan (read at proposed SHA 26ed3b471) into plain language for a non-specialist reader: the problem (docs drifted from current-state snapshots into change-logs), the two coupled work streams (reword the documentation-writing agent's instructions to produce snapshots; bounded cleanup of the existing docs/code-comments), the foundational-first ordering with independent parallel cleanup passes by area, what is kept (issue links reframed as rationale) vs deferred (low-density long tail and the optional guard), and the verification/post-merge story. No new scope; faithfully mirrors the plan. Forbidden-jargon grep clean.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/3288-plan-human.md"
+        ],
+        "risk_considered": "",
+        "commit_sha": "d1f432db7",
+        "files_changed": [
+          ".egg-state/drafts/3288-plan-human.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "d1f432db7"
+    },
+    "timestamp": "2026-06-26T20:52:42.758601+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "718152db-89b4-42",
+    "pipeline_id": "issue-3288",
+    "from_role": "orchestrator",
+    "to_role": "architect",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-06-26T20:52:42.760516+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "50b057ef-7c4b-45",
+    "pipeline_id": "issue-3288",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-06-26T20:52:42.761261+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "46330af7-63cc-4d",
+    "pipeline_id": "issue-3288",
+    "from_role": "orchestrator",
+    "to_role": "task_planner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-06-26T20:52:42.761811+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f0adef8e-65cc-4e",
+    "pipeline_id": "issue-3288",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by architect",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-06-26T20:52:45.307175+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "77f9c609-3dbd-4b",
+    "pipeline_id": "issue-3288",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by task_planner",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-06-26T20:52:45.310067+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "71a5f161-dcb4-4b",
+    "pipeline_id": "issue-3288",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by risk_analyst",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-06-26T20:52:45.313043+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e4bac1f9-cc2f-43",
+    "pipeline_id": "issue-3288",
+    "from_role": "reviewer_plan",
+    "to_role": "simplifier",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for simplifier",
+    "body": "ACK. The plain-language companion (3288-plan-human.md) faithfully restates the ACKed engineering plan with zero scope drift. Verified clause-by-clause vs 3288-plan.md: two coupled work streams (fix the documenter agent's instructions + clean the existing corpus); the \"keep the why, drop the when\" boundary correctly mirrors the plan's explicit NOT-\"delete all issue references\"; DAG order (foundational slice-1 first, then file-disjoint parallel passes) preserved; all six cleanup passes mapped accurately (arch line-edit, arch total-refactor, gateway, orchestrator heavily-tagged file, shared + bounded sweep with the deferred-tail list living in notes rather than a new doc). Both binding invariants are preserved in plain language: the documenter's file-editing limits are unchanged (= gateway write boundaries) and the no-doc-change-needed case is still handled (= BRC no-op propose path). Both HITL deferrals (cq-1 long tail enumerated/deferred; cq-2 no automated guard) are framed as explicit decisions. After-ship is correctly described as a no-op taking effect on rebuild with two named follow-ups. The companion is itself exemplary of the snapshot doctrine \u2014 it carries the #3288 link as rationale and uses no slice/TASK ids. No misrepresentation, no omitted constraint. No blocking issues.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3288-plan-human.md"
+        ],
+        "reason": "ACK. The plain-language companion (3288-plan-human.md) faithfully restates the ACKed engineering plan with zero scope drift. Verified clause-by-clause vs 3288-plan.md: two coupled work streams (fix the documenter agent's instructions + clean the existing corpus); the \"keep the why, drop the when\" boundary correctly mirrors the plan's explicit NOT-\"delete all issue references\"; DAG order (foundational slice-1 first, then file-disjoint parallel passes) preserved; all six cleanup passes mapped accurately (arch line-edit, arch total-refactor, gateway, orchestrator heavily-tagged file, shared + bounded sweep with the deferred-tail list living in notes rather than a new doc). Both binding invariants are preserved in plain language: the documenter's file-editing limits are unchanged (= gateway write boundaries) and the no-doc-change-needed case is still handled (= BRC no-op propose path). Both HITL deferrals (cq-1 long tail enumerated/deferred; cq-2 no automated guard) are framed as explicit decisions. After-ship is correctly described as a no-op taking effect on rebuild with two named follow-ups. The companion is itself exemplary of the snapshot doctrine \u2014 it carries the #3288 link as rationale and uses no slice/TASK ids. No misrepresentation, no omitted constraint. No blocking issues.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-06-26T20:53:59.804932+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "96363c79-0183-48",
+    "pipeline_id": "issue-3288",
+    "from_role": "orchestrator",
+    "to_role": "simplifier",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-06-26T20:53:59.806776+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2cd33c49-0236-4b",
+    "pipeline_id": "issue-3288",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by simplifier",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-06-26T20:54:04.315077+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9dce7123-ab93-46",
+    "pipeline_id": "issue-3288",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_plan",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-06-26T20:54:04.327802+00:00",
+    "phase": "plan"
+  }
+]
