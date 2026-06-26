@@ -10,9 +10,163 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "cq-1 \u2014 Overseer architectural shape (the open-season fundamental, gates \u00a71/\u00a71.5/\u00a73/\u00a75). The deterministic Tier-1 detectors already run orchestrator-side (health_checks/tier1/), and #3064 (merged) removed the long-lived phase cohort \u2014 so a watcher pod respawned every ~90s (incl. multi-hour HITL parks with zero agents running) is cost bleed and the baked-in bootstrap is the root cause of the \u00a71 self-injection loop. Which shape should the overhaul target?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "C (recommended) \u2014 Hybrid: deterministic detection + bounded corrective vocabulary run orchestrator-side (kills respawn churn, bootstrap loop, and lifecycle-blind stalls structurally); spawn a NORMAL on-demand agent (spawn_agent_job, Opus-tier, no special plumbing) only to adjudicate adversarial escalations",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "B \u2014 Orchestrator-side only: retire the agent pod entirely; promote overseership to deterministic event-stream evaluation, invoking an LLM only for high-stakes classification via the normal resolver. Largest deletion",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "A \u2014 Normalize the agent: keep a respawning overseer agent but fold spawn_overseer_job into spawn_agent_job, fix model tiering, delete bespoke flags. Smallest change; keeps the standing pod + bootstrap surface",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-2",
+      "question": "cq-2 \u2014 Scope of THIS pipeline. \u00a71\u2013\u00a76 are all commitments, but the \u00a75 coverage-gap survey is broad and is where scope can run away. Deliver everything in one pipeline, or land the spine first and gate the \u00a75 expansion?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Spine-first (recommended) \u2014 deliver \u00a71 (model) + \u00a71.5 (no special case) + \u00a72 (calibration corpus, deliverable #1) + \u00a74 (authority) + \u00a76 (cleanup) in this pipeline; gate the broad \u00a75 coverage-gap expansion on the calibrated corpus as follow-on slices",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "All-in-one \u2014 deliver the full \u00a71\u2013\u00a76 including the entire \u00a75 coverage-gap survey in this pipeline",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Calibration-only first \u2014 land \u00a72 calibration + the false-positive fixes alone, defer model/lifecycle/authority/cleanup to follow-on",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-06-26T00:15:07.895876Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "cq-1 \u2014 Overseer architectural shape (the open-season fundamental, gates \u00a71/\u00a71.5/\u00a73/\u00a75). The deterministic Tier-1 detectors already run orchestrator-side (health_checks/tier1/), and #3064 (merged) removed the long-lived phase cohort \u2014 so a watcher pod respawned every ~90s (incl. multi-hour HITL parks with zero agents running) is cost bleed and the baked-in bootstrap is the root cause of the \u00a71 self-injection loop. Which shape should the overhaul target?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "C (recommended) \u2014 Hybrid: deterministic detection + bounded corrective vocabulary run orchestrator-side (kills respawn churn, bootstrap loop, and lifecycle-blind stalls structurally); spawn a NORMAL on-demand agent (spawn_agent_job, Opus-tier, no special plumbing) only to adjudicate adversarial escalations",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "B \u2014 Orchestrator-side only: retire the agent pod entirely; promote overseership to deterministic event-stream evaluation, invoking an LLM only for high-stakes classification via the normal resolver. Largest deletion",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "A \u2014 Normalize the agent: keep a respawning overseer agent but fold spawn_overseer_job into spawn_agent_job, fix model tiering, delete bespoke flags. Smallest change; keeps the standing pod + bootstrap surface",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: cq-1 \u2014 Overseer architectural shape (the open-seas...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-26T00:15:11.599981Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "cq-2 \u2014 Scope of THIS pipeline. \u00a71\u2013\u00a76 are all commitments, but the \u00a75 coverage-gap survey is broad and is where scope can run away. Deliver everything in one pipeline, or land the spine first and gate the \u00a75 expansion?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Spine-first (recommended) \u2014 deliver \u00a71 (model) + \u00a71.5 (no special case) + \u00a72 (calibration corpus, deliverable #1) + \u00a74 (authority) + \u00a76 (cleanup) in this pipeline; gate the broad \u00a75 coverage-gap expansion on the calibrated corpus as follow-on slices",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "All-in-one \u2014 deliver the full \u00a71\u2013\u00a76 including the entire \u00a75 coverage-gap survey in this pipeline",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Calibration-only first \u2014 land \u00a72 calibration + the false-positive fixes alone, defer model/lifecycle/authority/cleanup to follow-on",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: cq-2 \u2014 Scope of THIS pipeline. \u00a71\u2013\u00a76 are all commi...",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
