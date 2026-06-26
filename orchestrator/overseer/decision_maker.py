@@ -11,18 +11,18 @@ import json
 import logging
 import re
 
-from agent_model_resolution import OVERSEER_ROUTINE_MODEL
+from agent_model_resolution import OVERSEER_TIER_MODELS
 from egg_agent.client import run_agent_async
 from overseer.utils import parse_json_or_fallback as _parse_json_or_fallback
 
 logger = logging.getLogger(__name__)
 
 # Routine tier (#2270 §1): routine corrective decisions run on Sonnet, sourced
-# from the single overseer-tier definition in ``agent_model_resolution`` so the
+# from the single overseer-tier table in ``agent_model_resolution`` so the
 # classify/routine/adversarial tiers stay in sync. Adversarial / high-stakes
 # adjudication is a separate, costlier tier (the overseer agent's own resolved
 # ``opus`` model) and is not driven from here.
-DECISION_MODEL = OVERSEER_ROUTINE_MODEL
+DECISION_MODEL = OVERSEER_TIER_MODELS["routine"]
 
 # Infrastructure error subcategories that are safe to auto-restart.
 # Only transient / environmental issues — NOT permission, config, or filesystem errors.

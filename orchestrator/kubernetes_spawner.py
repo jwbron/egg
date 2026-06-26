@@ -2917,11 +2917,11 @@ class KubernetesSpawner:
         """
         # #2270 §1 (folds #2813): resolve the overseer's base model through the
         # per-agent resolver instead of handing the deprecated
-        # ``overseer_decision_maker_model`` straight to the builder. The
-        # resolver returns ``opus`` (the fleet standard) by default and honours
-        # the per-pipeline ``agent_models["overseer"]`` / repo-level override —
-        # the same path every other agent takes. This also threads
-        # ``AgentModelDecision.effort`` / upstream routing identically to
+        # ``overseer_decision_maker_model`` straight to the builder. The overseer
+        # pod IS the adversarial/decision tier, so it resolves through
+        # ``resolve_overseer_model("adversarial", …)`` — ``opus`` (the fleet
+        # standard) by default, honouring the repo-level override. This also
+        # threads ``AgentModelDecision.effort`` / upstream routing identically to
         # ``concurrent_executor._spawn_agent``. A resolver regression must not
         # crash spawn for every pipeline, so we degrade to the built-in
         # opus/anthropic default and log, mirroring the restart path.
@@ -2929,14 +2929,17 @@ class KubernetesSpawner:
             DEFAULT_AGENT_MODEL,
             UPSTREAM_ANTHROPIC,
             classify_model,
-            resolve_agent_model,
+            resolve_overseer_model,
         )
         from egg_agent import build_agent_command
 
         overseer_repo = repos[0] if repos else None
         try:
-            overseer_decision = resolve_agent_model(
-                role=AgentRole.OVERSEER,
+            # pipeline_config is not threaded into this legacy spawn path
+            # (slice-3 folds it into spawn_agent_job); the repo-level default
+            # and built-in opus still apply.
+            overseer_decision = resolve_overseer_model(
+                "adversarial",
                 pipeline_config=None,
                 repo=overseer_repo,
             )

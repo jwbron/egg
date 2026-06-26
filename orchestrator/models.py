@@ -737,6 +737,34 @@ class PipelineConfig(BaseModel):
             "field fully inert."
         ),
     )
+
+    @field_validator("overseer_decision_maker_model")
+    @classmethod
+    def _warn_overseer_decision_maker_model_deprecated(cls, v: str) -> str:
+        """Surface a deprecation notice when the deprecated field is set (#2270 §1).
+
+        The field validator runs only when the value is *provided* at
+        construction (Pydantic does not validate omitted defaults), so a
+        default ``PipelineConfig()`` stays silent while an explicit
+        non-default value logs a one-line deprecation warning. The value is
+        still honoured — ``agent_model_resolution.resolve_overseer_model``
+        maps it through to the adversarial/decision tier for back-compat —
+        so this is a notice, not a rejection. ``slice-9`` makes the field
+        fully inert.
+        """
+        if v and v != "sonnet":
+            import logging as _logging
+
+            _logging.getLogger("orchestrator.models").warning(
+                "PipelineConfig.overseer_decision_maker_model=%r is deprecated "
+                "(#2270 §1, folds #2813): the overseer model now resolves via "
+                "resolve_overseer_model / resolve_agent_model(OVERSEER) -> opus "
+                "by default. Set agent_models['overseer'] instead; this field "
+                "is retained for back-compat and goes inert in slice-9.",
+                v,
+            )
+        return v
+
     overseer_max_turns: int = Field(
         default=2000,
         ge=100,

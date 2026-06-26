@@ -13,7 +13,7 @@ import json
 import logging
 from typing import Any
 
-from agent_model_resolution import OVERSEER_CLASSIFY_MODEL
+from agent_model_resolution import OVERSEER_TIER_MODELS
 from egg_agent.client import run_agent_async
 from overseer.utils import parse_json_or_fallback as _parse_json_or_fallback
 
@@ -54,9 +54,9 @@ def clear_cache() -> None:
 # ---------------------------------------------------------------------------
 
 # Classify tier (#2270 §1): the cheap, high-volume Haiku tier, sourced from the
-# single overseer-tier definition in ``agent_model_resolution`` rather than a
-# local literal so all three tiers (classify/routine/adversarial) stay in sync.
-HAIKU_MODEL = OVERSEER_CLASSIFY_MODEL
+# single overseer-tier table in ``agent_model_resolution`` rather than a local
+# literal so all three tiers (classify/routine/adversarial) stay in sync.
+HAIKU_MODEL = OVERSEER_TIER_MODELS["classify"]
 
 
 async def _call_classifier(prompt: str, context: str) -> str:
