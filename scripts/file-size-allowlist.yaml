@@ -24,5 +24,3 @@ files:
     issue: "2248"
   gateway/gateway.py:
     issue: "2248"
-  sandbox/egg_lib/orch_cli/__init__.py:
-    issue: "2248"
