@@ -828,7 +828,7 @@
       "id": "slice-7",
       "name": "Decompose shared/egg_contracts/plan_parser.py (1,952 lines) + create shared/CLAUDE.md",
       "goal": "Decompose `shared/egg_contracts/plan_parser.py` (1952 lines) into a sub-package; drop its allowlist entry; seam coverage in shared/CLAUDE.md (NEW file). depends on the previous slice (single linear chain: every slice edits scripts/file-size-allowlist.yaml, so per #3046 overlapping slices must be serialized).",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -946,11 +946,11 @@
         "slice-6"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3312/slice-6",
+      "integration_base_sha": "bcccc82f0b71aee69d34a70e88c869307bf83fd1",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3353,
+      "pr_url": "https://github.com/jwbron/egg/pull/3353",
       "review_feedback": []
     },
     {
