@@ -49,6 +49,13 @@ COPY orchestrator/health_checks/ ./health_checks/
 # explicitly (mirrors routes/ + health_checks/) or `import state_store`
 # fails at orchestrator start.
 COPY orchestrator/state_store/ ./state_store/
+# overseer/monitor.py became a sub-package (overseer/monitor/) in #3312
+# slice-8, but needs NO COPY change: orchestrator/overseer/ is not copied
+# into this image at all (the non-recursive `orchestrator/*.py` glob never
+# matched it and there is no `COPY orchestrator/overseer/` line — the
+# overseer package reaches the on-demand adjudicator via other images, not
+# /app here). File-vs-directory under overseer/ is therefore packaging-
+# neutral for this image; the conversion ships exactly as before.
 
 # Copy shared modules (egg_logging, egg_config, egg_contracts, egg_restrictions, egg_container, egg_agent, egg_git, egg_anchor, egg_health, egg_session_placeholder)
 COPY shared/egg_logging/ ./egg_logging/
