@@ -51,6 +51,7 @@ try:
     from routes.phases import phases_bp
     from routes.pipelines import pipelines_bp
     from routes.progress import progress_bp
+    from routes.session_state import session_state_bp
     from routes.signals import signals_bp
     from webhooks import webhooks_bp
 
@@ -71,6 +72,7 @@ try:
     app.register_blueprint(commit_authorship_bp)
     app.register_blueprint(consensus_bp)
     app.register_blueprint(artifacts_bp)
+    app.register_blueprint(session_state_bp)
 
     # Emit the EGG_MESSAGE_POLL_MAX_WAIT startup log line. RISK-4 (issue
     # #1897): if the cap exceeds 90s we log a WARNING naming the gateway
@@ -101,6 +103,7 @@ except ImportError:
     from .routes.phases import phases_bp  # type: ignore[no-redef]
     from .routes.pipelines import pipelines_bp  # type: ignore[no-redef]
     from .routes.progress import progress_bp  # type: ignore[no-redef]
+    from .routes.session_state import session_state_bp  # type: ignore[no-redef]
     from .routes.signals import signals_bp  # type: ignore[no-redef]
     from .webhooks import webhooks_bp  # type: ignore[no-redef]
 
@@ -121,6 +124,7 @@ except ImportError:
     app.register_blueprint(commit_authorship_bp)
     app.register_blueprint(consensus_bp)
     app.register_blueprint(artifacts_bp)
+    app.register_blueprint(session_state_bp)
 
     try:
         from .routes.messages import log_poll_max_wait_startup  # type: ignore[no-redef]

@@ -1019,9 +1019,9 @@ obligations) so reviewers approaching any slice PR see the strategic
 direction below it.
 
 The pipeline work branch is itself the context PR's head — there is no
-separate `egg/<id>/context` doc-only branch, so slice-1 stacks directly
-on `egg/<id>/work` rather than resolving its base to `egg/<id>/context`.
-The open path is a single
+separate `egg/<id>/context` doc-only branch, so slice-1's base resolves
+to `egg/<id>/work` (the context PR head) rather than stacking onto an
+`egg/<id>/context` branch. The open path is a single
 idempotent gateway call: `GatewayClient.lookup_open_pr("egg/<id>/work", base)`
 runs `gh pr list --head <branch> --base <base> --state open --json
 number` first; on hit, the existing PR number is reused, on miss
