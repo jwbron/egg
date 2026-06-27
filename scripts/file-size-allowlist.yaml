@@ -55,15 +55,6 @@ files:
   # BRC implement-phase lint passes; decompose under #2569.
   shared/egg_contracts/plan_parser.py:
     issue: "2548"
-  # #2777 slice-1: the new plan-pre-flight validator wiring and the
-  # restructured pre-state-lock plan-exit block (validator → populate →
-  # opener) add ~199 lines to advance_phase, pushing this file from
-  # ~1,442 lines to ~1,641 — over the 1,500-line hard cap. Slice-1
-  # cannot also land a phases.py decomposition; the slice-15 cluster
-  # in #2261 tracks the broader decomposition work, so the allowlist
-  # entry follows the same pattern as the other slice-15 targets.
-  orchestrator/routes/phases.py:
-    issue: "2261"
   # #3231 added the per-iteration operator-kickback rendering
   # (_render_iteration_feedback_section + _extract_iteration_feedback +
   # the ITERATION_FEEDBACK_MAX_CHARS cap + envelope-cap wiring + the
