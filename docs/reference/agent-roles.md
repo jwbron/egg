@@ -305,7 +305,7 @@ tests, and its mandate is two-fold: **(1) comprehensive regression coverage** �
 
 ### `documenter`
 
-**Purpose**: Update documentation and READMEs.
+**Purpose**: Document the current state of the code.
 
 **File access** (defaults — overridable per-repo via `role_patterns:` in `repositories.yaml`):
 - Owned scope (allowed writes): **documentation and markdown only.**
@@ -639,7 +639,7 @@ This prevents agents from wasting context window on out-of-scope work. Without t
 
 ### Gateway Push Restricted-Path Rejection (Hard Enforcement)
 
-As of [#2039](https://github.com/jwbron/egg/issues/2039), the gateway **rejects** any push whose own-authored files include a path the pushing role cannot write. The push is rejected with `403 restricted_path_modified` carrying `role`, `blocked_paths`, `recommended_action`, `doc_ref`, `pulled_commits`, and `attribution_fallback` (the last flag tells `push-recovery.md` whether to retry vs escalate). The agent's recovery is to drop the offending edits and re-propose with `--pre-merge-condition` per the conditional-ACK pattern ([#1998](https://github.com/jwbron/egg/issues/1998)). Pulled cross-role commits (attributed to another role via the commit-authorship registry) never block the push. See [Gateway Auto-Filter Architecture](../architecture/gateway-auto-filter.md) for the historical auto-filter design and the commit-authorship registry that still backs attribution.
+As of [#2039](https://github.com/jwbron/egg/issues/2039), the gateway **rejects** any push whose own-authored files include a path the pushing role cannot write. The push is rejected with `403 restricted_path_modified` carrying `role`, `blocked_paths`, `recommended_action`, `doc_ref`, `pulled_commits`, and `attribution_fallback` (the last flag tells `push-recovery.md` whether to retry vs escalate). The agent's recovery is to drop the offending edits and re-propose with `--pre-merge-condition` per the conditional-ACK pattern ([#1998](https://github.com/jwbron/egg/issues/1998)). Pulled cross-role commits (attributed to another role via the commit-authorship registry) never block the push. See [Gateway Restricted-Path Rejection](../architecture/gateway-auto-filter.md) for the push enforcement design and the commit-authorship registry that backs attribution.
 
 **Kill switch:** `EGG_AGENT_RESTRICTIONS_ENFORCE=false` falls back to warn-only plain push.
 
@@ -665,7 +665,7 @@ Each agent commits with a role-scoped author for auditability:
 
 This is set automatically by the sandbox entrypoint using the `EGG_AGENT_ROLE` environment variable. If the variable is not set, the default `egg <egg@localhost>` is used.
 
-> **Note:** The git identity is used for display in `git log` only. Authoritative commit attribution for push-time file-restriction enforcement comes from the **commit-authorship registry**, which is populated inline by the gateway's `/api/v1/git/execute` observer using the session's role — not from `commit.author_email`. A compromised sandbox cannot forge another role's authorship by overriding the `user.email` config, because the gateway records who authored each commit based on which session token created it. See [Gateway Auto-Filter Architecture](../architecture/gateway-auto-filter.md#why-a-commit-authorship-registry).
+> **Note:** The git identity is used for display in `git log` only. Authoritative commit attribution for push-time file-restriction enforcement comes from the **commit-authorship registry**, which is populated inline by the gateway's `/api/v1/git/execute` observer using the session's role — not from `commit.author_email`. A compromised sandbox cannot forge another role's authorship by overriding the `user.email` config, because the gateway records who authored each commit based on which session token created it. See [Gateway Restricted-Path Rejection](../architecture/gateway-auto-filter.md#why-a-commit-authorship-registry).
 
 ## Related Documentation
 
