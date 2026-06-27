@@ -22,8 +22,6 @@ caps:
 files:
   orchestrator/routes/pipelines.py:
     issue: "2248"
-  orchestrator/state_store.py:
-    issue: "2248"
   gateway/gateway.py:
     issue: "2248"
   sandbox/egg_lib/orch_cli.py:
