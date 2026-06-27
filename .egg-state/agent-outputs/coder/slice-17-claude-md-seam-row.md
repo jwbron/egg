@@ -36,3 +36,24 @@ last landed subsection (currently `entrypoint/` — slice 9).
 | `_parser.py` (largest, 1,355 lines) | argparse wiring: `create_parser()` builds the full subparser tree. Dispatch targets resolve through the barrel (`func=_pkg.cmd_*`) | `create_parser`, `_add_json_flag`, `_non_negative_int` |
 
 **Pure refactor, no behaviour change.** Proven by reconstruction: all 4,315 non-blank code lines of the pre-split body reappear verbatim across the submodules once the `_pkg.` seam indirection is reversed (0 lines missing). **Patch seams preserved:** the two seams patched in the test suite — `orch_request` (`@patch("egg_lib.orch_cli.orch_request")` in `test_phase_cli` / `test_brc_cli_args`, and `monkeypatch.setattr(orch_cli, "orch_request", …)` in `test_cli_session_state`) and `get_agent_role_from_env` (`patch("egg_lib.orch_cli.get_agent_role_from_env")` in `test_message_wait_cli`) — are **defined in `_http.py`, re-exported on the barrel, and reached from every command submodule via `import egg_lib.orch_cli as _pkg` (live barrel-attribute lookup)**, so the barrel-level patches keep intercepting. Every externally-imported symbol (`cmd_consensus_*`, `cmd_phase_*`, `cmd_overseer_*`, `cmd_message_poll`, `create_parser`, `_render_stale_version_rejection`, `_wait_cursor_path`, the `_OVERSEER_*` constants, …) is re-exported through the barrel, so the importers — `cli_session_state.py`, `session_state_sync.py`, the `egg_agent_tools.handlers` / `push` modules, and the test suite — need **zero edits**. `ruff check` + `ruff format` clean (the lone `_parser.py` 1,355-line soft-cap warning is non-fatal). The orch_cli test suite shows the identical **203 passed / 10 failed** result as the step-0 baseline — the 10 failures are pre-existing `test_message_wait_cli` cursor-file env failures present on `HEAD` under the same interpreter, **not split-induced**.
+
+---
+
+## v2 UPDATE (after reviewer_code / reviewer_code_holistic NACK on v1) — DOCUMENTER ACTION
+
+The slice-17 subsection already in `sandbox/CLAUDE.md` says the suite patches **"the two seams"**
+(`orch_request`, `get_agent_role_from_env`). That is now INACCURATE — please correct it to the
+full seam surface below. The v1 seam audit only covered `sandbox/tests/` and missed the top-level
+`tests/sandbox/` tree.
+
+**Full barrel patch-seam surface (six functions + one object):**
+- Functions routed via `import egg_lib.orch_cli as _pkg` → `_pkg.<sym>` at EVERY call site
+  (incl. `_http`'s own `api_request` calls): `orch_request`, `get_agent_role_from_env`,
+  `api_request`, `_consensus_push`, `require_pipeline_id`, `_require_role`.
+- Object re-exported on the barrel (no `_pkg.` — shared object, mutated in place):
+  `_opener` (urllib `build_opener` instance) → `patch.object(orch_cli._opener, "open", …)`.
+
+**Corrected verification line:** full `tests/sandbox` orch_cli set 317 passed / 0 failed;
+`handlers_brc` + `mcp_cli_drift` + `sdlc_hitl` 338 passed; `sandbox/tests` orch_cli suite
+203 passed / 10 pre-existing `test_message_wait_cli` cursor-file env failures (unchanged from
+baseline, not split-induced).
