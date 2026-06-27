@@ -600,6 +600,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "70281761ab532f35691829d2f48999b061a56d6b": {
+      "branch": "egg/issue-3312/slice-17",
+      "patch_id": "c8734cf0262fbe2eec20b3affa9920dfb62895ac",
+      "pipeline_id": "issue-3312",
+      "registered_at": "2026-06-27T19:27:46.629971+00:00",
+      "repo": null,
+      "role": "documenter"
+    },
     "71e92895fcbacb4a7a47b7c15f8692573a839af7": {
       "branch": "egg/issue-3312/slice-3",
       "patch_id": "eaa7e285c55ec6b3e856774f7b8014eababb79b8",
