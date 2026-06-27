@@ -28,5 +28,3 @@ files:
     issue: "2248"
   orchestrator/gateway_client.py:
     issue: "2248"
-  orchestrator/routes/signals.py:
-    issue: "2248"
