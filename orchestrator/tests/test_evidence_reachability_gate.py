@@ -172,6 +172,29 @@ class TestEvidenceCommits:
         assert rows is not None
         assert rows[1] == {"id": "task-2-2", "role": "documenter", "commit": LATE_SHA}
 
+    def test_roleless_row_with_orphan_commit_excluded(self, tmp_path: Path) -> None:
+        # #3339: a task the planner left unassigned (role=None) can still
+        # acquire a commit (a stray add-commit, or _merge_preserved_slice_
+        # runtime re-attaching one across a restart_phase re-fork). That SHA
+        # is bookkeeping, not a producer deliverable, so the gate must not
+        # see it — otherwise an orphan role=unassigned commit fails a
+        # consensus-reached slice and cascades the whole phase.
+        contract = _contract_dict()
+        slice2 = contract["phases"][1]
+        roleless = slice2["tasks"][3]
+        assert roleless["id"] == "task-2-4"
+        assert "role" not in roleless  # planner left it unassigned
+        roleless["commit"] = "e" * 40  # the orphan SHA from #3339
+        contracts_dir = tmp_path / ".egg-state" / "contracts"
+        contracts_dir.mkdir(parents=True, exist_ok=True)
+        (contracts_dir / f"{PIPELINE_ID}.json").write_text(json.dumps(contract))
+
+        rows = cc.evidence_commits(_load(tmp_path), "slice-2")
+        assert rows is not None
+        ids = [r["id"] for r in rows]
+        assert "task-2-4" not in ids
+        assert ids == ["task-2-1", "task-2-2", "task-2-3"]
+
     def test_format_evidence_rows(self) -> None:
         text = cc.format_evidence_rows(
             [
@@ -482,6 +505,28 @@ class TestCheckSliceEvidenceReachability:
         assert LATE_SHA in result
         assert INTEGRATION_BRANCH in result
         assert cc.EVIDENCE_GATE_ENV_VAR in result
+
+    def test_roleless_orphan_commit_does_not_fail_slice(self, tmp_path: Path, gate_env) -> None:
+        # #3339 regression: a slice whose only commit-bearing task is a
+        # role=unassigned orphan must close cleanly. The gateway reports
+        # the orphan SHA unreachable, but the roleless row is never put to
+        # the probe, so the gate returns None instead of failing the
+        # consensus-reached slice and cascading the phase.
+        contract = _contract_dict()
+        slice2 = contract["phases"][1]
+        for task in slice2["tasks"]:
+            task.pop("commit", None)  # drop the producer rows' commits
+        slice2["tasks"][3]["commit"] = "e" * 40  # task-2-4, roleless orphan
+        contracts_dir = tmp_path / ".egg-state" / "contracts"
+        contracts_dir.mkdir(parents=True, exist_ok=True)
+        (contracts_dir / f"{PIPELINE_ID}.json").write_text(json.dumps(contract))
+
+        spawner = _spawner(["e" * 40])  # gateway would flag it unreachable
+        result = _check_slice_evidence_reachability(
+            PIPELINE_ID, spawner, tmp_path, "slice-2", INTEGRATION_BRANCH
+        )
+        assert result is None
+        spawner.gateway.find_unreachable_evidence_commits.assert_not_called()
 
     def test_pre_loaded_contract_skips_internal_load(self, tmp_path: Path, gate_env) -> None:
         """When the caller pre-loads the contract (the close-path

@@ -11596,6 +11596,11 @@ def _check_slice_evidence_reachability(
     through the existing cascade + HITL escalation machinery instead of
     closing silently.
 
+    Only role-bound task rows are gated (#3339): the check exists for
+    the producer-scoped #3124 flow, so a ``role=unassigned`` row's
+    orphan commit is bookkeeping, not a gated deliverable, and must not
+    fail a consensus-reached slice. See ``cc.evidence_commits``.
+
     Failure posture mirrors the other completeness checks (#3081 /
     #3114): the gate degrades to ``None`` (close proceeds, warning
     logged) when the contract cannot be read, the slice id does not
