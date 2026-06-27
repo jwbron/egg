@@ -217,7 +217,7 @@ Pattern evaluation order:
 
 As of [#2039](https://github.com/jwbron/egg/issues/2039), the gateway rejects any push whose own-authored files include a path outside the pushing role's allowed patterns. The handler attributes each commit in the unpushed range via the commit-authorship registry, partitions files into own-authored vs pulled-from-other-role, and checks the pushing role's write permissions against only the own-authored set.
 
-See [Gateway Auto-Filter Architecture](../architecture/gateway-auto-filter.md) for the historical auto-filter design and the commit-authorship registry that still backs attribution.
+See [Gateway Restricted-Path Rejection](../architecture/gateway-auto-filter.md) for the push enforcement design and the commit-authorship registry that backs attribution.
 
 ### Push outcomes
 
