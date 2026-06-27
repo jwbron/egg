@@ -15614,7 +15614,7 @@ def _persist_hitl_decision(
 
 
 def _cancel_consensus_timeout_decisions(pipeline: Pipeline) -> int:
-    """Cancel any pending consensus-timeout HITL on ``pipeline`` (#3315 facet b).
+    """Cancel any pending consensus-timeout HITL on ``pipeline`` (#3315 facet c).
 
     Pure mutator (no lock / load / save): marks every pending
     ``consensus_timeout_incomplete`` decision ``CANCELLED`` with an
@@ -15664,7 +15664,7 @@ _DIVERGENCE_RECONCILE_HITL_CONTEXT = "divergence_reconcile_unacked"
 # Retry/Accept/Abort decision).  The convergence-success path uses this to
 # auto-withdraw the decision once the phase reaches genuine consensus, so an
 # operator is never left disposing of a decision the system already obsoleted
-# (#3315 facet b — happens when a superseded thread opens the decision and a
+# (#3315 facet c — happens when a superseded thread opens the decision and a
 # restarted thread then converges).
 _CONSENSUS_TIMEOUT_HITL_CONTEXT = "consensus_timeout_incomplete"
 
@@ -18746,6 +18746,31 @@ def _clear_stale_impasses_for_producers(
         )
 
 
+def _pipeline_superseded_by_restart(store, pipeline_id: str, run_epoch: datetime | None) -> bool:
+    """True if a newer ``run_epoch`` means another thread now owns this pipeline.
+
+    Reloads pipeline state and compares its ``run_epoch`` against the epoch the
+    caller runs under (#3315 facet a). Best-effort: a missing epoch or a load
+    failure returns ``False`` so a transient store hiccup never tears down a
+    legitimately-running phase. Shared by the ``_run_concurrent_phase`` poll
+    loop and the slice-path impasse-retry wrapper so the "no escalation when
+    superseded" property holds on both routes.
+    """
+    if store is None or run_epoch is None:
+        return False
+    try:
+        _epoch_pip = store.load_pipeline(pipeline_id)
+    except Exception as _epoch_err:  # noqa: BLE001 — never wedge the caller
+        logger.debug(
+            "Epoch supersession check failed; continuing",
+            pipeline_id=pipeline_id,
+            error=str(_epoch_err),
+        )
+        return False
+    current_epoch = _epoch_pip.run_epoch or _epoch_pip.created_at
+    return current_epoch != run_epoch
+
+
 def _run_concurrent_phase_with_impasse_retry(
     pipeline_id: str,
     pipeline: Pipeline,
@@ -18863,6 +18888,24 @@ def _run_concurrent_phase_with_impasse_retry(
             return last_exit, last_logs
 
         if not impasses:
+            return last_exit, last_logs
+
+        # Defense-in-depth (#3315 facet a, slice path): if a restart bumped
+        # ``run_epoch`` while this thread was running, a stale producer-written
+        # impasse file could otherwise drive ``route_impasses`` into a HITL
+        # against the freshly-restarted phase. The poll loop in
+        # ``_run_concurrent_phase`` already bails on supersession before any
+        # escalation; mirror that here so the "no escalation when superseded"
+        # property holds on the slice path too — return the (superseded) result
+        # without routing.
+        if _pipeline_superseded_by_restart(store, pipeline_id, run_epoch):
+            logger.info(
+                "Restart superseded this thread before impasse routing; "
+                "skipping route_impasses to avoid escalating against a "
+                "freshly-restarted phase",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+            )
             return last_exit, last_logs
 
         try:
@@ -19366,19 +19409,7 @@ def _run_concurrent_phase(
         failure returns ``False`` so a transient store hiccup never tears
         down a legitimately-running phase.
         """
-        if store is None or run_epoch is None:
-            return False
-        try:
-            _epoch_pip = store.load_pipeline(pipeline_id)
-        except Exception as _epoch_err:  # noqa: BLE001 — never wedge the loop
-            logger.debug(
-                "Epoch supersession check failed; continuing",
-                pipeline_id=pipeline_id,
-                error=str(_epoch_err),
-            )
-            return False
-        current_epoch = _epoch_pip.run_epoch or _epoch_pip.created_at
-        return current_epoch != run_epoch
+        return _pipeline_superseded_by_restart(store, pipeline_id, run_epoch)
 
     # Track which containers have exited and their results.
     exited_containers: dict[str, ContainerInfo] = {}
@@ -19577,7 +19608,7 @@ def _run_concurrent_phase(
                         ci.exited_at = datetime.now(UTC)
 
                 # Auto-withdraw any stale consensus-timeout HITL a superseded
-                # thread opened before this phase converged (#3315 facet b).
+                # thread opened before this phase converged (#3315 facet c).
                 # Folded into this already-locked load→save so it costs no
                 # extra lock and rides every consensus-success path.
                 _withdrawn = _cancel_consensus_timeout_decisions(pip)

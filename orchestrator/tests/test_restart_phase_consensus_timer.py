@@ -10,7 +10,7 @@ withdrawn once consensus subsequently converged.
 These tests cover:
 - facet (a): the poll loop bails (non-zero, no escalation) when ``run_epoch``
   changes mid-flight, so a superseded thread cannot escalate.
-- facet (b): ``_withdraw_consensus_timeout_decisions`` cancels a pending
+- facet (b): ``_cancel_consensus_timeout_decisions`` cancels a pending
   ``consensus_timeout_incomplete`` HITL once the phase converges.
 """
 
@@ -32,7 +32,9 @@ from models import (
 from routes.pipelines import (
     _CONSENSUS_TIMEOUT_HITL_CONTEXT,
     _cancel_consensus_timeout_decisions,
+    _pipeline_superseded_by_restart,
     _run_concurrent_phase,
+    _run_concurrent_phase_with_impasse_retry,
 )
 
 _CALL_ARGS = {
@@ -89,9 +91,14 @@ class TestEpochGuardBailsWithoutEscalation:
     def test_superseded_thread_exits_without_timeout_escalation(
         self, MockExecutor, mock_prompt, mock_lock, mock_emit, mock_monotonic, mock_sleep
     ):
-        # Monotonic clock already past the 30-min budget — without the epoch
-        # guard this thread would hit the consensus-timeout branch on its
-        # first poll and fire the spurious alert + HITL decision.
+        # A stable monotonic clock (constant ⇒ ``elapsed == 0``). The point of
+        # this test is *not* to drive elapsed past the timeout budget — it's
+        # that the epoch guard short-circuits at step 0 of the poll loop,
+        # before ``check_consensus`` and long before any elapsed/timeout
+        # arithmetic, so a superseded thread can never reach the escalation
+        # branch regardless of how much wall-clock has accrued. We assert
+        # exactly that below (``check_consensus.call_count == 0`` + no
+        # escalation), so the constant clock is sufficient.
         mock_monotonic.return_value = 100_000.0
 
         pipeline = _make_pipeline()
@@ -251,3 +258,109 @@ class TestAutoWithdrawConsensusTimeoutDecision:
         assert cancelled.status == DecisionStatus.CANCELLED
         assert cancelled.resolution is not None
         assert "converged" in cancelled.resolution
+
+
+class TestPipelineSupersededHelper:
+    """The shared epoch-supersession predicate (facet a)."""
+
+    def test_none_run_epoch_is_never_superseded(self):
+        # Direct-call paths that don't thread an epoch must opt out entirely —
+        # the helper must not even touch the store.
+        store = MagicMock()
+        assert _pipeline_superseded_by_restart(store, "issue-3315", None) is False
+        store.load_pipeline.assert_not_called()
+
+    def test_newer_on_disk_epoch_means_superseded(self):
+        reloaded = MagicMock()
+        reloaded.run_epoch = datetime(2030, 1, 1, tzinfo=UTC)
+        reloaded.created_at = datetime(2030, 1, 1, tzinfo=UTC)
+        store = MagicMock()
+        store.load_pipeline.return_value = reloaded
+        assert (
+            _pipeline_superseded_by_restart(store, "issue-3315", datetime(2020, 1, 1, tzinfo=UTC))
+            is True
+        )
+
+    def test_matching_epoch_is_not_superseded(self):
+        epoch = datetime(2025, 6, 1, tzinfo=UTC)
+        reloaded = MagicMock()
+        reloaded.run_epoch = epoch
+        reloaded.created_at = epoch
+        store = MagicMock()
+        store.load_pipeline.return_value = reloaded
+        assert _pipeline_superseded_by_restart(store, "issue-3315", epoch) is False
+
+    def test_load_failure_returns_false(self):
+        # A transient store hiccup must never tear down a running phase.
+        store = MagicMock()
+        store.load_pipeline.side_effect = RuntimeError("git read failed")
+        assert (
+            _pipeline_superseded_by_restart(store, "issue-3315", datetime(2020, 1, 1, tzinfo=UTC))
+            is False
+        )
+
+
+class TestImpasseRetrySkipsRoutingWhenSuperseded:
+    """facet (a), slice path: a superseded thread does not route impasses.
+
+    A stale producer-written impasse file must not drive ``route_impasses``
+    into a HITL against a freshly-restarted phase.
+    """
+
+    @patch("orchestrator.impasse_routing.route_impasses")
+    @patch("orchestrator.impasse_routing.collect_impasses")
+    @patch("routes.pipelines._run_concurrent_phase")
+    def test_superseded_thread_skips_route_impasses(self, mock_run, mock_collect, mock_route):
+        mock_run.return_value = (0, "phase logs")
+        # Non-empty impasse scan — without the guard this would route to HITL.
+        mock_collect.return_value = [MagicMock()]
+
+        # On-disk pipeline carries a NEWER epoch — a restart superseded us.
+        reloaded = MagicMock()
+        reloaded.run_epoch = datetime(2030, 1, 1, tzinfo=UTC)
+        reloaded.created_at = datetime(2030, 1, 1, tzinfo=UTC)
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = reloaded
+
+        exit_code, logs = _run_concurrent_phase_with_impasse_retry(
+            pipeline_id="issue-3315",
+            pipeline=_make_pipeline(),
+            phase="implement",
+            spawner=MagicMock(),
+            store=mock_store,
+            run_epoch=datetime(2020, 1, 1, tzinfo=UTC),
+            **_CALL_ARGS,
+        )
+
+        # Returned the (superseded) phase result untouched, and never routed.
+        assert exit_code == 0
+        assert logs == "phase logs"
+        mock_route.assert_not_called()
+
+    @patch("orchestrator.impasse_routing.route_impasses")
+    @patch("orchestrator.impasse_routing.collect_impasses")
+    @patch("routes.pipelines._run_concurrent_phase")
+    def test_live_thread_still_routes_impasses(self, mock_run, mock_collect, mock_route):
+        # Same setup but the on-disk epoch matches — routing must still happen.
+        mock_run.return_value = (0, "phase logs")
+        mock_collect.return_value = [MagicMock()]
+        mock_route.return_value = []
+
+        epoch = datetime(2025, 6, 1, tzinfo=UTC)
+        reloaded = MagicMock()
+        reloaded.run_epoch = epoch
+        reloaded.created_at = epoch
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = reloaded
+
+        _run_concurrent_phase_with_impasse_retry(
+            pipeline_id="issue-3315",
+            pipeline=_make_pipeline(),
+            phase="implement",
+            spawner=MagicMock(),
+            store=mock_store,
+            run_epoch=epoch,
+            **_CALL_ARGS,
+        )
+
+        mock_route.assert_called()
