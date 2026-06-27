@@ -10,7 +10,7 @@ withdrawn once consensus subsequently converged.
 These tests cover:
 - facet (a): the poll loop bails (non-zero, no escalation) when ``run_epoch``
   changes mid-flight, so a superseded thread cannot escalate.
-- facet (b): ``_cancel_consensus_timeout_decisions`` cancels a pending
+- facet (c): ``_cancel_consensus_timeout_decisions`` cancels a pending
   ``consensus_timeout_incomplete`` HITL once the phase converges.
 """
 
@@ -159,7 +159,7 @@ class TestEpochGuardBailsWithoutEscalation:
 
 
 class TestAutoWithdrawConsensusTimeoutDecision:
-    """facet (b): convergence withdraws a stale consensus-timeout HITL."""
+    """facet (c): convergence withdraws a stale consensus-timeout HITL."""
 
     def test_pending_timeout_decision_is_cancelled(self):
         pipeline = _make_pipeline()
