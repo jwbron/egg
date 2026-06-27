@@ -21,6 +21,9 @@ if _sandbox_path not in sys.path:
 
 from entrypoint import setup_claude
 
+# entrypoint became a sub-package in #3312 (slice 9): setup_claude lives in the
+# private ._claude submodule, so shutil.which is patched where used.
+
 
 @pytest.fixture()
 def mock_config(tmp_path):
@@ -67,28 +70,28 @@ class TestDisallowedToolsPrivateMode:
     """
 
     @patch.dict(os.environ, {"EGG_PRIVATE_MODE": "true"})
-    @patch("entrypoint.shutil.which", return_value="/usr/bin/claude")
+    @patch("entrypoint._claude.shutil.which", return_value="/usr/bin/claude")
     def test_private_mode_disallows_web_tools(self, _which, mock_config, mock_logger):
         setup_claude(mock_config, mock_logger)
         settings = _read_settings(mock_config)
         assert settings["disallowedTools"] == ["WebFetch", "WebSearch"]
 
     @patch.dict(os.environ, {"EGG_PRIVATE_MODE": "1"})
-    @patch("entrypoint.shutil.which", return_value="/usr/bin/claude")
+    @patch("entrypoint._claude.shutil.which", return_value="/usr/bin/claude")
     def test_private_mode_1_disallows_web_tools(self, _which, mock_config, mock_logger):
         setup_claude(mock_config, mock_logger)
         settings = _read_settings(mock_config)
         assert settings["disallowedTools"] == ["WebFetch", "WebSearch"]
 
     @patch.dict(os.environ, {"EGG_PRIVATE_MODE": "false"})
-    @patch("entrypoint.shutil.which", return_value="/usr/bin/claude")
+    @patch("entrypoint._claude.shutil.which", return_value="/usr/bin/claude")
     def test_public_mode_no_disallowed_tools(self, _which, mock_config, mock_logger):
         setup_claude(mock_config, mock_logger)
         settings = _read_settings(mock_config)
         assert "disallowedTools" not in settings
 
     @patch.dict(os.environ, {"EGG_PRIVATE_MODE": "0"})
-    @patch("entrypoint.shutil.which", return_value="/usr/bin/claude")
+    @patch("entrypoint._claude.shutil.which", return_value="/usr/bin/claude")
     def test_public_mode_0_no_disallowed_tools(self, _which, mock_config, mock_logger):
         """EGG_PRIVATE_MODE=0 is set by sandbox_template.py for public mode."""
         setup_claude(mock_config, mock_logger)
@@ -96,7 +99,7 @@ class TestDisallowedToolsPrivateMode:
         assert "disallowedTools" not in settings
 
     @patch.dict(os.environ, {"EGG_PRIVATE_MODE": ""}, clear=False)
-    @patch("entrypoint.shutil.which", return_value="/usr/bin/claude")
+    @patch("entrypoint._claude.shutil.which", return_value="/usr/bin/claude")
     def test_unset_env_no_disallowed_tools(self, _which, mock_config, mock_logger):
         setup_claude(mock_config, mock_logger)
         settings = _read_settings(mock_config)
@@ -125,7 +128,7 @@ class TestWebToolsHook:
     }
 
     @patch.dict(os.environ, _LITELLM_ENV)
-    @patch("entrypoint.shutil.which", return_value="/usr/bin/claude")
+    @patch("entrypoint._claude.shutil.which", return_value="/usr/bin/claude")
     def test_hook_installed_on_litellm_public_path(self, _which, mock_config, mock_logger):
         setup_claude(mock_config, mock_logger)
         settings = _read_settings(mock_config)
@@ -135,7 +138,7 @@ class TestWebToolsHook:
         assert "WebFetch" in matchers
 
     @patch.dict(os.environ, _LITELLM_ENV)
-    @patch("entrypoint.shutil.which", return_value="/usr/bin/claude")
+    @patch("entrypoint._claude.shutil.which", return_value="/usr/bin/claude")
     def test_hook_command_path(self, _which, mock_config, mock_logger):
         setup_claude(mock_config, mock_logger)
         settings = _read_settings(mock_config)
@@ -144,7 +147,7 @@ class TestWebToolsHook:
         assert web_search_hook["hooks"][0]["type"] == "command"
         assert web_search_hook["hooks"][0]["command"].endswith("block-builtin-web-tools.sh")
 
-    @patch("entrypoint.shutil.which", return_value="/usr/bin/claude")
+    @patch("entrypoint._claude.shutil.which", return_value="/usr/bin/claude")
     def test_hook_not_installed_on_first_party_route(self, _which, mock_config, mock_logger):
         # No ANTHROPIC_CUSTOM_MODEL_OPTION → first-party Claude → built-in tools are
         # live, so the redirect hook must not be installed.
@@ -158,7 +161,7 @@ class TestWebToolsHook:
         os.environ,
         {"ANTHROPIC_CUSTOM_MODEL_OPTION": "qwen3-coder-30b[1m]", "EGG_PRIVATE_MODE": "true"},
     )
-    @patch("entrypoint.shutil.which", return_value="/usr/bin/claude")
+    @patch("entrypoint._claude.shutil.which", return_value="/usr/bin/claude")
     def test_hook_not_installed_in_private_mode(self, _which, mock_config, mock_logger):
         # Private mode disallows the web tools outright and the DDG server is
         # unreachable through the locked-down proxy, so the hook must not install
@@ -169,7 +172,7 @@ class TestWebToolsHook:
         assert settings["disallowedTools"] == ["WebFetch", "WebSearch"]
 
     @patch.dict(os.environ, _LITELLM_ENV)
-    @patch("entrypoint.shutil.which", return_value="/usr/bin/claude")
+    @patch("entrypoint._claude.shutil.which", return_value="/usr/bin/claude")
     def test_mcpServers_never_written_to_settings(self, _which, mock_config, mock_logger):
         # mcpServers is not a valid settings.json key — server *definitions* live in
         # ClaudeAgentOptions.mcp_servers, not here. Guard against re-introducing the

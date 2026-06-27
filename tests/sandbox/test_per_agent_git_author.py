@@ -18,6 +18,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "sandbox"))
 
 import entrypoint
 
+# entrypoint became a sub-package in #3312 (slice 9): setup_git resolves run_cmd
+# in the private ._environment submodule, so patches target it where used.
+
 
 class TestPerAgentGitIdentity:
     """setup_git configures per-agent git identity based on EGG_AGENT_ROLE."""
@@ -34,7 +37,7 @@ class TestPerAgentGitIdentity:
     def logger(self):
         return MagicMock()
 
-    @patch("entrypoint.run_cmd")
+    @patch("entrypoint._environment.run_cmd")
     def test_role_coder_identity(self, mock_run_cmd, config, logger, monkeypatch):
         """Coder role sets user.name='egg (coder)' and user.email='coder@egg.local'."""
         monkeypatch.setenv("EGG_AGENT_ROLE", "coder")
@@ -56,7 +59,7 @@ class TestPerAgentGitIdentity:
             as_user=user_tuple,
         )
 
-    @patch("entrypoint.run_cmd")
+    @patch("entrypoint._environment.run_cmd")
     def test_role_tester_identity(self, mock_run_cmd, config, logger, monkeypatch):
         """Tester role gets appropriate identity."""
         monkeypatch.setenv("EGG_AGENT_ROLE", "tester")
@@ -66,7 +69,7 @@ class TestPerAgentGitIdentity:
         name_call = [c for c in calls if "user.name" in c.args[0]]
         assert name_call[0].args[0][-1] == "egg (tester)"
 
-    @patch("entrypoint.run_cmd")
+    @patch("entrypoint._environment.run_cmd")
     def test_role_documenter_identity(self, mock_run_cmd, config, logger, monkeypatch):
         """Documenter role gets appropriate identity."""
         monkeypatch.setenv("EGG_AGENT_ROLE", "documenter")
@@ -78,7 +81,7 @@ class TestPerAgentGitIdentity:
         assert name_call[0].args[0][-1] == "egg (documenter)"
         assert email_call[0].args[0][-1] == "documenter@egg.local"
 
-    @patch("entrypoint.run_cmd")
+    @patch("entrypoint._environment.run_cmd")
     def test_no_role_backward_compat(self, mock_run_cmd, config, logger, monkeypatch):
         """Without EGG_AGENT_ROLE, uses legacy identity (egg / egg@localhost)."""
         monkeypatch.delenv("EGG_AGENT_ROLE", raising=False)
@@ -91,7 +94,7 @@ class TestPerAgentGitIdentity:
         assert name_call[0].args[0][-1] == "egg"
         assert email_call[0].args[0][-1] == "egg@localhost"
 
-    @patch("entrypoint.run_cmd")
+    @patch("entrypoint._environment.run_cmd")
     def test_empty_role_backward_compat(self, mock_run_cmd, config, logger, monkeypatch):
         """Empty EGG_AGENT_ROLE also uses legacy identity."""
         monkeypatch.setenv("EGG_AGENT_ROLE", "")
@@ -104,7 +107,7 @@ class TestPerAgentGitIdentity:
         assert name_call[0].args[0][-1] == "egg"
         assert email_call[0].args[0][-1] == "egg@localhost"
 
-    @patch("entrypoint.run_cmd")
+    @patch("entrypoint._environment.run_cmd")
     def test_reviewer_code_identity(self, mock_run_cmd, config, logger, monkeypatch):
         """Reviewer role with underscore works correctly."""
         monkeypatch.setenv("EGG_AGENT_ROLE", "reviewer_code")

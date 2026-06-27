@@ -200,6 +200,11 @@ if _shared_path not in sys.path:
 
 from entrypoint import run_exec, setup_command_timeout
 
+# entrypoint became a sub-package in #3312 (slice 9). run_exec/setup_command_timeout
+# stay importable via the barrel, but their module-level dependencies (Path, shutil,
+# _startup_timer, _chdir_to_single_repo, _run_with_stderr_capture) now resolve inside
+# the private ._exec / ._command_timeout submodules, so patches target them there.
+
 
 class TestSetupCommandTimeout:
     """Tests for the setup_command_timeout function in entrypoint.py."""
@@ -216,7 +221,7 @@ class TestSetupCommandTimeout:
         bash_path.write_text("#!/bin/bash\n")
 
         with (
-            patch("entrypoint.Path") as mock_path_cls,
+            patch("entrypoint._command_timeout.Path") as mock_path_cls,
         ):
 
             def path_side_effect(p):
@@ -244,8 +249,8 @@ class TestSetupCommandTimeout:
         bash_mock = MagicMock()
 
         with (
-            patch("entrypoint.Path") as mock_path_cls,
-            patch("entrypoint.shutil.move", side_effect=OSError("Permission denied")),
+            patch("entrypoint._command_timeout.Path") as mock_path_cls,
+            patch("entrypoint._command_timeout.shutil.move", side_effect=OSError("Permission denied")),
         ):
 
             def path_side_effect(p):
@@ -274,9 +279,9 @@ class TestRunExecBashBypass:
         mock_logger = MagicMock()
         return mock_config, mock_logger
 
-    @patch("entrypoint._run_with_stderr_capture", return_value=0)
-    @patch("entrypoint._chdir_to_single_repo")
-    @patch("entrypoint._startup_timer")
+    @patch("entrypoint._exec._run_with_stderr_capture", return_value=0)
+    @patch("entrypoint._exec._chdir_to_single_repo")
+    @patch("entrypoint._exec._startup_timer")
     def test_bash_replaced_with_bash_real_when_wrapper_installed(
         self, _timer: MagicMock, _chdir: MagicMock, mock_run: MagicMock, tmp_path: Path
     ) -> None:
@@ -287,7 +292,7 @@ class TestRunExecBashBypass:
         fake_real = tmp_path / "bash.real"
         fake_real.write_text("#!/bin/bash\n")
 
-        with patch("entrypoint.Path") as mock_path_cls:
+        with patch("entrypoint._exec.Path") as mock_path_cls:
             # Only intercept the Path("/bin/bash.real") call
             original_path = Path
 
@@ -305,9 +310,9 @@ class TestRunExecBashBypass:
         assert str(fake_real) in call_args
         assert call_args[2] == str(fake_real)
 
-    @patch("entrypoint._run_with_stderr_capture", return_value=0)
-    @patch("entrypoint._chdir_to_single_repo")
-    @patch("entrypoint._startup_timer")
+    @patch("entrypoint._exec._run_with_stderr_capture", return_value=0)
+    @patch("entrypoint._exec._chdir_to_single_repo")
+    @patch("entrypoint._exec._startup_timer")
     def test_bash_unchanged_when_wrapper_not_installed(
         self, _timer: MagicMock, _chdir: MagicMock, mock_run: MagicMock, tmp_path: Path
     ) -> None:
@@ -317,7 +322,7 @@ class TestRunExecBashBypass:
         # Point to a non-existent bash.real to simulate no wrapper installed
         fake_real = tmp_path / "bash.real"  # not created — doesn't exist
 
-        with patch("entrypoint.Path") as mock_path_cls:
+        with patch("entrypoint._exec.Path") as mock_path_cls:
             original_path = Path
 
             def path_side_effect(p):
@@ -333,9 +338,9 @@ class TestRunExecBashBypass:
         # Should contain the original "bash" (via gosu), not bash.real
         assert call_args[2] == "bash"
 
-    @patch("entrypoint._run_with_stderr_capture", return_value=0)
-    @patch("entrypoint._chdir_to_single_repo")
-    @patch("entrypoint._startup_timer")
+    @patch("entrypoint._exec._run_with_stderr_capture", return_value=0)
+    @patch("entrypoint._exec._chdir_to_single_repo")
+    @patch("entrypoint._exec._startup_timer")
     def test_non_bash_command_unchanged(
         self, _timer: MagicMock, _chdir: MagicMock, mock_run: MagicMock, tmp_path: Path
     ) -> None:
@@ -345,7 +350,7 @@ class TestRunExecBashBypass:
         fake_real = tmp_path / "bash.real"
         fake_real.write_text("#!/bin/bash\n")
 
-        with patch("entrypoint.Path") as mock_path_cls:
+        with patch("entrypoint._exec.Path") as mock_path_cls:
             original_path = Path
 
             def path_side_effect(p):

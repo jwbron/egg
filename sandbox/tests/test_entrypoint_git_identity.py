@@ -19,6 +19,10 @@ if _sandbox_path not in sys.path:
 
 from entrypoint import setup_git
 
+# entrypoint became a sub-package in #3312 (slice 9): setup_git lives in the
+# private ._environment submodule and calls run_cmd resolved there, so patches
+# target it where it is used (patch("entrypoint._environment.run_cmd")).
+
 
 @pytest.fixture()
 def mock_config():
@@ -39,7 +43,7 @@ def mock_logger():
 class TestSetupGitIdentityWithRole:
     """When EGG_AGENT_ROLE is set, git identity includes the role."""
 
-    @patch("entrypoint.run_cmd")
+    @patch("entrypoint._environment.run_cmd")
     def test_git_user_name_includes_role(self, mock_run_cmd, mock_config, mock_logger):
         with patch.dict(os.environ, {"EGG_AGENT_ROLE": "coder"}):
             setup_git(mock_config, mock_logger)
@@ -50,7 +54,7 @@ class TestSetupGitIdentityWithRole:
             as_user=user_tuple,
         )
 
-    @patch("entrypoint.run_cmd")
+    @patch("entrypoint._environment.run_cmd")
     def test_git_email_uses_role(self, mock_run_cmd, mock_config, mock_logger):
         with patch.dict(os.environ, {"EGG_AGENT_ROLE": "coder"}):
             setup_git(mock_config, mock_logger)
@@ -61,7 +65,7 @@ class TestSetupGitIdentityWithRole:
             as_user=user_tuple,
         )
 
-    @patch("entrypoint.run_cmd")
+    @patch("entrypoint._environment.run_cmd")
     def test_log_message_includes_role(self, mock_run_cmd, mock_config, mock_logger):
         with patch.dict(os.environ, {"EGG_AGENT_ROLE": "tester"}):
             setup_git(mock_config, mock_logger)
@@ -74,7 +78,7 @@ class TestSetupGitIdentityWithRole:
 class TestSetupGitIdentityWithoutRole:
     """When EGG_AGENT_ROLE is not set, git identity uses defaults."""
 
-    @patch("entrypoint.run_cmd")
+    @patch("entrypoint._environment.run_cmd")
     def test_git_user_name_is_default(self, mock_run_cmd, mock_config, mock_logger):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("EGG_AGENT_ROLE", None)
@@ -86,7 +90,7 @@ class TestSetupGitIdentityWithoutRole:
             as_user=user_tuple,
         )
 
-    @patch("entrypoint.run_cmd")
+    @patch("entrypoint._environment.run_cmd")
     def test_git_email_is_default(self, mock_run_cmd, mock_config, mock_logger):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("EGG_AGENT_ROLE", None)
@@ -98,7 +102,7 @@ class TestSetupGitIdentityWithoutRole:
             as_user=user_tuple,
         )
 
-    @patch("entrypoint.run_cmd")
+    @patch("entrypoint._environment.run_cmd")
     def test_log_message_is_default(self, mock_run_cmd, mock_config, mock_logger):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("EGG_AGENT_ROLE", None)
@@ -110,7 +114,7 @@ class TestSetupGitIdentityWithoutRole:
 class TestSetupGitIdentityEmptyRole:
     """When EGG_AGENT_ROLE is set to empty string, falls back to default."""
 
-    @patch("entrypoint.run_cmd")
+    @patch("entrypoint._environment.run_cmd")
     def test_empty_role_uses_default_name(self, mock_run_cmd, mock_config, mock_logger):
         with patch.dict(os.environ, {"EGG_AGENT_ROLE": ""}):
             setup_git(mock_config, mock_logger)
