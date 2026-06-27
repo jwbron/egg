@@ -1257,7 +1257,7 @@
       "id": "slice-10",
       "name": "Decompose orchestrator/peer_consensus.py (2,326 lines, OVER BYTE CAP)",
       "goal": "Decompose `orchestrator/peer_consensus.py` (2326 lines, over byte cap) into a sub-package; drop its allowlist entry; seam coverage in orchestrator/CLAUDE.md. depends on the previous slice (single linear chain: every slice edits scripts/file-size-allowlist.yaml, so per #3046 overlapping slices must be serialized).",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -1266,8 +1266,8 @@
         {
           "id": "task-10-1",
           "description": "External-importer audit (section-(d)) for peer_consensus.py \u2014 PeerConsensusTracker.matrix and consensus helpers are referenced by routes/consensus + event_prompt; audit carefully.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "122fe778d",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Re-export set derived from external-reference audit.",
@@ -1287,8 +1287,8 @@
         {
           "id": "task-10-2",
           "description": "Step-0 git mv peer_consensus.py -> peer_consensus/__init__.py; green baseline commit.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "6b104d9eb",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Pure-move baseline commit green.",
@@ -1308,8 +1308,8 @@
         {
           "id": "task-10-3",
           "description": "Extract clusters into _<cluster>.py submodules; method-modules-on-class pattern for PeerConsensusTracker (keep the class in __init__.py, extract method bodies); explicit per-symbol re-export barrel. Verify every submodule is under BOTH line and byte caps (this file breaches the byte cap).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "e4a5584f0",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "All submodules <=1500 lines AND <=100KB; class identity preserved; barrel re-exports every external symbol.",
@@ -1332,7 +1332,7 @@
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Allowlist entry for orchestrator/peer_consensus.py dropped (commit 122fe778d); check-file-sizes.py exits 0. The orchestrator/CLAUDE.md peer_consensus/ seam table is BLOCKED for the coder role by the gateway (shared/egg_restrictions/patterns.py \u2014 orchestrator/CLAUDE.md is documenter-owned). Seam-table draft handed off to the documenter in .egg-state/agent-outputs/coder/slice-10-claudemd-seam-table-handoff.diff (insert after the overseer/monitor/ subsection; retag the BRC-consensus module-layout row peer_consensus.py -> peer_consensus/; extend the landed-decompositions summary line). Documenter to land the CLAUDE.md row as their producer work.",
           "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.",
           "files_affected": [
             "scripts/file-size-allowlist.yaml",
@@ -1351,8 +1351,8 @@
         {
           "id": "task-10-5",
           "description": "R3 container-packaging mitigation (SAME SLICE). orchestrator/Dockerfile:44 ships top-level modules via the NON-recursive glob `COPY orchestrator/*.py ./`; once peer_consensus.py becomes the package directory orchestrator/peer_consensus/ the glob stops copying it -> ModuleNotFoundError at container start. Add an explicit `COPY orchestrator/peer_consensus/ ./peer_consensus/` line to orchestrator/Dockerfile (mirroring the existing `COPY orchestrator/routes/` and `COPY orchestrator/health_checks/` lines). BUILD the orchestrator image and smoke-check `python -c 'import peer_consensus'` inside it \u2014 make lint + make test-all run against the SOURCE TREE and CANNOT catch a missing COPY.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "18db2cd59",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "orchestrator/Dockerfile has an explicit `COPY orchestrator/peer_consensus/ ./peer_consensus/` line; the built image imports peer_consensus (smoke check); orchestrator/Dockerfile is in this task's files.",
@@ -1372,8 +1372,8 @@
         {
           "id": "task-10-6",
           "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "122fe778d",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Green; no behavior change.",
@@ -1396,11 +1396,11 @@
         "slice-9"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3312/slice-9",
+      "integration_base_sha": "a4b65d89ef5f4e99a65a7118c8f12872ed9da9ae",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3356,
+      "pr_url": "https://github.com/jwbron/egg/pull/3356",
       "review_feedback": []
     },
     {
@@ -2913,6 +2913,34 @@
       "resolved_by": null,
       "resolved_at": null,
       "debounce_until": null
+    },
+    {
+      "id": "cq-5",
+      "question": "[#2777 slice-4 TASK-4-4 case 5] Slice slice-10 of pipeline issue-3312 has an impossible status enum value or state combination (e.g. status not in PENDING/IN_PROGRESS/COMPLETE/BLOCKED, or PENDING with commits on the integration branch). Bootstrap reconciliation cannot classify the slice safely. How should the orchestrator proceed?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Mark slice complete and continue",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Restart slice from scratch",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Cancel pipeline for manual investigation",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
@@ -3608,6 +3636,127 @@
       "old_value": "",
       "new_value": "Allowlist drop done by coder (c7c9bb574: removed sandbox/entrypoint.py). The sandbox/CLAUDE.md entrypoint/ seam table is a DOCUMENTER-owned path (gateway role restriction blocks coder from sandbox/CLAUDE.md; check_file_restriction -> alternative_role=documenter). Delegated to the documenter producer in this slice. Proposed table content (submodule responsibilities, barrel/main() patch-resolution contract, python -m entrypoint packaging, where-used patch mapping) is described in the extraction commit body (3457ba473) and the coder proposal summary for the documenter to mirror after the contract_cli/ table.",
       "reason": "Updated notes for task-9-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T13:27:37.328872Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.9.tasks.3.notes",
+      "old_value": "",
+      "new_value": "Allowlist entry for orchestrator/peer_consensus.py dropped (commit 122fe778d); check-file-sizes.py exits 0. The orchestrator/CLAUDE.md peer_consensus/ seam table is BLOCKED for the coder role by the gateway (shared/egg_restrictions/patterns.py \u2014 orchestrator/CLAUDE.md is documenter-owned). Seam-table draft handed off to the documenter in .egg-state/agent-outputs/coder/slice-10-claudemd-seam-table-handoff.diff (insert after the overseer/monitor/ subsection; retag the BRC-consensus module-layout row peer_consensus.py -> peer_consensus/; extend the landed-decompositions summary line). Documenter to land the CLAUDE.md row as their producer work.",
+      "reason": "Updated notes for task-10-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T13:28:25.645147Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.9.tasks.0.commit",
+      "old_value": null,
+      "new_value": "122fe778d",
+      "reason": "Linked commit 122fe77 to task-10-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T13:28:25.683926Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.9.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-10-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T13:28:26.122745Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.9.tasks.1.commit",
+      "old_value": null,
+      "new_value": "6b104d9eb",
+      "reason": "Linked commit 6b104d9 to task-10-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T13:28:26.158546Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.9.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-10-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T13:28:27.131345Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.9.tasks.2.commit",
+      "old_value": null,
+      "new_value": "e4a5584f0",
+      "reason": "Linked commit e4a5584 to task-10-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T13:28:27.158801Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.9.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-10-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T13:28:27.611608Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.9.tasks.4.commit",
+      "old_value": null,
+      "new_value": "18db2cd59",
+      "reason": "Linked commit 18db2cd to task-10-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T13:28:27.656782Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.9.tasks.4.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-10-5 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T13:28:28.021162Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.9.tasks.5.commit",
+      "old_value": null,
+      "new_value": "122fe778d",
+      "reason": "Linked commit 122fe77 to task-10-6",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T13:28:28.050795Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.9.tasks.5.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-10-6 as complete",
       "checkpoint_id": null
     }
   ],
