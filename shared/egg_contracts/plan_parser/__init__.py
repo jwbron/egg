@@ -65,8 +65,8 @@ from typing import Any
 import yaml
 from egg_restrictions.matchers import match_pattern
 
-from .agent_roles import EXECUTION_ROLE_VALUES
-from .models import Slice, SliceStatus, Task, TaskStatus
+from ..agent_roles import EXECUTION_ROLE_VALUES
+from ..models import Slice, SliceStatus, Task, TaskStatus
 
 # Placeholder acceptance criteria for tasks that couldn't be parsed.
 # Used as a sentinel value to filter out non-real criteria during aggregation.
@@ -1752,7 +1752,7 @@ def _eligible_producer_roles(files: list[str], repo: str | None = None) -> list[
     so suggestions are deterministic across runs. Honours per-repo
     pattern overrides (#2528).
     """
-    from .agent_roles import AgentRole
+    from ..agent_roles import AgentRole
 
     ordered_roles = (AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER)
     eligible: list[str] = []
