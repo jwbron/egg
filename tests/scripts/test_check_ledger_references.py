@@ -35,10 +35,13 @@ class TestPattern:
         [
             "added in slice-4",
             "slice-12 landed it",
+            "Slice-4 at a sentence start",  # slice-N is case-insensitive
+            "SLICE-7 shouted",
             "see TASK-4-5",
             "TASK-9 was the task",
             "per cq-2",
             "resolved by cq-10",
+            "per CQ-2",  # cq-N is case-insensitive
         ],
     )
     def test_matches_ledger_tokens(self, text: str) -> None:
@@ -53,6 +56,11 @@ class TestPattern:
             "the slice DAG model",  # bare word
             "a task description",  # bare word
             "acquittal",  # 'cq' substring inside a word
+            # TASK-N is UPPERCASE-only: lowercase task-N is live runtime
+            # vocabulary, not ledger narration, and must not match.
+            "task-5 is a runtime contract id",
+            "task-20251129-222239 is a timestamped run id",
+            "see task-123 in the tool docs example",
         ],
     )
     def test_ignores_live_vocabulary(self, text: str) -> None:
@@ -116,6 +124,15 @@ class TestIterScannedFiles:
         rels = sorted(p.relative_to(tmp_path).as_posix() for p in iter_scanned_files(tmp_path))
         assert rels == ["docs/real.md"]
 
+    def test_test_dir_markdown_excluded(self, tmp_path: Path) -> None:
+        """Markdown under a test directory is excluded too (symmetry with .py)."""
+        (tmp_path / "gateway" / "tests").mkdir(parents=True)
+        (tmp_path / "gateway" / "tests" / "README.md").write_text("slice-1 fixture\n")
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "real.md").write_text("slice-1\n")
+        rels = sorted(p.relative_to(tmp_path).as_posix() for p in iter_scanned_files(tmp_path))
+        assert rels == ["docs/real.md"]
+
 
 class TestEvaluate:
     def test_over_baseline_is_net_new(self) -> None:
@@ -162,16 +179,12 @@ class TestBaselineRoundTrip:
         assert load_baseline(path) == {"docs/a.md": 2}
 
 
-class TestRepoBaselineIsClean:
-    """The committed baseline must match the live corpus, so a fresh checkout
-    runs clean (no spurious advisory noise on unrelated PRs)."""
-
-    def test_no_net_new_against_committed_baseline(self) -> None:
-        findings = scan_all(_mod.REPO_ROOT)
-        baseline = load_baseline()
-        net_new = evaluate(findings, baseline)
-        assert net_new == [], (
-            "Committed baseline is stale. Run "
-            "`scripts/check-ledger-references.py --update-baseline`. Net-new: "
-            + ", ".join(f"{f.rel} ({f.count})" for f in net_new)
-        )
+# NOTE: the committed-baseline freshness check intentionally lives in the
+# advisory `scripts/check-ledger-references.py` script (surfaced via
+# `make lint-custom`), NOT in this blocking unit suite. Asserting the live merge
+# corpus against the committed baseline inside `make test-all` turned the
+# advisory ratchet into a de-facto hard CI gate: any later PR that merged
+# `main`'s new slice-N / TASK-N / cq-N tokens would redden the blocking suite
+# until someone re-ran `--update-baseline`, a maintenance treadmill at odds with
+# the issue's "advisory, never block" intent (#3328). The advisory run prints the
+# net-new files and the `--update-baseline` reminder without blocking a PR.

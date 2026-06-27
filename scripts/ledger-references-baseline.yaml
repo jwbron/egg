@@ -10,10 +10,10 @@ files:
   docs/architecture/logging.md: 1
   docs/architecture/on-demand-agent-lifecycle.md: 2
   docs/architecture/overseer.md: 3
-  docs/architecture/sdlc-pipeline.md: 2
+  docs/architecture/sdlc-pipeline.md: 3
   docs/architecture/slice-dag.md: 13
   docs/development/STRUCTURE.md: 5
-  docs/guides/concurrent-execution.md: 16
+  docs/guides/concurrent-execution.md: 20
   docs/guides/decomposition-pattern.md: 1
   docs/guides/pipeline-health-monitoring.md: 6
   docs/guides/sdlc-pipeline.md: 7
@@ -40,16 +40,16 @@ files:
   orchestrator/agent_salvage.py: 1
   orchestrator/cli.py: 1
   orchestrator/concurrent_executor.py: 19
-  orchestrator/consensus_wrapper.py: 14
+  orchestrator/consensus_wrapper.py: 15
   orchestrator/dag_visualizer.py: 1
   orchestrator/env_config.py: 2
-  orchestrator/event_loop.py: 26
+  orchestrator/event_loop.py: 31
   orchestrator/events.py: 6
-  orchestrator/gateway_client.py: 22
-  orchestrator/health_checks/README.md: 2
-  orchestrator/health_checks/detection_plane.py: 10
+  orchestrator/gateway_client.py: 24
+  orchestrator/health_checks/README.md: 3
+  orchestrator/health_checks/detection_plane.py: 13
   orchestrator/health_checks/runner.py: 1
-  orchestrator/health_checks/tier1/__init__.py: 2
+  orchestrator/health_checks/tier1/__init__.py: 3
   orchestrator/health_checks/tier1/brc_thrashing.py: 2
   orchestrator/health_checks/tier1/container_k8s.py: 4
   orchestrator/health_checks/tier1/cost_budget.py: 2
@@ -71,40 +71,40 @@ files:
   orchestrator/overseer/issue_filer.py: 1
   orchestrator/overseer/monitor.py: 15
   orchestrator/overseer/self_monitor.py: 1
-  orchestrator/peer_consensus.py: 4
+  orchestrator/peer_consensus.py: 5
   orchestrator/pr_obligations.py: 2
   orchestrator/routes/artifacts.py: 6
-  orchestrator/routes/consensus.py: 6
+  orchestrator/routes/consensus.py: 7
   orchestrator/routes/contracts.py: 1
-  orchestrator/routes/event_prompt.py: 48
+  orchestrator/routes/event_prompt.py: 51
   orchestrator/routes/health.py: 1
   orchestrator/routes/messages.py: 2
   orchestrator/routes/phases.py: 7
-  orchestrator/routes/pipelines.py: 232
+  orchestrator/routes/pipelines.py: 238
   orchestrator/routes/session_state.py: 1
-  orchestrator/routes/signals.py: 13
+  orchestrator/routes/signals.py: 15
   orchestrator/session_state_store.py: 2
   orchestrator/slice_scheduler.py: 4
   orchestrator/stacked_pr_reconciler.py: 10
-  orchestrator/startup_reconciliation.py: 10
+  orchestrator/startup_reconciliation.py: 12
   orchestrator/state_store.py: 1
   orchestrator/supervision_policy.py: 1
   orchestrator/wontdo_drain.py: 1
   sandbox/agent-config/rules/mission.md: 1
   sandbox/agent-config/rules/orchestrator.md: 4
   sandbox/egg_agent_tools/handlers/brc.py: 6
-  sandbox/egg_agent_tools/handlers/brc_memory.py: 22
-  sandbox/egg_agent_tools/handlers/message.py: 1
+  sandbox/egg_agent_tools/handlers/brc_memory.py: 30
+  sandbox/egg_agent_tools/handlers/message.py: 2
   sandbox/egg_agent_tools/handlers/progress.py: 1
   sandbox/egg_agent_tools/handlers/task.py: 1
-  sandbox/egg_lib/orch_cli.py: 28
+  sandbox/egg_lib/orch_cli.py: 31
   sandbox/egg_lib/session_state_sync.py: 1
   sandbox/llm/claude/runner.py: 1
   shared/egg_agent/client.py: 5
   shared/egg_agent/measurement.py: 15
   shared/egg_agent/midturn_messages.py: 3
   shared/egg_agent/queryable_env.py: 6
-  shared/egg_agent/reseed.py: 6
+  shared/egg_agent/reseed.py: 7
   shared/egg_agent/session.py: 13
   shared/egg_contracts/agent_roles.py: 1
   shared/egg_contracts/artifact_spec.py: 9

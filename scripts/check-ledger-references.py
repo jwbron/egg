@@ -29,9 +29,12 @@ not fire on every run. Lowering a count is always fine and never warns; run
 
 Tokens detected
 ---------------
-- ``slice-N``     -- per-slice rollout narration ("added in slice-4").
+- ``slice-N``     -- per-slice rollout narration ("added in slice-4"). Matched
+  case-insensitively (``Slice-4`` at a sentence start is caught too).
 - ``TASK-N``      -- plan task ids used as a change-log ("slice-4 TASK-4-5").
-- ``cq-N``        -- HITL clarifying-question iteration ids.
+  Matched UPPERCASE-only: lowercase ``task-N`` is live runtime vocabulary
+  (timestamped run ids, contract task identifiers) and is intentionally ignored.
+- ``cq-N``        -- HITL clarifying-question iteration ids. Case-insensitive.
 
 Change-log *prose* ("what was removed", "used to ... now ...") is deliberately
 out of scope for v1: it cannot be matched without high false positives against
@@ -41,8 +44,11 @@ the way it is. Tune the token set / allowlist before extending it.
 Scope and false-positive controls
 ----------------------------------
 - Scanned: markdown across the repo plus non-test Python under the source
-  roots (docstrings/inline comments). Test files are excluded -- fixtures use
-  ``slice-N`` / ``task-N-N`` ids as live data, not as documentation.
+  roots. Every line is scanned (not just docstrings/comments), but in practice
+  the hyphenated tokens only land in strings, docstrings, and comments because
+  ``-`` is not a Python identifier character. Test files and test directories
+  are excluded for *both* markdown and Python -- fixtures use ``slice-N`` /
+  ``task-N-N`` ids as live data, not as documentation.
 - ``docs/templates/`` is excluded: ``plan.md``'s ``TASK-N`` is the live plan
   format, not a ledger ref.
 - ``.egg-state/`` is excluded: pipeline state and BRC transcripts are a ledger
@@ -64,6 +70,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -95,10 +102,21 @@ EXCLUDED_DIR_NAMES = frozenset({"tests", "__pycache__"})
 # SDLC ledger token classes. Hyphenated forms are chosen deliberately: the live
 # runtime vocabulary uses underscores / dotted access (``slice_id``,
 # ``contract.slices``, ``EGG_*_SLICES``), so it does not match here.
+#
+# Case handling is asymmetric on purpose:
+# - ``slice-N`` / ``cq-N`` match case-insensitively, so a sentence-initial
+#   ``Slice-4`` or an upper-cased ``CQ-2`` is still caught. Capitalising these
+#   never collides with live vocabulary (that uses ``slice_id`` / ``contract.slices``).
+# - ``TASK-N`` stays UPPERCASE-only. Lowercase ``task-N`` is pervasive live
+#   runtime vocabulary -- timestamped run ids (``task-20251129-222239``), example
+#   ids in tool docs (``task-123``), and contract task identifiers in handler
+#   code -- none of which are ledger narration. Folding case here would flood
+#   false positives, so the plan-format casing is the discriminator (parallel to
+#   the underscore/dotted-access guards above).
 LEDGER_PATTERN = re.compile(
-    r"\bslice-\d+\b"  # per-slice rollout narration
-    r"|\bTASK-\d+(?:-\d+)?\b"  # plan task ids used as a change-log
-    r"|\bcq-\d+\b"  # HITL clarifying-question iteration ids
+    r"\b(?i:slice)-\d+\b"  # per-slice rollout narration (slice-4 / Slice-4)
+    r"|\bTASK-\d+(?:-\d+)?\b"  # plan task ids used as a change-log (uppercase only)
+    r"|\b(?i:cq)-\d+\b"  # HITL clarifying-question iteration ids (cq-2 / CQ-2)
 )
 
 # Put this token in a comment on a line to exclude it from the count.
@@ -150,27 +168,47 @@ def is_test_path(rel: Path) -> bool:
     return any(part in EXCLUDED_DIR_NAMES for part in rel.parts)
 
 
-def iter_scanned_files(repo_root: Path = REPO_ROOT) -> list[Path]:
-    """Yield markdown (repo-wide) + non-test Python (source roots), sorted."""
+def _walk_in_scope(root: Path, suffix: str, repo_root: Path) -> list[Path]:
+    """Walk ``root`` for files ending in ``suffix``, pruning excluded and test
+    directories *during* traversal so we never descend into ``.git`` / ``.venv``
+    / ``node_modules`` / ``.egg-state`` / ``docs/templates`` / test dirs."""
     out: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        here = Path(dirpath)
+        # Prune in place: drop subdirs that are excluded by prefix or are test
+        # directories, so os.walk does not descend into them at all.
+        dirnames[:] = [
+            name
+            for name in dirnames
+            if not is_excluded((here / name).relative_to(repo_root).as_posix() + "/")
+            and name not in EXCLUDED_DIR_NAMES
+        ]
+        for fn in filenames:
+            if not fn.endswith(suffix):
+                continue
+            p = here / fn
+            rel = p.relative_to(repo_root)
+            if is_excluded(rel.as_posix()) or is_test_path(rel):
+                continue
+            out.append(p)
+    return out
+
+
+def iter_scanned_files(repo_root: Path = REPO_ROOT) -> list[Path]:
+    """Yield markdown (repo-wide) + non-test Python (source roots), sorted.
+
+    Test files and test directories are excluded for both file types; excluded
+    prefixes (``.egg-state/``, ``docs/templates/``, ``.git/`` …) are pruned
+    during traversal rather than walked-then-filtered.
+    """
     # Never flag the check itself (its docstring lists the token patterns).
     self_path = Path(__file__).resolve()
 
-    for p in repo_root.rglob("*.md"):
-        rel = p.relative_to(repo_root)
-        if is_excluded(rel.as_posix()):
-            continue
-        out.append(p)
-
+    out = _walk_in_scope(repo_root, ".md", repo_root)
     for root_name in SOURCE_ROOTS:
         root = repo_root / root_name
-        if not root.is_dir():
-            continue
-        for p in root.rglob("*.py"):
-            rel = p.relative_to(repo_root)
-            if is_test_path(rel) or is_excluded(rel.as_posix()):
-                continue
-            out.append(p)
+        if root.is_dir():
+            out.extend(_walk_in_scope(root, ".py", repo_root))
 
     out = [p for p in out if p.resolve() != self_path]
     out.sort()
