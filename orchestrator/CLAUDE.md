@@ -31,3 +31,25 @@ The orchestrator is a flat package of single-file modules plus three sub-package
 | Cross-cutting policy | `action_guards.py`, `lifecycle_auth.py`, `redaction.py`, `log_filter.py`, `resilience.py` | Action guards, lifecycle auth, log redaction / filtering, and retry/resilience helpers |
 
 When a module outgrows the 1,500-line / 100 KB cap in `scripts/file-size-allowlist.yaml`, decompose it into a sub-package following the canonical pattern (sub-package + explicit per-symbol re-export barrel + underscore-prefixed submodules) in [../docs/guides/decomposition-pattern.md](../docs/guides/decomposition-pattern.md). Once decomposed, the barrel `__init__.py` becomes the stable public API: external consumers import through the barrel while submodule paths stay package-private.
+
+## Decomposition seams
+
+Oversized `orchestrator/` modules are split into **sub-packages with an explicit re-export barrel**, per the canonical [decomposition pattern](../docs/guides/decomposition-pattern.md) ([#3312](https://github.com/jwbron/egg/issues/3312)). The `__init__.py` barrel is the **stable public API**: external importers and `unittest.mock.patch` targets resolve through it (`patch("routes.decisions._foo")`), so they survive the split. Submodules are underscore-prefixed and package-private. For Flask-blueprint modules the `@<bp>.route` decorators stay in the barrel on thin wrappers (decision-8); the handler bodies live in the private submodules.
+
+### `routes/decisions/` — HITL decision endpoints ([#3312](https://github.com/jwbron/egg/issues/3312), slice 2)
+
+`decisions.py` (1,562 lines) → `routes/decisions/` (largest submodule `_resolve.py`, 449 lines). The `decisions_bp` blueprint plus its seven `@decisions_bp.route` thin wrappers stay in the barrel (decision-8); each delegates to a handler body in a private submodule. The barrel does explicit per-symbol re-exports of the externally-referenced and test-patched surface.
+
+| Submodule | Responsibility | Key symbols |
+|-----------|----------------|-------------|
+| `__init__.py` (barrel) | Stable public API: holds `decisions_bp` + the seven route thin wrappers (decision-8); per-symbol re-exports of the patched surface | `decisions_bp`, `list_decisions`, `queue_decision`, `get_decision`, `resolve_decision`, `cancel_decision`, `answer_feedback`, `get_queue_status` (+ re-exports of all `_`-symbols below) |
+| `_responses.py` (28 lines) | Shared JSON response builders | `make_error_response`, `make_success_response` |
+| `_query.py` (247 lines) | Decision read + create endpoint bodies | `list_decisions`, `queue_decision`, `get_decision` |
+| `_resolve.py` (largest, 449 lines) | Decision-resolution endpoint + contract-decision resolution | `resolve_decision`, `_resolve_contract_decision` |
+| `_handlers.py` (312 lines) | HITL resolution-dispatch hooks | `_handle_restart_agent`, `_normalize_choice_resolution`, `_handle_conditional_ack_gate`, `_maybe_complete_task_from_resolution`, `_COMPLETE_TASK_RESOLUTION_RE` |
+| `_graph_mutations.py` (242 lines) | Conditional-ACK consensus-graph mutations | `_persist_deferred_actions`, `_force_nack_conditional_edges`, `_invalidate_conditional_acks` |
+| `_lifecycle.py` (295 lines) | Cancel / feedback-answer / queue-status endpoint bodies | `cancel_decision`, `answer_feedback`, `get_queue_status` |
+
+Pure refactor: every symbol is AST-identical to the pre-split file. Module-level `patch("routes.decisions._foo")` / `patch("routes.decisions.<name>")` targets resolve through the barrel; the private submodules reach barrel-patched dependencies and dispatch hooks via `import routes.decisions as _pkg`, so the pre-split module-global patch points keep working unchanged.
+
+This is the first `orchestrator/` decomposition; later orchestrator slices append their own subsections here.
