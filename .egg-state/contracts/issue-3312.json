@@ -699,7 +699,7 @@
       "id": "slice-6",
       "name": "Decompose orchestrator/routes/event_prompt.py (1,895 lines)",
       "goal": "Decompose `orchestrator/routes/event_prompt.py` (1895 lines) into a sub-package; drop its allowlist entry; seam coverage in orchestrator/CLAUDE.md. depends on the previous slice (single linear chain: every slice edits scripts/file-size-allowlist.yaml, so per #3046 overlapping slices must be serialized).",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -708,10 +708,10 @@
         {
           "id": "task-6-1",
           "description": "External-importer audit (section-(d)) for event_prompt.py (renderers like _render_producer_delta_section / _render_nacks_section are referenced by other plan/BRC code \u2014 audit carefully).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "ac339f57c",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "External-importer audit for orchestrator/routes/event_prompt.py (1896 lines / 89KB).\n\nExternally-referenced symbols (MUST re-export through barrel):\n- from-import: MEMORY_EXCERPT_MAX_CHARS, ITERATION_FEEDBACK_MAX_CHARS, TASK_DESCRIPTION_MAX_CHARS, _GIT_LOG_DELTA_MAX_BYTES, _truncate, compose_event_prompt, _run_git_log, _build_delta_entries, _parse_per_producer_sha, _read_task_description, _render_producer_delta_section, _extract_changed_artifacts, _extract_current_producers, _extract_proposal_sha_for_producer, _extract_artifacts_for_producer, _extract_nacks\n- attribute/alias/patch: _cli, _issue_anchor_fallback, _context_discipline_enabled, _render_delta_pointer_section (ep.X in test_queryable_env_jit), __doc__\n- Decision: re-export ALL defined symbols through the barrel (safest; barrel = stable API).\n\nPatch seams (cross-barrel): patch(\"orchestrator.routes.event_prompt._run_git_log\") x3 in test_compose_event_prompt, then call _build_delta_entries -> internal _run_git_log call MUST go through the package module object (sys.modules[__package__]._run_git_log). No other patch/monkeypatch/setattr seams exist.\n\nSTANDALONE-SCRIPT seam (unique to this slice): consensus_wrapper.py runs `python3 /opt/egg-runtime/orchestrator/routes/event_prompt.py \"$action\"` directly to bypass the heavy routes/__init__ Flask import. After git mv the .py path disappears. Mitigation: add event_prompt/__main__.py (sys.path bootstrap + `from event_prompt import _cli`) and repoint the wrapper default script_path to .../event_prompt/__main__.py. Live refs to update: consensus_wrapper.py:165(comment)+181(default), test_consensus_wrapper.py:63(asserts path string), event_prompt _cli docstring example, golden event_pump_wrapper.sh.golden (regenerate). Dockerfile: `COPY orchestrator/routes/ ./routes/` is recursive (sandbox recursive `COPY .`) so sub-package packages automatically \u2014 no COPY change.",
           "acceptance_criteria": "Re-export set derived from external-reference audit.",
           "files_affected": [
             "orchestrator/routes/event_prompt.py"
@@ -729,8 +729,8 @@
         {
           "id": "task-6-2",
           "description": "Step-0 git mv event_prompt.py -> event_prompt/__init__.py; green baseline commit.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "2e5f94e7f",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Pure-move baseline commit green.",
@@ -750,8 +750,8 @@
         {
           "id": "task-6-3",
           "description": "Extract clusters into _<cluster>.py submodules grouped by rendered section; explicit per-symbol re-export barrel.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "ac339f57c",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "All submodules under cap; barrel re-exports every external symbol.",
@@ -771,8 +771,8 @@
         {
           "id": "task-6-4",
           "description": "Drop event_prompt.py allowlist entry; add concrete event_prompt/ row to orchestrator/CLAUDE.md.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "9de1b8cb4",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.",
@@ -793,8 +793,8 @@
         {
           "id": "task-6-5",
           "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "6a1138f4c",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Green; no behavior change.",
@@ -817,11 +817,11 @@
         "slice-5"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3312/slice-5",
+      "integration_base_sha": "4ba585c765684891ae48c9204a1e90fea9d3371c",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3352,
+      "pr_url": "https://github.com/jwbron/egg/pull/3352",
       "review_feedback": []
     },
     {
@@ -3201,6 +3201,138 @@
       "old_value": "complete",
       "new_value": "complete",
       "reason": "Marked task-5-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T08:59:54.362288Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.notes",
+      "old_value": "",
+      "new_value": "External-importer audit for orchestrator/routes/event_prompt.py (1896 lines / 89KB).\n\nExternally-referenced symbols (MUST re-export through barrel):\n- from-import: MEMORY_EXCERPT_MAX_CHARS, ITERATION_FEEDBACK_MAX_CHARS, TASK_DESCRIPTION_MAX_CHARS, _GIT_LOG_DELTA_MAX_BYTES, _truncate, compose_event_prompt, _run_git_log, _build_delta_entries, _parse_per_producer_sha, _read_task_description, _render_producer_delta_section, _extract_changed_artifacts, _extract_current_producers, _extract_proposal_sha_for_producer, _extract_artifacts_for_producer, _extract_nacks\n- attribute/alias/patch: _cli, _issue_anchor_fallback, _context_discipline_enabled, _render_delta_pointer_section (ep.X in test_queryable_env_jit), __doc__\n- Decision: re-export ALL defined symbols through the barrel (safest; barrel = stable API).\n\nPatch seams (cross-barrel): patch(\"orchestrator.routes.event_prompt._run_git_log\") x3 in test_compose_event_prompt, then call _build_delta_entries -> internal _run_git_log call MUST go through the package module object (sys.modules[__package__]._run_git_log). No other patch/monkeypatch/setattr seams exist.\n\nSTANDALONE-SCRIPT seam (unique to this slice): consensus_wrapper.py runs `python3 /opt/egg-runtime/orchestrator/routes/event_prompt.py \"$action\"` directly to bypass the heavy routes/__init__ Flask import. After git mv the .py path disappears. Mitigation: add event_prompt/__main__.py (sys.path bootstrap + `from event_prompt import _cli`) and repoint the wrapper default script_path to .../event_prompt/__main__.py. Live refs to update: consensus_wrapper.py:165(comment)+181(default), test_consensus_wrapper.py:63(asserts path string), event_prompt _cli docstring example, golden event_pump_wrapper.sh.golden (regenerate). Dockerfile: `COPY orchestrator/routes/ ./routes/` is recursive (sandbox recursive `COPY .`) so sub-package packages automatically \u2014 no COPY change.",
+      "reason": "Updated notes for task-6-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T09:18:36.266573Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.commit",
+      "old_value": null,
+      "new_value": "ac339f57c",
+      "reason": "Linked commit ac339f5 to task-6-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T09:18:36.300762Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-6-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T09:18:36.758807Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.commit",
+      "old_value": null,
+      "new_value": "2e5f94e7f",
+      "reason": "Linked commit 2e5f94e to task-6-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T09:18:36.790561Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-6-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T09:18:37.223733Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.2.commit",
+      "old_value": null,
+      "new_value": "ac339f57c",
+      "reason": "Linked commit ac339f5 to task-6-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T09:18:37.260637Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-6-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T09:18:38.466578Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.3.commit",
+      "old_value": null,
+      "new_value": "9de1b8cb4",
+      "reason": "Linked commit 9de1b8c to task-6-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T09:18:38.508501Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.3.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-6-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T09:18:38.626284Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.4.commit",
+      "old_value": null,
+      "new_value": "6a1138f4c",
+      "reason": "Linked commit 6a1138f to task-6-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T09:18:38.656880Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.4.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-6-5 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T09:20:22.692044Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.3.commit",
+      "old_value": "9de1b8cb4",
+      "new_value": "9de1b8cb4",
+      "reason": "Linked commit 9de1b8c to task-6-4",
       "checkpoint_id": null
     }
   ],
