@@ -162,7 +162,7 @@
       "id": "slice-2",
       "name": "Decompose orchestrator/routes/decisions.py (1,562 lines)",
       "goal": "Decompose `orchestrator/routes/decisions.py` (1562 lines) into a sub-package; drop its allowlist entry; seam coverage in orchestrator/CLAUDE.md. depends on the previous slice (single linear chain: every slice edits scripts/file-size-allowlist.yaml, so per #3046 overlapping slices must be serialized).",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -280,11 +280,11 @@
         "slice-1"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3312/slice-1",
+      "integration_base_sha": "64fd1984e1765272c5ff80edd8118b5dd4f0fd51",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3340,
+      "pr_url": "https://github.com/jwbron/egg/pull/3340",
       "review_feedback": []
     },
     {
@@ -2805,6 +2805,34 @@
     {
       "id": "cq-1",
       "question": "[#2777 slice-4 TASK-4-4 case 5] Slice slice-1 of pipeline issue-3312 has an impossible status enum value or state combination (e.g. status not in PENDING/IN_PROGRESS/COMPLETE/BLOCKED, or PENDING with commits on the integration branch). Bootstrap reconciliation cannot classify the slice safely. How should the orchestrator proceed?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Mark slice complete and continue",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Restart slice from scratch",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Cancel pipeline for manual investigation",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-2",
+      "question": "[#2777 slice-4 TASK-4-4 case 5] Slice slice-2 of pipeline issue-3312 has an impossible status enum value or state combination (e.g. status not in PENDING/IN_PROGRESS/COMPLETE/BLOCKED, or PENDING with commits on the integration branch). Bootstrap reconciliation cannot classify the slice safely. How should the orchestrator proceed?",
       "type": "hitl",
       "phase": "implement",
       "options": [
