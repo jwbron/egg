@@ -15,14 +15,13 @@ from ._common import _render_handler_error
 from ._http import (
     get_pipeline_id_from_env,
     print_json,
-    require_pipeline_id,
     validate_id,
 )
 
 
 def cmd_phase_get(args: argparse.Namespace) -> int:
     """Get current phase for a pipeline."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     result = _pkg.orch_request(f"/api/v1/pipelines/{pid}/phase")
 
     if args.json:
@@ -39,7 +38,7 @@ def cmd_phase_get(args: argparse.Namespace) -> int:
 
 def cmd_phase_advance(args: argparse.Namespace) -> int:
     """Advance pipeline to next phase."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     data: dict[str, Any] = {"target_phase": args.target_phase}
     if args.reason:
         data["reason"] = args.reason
@@ -59,7 +58,7 @@ def cmd_phase_advance(args: argparse.Namespace) -> int:
 
 def cmd_phase_start(args: argparse.Namespace) -> int:
     """Start the current phase."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     result = _pkg.orch_request(f"/api/v1/pipelines/{pid}/phase/start", method="POST", data={})
 
     if args.json:
@@ -75,7 +74,7 @@ def cmd_phase_start(args: argparse.Namespace) -> int:
 
 def cmd_phase_complete(args: argparse.Namespace) -> int:
     """Complete the current phase."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     data: dict[str, Any] = {}
     if args.reason:
         data["reason"] = args.reason

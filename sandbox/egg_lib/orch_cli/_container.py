@@ -14,14 +14,13 @@ from egg_lib import orch_cli as _pkg
 
 from ._http import (
     print_json,
-    require_pipeline_id,
     validate_id,
 )
 
 
 def cmd_container_list(args: argparse.Namespace) -> int:
     """List containers for a pipeline."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     result = _pkg.orch_request(f"/api/v1/pipelines/{pid}/containers")
 
     if args.json:
@@ -44,7 +43,7 @@ def cmd_container_list(args: argparse.Namespace) -> int:
 
 def cmd_container_spawn(args: argparse.Namespace) -> int:
     """Spawn a container for a pipeline."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     data: dict[str, Any] = {
         "agent_role": args.role,
     }
@@ -74,7 +73,7 @@ def cmd_container_spawn(args: argparse.Namespace) -> int:
 
 def cmd_container_get(args: argparse.Namespace) -> int:
     """Get container info."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     cid = validate_id(args.container_id, "container_id")
     result = _pkg.orch_request(f"/api/v1/pipelines/{pid}/containers/{cid}")
 
@@ -93,7 +92,7 @@ def cmd_container_get(args: argparse.Namespace) -> int:
 
 def cmd_container_stop(args: argparse.Namespace) -> int:
     """Stop a container."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     cid = validate_id(args.container_id, "container_id")
     result = _pkg.orch_request(
         f"/api/v1/pipelines/{pid}/containers/{cid}/stop",
@@ -114,7 +113,7 @@ def cmd_container_stop(args: argparse.Namespace) -> int:
 
 def cmd_container_logs(args: argparse.Namespace) -> int:
     """Get container logs."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     cid = validate_id(args.container_id, "container_id")
     params: dict[str, str] = {}
     if args.lines:

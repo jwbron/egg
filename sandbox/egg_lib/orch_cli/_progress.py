@@ -19,7 +19,6 @@ from ._http import (
     get_orchestrator_url,
     get_session_token,
     print_json,
-    require_pipeline_id,
 )
 
 
@@ -62,7 +61,7 @@ def cmd_progress_emit(args: argparse.Namespace) -> int:
     from egg_agent_tools.handlers import progress as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     role = args.role or _pkg.get_agent_role_from_env()
     if not role:
         print("Error: --role required or set EGG_AGENT_ROLE", file=sys.stderr)
@@ -95,7 +94,7 @@ def cmd_progress_emit(args: argparse.Namespace) -> int:
 
 def cmd_progress_query(args: argparse.Namespace) -> int:
     """Query structured progress events."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
 
     params: dict[str, str] = {}
     if args.agent:

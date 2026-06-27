@@ -20,7 +20,6 @@ from ._http import (
     _SAFE_ID_PATTERN,
     get_pipeline_id_from_env,
     print_json,
-    require_pipeline_id,
 )
 
 
@@ -39,7 +38,7 @@ def cmd_overseer_alert(args: argparse.Namespace) -> int:
     from egg_agent_tools.handlers import progress as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     role = args.role or _pkg.get_agent_role_from_env() or "overseer"
 
     req: dict[str, Any] = {

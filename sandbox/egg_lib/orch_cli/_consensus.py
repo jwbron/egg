@@ -15,13 +15,11 @@ from egg_lib import orch_cli as _pkg
 from ._common import (
     _ProseArgError,
     _render_handler_error,
-    _require_role,
     _resolve_files_reviewed_arg,
     _resolve_prose_arg,
 )
 from ._http import (
     print_json,
-    require_pipeline_id,
     resolve_slice_id,
 )
 
@@ -98,15 +96,15 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
         )
         return 2
 
-    pid = require_pipeline_id(args)
-    role = _require_role(args)
+    pid = _pkg.require_pipeline_id(args)
+    role = _pkg._require_role(args)
 
     # If --push, run git push before proposing so the code is on the remote
     # before the proposal is sent.  Because the proposal and push happen
     # together, auto-repropose is suppressed (the explicit proposal covers
     # the push within the debounce window).
     if getattr(args, "push", False):
-        push_result = _consensus_push()
+        push_result = _pkg._consensus_push()
         if push_result != 0:
             return push_result
 
@@ -230,8 +228,8 @@ def cmd_consensus_ack(args: argparse.Namespace) -> int:
     from egg_agent_tools.handlers import brc as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
-    pid = require_pipeline_id(args)
-    role = _require_role(args)
+    pid = _pkg.require_pipeline_id(args)
+    role = _pkg._require_role(args)
     pre_merge_condition_resolved_in_diff = (
         getattr(args, "pre_merge_condition_resolved_in_diff", "") or ""
     )
@@ -321,8 +319,8 @@ def cmd_consensus_nack(args: argparse.Namespace) -> int:
     from egg_agent_tools.handlers import brc as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
-    pid = require_pipeline_id(args)
-    role = _require_role(args)
+    pid = _pkg.require_pipeline_id(args)
+    role = _pkg._require_role(args)
     try:
         reason_text = _resolve_prose_arg(
             argv_value=getattr(args, "reason", None),
@@ -369,8 +367,8 @@ def cmd_consensus_nack(args: argparse.Namespace) -> int:
 
 def cmd_consensus_withdraw(args: argparse.Namespace) -> int:
     """Send CONSENSUS_WITHDRAW signal."""
-    pid = require_pipeline_id(args)
-    role = _require_role(args)
+    pid = _pkg.require_pipeline_id(args)
+    role = _pkg._require_role(args)
 
     try:
         reason_text = _resolve_prose_arg(
@@ -415,8 +413,8 @@ def cmd_consensus_confirmed(args: argparse.Namespace) -> int:
     from egg_agent_tools.handlers import brc as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
-    pid = require_pipeline_id(args)
-    role = _require_role(args)
+    pid = _pkg.require_pipeline_id(args)
+    role = _pkg._require_role(args)
     try:
         resp = _handlers.brc_confirm({"pipeline_id": pid, "role": role})
     except (GatewayError, HandlerError) as err:
@@ -446,7 +444,7 @@ def cmd_consensus_status(args: argparse.Namespace) -> int:
     from egg_agent_tools.handlers import brc as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
 
     # Scope to a slice when one is given (or inherited from $EGG_SLICE_ID
     # inside a per-slice agent sandbox). In a slice-DAG implement phase

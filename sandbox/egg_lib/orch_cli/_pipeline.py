@@ -16,10 +16,8 @@ from egg_lib import orch_cli as _pkg
 from ._common import _render_handler_error
 from ._http import (
     ApiError,
-    api_request,
     get_orchestrator_url,
     print_json,
-    require_pipeline_id,
 )
 
 
@@ -59,7 +57,7 @@ def cmd_pipeline_list(args: argparse.Namespace) -> int:
 
 def cmd_pipeline_get(args: argparse.Namespace) -> int:
     """Get pipeline details."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     result = _pkg.orch_request(f"/api/v1/pipelines/{pid}")
 
     if args.json:
@@ -119,7 +117,7 @@ def cmd_pipeline_status(args: argparse.Namespace) -> int:
     from egg_agent_tools.handlers import progress as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     req: dict[str, Any] = {"pipeline_id": pid, "include_raw": bool(args.json)}
 
     try:
@@ -154,7 +152,7 @@ def cmd_pipeline_status(args: argparse.Namespace) -> int:
 
 def cmd_pipeline_delete(args: argparse.Namespace) -> int:
     """Delete a pipeline."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     result = _pkg.orch_request(f"/api/v1/pipelines/{pid}", method="DELETE")
 
     if args.json:
@@ -201,7 +199,7 @@ def cmd_pipeline_wait_status(args: argparse.Namespace) -> int:
     # ``require_pipeline_id`` calls ``validate_id`` which already URL-encodes
     # the result; ``pid`` is therefore safe to interpolate into the endpoint
     # path directly.
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     cursor = (getattr(args, "since", "") or "").strip()
     inner_timeout = max(int(getattr(args, "inner_timeout", 25) or 25), 1)
     max_iterations = getattr(args, "max_iterations", None)
@@ -224,7 +222,7 @@ def cmd_pipeline_wait_status(args: argparse.Namespace) -> int:
             endpoint += f"&since={quote(cursor, safe='')}"
 
         try:
-            result = api_request(get_orchestrator_url(), endpoint, timeout=inner_timeout + 15)
+            result = _pkg.api_request(get_orchestrator_url(), endpoint, timeout=inner_timeout + 15)
         except ApiError as err:
             status = err.status_code or 0
             if status and 400 <= status < 500:

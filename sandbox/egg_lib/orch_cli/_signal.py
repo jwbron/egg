@@ -11,17 +11,16 @@ from typing import Any
 
 from egg_lib import orch_cli as _pkg
 
-from ._common import _render_handler_error, _require_role
+from ._common import _render_handler_error
 from ._http import (
     print_json,
-    require_pipeline_id,
 )
 
 
 def cmd_signal_complete(args: argparse.Namespace) -> int:
     """Signal agent completion."""
-    pid = require_pipeline_id(args)
-    role = _require_role(args)
+    pid = _pkg.require_pipeline_id(args)
+    role = _pkg._require_role(args)
     data: dict[str, Any] = {
         "signal_type": "complete",
         "agent_role": role,
@@ -51,8 +50,8 @@ def cmd_signal_progress(args: argparse.Namespace) -> int:
     hits the structured-event endpoint (``/progress``, step/state).
     Kept inline for CLI parity; no MCP tool ever exposed this verb.
     """
-    pid = require_pipeline_id(args)
-    role = _require_role(args)
+    pid = _pkg.require_pipeline_id(args)
+    role = _pkg._require_role(args)
     data: dict[str, Any] = {
         "signal_type": "progress",
         "agent_role": role,
@@ -84,8 +83,8 @@ def cmd_signal_error(args: argparse.Namespace) -> int:
     from egg_agent_tools.handlers import progress as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
-    pid = require_pipeline_id(args)
-    role = _require_role(args)
+    pid = _pkg.require_pipeline_id(args)
+    role = _pkg._require_role(args)
     req: dict[str, Any] = {
         "pipeline_id": pid,
         "role": role,
@@ -112,8 +111,8 @@ def cmd_signal_heartbeat(args: argparse.Namespace) -> int:
     from egg_agent_tools.handlers import progress as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
-    pid = require_pipeline_id(args)
-    role = _require_role(args)
+    pid = _pkg.require_pipeline_id(args)
+    role = _pkg._require_role(args)
     req: dict[str, Any] = {"pipeline_id": pid, "role": role}
     try:
         resp = _handlers.progress_heartbeat(req)
@@ -134,8 +133,8 @@ def cmd_signal_heartbeat(args: argparse.Namespace) -> int:
 
 def cmd_signal_readiness(args: argparse.Namespace) -> int:
     """Signal readiness state for consensus."""
-    pid = require_pipeline_id(args)
-    role = _require_role(args)
+    pid = _pkg.require_pipeline_id(args)
+    role = _pkg._require_role(args)
     data: dict[str, Any] = {
         "signal_type": "readiness",
         "agent_role": role,
