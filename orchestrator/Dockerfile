@@ -54,6 +54,12 @@ COPY orchestrator/state_store/ ./state_store/
 # copies it, so copy the dir explicitly (mirrors routes/ + health_checks/ +
 # state_store/) or `import peer_consensus` fails at orchestrator start.
 COPY orchestrator/peer_consensus/ ./peer_consensus/
+# mcp_tools.py became a sub-package (#3312, slice-13); same reason as
+# state_store/ + peer_consensus/ above — the non-recursive `orchestrator/*.py`
+# glob no longer copies it, so copy the dir explicitly (mirrors routes/ +
+# health_checks/ + state_store/ + peer_consensus/) or `import mcp_tools`
+# fails when the in-process MCP server starts.
+COPY orchestrator/mcp_tools/ ./mcp_tools/
 # overseer/monitor.py became a sub-package (overseer/monitor/) in #3312
 # slice-8, but needs NO COPY change: orchestrator/overseer/ is not copied
 # into this image at all (the non-recursive `orchestrator/*.py` glob never
