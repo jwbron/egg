@@ -30,4 +30,26 @@ Oversized `sandbox/` modules are split into **sub-packages with an explicit re-e
 
 Pure refactor: every symbol is AST-identical to the pre-split file. Module-level `patch("egg_lib.contract_cli._foo")` targets resolve through the barrel; tests that patch a helper **where it is called** target the caller's submodule (e.g. `get_session_token` → `._gateway`, `get_contract_identifier` → `._commands`).
 
-This is the first `sandbox/` decomposition; later sandbox slices append their own rows to this table.
+This is the first `sandbox/` decomposition; later sandbox slices append their own subsections below.
+
+### `entrypoint/` — container entrypoint ([#3312](https://github.com/jwbron/egg/issues/3312), slice 9)
+
+`entrypoint.py` (2,212 lines) → `entrypoint/` (largest submodule `_claude.py` 348 lines). Container startup: user/UID-GID setup, git/CA/Anthropic config, worktrees, Claude Code config, gateway-readiness gate, then `--exec`/orchestrator-mode launch. `main()` — the sequential, timing-instrumented setup orchestration — lives in the barrel so that `patch("entrypoint.setup_user")` (and the other re-exported setup helpers) reaches the call site; the barrel does explicit per-symbol re-exports and declares `__all__`, preserving the full public API.
+
+| Submodule | Responsibility | Key symbols |
+|-----------|----------------|-------------|
+| `__init__.py` (barrel) | Stable public API: sequential setup orchestration (`main`); per-symbol re-exports + `__all__` | `main` (+ re-exports of all symbols below) |
+| `__main__.py` | `python3 -m entrypoint` console dispatch → `entrypoint.main()` (replaces the single-file `COPY`/`ENTRYPOINT`; see Dockerfile) | module entry |
+| `_core.py` | Leaf helpers + earliest-captured start constant | `run_cmd`, `chown_recursive` |
+| `_config.py` | Container `Config` dataclass + `Logger` | `Config`, `Logger` |
+| `_timing.py` | Startup-timing instrumentation | `StartupTimer`, `timed_phase` |
+| `_user.py` | User/UID/GID + repo-permission setup | `setup_user`, `setup_repo_permissions`, `_find_free_uid`, `_resolve_uid_conflict`, `_resolve_gid_conflict` |
+| `_worktrees.py` | Worktree validation, prebuilt-deps restore, `~/egg` symlink | `setup_worktrees`, `restore_prebuilt_deps`, `setup_egg_symlink` |
+| `_environment.py` | Environment, git, gateway-CA, Anthropic-API setup | `setup_environment`, `setup_git`, `setup_gateway_ca`, `setup_anthropic_api` |
+| `_exec.py` | Subprocess exec path with stderr capture + CWD handling | `run_exec`, `_chdir_to_single_repo`, `_exclude_from_git` |
+| `_claude.py` (largest, 348 lines) | Claude Code config, agent-rules, bashrc setup | `setup_claude`, `setup_agent_rules`, `setup_bashrc` |
+| `_gateway_health.py` | Gateway readiness / network-lockdown health check | `check_gateway_health` |
+| `_completion.py` | Orchestrator completion signalling + exit cleanup | `signal_orchestrator_completion`, `cleanup_on_exit` |
+| `_command_timeout.py` | Bash command-timeout wrapper installation | `setup_command_timeout` |
+
+Pure refactor: every symbol is AST-identical to the pre-split file — no behavior change. **Dockerfile packaging:** the source file became a sub-package, so the single-file `COPY sandbox/entrypoint.py /usr/local/bin/entrypoint.py` + `ENTRYPOINT entrypoint.py` was replaced by running the package over `PYTHONPATH` (`/opt/egg-runtime/sandbox`) via `ENTRYPOINT ["python3", "-m", "entrypoint"]`; `entrypoint/__main__.py` dispatches to `entrypoint.main()`. Module-level `patch("entrypoint._foo")` targets resolve through the barrel; tests that patch a setup helper called from `main()` (e.g. `patch("entrypoint.setup_git")`) hit the barrel namespace where `main()` references it.
