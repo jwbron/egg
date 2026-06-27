@@ -992,6 +992,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "da4c2a9231118f2483e9b21ea7b2c29ce0be90b7": {
+      "branch": "egg/issue-3312/slice-14",
+      "patch_id": "22dd08aa3c2a1fa3e2cd9047057d5bff70ce3576",
+      "pipeline_id": "issue-3312",
+      "registered_at": "2026-06-27T15:48:48.138965+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "dcf861249a0c342a89193a2bbde609cfccaceb9e": {
       "branch": "egg/issue-3312/slice-12",
       "patch_id": "cfa440ca530844a2a769257c2b6cb3930415599c",
