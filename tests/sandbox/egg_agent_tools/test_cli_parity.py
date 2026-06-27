@@ -57,7 +57,7 @@ class TestCmdAddDecisionParity:
                 "egg_agent_tools.handlers.sdlc.register_open_question",
                 return_value=fake,
             ),
-            patch("egg_lib.contract_cli.get_contract_identifier", return_value=1765),
+            patch("egg_lib.contract_cli._commands.get_contract_identifier", return_value=1765),
         ):
             rc, stdout, stderr = _capture(contract_cli.cmd_add_decision, ns)
         assert rc == 0
@@ -68,7 +68,7 @@ class TestCmdAddDecisionParity:
         err = GatewayError("server down", status_code=500)
         with (
             patch("egg_agent_tools.handlers.sdlc.register_open_question", side_effect=err),
-            patch("egg_lib.contract_cli.get_contract_identifier", return_value=1765),
+            patch("egg_lib.contract_cli._commands.get_contract_identifier", return_value=1765),
         ):
             # main() wraps cmd_* and catches GatewayError.
             with patch.object(
@@ -87,7 +87,7 @@ class TestCmdAddDecisionParity:
             phase=None,
             format="json",
         )
-        with patch("egg_lib.contract_cli.get_contract_identifier", return_value=None):
+        with patch("egg_lib.contract_cli._commands.get_contract_identifier", return_value=None):
             rc, stdout, stderr = _capture(contract_cli.cmd_add_decision, ns)
         assert rc == 1
         assert "Contract identifier required" in stderr
@@ -110,7 +110,7 @@ class TestCmdAddFeedbackParity:
         }
         with (
             patch("egg_agent_tools.handlers.sdlc.request_feedback", return_value=fake),
-            patch("egg_lib.contract_cli.get_contract_identifier", return_value=1765),
+            patch("egg_lib.contract_cli._commands.get_contract_identifier", return_value=1765),
         ):
             rc, stdout, stderr = _capture(contract_cli.cmd_add_feedback, ns)
         assert rc == 0
@@ -132,7 +132,7 @@ class TestCmdAddFeedbackParity:
         }
         with (
             patch("egg_agent_tools.handlers.sdlc.request_feedback", return_value=fake),
-            patch("egg_lib.contract_cli.get_contract_identifier", return_value=1765),
+            patch("egg_lib.contract_cli._commands.get_contract_identifier", return_value=1765),
         ):
             rc, stdout, stderr = _capture(contract_cli.cmd_add_feedback, ns)
         assert rc == 0
@@ -146,7 +146,7 @@ class TestCmdAddFeedbackParity:
             question=[],
             format="json",
         )
-        with patch("egg_lib.contract_cli.get_contract_identifier", return_value=1765):
+        with patch("egg_lib.contract_cli._commands.get_contract_identifier", return_value=1765):
             rc, stdout, stderr = _capture(contract_cli.cmd_add_feedback, ns)
         assert rc == 1
         assert "At least one --question" in stderr
@@ -166,7 +166,7 @@ class TestCmdCompleteTaskParity:
                 "egg_agent_tools.handlers.task.task_complete",
                 return_value={"ok": True, "task": "task-1-2", "commit": None},
             ),
-            patch("egg_lib.contract_cli.get_contract_identifier", return_value=1765),
+            patch("egg_lib.contract_cli._commands.get_contract_identifier", return_value=1765),
         ):
             rc, stdout, stderr = _capture(contract_cli.cmd_complete_task, ns)
         assert rc == 0
@@ -189,7 +189,7 @@ class TestCmdCompleteTaskParity:
                     "commit": "abcdef1234567890",
                 },
             ),
-            patch("egg_lib.contract_cli.get_contract_identifier", return_value=1765),
+            patch("egg_lib.contract_cli._commands.get_contract_identifier", return_value=1765),
         ):
             rc, stdout, stderr = _capture(contract_cli.cmd_complete_task, ns)
         assert rc == 0
@@ -203,7 +203,7 @@ class TestCmdCompleteTaskParity:
                 "egg_agent_tools.handlers.task.task_complete",
                 side_effect=GatewayError("bang", status_code=500),
             ),
-            patch("egg_lib.contract_cli.get_contract_identifier", return_value=1765),
+            patch("egg_lib.contract_cli._commands.get_contract_identifier", return_value=1765),
         ):
             err_buf = io.StringIO()
             with redirect_stderr(err_buf):

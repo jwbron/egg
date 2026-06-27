@@ -1215,7 +1215,7 @@ class TestMakeGatewayRequestAuthHeader:
 
         with (
             patch.dict("os.environ", {"GATEWAY_URL": gateway_url}),
-            patch("egg_lib.contract_cli.get_session_token", return_value=test_token),
+            patch("egg_lib.contract_cli._gateway.get_session_token", return_value=test_token),
         ):
             make_gateway_request("/api/v1/test")
 
@@ -1229,7 +1229,7 @@ class TestMakeGatewayRequestAuthHeader:
 
         with (
             patch.dict("os.environ", {"GATEWAY_URL": gateway_url}),
-            patch("egg_lib.contract_cli.get_session_token", return_value=test_token),
+            patch("egg_lib.contract_cli._gateway.get_session_token", return_value=test_token),
         ):
             make_gateway_request("/api/v1/test")
 
@@ -1241,7 +1241,7 @@ class TestMakeGatewayRequestAuthHeader:
 
         with (
             patch.dict("os.environ", {"GATEWAY_URL": gateway_url}),
-            patch("egg_lib.contract_cli.get_session_token", return_value=None),
+            patch("egg_lib.contract_cli._gateway.get_session_token", return_value=None),
         ):
             make_gateway_request("/api/v1/test")
 
