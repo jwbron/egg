@@ -87,4 +87,22 @@ Pure refactor, no behaviour change. Patch seams preserved: class-level `patch.ob
 
 Pure refactor, no behaviour change. Patch seams preserved: module-level `patch("routes.phases._foo")` / `patch("routes.phases.<name>")` targets resolve through the barrel; the private submodules reach barrel-patched dependencies (`get_pipeline_state_lock`, `get_decision_queue`, the `models` / `state_store` re-exports, etc.) via `import routes.phases as _pkg`, so the pre-split module-global patch points keep working unchanged.
 
-This subsection, `routes/decisions/`, and `state_store/` are the landed `orchestrator/` decompositions; later orchestrator slices append their own subsections here.
+### `routes/deployment/` — deployment introspection & action endpoints ([#3312](https://github.com/jwbron/egg/issues/3312), slice 5)
+
+`deployment.py` (1,854 lines) → `routes/deployment/` (largest submodule `_manifest_validation.py`, 470 lines). The `deployment_bp` blueprint plus its seven `@deployment_bp.route` thin wrappers stay in the barrel (decision-8); each delegates to a handler body in a private submodule. The barrel also keeps the **canonical rollout / progress-stream state** (`_REBUILD_IN_PROGRESS`, `_REBUILD_ACTIVE_STREAM_ID`, the `_STREAM_*` buffers/locks) on the package module: these were pre-split module globals that both the tests and `_rebuild` rebind, so the single binding must stay on the barrel. The barrel does explicit per-symbol re-exports of the externally-referenced and test-patched surface.
+
+| Submodule | Responsibility | Key symbols |
+|-----------|----------------|-------------|
+| `__init__.py` (barrel, 250 lines) | Stable public API: holds `deployment_bp` + the seven route thin wrappers (decision-8); owns the canonical rollout/progress-stream state; per-symbol re-exports of the patched/public surface | `deployment_bp`, `get_deployment_context`, `get_service_logs`, `validate_deployment_manifests`, `prune_worktrees_proxy`, `validate_network_isolation`, `rebuild_and_rollout`, `rebuild_stream_read`, `_REBUILD_IN_PROGRESS`, `_STREAM_BUFFERS` (+ re-exports of all symbols below) |
+| `_runtime.py` (120 lines) | Runtime detection + degrade-gracefully payloads | `_current_runtime`, `_resolve_runtime`, `_probe_kubernetes_reachable`, `_not_available_on_runtime`, `_runtime_detection_failed` |
+| `_cluster_detection.py` (136 lines) | k3s / CNI / image-tag apiserver probes | `_detect_k3s`, `_detect_cni`, `_collect_egg_image_tags`, `_NETWORK_POLICY_CNIS` |
+| `_context.py` (163 lines) | `get_deployment_context` body + payload builder | `get_deployment_context`, `_build_deployment_context_payload` |
+| `_service_logs.py` (192 lines) | `get_service_logs` body + log allowlist | `get_service_logs`, `_SERVICE_LOG_ALLOWLIST`, `_MAX_LOG_LINES` |
+| `_manifest_validation.py` (largest, 470 lines) | `validate_deployment_manifests` body + kustomize/warning rules | `validate_deployment_manifests`, `_run_kustomize`, `_validate_deployment_docs`, `_deployment_containers`, `_deployment_volumes`, `_warn`, `_DEFAULT_OVERLAY` |
+| `_prune.py` (48 lines) | `prune_worktrees_proxy` — gateway worktree-prune proxy | `prune_worktrees_proxy` |
+| `_network_probe.py` (418 lines) | `validate_network_isolation` body + probe-Job lifecycle | `validate_network_isolation`, `_submit_probe_job`, `_wait_for_probe_pod`, `_read_probe_log`, `_delete_probe_job`, `_parse_probe_output`, `_build_probe_job_manifest`, `_build_probe_env`, `PROBE_COMMAND_TEMPLATE`, `_K8S_LABEL_VALUE_RE` |
+| `_rebuild.py` (301 lines) | `rebuild_and_rollout` + `rebuild_stream_read` bodies + progress-stream plumbing | `rebuild_and_rollout`, `rebuild_stream_read`, `_run_redeploy_subprocess`, `_stream_append`, `_stream_snapshot`, `_stream_mark_done`, `_stream_is_done`, `_reap_stale_streams_locked` |
+
+Pure refactor, no behaviour change. Patch seams preserved: module-level `patch("routes.deployment._foo")` / `patch("routes.deployment.<name>")` targets (incl. `patch("routes.deployment.subprocess.run")`) resolve through the barrel; the private submodules reach barrel-patched dependencies and the canonical rollout/stream state via `import routes.deployment as _pkg`, so the pre-split module-global patch points keep working unchanged.
+
+`routes/decisions/`, `state_store/`, `routes/phases/`, and `routes/deployment/` are the landed `orchestrator/` decompositions; later orchestrator slices append their own subsections here.
