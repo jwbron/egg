@@ -66,13 +66,6 @@ files:
   # entry follows the same pattern as the other slice-15 targets.
   orchestrator/routes/phases.py:
     issue: "2261"
-  # #3033 added task_description surfacing to _print_contract_summary,
-  # #3124 added the operator complete-task route, executable decision
-  # resolution dispatch, and impasse-escalation option, pushing the file
-  # from ~1,490 lines to ~1,520 lines (20 over the 1,500-line hard cap).
-  # Decompose in a follow-up PR.
-  orchestrator/routes/decisions.py:
-    issue: "3124"
   # #3231 added the per-iteration operator-kickback rendering
   # (_render_iteration_feedback_section + _extract_iteration_feedback +
   # the ITERATION_FEEDBACK_MAX_CHARS cap + envelope-cap wiring + the
