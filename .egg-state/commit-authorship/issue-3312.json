@@ -1200,6 +1200,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "f6ad6a21cf7335353538c80ba609e037f4f62d47": {
+      "branch": "egg/issue-3312/slice-17",
+      "patch_id": "1f7c537f3c69dc25fd71775245f3ca63f98eb8e1",
+      "pipeline_id": "issue-3312",
+      "registered_at": "2026-06-27T19:13:56.697514+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "f816792a0576c02ab9011428f1e7749887478ef9": {
       "branch": "egg/issue-3312/slice-14",
       "patch_id": "67372a9cee7fce8fcd84a5f3df34fc10984e9f72",
