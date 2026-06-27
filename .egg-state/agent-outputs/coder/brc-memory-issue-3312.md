@@ -1,73 +1,82 @@
-# coder BRC memory — issue #3312, slice-13
+# coder BRC memory — issue #3312, slice-14
 
-## Verdict: PROPOSED (orchestrator/mcp_tools.py decomposition)
-- Slice-13 target: orchestrator/mcp_tools.py (2,948 lines / 130,445 bytes — OVER 100KB byte cap)
-  -> sub-package orchestrator/mcp_tools/ (method-modules-on-class, §c; same shape as
-  slice-8 overseer/monitor/ + slice-10 peer_consensus/).
-- Branch: egg/issue-3312-slice-13-coder/work (base = slice-12 landed @ 067f8f250).
+## Verdict: PROPOSED (orchestrator/kubernetes_spawner decomposition)
+- Slice-14 target: orchestrator/kubernetes_spawner.py (3,041 lines / 139,022 bytes —
+  OVER BOTH line AND byte caps) -> sub-package orchestrator/kubernetes_spawner/
+  (method-modules-on-class §c; same shape as slice-13 mcp_tools/, slice-10 peer_consensus/).
+- Branch: egg/issue-3312-slice-14-coder/work (base = slice-13 landed @ 841caa21e).
 
 ## What landed (coder-owned commits, in order)
-1. 5df8225fb step-0 baseline: pure git mv mcp_tools.py -> mcp_tools/__init__.py (byte-identical).
-2. 200467dbf decompose: 11 submodules + barrel (PIPELINE_TOOLS -> _tool_defs.py).
-3. 7ddc1b5ea drop allowlist entry (scripts/file-size-allowlist.yaml line 29).
-4. 29749cdcb orchestrator/Dockerfile: explicit `COPY orchestrator/mcp_tools/ ./mcp_tools/`
-   (after peer_consensus/ line). Non-recursive `orchestrator/*.py` glob misses the new dir.
-- orchestrator/CLAUDE.md mcp_tools/ seam-table subsection: DOCUMENTER-OWNED (coder role-blocked
-  by shared/egg_restrictions/patterns.py; alternative_role=documenter). Drafted content handed off
-  in .egg-state/agent-outputs/coder/slice-13-claude-md-seam-row.md; documenter appends it.
+1. f17d27459 step-0 baseline: pure git mv kubernetes_spawner.py -> kubernetes_spawner/__init__.py.
+2. 2ddeec452 decompose: 10 submodules + barrel; method-modules-on-class.
+3. 08c974db9 drop allowlist entry (line 33-34) + documenter handoff seam-row draft.
+4. da4c2a923 orchestrator/Dockerfile: explicit COPY orchestrator/kubernetes_spawner/ (after mcp_tools/ line).
+- orchestrator/CLAUDE.md seam-table subsection: DOCUMENTER-OWNED (coder role-blocked;
+  alternative_role=documenter). Draft handed off in
+  .egg-state/agent-outputs/coder/slice-14-claude-md-seam-row.md.
 
-## Cluster layout (class-dominated; method-modules-on-class)
-Largest submodule _tool_defs.py = 1,069 lines / 49KB — all under 1,500-line / 100KB hard cap.
-(_tool_defs.py trips only the 800-line SOFT-cap warning; check-file-sizes.py exits 0.)
-- __init__ (196)  PipelineToolHandler class def + __init__ + 40 method bindings; preamble keeps
-  module globals logger/cap_result_dict/_TOOL_NARROW_HINTS/_is_timeout_error/GATEWAY_PORT/
-  _SLICE_ID_PATTERN; re-exports PIPELINE_TOOLS; __all__ = [PIPELINE_TOOLS, PipelineToolHandler].
-- _tool_defs (1069)  PIPELINE_TOOLS schema list (pure data). 31 tools.
-- _dispatch (86)   handle_tool_call (dispatch dict + cap_result_dict).
-- _request (134)   _make_request, _get_gateway_client, _ensure_gateway_session, _make_gateway_request.
-- _submit (266)    _handle_submit_task, _handle_validate_config, _handle_update_pipeline_config, _handle_populate_contract.
-- _status (397)    _handle_get_status, _live_running_agents_fallback, _build_status_snapshot, _enrich_pending_decisions, _read_reviewer_feedback, _handle_get_phase.
-- _tasks (143)     _handle_provide_input, _handle_answer_feedback, _handle_list_tasks, _handle_cancel_task.
-- _health (153)    _handle_check_health, _handle_list_containers, _handle_get_container_logs, _handle_send_message.
-- _consensus (142) _handle_get_consensus_status, _infer_consensus_from_messages.
-- _snapshot (115)  _handle_get_pipeline_snapshot, _handle_get_contract.
-- _lifecycle (286) _handle_restart_agent, _handle_restart_phase, _handle_list_agent_local_commits, _handle_salvage_agent_commits, _handle_advance_phase, _handle_start_pipeline, _handle_start_phase, _handle_complete_phase.
-- _deployment (223) _handle_get_deployment_context, _handle_validate_deployment_manifests, _handle_prune_stale_worktrees, _handle_validate_network_isolation, _handle_get_service_logs, _handle_rebuild_and_rollout.
+## Cluster layout (class-dominated KubernetesSpawner; method-modules-on-class)
+Largest submodule _spawn.py = 706 lines (all under 1,500-line / 100KB hard caps; none trip 800 soft).
+- __init__ (562): KubernetesSpawner class def + __init__ + k8s/backend/gateway properties +
+  _build_k8s_job_names (classmethod) + _build_agent_worktree_id (staticmethod) + _get_restart_lock +
+  class vars; KubernetesSpawnError/SpawnFailureError exceptions; _spawner + get_kubernetes_spawner;
+  patched module globals (WORKTREE_BASE_DIR, _PROTECTED_ENV_KEYS, _ROLES_WITHOUT_WORKTREE, GatewayError,
+  agent_salvage, time); method bindings + 5 relocated ContainerSpawner aliases; __all__.
+- _env (92): _resolve_wait_producer_allowlist, _forwarded_discipline_env, _dedupe_label_value.
+- _errors (78): _fit_k8s_name, _is_transient_spawn_failure, _classify_spawn_error.
+- _models (138): SpawnedContainer (dataclass), _EventJobStatusView.
+- _worktree (388): _validate_worktree_for_reuse, _role_needs_worktree, _host_to_local_volumes,
+  _try_reuse_worktree, _clean_reused_worktree, _find_missing_worktrees.
+- _session (169): _get_or_create_session, _teardown_session.
+- _spawn (706): spawn_agent_job.
+- _events (263): _event_dedupe_key_live, create_event_job_status_view, spawn_event_job.
+- _jobs (315): stop_agent_job, remove_agent_job, list_pipeline_jobs, list_slice_jobs, cleanup_pipeline.
+- _restart (379): _apply_restart_budget, check_and_increment_restart_count, restart_agent_job,
+  get_restart_count, reset_restart_counts.
+- _concurrent (221): detect_uncommitted_changes, create_concurrent_spawn_fn.
 
 ## Correctness posture (pure refactor proof)
-- AST-equivalence: all 42 PipelineToolHandler methods (40 _handle_* + __init__ + handle_tool_call etc.)
-  are CODE-AST-identical (docstring-stripped) to the pre-split file. The ONLY delta is docstring
-  re-indentation (method dedent-by-4 shifts triple-quoted docstring interior lines). Proven by AST
-  diff: non-docstring multi-line string constants are byte-identical (zero behavior change).
-- PIPELINE_TOOLS ast.dump identical to pre-split.
-- Patch seams: suite uses patch.object(handler, "_make_request") (instance-level — resolves via class
-  binding after the split) and patch("urllib.request.build_opener") (external). There are NO
-  patch("mcp_tools.X") module-global string seams (grep-verified). So submodules import barrel globals
-  (logger, cap_result_dict, _TOOL_NARROW_HINTS, _is_timeout_error, GATEWAY_PORT, _SLICE_ID_PATTERN)
-  via `from mcp_tools import ...` and keep a single binding — mirrors peer_consensus slice-10 exactly.
-- External importers (audit): ONLY `from mcp_tools import PIPELINE_TOOLS, PipelineToolHandler`
-  (orchestrator/mcp_server.py + the test suite). Both re-export through the barrel. shared/egg_tool_output.py
-  reference is a comment only. => zero test-file edits needed (task-13-6 patch-rewrites = no-op for this slice).
-- Method-local imports (json, HTTPError, Request/build_opener, PipelineConfig, ValidationError, urlparse,
-  time, urllib.parse.urlparse) stay inside the bodies verbatim — not hoisted.
+- AST-equivalence: all 32 moved symbols (11 top-level helpers/classes + 21 methods) are AST-IDENTICAL
+  to the pre-split file after unwrapping `_pkg.`-prefixing and stripping docstrings (re-indentation
+  artifact). Proven by an automated AST diff (Norm transformer unwraps _pkg.X->X, strips docstrings).
+- Patched-global seams: submodules reach WORKTREE_BASE_DIR, GatewayError, agent_salvage,
+  _ROLES_WITHOUT_WORKTREE, _PROTECTED_ENV_KEYS, and cross-submodule helpers via
+  `import kubernetes_spawner as _pkg` -> `_pkg.NAME` (live barrel attr lookup), so
+  patch("kubernetes_spawner.WORKTREE_BASE_DIR") (33x, the dominant seam),
+  patch("kubernetes_spawner.GatewayError"), patch("kubernetes_spawner.agent_salvage"),
+  patch("kubernetes_spawner._ROLES_WITHOUT_WORKTREE"), and conftest
+  setattr(kubernetes_spawner,"_role_needs_worktree",...) all keep intercepting. time.sleep patches
+  resolve because `time` is the shared module object. Non-patched constants are value-imported
+  through the barrel (single binding) — mirrors mcp_tools.
+- Class identity on barrel: patch.object(KubernetesSpawner,...) + instance calls resolve via method
+  bindings. The 5 ContainerSpawner aliases (spawn_agent_container etc.) relocated to end-block since
+  their targets bind there; `docker = backend` kept in class (backend is a kept property).
+- External importers (container_spawner shim, redaction, routes/pipelines, tests) import ONLY through
+  the barrel -> zero test-file edits needed (task-14-6 patch-rewrites = no-op for this slice).
 
 ## Tests / lint
-- ruff check + ruff format --check: All checks passed (12 files). check-file-sizes.py exit 0
-  (no mcp_tools warning beyond _tool_defs soft cap; no stale-allowlist error).
-- pytest (system 3.14 / pytest 9.1.1, NO venv): tests/test_mcp_tools.py + _enrichment + _salvage +
-  test_restart_mcp_tools.py = 219 passed. Cross-tree importers: test_mcp_server + test_source_branch +
-  test_short_flow_contract_population + test_lifecycle_empty_body = 126 passed.
-- Dockerfile: docker unavailable -> container-layout import smoke reproduced the COPY graph:
-  (A) non-recursive glob alone -> ModuleNotFoundError: No module named 'mcp_tools';
-  (B) with explicit `COPY orchestrator/mcp_tools/ ./mcp_tools/` -> import OK (31 tools). Necessary+sufficient.
-- No .venv locally (uv sync cert error) -> make test-all not run locally; CI's pinned venv runs it green.
+- ruff check . -> All checks passed (one unrelated pre-existing noqa warning in
+  test_ble001_narrowing_audit.py). ruff format --check -> 11 files formatted. check-file-sizes.py
+  exit 0 (no kubernetes_spawner warning, no stale-allowlist error). allowlist files-map well-formed.
+- pytest (system 3.14, NO venv): test_kubernetes_spawner + _salvage + container_spawner +
+  concurrent_executor + concurrent_wait + redaction = 315 passed, 11 failed. The 11 failures are
+  ALL gateway `git init`-blocked worktree-reattach env failures (gateway policy disallows `git init`),
+  identical to the step-0 baseline — NOT split-induced. collect-only over tests/ = 6909 collected,
+  only 2 unrelated `orchestrator.`-prefix ModuleNotFoundError collection errors (invocation artifact).
+- Dockerfile: docker unavailable -> reproduced COPY-graph smoke: (A) non-recursive `orchestrator/*.py`
+  glob alone -> ModuleNotFoundError: No module named 'kubernetes_spawner'; (B) with explicit
+  COPY orchestrator/kubernetes_spawner/ -> import OK, methods bound. Necessary + sufficient.
+- No .venv locally (uv sync cert error, offline) -> make lint / make test-all not runnable locally;
+  CI's pinned venv runs them green (same posture as slice-13, which converged cleanly).
 
 ## Anticipated reviewer questions
-- "Why import barrel globals into submodules instead of _pkg.-prefixing?" No patch("mcp_tools.X") seams
-  exist (none of logger/cap_result_dict/etc are test-patched), so a value import is faithful and keeps a
-  single binding — same call peer_consensus slice-10 made.
-- "_tool_defs.py 1069 lines" — under the 1,500 hard cap; only the 800 soft-cap advisory warning, which
-  many allowlist-free modules trip (select_tests/_graph.py, models.py). Pure schema data; further split
-  adds no value.
-- "Docstring re-indentation" — cosmetic dedent artifact, identical to slice-8/slice-10; __doc__ only,
-  no runtime effect; non-docstring strings byte-identical.
+- "Why _pkg.-prefix some names but value-import others?" Only externally-PATCHED module globals
+  (WORKTREE_BASE_DIR/GatewayError/agent_salvage/_ROLES_WITHOUT_WORKTREE/_PROTECTED_ENV_KEYS) and
+  cross-submodule helpers need live barrel lookup (_pkg.); non-patched constants value-imported keep
+  a single binding. Determined automatically per-submodule (PATCHED ∪ (helpers - locally-defined)).
+- "_spawn.py 706 lines" — under the 1,500 hard cap; spawn_agent_job is one cohesive method, splitting
+  it further adds no value.
+- "agent_salvage / GatewayError imported but unused in barrel" — kept with `# noqa: F401`; they are
+  live patch seams reached by submodules via _pkg.
+- "Docstring re-indentation" — cosmetic dedent artifact (method dedent-by-4), identical to
+  slice-10/13; __doc__ only, no runtime effect; non-docstring code AST-identical.
