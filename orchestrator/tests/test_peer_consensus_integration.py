@@ -331,6 +331,31 @@ class TestProgressTimestamps:
         assert progress_ts is not None
         assert progress_ts > proposal_ts
 
+    def test_clear_resets_matrix_progress_timestamp(self, tracker):
+        """``clear()`` must drop the approval-matrix ACK/NACK timestamp (#3315).
+
+        ``restart_phase`` calls ``clear()`` to reset consensus state. Before
+        the fix, ``clear()`` left ``self.matrix`` populated, so a stale ACK/
+        NACK timestamp survived the restart and ``get_latest_progress_
+        timestamp`` kept reporting bus activity from the pre-restart phase —
+        tripping the convergence-stall / consensus-timeout clocks on the
+        freshly-restarted phase. A full clear must zero both signals.
+        """
+        tracker.handle_propose(
+            "coder", {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "abc1234"}
+        )
+        tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
+        # Both the proposal and the matrix ACK now carry timestamps.
+        assert tracker.get_latest_progress_timestamp() is not None
+        assert tracker.matrix.get_latest_entry_timestamp() is not None
+
+        tracker.clear()
+
+        # After a full clear, neither the proposal nor the matrix should
+        # report any bus activity — the restart starts the clock fresh.
+        assert tracker.get_latest_progress_timestamp() is None
+        assert tracker.matrix.get_latest_entry_timestamp() is None
+
 
 class TestAgentCrash:
     """Test agent crash handling."""

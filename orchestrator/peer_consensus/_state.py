@@ -180,6 +180,12 @@ def clear(self) -> None:
         self._last_auto_repropose_timestamp.clear()
         self._auto_repropose_counts.clear()
         self._last_explicit_propose_timestamp.clear()
+        # Reset the approval matrix too — otherwise stale ACK/NACK
+        # entry timestamps survive a restart and ``get_latest_progress_
+        # timestamp`` keeps reporting bus activity from the pre-restart
+        # phase, tripping the convergence-stall / consensus-timeout clocks
+        # on the freshly-restarted phase (#3315).
+        self.matrix.reset()
 
 
 def _un_confirm_stale_reviewers(
