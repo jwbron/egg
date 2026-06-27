@@ -1468,6 +1468,10 @@ class TestMidturnMessageHook:
             "EGG_PIPELINE_ID": "pipeline-test",
             "EGG_AGENT_ROLE": "coder",
             "EGG_MCP_TOOLS": "false",
+            # Isolate this mid-turn-hook assertion from the sibling
+            # in-tool-loop WORKING heartbeat hook (#3341), which also
+            # registers a PostToolUse hook under pipeline context.
+            "EGG_WORKING_HEARTBEAT": "false",
         },
     )
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
@@ -1499,6 +1503,10 @@ class TestMidturnMessageHook:
             "EGG_AGENT_ROLE": "coder",
             "EGG_MIDTURN_MESSAGES": "false",
             "EGG_MCP_TOOLS": "false",
+            # Disable the sibling WORKING heartbeat hook (#3341) too, so
+            # this asserts the mid-turn escape hatch leaves *no* PostToolUse
+            # hook rather than colliding with the heartbeat registration.
+            "EGG_WORKING_HEARTBEAT": "false",
         },
     )
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
