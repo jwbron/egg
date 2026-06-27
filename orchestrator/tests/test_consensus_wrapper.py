@@ -60,7 +60,7 @@ class TestEventPumpInvokesComposer:
         # Either the hard-coded production path OR the override env var
         # must be present so tests can swap the script for fakes.
         assert (
-            "/opt/egg-runtime/orchestrator/routes/event_prompt.py" in script
+            "/opt/egg-runtime/orchestrator/routes/event_prompt/__main__.py" in script
             or "EGG_EVENT_PROMPT_SCRIPT" in script
         ), (
             "Wrapper template must reference the event_prompt CLI script "

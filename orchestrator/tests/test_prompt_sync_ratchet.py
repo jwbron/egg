@@ -58,7 +58,11 @@ import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _SHARED_PROMPTS_DIR = _REPO_ROOT / "shared" / "prompts"
-_EVENT_PROMPT_PATH = _REPO_ROOT / "orchestrator" / "routes" / "event_prompt.py"
+# #3312 slice-6 decomposed event_prompt.py into the routes/event_prompt/
+# sub-package; the ratchet now scans every .py file in the package so the
+# prompt-constructing strings stay covered regardless of which submodule
+# holds them.
+_EVENT_PROMPT_DIR = _REPO_ROOT / "orchestrator" / "routes" / "event_prompt"
 
 
 # ---------------------------------------------------------------------------
@@ -125,8 +129,10 @@ _ALLOWLIST: tuple[tuple[str, str, int], ...] = (
     # merge). The token sits in a Python source comment, NOT in any
     # prompt-constructing string — agents never see it. Reworking the
     # comment to drop the literal token would strip the pointer
-    # reviewers depend on to navigate the deletion.
-    ("event_prompt.py", "git fetch", 1429),
+    # reviewers depend on to navigate the deletion. (#3312 slice-6 moved
+    # this comment from event_prompt.py:1429 to the _delta_builder.py
+    # submodule of the routes/event_prompt/ package.)
+    ("_delta_builder.py", "git fetch", 256),
 )
 
 
@@ -199,20 +205,32 @@ def test_shared_prompt_has_no_sync_mechanics(prompt_path: Path) -> None:
 
 
 def test_event_prompt_has_no_sync_mechanics() -> None:
-    """The composer in `orchestrator/routes/event_prompt.py` must not
-    embed `git fetch` / `git merge` / `git pull` imperatives or
+    """The composer in the `orchestrator/routes/event_prompt/` package
+    must not embed `git fetch` / `git merge` / `git pull` imperatives or
     brc-history disk paths in prompt-constructing strings.
 
     Rendered `git show` delta commands and `git log` re-review-scope
     commands remain — those are served-read companions (the wrapper
     performs the sync; the agent reads the embedded commands), not
     sync mechanics the agent is instructed to perform.
+
+    #3312 slice-6: scans every `.py` file in the sub-package so a
+    prompt-constructing string is covered no matter which submodule
+    holds it.
     """
-    text = _EVENT_PROMPT_PATH.read_text(encoding="utf-8")
-    findings = _filter_allowlist(_EVENT_PROMPT_PATH.name, _scan_text(text))
+    package_files = sorted(_EVENT_PROMPT_DIR.glob("*.py"))
+    assert package_files, (
+        f"no .py files found under {_EVENT_PROMPT_DIR.relative_to(_REPO_ROOT)}; "
+        f"the event_prompt sub-package must exist (#3312 slice-6)."
+    )
+    findings: list[tuple[str, str, int, str]] = []
+    for path in package_files:
+        text = path.read_text(encoding="utf-8")
+        for label, line_number, matched in _filter_allowlist(path.name, _scan_text(text)):
+            findings.append((path.name, label, line_number, matched))
     assert not findings, (
-        f"sync-mechanic / brc-history reference in "
-        f"{_EVENT_PROMPT_PATH.relative_to(_REPO_ROOT)}: {findings}; "
+        f"sync-mechanic / brc-history reference in the "
+        f"{_EVENT_PROMPT_DIR.relative_to(_REPO_ROOT)} package: {findings}; "
         f"the slice-5 cleanup deleted self-fetch fallback prose in "
         f"favor of the slice-1 NOT-synced banner and the rendered "
         f"`git show` per-SHA delta commands. New occurrences belong "

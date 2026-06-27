@@ -91,11 +91,12 @@ else:
 # ``git log {sha}..HEAD --not origin/{base} -p`` delta + NACK
 # payload + the contract's ``task_description`` (#3123, read from the
 # worktree contract file via the pod-inherited ``EGG_PIPELINE_ID`` /
-# ``EGG_ISSUE_NUMBER``). The composer lives at
-# ``/opt/egg-runtime/orchestrator/routes/event_prompt.py`` -- the
-# wrapper invokes its ``if __name__ == '__main__'`` CLI directly so the
-# heavy ``orchestrator.routes`` package ``__init__.py`` (Flask import)
-# is bypassed. ``EGG_EVENT_PROMPT_SCRIPT`` overrides the path for tests.
+# ``EGG_ISSUE_NUMBER``). The composer is the ``routes/event_prompt``
+# sub-package (#3312 slice-6); the wrapper invokes its
+# ``__main__.py`` entry directly so the package's standalone CLI runs
+# (``__main__`` bootstraps ``sys.path`` and calls ``_cli``) WITHOUT
+# importing the heavy ``orchestrator.routes`` package ``__init__.py``
+# (Flask import). ``EGG_EVENT_PROMPT_SCRIPT`` overrides the path for tests.
 #
 # When the composer fails (script missing, malformed memory file, git
 # log subprocess crash) we fall back to the slice-2 minimal stub so the
@@ -108,7 +109,7 @@ invoke_agent_for_event() {
     local role="${EGG_AGENT_ROLE:-unknown}"
     local slice="${EGG_SLICE_ID:-none}"
     local base_branch="${EGG_BASE_BRANCH:-main}"
-    local script_path="${EGG_EVENT_PROMPT_SCRIPT:-/opt/egg-runtime/orchestrator/routes/event_prompt.py}"
+    local script_path="${EGG_EVENT_PROMPT_SCRIPT:-/opt/egg-runtime/orchestrator/routes/event_prompt/__main__.py}"
     local prompt prompt_rc=1
 
     if [ -r "$script_path" ]; then

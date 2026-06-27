@@ -58,7 +58,9 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _SHARED_PROMPTS_DIR = _REPO_ROOT / "shared" / "prompts"
 _AGENT_RULES_DIR = _REPO_ROOT / "sandbox" / "agent-config" / "rules"
-_EVENT_PROMPT_PATH = _REPO_ROOT / "orchestrator" / "routes" / "event_prompt.py"
+# #3312 slice-6 decomposed event_prompt.py into the routes/event_prompt/
+# sub-package; the ratchet now scans every .py file in the package.
+_EVENT_PROMPT_DIR = _REPO_ROOT / "orchestrator" / "routes" / "event_prompt"
 
 
 # ---------------------------------------------------------------------------
@@ -110,8 +112,10 @@ _ALLOWLIST: tuple[tuple[str, str, int], ...] = (
     # authoritative agent-facing wording of the invariant — "Do NOT
     # block on ``egg-orch message wait-loop`` yourself: the orchestrator
     # owns the wait and spawns you one-shot per event (#3164)". The token
-    # is present precisely to forbid the call.
-    ("orchestrator/routes/event_prompt.py", "egg-orch message wait-loop", 984),
+    # is present precisely to forbid the call. (#3312 slice-6 moved this
+    # contract string from event_prompt.py:984 to the _compose.py
+    # submodule of the routes/event_prompt/ package.)
+    ("orchestrator/routes/event_prompt/_compose.py", "egg-orch message wait-loop", 160),
 )
 
 
@@ -184,14 +188,26 @@ def test_agent_facing_markdown_has_no_wait_instructions(prompt_path: Path) -> No
 def test_event_prompt_has_no_wait_instructions() -> None:
     """The per-event prompt composer must not instruct blocking waits.
     The single allowlisted occurrence is the contract sentence that
-    forbids them."""
-    text = _EVENT_PROMPT_PATH.read_text(encoding="utf-8")
-    findings = _filter_allowlist(
-        _EVENT_PROMPT_PATH.relative_to(_REPO_ROOT).as_posix(), _scan_text(text)
+    forbids them.
+
+    #3312 slice-6: scans every `.py` file in the routes/event_prompt/
+    sub-package so the contract string is covered no matter which
+    submodule holds it.
+    """
+    package_files = sorted(_EVENT_PROMPT_DIR.glob("*.py"))
+    assert package_files, (
+        f"no .py files found under {_EVENT_PROMPT_DIR.relative_to(_REPO_ROOT)}; "
+        f"the event_prompt sub-package must exist (#3312 slice-6)."
     )
+    findings: list[tuple[str, str, int, str]] = []
+    for path in package_files:
+        text = path.read_text(encoding="utf-8")
+        relpath = path.relative_to(_REPO_ROOT).as_posix()
+        for label, line_number, matched in _filter_allowlist(relpath, _scan_text(text)):
+            findings.append((relpath, label, line_number, matched))
     assert not findings, (
-        f"blocking-wait instruction in "
-        f"{_EVENT_PROMPT_PATH.relative_to(_REPO_ROOT)}: {findings}; "
+        f"blocking-wait instruction in the "
+        f"{_EVENT_PROMPT_DIR.relative_to(_REPO_ROOT)} package: {findings}; "
         f"the composer's only sanctioned mention is the negative "
         f"contract sentence ('Do NOT block on ... yourself'). New "
         f"occurrences either belong in wrapper-tier code or need a "
