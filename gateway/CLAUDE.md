@@ -53,4 +53,26 @@ When a module outgrows the 1,500-line / 100 KB cap in `scripts/file-size-allowli
 
 Pure refactor: every symbol is AST-identical to the pre-split file — no behavior change. **Dockerfile packaging:** `gateway/Dockerfile` gains `COPY gateway/git_client/ ./git_client/` (the non-recursive `COPY gateway/*.py ./` no longer matches the package dir), verified with an in-image `python -c 'import git_client'` smoke check.
 
-This is the first `gateway/` decomposition; later gateway slices (`worktree_manager/`, `gateway/`) append their own subsections below.
+### `worktree_manager/` — Git worktree lifecycle ([#3312](https://github.com/jwbron/egg/issues/3312), slice 12)
+
+`worktree_manager.py` (2,507 lines, 106,355 bytes — over the byte cap) → `worktree_manager/` (10 submodules; largest `_git_ops.py`, ~970 lines). Class-dominated: a single `WorktreeManager` (27 methods) plus module-level dataclasses, validators, and startup entry points. The split uses the **method-modules-on-class** shape — each submodule holds a cluster of `WorktreeManager` method implementations that the barrel binds onto the class, so the public class object is unchanged and `patch("worktree_manager.WorktreeManager._foo")` targets resolve through it. The barrel does explicit per-symbol re-exports and declares `__all__`, keeping `WorktreeManager`, the `WorktreeInfo` / `WorktreeRemovalResult` dataclasses, the `validate_identifier` / `validate_branch_ref` validators, the `startup_cleanup` / `get_active_docker_containers` entry points, and the `WORKTREE_BASE_DIR` / `REPOS_BASE_DIR` constants as the stable public API.
+
+| Submodule | Responsibility | Key symbols |
+|-----------|----------------|-------------|
+| `__init__.py` (barrel) | Stable public API: `WorktreeManager` class + per-symbol re-exports + `__all__`; binds the method-modules onto the class | `WorktreeManager`, `WorktreeInfo`, `WorktreeRemovalResult`, `validate_identifier`, `validate_branch_ref`, `startup_cleanup`, `get_active_docker_containers`, `WORKTREE_BASE_DIR`, `REPOS_BASE_DIR` |
+| `_lifecycle.py` | Worktree creation, default-branch resolution, and lookup | `__init__`, `resolve_default_branch`, `create_worktree`, `lookup_worktree` |
+| `_git_ops.py` (largest, ~970 lines) | `git` plumbing for worktree add: push-upstream config, credential env, assigned fork-point resolution, safe-ref reset of reused worktrees, `git worktree add` invocation | `_configure_push_upstream`, `_git_credential_env`, `_resolve_assigned_fork_point`, `_reset_reused_worktree_to_safe_ref`, `_run_git_worktree_add`, `_tracking_refspec` |
+| `_filesystem.py` | Ownership fixups and git-dir discovery | `_chown_single`, `_chown_recursive`, `_find_worktree_git_dir` |
+| `_phase.py` | Phase-scoped worktree create/cleanup | `create_phase_worktree`, `cleanup_phase_worktrees` |
+| `_removal.py` | Worktree + branch removal and clean-worktree teardown | `remove_worktree`, `_delete_worktree_branch`, `cleanup_clean_worktree` |
+| `_listing.py` | Worktree enumeration and container/repo path resolution | `list_worktrees`, `list_worktrees_for_pipeline`, `get_worktree_paths` |
+| `_orphan_mgmt.py` (~629 lines) | Orphan/stale cleanup, prune, and pack-file GC | `cleanup_orphaned_worktrees`, `prune_stale_worktrees`, `git_worktree_prune_all`, `list_orphan_worktree_dirs`, `cleanup_orphaned_pack_files`, `cleanup_stale_pipeline_worktrees`, `_is_pipeline_anchored` |
+| `_session.py` | Per-repo lock acquisition (container-to-worktree mapping serialization) | `_get_repo_lock` |
+| `_validation.py` | Identifier + branch-ref validation (re-exported through the barrel) | `validate_identifier`, `validate_branch_ref` |
+| `_startup.py` | Startup-cleanup entry point + active-container discovery + byte formatting | `startup_cleanup`, `get_active_docker_containers`, `_format_bytes` |
+
+Pure refactor: every symbol is AST-identical to the pre-split file — no behavior change. **Dockerfile packaging:** `gateway/Dockerfile` gains `COPY gateway/worktree_manager/ ./worktree_manager/` (the non-recursive `COPY gateway/*.py ./` no longer matches the package dir), verified with an in-image `python -c 'import worktree_manager'` smoke check.
+
+> Seam table documents the slice-12 target layout (per the architect slice goal); finalized per-submodule symbol placement tracks the coder's landed decomposition and is retagged to the shipped layout on the post-landing doc pass.
+
+`git_client/` was the first `gateway/` decomposition; the remaining gateway slice (`gateway/` itself, slice 18) appends its own subsection below.
