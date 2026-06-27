@@ -144,6 +144,22 @@
       "repo": null,
       "role": "documenter"
     },
+    "4c178319359c39fd2610cdc6a65e4b7f70e78f01": {
+      "branch": "egg/issue-3312/slice-3",
+      "patch_id": "0e5f464576ee3bc9f767b1e622865b8f5f99926c",
+      "pipeline_id": "issue-3312",
+      "registered_at": "2026-06-27T04:44:40.728904+00:00",
+      "repo": null,
+      "role": "coder"
+    },
+    "54be76a253f213841454b92ccd9b130d8efafa17": {
+      "branch": "egg/issue-3312/slice-3",
+      "patch_id": "7fe0989aa9f91681616b79bc06b64eee3fccbe58",
+      "pipeline_id": "issue-3312",
+      "registered_at": "2026-06-27T04:44:41.006284+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "5fa890c30941a18ca10493c6e6bbcc5213504554": {
       "branch": "egg/issue-3312/work",
       "patch_id": "4d084f278fa14c1257b2257f0dea839a784cf0c5",
@@ -199,6 +215,14 @@
       "registered_at": "2026-06-26T23:46:34.209132+00:00",
       "repo": null,
       "role": "task_planner"
+    },
+    "71e92895fcbacb4a7a47b7c15f8692573a839af7": {
+      "branch": "egg/issue-3312/slice-3",
+      "patch_id": "eaa7e285c55ec6b3e856774f7b8014eababb79b8",
+      "pipeline_id": "issue-3312",
+      "registered_at": "2026-06-27T04:44:40.445639+00:00",
+      "repo": null,
+      "role": "coder"
     },
     "8203e2b6b62a7dd9c4366cffc8ba0454e530360c": {
       "branch": "egg/issue-3312/work",
