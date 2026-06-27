@@ -13,7 +13,7 @@ files:
   docs/architecture/sdlc-pipeline.md: 2
   docs/architecture/slice-dag.md: 13
   docs/development/STRUCTURE.md: 5
-  docs/guides/concurrent-execution.md: 15
+  docs/guides/concurrent-execution.md: 16
   docs/guides/decomposition-pattern.md: 1
   docs/guides/pipeline-health-monitoring.md: 6
   docs/guides/sdlc-pipeline.md: 7
