@@ -37,6 +37,7 @@ from agent_model_resolution import (
     UPSTREAM_ANTHROPIC,
     AgentModelDecision,
     classify_model,
+    real_backend_window,
     reseed_threshold,
     resolve_agent_model,
 )
@@ -176,8 +177,8 @@ class _ExecutorEventSpawner:
         # ``spawn_event_job`` via ``event_action`` below), not on an
         # ownership flag — the EGG_EVENT_LOOP_OWNER env was retired in #3164.
         env = self._ex.get_agent_env(agent_role)
-        command, upstream, upstream_model, threshold = self._ex._build_event_spawn_params(
-            agent_role
+        command, upstream, upstream_model, threshold, real_window = (
+            self._ex._build_event_spawn_params(agent_role)
         )
         # Export the per-model reseed threshold so the in-pod resume-vs-reseed
         # gate (#3200 slice-8) and the #3249 measurement resolve a real-window
@@ -185,6 +186,13 @@ class _ExecutorEventSpawner:
         # branch). Inert unless a discipline/resume/measurement flag is on in the
         # pod — the only consumers read it (#3279); a plain default pod ignores it.
         env["EGG_RESEED_THRESHOLD"] = str(threshold)
+        # Export the REAL backend context window so the in-pod #3249 measurement
+        # resolves ``real_backend_window`` / ``window_utilization`` instead of
+        # degrading to None (``orchestrator`` is off the pod's ``PYTHONPATH``, so
+        # ``measurement.py``'s fallback import can't compute it — #3316). Symmetric
+        # with the ``EGG_RESEED_THRESHOLD`` injection above; the measurement reads
+        # this ``EGG_REAL_BACKEND_WINDOW`` override first (measurement.py:229).
+        env["EGG_REAL_BACKEND_WINDOW"] = str(real_window)
         # Warm-resume session-store substrate (#3278): pin the Claude session-store
         # location and the local pointer file the slice-8 gate round-trips, so the
         # wrapper's `egg-orch session-state pull|push` re-materialises the prior
@@ -602,8 +610,8 @@ class ConcurrentPhaseExecutor:
 
     def _build_event_spawn_params(
         self, role: AgentRole
-    ) -> tuple[list[str], str | None, str | None, int]:
-        """Return ``(command, upstream, upstream_model, reseed_threshold)`` for a role's event pod.
+    ) -> tuple[list[str], str | None, str | None, int, int]:
+        """Return ``(command, upstream, upstream_model, reseed_threshold, real_backend_window)`` for a role's event pod.
 
         The event-pump template composes its own per-event prompt at runtime
         (``invoke_agent_for_event``), so the initial prompt is irrelevant —
@@ -627,6 +635,16 @@ class ConcurrentPhaseExecutor:
         var* — not because each independently re-resolves ``args.model``. And sub-1M
         LiteLLM models (whose bare alias carries their real-backend identity) resolve
         against their real window, not the ``[1m]``-implied 1M (#3279).
+
+        ``real_backend_window`` is the true upstream context window (in tokens),
+        resolved from the same ``claude_code_alias`` via
+        :func:`agent_model_resolution.real_backend_window`. The in-pod #3249
+        measurement reads it from the ``EGG_REAL_BACKEND_WINDOW`` override to
+        compute ``window_utilization`` (occupancy / window); without it both
+        window-relative metrics degrade to None (#3316). It is returned
+        separately rather than recovered from ``reseed_threshold`` because the
+        threshold is ``min(FLOOR, MARGIN * real_window)`` and so is not
+        invertible once the floor binds.
         """
         decision = self._resolve_model_decision(role)
         command = build_consensus_wrapped_command(
@@ -638,7 +656,8 @@ class ConcurrentPhaseExecutor:
             upstream = decision.upstream
             upstream_model = decision.upstream_model
         threshold = reseed_threshold(decision.claude_code_alias)
-        return command, upstream, upstream_model, threshold
+        real_window = real_backend_window(decision.claude_code_alias)
+        return command, upstream, upstream_model, threshold, real_window
 
     def _orchestrator_side_confirm(self, tracker: Any, role: str) -> None:
         """Record a ``confirm``/``complete`` orchestrator-side — no pod (#3064).

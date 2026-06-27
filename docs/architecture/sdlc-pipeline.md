@@ -240,7 +240,7 @@ Operational impact:
   (hard-required, idempotent via `GatewayClient.lookup_open_pr`'s
   server-side head+base filter) and per-slice PRs are opened inline by
   `create_slice_pr` (idempotent via the same
-  `GatewayClient.lookup_open_pr` primitive, #2777 cq-8 / #2934). The
+  `GatewayClient.lookup_open_pr` primitive, #2777 / #2934). The
   legacy `_should_skip_pr_phase_auto_pr` skip gate and the PR-phase
   route/runner were removed.
 
