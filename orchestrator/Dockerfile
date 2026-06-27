@@ -44,6 +44,11 @@ WORKDIR /app
 COPY orchestrator/*.py ./
 COPY orchestrator/routes/ ./routes/
 COPY orchestrator/health_checks/ ./health_checks/
+# state_store became a sub-package (#3312, slice-3); the non-recursive
+# `orchestrator/*.py` glob above no longer copies it, so copy the dir
+# explicitly (mirrors routes/ + health_checks/) or `import state_store`
+# fails at orchestrator start.
+COPY orchestrator/state_store/ ./state_store/
 
 # Copy shared modules (egg_logging, egg_config, egg_contracts, egg_restrictions, egg_container, egg_agent, egg_git, egg_anchor, egg_health, egg_session_placeholder)
 COPY shared/egg_logging/ ./egg_logging/
