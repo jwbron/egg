@@ -268,11 +268,21 @@ mode_gate = _load_module_with_replaced_imports(
     GATEWAY_DIR / "mode_gate.py",
 )
 
-# worktree_manager has no relative imports to other gateway modules
-worktree_manager = _load_module_with_replaced_imports(
+# worktree_manager became a sub-package in #3312 slice-12. Like git_client
+# above, the single-file _load_module_with_replaced_imports loader cannot exec a
+# package (its __init__ uses ``from ._submodule import …`` relative imports), so
+# load it via an explicit spec with submodule_search_locations pointing at the
+# package dir. The barrel's credential-helper / git_cmd imports fall back to the
+# flat ``git_client`` module conftest registered above.
+_worktree_manager_pkg = GATEWAY_DIR / "worktree_manager"
+_worktree_manager_spec = _importlib_util.spec_from_file_location(
     "worktree_manager",
-    GATEWAY_DIR / "worktree_manager.py",
+    _worktree_manager_pkg / "__init__.py",
+    submodule_search_locations=[str(_worktree_manager_pkg)],
 )
+worktree_manager = _importlib_util.module_from_spec(_worktree_manager_spec)
+sys.modules["worktree_manager"] = worktree_manager
+_worktree_manager_spec.loader.exec_module(worktree_manager)
 
 # proxy_monitor has no relative imports to other gateway modules
 proxy_monitor = _load_module_with_replaced_imports(
