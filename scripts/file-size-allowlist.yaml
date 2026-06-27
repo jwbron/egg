@@ -32,8 +32,6 @@ files:
     issue: "2248"
   gateway/worktree_manager.py:
     issue: "2248"
-  gateway/git_client.py:
-    issue: "2248"
   orchestrator/routes/signals.py:
     issue: "2248"
   orchestrator/kubernetes_spawner.py:
