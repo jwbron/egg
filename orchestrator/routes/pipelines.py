@@ -13620,7 +13620,7 @@ _ROLE_DESCRIPTIONS: dict[str, tuple[str, str]] = {
         "results, gap reports back to the coder",
     ),
     "documenter": (
-        "Updates documentation for changes",
+        "Documents the current state of the code",
         "doc files, README updates, inline documentation",
     ),
     "refiner": (

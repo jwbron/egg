@@ -305,7 +305,7 @@ tests, and its mandate is two-fold: **(1) comprehensive regression coverage** â€
 
 ### `documenter`
 
-**Purpose**: Update documentation and READMEs.
+**Purpose**: Document the current state of the code.
 
 **File access** (defaults â€” overridable per-repo via `role_patterns:` in `repositories.yaml`):
 - Owned scope (allowed writes): **documentation and markdown only.**
