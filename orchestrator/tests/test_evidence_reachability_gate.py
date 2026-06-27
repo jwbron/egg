@@ -196,14 +196,16 @@ class TestEvidenceCommits:
         assert ids == ["task-2-1", "task-2-2", "task-2-3"]
 
     def test_format_evidence_rows(self) -> None:
+        # #3339: evidence_commits only ever emits role-bound rows, so the
+        # formatter always sees a concrete producer role.
         text = cc.format_evidence_rows(
             [
                 {"id": "task-2-2", "role": "documenter", "commit": "abc1234"},
-                {"id": "task-2-4", "role": None, "commit": "def5678"},
+                {"id": "task-2-4", "role": "coder", "commit": "def5678"},
             ]
         )
         assert "task-2-2 (role=documenter, commit=abc1234)" in text
-        assert "task-2-4 (role=unassigned, commit=def5678)" in text
+        assert "task-2-4 (role=coder, commit=def5678)" in text
 
 
 class TestEvidenceGateEnabled:

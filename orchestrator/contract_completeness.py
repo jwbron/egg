@@ -255,7 +255,11 @@ def evidence_commits(
 
 
 def format_evidence_rows(rows: list[dict[str, Any]]) -> str:
-    """One-line-per-row summary for evidence-reachability messages."""
+    """One-line-per-row summary for evidence-reachability messages.
+
+    Every row from ``evidence_commits`` is role-bound (``task.role`` is
+    truthy), so ``role`` is always a concrete producer role here.
+    """
     return "; ".join(
-        f"{r['id']} (role={r['role'] or 'unassigned'}, commit={r['commit']})" for r in rows
+        f"{r['id']} (role={r['role']}, commit={r['commit']})" for r in rows
     )
