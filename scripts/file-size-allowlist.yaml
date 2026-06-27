@@ -36,8 +36,6 @@ files:
     issue: "2248"
   gateway/git_client.py:
     issue: "2248"
-  orchestrator/overseer/monitor.py:
-    issue: "2248"
   orchestrator/peer_consensus.py:
     issue: "2248"
   orchestrator/routes/signals.py:
