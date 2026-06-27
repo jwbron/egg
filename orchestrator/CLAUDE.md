@@ -105,4 +105,26 @@ Pure refactor, no behaviour change. Patch seams preserved: module-level `patch("
 
 Pure refactor, no behaviour change. Patch seams preserved: module-level `patch("routes.deployment._foo")` / `patch("routes.deployment.<name>")` targets (incl. `patch("routes.deployment.subprocess.run")`) resolve through the barrel; the private submodules reach barrel-patched dependencies and the canonical rollout/stream state via `import routes.deployment as _pkg`, so the pre-split module-global patch points keep working unchanged.
 
-`routes/decisions/`, `state_store/`, `routes/phases/`, and `routes/deployment/` are the landed `orchestrator/` decompositions; later orchestrator slices append their own subsections here.
+### `routes/event_prompt/` — per-event BRC prompt composer ([#3312](https://github.com/jwbron/egg/issues/3312), slice 6)
+
+`event_prompt.py` (1,895 lines) → `routes/event_prompt/` (largest submodule `_delta_builder.py`, 279 lines). **Function-dominated helper module, NOT a Flask blueprint**: it assembles the single user prompt the slice-2 event-pump wrapper hands to `python3 -m egg_agent` per actionable BRC event. The public entry `compose_event_prompt` stays re-exported on the barrel; the section renderers, payload extractors, worktree IO, and the `git log` delta builder move to private submodules. The barrel does explicit per-symbol re-exports of the externally-referenced and test-patched surface. The standalone wrapper-bash entry point is `__main__.py` (the wrapper runs `python3 .../event_prompt/__main__.py <action>`), which bootstraps `sys.path` and calls `_cli`, bypassing the heavy `orchestrator.routes` package `__init__` (Flask) exactly as the pre-split standalone-script invocation did.
+
+| Submodule | Responsibility | Key symbols |
+|-----------|----------------|-------------|
+| `__init__.py` (barrel, 175 lines) | Stable public API: re-exports `compose_event_prompt` + the caps / renderer / extractor / IO / delta-builder / CLI surface so `patch("routes.event_prompt._foo")` keeps resolving | `compose_event_prompt` (+ re-exports of every symbol below) |
+| `__main__.py` (43 lines) | Standalone wrapper-bash entry point; bootstraps `sys.path` and calls `_cli`, bypassing the Flask `routes/__init__` | module entry (`python3 .../event_prompt/__main__.py <action>`) |
+| `_caps.py` (131 lines) | Envelope/excerpt caps, sentinels, `_truncate`, regexes | `PROMPT_ENVELOPE_MAX_BYTES`, `MEMORY_EXCERPT_MAX_CHARS`, `TASK_DESCRIPTION_MAX_CHARS`, `ITERATION_FEEDBACK_MAX_CHARS`, `_truncate`, `_LAST_REVIEWED_SHA_RE`, `_PRODUCER_HEADING_RE`, `_NACK_PAYLOAD_KEYS`, `_ENVELOPE_TRUNCATION_SENTINEL` |
+| `_compose.py` (258 lines) | `compose_event_prompt` body + envelope-cap pass | `compose_event_prompt` |
+| `_render_event.py` (94 lines) | Role banner + JSON event section | `_render_event_section`, `_strip_nacks_for_json` |
+| `_render_delta.py` (197 lines) | Per-producer git-log delta (inline + JIT-pull pointer) | `_render_producer_delta_section`, `_render_delta_pointer_section` |
+| `_render_nacks.py` (57 lines) | Open-NACK barrier section | `_render_nacks_section` |
+| `_render_memory.py` (98 lines) | Durable-memory section (inline + JIT-pull pointer) | `_render_memory_section`, `_render_memory_pointer_section` |
+| `_render_task.py` (276 lines) | `task_description` / iteration-feedback / issue-anchor sections | `_render_task_section`, `_render_iteration_feedback_section`, `_directive_meta_tag`, `_issue_anchor_fallback` |
+| `_payload.py` (257 lines) | Event-payload extractors | `_extract_changed_artifacts`, `_extract_current_producers`, `_extract_proposal_sha_for_producer`, `_extract_artifacts_for_producer`, `_extract_producer_role`, `_extract_nacks`, `_extract_iteration_feedback` |
+| `_memory_io.py` (163 lines) | Worktree contract/memory IO + path resolution | `_read_task_description`, `_read_memory_excerpt`, `_memory_path`, `_pipeline_id_token`, `_parse_per_producer_sha` |
+| `_delta_builder.py` (largest, 279 lines) | `git log` subprocess + per-producer delta entries | `_run_git_log`, `_build_delta_entries` |
+| `_cli.py` (227 lines) | Wrapper-bash CLI | `_cli`, `_context_discipline_enabled` |
+
+Pure refactor, no behaviour change. Patch seams preserved: module-level `patch("routes.event_prompt._foo")` / `patch("routes.event_prompt.<name>")` targets resolve through the barrel; the private submodules reach barrel-patched dependencies via `import routes.event_prompt as _pkg`, so the pre-split module-global patch points keep working unchanged. In particular `_build_delta_entries` calls `_run_git_log` through the package module object, so `patch("routes.event_prompt._run_git_log")` keeps intercepting it.
+
+`routes/decisions/`, `state_store/`, `routes/phases/`, `routes/deployment/`, and `routes/event_prompt/` are the landed `orchestrator/` decompositions; later orchestrator slices append their own subsections here.
