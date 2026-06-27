@@ -40,6 +40,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "292c7fd3838f0afd450839e80cab2b05b6ecb6bb": {
+      "branch": "egg/issue-3312/slice-1",
+      "patch_id": "dcecd02bf452f46dc3245a782265b62bc54d2fde",
+      "pipeline_id": "issue-3312",
+      "registered_at": "2026-06-27T03:21:32.791854+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "29bd6bdc8d88c7900f399afe9b5d10eb44cbed3a": {
       "branch": "egg/issue-3312/work",
       "patch_id": "77fa5bcf185cc2046df1dfd5c702a32441cce0c2",
@@ -111,6 +119,14 @@
       "registered_at": "2026-06-26T23:31:24.924923+00:00",
       "repo": null,
       "role": "task_planner"
+    },
+    "65a01e589396a0c1c747ee901183863221fd2909": {
+      "branch": "egg/issue-3312/slice-1",
+      "patch_id": "c62f85a5ad7fd3c921cecea26485fbe8497a2344",
+      "pipeline_id": "issue-3312",
+      "registered_at": "2026-06-27T03:21:32.787349+00:00",
+      "repo": null,
+      "role": "coder"
     },
     "6c5c2b26aab54448969083a86da6117d1c13f535": {
       "branch": "egg/issue-3312/work",
@@ -231,6 +247,14 @@
       "registered_at": "2026-06-26T23:44:30.518253+00:00",
       "repo": null,
       "role": "architect"
+    },
+    "ce20c2df6d85534a0328e3662bf0697c228575ca": {
+      "branch": "egg/issue-3312/slice-1",
+      "patch_id": "fea6937376c123eb61804086c7d43d3d7706cac8",
+      "pipeline_id": "issue-3312",
+      "registered_at": "2026-06-27T03:21:32.781251+00:00",
+      "repo": null,
+      "role": "coder"
     },
     "da3b1436ad3c1bcd1e38085fe0b6a77bb4ce0441": {
       "branch": "egg/issue-3312/work",
