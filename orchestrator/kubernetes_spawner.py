@@ -384,8 +384,11 @@ class _EventJobStatusView:
         :meth:`reap_terminated` (which only sweeps FAILED/EXITED stragglers),
         this removes the live pod too, so the role's shared worktree is left to
         the single newest producer. The delete uses force (foreground)
-        propagation so the racing pod is gone before this returns. Best-effort,
-        same as ``reap_terminated``; returns the number reaped.
+        propagation, which begins teardown of the pod and orders it ahead of the
+        Job's own removal — narrowing the overlap window against the newest
+        producer, though K8s garbage-collects the pod asynchronously, so it is
+        not guaranteed gone by the time this returns. Best-effort, same as
+        ``reap_terminated``; returns the number reaped.
         """
         return self._reap(dedupe_key, only_terminal=False)
 
@@ -400,9 +403,12 @@ class _EventJobStatusView:
         has already exited, so background propagation is fine. The supersession
         path (``only_terminal=False``) targets a *still-RUNNING* sibling whose
         whole purpose for being reaped is that it can still write the shared
-        worktree; force (foreground) propagation deletes its pod before the
-        call returns, narrowing the residual overlap window against the newest
-        producer that is about to spawn.
+        worktree; force (foreground) propagation begins teardown of its pod and
+        orders that ahead of the Job's own removal (unlike background, which
+        orphans the pod and removes the owner first). The pod is still
+        garbage-collected asynchronously, so it is not necessarily gone by the
+        time the call returns — but the ordering narrows the residual overlap
+        window against the newest producer that is about to spawn.
         """
         selector = f"{LABEL_EVENT_DEDUPE}={_dedupe_label_value(dedupe_key)}"
         try:
