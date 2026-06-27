@@ -1516,6 +1516,120 @@ class TestMidturnMessageHook:
         assert self._post_tool_use_hooks(mock_query) == []
 
 
+class TestWorkingHeartbeatHook:
+    """Issue #3341: pipeline sessions get a PostToolUse hook that re-emits a
+    WORKING heartbeat mid-turn, so a genuinely-busy producer stays visibly
+    alive and the health monitor's check_heartbeats tripwire only fires on
+    real silence. Gated on pipeline context (EGG_PIPELINE_ID + EGG_AGENT_ROLE)
+    with the EGG_WORKING_HEARTBEAT=false escape hatch.
+
+    The sibling mid-turn message poller (#3123) registers its own PostToolUse
+    hook under the same gate, so these tests disable it (EGG_MIDTURN_MESSAGES
+    =false) to isolate the heartbeat registration — except the explicit
+    "grows by one" test below, which keeps the poller on and asserts the
+    heartbeat hook is added *on top of* it. This positive coverage backs the
+    wiring that a prior revision of this PR shipped as a silent no-op.
+    """
+
+    @staticmethod
+    def _post_tool_use_hooks(mock_query):
+        opts = mock_query.call_args.kwargs["options"]
+        hooks = getattr(opts, "hooks", None) or {}
+        return hooks.get("PostToolUse", [])
+
+    @patch.dict(
+        os.environ,
+        {
+            "EGG_PIPELINE_ID": "pipeline-test",
+            "EGG_AGENT_ROLE": "coder",
+            "EGG_MCP_TOOLS": "false",
+            # Isolate the heartbeat hook from the sibling mid-turn poller
+            # (#3123), which also registers a PostToolUse hook here.
+            "EGG_MIDTURN_MESSAGES": "false",
+            # Default-enabled: assert the hook lands when the escape hatch is
+            # *unset*, so a future default flip can't silently drop it.
+            "EGG_WORKING_HEARTBEAT": "",
+        },
+    )
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_hook_registered_in_pipeline_session(self, mock_query):
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        post_hooks = self._post_tool_use_hooks(mock_query)
+        assert len(post_hooks) == 1
+        # No matcher → fires on every tool call (the emitter's interval gate
+        # makes that effectively free between actual heartbeat emits).
+        assert post_hooks[0].matcher is None
+        assert len(post_hooks[0].hooks) == 1
+
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_hook_grows_post_tool_use_list_by_one(self, mock_query):
+        # Baseline: pipeline context with the heartbeat hatch closed leaves
+        # only the mid-turn poller's PostToolUse hook.
+        baseline_env = os.environ.copy()
+        baseline_env.update(
+            {
+                "EGG_PIPELINE_ID": "pipeline-test",
+                "EGG_AGENT_ROLE": "coder",
+                "EGG_MCP_TOOLS": "false",
+                "EGG_WORKING_HEARTBEAT": "false",
+            }
+        )
+        baseline_env.pop("EGG_MIDTURN_MESSAGES", None)
+        with patch.dict(os.environ, baseline_env, clear=True):
+            assert _run_async(run_agent_async("test prompt")).success is True
+        baseline = len(self._post_tool_use_hooks(mock_query))
+
+        # Enabling the heartbeat (hatch unset) adds exactly one PostToolUse
+        # hook on top of the poller — it composes, it doesn't replace.
+        enabled_env = os.environ.copy()
+        enabled_env.update(
+            {
+                "EGG_PIPELINE_ID": "pipeline-test",
+                "EGG_AGENT_ROLE": "coder",
+                "EGG_MCP_TOOLS": "false",
+            }
+        )
+        enabled_env.pop("EGG_MIDTURN_MESSAGES", None)
+        enabled_env.pop("EGG_WORKING_HEARTBEAT", None)
+        with patch.dict(os.environ, enabled_env, clear=True):
+            assert _run_async(run_agent_async("test prompt")).success is True
+        enabled = len(self._post_tool_use_hooks(mock_query))
+
+        assert enabled == baseline + 1
+
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_hook_not_registered_outside_pipeline(self, mock_query):
+        env = os.environ.copy()
+        env.pop("EGG_PIPELINE_ID", None)
+        env.pop("EGG_AGENT_ROLE", None)
+        env.pop("EGG_WORKING_HEARTBEAT", None)
+        env["EGG_MCP_TOOLS"] = "false"
+        with patch.dict(os.environ, env, clear=True):
+            result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        assert self._post_tool_use_hooks(mock_query) == []
+
+    @patch.dict(
+        os.environ,
+        {
+            "EGG_PIPELINE_ID": "pipeline-test",
+            "EGG_AGENT_ROLE": "coder",
+            "EGG_MCP_TOOLS": "false",
+            # Disable the sibling mid-turn poller too, so this asserts the
+            # heartbeat escape hatch leaves *no* PostToolUse hook rather than
+            # colliding with the poller registration.
+            "EGG_MIDTURN_MESSAGES": "false",
+            "EGG_WORKING_HEARTBEAT": "false",
+        },
+    )
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_escape_hatch_disables_hook(self, mock_query):
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        assert self._post_tool_use_hooks(mock_query) == []
+
+
 class TestExitCodeSurfaceExcludesExTempfail:
     """Back the consensus-wrapper one-shot arm's exit-75 reservation.
 
