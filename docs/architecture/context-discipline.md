@@ -232,7 +232,7 @@ switches, each read in exactly one place:
 | `CLAUDE_CONFIG_DIR` | Claude Code (+ `egg_lib.session_state_sync`) | Pins the Claude session-store root (`/home/egg/.claude`) so the wrapper's pull/push and the agent agree on the transcript path regardless of HOME resolution. Injected into event pods alongside `EGG_SESSION_STATE_FILE` when warm resume is enabled (#3278). |
 | `EGG_RESEED_THRESHOLD` | `egg_agent.reseed.resolve_reseed_threshold` | Cross-boundary integer override of the reseed threshold. The sandbox runs with `orchestrator` off `PYTHONPATH`, so the orchestrator **always** computes `reseed_threshold(model)` and exports the integer here via `_ExecutorEventSpawner.spawn_event` ([#3284](https://github.com/jwbron/egg/issues/3284)); the gate's `None` fallback branch is inert on the production event-pump path. In dev/CI (where `orchestrator` is on `PYTHONPATH`) the gate also imports the helper directly. |
 | `EGG_CONTEXT_MEASUREMENT` | `egg_agent.measurement.measurement_enabled` | Opt-in for the emit-only per-event measurement surfaces (#3249). ON (and `EGG_PIPELINE_ID` set) → after each BRC event the agent emits the six context-discipline metrics through the progress + heartbeat surfaces; OFF (default) → the legacy path is byte-identical (no measurement emit). |
-| `EGG_REAL_BACKEND_WINDOW` | `egg_agent.measurement._resolve_real_window` | Cross-boundary integer override of the model's real backend window, mirroring `EGG_RESEED_THRESHOLD`. Because `orchestrator` is off `PYTHONPATH` in-pod, this is the channel that populates the window-relative metrics (`real_backend_window` / `window_utilization`) in production; the orchestrator import is a dev/CI-only fallback, and both metrics degrade to `None` when neither yields a value. |
+| `EGG_REAL_BACKEND_WINDOW` | `egg_agent.measurement._resolve_real_window` | Cross-boundary integer override of the model's real backend window, mirroring `EGG_RESEED_THRESHOLD`. The sandbox runs with `orchestrator` off `PYTHONPATH`, so the orchestrator **always** computes `real_backend_window(model)` and exports the integer here via `_ExecutorEventSpawner.spawn_event` ([#3316](https://github.com/jwbron/egg/issues/3316)); the measurement's orchestrator-import fallback is inert on the production event-pump path. In dev/CI (where `orchestrator` is on `PYTHONPATH`) the measurement also imports the helper directly. Both window-relative metrics degrade to `None` on pre-#3316 pods where the export is absent. |
 
 **Setting the flags in production.** `EGG_CONTEXT_DISCIPLINE`,
 `EGG_CONTEXT_MEASUREMENT`, and `EGG_SESSION_RESUME` are read in-pod but must be
@@ -250,6 +250,8 @@ per-spawn override still wins. `EGG_SESSION_STATE_FILE` carries a per-pod
 value and is NOT blindly forwarded — it still needs explicit per-pod wiring.
 `EGG_RESEED_THRESHOLD` was similarly per-pod-only but is now always injected
 by `_ExecutorEventSpawner.spawn_event` ([#3284](https://github.com/jwbron/egg/issues/3284)).
+`EGG_REAL_BACKEND_WINDOW` follows the same pattern and is also now always injected
+at event spawn time ([#3316](https://github.com/jwbron/egg/issues/3316)).
 
 **Master flag (`EGG_CONTEXT_DISCIPLINE`).** A single master context-discipline
 flag ([#3200](https://github.com/jwbron/egg/issues/3200)) gates the whole
