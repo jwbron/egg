@@ -26,8 +26,15 @@ It is the exact sibling of :class:`midturn_messages.MidturnMessagePoller`
 (#3123): same 30+-minute-turn problem, same hook shape (lockless fast-path
 predicate → ``asyncio.to_thread`` → fail-soft subprocess), and it reuses
 the same ``WORKING`` heartbeat the wrapper already emits — the
-schema-validated, per-role-deduped, rate-limited ``/heartbeat`` endpoint
-(#1897), which is exactly the signal ``check_heartbeats`` consumes.
+schema-validated, rate-limited ``/heartbeat`` endpoint (#1897), which is
+exactly the signal ``check_heartbeats`` consumes.
+
+``WORKING`` is in the route's ``_DEDUP_EXEMPT_HEARTBEAT_STATES``
+(``orchestrator/routes/messages.py``): the wrapper records one ``WORKING``
+beat before handing off, so without that exemption every in-tool-loop
+re-emit would dedup against the recorded state, emit no ``MESSAGE_SENT``
+event, and never refresh ``last_heartbeat`` — the feature would silently
+no-op. The exemption is what lets these ticks actually land.
 
 Design notes:
 
@@ -35,9 +42,9 @@ Design notes:
   agent is doing tool work, which *is* the liveness semantics we want, and
   it honours the wrapper's deliberate "no background emitter" stance.
 * The interval (default 120s) sits well under the 300s Tier-1 and 600s
-  implement-phase silence thresholds, so several ticks land before any
-  tripwire could fire, and well under the 20/min ``EGG_HEARTBEAT_RATE_LIMIT``
-  cap.
+  implement-phase silence thresholds, so several ticks land (and refresh
+  ``last_heartbeat``) before any tripwire could fire, and well under the
+  20/min ``EGG_HEARTBEAT_RATE_LIMIT`` cap.
 * Limitation: PostToolUse fires *after* a tool call returns, so a single
   uninterrupted tool call longer than the interval (e.g. one 10-minute
   ``make test-all`` Bash call) still does not tick mid-call. The dominant
@@ -115,6 +122,12 @@ class WorkingHeartbeatEmitter:
         interval_secs: float | None = None,
         now: Callable[[], float] = time.monotonic,
     ) -> None:
+        # ``pipeline_id`` / ``role`` are retained for identity/logging only —
+        # they intentionally do NOT scope the emission. ``_send`` shells out to
+        # ``egg-orch message heartbeat``, whose CLI handler reads the live
+        # ``EGG_PIPELINE_ID`` / ``EGG_AGENT_ROLE`` pod env (the same path the
+        # consensus wrapper's ``emit_heartbeat`` takes), so the heartbeat
+        # identity always comes from the env, not these fields.
         self.pipeline_id = pipeline_id
         self.role = role
         self.interval_secs = interval_secs if interval_secs is not None else _interval_secs()
@@ -161,6 +174,13 @@ class WorkingHeartbeatEmitter:
                 timeout=_EMIT_SUBPROCESS_TIMEOUT_SECS,
                 check=False,
             )
+        # NOTE: this is a PEP 758 multi-exception clause (Python 3.14+), NOT
+        # a Python-2 ``except E, name:`` capture — it catches both
+        # ``subprocess.SubprocessError`` and ``OSError``. ``ruff format``
+        # (target-version = py314) normalises the parenthesized
+        # ``except (A, B):`` to exactly this unparenthesized form, so the
+        # parens cannot be kept for readability without failing the format
+        # check; the comment carries that clarity instead.
         except subprocess.SubprocessError, OSError:
             return False
         return proc.returncode == 0

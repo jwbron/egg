@@ -276,13 +276,19 @@ To keep the liveness signal alive during the turn, the SDK driver
 hook backed by `shared/egg_agent/working_heartbeat.py`: at most once per
 `EGG_WORKING_HEARTBEAT_INTERVAL_SECS` (default 120 s) it re-emits the
 same `WORKING` heartbeat the wrapper does (`egg-orch message heartbeat`,
-the per-role-deduped rate-limited `/heartbeat` endpoint, #1897) — exactly
-the signal `check_heartbeats` consumes. The interval sits well under the
-300 s Tier-1 and 600 s implement-phase silence windows (several ticks land
-before any tripwire could fire) and far under the 20/min
-`EGG_HEARTBEAT_RATE_LIMIT` cap. It is event-driven on tool calls, not a
-background timer, so it honours the wrapper's "no background emitter"
-stance — a heartbeat fires only when the agent is doing tool work.
+the rate-limited `/heartbeat` endpoint, #1897) — exactly the signal
+`check_heartbeats` consumes. `WORKING` is dedup-exempt at the route
+(`_DEDUP_EXEMPT_HEARTBEAT_STATES`, the same treatment as
+`WAITING_FOR_EVENT`): the wrapper records a `WORKING` beat before handing
+off, so without the exemption every in-tool-loop re-emit would dedup
+against that recorded state, emit no `MESSAGE_SENT` event, and never
+refresh `last_heartbeat` — the feature would silently no-op. The interval
+sits well under the 300 s Tier-1 and 600 s implement-phase silence windows
+(several ticks land — and refresh `last_heartbeat` — before any tripwire
+could fire) and far under the 20/min `EGG_HEARTBEAT_RATE_LIMIT` cap. It is
+event-driven on tool calls, not a background timer, so it honours the
+wrapper's "no background emitter" stance — a heartbeat fires only when the
+agent is doing tool work.
 
 Limitation: PostToolUse fires *after* a tool call returns, so a single
 uninterrupted tool call longer than the interval (e.g. one 10-minute
