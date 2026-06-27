@@ -14,7 +14,7 @@
       "id": "slice-1",
       "name": "Decompose sandbox/egg_lib/contract_cli.py (1,501 lines) + add sandbox/CLAUDE.md seam table",
       "goal": "Decompose `sandbox/egg_lib/contract_cli.py` (1501 lines) into a sub-package; drop its allowlist entry; seam coverage in sandbox/CLAUDE.md (NEW seam table). head of the linear chain (no parent).",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -23,8 +23,8 @@
         {
           "id": "task-1-1",
           "description": "External-importer audit: git grep -nE every public symbol of contract_cli.py per the section-(d) recipe across tests/, sandbox/, orchestrator/, gateway/, shared/. Record which symbols have external references (must be re-exported) vs underscore-prefixed package-internal-only (may be skipped).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "ce20c2df6d85534a0328e3662bf0697c228575ca",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Audit output lists every public symbol with its external-reference status; the re-export set is derived from it.",
@@ -44,8 +44,8 @@
         {
           "id": "task-1-2",
           "description": "Step-0 baseline: git mv sandbox/egg_lib/contract_cli.py sandbox/egg_lib/contract_cli/__init__.py; verify imports resolve with make test-all; commit as a standalone bisectable baseline (move only, no extraction).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "292c7fd38",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Sub-package baseline commit is green (make test-all); diff is a pure move.",
@@ -65,8 +65,8 @@
         {
           "id": "task-1-3",
           "description": "Extract cohesive clusters into _<cluster>.py submodules (group by command/responsibility, e.g. argument parsing vs subcommand handlers vs IO helpers); __init__.py does explicit per-symbol re-exports for every externally-referenced symbol from task-1-1; keep one import style (dual-import or relative) consistent within the sub-package.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "65a01e589",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "All submodules <=1500 lines / <=100KB; barrel re-exports every external symbol; patch('...contract_cli._foo') targets still resolve.",
@@ -86,8 +86,8 @@
         {
           "id": "task-1-4",
           "description": "Drop contract_cli.py's entry from scripts/file-size-allowlist.yaml; CREATE a decomposition seam table in sandbox/CLAUDE.md (the file exists but has none) documenting the contract_cli/ submodule layout. This is the first sandbox/ slice so it stands up the table other sandbox slices append to.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "ce20c2df6d85534a0328e3662bf0697c228575ca",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Allowlist entry removed; sandbox/CLAUDE.md has a seam table with a concrete contract_cli/ row; make lint passes the ratchet.",
@@ -108,8 +108,8 @@
         {
           "id": "task-1-5",
           "description": "R3 container-packaging CONFIRM (SAME SLICE). Verify the sub-package reaches the sandbox image. Confirmed mechanism: sandbox/Dockerfile:361 `COPY . /opt/egg-runtime/` is RECURSIVE and `PYTHONPATH=/opt/egg-runtime/sandbox:/opt/egg-runtime/shared` (L378), so sandbox/egg_lib/contract_cli/ is auto-included \u2014 NO per-file COPY to update (unlike the orchestrator/gateway *.py globs). Re-confirm at implement time (build context / docker-setup.py path unchanged) and smoke-check `python -c 'import egg_lib.contract_cli'` in the built image; if packaging has shifted to a glob/pip path that excludes sub-packages, apply the COPY/packaging fix.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "ce20c2df6d85534a0328e3662bf0697c228575ca",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "egg_lib.contract_cli confirmed present + importable in the built sandbox image (recursive COPY . + PYTHONPATH); no regression; finding documented; sandbox/Dockerfile in files for traceability.",
@@ -129,8 +129,8 @@
         {
           "id": "task-1-6",
           "description": "Green the boundary: make lint + make test-all; apply mechanical test patch-path rewrites in-slice if any; file test-logic rewrites or surfaced bugs as 'Part of #3312' follow-ups.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "ce20c2df6d85534a0328e3662bf0697c228575ca",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "make lint + make test-all green; no behavior change in the diff.",
@@ -151,11 +151,11 @@
       ],
       "dependencies": [],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3312/work",
+      "integration_base_sha": "e94ee01f9fb942fd408c6f73cae7bb37942e3163",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3338,
+      "pr_url": "https://github.com/jwbron/egg/pull/3338",
       "review_feedback": []
     },
     {
@@ -2801,10 +2801,171 @@
       "resolved_by": "human",
       "resolved_at": "2026-06-26T23:51:56.971377Z",
       "debounce_until": null
+    },
+    {
+      "id": "cq-1",
+      "question": "[#2777 slice-4 TASK-4-4 case 5] Slice slice-1 of pipeline issue-3312 has an impossible status enum value or state combination (e.g. status not in PENDING/IN_PROGRESS/COMPLETE/BLOCKED, or PENDING with commits on the integration branch). Bootstrap reconciliation cannot classify the slice safely. How should the orchestrator proceed?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Mark slice complete and continue",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Restart slice from scratch",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Cancel pipeline for manual investigation",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-06-27T03:22:24.857575Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "ce20c2df6d85534a0328e3662bf0697c228575ca",
+      "reason": "Linked commit ce20c2d to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T03:22:24.891672Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T03:22:25.810444Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "292c7fd38",
+      "reason": "Linked commit 292c7fd to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T03:22:25.836430Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T03:22:26.270204Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": null,
+      "new_value": "65a01e589",
+      "reason": "Linked commit 65a01e5 to task-1-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T03:22:26.289521Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T03:22:27.286822Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.3.commit",
+      "old_value": null,
+      "new_value": "ce20c2df6d85534a0328e3662bf0697c228575ca",
+      "reason": "Linked commit ce20c2d to task-1-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T03:22:27.314330Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.3.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T03:22:27.679835Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.4.commit",
+      "old_value": null,
+      "new_value": "ce20c2df6d85534a0328e3662bf0697c228575ca",
+      "reason": "Linked commit ce20c2d to task-1-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T03:22:27.699125Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.4.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-5 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T03:22:28.101411Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.5.commit",
+      "old_value": null,
+      "new_value": "ce20c2df6d85534a0328e3662bf0697c228575ca",
+      "reason": "Linked commit ce20c2d to task-1-6",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T03:22:28.150735Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.5.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-6 as complete",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
@@ -2814,7 +2975,7 @@
     "description": "The `make lint` cap (1,500 lines / 100 KB, added by #2250 closing #2248) caps Python\nsource files; 19 files are grandfathered in `scripts/file-size-allowlist.yaml`. This\nprogram decomposes ALL 19 into sub-packages following the canonical pattern (merged PR\n#2335 + `docs/guides/decomposition-pattern.md` + worked reference `scripts/select_tests/`),\ndriving the allowlist `files:` map to EMPTY.\n\nEach file `F.py` becomes `F/__init__.py` (an explicit per-symbol re-export barrel, the\nstable public API) plus underscore-prefixed private `_*.py` submodules. Test patch\ntargets keep resolving through the barrel. The `_run_pipeline` state machine is split\ninto per-phase handlers + a thin loop directly (non-negotiable #7). `gateway.py`'s\n`@app.route` decorators stay in `__init__.py` (non-negotiable #8).\n\nR3 container parity (v2): slices converting a top-level module copied by a NON-recursive\nDockerfile glob add the matching recursive `COPY <pkg>/` in the SAME slice + an\nimage-build/import smoke check, because the source-tree gates cannot catch a missing COPY.\n\nScope is locked (operator directive + resolved refine HITL): all 19 files, no descope.\nPure refactor \u2014 no behavior changes; bugs surfaced are separate `Part of #3312`\nfollow-ups. Branches prefixed `egg/`. Implements #3312.",
     "test_plan": "- Automated: `make lint` + `make test-all` green at EVERY slice boundary. A missed\n  re-export fails the test that patches the moved symbol. Each slice runs the section-(d)\n  `git grep` audit before extraction.\n- Per slice: step-0 `git mv` baseline commit is independently green; every submodule\n  verified under BOTH caps (further-split in-slice, never a fresh allowlist entry).\n- R3 container gate: slices converting a top-level module under a NON-recursive Dockerfile\n  glob (orchestrator 3/10/13/14/16, gateway 11/12/18) build the affected image and run an\n  import smoke check IN-SLICE; slice-9 builds the sandbox image and smoke-starts the\n  ENTRYPOINT; transparent-shipping slices (1/8/17, routes) confirm by grounding + smoke.\n- `_run_pipeline` handlers stay private, tested THROUGH `_run_pipeline` via existing dense\n  seam coverage (test_consensus_polling, test_brc_nack_iteration, test_concurrent_*,\n  test_advance_phase_*); isolation tests are a follow-up.\n- Run with `make test` (changeset-aware) inner-loop; full suite via `make test-all`.",
     "manual_steps": "Pre-merge (per slice): reviewer spot-checks (a) the __init__.py re-export list against\n`git grep`, (b) submodule clustering is cohesive, (c) the CLAUDE.md seam row matches.\nPer R3 slice: build the affected container image and run the import/ENTRYPOINT smoke check\n(the source-tree gates do not build images).\nPre-merge (final slice = pipelines.py): verify the allowlist `files:` map is EMPTY and all\nfour CLAUDE.md seam tables are populated.\nPost-merge: none (pure refactor; no migrations/config/deploy).",
-    "context_pr_number": null,
+    "context_pr_number": 3336,
     "deferred_actions": []
   },
   "feedback": null,
