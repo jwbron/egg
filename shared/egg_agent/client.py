@@ -690,6 +690,47 @@ async def run_agent_async(
         post_tool_use.append(HookMatcher(matcher=None, hooks=[_inject_midturn_messages]))
         options.hooks = {**existing_hooks, "PostToolUse": post_tool_use}
 
+    # --- In-tool-loop WORKING heartbeat (#3341) ---
+    # The consensus wrapper emits one WORKING heartbeat before handing off to
+    # the agent, then nothing until the (30+ minute) invocation returns — the
+    # "no background emitter" design. So a genuinely-busy producer looks
+    # bus-silent for the whole turn, and any single step past the
+    # heartbeat-silence threshold (implement phase: 600s) trips the health
+    # monitor's check_heartbeats tripwire even though the pod is making
+    # continuous tool calls. Acting on that false stall by restarting can
+    # orphan in-flight commits and cascade-fail a multi-slice run (#3339).
+    # A throttled PostToolUse hook re-emits a WORKING heartbeat during the
+    # turn — the exact signal check_heartbeats consumes — so a busy agent
+    # stays visibly alive and the tripwire only fires on genuine silence.
+    # Same gating/escape-hatch shape as the mid-turn poller above;
+    # EGG_WORKING_HEARTBEAT=false is the rollback hatch.
+    from egg_agent.working_heartbeat import (
+        WorkingHeartbeatEmitter,
+        is_working_heartbeat_disabled,
+    )
+
+    if not is_working_heartbeat_disabled() and midturn_pipeline_id and midturn_role:
+        heartbeat_emitter = WorkingHeartbeatEmitter(midturn_pipeline_id, midturn_role)
+
+        async def _emit_working_heartbeat(
+            input_data: HookInput, tool_use_id: str | None, context: HookContext
+        ) -> HookJSONOutput:
+            # Fast-path: skip the thread boundary entirely when the interval
+            # gate is clearly closed (the matcher is None so this fires on
+            # every tool call). The lockless predicate may produce false
+            # positives under concurrent calls; emit() re-checks atomically.
+            if not heartbeat_emitter.is_due_to_emit():
+                return {}
+            # emit() runs an egg-orch subprocess when the interval has
+            # elapsed; keep it off the event loop. It never raises.
+            await asyncio.to_thread(heartbeat_emitter.emit)
+            return {}
+
+        existing_hooks = getattr(options, "hooks", None) or {}
+        post_tool_use = list(existing_hooks.get("PostToolUse", []))
+        post_tool_use.append(HookMatcher(matcher=None, hooks=[_emit_working_heartbeat]))
+        options.hooks = {**existing_hooks, "PostToolUse": post_tool_use}
+
     stdout_parts: list[str] = []
     actual_model: str | None = None
     result_meta: dict[str, Any] = {}

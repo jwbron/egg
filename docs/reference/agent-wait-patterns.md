@@ -258,6 +258,41 @@ unreachable, malformed JSON, unwritable cursor) degrades to "no
 injection", never an agent failure. `EGG_MIDTURN_MESSAGES=false`
 disables the hook entirely.
 
+### In-tool-loop WORKING heartbeat (#3341)
+
+The consensus wrapper emits exactly one `WORKING` heartbeat **before**
+handing control to the agent, then no further bus traffic until the
+(30+ minute) invocation returns — the deliberate "no background emitter"
+design. So a genuinely-busy producer making continuous tool calls looks
+bus-silent for the whole turn, and any single step past the
+heartbeat-silence threshold (`orchestrator_implement_heartbeat_timeout_seconds`,
+600 s) trips the health monitor's `check_heartbeats` tripwire regardless
+of how busy the pod is. Acting on that false stall by restarting can
+orphan in-flight commits and cascade-fail a multi-slice run (#3339), so
+the false positive has a real, expensive failure mode.
+
+To keep the liveness signal alive during the turn, the SDK driver
+(`shared/egg_agent/client.py`) installs a second throttled PostToolUse
+hook backed by `shared/egg_agent/working_heartbeat.py`: at most once per
+`EGG_WORKING_HEARTBEAT_INTERVAL_SECS` (default 120 s) it re-emits the
+same `WORKING` heartbeat the wrapper does (`egg-orch message heartbeat`,
+the per-role-deduped rate-limited `/heartbeat` endpoint, #1897) — exactly
+the signal `check_heartbeats` consumes. The interval sits well under the
+300 s Tier-1 and 600 s implement-phase silence windows (several ticks land
+before any tripwire could fire) and far under the 20/min
+`EGG_HEARTBEAT_RATE_LIMIT` cap. It is event-driven on tool calls, not a
+background timer, so it honours the wrapper's "no background emitter"
+stance — a heartbeat fires only when the agent is doing tool work.
+
+Limitation: PostToolUse fires *after* a tool call returns, so a single
+uninterrupted tool call longer than the interval (e.g. one 10-minute
+`make test-all` Bash call) still does not tick mid-call; the dominant
+repro (dozens of edits/tests/commits across a long turn) is covered.
+Every failure mode (missing `egg-orch`, orchestrator unreachable, 429
+rate-limit, subprocess timeout) degrades to "no heartbeat this tick",
+never an agent failure. Gated on `EGG_PIPELINE_ID` + `EGG_AGENT_ROLE`;
+`EGG_WORKING_HEARTBEAT=false` disables the hook entirely.
+
 ### Multi-reviewer NACK aggregation barrier (#2142)
 
 When two or more reviewers have NACKed the producer's current version,
