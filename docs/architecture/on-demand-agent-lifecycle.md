@@ -16,7 +16,7 @@
 The first attempt at on-demand agent spawning ([#3023](https://github.com/jwbron/egg/issues/3023))
 landed the `EGG_EVENT_LOOP_OWNER` guard alone. The guard silenced the in-pod
 event loop, leaving nothing to service BRC events — deadlock. Since #2908
-slice-4 had already deleted the legacy `EGG_BRC_EVENT_PUMP` rollback flag,
+had already deleted the legacy `EGG_BRC_EVENT_PUMP` rollback flag,
 there was no runtime fallback.
 
 The lesson drove a staged rollout under #3064:
@@ -131,7 +131,7 @@ sha256(
 actions from the consensus tracker (rebuilt from the message store, #2761) and reconciles
 against live k8s Jobs by label selector. Stateless, re-derived, idempotent.
 
-## Failure Supervision (HITL cq-2)
+## Failure Supervision
 
 Per the HITL-approved design, the orchestrator watches one-shot Job status with
 per-`(role, action-arm)` streak counters. The constants are shared between the

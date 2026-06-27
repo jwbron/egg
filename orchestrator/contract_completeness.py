@@ -215,9 +215,28 @@ def evidence_commits(
     before flipping status), and a cited-but-unreachable commit is a
     gap worth failing on either way.
 
-    Returns one dict per row (``id`` / ``role`` / ``commit``), empty
-    list when no row cites a commit, or ``None`` when ``slice_id`` was
-    given but no such slice exists (caller skips the gate).
+    **Role-less rows are excluded (#3339).** The gate exists to protect
+    the producer-scoped #3124 flow: a *confirmed producer* records a
+    post-confirmation commit that lives only on its local worktree
+    branch, so the deliverable would be lost on close. That producer
+    always owns a role. A task with ``role=None`` (planner left it
+    unassigned) has no producer obligated to push its commit through
+    ``consensus_push``, so a SHA it cites is bookkeeping — not a gated
+    deliverable. Yet a stray ``add-commit`` / ``complete-task --commit``
+    on such a row (and ``_merge_preserved_slice_runtime`` re-attaching
+    it across a ``restart_phase`` re-fork) made the gate fire on an
+    orphan commit ``role=unassigned`` for a slice that had *already
+    reached full BRC consensus* — every reviewer approved the diff that
+    is on the integration branch — and that single bookkeeping mismatch
+    failed the slice and cascaded the whole phase. Scoping the gate to
+    role-bound rows keeps its full protection for real producer commits
+    while no longer nuking a consensus-reached slice on an unassigned
+    orphan.
+
+    Returns one dict per role-bound row (``id`` / ``role`` /
+    ``commit``), empty list when no such row cites a commit, or ``None``
+    when ``slice_id`` was given but no such slice exists (caller skips
+    the gate).
 
     Row ordering is intentional: slice-declaration order outermost,
     task-declaration order within each slice. Callers (the close-merge
@@ -231,12 +250,14 @@ def evidence_commits(
         {"id": task.id, "role": task.role, "commit": task.commit}
         for sl in slices
         for task in sl.tasks or []
-        if task.commit
+        if task.commit and task.role
     ]
 
 
 def format_evidence_rows(rows: list[dict[str, Any]]) -> str:
-    """One-line-per-row summary for evidence-reachability messages."""
-    return "; ".join(
-        f"{r['id']} (role={r['role'] or 'unassigned'}, commit={r['commit']})" for r in rows
-    )
+    """One-line-per-row summary for evidence-reachability messages.
+
+    Every row from ``evidence_commits`` is role-bound (``task.role`` is
+    truthy), so ``role`` is always a concrete producer role here.
+    """
+    return "; ".join(f"{r['id']} (role={r['role']}, commit={r['commit']})" for r in rows)
