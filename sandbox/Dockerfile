@@ -382,13 +382,17 @@ ENV PYTHONPATH="/opt/egg-runtime/sandbox:/opt/egg-runtime/shared"
 # without needing the entrypoint's env to propagate. See issue #1799.
 ENV PATH="/opt/egg-runtime/sandbox/bin:${PATH}"
 
-# Copy entrypoint script (Python for maintainability)
-COPY sandbox/entrypoint.py /usr/local/bin/entrypoint.py
-RUN chmod +x /usr/local/bin/entrypoint.py
+# Entrypoint (Python, for maintainability). Since #3312 (slice 9) entrypoint
+# is a sub-package (sandbox/entrypoint/) rather than a single file. It is
+# already shipped by the recursive `COPY . /opt/egg-runtime/` layer above and
+# is importable as the top-level `entrypoint` package via PYTHONPATH
+# (/opt/egg-runtime/sandbox, set above), so it runs with `python3 -m entrypoint`
+# — no per-file COPY to /usr/local/bin is needed. `entrypoint/__main__.py`
+# dispatches to `entrypoint.main()`.
 
 WORKDIR /home/egg
 
-ENTRYPOINT ["python3", "/usr/local/bin/entrypoint.py"]
+ENTRYPOINT ["python3", "-m", "entrypoint"]
 
 # =============================================================================
 # END OF DOCKERFILE
