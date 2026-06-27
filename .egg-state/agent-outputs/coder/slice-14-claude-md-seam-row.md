@@ -1,0 +1,32 @@
+<!--
+HANDOFF → documenter (#3312 slice-14).
+coder is role-blocked from orchestrator/CLAUDE.md (shared/egg_restrictions/patterns.py;
+alternative_role=documenter). This is the drafted seam-table subsection for the
+`kubernetes_spawner/` decomposition. Append it to orchestrator/CLAUDE.md's
+"## Decomposition seams" section, AFTER the `mcp_tools/` subsection, and add
+`kubernetes_spawner/` to the trailing "landed orchestrator decompositions" sentence.
+Also per the operator directive: retag any stale #2261 refs you encounter in that
+file to #3312 and refresh counts. Module-layout table already lists
+`kubernetes_spawner.py` under "Agent execution" — update that cell to
+`kubernetes_spawner/` if you touch it.
+-->
+
+### `kubernetes_spawner/` — Kubernetes Job spawner + gateway sessions ([#3312](https://github.com/jwbron/egg/issues/3312), slice 14)
+
+`kubernetes_spawner.py` (3,041 lines / 139,022 bytes — **over BOTH the line and byte cap**) → `kubernetes_spawner/` (largest submodule `_spawn.py`, 706 lines). Class-dominated module: follows the **method-modules-on-class** shape ([pattern](../docs/guides/decomposition-pattern.md) §c) rather than the Flask-blueprint shape. The `KubernetesSpawner` class definition + `__init__` + the `k8s` / `backend` / `gateway` properties + the small `_build_k8s_job_names` (classmethod) / `_build_agent_worktree_id` (staticmethod) / `_get_restart_lock` helpers + the class vars stay in the barrel and keep the class identity on the `kubernetes_spawner` module path; each of its other ~21 method bodies moves to a responsibility-grouped private submodule as a module-level function taking `self` explicitly, bound back onto the class in the barrel. The 11 top-level helper functions / dataclasses (`SpawnedContainer`, `_EventJobStatusView`, the spawn-error classifiers, worktree helpers, env/label helpers) move alongside and are re-exported. The 5 backward-compat `ContainerSpawner` method aliases (`spawn_agent_container`, `stop_agent_container`, `remove_agent_container`, `list_pipeline_containers`, `restart_agent_container`) are relocated from the class body to the barrel end-block (their targets are now bound there). **Dockerfile (binding, NOT packaging-neutral):** `kubernetes_spawner.py` was a top-level `orchestrator/` module shipped by the non-recursive `COPY orchestrator/*.py ./` glob (Dockerfile:44); once it becomes a directory the glob stops matching it, so this slice adds an explicit `COPY orchestrator/kubernetes_spawner/ ./kubernetes_spawner/` (Dockerfile) to keep `import kubernetes_spawner` resolving in the image — same as slice-3 `state_store/`, slice-10 `peer_consensus/`, slice-13 `mcp_tools/`.
+
+| Submodule | Responsibility | Key symbols |
+|-----------|----------------|-------------|
+| `__init__.py` (barrel, 562 lines) | Stable public API: the `KubernetesSpawner` class definition + `__init__` + `k8s`/`backend`/`gateway` properties + `_build_k8s_job_names`/`_build_agent_worktree_id`/`_get_restart_lock` + every extracted-method binding + the relocated ContainerSpawner aliases; keeps the patched module globals (`WORKTREE_BASE_DIR`, `_PROTECTED_ENV_KEYS`, `_ROLES_WITHOUT_WORKTREE`, `GatewayError`, `agent_salvage`, `time`, `_spawner`) and the non-patched constants the submodules value-import; `__all__` lists the re-export surface | `KubernetesSpawner`, `KubernetesSpawnError`, `SpawnFailureError`, `get_kubernetes_spawner`, `WORKTREE_BASE_DIR`, `_PROTECTED_ENV_KEYS`, `_ROLES_WITHOUT_WORKTREE`, `LABEL_EVENT_DEDUPE` |
+| `_env.py` (92 lines) | Wait-allowlist / forwarded-discipline env + dedupe label helpers | `_resolve_wait_producer_allowlist`, `_forwarded_discipline_env`, `_dedupe_label_value` |
+| `_errors.py` (78 lines) | Spawn-failure classification + k8s-name fitting | `_fit_k8s_name`, `_is_transient_spawn_failure`, `_classify_spawn_error` |
+| `_models.py` (138 lines) | Spawn result + event-job status view | `SpawnedContainer`, `_EventJobStatusView` |
+| `_worktree.py` (388 lines) | Worktree validation / reuse / cleanup + role-needs-worktree + host volume mapping | `_validate_worktree_for_reuse`, `_role_needs_worktree`, `_host_to_local_volumes`, `_try_reuse_worktree`, `_clean_reused_worktree`, `_find_missing_worktrees` |
+| `_session.py` (169 lines) | Gateway session create / teardown | `_get_or_create_session`, `_teardown_session` |
+| `_spawn.py` (largest, 706 lines) | `spawn_agent_job` — the agent-Job spawn path | `spawn_agent_job` |
+| `_events.py` (263 lines) | Event-job dedupe + status-view factory + event-job spawn | `_event_dedupe_key_live`, `create_event_job_status_view`, `spawn_event_job` |
+| `_jobs.py` (315 lines) | Job stop / remove / list + pipeline cleanup | `stop_agent_job`, `remove_agent_job`, `list_pipeline_jobs`, `list_slice_jobs`, `cleanup_pipeline` |
+| `_restart.py` (379 lines) | Restart budget + agent-job restart + restart-count queries | `_apply_restart_budget`, `check_and_increment_restart_count`, `restart_agent_job`, `get_restart_count`, `reset_restart_counts` |
+| `_concurrent.py` (221 lines) | Uncommitted-change detection + concurrent spawn-fn factory | `detect_uncommitted_changes`, `create_concurrent_spawn_fn` |
+
+Pure refactor, no behaviour change: every moved symbol is **AST-identical** to the pre-split file after unwrapping the `_pkg.`-prefixing and docstring re-indentation (proven by an AST diff over all 32 moved functions/classes). Patch seams preserved: the `KubernetesSpawner` class + its method bindings resolve on the barrel, so `patch.object(KubernetesSpawner, …)` and instance-method calls keep working; the private submodules reach the patched module globals via `import kubernetes_spawner as _pkg` (so `patch("kubernetes_spawner.WORKTREE_BASE_DIR")` — the suite's most-patched seam — `patch("kubernetes_spawner.GatewayError")`, `patch("kubernetes_spawner.agent_salvage")`, and the conftest `setattr(kubernetes_spawner, "_role_needs_worktree", …)` all keep intercepting unchanged); non-patched barrel constants are value-imported through the barrel so a single binding is kept (mirroring `mcp_tools/`). `time.sleep` patches resolve because `time` is the shared module object. External importers (`container_spawner.py` shim, `redaction.py`, `routes/pipelines.py`, the test suite) import only through the barrel. `make lint` clean; 315 kubernetes_spawner + cross-tree importer tests pass (the 11 worktree-reattach failures in the local sandbox are gateway `git init` policy env failures, not split-induced — identical to the step-0 baseline).
