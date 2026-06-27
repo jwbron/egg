@@ -11,35 +11,55 @@ Every route requires the lifecycle bearer token (parity with the
 fix made for #1769) because these are agent-visible via the MCP
 server. Runtime-specific routes degrade gracefully on Docker by
 returning a structured ``not_available_on_runtime`` payload.
+
+This package is the stable public API surface for the ``deployment``
+blueprint (file-decomposition pattern, #3312). Per decision-8 the
+``@deployment_bp.route`` decorators stay here on thin wrappers that
+delegate to private submodules:
+
+- ``_runtime``             — runtime detection + degrade-gracefully payloads
+- ``_cluster_detection``   — k3s / CNI / image-tag apiserver probes
+- ``_context``             — ``get_deployment_context``
+- ``_service_logs``        — ``get_service_logs``
+- ``_manifest_validation`` — ``validate_deployment_manifests`` + warning rules
+- ``_prune``               — ``prune_worktrees_proxy`` (gateway proxy)
+- ``_network_probe``       — ``validate_network_isolation`` + probe lifecycle
+- ``_rebuild``             — ``rebuild_and_rollout`` + progress-stream plumbing
+
+The barrel re-exports every externally-referenced or test-patched symbol so
+``from routes.deployment import _foo`` and ``patch("routes.deployment._foo")``
+keep resolving. Submodules invoke the barrel-patched dependencies through this
+package module (``import routes.deployment as _pkg``) so the existing
+``patch("routes.deployment.<name>")`` seams stay effective unchanged.
+
+The mutable rollout/stream state (``_REBUILD_IN_PROGRESS``,
+``_REBUILD_ACTIVE_STREAM_ID``, the ``_STREAM_*`` buffers/locks) lives HERE,
+on the package module: it was a set of module globals of the pre-split file
+that both the tests (``dep_mod.X = ...``) and ``_rebuild`` rebind, so keeping
+it on the barrel preserves the single canonical binding. ``_rebuild`` reaches
+it via ``_pkg`` so reads/writes/mutations all hit the same objects.
 """
 
 from __future__ import annotations
 
-import os
-import re
-import subprocess
+import subprocess  # noqa: F401 — re-exported: tests monkeypatch routes.deployment.subprocess.run
 import sys
 import threading
-import time
-import uuid
 from collections import deque
 from pathlib import Path
 from typing import Any
 
-import yaml
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, Response
 
-# Kubernetes label values must match this regex (RFC 1123-ish) or the
-# apiserver rejects Job creation with a 422.
-_K8S_LABEL_VALUE_RE = re.compile(r"^[a-z0-9A-Z]([-._a-z0-9A-Z]{0,61}[a-z0-9A-Z])?$")
-
-# Add parent directory to path for imports
-_parent_path = Path(__file__).parent.parent
+# Add parent directory (orchestrator/) to path for imports. The sub-package
+# lives one level deeper than the original module, so the walk-up gains a
+# ``.parent`` versus the pre-split file.
+_parent_path = Path(__file__).parent.parent.parent
 if str(_parent_path) not in sys.path:
     sys.path.insert(0, str(_parent_path))
 
-# Add shared directory to path for logging
-_shared_path = Path(__file__).parent.parent.parent / "shared"
+# Add shared directory to path for logging (egg-root/shared).
+_shared_path = Path(__file__).parent.parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
@@ -52,8 +72,7 @@ except ImportError:
         return logging.getLogger(name)
 
 
-from lifecycle_auth import require_lifecycle_secret
-from log_filter import filter_log_lines, known_severities
+from lifecycle_auth import require_lifecycle_secret  # noqa: E402
 
 logger = get_logger("orchestrator.deployment")
 
@@ -61,1468 +80,11 @@ deployment_bp = Blueprint("deployment", __name__, url_prefix="/api/v1/deployment
 
 
 # ---------------------------------------------------------------------------
-# Runtime detection helpers
-# ---------------------------------------------------------------------------
-
-
-def _resolve_runtime() -> tuple[str, str]:
-    """Return ``(runtime, detection_source)``.
-
-    Resolution order:
-
-    1. ``EGG_RUNTIME`` env var (``"env"`` source) — operator-configured.
-    2. ``KUBERNETES_SERVICE_HOST`` is injected into every pod by the
-       apiserver; treat its presence as a strong in-cluster signal and
-       infer ``"kubernetes"`` (``"auto:k8s-service-host"`` source).
-    3. Otherwise fall back to ``"docker"`` (``"auto:default"`` source).
-
-    Issue #1850: previously defaulted to ``"docker"`` unconditionally, so
-    in-cluster orchestrators whose manifests forgot to set ``EGG_RUNTIME``
-    silently misreported themselves as Docker and masked cluster-access
-    failures downstream. Auto-detection closes that gap without changing
-    behavior when ``EGG_RUNTIME`` is set explicitly.
-    """
-    _KNOWN_RUNTIMES = frozenset({"kubernetes", "docker"})
-
-    explicit = os.environ.get("EGG_RUNTIME")
-    if explicit:
-        normalized = explicit.lower()
-        if normalized not in _KNOWN_RUNTIMES:
-            logger.warning(
-                "unrecognized EGG_RUNTIME value",
-                value=explicit,
-                known=sorted(_KNOWN_RUNTIMES),
-            )
-        return normalized, "env"
-    if os.environ.get("KUBERNETES_SERVICE_HOST"):
-        return "kubernetes", "auto:k8s-service-host"
-    return "docker", "auto:default"
-
-
-def _current_runtime() -> str:
-    """Return the resolved runtime label (back-compat shim)."""
-    runtime, _source = _resolve_runtime()
-    return runtime
-
-
-def _not_available_on_runtime() -> tuple[Response, int]:
-    """Return the structured 200 payload used on Docker-only builds."""
-    runtime = _current_runtime()
-    return (
-        jsonify(
-            {
-                "success": True,
-                "data": {
-                    "error": "not_available_on_runtime",
-                    "runtime": runtime,
-                },
-            }
-        ),
-        200,
-    )
-
-
-def _runtime_detection_failed(detail: str) -> tuple[Response, int]:
-    """Return a 200 payload used when runtime detection came back ``unknown``.
-
-    Distinct from ``not_available_on_runtime`` (which means "you explicitly
-    asked for docker, this tool is k8s-only") so operators can tell
-    "apiserver unreachable / detection failed" apart from "tool doesn't
-    apply to docker" (#1850).
-    """
-    return (
-        jsonify(
-            {
-                "success": True,
-                "data": {
-                    "error": "runtime_detection_failed",
-                    "runtime": "unknown",
-                    "detail": detail,
-                },
-            }
-        ),
-        200,
-    )
-
-
-def _probe_kubernetes_reachable() -> tuple[bool, str | None]:
-    """Return ``(reachable, reason_if_not)`` for the k8s apiserver.
-
-    Used by gated routes so they refuse cleanly with
-    ``runtime_detection_failed`` when the process claims ``kubernetes``
-    but can't actually reach the cluster (#1850). Cheap: one VersionApi
-    call; on failure the caller's downstream logic is bypassed.
-    """
-    try:
-        from kubernetes_client import get_kubernetes_client
-    except Exception as exc:  # pragma: no cover - environment wiring
-        return False, f"kubernetes_client_unavailable: {exc}"
-    try:
-        k8s = get_kubernetes_client()
-    except Exception as exc:
-        return False, f"kubernetes_client_init_failed: {exc}"
-    try:
-        from kubernetes import client as k8s_client_pkg
-
-        k8s_client_pkg.VersionApi(k8s.batch_api.api_client).get_code()
-    except Exception as exc:
-        return False, f"apiserver_unreachable: {exc}"
-    return True, None
-
-
-# ---------------------------------------------------------------------------
-# get_deployment_context
-# ---------------------------------------------------------------------------
-
-_NETWORK_POLICY_CNIS: frozenset[str] = frozenset(
-    {
-        "calico",
-        "cilium",
-        "weave",
-        "antrea",
-        "kube-router",
-    }
-)
-
-
-def _detect_k3s(k8s_client: Any) -> tuple[bool, str | None]:
-    """Heuristic detection of a k3s cluster.
-
-    Order: (a) node kubeletVersion ends with ``+k3s<N>``; (b) a
-    DaemonSet in ``kube-system`` runs an image matching
-    ``rancher/k3s`` or ``rancher/mirrored-k3s-*``.  Returns
-    ``(is_k3s, flavor_hint)``. The hint is the first matching
-    version string or image name so callers can surface why a rule
-    did / didn't fire.
-    """
-    try:
-        nodes = k8s_client.core_api.list_node()
-    except Exception:
-        nodes = None
-
-    if nodes and getattr(nodes, "items", None):
-        for node in nodes.items:
-            ni = getattr(getattr(node, "status", None), "node_info", None)
-            kubelet = getattr(ni, "kubelet_version", None) if ni else None
-            if kubelet and "+k3s" in kubelet:
-                return True, kubelet
-
-    try:
-        from kubernetes import client as k8s_client_pkg
-
-        apps = k8s_client_pkg.AppsV1Api(k8s_client.batch_api.api_client)
-        ds_list = apps.list_namespaced_daemon_set("kube-system")
-    except Exception:
-        return False, None
-
-    for ds in getattr(ds_list, "items", []) or []:
-        containers = (
-            getattr(getattr(getattr(ds, "spec", None), "template", None), "spec", None)
-            and ds.spec.template.spec.containers
-        ) or []
-        for c in containers:
-            image = getattr(c, "image", "") or ""
-            if "rancher/k3s" in image or "rancher/mirrored-k3s-" in image:
-                return True, image
-
-    return False, None
-
-
-def _detect_cni(k8s_client: Any) -> tuple[str | None, bool]:
-    """Return ``(cni_name, network_policy_enforcement)``.
-
-    The CNI name is inferred from DaemonSets in ``kube-system`` — most
-    NetworkPolicy-capable CNIs advertise themselves there.  The
-    enforcement flag is True when the detected CNI is in the
-    ``_NETWORK_POLICY_CNIS`` allowlist.
-    """
-    try:
-        from kubernetes import client as k8s_client_pkg
-
-        apps = k8s_client_pkg.AppsV1Api(k8s_client.batch_api.api_client)
-        ds_list = apps.list_namespaced_daemon_set("kube-system")
-    except Exception:
-        return None, False
-
-    detected: str | None = None
-    items = getattr(ds_list, "items", []) or []
-    for ds in items:
-        name = (getattr(ds, "metadata", None) and ds.metadata.name) or ""
-        if not name:
-            continue
-        for token, label in (
-            ("calico", "calico"),
-            ("cilium", "cilium"),
-            ("weave", "weave"),
-            ("antrea", "antrea"),
-            ("kube-router", "kube-router"),
-            ("flannel", "flannel"),
-        ):
-            if token in name.lower():
-                detected = label
-                break
-        if detected:
-            break
-
-    enforcement = detected in _NETWORK_POLICY_CNIS if detected else False
-    return detected, enforcement
-
-
-def _collect_egg_image_tags(k8s_client: Any, namespace: str) -> dict[str, str]:
-    """Return image tags for orchestrator/gateway/sandbox deployments."""
-    out: dict[str, str] = {}
-    try:
-        from kubernetes import client as k8s_client_pkg
-
-        apps = k8s_client_pkg.AppsV1Api(k8s_client.batch_api.api_client)
-        deps = apps.list_namespaced_deployment(namespace)
-    except Exception:
-        return out
-
-    for dep in getattr(deps, "items", []) or []:
-        dep_name = (getattr(dep, "metadata", None) and dep.metadata.name) or ""
-        containers = (
-            getattr(getattr(getattr(dep, "spec", None), "template", None), "spec", None)
-            and dep.spec.template.spec.containers
-        ) or []
-        for c in containers:
-            image = getattr(c, "image", "") or ""
-            if not image:
-                continue
-            if "orchestrator" in dep_name and "orchestrator" not in out:
-                out["orchestrator"] = image
-            elif "gateway" in dep_name and "gateway" not in out:
-                out["gateway"] = image
-            elif ("sandbox" in dep_name or "agent" in dep_name) and "agents" not in out:
-                out["agents"] = image
-
-    return out
-
-
-def _build_deployment_context_payload() -> dict[str, Any]:
-    """Assemble the ``get_deployment_context`` response body.
-
-    When ``runtime`` resolves to ``"kubernetes"`` but every cluster probe
-    fails (apiserver unreachable, RBAC denial, missing kubeconfig), the
-    runtime is demoted to ``"unknown"`` with a ``detection_error`` so
-    downstream guards can distinguish "you're on docker" from "I couldn't
-    tell what cluster I'm on" (#1850).
-    """
-    runtime, detection_source = _resolve_runtime()
-    payload: dict[str, Any] = {
-        "runtime": runtime,
-        "detection_source": detection_source,
-        "namespace": os.environ.get("EGG_K8S_NAMESPACE", "egg-system"),
-    }
-
-    if runtime != "kubernetes":
-        # Degrade gracefully: return the Docker-analog fields so the
-        # MCP caller still gets an actionable structure.
-        payload.update(
-            {
-                "kubeconfig_context": None,
-                "cluster_info": {
-                    "server_version": None,
-                    "nodes": 0,
-                },
-                "cni": None,
-                "network_policy_enforcement": False,
-                "images": {},
-                "is_k3s": False,
-                "k3s_flavor_hint": None,
-            }
-        )
-        return payload
-
-    try:
-        from kubernetes_client import get_kubernetes_client
-    except Exception as exc:  # pragma: no cover - environment wiring
-        logger.warning("kubernetes_client import failed", error=str(exc))
-        payload["runtime"] = "unknown"
-        payload.update(
-            {
-                "detection_error": "kubernetes_client_unavailable",
-                "detail": str(exc),
-            }
-        )
-        return payload
-
-    try:
-        k8s = get_kubernetes_client()
-    except Exception as exc:
-        logger.warning("kubernetes client init failed", error=str(exc))
-        payload["runtime"] = "unknown"
-        payload.update(
-            {
-                "detection_error": "kubernetes_client_init_failed",
-                "detail": str(exc),
-            }
-        )
-        return payload
-
-    namespace = payload["namespace"]
-
-    # Cluster info — track whether each probe actually reached the
-    # apiserver so we can tell "healthy cluster with zero nodes" (not a
-    # thing) apart from "never got an answer."
-    server_version = None
-    version_ok = False
-    try:
-        from kubernetes import client as k8s_client_pkg
-
-        version_api = k8s_client_pkg.VersionApi(k8s.batch_api.api_client)
-        vinfo = version_api.get_code()
-        server_version = getattr(vinfo, "git_version", None)
-        version_ok = True
-    except Exception as exc:
-        logger.warning("kubernetes version probe failed", error=str(exc))
-
-    nodes_count = 0
-    nodes_ok = False
-    try:
-        nodes = k8s.core_api.list_node()
-        nodes_count = len(getattr(nodes, "items", []) or [])
-        nodes_ok = True
-    except Exception as exc:
-        logger.warning("kubernetes node list failed", error=str(exc))
-
-    if not version_ok and not nodes_ok:
-        # Neither probe reached the apiserver — we cannot claim the
-        # runtime is kubernetes. Demote so rebuild_and_rollout and other
-        # gated tools can refuse with an honest reason rather than
-        # operating against a cluster that isn't really there.
-        payload["runtime"] = "unknown"
-        payload.update(
-            {
-                "detection_error": "cluster_unreachable",
-                "detail": "neither VersionApi.get_code nor core_api.list_node succeeded",
-                "cluster_info": {"server_version": None, "nodes": 0, "nodes_unavailable": True},
-            }
-        )
-        return payload
-
-    is_k3s, k3s_hint = _detect_k3s(k8s)
-    cni, enforcement = _detect_cni(k8s)
-
-    images = _collect_egg_image_tags(k8s, namespace)
-
-    cluster_info: dict[str, Any] = {"server_version": server_version, "nodes": nodes_count}
-    if not nodes_ok:
-        # Distinguish "zero nodes" (not a real scenario) from "probe
-        # failed, count unknown" — same pattern as images_unavailable.
-        cluster_info["nodes_unavailable"] = True
-
-    payload.update(
-        {
-            "kubeconfig_context": os.environ.get("KUBE_CONTEXT"),
-            "cluster_info": cluster_info,
-            "cni": cni,
-            "network_policy_enforcement": bool(enforcement),
-            "images": images,
-            "is_k3s": bool(is_k3s),
-            "k3s_flavor_hint": k3s_hint,
-        }
-    )
-    if not images:
-        # Empty images on an otherwise-reachable cluster is a partial
-        # failure (RBAC, wrong namespace, empty ns). Flag it so the
-        # operator isn't guessing why the tool's docstring promise of
-        # "deployed image tags" came back empty.
-        payload["images_unavailable"] = True
-
-    return payload
-
-
-@deployment_bp.route("/context", methods=["GET"])
-@require_lifecycle_secret
-def get_deployment_context() -> tuple[Response, int]:
-    """Return runtime / cluster / image introspection."""
-    try:
-        payload = _build_deployment_context_payload()
-    except Exception as exc:
-        logger.error("get_deployment_context failed", error=str(exc))
-        return jsonify({"success": False, "message": f"failed: {exc}"}), 500
-    return jsonify({"success": True, "data": payload}), 200
-
-
-# ---------------------------------------------------------------------------
-# get_service_logs (#1853)
-# ---------------------------------------------------------------------------
-
-# Allowlist of services whose logs are readable via this endpoint.  Keeping
-# the surface bounded avoids turning this into a generic kubectl-logs proxy:
-# agent-pod logs live in the `egg-agents` namespace and are already exposed
-# through the container-scoped `get_container_logs` tool.
-_SERVICE_LOG_ALLOWLIST: frozenset[str] = frozenset({"gateway", "orchestrator"})
-
-_MAX_LOG_LINES = 10_000
-
-
-@deployment_bp.route("/logs", methods=["GET"])
-@require_lifecycle_secret
-def get_service_logs() -> tuple[Response, int]:
-    """Return logs from the pod(s) backing the gateway or orchestrator Deployment.
-
-    Query params:
-        service: one of _SERVICE_LOG_ALLOWLIST (required).
-        lines: tail length, default 100, capped at _MAX_LOG_LINES. When a
-            filter (``pipeline_id``/``level``/``pattern``) is active this caps
-            the *matching* lines returned rather than the raw tail.
-        since_seconds: only return logs newer than this many seconds. When
-            filters are active this is the only knob that bounds the
-            per-pod scan window — the backing fetch is widened to
-            10 000 lines (``_MAX_LOG_LINES``) so the filter has material
-            to match.
-        pipeline_id: keep only lines whose pipeline/task id matches; checks
-            ``context.task_id`` and the ``extra.pipeline_id`` /
-            ``extra.task_id`` fallbacks the JsonFormatter lands kwargs in
-            (#3032).
-        level: minimum severity (case-sensitive; ``DEBUG`` … ``CRITICAL``);
-            drops lower-severity and unstructured lines. The MCP ``level``
-            enum is the source of truth — the HTTP route rejects lowercase
-            for parity (#3032).
-        pattern: Python regex; keep only lines it finds via ``re.search``.
-            Compiled with no complexity guardrail — pathological patterns
-            (catastrophic backtracking) can spin a request thread per pod
-            line. This endpoint is gated behind ``require_lifecycle_secret``
-            and called from trusted operator tooling, so the trust model
-            here is "operator can hose their own request"; widen with a
-            timeout if this surface ever opens up (#3032).
-
-    Filters are applied server-side **before** truncation, so a targeted query
-    returns the relevant lines instead of a raw tail that's mostly health-check
-    noise. When any filter is set, the backing pod is scanned over a wider
-    window (10 000 lines / ``_MAX_LOG_LINES``, still bounded by
-    ``since_seconds``) so the filter has material to match, and ``lines``
-    caps the matches returned — use ``since_seconds`` to keep the per-pod
-    scan cost bounded.
-    """
-    if _current_runtime() != "kubernetes":
-        return _not_available_on_runtime()
-
-    service = (request.args.get("service") or "").strip()
-    if not service:
-        return jsonify({"success": False, "message": "service is required"}), 400
-    if service not in _SERVICE_LOG_ALLOWLIST:
-        return (
-            jsonify(
-                {
-                    "success": False,
-                    "message": (
-                        f"service must be one of {sorted(_SERVICE_LOG_ALLOWLIST)}; got {service!r}"
-                    ),
-                }
-            ),
-            400,
-        )
-
-    try:
-        lines = int(request.args.get("lines", 100))
-    except ValueError, TypeError:
-        lines = 100
-    if lines <= 0:
-        lines = 100
-    lines = min(lines, _MAX_LOG_LINES)
-
-    since_raw = request.args.get("since_seconds")
-    since_seconds: int | None = None
-    if since_raw is not None:
-        try:
-            since_seconds = int(since_raw)
-        except ValueError, TypeError:
-            return (
-                jsonify({"success": False, "message": "since_seconds must be an integer"}),
-                400,
-            )
-        if since_seconds <= 0:
-            since_seconds = None
-
-    # Server-side filters (#3032). Applied below, before truncation.
-    pipeline_id = (request.args.get("pipeline_id") or "").strip() or None
-    # Case-sensitive on purpose: the MCP `level` enum is uppercase-only, and
-    # accepting lowercase here would diverge HTTP behavior from what the
-    # schema advertises. ``severity_rank`` itself is case-insensitive so the
-    # filter helper works for any direct caller; the strict check is the
-    # route's contract with its operator-facing schema.
-    level = (request.args.get("level") or "").strip() or None
-    if level is not None and level not in known_severities():
-        return (
-            jsonify(
-                {
-                    "success": False,
-                    "message": f"level must be one of {known_severities()}; got {level!r}",
-                }
-            ),
-            400,
-        )
-    pattern_raw = request.args.get("pattern") or None
-    compiled_pattern: re.Pattern[str] | None = None
-    if pattern_raw:
-        try:
-            compiled_pattern = re.compile(pattern_raw)
-        except re.error as exc:
-            return (
-                jsonify({"success": False, "message": f"pattern is not a valid regex: {exc}"}),
-                400,
-            )
-    filters_active = bool(pipeline_id) or level is not None or compiled_pattern is not None
-    # With a filter active, scan a wider window so the filter has material to
-    # match; ``lines`` then caps the matches returned, not the raw tail.
-    fetch_lines = _MAX_LOG_LINES if filters_active else lines
-
-    namespace = os.environ.get("EGG_K8S_NAMESPACE", "egg-system")
-
-    try:
-        from kubernetes_client import (
-            JobOperationError,
-            PodNotFoundError,
-            get_kubernetes_client,
-        )
-    except Exception as exc:  # pragma: no cover - env wiring
-        return jsonify({"success": False, "message": f"kubernetes unavailable: {exc}"}), 503
-
-    try:
-        k8s = get_kubernetes_client()
-    except Exception as exc:
-        return (
-            jsonify({"success": False, "message": f"kubernetes init failed: {exc}"}),
-            503,
-        )
-
-    try:
-        payload = k8s.get_service_logs(
-            service=service,
-            namespace=namespace,
-            tail_lines=fetch_lines,
-            since_seconds=since_seconds,
-        )
-    except PodNotFoundError as exc:
-        return jsonify({"success": False, "message": str(exc)}), 404
-    except JobOperationError as exc:
-        return jsonify({"success": False, "message": str(exc)}), 500
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.error("get_service_logs failed", service=service, error=str(exc))
-        return jsonify({"success": False, "message": f"failed: {exc}"}), 500
-
-    if filters_active:
-        for chunk in payload.get("pods", []):
-            chunk["logs"] = filter_log_lines(
-                chunk.get("logs", ""),
-                pipeline_id=pipeline_id,
-                min_level=level,
-                pattern=compiled_pattern,
-                limit=lines,
-            )
-        payload["filter"] = {
-            "pipeline_id": pipeline_id,
-            "level": level,
-            "pattern": pattern_raw,
-            "returned_line_cap": lines,
-            "scanned_line_budget": fetch_lines,
-        }
-
-    return jsonify({"success": True, "data": payload}), 200
-
-
-# ---------------------------------------------------------------------------
-# validate_deployment_manifests
-# ---------------------------------------------------------------------------
-
-_DEFAULT_OVERLAY = "k8s/overlays/local"
-
-
-def _run_kustomize(overlay_path: Path) -> list[dict[str, Any]]:
-    """Render the overlay with ``kustomize build`` and return docs.
-
-    Raises RuntimeError if kustomize fails or returns empty output.
-    """
-    exe = os.environ.get("EGG_KUSTOMIZE_BIN", "kustomize")
-    try:
-        proc = subprocess.run(
-            [exe, "build", str(overlay_path)],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=60,
-        )
-    except FileNotFoundError:
-        # Fall back to ``kubectl kustomize``; some environments only
-        # ship kubectl. If kubectl is also missing, surface a
-        # structured error rather than a 500.
-        try:
-            proc = subprocess.run(
-                ["kubectl", "kustomize", str(overlay_path)],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=60,
-            )
-        except FileNotFoundError as exc:
-            raise RuntimeError(
-                "kustomize_unavailable: neither kustomize nor kubectl is on PATH"
-            ) from exc
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"kustomize build timed out: {exc}") from exc
-
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"kustomize build failed (exit {proc.returncode}): {proc.stderr.strip()}"
-        )
-
-    docs = [d for d in yaml.safe_load_all(proc.stdout) if d]
-    if not docs:
-        raise RuntimeError("kustomize build produced no documents")
-    return docs
-
-
-def _warn(
-    warnings: list[dict[str, Any]],
-    rule: str,
-    severity: str,
-    resource: str,
-    message: str,
-    **extra: Any,
-) -> None:
-    entry: dict[str, Any] = {
-        "rule": rule,
-        "severity": severity,
-        "resource": resource,
-        "message": message,
-    }
-    if extra:
-        entry["extra"] = extra
-    warnings.append(entry)
-
-
-def _deployment_containers(doc: dict[str, Any]) -> list[dict[str, Any]]:
-    spec = (doc.get("spec") or {}).get("template", {}).get("spec") or {}
-    return list(spec.get("containers") or [])
-
-
-def _deployment_volumes(doc: dict[str, Any]) -> list[dict[str, Any]]:
-    spec = (doc.get("spec") or {}).get("template", {}).get("spec") or {}
-    return list(spec.get("volumes") or [])
-
-
-def _validate_deployment_docs(docs: list[dict[str, Any]], *, is_k3s: bool) -> list[dict[str, Any]]:
-    """Apply the warning rules from the #1759 validation session.
-
-    Rules:
-
-    1. Missing ``Secret`` reference (secretName in a volume with no
-       matching Secret resource in the overlay).
-    2. Missing ``hostPath`` for gateway / orchestrator volumes on local
-       overlays (skipped when we cannot detect an overlay with hostPath
-       mounts at all — matching non-local deploys).
-    3. Missing container image tag (``image:`` without ``:`` or with a
-       placeholder ``:latest`` tag — k3s-gated because only k3s relies
-       on locally-imported image tags).
-    4. Service selector labels not matching deployment template labels.
-    5. Env-var name collision: same name declared twice in a single
-       container's ``env`` list.
-    6. Gateway session store ephemeral while worktrees are persistent
-       (#3005): an ephemeral ``egg-state`` (emptyDir, or absent so it falls
-       inside the ``home`` emptyDir) paired with a persistent ``worktrees``
-       lets a gateway pod recreation wipe live pipeline worktrees.
-    """
-    warnings: list[dict[str, Any]] = []
-
-    # Build lookup tables
-    secrets = {d.get("metadata", {}).get("name") for d in docs if d.get("kind") == "Secret"}
-    deployments = [d for d in docs if d.get("kind") == "Deployment"]
-    services = [d for d in docs if d.get("kind") == "Service"]
-
-    any_hostpath = any(
-        any("hostPath" in (v or {}) for v in _deployment_volumes(d)) for d in deployments
-    )
-
-    # Rule 1: Secret references
-    for dep in deployments:
-        name = dep.get("metadata", {}).get("name", "<unknown>")
-        for vol in _deployment_volumes(dep):
-            secret_cfg = vol.get("secret")
-            if not secret_cfg:
-                continue
-            secret_name = secret_cfg.get("secretName")
-            if secret_name and secret_name not in secrets:
-                _warn(
-                    warnings,
-                    rule="secret-missing",
-                    severity="error",
-                    resource=f"Deployment/{name}",
-                    message=(
-                        f"volume references Secret '{secret_name}' which is not "
-                        "declared in the overlay"
-                    ),
-                )
-
-    # Rule 2: hostPath volume presence on local overlays.
-    if any_hostpath:
-        for dep in deployments:
-            name = dep.get("metadata", {}).get("name", "<unknown>")
-            if "gateway" not in name and "orchestrator" not in name:
-                continue
-            has_hostpath = any("hostPath" in (v or {}) for v in _deployment_volumes(dep))
-            if not has_hostpath:
-                _warn(
-                    warnings,
-                    rule="hostpath-missing",
-                    severity="warn",
-                    resource=f"Deployment/{name}",
-                    message=(
-                        "local overlay declares hostPath mounts elsewhere but this "
-                        "Deployment has none — worktrees/repos will not be visible"
-                    ),
-                )
-
-    # Rule 3: image tag presence (k3s-gated)
-    if is_k3s:
-        for dep in deployments:
-            name = dep.get("metadata", {}).get("name", "<unknown>")
-            for c in _deployment_containers(dep):
-                image = (c or {}).get("image", "")
-                if not image:
-                    _warn(
-                        warnings,
-                        rule="image-missing",
-                        severity="error",
-                        resource=f"Deployment/{name}",
-                        message=f"container '{c.get('name', '<unnamed>')}' has no image field",
-                    )
-                    continue
-                if ":" not in image:
-                    _warn(
-                        warnings,
-                        rule="image-missing-tag",
-                        severity="warn",
-                        resource=f"Deployment/{name}",
-                        message=(
-                            f"container image '{image}' has no tag — k3s "
-                            "containerd will not find the locally-imported image"
-                        ),
-                    )
-    else:
-        warnings.append(
-            {
-                "skipped": "not_k3s",
-                "rule": "image-missing-tag",
-                "detected_runtime": None,
-            }
-        )
-
-    # Rule 4: Service selector labels vs Deployment template labels
-    for svc in services:
-        svc_name = svc.get("metadata", {}).get("name", "<unknown>")
-        selector = ((svc.get("spec") or {}).get("selector")) or {}
-        if not selector:
-            continue
-        matched = False
-        for dep in deployments:
-            labels = (
-                (dep.get("spec") or {}).get("template", {}).get("metadata", {}).get("labels", {})
-            ) or {}
-            if labels and all(labels.get(k) == v for k, v in selector.items()):
-                matched = True
-                break
-        if not matched:
-            _warn(
-                warnings,
-                rule="selector-label-mismatch",
-                severity="warn",
-                resource=f"Service/{svc_name}",
-                message=(
-                    f"service selector {selector!r} does not match any Deployment "
-                    "template labels in the overlay"
-                ),
-            )
-
-    # Rule 5: env-var name collision within a container
-    for dep in deployments:
-        name = dep.get("metadata", {}).get("name", "<unknown>")
-        for c in _deployment_containers(dep):
-            seen: dict[str, int] = {}
-            for entry in (c or {}).get("env") or []:
-                env_name = (entry or {}).get("name")
-                if not env_name:
-                    continue
-                seen[env_name] = seen.get(env_name, 0) + 1
-            dupes = [k for k, v in seen.items() if v > 1]
-            for d in dupes:
-                _warn(
-                    warnings,
-                    rule="env-var-collision",
-                    severity="error",
-                    resource=f"Deployment/{name}",
-                    message=(
-                        f"container '{c.get('name', '<unnamed>')}' declares env '{d}' "
-                        "more than once"
-                    ),
-                )
-
-    # Rule 6: gateway session store must share the worktrees' persistence
-    # lifetime (#3005). When an overlay gives a gateway's worktrees a volume
-    # that survives pod recreation, the gateway session store — the
-    # ``egg-state`` volume mounted at /home/egg/.egg-state
-    # (gateway/session_manager.py) — MUST also survive. The two are coupled:
-    # startup worktree cleanup
-    # (gateway/worktree_manager.py:cleanup_orphaned_worktrees) only protects a
-    # live pipeline's worktrees if it can see the owning sessions (the #1874
-    # session-anchor derivation). If the session store is ephemeral
-    # (``emptyDir`` or absent — in which case /home/egg/.egg-state falls
-    # inside the ``home`` emptyDir) while the worktrees survive on a
-    # persistent volume, a gateway *pod* recreation boots with the worktrees
-    # still on disk but zero sessions, so cleanup runs with
-    # active_containers=0 and deletes every live worktree out from under its
-    # running phase agents, deadlocking BRC consensus. The rule is expressed
-    # against ``emptyDir`` (the ephemeral side) rather than ``hostPath`` (one
-    # specific persistent backing) so it generalizes to PVC / NFS / CSI
-    # backings a future cloud overlay might use — the real invariant is
-    # "session store has at least the same persistence class as worktrees,"
-    # not "both are hostPath." Self-gated on the worktrees actually being
-    # persistent so it stays silent on all-emptyDir base/cloud deploys (where
-    # nothing survives a pod recreation, so there is no asymmetry to exploit).
-    for dep in deployments:
-        name = dep.get("metadata", {}).get("name", "<unknown>")
-        # Match the gateway deployment by exact name or ``gateway-*`` prefix
-        # so the rule fires on canary / rollout variants but not on unrelated
-        # deployments that happen to contain ``gateway`` as a substring
-        # (e.g. a hypothetical ``litellm-gateway``).
-        if name != "gateway" and not name.startswith("gateway-"):
-            continue
-        vols = _deployment_volumes(dep)
-        worktrees_vol = next((v for v in vols if (v or {}).get("name") == "worktrees"), None)
-        # Worktrees survive a pod recreation only if declared AND not an
-        # emptyDir. Absence / emptyDir both count as ephemeral, so there is
-        # nothing for an empty session store to wrongly orphan — no asymmetry.
-        if worktrees_vol is None or "emptyDir" in worktrees_vol:
-            continue
-        egg_state_vol = next((v for v in vols if (v or {}).get("name") == "egg-state"), None)
-        # Session store is persistent iff declared AND not emptyDir.
-        egg_state_persistent = egg_state_vol is not None and "emptyDir" not in egg_state_vol
-        if egg_state_persistent:
-            continue
-        if egg_state_vol is None:
-            detail = (
-                "gateway worktrees survive pod recreation but no "
-                "``egg-state`` volume is declared, so /home/egg/.egg-state "
-                "falls inside the ``home`` emptyDir and the session store is "
-                "ephemeral"
-            )
-        else:
-            detail = (
-                "gateway worktrees survive pod recreation but its session "
-                "store (egg-state volume, /home/egg/.egg-state) is an "
-                "emptyDir and does not"
-            )
-        _warn(
-            warnings,
-            rule="session-store-not-persistent",
-            severity="error",
-            resource=f"Deployment/{name}",
-            message=(
-                f"{detail}; a gateway pod recreation will boot with an empty "
-                "session store and delete live pipeline worktrees during "
-                "startup cleanup (#3005)"
-            ),
-        )
-
-    # Rule 7: orchestrator pipeline-state store must share the repos'
-    # persistence lifetime (#3070). The orchestrator's StateStore keeps the
-    # ``egg/pipeline-state`` worktrees under
-    # /home/egg/.egg-state/pipeline-worktree* (the ``egg-state`` volume).
-    # The state branch's *commits* live in each repo's .git on the ``repos``
-    # volume, but the worktree's working files hold anything saved since the
-    # last commit. When an overlay gives ``repos`` a volume that survives pod
-    # recreation while ``egg-state`` is ephemeral (``emptyDir`` or absent —
-    # in which case /home/egg/.egg-state falls inside the ``home`` emptyDir),
-    # a pod recreation rebuilds each state worktree from the last committed
-    # branch tip and silently drops everything newer: in #3070 every
-    # in-flight pipeline whose record had no commit yet simply vanished
-    # (get_status 404, absent from list_tasks). Like rule 6, the check is
-    # expressed against ``emptyDir`` rather than ``hostPath`` so PVC/NFS/CSI
-    # backings satisfy it, and it self-gates on ``repos`` being persistent so
-    # it stays silent on all-emptyDir base/cloud deploys.
-    for dep in deployments:
-        name = dep.get("metadata", {}).get("name", "<unknown>")
-        if name != "orchestrator" and not name.startswith("orchestrator-"):
-            continue
-        vols = _deployment_volumes(dep)
-        repos_vol = next((v for v in vols if (v or {}).get("name") == "repos"), None)
-        if repos_vol is None or "emptyDir" in repos_vol:
-            continue
-        egg_state_vol = next((v for v in vols if (v or {}).get("name") == "egg-state"), None)
-        egg_state_persistent = egg_state_vol is not None and "emptyDir" not in egg_state_vol
-        if egg_state_persistent:
-            continue
-        if egg_state_vol is None:
-            detail = (
-                "orchestrator repos survive pod recreation but no "
-                "``egg-state`` volume is declared, so /home/egg/.egg-state "
-                "falls inside the ``home`` emptyDir and the pipeline-state "
-                "worktree is ephemeral"
-            )
-        else:
-            detail = (
-                "orchestrator repos survive pod recreation but its "
-                "pipeline-state store (egg-state volume, "
-                "/home/egg/.egg-state) is an emptyDir and does not"
-            )
-        _warn(
-            warnings,
-            rule="pipeline-state-store-not-persistent",
-            severity="error",
-            resource=f"Deployment/{name}",
-            message=(
-                f"{detail}; an orchestrator pod recreation will rebuild the "
-                "state worktree from the last committed branch tip and "
-                "silently lose any pipeline state saved since (#3070)"
-            ),
-        )
-
-    return warnings
-
-
-@deployment_bp.route("/validate-manifests", methods=["POST"])
-@require_lifecycle_secret
-def validate_deployment_manifests() -> tuple[Response, int]:
-    """Static validation of the committed kustomize overlay."""
-    runtime = _current_runtime()
-    if runtime != "kubernetes":
-        return _not_available_on_runtime()
-
-    body = request.get_json(silent=True) or {}
-    overlay = body.get("overlay_path") or _DEFAULT_OVERLAY
-
-    # Resolve overlay relative to the repo root if a relative path was
-    # passed.  The orchestrator container has the repo mounted at
-    # /home/egg/repos/egg by default.  The final resolved path MUST
-    # stay inside one of the recognised repo roots — otherwise an
-    # authenticated caller could probe arbitrary filesystem paths via
-    # 200/404 differentiation.
-    repo_root_candidates = [
-        p
-        for p in (
-            Path(os.environ.get("EGG_REPO_PATH") or ""),
-            Path("/home/egg/repos/egg"),
-            Path.cwd(),
-        )
-        if str(p)
-    ]
-    overlay_path = Path(overlay)
-    if not overlay_path.is_absolute():
-        for root in repo_root_candidates:
-            if root and (root / overlay).exists():
-                overlay_path = root / overlay
-                break
-
-    # Guard against path traversal — the resolved overlay must sit
-    # under a known repo root.
-    try:
-        resolved = overlay_path.resolve()
-        in_scope = any(
-            resolved.is_relative_to(root.resolve()) for root in repo_root_candidates if root
-        )
-    except OSError, RuntimeError:
-        in_scope = False
-    if not in_scope:
-        return (
-            jsonify(
-                {
-                    "success": False,
-                    "message": "overlay_path must resolve under a known repo root",
-                }
-            ),
-            400,
-        )
-
-    if not overlay_path.exists():
-        return (
-            jsonify(
-                {
-                    "success": False,
-                    "message": f"overlay not found: {overlay}",
-                }
-            ),
-            404,
-        )
-
-    # Detect k3s so we know whether to apply k3s-specific rules.
-    try:
-        from kubernetes_client import get_kubernetes_client
-
-        k8s = get_kubernetes_client()
-        is_k3s, _hint = _detect_k3s(k8s)
-    except Exception:
-        is_k3s = False
-
-    try:
-        docs = _run_kustomize(overlay_path)
-    except RuntimeError as exc:
-        return (
-            jsonify({"success": False, "message": str(exc)}),
-            500,
-        )
-
-    warnings = _validate_deployment_docs(docs, is_k3s=is_k3s)
-    return (
-        jsonify(
-            {
-                "success": True,
-                "data": {
-                    "overlay_path": str(overlay_path),
-                    "is_k3s": bool(is_k3s),
-                    "warnings": warnings,
-                },
-            }
-        ),
-        200,
-    )
-
-
-# ---------------------------------------------------------------------------
-# prune_stale_worktrees (orchestrator proxy)
-# ---------------------------------------------------------------------------
-
-
-@deployment_bp.route("/prune-worktrees", methods=["POST"])
-@require_lifecycle_secret
-def prune_worktrees_proxy() -> tuple[Response, int]:
-    """Proxy to the gateway's worktree-prune endpoint.
-
-    The gateway owns the filesystem mutation and its in-process mutex.
-    The orchestrator layer is kept to enforce
-    ``@require_lifecycle_secret`` (parity with #1769) and to shield
-    agents from the launcher-secret needed to call the gateway
-    directly.
-    """
-    try:
-        from gateway_client import GatewayError, get_gateway_client
-    except Exception as exc:  # pragma: no cover - wiring guard
-        return jsonify({"success": False, "message": f"gateway unavailable: {exc}"}), 503
-
-    body = request.get_json(silent=True) or {}
-    dry_run = bool(body.get("dry_run", True))
-
-    client = get_gateway_client()
-    try:
-        # _make_request is private but the simplest integration point;
-        # all other gateway methods go through it.
-        result = client._make_request(  # noqa: SLF001
-            "/api/v1/worktrees/prune",
-            method="POST",
-            data={"dry_run": dry_run},
-            use_launcher_auth=True,
-            timeout=120,
-        )
-    except GatewayError as exc:
-        status = getattr(exc, "status_code", 502) or 502
-        return jsonify({"success": False, "message": str(exc)}), status
-    except Exception as exc:
-        return jsonify({"success": False, "message": f"gateway error: {exc}"}), 502
-
-    return jsonify({"success": True, "data": result.get("data", result)}), 200
-
-
-# ---------------------------------------------------------------------------
-# validate_network_isolation
-# ---------------------------------------------------------------------------
-
-PROBE_COMMAND_TEMPLATE = r"""
-set -u
-gateway_url="${GATEWAY_URL:-http://gateway.egg-system.svc.cluster.local:9848}" # noqa: EGG002
-orchestrator_url="${EGG_ORCHESTRATOR_URL:-http://orchestrator.egg-system.svc.cluster.local:9849}"
-
-probe() {
-  local url="$1"
-  curl --silent --max-time 3 -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || true
-}
-
-gw=$(probe "$gateway_url/api/v1/health")
-internet=$(probe "https://example.com/")
-orch=$(probe "$orchestrator_url/api/v1/health")
-peer=$(probe "http://1.2.3.4:80/")
-
-python3 - <<PY
-import json
-print(json.dumps({
-    "gateway_reachable": "$gw".startswith("2") or "$gw".startswith("3"),
-    "internet_blocked": "$internet" == "000",
-    "agent_pods_unreachable": "$peer" == "000",
-    # allow-agent-to-orchestrator (k8s/base/network-policies.yaml)
-    # deliberately permits agent->orchestrator:9849 so agents can
-    # heartbeat. So on a correctly-configured cluster this is True;
-    # False is the regression signal (heartbeat path is broken). The
-    # field was previously named orchestrator_direct_blocked with
-    # inverted polarity, which read backwards from intent (#2652).
-    # NOTE: this heredoc is unquoted (<<PY, not <<'PY') so the shell
-    # performs command substitution on backticks. Do not introduce
-    # backticks anywhere in the body — they will execute under sh
-    # before python3 ever sees the source.
-    "orchestrator_api_reachable": "$orch".startswith("2") or "$orch".startswith("3"),
-    "raw": {
-        "gateway_status": "$gw",
-        "internet_status": "$internet",
-        "orchestrator_status": "$orch",
-        "peer_status": "$peer",
-    },
-}))
-PY
-"""
-
-
-def _build_probe_env() -> dict[str, str]:
-    """Build the env dict for the throwaway probe Job.
-
-    Explicitly omits secrets: no lifecycle secret, no session token,
-    no gateway bearer.  Uses ``PROTECTED_ENV_KEYS`` from ``redaction``
-    as the single source of truth for the denylist.
-    """
-    from redaction import PROTECTED_ENV_KEYS as _PROTECTED_ENV_KEYS
-
-    # We only expose the two URLs the probe script needs. Both happen to
-    # also appear in _PROTECTED_ENV_KEYS (they're locked against agent
-    # override in production); here the probe legitimately needs them.
-    # All other environment is discarded.
-    safe: dict[str, str] = {
-        "GATEWAY_URL": os.environ.get("GATEWAY_URL", ""),
-        "EGG_ORCHESTRATOR_URL": os.environ.get("EGG_ORCHESTRATOR_URL", ""),
-    }
-    # Double-check: nothing else sensitive sneaks in.
-    for key in list(safe.keys()):
-        if key in _PROTECTED_ENV_KEYS and key not in {
-            "GATEWAY_URL",
-            "EGG_ORCHESTRATOR_URL",
-        }:
-            safe.pop(key, None)
-    return safe
-
-
-def _build_probe_job_manifest(
-    pipeline_id: str,
-    role: str,
-    probe_id: str,
-    image: str,
-) -> dict[str, Any]:
-    """Construct the V1Job body for the isolation probe as a plain dict.
-
-    Returning a dict rather than a ``V1Job`` keeps the function unit-testable
-    without depending on the kubernetes SDK.  The caller converts to a
-    V1 object when submitting.
-    """
-    env = _build_probe_env()
-    return {
-        "apiVersion": "batch/v1",
-        "kind": "Job",
-        "metadata": {
-            "name": f"egg-probe-{probe_id}",
-            "labels": {
-                "app.kubernetes.io/component": "agent",
-                "egg.probe": "true",
-                "egg.io/probe-id": probe_id,
-                "egg.pipeline.id": pipeline_id,
-                "egg.agent.role": role,
-            },
-        },
-        "spec": {
-            # 0 raced with _wait_for_probe_pod's 1s poll: the Job could
-            # complete and be GC'd by the TTL-after-finished controller
-            # before the next poll observed the pod's terminal phase,
-            # leaving the wait loop scanning an empty list until its 75s
-            # ceiling (seen as the bimodal ~10s-or-75s distribution in
-            # https://github.com/jwbron/egg/actions/runs/25817353877).
-            # 30s guarantees the wait loop sees Succeeded/Failed and
-            # _read_probe_log still has a pod to read from; the route's
-            # try/finally _delete_probe_job remains the primary cleanup
-            # path, so this only extends lifetime when the route crashed
-            # before reaching finally.
-            "ttlSecondsAfterFinished": 30,
-            "activeDeadlineSeconds": 30,
-            "backoffLimit": 0,
-            "template": {
-                "metadata": {
-                    "labels": {
-                        "app.kubernetes.io/component": "agent",
-                        "egg.probe": "true",
-                        "egg.io/probe-id": probe_id,
-                    },
-                },
-                "spec": {
-                    "restartPolicy": "Never",
-                    "automountServiceAccountToken": False,
-                    "containers": [
-                        {
-                            "name": "probe",
-                            "image": image,
-                            "imagePullPolicy": "IfNotPresent",
-                            "command": ["/bin/sh", "-c", PROBE_COMMAND_TEMPLATE],
-                            "env": [{"name": k, "value": v} for k, v in env.items()],
-                            "securityContext": {
-                                "allowPrivilegeEscalation": False,
-                                "capabilities": {"drop": ["ALL"]},
-                            },
-                        }
-                    ],
-                },
-            },
-        },
-    }
-
-
-def _submit_probe_job(k8s: Any, namespace: str, probe_id: str, manifest: dict[str, Any]) -> None:
-    from kubernetes import client as k8s_client_pkg
-
-    body = k8s_client_pkg.V1Job(
-        api_version=manifest["apiVersion"],
-        kind=manifest["kind"],
-        metadata=k8s_client_pkg.V1ObjectMeta(
-            name=manifest["metadata"]["name"],
-            labels=manifest["metadata"]["labels"],
-        ),
-        spec=k8s_client_pkg.V1JobSpec(
-            ttl_seconds_after_finished=manifest["spec"]["ttlSecondsAfterFinished"],
-            active_deadline_seconds=manifest["spec"]["activeDeadlineSeconds"],
-            backoff_limit=manifest["spec"]["backoffLimit"],
-            template=k8s_client_pkg.V1PodTemplateSpec(
-                metadata=k8s_client_pkg.V1ObjectMeta(
-                    labels=manifest["spec"]["template"]["metadata"]["labels"],
-                ),
-                spec=k8s_client_pkg.V1PodSpec(
-                    restart_policy="Never",
-                    automount_service_account_token=False,
-                    containers=[
-                        k8s_client_pkg.V1Container(
-                            name="probe",
-                            image=manifest["spec"]["template"]["spec"]["containers"][0]["image"],
-                            image_pull_policy="IfNotPresent",
-                            command=manifest["spec"]["template"]["spec"]["containers"][0][
-                                "command"
-                            ],
-                            env=[
-                                k8s_client_pkg.V1EnvVar(name=e["name"], value=e["value"])
-                                for e in manifest["spec"]["template"]["spec"]["containers"][0][
-                                    "env"
-                                ]
-                            ],
-                            security_context=k8s_client_pkg.V1SecurityContext(
-                                allow_privilege_escalation=False,
-                                capabilities=k8s_client_pkg.V1Capabilities(drop=["ALL"]),
-                            ),
-                        )
-                    ],
-                ),
-            ),
-        ),
-    )
-    k8s.batch_api.create_namespaced_job(namespace=namespace, body=body)
-
-
-def _wait_for_probe_pod(k8s: Any, namespace: str, probe_id: str, *, timeout: float) -> Any:
-    """Return the probe pod once it is Succeeded/Failed or None on timeout."""
-    selector = f"egg.io/probe-id={probe_id}"
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            pods = k8s.core_api.list_namespaced_pod(namespace=namespace, label_selector=selector)
-        except Exception:
-            time.sleep(1.0)
-            continue
-        for pod in getattr(pods, "items", []) or []:
-            phase = (getattr(pod, "status", None) and pod.status.phase) or ""
-            if phase in {"Succeeded", "Failed"}:
-                return pod
-        time.sleep(1.0)
-    return None
-
-
-def _read_probe_log(k8s: Any, namespace: str, pod_name: str) -> str:
-    # The probe writes JSON to stdout. The kubernetes-python client's
-    # ApiClient.deserialize() runs json.loads() on every response body
-    # before coercing to the declared response_type, so a JSON-shaped
-    # pod log gets parsed to a dict and then str()'d back, yielding the
-    # Python dict repr (single quotes, ``True``) instead of the
-    # original JSON. _preload_content=False bypasses that path and
-    # returns the urllib3 HTTPResponse so we can decode the raw bytes.
-    #
-    # With ``_preload_content=False`` the actual network read happens at
-    # ``.data`` access (urllib3 reads-to-EOF lazily and caches), so the
-    # ``try/except`` must wrap the ``.data`` access too — otherwise a
-    # mid-stream connection reset or malformed transfer-encoding would
-    # propagate up and 500 the route handler.
-    try:
-        raw = k8s.core_api.read_namespaced_pod_log(
-            name=pod_name, namespace=namespace, _preload_content=False
-        )
-        if raw is None:
-            return ""
-        data = getattr(raw, "data", raw)
-    except Exception as exc:
-        logger.warning("probe log read failed", pod=pod_name, error=str(exc))
-        return ""
-    if data is None:
-        return ""
-    if isinstance(data, bytes):
-        return data.decode("utf-8", errors="replace")
-    return str(data)
-
-
-def _delete_probe_job(k8s: Any, namespace: str, probe_id: str) -> None:
-    """Best-effort cleanup. Never raises."""
-    name = f"egg-probe-{probe_id}"
-    try:
-        from kubernetes import client as k8s_client_pkg
-
-        k8s.batch_api.delete_namespaced_job(
-            name=name,
-            namespace=namespace,
-            body=k8s_client_pkg.V1DeleteOptions(
-                propagation_policy="Background", grace_period_seconds=0
-            ),
-        )
-    except Exception as exc:
-        logger.info("probe job cleanup skipped", probe=name, error=str(exc))
-
-
-def _parse_probe_output(raw_log: str) -> dict[str, Any]:
-    """Extract the JSON emitted by the probe pod.
-
-    The probe script prints a single JSON object.  Log drivers
-    sometimes add a trailing newline; tolerate that.
-    """
-    import json
-
-    if not raw_log:
-        return {"error": "no_probe_output"}
-    for line in reversed(raw_log.splitlines()):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            return json.loads(line)
-        except json.JSONDecodeError:
-            continue
-    return {"error": "probe_output_unparseable", "raw": raw_log[-512:]}
-
-
-@deployment_bp.route("/validate-network-isolation", methods=["POST"])
-@require_lifecycle_secret
-def validate_network_isolation() -> tuple[Response, int]:
-    """Spawn a throwaway probe Job and report isolation results."""
-    if _current_runtime() != "kubernetes":
-        return _not_available_on_runtime()
-
-    body = request.get_json(silent=True) or {}
-    pipeline_id = str(body.get("pipeline_id") or "manual")
-    role = str(body.get("role") or "coder")
-    namespace = os.environ.get("EGG_AGENTS_NAMESPACE", "egg-agents")
-
-    # Guard against invalid K8s label values.  Labels must match
-    # ^[a-z0-9A-Z]([-._a-z0-9A-Z]{0,61}[a-z0-9A-Z])?$ — failing Job
-    # creation otherwise returns an opaque 400 from the apiserver.
-    if not _K8S_LABEL_VALUE_RE.match(pipeline_id):
-        return (
-            jsonify(
-                {
-                    "success": False,
-                    "message": (
-                        "pipeline_id is not a valid Kubernetes label value "
-                        "(must match [a-z0-9A-Z]([-._a-z0-9A-Z]{0,61}[a-z0-9A-Z])?)"
-                    ),
-                }
-            ),
-            400,
-        )
-    if not _K8S_LABEL_VALUE_RE.match(role):
-        return (
-            jsonify(
-                {
-                    "success": False,
-                    "message": "role is not a valid Kubernetes label value",
-                }
-            ),
-            400,
-        )
-
-    try:
-        from kubernetes_client import get_kubernetes_client
-    except Exception as exc:
-        return jsonify({"success": False, "message": f"kubernetes unavailable: {exc}"}), 503
-
-    try:
-        k8s = get_kubernetes_client()
-    except Exception as exc:
-        return jsonify({"success": False, "message": f"kubernetes init failed: {exc}"}), 503
-
-    # CNI gating per DEP-3: refuse to run the probe when enforcement is
-    # not detected so we don't return misleading results.
-    _cni, enforcement = _detect_cni(k8s)
-    if not enforcement:
-        return (
-            jsonify(
-                {
-                    "success": True,
-                    "data": {
-                        "error": "network_policy_enforcement_not_detected",
-                        "cni": _cni,
-                    },
-                }
-            ),
-            200,
-        )
-
-    probe_id = uuid.uuid4().hex[:12]
-    image = os.environ.get("EGG_SANDBOX_IMAGE", "egg:latest")
-    manifest = _build_probe_job_manifest(
-        pipeline_id=pipeline_id, role=role, probe_id=probe_id, image=image
-    )
-
-    try:
-        _submit_probe_job(k8s, namespace, probe_id, manifest)
-    except Exception as exc:
-        logger.error("probe submit failed", error=str(exc))
-        return jsonify({"success": False, "message": f"probe submit failed: {exc}"}), 500
-
-    try:
-        # 30s was too tight: probe-pod scheduling on the k3s integration
-        # cluster intermittently exceeded the deadline. 75s sits under the
-        # require_lifecycle_secret route's 90s HTTP-timeout ceiling.
-        pod = _wait_for_probe_pod(k8s, namespace, probe_id, timeout=75.0)
-        if pod is None:
-            return (
-                jsonify(
-                    {
-                        "success": True,
-                        "data": {
-                            "error": "probe_timeout",
-                            "probe_id": probe_id,
-                        },
-                    }
-                ),
-                200,
-            )
-
-        pod_name = (getattr(pod, "metadata", None) and pod.metadata.name) or ""
-        log = _read_probe_log(k8s, namespace, pod_name)
-        parsed = _parse_probe_output(log)
-
-        return (
-            jsonify(
-                {
-                    "success": True,
-                    "data": {
-                        "probe_id": probe_id,
-                        "namespace": namespace,
-                        "result": parsed,
-                    },
-                }
-            ),
-            200,
-        )
-    finally:
-        _delete_probe_job(k8s, namespace, probe_id)
-
-
-# ---------------------------------------------------------------------------
-# rebuild_and_rollout
+# Canonical rollout / progress-stream state (single source of truth).
+#
+# These were module globals of the pre-split file. They are rebound by both
+# the route tests and ``_rebuild``, so they MUST live on a single module:
+# this package. ``_rebuild`` reads/writes/mutates them via ``_pkg``.
 # ---------------------------------------------------------------------------
 
 # Single in-process guard. The rebuild writes images to the node's
@@ -1558,282 +120,116 @@ _STREAM_RETENTION = 16
 _REDEPLOY_SUBPROCESS_TIMEOUT_SEC = 1800
 
 
-def _stream_append(stream_id: str, event: dict[str, Any]) -> None:
-    with _STREAM_LOCK:
-        buf = _STREAM_BUFFERS.setdefault(stream_id, deque())
-        buf.append(event)
+# Private submodules. Imported after the blueprint + shared deps + logger +
+# canonical state exist so the ``import routes.deployment as _pkg`` barrel
+# access inside them resolves against a populated package module.
+from . import (  # noqa: E402,F401
+    _cluster_detection,
+    _context,
+    _manifest_validation,
+    _network_probe,
+    _prune,
+    _rebuild,
+    _runtime,
+    _service_logs,
+)
+
+# Re-export the stable public / test-patched surface (pattern §a/§d).
+from ._cluster_detection import (  # noqa: E402,F401
+    _NETWORK_POLICY_CNIS,
+    _collect_egg_image_tags,
+    _detect_cni,
+    _detect_k3s,
+)
+from ._context import _build_deployment_context_payload  # noqa: E402,F401
+from ._manifest_validation import (  # noqa: E402,F401
+    _DEFAULT_OVERLAY,
+    _deployment_containers,
+    _deployment_volumes,
+    _run_kustomize,
+    _validate_deployment_docs,
+    _warn,
+)
+from ._network_probe import (  # noqa: E402,F401
+    _K8S_LABEL_VALUE_RE,
+    PROBE_COMMAND_TEMPLATE,
+    _build_probe_env,
+    _build_probe_job_manifest,
+    _delete_probe_job,
+    _parse_probe_output,
+    _read_probe_log,
+    _submit_probe_job,
+    _wait_for_probe_pod,
+)
+from ._rebuild import (  # noqa: E402,F401
+    _reap_stale_streams_locked,
+    _run_redeploy_subprocess,
+    _stream_append,
+    _stream_is_done,
+    _stream_mark_done,
+    _stream_snapshot,
+)
+from ._runtime import (  # noqa: E402,F401
+    _current_runtime,
+    _not_available_on_runtime,
+    _probe_kubernetes_reachable,
+    _resolve_runtime,
+    _runtime_detection_failed,
+)
+from ._service_logs import _MAX_LOG_LINES, _SERVICE_LOG_ALLOWLIST  # noqa: E402,F401
+
+# ---- Route registrations -------------------------------------------------
+# Decision-8: decorators stay in __init__.py on thin wrappers; the bodies
+# live in the private submodules above.
 
 
-def _stream_mark_done(stream_id: str) -> None:
-    import time as _time
-
-    with _STREAM_LOCK:
-        _STREAM_TERMINATED.add(stream_id)
-        _STREAM_TERMINATION_TS[stream_id] = _time.monotonic()
-        _reap_stale_streams_locked()
+@deployment_bp.route("/context", methods=["GET"])
+@require_lifecycle_secret
+def get_deployment_context() -> tuple[Response, int]:
+    """Return runtime / cluster / image introspection."""
+    return _context.get_deployment_context()
 
 
-def _reap_stale_streams_locked() -> None:
-    """Evict terminated streams beyond the retention cap. Lock-held."""
-    if len(_STREAM_TERMINATION_TS) <= _STREAM_RETENTION:
-        return
-    # Oldest first.
-    ordered = sorted(_STREAM_TERMINATION_TS.items(), key=lambda kv: kv[1])
-    overflow = len(ordered) - _STREAM_RETENTION
-    for stream_id, _ts in ordered[:overflow]:
-        _STREAM_BUFFERS.pop(stream_id, None)
-        _STREAM_TERMINATED.discard(stream_id)
-        _STREAM_TERMINATION_TS.pop(stream_id, None)
+@deployment_bp.route("/logs", methods=["GET"])
+@require_lifecycle_secret
+def get_service_logs() -> tuple[Response, int]:
+    """Return logs from the pod(s) backing the gateway or orchestrator Deployment."""
+    return _service_logs.get_service_logs()
 
 
-def _stream_is_done(stream_id: str) -> bool:
-    with _STREAM_LOCK:
-        return stream_id in _STREAM_TERMINATED
+@deployment_bp.route("/validate-manifests", methods=["POST"])
+@require_lifecycle_secret
+def validate_deployment_manifests() -> tuple[Response, int]:
+    """Static validation of the committed kustomize overlay."""
+    return _manifest_validation.validate_deployment_manifests()
 
 
-def _stream_snapshot(stream_id: str, since: int = 0) -> tuple[list[dict[str, Any]], bool]:
-    with _STREAM_LOCK:
-        buf = _STREAM_BUFFERS.get(stream_id)
-        if buf is None:
-            return [], stream_id in _STREAM_TERMINATED
-        events = list(buf)[since:]
-        done = stream_id in _STREAM_TERMINATED
-        return events, done
+@deployment_bp.route("/prune-worktrees", methods=["POST"])
+@require_lifecycle_secret
+def prune_worktrees_proxy() -> tuple[Response, int]:
+    """Proxy to the gateway's worktree-prune endpoint."""
+    return _prune.prune_worktrees_proxy()
 
 
-def _run_redeploy_subprocess(
-    stream_id: str,
-    cwd: str,
-    *,
-    runner: Any = None,
-    timeout_sec: int | None = None,
-) -> None:
-    """Execute ``make redeploy`` and pipe progress events to the stream.
-
-    Emits events of shape::
-
-        {"ts": "<isoformat>", "phase": "line", "line": "..."}
-
-    and terminates with a ``{"phase": "done", "exit_code": N,
-    "rolled_out_images": {...}}`` record.
-
-    A watchdog kills the subprocess after *timeout_sec* seconds (default
-    :data:`_REDEPLOY_SUBPROCESS_TIMEOUT_SEC`) so a wedged
-    ``make redeploy`` never leaves ``_REBUILD_IN_PROGRESS`` pinned true
-    — review MEDIUM-1 in #1759.
-
-    *runner* may be overridden for testing — any callable with the
-    signature of :func:`subprocess.Popen`.
-    """
-    global _REBUILD_IN_PROGRESS, _REBUILD_ACTIVE_STREAM_ID
-
-    from datetime import UTC, datetime
-
-    popen = runner or subprocess.Popen
-    effective_timeout = timeout_sec if timeout_sec is not None else _REDEPLOY_SUBPROCESS_TIMEOUT_SEC
-    deadline = time.monotonic() + effective_timeout
-    exit_code = -1
-    rolled_out: dict[str, str] = {}
-    timed_out = False
-    proc: Any = None
-
-    def _watchdog() -> None:
-        # Sleep until the deadline, then kill the process if still alive.
-        remaining = deadline - time.monotonic()
-        if remaining > 0:
-            time.sleep(remaining)
-        if proc is None or proc.poll() is not None:
-            return
-        nonlocal timed_out
-        timed_out = True
-        _stream_append(
-            stream_id,
-            {
-                "ts": datetime.now(UTC).isoformat(),
-                "phase": "timeout",
-                "message": (f"make redeploy exceeded {effective_timeout}s, killing subprocess"),
-            },
-        )
-        try:
-            proc.kill()
-        except Exception:  # pragma: no cover - defensive
-            pass
-
-    watchdog_thread: threading.Thread | None = None
-
-    try:
-        proc = popen(
-            ["make", "redeploy"],
-            cwd=cwd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-        assert proc.stdout is not None
-
-        watchdog_thread = threading.Thread(
-            target=_watchdog,
-            daemon=True,
-            name=f"rebuild-watchdog-{stream_id}",
-        )
-        watchdog_thread.start()
-
-        for raw_line in proc.stdout:
-            line = raw_line.rstrip("\n")
-            _stream_append(
-                stream_id,
-                {
-                    "ts": datetime.now(UTC).isoformat(),
-                    "phase": "line",
-                    "line": line,
-                },
-            )
-            # Detect image import lines for the final summary. Matches
-            # lines emitted by `k3s ctr images import`.
-            if "unpacking" in line and "sha256:" in line:
-                # best-effort: parse "unpacking docker.io/library/egg-xxx:tag"
-                parts = line.split()
-                for p in parts:
-                    if ":" in p and ("egg-" in p or "egg:" in p):
-                        rolled_out[p] = "imported"
-                        break
-
-        exit_code = proc.wait()
-    except Exception as exc:  # pragma: no cover - very defensive
-        _stream_append(
-            stream_id,
-            {
-                "ts": datetime.now(UTC).isoformat(),
-                "phase": "error",
-                "message": str(exc),
-            },
-        )
-    finally:
-        _stream_append(
-            stream_id,
-            {
-                "ts": datetime.now(UTC).isoformat(),
-                "phase": "done",
-                "exit_code": exit_code,
-                "rolled_out_images": rolled_out,
-                "timed_out": timed_out,
-            },
-        )
-        _stream_mark_done(stream_id)
-        with _REBUILD_LOCK:
-            _REBUILD_IN_PROGRESS = False
-            _REBUILD_ACTIVE_STREAM_ID = None
+@deployment_bp.route("/validate-network-isolation", methods=["POST"])
+@require_lifecycle_secret
+def validate_network_isolation() -> tuple[Response, int]:
+    """Spawn a throwaway probe Job and report isolation results."""
+    return _network_probe.validate_network_isolation()
 
 
 @deployment_bp.route("/rebuild-and-rollout", methods=["POST"])
 @require_lifecycle_secret
 def rebuild_and_rollout() -> tuple[Response, int]:
-    """Kick off ``make redeploy`` asynchronously and return a stream handle.
-
-    Safeties:
-    - Gated on ``EGG_RUNTIME=kubernetes`` (docker returns ``not_available_on_runtime``).
-    - Refuses with ``runtime_detection_failed`` when the process claims
-      kubernetes but can't reach the apiserver — kicking off
-      ``make redeploy`` against a nonexistent cluster just wastes cycles
-      and produces confusing output (#1850).
-    - Rejects concurrent invocations while a rollout is live
-      (returns 409 with the existing stream id).
-    - Actual subprocess runs in a background thread so the HTTP
-      request returns immediately; the MCP tool call stays inside
-      FastMCP's ~60 s budget.
-    """
-    global _REBUILD_IN_PROGRESS, _REBUILD_ACTIVE_STREAM_ID
-
-    if _current_runtime() != "kubernetes":
-        return _not_available_on_runtime()
-
-    reachable, reason = _probe_kubernetes_reachable()
-    if not reachable:
-        return _runtime_detection_failed(reason or "apiserver unreachable")
-
-    cwd = os.environ.get("EGG_REPO_PATH") or "/home/egg/repos/egg"
-    if not Path(cwd).exists():
-        return (
-            jsonify({"success": False, "message": f"EGG_REPO_PATH not found: {cwd}"}),
-            500,
-        )
-
-    with _REBUILD_LOCK:
-        if _REBUILD_IN_PROGRESS:
-            return (
-                jsonify(
-                    {
-                        "success": False,
-                        "message": "rollout_already_in_progress",
-                        "data": {
-                            "error": "rollout_already_in_progress",
-                            "progress_stream_id": _REBUILD_ACTIVE_STREAM_ID,
-                        },
-                    }
-                ),
-                409,
-            )
-        stream_id = uuid.uuid4().hex[:16]
-        _REBUILD_IN_PROGRESS = True
-        _REBUILD_ACTIVE_STREAM_ID = stream_id
-
-    # Start the worker thread. The subprocess runs in the orchestrator
-    # container which owns the repo bind mount.
-    thread = threading.Thread(
-        target=_run_redeploy_subprocess,
-        args=(stream_id, cwd),
-        daemon=True,
-        name=f"rebuild-{stream_id}",
-    )
-    thread.start()
-
-    return (
-        jsonify(
-            {
-                "success": True,
-                "data": {
-                    "progress_stream_id": stream_id,
-                    "started_at": time.time(),
-                },
-            }
-        ),
-        202,
-    )
+    """Kick off ``make redeploy`` asynchronously and return a stream handle."""
+    return _rebuild.rebuild_and_rollout()
 
 
 @deployment_bp.route("/rebuild-and-rollout/streams/<stream_id>", methods=["GET"])
 @require_lifecycle_secret
 def rebuild_stream_read(stream_id: str) -> tuple[Response, int]:
-    """Return buffered progress events for *stream_id*.
-
-    Query ``since`` (integer index, default 0) lets callers fetch only
-    new events.  The ``done`` flag tells the caller whether the worker
-    has terminated — useful for the MCP ``wait=true`` mode.
-    """
-    try:
-        since = int(request.args.get("since", "0"))
-    except ValueError:
-        since = 0
-
-    events, done = _stream_snapshot(stream_id, since=since)
-    if not events and not done and stream_id not in _STREAM_BUFFERS:
-        return jsonify({"success": False, "message": "stream not found"}), 404
-
-    return (
-        jsonify(
-            {
-                "success": True,
-                "data": {
-                    "stream_id": stream_id,
-                    "events": events,
-                    "next_since": since + len(events),
-                    "done": done,
-                },
-            }
-        ),
-        200,
-    )
+    """Return buffered progress events for *stream_id*."""
+    return _rebuild.rebuild_stream_read(stream_id)
 
 
 __all__ = [
