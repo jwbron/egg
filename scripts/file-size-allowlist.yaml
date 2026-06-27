@@ -26,8 +26,6 @@ files:
     issue: "2248"
   sandbox/egg_lib/orch_cli.py:
     issue: "2248"
-  orchestrator/mcp_tools.py:
-    issue: "2248"
   orchestrator/gateway_client.py:
     issue: "2248"
   orchestrator/routes/signals.py:
