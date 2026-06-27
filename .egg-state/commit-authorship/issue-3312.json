@@ -928,6 +928,14 @@
       "repo": null,
       "role": "coder"
     },
+    "e958872747854900daa10f85ee81f670d391fb2b": {
+      "branch": "egg/issue-3312/slice-12",
+      "patch_id": "fc24916fd6da5d0ec18285ac135f7458bf46ebfe",
+      "pipeline_id": "issue-3312",
+      "registered_at": "2026-06-27T14:46:17.598502+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "f0a79e54bbbf55a13560e678e60aeeaa65180ed7": {
       "branch": "egg/issue-3312/work",
       "patch_id": null,
