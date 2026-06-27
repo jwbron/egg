@@ -920,6 +920,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "c01e3ea14febe6e6b0371d092504e544f88fa731": {
+      "branch": "egg/issue-3312/slice-15",
+      "patch_id": "55c5c43c3615b07cc5d6b48f8a52aacfc7afb16f",
+      "pipeline_id": "issue-3312",
+      "registered_at": "2026-06-27T16:29:34.007196+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "c0ca9b3d00d2a9930ce14aa74ce800d5d93d8c2d": {
       "branch": "egg/issue-3312/slice-15",
       "patch_id": "595c6ad04aeb09afe8a59979afeb3963c71c57f6",
