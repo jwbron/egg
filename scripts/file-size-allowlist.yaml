@@ -30,5 +30,3 @@ files:
     issue: "2248"
   orchestrator/routes/signals.py:
     issue: "2248"
-  orchestrator/kubernetes_spawner.py:
-    issue: "2248"
