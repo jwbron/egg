@@ -87,6 +87,43 @@ class _EventJobStatusView:
         :meth:`KubernetesSpawner._event_dedupe_key_live` is the backstop that
         still lets the respawn create a new Job. Returns the number reaped.
         """
+        return self._reap(dedupe_key, only_terminal=True)
+
+    def reap(self, dedupe_key: str) -> int:
+        """Delete every Job carrying this dedupe-key label, live or terminal (#3337).
+
+        The same-role serialization path in ``OrchestratorEventLoop`` calls
+        this to tear down a *superseded* sibling: a still-RUNNING one-shot Job
+        whose event has been overtaken by a newer one for the same role. Unlike
+        :meth:`reap_terminated` (which only sweeps FAILED/EXITED stragglers),
+        this removes the live pod too, so the role's shared worktree is left to
+        the single newest producer. The delete uses force (foreground)
+        propagation, which begins teardown of the pod and orders it ahead of the
+        Job's own removal — narrowing the overlap window against the newest
+        producer, though K8s garbage-collects the pod asynchronously, so it is
+        not guaranteed gone by the time this returns. Best-effort, same as
+        ``reap_terminated``; returns the number reaped.
+        """
+        return self._reap(dedupe_key, only_terminal=False)
+
+    def _reap(self, dedupe_key: str, *, only_terminal: bool) -> int:
+        """Remove Jobs labelled with ``dedupe_key``; ``only_terminal`` gates status.
+
+        ``only_terminal=True`` removes only FAILED/EXITED Jobs (the #3181
+        observe-once sweep); ``only_terminal=False`` removes any matching Job
+        regardless of status (the #3337 superseded-sibling teardown).
+
+        Propagation tracks the path: the terminal sweep deletes Jobs whose pod
+        has already exited, so background propagation is fine. The supersession
+        path (``only_terminal=False``) targets a *still-RUNNING* sibling whose
+        whole purpose for being reaped is that it can still write the shared
+        worktree; force (foreground) propagation begins teardown of its pod and
+        orders that ahead of the Job's own removal (unlike background, which
+        removes the owner first and garbage-collects the pod afterward). The pod
+        is still garbage-collected asynchronously, so it is not necessarily gone
+        by the time the call returns — but the ordering narrows the residual
+        overlap window against the newest producer that is about to spawn.
+        """
         selector = f"{LABEL_EVENT_DEDUPE}={_pkg._dedupe_label_value(dedupe_key)}"
         try:
             jobs = self._spawner.k8s.list_jobs(self._spawner._namespace, label_selector=selector)
@@ -101,19 +138,23 @@ class _EventJobStatusView:
             return 0
         reaped = 0
         for job in jobs:
-            if getattr(job, "status", None) not in (ContainerStatus.FAILED, ContainerStatus.EXITED):
+            if only_terminal and getattr(job, "status", None) not in (
+                ContainerStatus.FAILED,
+                ContainerStatus.EXITED,
+            ):
                 continue
             job_name = getattr(job, "job_name", None) or getattr(job, "container_name", None)
             if not job_name:
                 continue
             try:
-                self._spawner.remove_agent_job(job_name)
+                self._spawner.remove_agent_job(job_name, force=not only_terminal)
                 reaped += 1
             except Exception as exc:  # noqa: BLE001 — reaping is best-effort
                 logger.warning(
-                    "Failed to reap terminated event Job",
+                    "Failed to reap event Job",
                     dedupe_key=dedupe_key,
                     job_name=job_name,
+                    only_terminal=only_terminal,
                     error=str(exc),
                 )
         return reaped

@@ -381,6 +381,74 @@ class TestDedupeAcrossPolls:
         live = loop.live_dedupe_keys()
         assert len(list(live)) == 1
 
+    def test_changed_identity_reaps_the_superseded_same_role_sibling(self, monkeypatch):
+        """#3337: when a role's derived identity changes (e.g. the open NACK
+        set grows reviewer-by-reviewer), the loop spawns the newer event AND
+        reaps the prior same-role key so at most one pod per (role, slice) is
+        ever live. Without this the two pods race on the role's shared worktree.
+        """
+        import event_loop
+
+        spawner = _RecordingSpawner()
+        loop = _make_loop(spawner)
+
+        _script(monkeypatch, {"reviewer_code": ("ack", _REVIEW_PAYLOAD_V1, "x")})
+        first = loop.poll_once(["reviewer_code"])
+        old_key = first[0].dedupe_key
+        assert list(loop.live_dedupe_keys()) == [old_key]
+
+        monkeypatch.setattr(
+            event_loop,
+            "_derive_next_action",
+            lambda t, r: ("ack", _REVIEW_PAYLOAD_V2, "x"),
+            raising=True,
+        )
+        second = loop.poll_once(["reviewer_code"])
+        new_key = second[0].dedupe_key
+
+        # A fresh pod for the newer event...
+        assert second[0].spawned is True
+        assert new_key != old_key
+        # ...but the superseded older event is no longer live: invariant of
+        # one live key per (role, slice) holds.
+        assert list(loop.live_dedupe_keys()) == [new_key]
+
+    def test_supersede_reap_is_scoped_to_the_same_role(self, monkeypatch):
+        """A superseding spawn for one role never reaps another role's live pod."""
+        import event_loop
+
+        spawner = _RecordingSpawner()
+        loop = _make_loop(spawner)
+
+        # Both roles get a live pod on the first poll.
+        _script(
+            monkeypatch,
+            {
+                "coder": ("propose", _PROPOSE_PAYLOAD, "x"),
+                "reviewer_code": ("ack", _REVIEW_PAYLOAD_V1, "x"),
+            },
+        )
+        first = loop.poll_once(["coder", "reviewer_code"])
+        coder_key = first[0].dedupe_key
+        assert set(loop.live_dedupe_keys()) == {coder_key, first[1].dedupe_key}
+
+        # Only reviewer_code's identity moves; coder's pod must survive.
+        monkeypatch.setattr(
+            event_loop,
+            "_derive_next_action",
+            lambda t, r: (
+                ("propose", _PROPOSE_PAYLOAD, "x")
+                if r == "coder"
+                else ("ack", _REVIEW_PAYLOAD_V2, "x")
+            ),
+            raising=True,
+        )
+        loop.poll_once(["coder", "reviewer_code"])
+
+        live = set(loop.live_dedupe_keys())
+        assert coder_key in live, "the other role's live pod must not be reaped"
+        assert len(live) == 2, "one live key per role: coder + the new reviewer key"
+
 
 # ---------------------------------------------------------------------------
 # Dedupe — simulated orchestrator restart (stateless re-derivation)
@@ -921,6 +989,7 @@ class _FakeJobStatusView:
         self._outcomes: dict[str, str] = {}
         self.queries: list[str] = []
         self.reaped: list[str] = []
+        self.superseded_reaped: list[str] = []
 
     def set(self, key: str, outcome: str) -> None:
         self._outcomes[key] = outcome
@@ -933,6 +1002,13 @@ class _FakeJobStatusView:
         # Mirror the spawner view: the loop's abnormal branch calls this to
         # delete the terminated Job so it is observed exactly once.
         self.reaped.append(key)
+        return 1
+
+    def reap(self, key: str) -> int:
+        # Mirror the spawner view's force-reap (#3337): the loop's same-role
+        # serialization path calls this to tear down a still-live superseded
+        # sibling Job.
+        self.superseded_reaped.append(key)
         return 1
 
 
@@ -1090,6 +1166,36 @@ class TestSupervisionDrivenThroughLoop:
         loop.poll_once(["coder"])  # respawn
         loop.poll_once(["coder"])  # observe success → no further reap
         assert view.reaped == [key]
+
+    def test_superseded_sibling_uses_force_reap_not_reap_terminated(self, monkeypatch):
+        """#3337: a superseded same-role sibling is torn down via the status
+        view's force-``reap`` (which deletes the still-live pod), NOT
+        ``reap_terminated`` (which only sweeps already-terminal Jobs)."""
+        import event_loop
+
+        spawner = _RecordingSpawner()
+        clock = _ManualClock()
+        supervisor = event_loop.JobSupervisor(clock=clock)
+        view = _FakeJobStatusView()
+        loop = _make_supervised_loop(spawner, clock=clock, supervisor=supervisor, status_view=view)
+
+        _script(monkeypatch, {"coder": ("ack", _REVIEW_PAYLOAD_V1, "x")})
+        first = loop.poll_once(["coder"])
+        old_key = first[0].dedupe_key
+
+        # Identity moves on (e.g. a re-proposed commit / grown NACK set); the
+        # old Job is still RUNNING (view default), so it is a *live* sibling.
+        monkeypatch.setattr(
+            event_loop,
+            "_derive_next_action",
+            lambda t, r: ("ack", _REVIEW_PAYLOAD_V2, "x"),
+            raising=True,
+        )
+        loop.poll_once(["coder"])
+
+        assert view.superseded_reaped == [old_key]
+        assert view.reaped == [], "supersession must not go through the terminal-only sweep"
+        assert old_key not in set(loop.live_dedupe_keys())
 
     def test_warn_latch_fires_at_five_silent_below(self, monkeypatch):
         """No warn/alert below the WARN threshold; sticky warn exactly at it."""
