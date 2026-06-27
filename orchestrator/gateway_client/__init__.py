@@ -12,6 +12,7 @@ import os
 import socket
 import subprocess  # noqa: F401  -- live patch seam: ``gateway_client.subprocess.run``
 import sys
+import time  # noqa: F401  -- live patch seam: ``patch.object(gateway_client.time, "sleep")`` (_request's backoff)
 from pathlib import Path
 from typing import Any
 from urllib.request import urlopen  # noqa: F401  -- live patch seam: ``gateway_client.urlopen``
@@ -248,6 +249,12 @@ from ._push import (  # noqa: E402  -- re-exported (tests import these helpers d
     _classify_push_stderr,
     _rebase_with_agent_output_autoresolve,
 )
+from ._request import (  # noqa: E402  -- transient-retry tuning constants; tests read _TRANSIENT_MAX_ATTEMPTS via the barrel
+    _TRANSIENT_BASE_DELAY,
+    _TRANSIENT_JITTER,
+    _TRANSIENT_MAX_ATTEMPTS,
+    _TRANSIENT_MAX_DELAY,
+)
 
 # Bind extracted method bodies back onto the class.
 GatewayClient._make_request = _request._make_request
@@ -300,4 +307,8 @@ __all__ = [
     "_truncate_title",
     "_classify_push_stderr",
     "_rebase_with_agent_output_autoresolve",
+    "_TRANSIENT_MAX_ATTEMPTS",
+    "_TRANSIENT_BASE_DELAY",
+    "_TRANSIENT_MAX_DELAY",
+    "_TRANSIENT_JITTER",
 ]
