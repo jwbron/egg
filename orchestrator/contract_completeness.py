@@ -260,6 +260,4 @@ def format_evidence_rows(rows: list[dict[str, Any]]) -> str:
     Every row from ``evidence_commits`` is role-bound (``task.role`` is
     truthy), so ``role`` is always a concrete producer role here.
     """
-    return "; ".join(
-        f"{r['id']} (role={r['role']}, commit={r['commit']})" for r in rows
-    )
+    return "; ".join(f"{r['id']} (role={r['role']}, commit={r['commit']})" for r in rows)
