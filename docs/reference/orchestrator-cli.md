@@ -663,7 +663,7 @@ gh pr view <context_pr_number>
 gh pr list --head egg/<pipeline-id>/work --base <base_branch> --state open
 ```
 
-The contract's `PRMetadata` carries the context-PR fields below (the context-PR contract surface originates in [#2548](https://github.com/jwbron/egg/issues/2548)). The single work branch is itself the Context PR's head, so no separate branch-framing fields are needed; see the [v1.1 → v1.2 schema migration note](../architecture/sdlc-pipeline.md#schema-v11--v12-migration-note-2777) for the field-name history. The context-PR fields are:
+The contract's `PRMetadata` carries the context-PR fields below (the context-PR contract surface originates in [#2548](https://github.com/jwbron/egg/issues/2548)). The single work branch is itself the Context PR's head, so no separate branch-framing fields are needed; see the [v1.1 → v1.2 schema migration note](../architecture/sdlc-pipeline.md#schema-v11--v12-migration-note-2777) for the field-name history. Documenting these CLI-visible context-PR fields here is the acceptance criterion for [#2548](https://github.com/jwbron/egg/issues/2548) task-1-1, so CLI users can trace the surviving `pr.context_pr_number` field. The context-PR fields are:
 
 | Field | Schema | Author | Description |
 |-------|--------|--------|-------------|
