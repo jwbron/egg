@@ -570,7 +570,7 @@
       "id": "slice-5",
       "name": "Decompose orchestrator/routes/deployment.py (1,854 lines)",
       "goal": "Decompose `orchestrator/routes/deployment.py` (1854 lines) into a sub-package; drop its allowlist entry; seam coverage in orchestrator/CLAUDE.md. depends on the previous slice (single linear chain: every slice edits scripts/file-size-allowlist.yaml, so per #3046 overlapping slices must be serialized).",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -579,10 +579,10 @@
         {
           "id": "task-5-1",
           "description": "External-importer audit (section-(d)) for deployment.py.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "bd5e3898b",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "External-importer audit for orchestrator/routes/deployment.py (section-(d)):\n\nPRODUCTION importers (must stay resolvable through barrel):\n- orchestrator/api.py:47,99 -> `from routes.deployment import deployment_bp` (only external production symbol).\n\nTEST seams (orchestrator/tests/test_deployment_routes.py, 2555 lines) \u2014 all must re-export through the barrel:\n- patch(\"routes.deployment.<X>\"): _detect_k3s, _detect_cni, _collect_egg_image_tags, _current_runtime, _probe_kubernetes_reachable, _run_kustomize, _submit_probe_job, _wait_for_probe_pod, _read_probe_log, _delete_probe_job, _run_redeploy_subprocess, subprocess (monkeypatch routes.deployment.subprocess.run) -> barrel must `import subprocess` and call these helpers via _pkg.\n- from routes.deployment import: deployment_bp, PROBE_COMMAND_TEMPLATE, _K8S_LABEL_VALUE_RE, _MAX_LOG_LINES, _REBUILD_LOCK, _build_probe_env, _build_probe_job_manifest, _read_probe_log, _run_kustomize, _run_redeploy_subprocess, _stream_append, _stream_snapshot, _validate_deployment_docs.\n- dep_mod.<attr> (from routes import deployment as dep_mod): _REBUILD_ACTIVE_STREAM_ID, _REBUILD_IN_PROGRESS, _STREAM_BUFFERS, _STREAM_RETENTION, _STREAM_TERMINATED, _STREAM_TERMINATION_TS, _run_redeploy_subprocess, _stream_append, _stream_mark_done, _stream_snapshot.\n\nLOAD-BEARING MUTABLE GLOBALS (decomposition gotcha):\n- _REBUILD_IN_PROGRESS (bool) and _REBUILD_ACTIVE_STREAM_ID (str|None) are REBOUND both by tests (dep_mod.X = ...) and by production (`global` in rebuild_and_rollout / _run_redeploy_subprocess). Canonical home MUST be the barrel; moved functions rebind via `import routes.deployment as _pkg; _pkg._REBUILD_IN_PROGRESS = ...` (sanctioned non-mechanical edit). Mutable containers (_STREAM_BUFFERS, _STREAM_TERMINATION_TS, _STREAM_TERMINATED, _STREAM_LOCK, _REBUILD_LOCK) are only mutated in place, so identity-preserving re-export is sufficient \u2014 but for a single canonical namespace I keep ALL rebuild/stream state in the barrel and reach it via _pkg in _rebuild.py.\n\nPATCH-SEAM RULE: route-handler bodies in submodules must call patched helpers via _pkg.<name> (not direct intra-package import) so patch(\"routes.deployment.<X>\") rebinds are observed \u2014 identical to the phases/state_store convention.\n\nPEP 758 note: `except ValueError, TypeError:` (lines 521/532/1025) is valid Py3.14 tuple-catch syntax (compiles + catches both), NOT a bug. Copied verbatim (pure refactor).\n\nContainer packaging: routes/ ships via recursive `COPY orchestrator/routes/ ./routes/` (orchestrator/Dockerfile:45) \u2014 sub-package rides along, NO Dockerfile change needed (unlike state_store slice-3).",
           "acceptance_criteria": "Re-export set derived from external-reference audit.",
           "files_affected": [
             "orchestrator/routes/deployment.py"
@@ -600,8 +600,8 @@
         {
           "id": "task-5-2",
           "description": "Step-0 git mv deployment.py -> deployment/__init__.py; green baseline commit.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "bd5e3898b",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Pure-move baseline commit green.",
@@ -621,8 +621,8 @@
         {
           "id": "task-5-3",
           "description": "Extract clusters into _<cluster>.py submodules; routes convention; explicit per-symbol re-export barrel.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "5e39edfbb",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "All submodules under cap; decorators in __init__.py; barrel re-exports every external symbol.",
@@ -642,10 +642,10 @@
         {
           "id": "task-5-4",
           "description": "Drop deployment.py allowlist entry; add concrete deployment/ row to orchestrator/CLAUDE.md.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "a603e6d48",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Split by gateway role policy. COMPLETED (coder): dropped orchestrator/routes/deployment.py entry from scripts/file-size-allowlist.yaml \u2014 commit a603e6d48; scripts/check-file-sizes.py exit 0 with no stale-entry warning, all routes/deployment/ submodules under the 1,500-line/100KB cap.\n\nDELEGATED (documenter): the \"add concrete deployment/ row to orchestrator/CLAUDE.md\" portion of this task targets a documenter-owned path. The gateway blocks role 'coder' from writing orchestrator/CLAUDE.md (shared/egg_restrictions/patterns.py; alternative_role=documenter, confirmed via check_file_restriction). The slice-5 documenter producer adds the routes/deployment/ seam subsection, exactly as prior slices (decisions/phases) landed their seam tables via the documenter. Coder drafted the full subsection content (per-submodule responsibility + key-symbol table, decision-8 thin-wrapper note, _pkg patch-seam mechanism, canonical-barrel rollout/stream state, recursive routes/ Dockerfile COPY) and it is captured in the extraction commit message + coder BRC memory for the documenter to adopt.",
           "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.",
           "files_affected": [
             "scripts/file-size-allowlist.yaml",
@@ -664,8 +664,8 @@
         {
           "id": "task-5-5",
           "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "7d435591d",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Green; no behavior change.",
@@ -688,11 +688,11 @@
         "slice-4"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3312/slice-4",
+      "integration_base_sha": "5768cea7289f32be7d2d822b4fa69820c2730e44",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3351,
+      "pr_url": "https://github.com/jwbron/egg/pull/3351",
       "review_feedback": []
     },
     {
@@ -3047,6 +3047,160 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-6 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T08:23:10.743768Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.notes",
+      "old_value": "",
+      "new_value": "External-importer audit for orchestrator/routes/deployment.py (section-(d)):\n\nPRODUCTION importers (must stay resolvable through barrel):\n- orchestrator/api.py:47,99 -> `from routes.deployment import deployment_bp` (only external production symbol).\n\nTEST seams (orchestrator/tests/test_deployment_routes.py, 2555 lines) \u2014 all must re-export through the barrel:\n- patch(\"routes.deployment.<X>\"): _detect_k3s, _detect_cni, _collect_egg_image_tags, _current_runtime, _probe_kubernetes_reachable, _run_kustomize, _submit_probe_job, _wait_for_probe_pod, _read_probe_log, _delete_probe_job, _run_redeploy_subprocess, subprocess (monkeypatch routes.deployment.subprocess.run) -> barrel must `import subprocess` and call these helpers via _pkg.\n- from routes.deployment import: deployment_bp, PROBE_COMMAND_TEMPLATE, _K8S_LABEL_VALUE_RE, _MAX_LOG_LINES, _REBUILD_LOCK, _build_probe_env, _build_probe_job_manifest, _read_probe_log, _run_kustomize, _run_redeploy_subprocess, _stream_append, _stream_snapshot, _validate_deployment_docs.\n- dep_mod.<attr> (from routes import deployment as dep_mod): _REBUILD_ACTIVE_STREAM_ID, _REBUILD_IN_PROGRESS, _STREAM_BUFFERS, _STREAM_RETENTION, _STREAM_TERMINATED, _STREAM_TERMINATION_TS, _run_redeploy_subprocess, _stream_append, _stream_mark_done, _stream_snapshot.\n\nLOAD-BEARING MUTABLE GLOBALS (decomposition gotcha):\n- _REBUILD_IN_PROGRESS (bool) and _REBUILD_ACTIVE_STREAM_ID (str|None) are REBOUND both by tests (dep_mod.X = ...) and by production (`global` in rebuild_and_rollout / _run_redeploy_subprocess). Canonical home MUST be the barrel; moved functions rebind via `import routes.deployment as _pkg; _pkg._REBUILD_IN_PROGRESS = ...` (sanctioned non-mechanical edit). Mutable containers (_STREAM_BUFFERS, _STREAM_TERMINATION_TS, _STREAM_TERMINATED, _STREAM_LOCK, _REBUILD_LOCK) are only mutated in place, so identity-preserving re-export is sufficient \u2014 but for a single canonical namespace I keep ALL rebuild/stream state in the barrel and reach it via _pkg in _rebuild.py.\n\nPATCH-SEAM RULE: route-handler bodies in submodules must call patched helpers via _pkg.<name> (not direct intra-package import) so patch(\"routes.deployment.<X>\") rebinds are observed \u2014 identical to the phases/state_store convention.\n\nPEP 758 note: `except ValueError, TypeError:` (lines 521/532/1025) is valid Py3.14 tuple-catch syntax (compiles + catches both), NOT a bug. Copied verbatim (pure refactor).\n\nContainer packaging: routes/ ships via recursive `COPY orchestrator/routes/ ./routes/` (orchestrator/Dockerfile:45) \u2014 sub-package rides along, NO Dockerfile change needed (unlike state_store slice-3).",
+      "reason": "Updated notes for task-5-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T08:24:17.456877Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.commit",
+      "old_value": null,
+      "new_value": "bd5e3898b",
+      "reason": "Linked commit bd5e389 to task-5-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T08:24:17.476716Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-5-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T08:24:18.320222Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.1.commit",
+      "old_value": null,
+      "new_value": "bd5e3898b",
+      "reason": "Linked commit bd5e389 to task-5-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T08:24:18.356417Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-5-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T08:37:11.483158Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.2.commit",
+      "old_value": null,
+      "new_value": "5e39edfbb",
+      "reason": "Linked commit 5e39edf to task-5-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T08:37:11.518023Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-5-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T08:37:11.859525Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.3.commit",
+      "old_value": null,
+      "new_value": "7d435591d",
+      "reason": "Linked commit 7d43559 to task-5-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T08:37:11.892836Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.3.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-5-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T08:37:12.364603Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.4.commit",
+      "old_value": null,
+      "new_value": "7d435591d",
+      "reason": "Linked commit 7d43559 to task-5-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T08:37:12.399480Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.4.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-5-5 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T08:38:48.402607Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.3.notes",
+      "old_value": "",
+      "new_value": "Split by gateway role policy. COMPLETED (coder): dropped orchestrator/routes/deployment.py entry from scripts/file-size-allowlist.yaml \u2014 commit a603e6d48; scripts/check-file-sizes.py exit 0 with no stale-entry warning, all routes/deployment/ submodules under the 1,500-line/100KB cap.\n\nDELEGATED (documenter): the \"add concrete deployment/ row to orchestrator/CLAUDE.md\" portion of this task targets a documenter-owned path. The gateway blocks role 'coder' from writing orchestrator/CLAUDE.md (shared/egg_restrictions/patterns.py; alternative_role=documenter, confirmed via check_file_restriction). The slice-5 documenter producer adds the routes/deployment/ seam subsection, exactly as prior slices (decisions/phases) landed their seam tables via the documenter. Coder drafted the full subsection content (per-submodule responsibility + key-symbol table, decision-8 thin-wrapper note, _pkg patch-seam mechanism, canonical-barrel rollout/stream state, recursive routes/ Dockerfile COPY) and it is captured in the extraction commit message + coder BRC memory for the documenter to adopt.",
+      "reason": "Updated notes for task-5-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T08:38:51.214737Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.3.commit",
+      "old_value": "7d435591d",
+      "new_value": "a603e6d48",
+      "reason": "Linked commit a603e6d to task-5-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-27T08:38:51.241525Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.3.status",
+      "old_value": "complete",
+      "new_value": "complete",
+      "reason": "Marked task-5-4 as complete",
       "checkpoint_id": null
     }
   ],
