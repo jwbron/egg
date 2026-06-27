@@ -16,6 +16,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import ProxyHandler, Request, build_opener
 
+from egg_lib import orch_cli as _pkg
+
 try:
     from egg_config.constants import (
         GATEWAY_PORT,
@@ -255,7 +257,7 @@ def api_request_or_exit(
 ) -> dict[str, Any]:
     """Make an API request, printing errors and exiting on failure."""
     try:
-        return api_request(base_url, endpoint, method, data, timeout, headers)
+        return _pkg.api_request(base_url, endpoint, method, data, timeout, headers)
     except ApiError as e:
         print(f"Error: {e.message}", file=sys.stderr)
         if e.status_code:

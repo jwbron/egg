@@ -124,6 +124,7 @@ from ._http import (
     _SAFE_ID_PATTERN,
     _SLICE_ID_PATTERN,
     ApiError,
+    _opener,
     _proposal_version_type,
     api_request,
     api_request_or_exit,
@@ -223,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 __all__ = [
+    "_opener",
     "ApiError",
     "_OVERSEER_BODY_MAX_BYTES",
     "_OVERSEER_TITLE_MAX_CHARS",

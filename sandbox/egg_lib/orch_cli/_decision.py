@@ -13,14 +13,13 @@ from egg_lib import orch_cli as _pkg
 
 from ._http import (
     print_json,
-    require_pipeline_id,
     validate_id,
 )
 
 
 def cmd_decision_list(args: argparse.Namespace) -> int:
     """List decisions for a pipeline."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     result = _pkg.orch_request(f"/api/v1/pipelines/{pid}/decisions")
 
     if args.json:
@@ -44,7 +43,7 @@ def cmd_decision_list(args: argparse.Namespace) -> int:
 
 def cmd_decision_create(args: argparse.Namespace) -> int:
     """Queue a new decision."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     data: dict[str, Any] = {
         "question": args.question,
     }
@@ -87,7 +86,7 @@ def cmd_decision_create(args: argparse.Namespace) -> int:
 
 def cmd_decision_resolve(args: argparse.Namespace) -> int:
     """Resolve a decision."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     did = validate_id(args.decision_id, "decision_id")
     data: dict[str, Any] = {
         "resolution": args.resolution,
@@ -114,7 +113,7 @@ def cmd_decision_resolve(args: argparse.Namespace) -> int:
 
 def cmd_decision_status(args: argparse.Namespace) -> int:
     """Get decision queue status."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     result = _pkg.orch_request(f"/api/v1/pipelines/{pid}/decisions/status")
 
     if args.json:

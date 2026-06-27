@@ -16,14 +16,13 @@ from egg_lib import orch_cli as _pkg
 from ._http import (
     _SAFE_ID_PATTERN,
     print_json,
-    require_pipeline_id,
     resolve_slice_id,
 )
 
 
 def cmd_message_send(args: argparse.Namespace) -> int:
     """Send an inter-agent message."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     role = args.role or _pkg.get_agent_role_from_env()
     if not role:
         print("Error: --role required or set EGG_AGENT_ROLE", file=sys.stderr)
@@ -53,7 +52,7 @@ def cmd_message_send(args: argparse.Namespace) -> int:
 
 def cmd_message_poll(args: argparse.Namespace) -> int:
     """Poll for inter-agent messages."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
 
     params: dict[str, str] = {}
     role = args.role or _pkg.get_agent_role_from_env()
@@ -337,7 +336,7 @@ def cmd_message_wait(args: argparse.Namespace) -> int:
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
     try:
-        pid = require_pipeline_id(args)
+        pid = _pkg.require_pipeline_id(args)
     except SystemExit:
         return 3
     # require_pipeline_id validates but exits(1) — wrap semantics into 3.
@@ -487,7 +486,7 @@ def cmd_message_wait_loop(args: argparse.Namespace) -> int:
     args.json = False
 
     try:
-        pid = require_pipeline_id(args)
+        pid = _pkg.require_pipeline_id(args)
     except SystemExit:
         return 1
 
@@ -601,7 +600,7 @@ def cmd_message_heartbeat(args: argparse.Namespace) -> int:
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
     try:
-        pid = require_pipeline_id(args)
+        pid = _pkg.require_pipeline_id(args)
     except SystemExit:
         return 3
 
@@ -663,7 +662,7 @@ def cmd_message_heartbeat(args: argparse.Namespace) -> int:
 
 def cmd_message_status(args: argparse.Namespace) -> int:
     """Get message bus status."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     result = _pkg.orch_request(f"/api/v1/pipelines/{pid}/messages/status")
 
     if args.json:

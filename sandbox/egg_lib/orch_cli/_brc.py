@@ -14,12 +14,10 @@ from egg_lib import orch_cli as _pkg
 from ._common import (
     _ProseArgError,
     _render_handler_error,
-    _require_role,
     _resolve_prose_arg,
 )
 from ._http import (
     print_json,
-    require_pipeline_id,
     resolve_slice_id,
 )
 
@@ -46,7 +44,7 @@ def cmd_brc_next_action(args: argparse.Namespace) -> int:
     agent (propose / review / confirm) or block on the message bus
     (wait).
     """
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     role = args.role or _pkg.get_agent_role_from_env()
     if not role:
         print(
@@ -98,7 +96,7 @@ def cmd_brc_get_state(args: argparse.Namespace) -> int:
     from egg_agent_tools.handlers import brc as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     req: dict[str, Any] = {"pipeline_id": pid}
     slice_id = getattr(args, "slice_id", None) or resolve_slice_id()
     if slice_id:
@@ -131,7 +129,7 @@ def cmd_brc_list_blocking(args: argparse.Namespace) -> int:
     from egg_agent_tools.handlers import brc as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     try:
         resp = _handlers.brc_list_blocking({"pipeline_id": pid})
     except (GatewayError, HandlerError) as err:
@@ -165,8 +163,8 @@ def cmd_brc_resolve_obligation(args: argparse.Namespace) -> int:
     from egg_agent_tools.handlers import brc as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
-    pid = require_pipeline_id(args)
-    role = _require_role(args)
+    pid = _pkg.require_pipeline_id(args)
+    role = _pkg._require_role(args)
     reviewer_role = args.reviewer_role
     producer_role = args.producer_role
     commit_sha = getattr(args, "commit_sha", None) or None

@@ -14,13 +14,11 @@ from egg_lib import orch_cli as _pkg
 
 from ._http import (
     ApiError,
-    api_request,
     gateway_request,
     get_gateway_url,
     get_issue_number,
     get_orchestrator_url,
     print_json,
-    require_pipeline_id,
 )
 
 
@@ -33,7 +31,7 @@ def cmd_health(args: argparse.Namespace) -> int:
     if not args.json:
         print("Orchestrator:")
     try:
-        result = api_request(get_orchestrator_url(), "/api/v1/health", timeout=5)
+        result = _pkg.api_request(get_orchestrator_url(), "/api/v1/health", timeout=5)
         status = result.get("status", "unknown")
         health_data["orchestrator"] = {
             "status": status,
@@ -78,7 +76,7 @@ def cmd_health(args: argparse.Namespace) -> int:
     if not args.json:
         print("Gateway:")
     try:
-        result = api_request(get_gateway_url(), "/api/v1/health", timeout=5)
+        result = _pkg.api_request(get_gateway_url(), "/api/v1/health", timeout=5)
         valid = result.get("github_token_valid", False)
         health_data["gateway"] = {
             "status": "ok",
@@ -108,7 +106,7 @@ def cmd_health(args: argparse.Namespace) -> int:
 def cmd_gateway_health(args: argparse.Namespace) -> int:
     """Check gateway health."""
     try:
-        result = api_request(get_gateway_url(), "/api/v1/health", timeout=5)
+        result = _pkg.api_request(get_gateway_url(), "/api/v1/health", timeout=5)
     except ApiError:
         if args.json:
             print_json({"status": "unreachable", "reachable": False})
@@ -179,7 +177,7 @@ def cmd_gateway_permissions(args: argparse.Namespace) -> int:
 
 def cmd_health_alerts(args: argparse.Namespace) -> int:
     """Get active health alerts for a pipeline."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
 
     result = _pkg.orch_request(f"/api/v1/pipelines/{pid}/health/alerts")
 
@@ -206,7 +204,7 @@ def cmd_health_alerts(args: argparse.Namespace) -> int:
 
 def cmd_health_resolve(args: argparse.Namespace) -> int:
     """Resolve (remove) health alerts for a specific agent and alert type."""
-    pid = require_pipeline_id(args)
+    pid = _pkg.require_pipeline_id(args)
     agent_id = args.agent_id
     alert_type = args.alert_type
 
