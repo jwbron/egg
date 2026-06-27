@@ -87,6 +87,15 @@ class TestScanFile:
         f.write_text("This doc describes the current state of the system.\n")
         assert scan_file(f, tmp_path).count == 0
 
+    def test_unreadable_path_degrades_to_zero(self, tmp_path: Path) -> None:
+        """A dangling symlink (OSError on read) yields a zero-count finding,
+        not a crash -- the advisory scan must tolerate it."""
+        link = tmp_path / "dangling.md"
+        link.symlink_to(tmp_path / "does-not-exist.md")
+        findings = scan_file(link, tmp_path)
+        assert findings.count == 0
+        assert findings.lines == ()
+
 
 class TestExclusions:
     def test_egg_state_excluded(self) -> None:
@@ -103,6 +112,11 @@ class TestExclusions:
         assert is_test_path(Path("orchestrator/foo_test.py"))
         assert is_test_path(Path("gateway/test_bar.py"))
         assert not is_test_path(Path("orchestrator/routes/pipelines.py"))
+
+    def test_singular_test_dir_skipped(self) -> None:
+        """Both ``tests/`` and singular ``test/`` directory names are excluded."""
+        assert is_test_path(Path("orchestrator/test/fixtures/data.md"))
+        assert is_test_path(Path("gateway/test/conftest.py"))
 
 
 class TestIterScannedFiles:
@@ -128,6 +142,16 @@ class TestIterScannedFiles:
         """Markdown under a test directory is excluded too (symmetry with .py)."""
         (tmp_path / "gateway" / "tests").mkdir(parents=True)
         (tmp_path / "gateway" / "tests" / "README.md").write_text("slice-1 fixture\n")
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "real.md").write_text("slice-1\n")
+        rels = sorted(p.relative_to(tmp_path).as_posix() for p in iter_scanned_files(tmp_path))
+        assert rels == ["docs/real.md"]
+
+    def test_singular_test_dir_pruned(self, tmp_path: Path) -> None:
+        """A singular ``test/`` directory is pruned during traversal too."""
+        (tmp_path / "gateway" / "test").mkdir(parents=True)
+        (tmp_path / "gateway" / "test" / "fixture.md").write_text("slice-1 fixture\n")
+        (tmp_path / "gateway" / "test" / "src.py").write_text("# slice-1\n")
         (tmp_path / "docs").mkdir()
         (tmp_path / "docs" / "real.md").write_text("slice-1\n")
         rels = sorted(p.relative_to(tmp_path).as_posix() for p in iter_scanned_files(tmp_path))

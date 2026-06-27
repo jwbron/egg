@@ -96,8 +96,10 @@ EXCLUDED_PREFIXES = (
 )
 
 # Directory names under a source root that are skipped (tests use slice/task
-# ids as live fixture data, not as human-facing documentation).
-EXCLUDED_DIR_NAMES = frozenset({"tests", "__pycache__"})
+# ids as live fixture data, not as human-facing documentation). Both the
+# plural ``tests`` and singular ``test`` directory conventions are covered so
+# fixture data is excluded symmetrically regardless of which name a subtree uses.
+EXCLUDED_DIR_NAMES = frozenset({"tests", "test", "__pycache__"})
 
 # SDLC ledger token classes. Hyphenated forms are chosen deliberately: the live
 # runtime vocabulary uses underscores / dotted access (``slice_id``,
@@ -218,7 +220,14 @@ def iter_scanned_files(repo_root: Path = REPO_ROOT) -> list[Path]:
 def scan_file(path: Path, repo_root: Path = REPO_ROOT) -> FileFindings:
     """Count ledger tokens in a file, honouring the per-line suppress marker."""
     rel = path.relative_to(repo_root).as_posix()
-    text = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        # A dangling symlink or otherwise-unreadable path surfaced by os.walk
+        # contributes nothing -- ``errors="replace"`` tolerates bad encodings
+        # but not an OSError. This is an advisory-only scan, so degrade to a
+        # zero-count finding rather than crashing the whole run.
+        return FileFindings(rel=rel, count=0, lines=())
     count = 0
     hit_lines: list[tuple[int, str]] = []
     for lineno, line in enumerate(text.splitlines(), start=1):
