@@ -926,6 +926,22 @@ class OrchestratorEventLoop:
         live set is still pruned so the serialization invariant holds. A reap
         failure is logged and swallowed — the spawner's live-only adoption
         filter is the cross-process backstop.
+
+        Restart-boundary limitation: this matches superseded siblings via the
+        in-memory ``_key_meta`` role label, which ``reconcile()`` does *not*
+        seed for keys adopted after an orchestrator restart (see
+        ``reconcile`` / ``_publish_active_roles``). So a *stale* same-role key
+        adopted across a restart — one whose identity no longer matches the
+        freshly-derived event — is unlabeled and won't be reaped here. That
+        re-opens the #3337 two-live-pods window, but only across the narrow
+        restart boundary (a fresh spawn whose superseded sibling's Job deletion
+        had not yet propagated when the orchestrator went down). The spawner's
+        live-only adoption filter still prevents a *duplicate* Job for the new
+        key, and warm-resume's dirty-state clean covers the handoff, so the
+        steady-state invariant is fully held; only this restart-race tail is
+        uncovered. Deriving the same-role live set from the spawner's live-Job
+        labels (cross-process truth) would close it, at the cost of a cluster
+        query on the hot fresh-spawn path.
         """
         superseded = [
             k
