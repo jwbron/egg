@@ -70,4 +70,21 @@ Pure refactor: every symbol is AST-identical to the pre-split file. Module-level
 
 Pure refactor, no behaviour change. Patch seams preserved: class-level `patch.object(StateStore, "_run_git")` resolves via the method binding; module-global `patch("state_store.get_pipeline_state_lock")` / `patch("state_store.discover_repo_paths")` resolve because submodules reach them via `import state_store as _pkg`; `patch("state_store.shutil.rmtree")` / `patch("state_store.time.sleep")` resolve because the barrel keeps `shutil` / `time` imported. The one non-mechanical edit: `_sync_to_remote_async` reads `self._MAX_PUSH_RETRIES` (was `StateStore._MAX_PUSH_RETRIES`; identical `ClassVar` lookup).
 
-This subsection and `routes/decisions/` are the landed `orchestrator/` decompositions; later orchestrator slices append their own subsections here.
+### `routes/phases/` — phase-transition endpoints ([#3312](https://github.com/jwbron/egg/issues/3312), slice 4)
+
+`phases.py` (1,736 lines) → `routes/phases/` (largest submodule `_advance.py`, 558 lines). The `phases_bp` blueprint plus its six `@phases_bp.route` thin wrappers stay in the barrel (decision-8); each delegates to a handler body in a private submodule. The barrel re-exports the externally-referenced and test-patched surface — including `PHASE_TRANSITIONS`, a **load-bearing cross-module import** that the `routes/`-driven `_run_pipeline` loop reads to validate phase ordering, so it must resolve through the barrel.
+
+| Submodule | Responsibility | Key symbols |
+|-----------|----------------|-------------|
+| `__init__.py` (barrel, 153 lines) | Stable public API: holds `phases_bp` + the six route thin wrappers (decision-8); per-symbol re-exports of the patched/public surface, incl. `PHASE_TRANSITIONS` for the `_run_pipeline` loop | `phases_bp`, `get_current_phase`, `advance_phase`, `start_phase`, `complete_phase`, `populate_contract`, `fail_phase` (+ re-exports of all symbols below) |
+| `_responses.py` (38 lines) | Shared JSON response builders | `make_error_response`, `make_success_response` |
+| `_transitions.py` (80 lines) | Phase-transition table + validation + concurrent-state clearing | `PHASE_TRANSITIONS`, `validate_phase_transition`, `_clear_concurrent_state` |
+| `_gates.py` (258 lines) | Conditional-ACK HITL gate + unresolved decision / gap collectors | `CONDITIONAL_ACK_GATE_MARKER`, `CONDITIONAL_ACK_APPROVE`, `CONDITIONAL_ACK_REJECT`, `CONDITIONAL_ACK_ADDRESS`, `CONDITIONAL_ACK_OPTIONS`, `_ensure_conditional_ack_gate`, `_existing_conditional_ack_gate`, `_collect_unresolved_phase_decisions`, `_collect_unresolved_contract_gaps` |
+| `_status.py` (235 lines) | Phase read / start / fail endpoint bodies | `get_current_phase`, `start_phase`, `fail_phase` |
+| `_advance.py` (largest, 558 lines) | `advance_phase` — the plan-exit phase-transition state machine | `advance_phase` |
+| `_complete.py` (250 lines) | `complete_phase` endpoint body | `complete_phase` |
+| `_populate.py` (342 lines) | `populate_contract` — contract-population endpoint body | `populate_contract` |
+
+Pure refactor, no behaviour change. Patch seams preserved: module-level `patch("routes.phases._foo")` / `patch("routes.phases.<name>")` targets resolve through the barrel; the private submodules reach barrel-patched dependencies (`get_pipeline_state_lock`, `get_decision_queue`, the `models` / `state_store` re-exports, etc.) via `import routes.phases as _pkg`, so the pre-split module-global patch points keep working unchanged.
+
+This subsection, `routes/decisions/`, and `state_store/` are the landed `orchestrator/` decompositions; later orchestrator slices append their own subsections here.
