@@ -42,8 +42,6 @@ files:
     issue: "2248"
   orchestrator/routes/signals.py:
     issue: "2248"
-  orchestrator/routes/deployment.py:
-    issue: "2248"
   orchestrator/kubernetes_spawner.py:
     issue: "2248"
   # On the egg/issue-2548/work merge target, slice-1's
