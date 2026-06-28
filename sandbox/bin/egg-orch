@@ -1,1 +1,1 @@
-../egg_lib/orch_cli.py
+../egg_lib/orch_cli/__main__.py

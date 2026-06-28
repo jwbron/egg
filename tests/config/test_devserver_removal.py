@@ -252,21 +252,37 @@ class TestApiCleanup:
         assert "deployment_check" not in content
 
 
+def _phases_sources() -> list[Path]:
+    """The phases module sources, whether a monolith or a decomposed sub-package.
+
+    ``routes/phases.py`` was decomposed into ``routes/phases/`` (issue #3312
+    slice-4); fall back to the monolith path for back-compat with undecomposed
+    trees so the assertion stays meaningful in both layouts.
+    """
+    pkg = REPO_ROOT / "orchestrator" / "routes" / "phases"
+    if pkg.is_dir():
+        return sorted(pkg.glob("*.py"))
+    monolith = REPO_ROOT / "orchestrator" / "routes" / "phases.py"
+    return [monolith] if monolith.is_file() else []
+
+
 class TestPhasesCleanup:
-    """Verify orchestrator/routes/phases.py no longer references devserver teardown."""
+    """Verify orchestrator/routes/phases{.py,/} no longer references devserver teardown."""
 
     def test_no_teardown_devserver_import(self):
-        """phases.py must not import teardown_devserver."""
-        phases_path = REPO_ROOT / "orchestrator" / "routes" / "phases.py"
-        content = phases_path.read_text(encoding="utf-8")
-        assert "teardown_devserver" not in content, "phases.py still references teardown_devserver"
+        """phases must not import teardown_devserver."""
+        for phases_path in _phases_sources():
+            content = phases_path.read_text(encoding="utf-8")
+            assert "teardown_devserver" not in content, (
+                f"{phases_path.name} still references teardown_devserver"
+            )
 
     def test_no_devserver_references(self):
-        """phases.py must not reference devserver at all."""
-        phases_path = REPO_ROOT / "orchestrator" / "routes" / "phases.py"
-        tree = ast.parse(phases_path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                assert "checks" not in node.module or "health_checks" in node.module, (
-                    f"phases.py imports from {node.module} — expected routes.checks removed"
-                )
+        """phases must not reference devserver at all."""
+        for phases_path in _phases_sources():
+            tree = ast.parse(phases_path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    assert "checks" not in node.module or "health_checks" in node.module, (
+                        f"{phases_path.name} imports from {node.module} — expected routes.checks removed"
+                    )

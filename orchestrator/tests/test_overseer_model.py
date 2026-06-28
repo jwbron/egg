@@ -101,8 +101,16 @@ def _pipeline_config(**overrides):
 
 
 def _spawner_source() -> str:
-    """Source text of ``kubernetes_spawner.py`` (for the #2813 regression)."""
-    return (_orchestrator_path / "kubernetes_spawner.py").read_text()
+    """Source text of ``kubernetes_spawner.py`` (for the #2813 regression).
+
+    ``kubernetes_spawner.py`` was decomposed into ``kubernetes_spawner/``
+    (issue #3312); fall back to the monolith path for undecomposed trees so
+    the #2813 regression assertion stays meaningful in both layouts.
+    """
+    pkg = _orchestrator_path / "kubernetes_spawner"
+    if pkg.is_dir():
+        return "\n".join(p.read_text(encoding="utf-8") for p in sorted(pkg.glob("*.py")))
+    return (_orchestrator_path / "kubernetes_spawner.py").read_text(encoding="utf-8")
 
 
 def _spawn_path_source() -> str:

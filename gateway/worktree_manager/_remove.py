@@ -5,6 +5,12 @@ deletion, and clean-worktree teardown. Extracted verbatim and bound onto
 ``WorktreeManager`` in the barrel; they take ``self`` explicitly.
 """
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from . import WorktreeManager
+
+
 import contextlib
 import re
 import shutil
@@ -24,7 +30,7 @@ except ImportError:  # pragma: no cover - flat (container) import path
 
 
 def cleanup_phase_worktrees(
-    self,
+    self: WorktreeManager,
     container_id: str,
     repo_name: str,
     phase_ids: list[str] | None = None,
@@ -88,7 +94,7 @@ def cleanup_phase_worktrees(
 
 
 def remove_worktree(
-    self,
+    self: WorktreeManager,
     container_id: str,
     repo_name: str,
     force: bool = False,
@@ -286,7 +292,9 @@ def remove_worktree(
     return result
 
 
-def _delete_worktree_branch(self, main_repo: Path, branch_name: str, force: bool) -> bool:
+def _delete_worktree_branch(
+    self: WorktreeManager, main_repo: Path, branch_name: str, force: bool
+) -> bool:
     """
     Delete a worktree branch if it's safe to do so.
 
@@ -321,7 +329,7 @@ def _delete_worktree_branch(self, main_repo: Path, branch_name: str, force: bool
     return False
 
 
-def cleanup_clean_worktree(self, container_id: str, repo_name: str) -> bool:
+def cleanup_clean_worktree(self: WorktreeManager, container_id: str, repo_name: str) -> bool:
     """Remove a worktree that has no uncommitted changes.
 
     Called after container exit for worktrees without uncommitted work.

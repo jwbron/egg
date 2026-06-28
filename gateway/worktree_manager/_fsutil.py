@@ -5,6 +5,12 @@ container→worktree path mapping. Extracted verbatim and bound onto ``WorktreeM
 in the barrel; they take ``self`` explicitly.
 """
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from . import WorktreeManager
+
+
 import contextlib
 import os
 import subprocess
@@ -21,7 +27,7 @@ from ._common import (
 
 
 @contextlib.contextmanager
-def _get_repo_lock(self, repo_name: str) -> Generator[None]:
+def _get_repo_lock(self: WorktreeManager, repo_name: str) -> Generator[None]:
     """Hold the per-repo lock for serializing git operations.
 
     Combines two layers:
@@ -43,7 +49,7 @@ def _get_repo_lock(self, repo_name: str) -> Generator[None]:
         yield
 
 
-def _chown_single(self, path: Path, uid: int, gid: int) -> None:
+def _chown_single(self: WorktreeManager, path: Path, uid: int, gid: int) -> None:
     """
     Change ownership of a single file or directory (non-recursive).
 
@@ -76,7 +82,7 @@ def _chown_single(self, path: Path, uid: int, gid: int) -> None:
         )
 
 
-def _chown_recursive(self, path: Path, uid: int, gid: int) -> None:
+def _chown_recursive(self: WorktreeManager, path: Path, uid: int, gid: int) -> None:
     """
     Recursively change ownership of a directory.
 
@@ -124,7 +130,9 @@ def _chown_recursive(self, path: Path, uid: int, gid: int) -> None:
         )
 
 
-def _find_worktree_git_dir(self, main_repo: Path, worktree_path: Path) -> Path | None:
+def _find_worktree_git_dir(
+    self: WorktreeManager, main_repo: Path, worktree_path: Path
+) -> Path | None:
     """
     Find the git worktree admin directory.
 
@@ -177,7 +185,9 @@ def _find_worktree_git_dir(self, main_repo: Path, worktree_path: Path) -> Path |
     return None
 
 
-def get_worktree_paths(self, container_id: str, repo_name: str) -> tuple[Path, Path]:
+def get_worktree_paths(
+    self: WorktreeManager, container_id: str, repo_name: str
+) -> tuple[Path, Path]:
     """
     Get worktree paths for path mapping.
 

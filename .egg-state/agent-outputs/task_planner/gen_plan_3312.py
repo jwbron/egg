@@ -1,12 +1,14 @@
 import json
 
-d = json.load(open('.egg-state/drafts/3312-plan-task-planner.json'))
-phases = d['phases']
-TOT = sum(len(p['tasks']) for p in phases)
+d = json.load(open(".egg-state/drafts/3312-plan-task-planner.json"))
+phases = d["phases"]
+TOT = sum(len(p["tasks"]) for p in phases)
+
 
 def yblock(text, indent):
-    pad = ' ' * indent
-    return '\n'.join((pad + ln) if ln else '' for ln in text.rstrip('\n').split('\n'))
+    pad = " " * indent
+    return "\n".join((pad + ln) if ln else "" for ln in text.rstrip("\n").split("\n"))
+
 
 out = []
 W = out.append
@@ -51,14 +53,14 @@ W("  (add one, slice-1); `shared/CLAUDE.md` is **absent** (create it, slice-7)."
 W("- **`_run_pipeline`** (non-negotiable #7): split into per-phase handlers + a thin")
 W("  orchestration loop inside the `pipelines.py` slice — addressed directly, not deferred.")
 W("")
-cp = d['container_packaging']
+cp = d["container_packaging"]
 W("## Container packaging (R3 mitigation — addresses reviewer_plan NACK v1)")
 W("")
-W(cp['problem'])
+W(cp["problem"])
 W("")
 W("| Slices | Files | Image-copy mechanism | Action |")
 W("|---|---|---|---|")
-for r in cp['dispositions']:
+for r in cp["dispositions"]:
     W(f"| {r['slices']} | {r['files']} | {r['mechanism']} | {r['action']} |")
 W("")
 W("**Why source-tree gates miss this:** `make lint` / `make test-all` never build the")
@@ -70,7 +72,7 @@ W(f"## Slice DAG (19 slices · {TOT} tasks) — easiest → hardest")
 W("")
 W("```")
 for p in phases:
-    tag = "  ⟵ STRUCTURAL OUTLIER" if p.get('outlier') else ""
+    tag = "  ⟵ STRUCTURAL OUTLIER" if p.get("outlier") else ""
     W(f"{p['slice']:>9}: {p['file']:<42} {p['lines']:>6} lines{tag}")
 W("```")
 W("")
@@ -80,17 +82,17 @@ W("preserves easiest-first ordering so 17 simpler files bank value before the tw
 W("")
 W("## Acceptance criteria")
 W("")
-for ac in d['acceptance_criteria']:
+for ac in d["acceptance_criteria"]:
     W(f"- {ac}")
 W("")
 W("## Non-goals")
 W("")
-for ng in d['non_goals']:
+for ng in d["non_goals"]:
     W(f"- {ng}")
 W("")
 W("## Risks carried to reviewers")
 W("")
-for r in d['risks_for_reviewers']:
+for r in d["risks_for_reviewers"]:
     W(f"- {r}")
 W("")
 
@@ -99,8 +101,9 @@ W("# yaml-tasks")
 W("pr:")
 W('  title: "Decompose 19 oversize Python files; clear the file-size allowlist (#3312)"')
 W("  description: |")
-W(yblock(
-"""The `make lint` cap (1,500 lines / 100 KB, added by #2250 closing #2248) caps Python
+W(
+    yblock(
+        """The `make lint` cap (1,500 lines / 100 KB, added by #2250 closing #2248) caps Python
 source files; 19 files are grandfathered in `scripts/file-size-allowlist.yaml`. This
 program decomposes ALL 19 into sub-packages following the canonical pattern (merged PR
 #2335 + `docs/guides/decomposition-pattern.md` + worked reference `scripts/select_tests/`),
@@ -118,10 +121,14 @@ image-build/import smoke check, because the source-tree gates cannot catch a mis
 
 Scope is locked (operator directive + resolved refine HITL): all 19 files, no descope.
 Pure refactor — no behavior changes; bugs surfaced are separate `Part of #3312`
-follow-ups. Branches prefixed `egg/`. Implements #3312.""", 4))
+follow-ups. Branches prefixed `egg/`. Implements #3312.""",
+        4,
+    )
+)
 W("  test_plan: |")
-W(yblock(
-"""- Automated: `make lint` + `make test-all` green at EVERY slice boundary. A missed
+W(
+    yblock(
+        """- Automated: `make lint` + `make test-all` green at EVERY slice boundary. A missed
   re-export fails the test that patches the moved symbol. Each slice runs the section-(d)
   `git grep` audit before extraction.
 - Per slice: step-0 `git mv` baseline commit is independently green; every submodule
@@ -133,25 +140,40 @@ W(yblock(
 - `_run_pipeline` handlers stay private, tested THROUGH `_run_pipeline` via existing dense
   seam coverage (test_consensus_polling, test_brc_nack_iteration, test_concurrent_*,
   test_advance_phase_*); isolation tests are a follow-up.
-- Run with `make test` (changeset-aware) inner-loop; full suite via `make test-all`.""", 4))
+- Run with `make test` (changeset-aware) inner-loop; full suite via `make test-all`.""",
+        4,
+    )
+)
 W("  manual_steps: |")
-W(yblock(
-"""Pre-merge (per slice): reviewer spot-checks (a) the __init__.py re-export list against
+W(
+    yblock(
+        """Pre-merge (per slice): reviewer spot-checks (a) the __init__.py re-export list against
 `git grep`, (b) submodule clustering is cohesive, (c) the CLAUDE.md seam row matches.
 Per R3 slice: build the affected container image and run the import/ENTRYPOINT smoke check
 (the source-tree gates do not build images).
 Pre-merge (final slice = pipelines.py): verify the allowlist `files:` map is EMPTY and all
 four CLAUDE.md seam tables are populated.
-Post-merge: none (pure refactor; no migrations/config/deploy).""", 4))
+Post-merge: none (pure refactor; no migrations/config/deploy).""",
+        4,
+    )
+)
 W("phases:")
 for i, p in enumerate(phases, 1):
-    dep_note = ("depends on the previous slice (single linear chain: every slice edits "
-                "scripts/file-size-allowlist.yaml, so per #3046 overlapping slices must be "
-                "serialized)") if i > 1 else "head of the linear chain (no parent)"
-    extra = " STRUCTURAL OUTLIER — scheduled last, fully in scope." if p.get('outlier') else ""
-    goal = (f"Decompose `{p['file']}` ({p['lines']} lines"
-            f"{', over byte cap' if p['over_byte_cap'] else ''}) into a sub-package; "
-            f"drop its allowlist entry; seam coverage in {p['claude_md']}. {dep_note}.{extra}")
+    dep_note = (
+        (
+            "depends on the previous slice (single linear chain: every slice edits "
+            "scripts/file-size-allowlist.yaml, so per #3046 overlapping slices must be "
+            "serialized)"
+        )
+        if i > 1
+        else "head of the linear chain (no parent)"
+    )
+    extra = " STRUCTURAL OUTLIER — scheduled last, fully in scope." if p.get("outlier") else ""
+    goal = (
+        f"Decompose `{p['file']}` ({p['lines']} lines"
+        f"{', over byte cap' if p['over_byte_cap'] else ''}) into a sub-package; "
+        f"drop its allowlist entry; seam coverage in {p['claude_md']}. {dep_note}.{extra}"
+    )
     W(f"  - id: {i}")
     W(f"    name: {json.dumps(p['name'])}")
     W(f"    goal: {json.dumps(goal)}")
@@ -159,16 +181,16 @@ for i, p in enumerate(phases, 1):
         W("    dependencies: []")
     else:
         W("    dependencies:")
-        W(f"      - {i-1}")
+        W(f"      - {i - 1}")
     W("    tasks:")
-    for t in p['tasks']:
+    for t in p["tasks"]:
         W(f"      - id: {t['id']}")
         W(f"        description: {json.dumps(t['description'])}")
         W(f"        acceptance: {json.dumps(t['acceptance_criteria'])}")
         W("        files:")
-        for f in t['files_affected']:
+        for f in t["files_affected"]:
             W(f"          - {f}")
 W("```")
 
-open('.egg-state/drafts/3312-plan.md', 'w').write('\n'.join(out) + '\n')
+open(".egg-state/drafts/3312-plan.md", "w").write("\n".join(out) + "\n")
 print("wrote 3312-plan.md;", TOT, "tasks")

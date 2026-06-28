@@ -78,7 +78,7 @@ class WorktreeManager:
     """
 
     def __init__(
-        self,
+        self: WorktreeManager,
         worktree_base: Path | None = None,
         repos_base: Path | None = None,
     ):
