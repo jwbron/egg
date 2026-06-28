@@ -171,11 +171,24 @@ fork_policy = _load_module_with_replaced_imports(
     },
 )
 
-# git_client has no relative imports to other gateway modules
-git_client = _load_module_with_replaced_imports(
+# git_client became a sub-package in #3312 slice-11. The single-file
+# _load_module_with_replaced_imports loader cannot exec a package (its
+# __init__ uses ``from ._submodule import …`` relative imports), so load it
+# via an explicit spec with submodule_search_locations pointing at the
+# package dir. The barrel's own sys.path bootstrap (shared/ + config/) and
+# the github_client/commit_observer flat-import fallbacks resolve through the
+# modules conftest already registered above (github_client) and on first use.
+import importlib.util as _importlib_util  # noqa: E402
+
+_git_client_pkg = GATEWAY_DIR / "git_client"
+_git_client_spec = _importlib_util.spec_from_file_location(
     "git_client",
-    GATEWAY_DIR / "git_client.py",
+    _git_client_pkg / "__init__.py",
+    submodule_search_locations=[str(_git_client_pkg)],
 )
+git_client = _importlib_util.module_from_spec(_git_client_spec)
+sys.modules["git_client"] = git_client
+_git_client_spec.loader.exec_module(git_client)
 
 # anthropic_credentials has no relative imports to other gateway modules
 anthropic_credentials = _load_module_with_replaced_imports(

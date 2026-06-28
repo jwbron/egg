@@ -65,6 +65,10 @@ WORKDIR /app
 
 # Copy gateway code
 COPY gateway/*.py ./
+# git_client is a sub-package (#3312 slice-11); the non-recursive *.py glob
+# above does not match a directory, so copy it explicitly or `import
+# git_client` fails at runtime with ModuleNotFoundError.
+COPY gateway/git_client/ ./git_client/
 
 # Copy shared modules (egg_logging for logging, egg_config for config parsing, egg_contracts for contract API, egg_restrictions for agent role enforcement, egg_health for health tracking, egg_git for cross-process git locking, egg_session_placeholder for /v1/messages token-keyed session lookup)
 COPY shared/egg_logging/ ./egg_logging/
