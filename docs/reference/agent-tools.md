@@ -508,7 +508,8 @@ function, and renders
 the response for stdout. Humans, bash scripts, recovery tooling, and
 the existing test suite see zero behaviour change. Parity is enforced
 by committed fixture tests under `tests/sandbox/test_contract_cli.py`
-and `tests/sandbox/test_orch_cli.py` (no auto-record
+and `tests/sandbox/test_orch_cli_*.py` /
+`tests/sandbox/egg_lib/test_orch_cli_*.py` (no auto-record
 — every expected value is in the repo).
 
 See [Orchestrator CLI reference](orchestrator-cli.md) and [SDLC Contract
@@ -566,7 +567,7 @@ SDK release notes rather than silently breaking every sandbox.
 | `tests/sandbox/egg_agent_tools/test_sdk_surface.py` | SDK import smoke (fails loud on incompatible SDK upgrade). |
 | `tests/sandbox/egg_agent_tools/test_full_tool_registry.py` | Integration test: loads `TOOL_LIST` via `create_sdk_mcp_server`; asserts no registration errors and that completion/mutation verbs (`task_complete`, `phase__complete_phase`, `task__add_commit`, `sdlc__verify_criterion`) name the state-machine effect in their description. |
 | `tests/shared/egg_agent/test_client.py` | Flag-on/flag-off wire-up in `run_agent_async`; `can_use_tool` passes `mcp__*` tool names. |
-| `tests/sandbox/test_contract_cli.py`, `tests/sandbox/test_orch_cli.py` | CLI parity against committed fixtures. |
+| `tests/sandbox/test_contract_cli.py`, `tests/sandbox/test_orch_cli_*.py`, `tests/sandbox/egg_lib/test_orch_cli_*.py` | CLI parity against committed fixtures. |
 | `tests/tools/test_mcp_cli_drift.py` | Every tool with a `cli_command` attribute dispatches the same handler as its CLI subparser. |
 | `tests/tools/test_rule_doc_drift.py` | Two-way rule-doc invariant: (A) every `Prefer this over `egg-…`` line resolves to a `TOOL_REGISTRY` entry; (B) every `cli_command != None` registration has a matching rule-doc line; (C) every `cli_command == None` registration has a handler docstring mentioning `"no CLI"` or `"no-CLI"` (decision-13 gate). |
 | `tests/shared/egg_contracts/test_models_gaps.py` | Pydantic round-trip for `Task.gaps`; back-compat with old contract fixtures (parse to `gaps: []`). |
