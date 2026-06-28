@@ -135,8 +135,18 @@ def _track_long_poll_end() -> None:
 # liveness keep-alive emitted by ``mcp__brc__wait_loop`` while it's
 # blocked — periodic identical beats are exactly the signal the
 # overseer's stall detector consumes, so dedup must not collapse them.
-# Rate-limit (20/min per slice+role; #2471) still applies.
-_DEDUP_EXEMPT_HEARTBEAT_STATES: frozenset[str] = frozenset({"WAITING_FOR_EVENT"})
+#
+# ``WORKING`` (issue #3341) is exempt for the same reason: the consensus
+# wrapper records one ``WORKING`` beat before handing off to the agent,
+# then the in-tool-loop ``WorkingHeartbeatEmitter`` re-emits ``WORKING``
+# during the turn to keep a busy producer visibly alive. Those periodic
+# identical beats are exactly what ``check_heartbeats`` consumes — without
+# this exemption every in-tool-loop beat dedups against the wrapper's
+# recorded ``WORKING`` state, emits no ``MESSAGE_SENT`` event, never
+# refreshes ``last_heartbeat``, and the feature silently no-ops.
+# Rate-limit (20/min per slice+role; #2471) still applies — the emitter's
+# 120s interval is 0.5/min, far under the cap.
+_DEDUP_EXEMPT_HEARTBEAT_STATES: frozenset[str] = frozenset({"WAITING_FOR_EVENT", "WORKING"})
 
 
 messages_bp = Blueprint("messages", __name__, url_prefix="/api/v1/pipelines")

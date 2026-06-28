@@ -2583,7 +2583,12 @@ class TestHeartbeatRoute:
                 assert data["data"]["deduped"] is False
 
     def test_heartbeat_route_dedups_repeat_state(self, client, app):
-        """Plan TASK-3-2: repeated (state, waiting_on) tuples dedupe."""
+        """Plan TASK-3-2: repeated (state, waiting_on) tuples dedupe.
+
+        Uses ``IDLE`` — a non-exempt state. ``WORKING`` is no longer a
+        valid subject here: it joined ``_DEDUP_EXEMPT_HEARTBEAT_STATES``
+        in #3341 (see ``test_heartbeat_route_does_not_dedupe_working``).
+        """
         with app.test_request_context():
             with patch(
                 "routes.messages.get_state_store_for_pipeline"
@@ -2596,7 +2601,7 @@ class TestHeartbeatRoute:
                 role = "heartbeat-route-role-b"
                 resp1 = client.post(
                     "/api/v1/pipelines/test-pipeline/heartbeat",
-                    json={"from_role": role, "state": "WORKING"},
+                    json={"from_role": role, "state": "IDLE"},
                 )
                 assert resp1.status_code == 200
                 assert json.loads(resp1.data)["data"]["deduped"] is False
@@ -2604,7 +2609,7 @@ class TestHeartbeatRoute:
                 # Second identical call MUST dedupe.
                 resp2 = client.post(
                     "/api/v1/pipelines/test-pipeline/heartbeat",
-                    json={"from_role": role, "state": "WORKING"},
+                    json={"from_role": role, "state": "IDLE"},
                 )
                 assert resp2.status_code == 200
                 assert json.loads(resp2.data)["data"]["deduped"] is True
@@ -2639,6 +2644,106 @@ class TestHeartbeatRoute:
                     )
                     assert resp.status_code == 200
                     assert json.loads(resp.data)["data"]["deduped"] is False
+
+    def test_heartbeat_route_does_not_dedupe_working(self, client, app):
+        """Issue #3341: ``WORKING`` is a liveness keep-alive too.
+
+        The consensus wrapper records one ``WORKING`` beat before handing
+        off to the agent, then the in-tool-loop ``WorkingHeartbeatEmitter``
+        re-emits ``WORKING`` during the turn to keep a busy producer
+        visibly alive. Those periodic identical beats are exactly what
+        ``check_heartbeats`` consumes, so ``WORKING`` MUST skip the
+        ``(state, waiting_on)`` dedup filter even when consecutive posts
+        are byte-for-byte identical.
+
+        If a future refactor re-enables dedup for this state, every
+        in-tool-loop beat would dedup against the wrapper's recorded
+        ``WORKING`` state, emit no ``MESSAGE_SENT`` event, never refresh
+        ``last_heartbeat``, and the #3341 feature would silently no-op —
+        the exact regression this test guards against.
+        """
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                role = "in-tool-loop-working-role"
+                for _ in range(3):
+                    resp = client.post(
+                        "/api/v1/pipelines/test-pipeline/heartbeat",
+                        json={"from_role": role, "state": "WORKING"},
+                    )
+                    assert resp.status_code == 200
+                    assert json.loads(resp.data)["data"]["deduped"] is False
+
+    def test_working_heartbeat_refreshes_health_monitor_last_heartbeat(
+        self, client, app, monkeypatch
+    ):
+        """#3341 cross-module regression: a repeated ``WORKING`` beat must
+        travel route → ``MESSAGE_SENT`` event → ``HealthMonitor`` and
+        refresh ``last_heartbeat``.
+
+        This is the gap the reviewer flagged: the per-emitter unit tests
+        stop at the subprocess boundary, so the silent dedup drop in the
+        ``/heartbeat`` route was invisible to them. The blocking bug was
+        that the route deduped the in-tool-loop emitter's ``WORKING`` beat
+        (identical to the wrapper's recorded state), emitted no
+        ``MESSAGE_SENT`` event, and so ``HealthMonitor._on_message_sent``
+        never bumped ``last_heartbeat`` — leaving ``check_heartbeats`` to
+        trip the false stall the feature was built to prevent. We drive a
+        real ``HealthMonitor`` off the same (synchronous) event bus the
+        route emits into and assert the second beat advances the clock.
+        """
+        import events as events_mod
+        from events import EventBus
+        from health_monitor import HealthMonitor
+        from models import PipelineConfig
+
+        # Synchronous bus so the route's emit_event delivers inline. Swap
+        # the module singleton so routes.messages.emit_event -> get_event_bus
+        # resolves to the same bus the HealthMonitor subscribes to.
+        bus = EventBus(async_delivery=False)
+        monkeypatch.setattr(events_mod, "_event_bus", bus)
+
+        role = "in-tool-loop-xmod-role"
+        monitor = HealthMonitor(bus, "test-pipeline", PipelineConfig())
+        monitor.set_active_roles({role})
+
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+
+                # 1) Wrapper-style first WORKING beat — records state and
+                #    refreshes last_heartbeat.
+                resp1 = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"from_role": role, "state": "WORKING"},
+                )
+                assert json.loads(resp1.data)["data"]["deduped"] is False
+                first_seen = monitor._last_heartbeat[role]
+
+                # 2) In-tool-loop re-emit — byte-identical WORKING, later in
+                #    wall-clock. Pre-#3341 this deduped and last_heartbeat
+                #    went stale; now it must pass through and advance.
+                with patch("health_monitor.time") as mock_time:
+                    later = first_seen + 200
+                    mock_time.time.return_value = later
+                    resp2 = client.post(
+                        "/api/v1/pipelines/test-pipeline/heartbeat",
+                        json={"from_role": role, "state": "WORKING"},
+                    )
+
+                assert json.loads(resp2.data)["data"]["deduped"] is False
+                assert monitor._last_heartbeat[role] == later
+                assert monitor._last_heartbeat[role] > first_seen
 
     def test_heartbeat_route_requires_from_role(self, client, app):
         """Missing from_role -> 400."""
