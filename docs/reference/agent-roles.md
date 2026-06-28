@@ -450,7 +450,7 @@ tests, and its mandate is two-fold: **(1) comprehensive regression coverage** �
 
 **Access**:
 - Orchestrator APIs: pipeline status, container logs, progress queries, health alerts, message bus
-- Sandbox CLI verb: `egg-orch overseer consult-advisor` (handler at `sandbox/egg_lib/orch_cli.py::cmd_overseer_consult_advisor`; calls `egg_overseer.advisor.consult_advisor()` directly so the underlying `run_agent_async` Opus call lives sandbox-side, on the LLM-execution side of the EGG200 boundary documented in `docs/guides/agent-mode-design.md`)
+- Sandbox CLI verb: `egg-orch overseer consult-advisor` (handler at `sandbox/egg_lib/orch_cli/_overseer.py::cmd_overseer_consult_advisor`; calls `egg_overseer.advisor.consult_advisor()` directly so the underlying `run_agent_async` Opus call lives sandbox-side, on the LLM-execution side of the EGG200 boundary documented in `docs/guides/agent-mode-design.md`)
 - GitHub API: `gh issue create` for diagnostic issue filing — gateway-mediated. Guardrails are codified in `gateway.agent_restrictions.check_overseer_gh_issue_create`: overseer-role-only, `--repo` must equal `$EGG_PIPELINE_REPO`, `agent:overseer` + priority labels auto-injected if missing, title ≤ 120 chars, body ≤ 50 KB, defense-in-depth secret scan via `egg_overseer.scrubbing.find_secret_kinds`. (As of issue [#1962](https://github.com/jwbron/egg/issues/1962) the function is defined and unit-tested; final wiring into the live `gh` request path is part of the same PR — verify on the merged commit before relying on the gateway-side enforcement.)
 - `egg-orch message send` to redirect individual agents
 - `egg-orch overseer alert` to broadcast `OVERSEER_ALERT` notifications to the human operator (always uses `message_type=OVERSEER_ALERT` and `to_role=all`)

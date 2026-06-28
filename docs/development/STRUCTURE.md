@@ -234,7 +234,7 @@ sandbox/
 │   ├── egg-contract        # Symlink to contract_cli/__main__.py
 │   ├── egg-onboarding-docs # Generate repository documentation via egg-sdlc
 │   ├── egg-pipeline-watch  # Real-time pipeline progress viewer via SSE
-│   ├── egg-orch            # Symlink to orch_cli.py
+│   ├── egg-orch            # Symlink to orch_cli/__main__.py
 │   └── git-credential-github-token
 ├── egg_agent_tools/        # In-process SDK MCP server: 45 tools across 7 namespaces (sdlc, brc, phase, progress, task, confluence, jira)
 │   ├── server.py           # build_sandbox_mcp_server(): one SDK server per namespace; SYSTEM_PROMPT_NUDGE generated at import
@@ -265,7 +265,7 @@ sandbox/
 │   ├── compose.py          # Docker Compose operations
 │   ├── contract_cli/       # SDLC contract CLI package (entry point: __main__.py; invoked via sandbox/bin/egg-contract symlink)
 │   ├── orchestration.py    # Multi-agent orchestration support
-│   ├── orch_cli.py         # Orchestrator CLI implementation
+│   ├── orch_cli/           # Orchestrator CLI package (entry point: __main__.py; invoked via sandbox/bin/egg-orch symlink)
 │   ├── cli_session_state.py # `egg-orch session-state pull|push` — cross-pod warm-resume sync CLI (thin layer over session_state_sync; resolves identity from env, calls orchestrator /session-state route; #3278)
 │   ├── session_state_sync.py # Filesystem helpers for cross-pod session sync: slug math, transcript path resolution, write_pulled_state(), read_state_for_push() (#3278)
 │   ├── orch_client.py      # Orchestrator API client

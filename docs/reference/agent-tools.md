@@ -340,7 +340,7 @@ to the appropriate rule doc in the same PR; CI fails otherwise.
 ## Input/output schemas
 
 Input schemas are derived automatically from the argparse subparsers
-that back the CLI counterparts (`sandbox/egg_lib/orch_cli.py::create_parser`
+that back the CLI counterparts (`sandbox/egg_lib/orch_cli/_parser.py::create_parser`
 and `sandbox/egg_lib/contract_cli/__init__.py::create_parser`) by
 `sandbox/egg_agent_tools/schemas.py::derive_schema_from_argparse`.
 Each tool may supply a per-tool override dict for cases where argparse
@@ -474,7 +474,7 @@ so shell behaviour is byte-identical.
 > handler in `egg_agent_tools` and was refactored in #1765 to raise
 > `GatewayError` instead of exiting. This rule is
 > about **handlers**, not shell CLI shims: unrefactored `cmd_*`
-> functions in `sandbox/egg_lib/orch_cli.py` may still call
+> functions in `sandbox/egg_lib/orch_cli/` may still call
 > `sys.exit(1)` on argparse-level errors (e.g. missing `--role`),
 > which is fine because they run in their own process, not inside
 > the agent SDK loop. When adding a new verb, inherit this contract:
@@ -495,7 +495,7 @@ drift gate.
 
 Existing `sandbox/bin/egg-*` CLIs are **not deprecated**. Every
 refactored `cmd_*` function in `sandbox/egg_lib/contract_cli/` and
-`sandbox/egg_lib/orch_cli.py`
+`sandbox/egg_lib/orch_cli/`
 still:
 
 - Accepts the same argparse flags.

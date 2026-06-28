@@ -57,7 +57,7 @@ the literal tool names Claude sees in `tool_use` blocks — see
 
 The existing `sandbox/bin/egg-*` CLIs are **not deprecated**
 (decision-4). Every refactored `cmd_*` function in
-`sandbox/egg_lib/contract_cli/` and `sandbox/egg_lib/orch_cli.py`
+`sandbox/egg_lib/contract_cli/` and `sandbox/egg_lib/orch_cli/`
 keeps the same argparse flags, stdout text, and exit codes. Humans,
 bash scripts, recovery tooling, and the existing test suite see zero
 behaviour change. Parity is enforced by committed-fixture tests.
