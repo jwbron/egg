@@ -305,7 +305,7 @@ class TestSetupEnvironment:
 class TestSetupClaude:
     """Tests for setup_claude function."""
 
-    @patch.object(entrypoint, "chown_recursive")
+    @patch.object(entrypoint._claude, "chown_recursive")
     @patch("os.chown")
     @patch("os.chmod")
     @patch("shutil.which", return_value="/usr/local/bin/claude")
@@ -355,7 +355,7 @@ class TestSetupClaude:
         captured = capsys.readouterr()
         assert "bind-mounted" in captured.out
 
-    @patch.object(entrypoint, "chown_recursive")
+    @patch.object(entrypoint._claude, "chown_recursive")
     @patch("os.chown")
     @patch("os.chmod")
     @patch("shutil.which", return_value="/usr/local/bin/claude")
@@ -405,7 +405,7 @@ class TestSetupClaude:
         assert settings["defaultPermissionMode"] == "bypassPermissions"
         assert settings["autoUpdate"] is False
 
-    @patch.object(entrypoint, "chown_recursive")
+    @patch.object(entrypoint._claude, "chown_recursive")
     @patch("os.chown")
     @patch("os.chmod")
     @patch("shutil.which", return_value="/usr/local/bin/claude")
@@ -444,7 +444,7 @@ class TestSetupClaude:
             assert projects[key]["hasTrustDialogAccepted"] is True
             assert projects[key]["hasCompletedProjectOnboarding"] is True
 
-    @patch.object(entrypoint, "chown_recursive")
+    @patch.object(entrypoint._claude, "chown_recursive")
     @patch("os.chown")
     @patch("os.chmod")
     @patch("shutil.which", return_value="/usr/local/bin/claude")
@@ -477,7 +477,7 @@ class TestSetupClaude:
         assert str(repos_dir) in projects
         assert len(projects) == 1
 
-    @patch.object(entrypoint, "chown_recursive")
+    @patch.object(entrypoint._claude, "chown_recursive")
     @patch("os.chown")
     @patch("os.chmod")
     @patch("shutil.which", return_value="/usr/local/bin/claude")
@@ -506,7 +506,7 @@ class TestSetupClaude:
         result = json.loads((temp_dir / ".claude.json").read_text())
         assert "projects" not in result
 
-    @patch.object(entrypoint, "chown_recursive")
+    @patch.object(entrypoint._claude, "chown_recursive")
     @patch("os.chown")
     @patch("os.chmod")
     @patch("shutil.which", return_value="/usr/local/bin/claude")
@@ -578,7 +578,7 @@ class TestStartupTimer:
     def test_timer_disabled_by_default(self, monkeypatch):
         """Timer is disabled when ENABLE_STARTUP_TIMING is False."""
         # Directly patch the module-level constant
-        monkeypatch.setattr(entrypoint, "ENABLE_STARTUP_TIMING", False)
+        monkeypatch.setattr(entrypoint._timing, "ENABLE_STARTUP_TIMING", False)
 
         timer = entrypoint.StartupTimer()
         timer.start_phase("test_phase")
@@ -589,7 +589,7 @@ class TestStartupTimer:
 
     def test_timer_enabled_with_env(self, monkeypatch):
         """Timer records phases when ENABLE_STARTUP_TIMING is True."""
-        monkeypatch.setattr(entrypoint, "ENABLE_STARTUP_TIMING", True)
+        monkeypatch.setattr(entrypoint._timing, "ENABLE_STARTUP_TIMING", True)
 
         timer = entrypoint.StartupTimer()
         timer.start_phase("test_phase")
@@ -604,7 +604,7 @@ class TestStartupTimer:
 
     def test_phase_context_manager(self, monkeypatch):
         """Phase context manager works correctly."""
-        monkeypatch.setattr(entrypoint, "ENABLE_STARTUP_TIMING", True)
+        monkeypatch.setattr(entrypoint._timing, "ENABLE_STARTUP_TIMING", True)
 
         timer = entrypoint.StartupTimer()
 
@@ -742,7 +742,7 @@ class TestRestorePrebuiltDeps:
         paths exist (e.g. test_restores_deps_into_repo), keeping those tests
         focused on copy behavior rather than ownership.
         """
-        with patch("entrypoint.chown_recursive") as self.mock_chown:
+        with patch("entrypoint._worktrees.chown_recursive") as self.mock_chown:
             yield
 
     def _make_config(self, repos_dir):
@@ -1022,7 +1022,7 @@ class TestSetupAgentRules:
         logger = entrypoint.Logger(quiet=True)
 
         # Patch Path("/opt/claude-rules") to point to our temp rules dir
-        with patch.object(entrypoint, "_CLAUDE_RULES_DIR", rules_dir):
+        with patch.object(entrypoint._claude, "_CLAUDE_RULES_DIR", rules_dir):
             entrypoint.setup_agent_rules(config, logger)
 
         claude_md = claude_dir / "CLAUDE.md"
@@ -1062,7 +1062,7 @@ class TestSetupAgentRules:
 
         logger = entrypoint.Logger(quiet=True)
 
-        with patch.object(entrypoint, "_CLAUDE_RULES_DIR", rules_dir):
+        with patch.object(entrypoint._claude, "_CLAUDE_RULES_DIR", rules_dir):
             entrypoint.setup_agent_rules(config, logger)
 
         claude_md = claude_dir / "CLAUDE.md"
@@ -1100,7 +1100,7 @@ class TestSetupAgentRules:
 
         logger = entrypoint.Logger(quiet=True)
 
-        with patch.object(entrypoint, "_CLAUDE_RULES_DIR", rules_dir):
+        with patch.object(entrypoint._claude, "_CLAUDE_RULES_DIR", rules_dir):
             entrypoint.setup_agent_rules(config, logger)
 
         claude_md = claude_dir / "CLAUDE.md"
@@ -1155,7 +1155,7 @@ class TestSetupAgentRules:
 
         logger = entrypoint.Logger(quiet=True)
 
-        with patch.object(entrypoint, "_CLAUDE_RULES_DIR", rules_dir):
+        with patch.object(entrypoint._claude, "_CLAUDE_RULES_DIR", rules_dir):
             entrypoint.setup_agent_rules(config, logger)
 
         # Stale symlink should be removed
@@ -1191,7 +1191,7 @@ class TestSetupAgentRules:
 
         logger = entrypoint.Logger(quiet=True)
 
-        with patch.object(entrypoint, "_CLAUDE_RULES_DIR", rules_dir):
+        with patch.object(entrypoint._claude, "_CLAUDE_RULES_DIR", rules_dir):
             entrypoint.setup_agent_rules(config, logger)
 
         # Real file should be preserved
@@ -1220,7 +1220,7 @@ class TestSetupAgentRules:
 
         logger = entrypoint.Logger(quiet=True)
 
-        with patch.object(entrypoint, "_CLAUDE_RULES_DIR", rules_dir):
+        with patch.object(entrypoint._claude, "_CLAUDE_RULES_DIR", rules_dir):
             entrypoint.setup_agent_rules(config, logger)
 
         agents_md = claude_dir / "AGENTS.md"
@@ -1254,7 +1254,7 @@ class TestSetupAgentRules:
 
         logger = entrypoint.Logger(quiet=True)
 
-        with patch.object(entrypoint, "_CLAUDE_RULES_DIR", rules_dir):
+        with patch.object(entrypoint._claude, "_CLAUDE_RULES_DIR", rules_dir):
             entrypoint.setup_agent_rules(config, logger)
 
         assert stale.is_symlink()
@@ -1290,7 +1290,7 @@ class TestSetupAgentRules:
 
         logger = entrypoint.Logger(quiet=True)
 
-        with patch.object(entrypoint, "_CLAUDE_RULES_DIR", rules_dir):
+        with patch.object(entrypoint._claude, "_CLAUDE_RULES_DIR", rules_dir):
             entrypoint.setup_agent_rules(config, logger)
 
         assert not stale.exists()
@@ -1336,7 +1336,7 @@ class TestSetupAgentRules:
 
         logger = entrypoint.Logger(quiet=True)
 
-        with patch.object(entrypoint, "_CLAUDE_RULES_DIR", rules_dir):
+        with patch.object(entrypoint._claude, "_CLAUDE_RULES_DIR", rules_dir):
             entrypoint.setup_agent_rules(config, logger)
 
         # The committed alias and its target must be intact and unchanged.
@@ -1582,7 +1582,7 @@ class TestOrchestratorMode:
 class TestRunExecSubprocess:
     """Tests for run_exec using subprocess.Popen() with stderr capture."""
 
-    @patch("entrypoint._chdir_to_single_repo")
+    @patch("entrypoint._exec._chdir_to_single_repo")
     @patch("subprocess.Popen")
     def test_run_exec_captures_stderr(self, mock_popen, _mock_chdir, monkeypatch):
         """run_exec captures stderr to log file while passing through."""
@@ -1603,7 +1603,7 @@ class TestRunExecSubprocess:
         call_kwargs = mock_popen.call_args[1]
         assert call_kwargs["stderr"] == subprocess.PIPE
 
-    @patch("entrypoint._chdir_to_single_repo")
+    @patch("entrypoint._exec._chdir_to_single_repo")
     @patch("subprocess.Popen")
     def test_run_exec_returns_exit_code(self, mock_popen, _mock_chdir, monkeypatch):
         """run_exec returns subprocess exit code."""
@@ -2122,7 +2122,7 @@ class TestCleanupOnExitSignaling:
         config = entrypoint.Config()
         logger = entrypoint.Logger(quiet=True)
 
-        with patch.object(entrypoint, "signal_orchestrator_completion") as mock_signal:
+        with patch.object(entrypoint._completion, "signal_orchestrator_completion") as mock_signal:
             entrypoint.cleanup_on_exit(config, logger, exit_code=0)
 
             mock_signal.assert_called_once_with(config, logger, 0)
@@ -2137,7 +2137,7 @@ class TestCleanupOnExitSignaling:
         config = entrypoint.Config()
         logger = entrypoint.Logger(quiet=True)
 
-        with patch.object(entrypoint, "signal_orchestrator_completion") as mock_signal:
+        with patch.object(entrypoint._completion, "signal_orchestrator_completion") as mock_signal:
             entrypoint.cleanup_on_exit(config, logger, exit_code=1)
 
             mock_signal.assert_called_once_with(config, logger, 1)
@@ -2477,7 +2477,7 @@ class TestSetupUserConflictResolution:
             patch("grp.getgrnam", side_effect=getgrnam_side_effect),
             patch("grp.getgrgid", side_effect=getgrgid_side_effect),
             patch("pwd.getpwuid", side_effect=getpwuid_side_effect),
-            patch.object(entrypoint, "chown_recursive"),
+            patch.object(entrypoint._user, "chown_recursive"),
         ):
             entrypoint.setup_user(config, logger)
 

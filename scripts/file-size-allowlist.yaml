@@ -30,8 +30,6 @@ files:
     issue: "2248"
   orchestrator/gateway_client.py:
     issue: "2248"
-  sandbox/entrypoint.py:
-    issue: "2248"
   gateway/worktree_manager.py:
     issue: "2248"
   gateway/git_client.py:
