@@ -263,7 +263,7 @@ sandbox/
 │   ├── timing.py           # Timing utilities
 │   ├── output.py           # Output formatting
 │   ├── compose.py          # Docker Compose operations
-│   ├── contract_cli/       # SDLC contract CLI implementation (package)
+│   ├── contract_cli/       # SDLC contract CLI package (entry point: __main__.py; invoked via sandbox/bin/egg-contract symlink)
 │   ├── orchestration.py    # Multi-agent orchestration support
 │   ├── orch_cli.py         # Orchestrator CLI implementation
 │   ├── cli_session_state.py # `egg-orch session-state pull|push` — cross-pod warm-resume sync CLI (thin layer over session_state_sync; resolves identity from env, calls orchestrator /session-state route; #3278)
