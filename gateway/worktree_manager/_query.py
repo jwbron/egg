@@ -4,6 +4,12 @@ Single-worktree lookup and the filesystem-scanning list operations. Extracted ve
 and bound onto ``WorktreeManager`` in the barrel; they take ``self`` explicitly.
 """
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from . import WorktreeManager
+
+
 import re
 from pathlib import Path
 from typing import Any
@@ -15,7 +21,7 @@ from ._common import (
 
 
 def lookup_worktree(
-    self,
+    self: WorktreeManager,
     repo_name: str,
     container_id: str,
 ) -> WorktreeInfo:
@@ -73,7 +79,7 @@ def lookup_worktree(
     )
 
 
-def list_worktrees(self) -> list[dict[str, Any]]:
+def list_worktrees(self: WorktreeManager) -> list[dict[str, Any]]:
     """
     List all active worktrees.
 
@@ -132,7 +138,7 @@ def list_worktrees(self) -> list[dict[str, Any]]:
     return worktrees
 
 
-def list_worktrees_for_pipeline(self, pipeline_id: str) -> list[WorktreeInfo]:
+def list_worktrees_for_pipeline(self: WorktreeManager, pipeline_id: str) -> list[WorktreeInfo]:
     """List all worktrees for a pipeline (all agent roles).
 
     Per-agent worktrees (#1481) use IDs of the form

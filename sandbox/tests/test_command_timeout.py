@@ -250,7 +250,9 @@ class TestSetupCommandTimeout:
 
         with (
             patch("entrypoint._command_timeout.Path") as mock_path_cls,
-            patch("entrypoint._command_timeout.shutil.move", side_effect=OSError("Permission denied")),
+            patch(
+                "entrypoint._command_timeout.shutil.move", side_effect=OSError("Permission denied")
+            ),
         ):
 
             def path_side_effect(p):

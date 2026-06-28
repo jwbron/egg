@@ -8,6 +8,12 @@ credential seam (``get_token_for_repo`` / credential-helper pair) is read off th
 barrel via ``_barrel()`` so a patch on worktree_manager.get_token_for_repo resolves.
 """
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from . import WorktreeManager
+
+
 import contextlib
 import os
 import re
@@ -15,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import time
+import types
 from collections.abc import Generator
 from pathlib import Path
 
@@ -32,7 +39,7 @@ except ImportError:  # pragma: no cover - flat (container) import path
     from git_client import git_cmd  # type: ignore[no-redef, import-untyped]
 
 
-def _barrel():
+def _barrel() -> types.ModuleType:
     """Return the package barrel so patched seams resolve at call time.
 
     Method bodies extracted here reference module-level symbols that tests
@@ -43,7 +50,7 @@ def _barrel():
     return sys.modules[__package__]
 
 
-def resolve_default_branch(self, repo_name: str) -> str:
+def resolve_default_branch(self: WorktreeManager, repo_name: str) -> str:
     """
     Resolve the remote's default branch for a repository.
 
@@ -106,7 +113,7 @@ def resolve_default_branch(self, repo_name: str) -> str:
 
 
 def create_worktree(
-    self,
+    self: WorktreeManager,
     repo_name: str,
     container_id: str,
     base_branch: str = "HEAD",
@@ -468,7 +475,7 @@ def create_worktree(
 
 
 def _configure_push_upstream(
-    self,
+    self: WorktreeManager,
     main_repo: Path,
     branch_name: str,
     assigned_branch: str | None,
@@ -515,7 +522,7 @@ def _configure_push_upstream(
 
 @contextlib.contextmanager
 def _git_credential_env(
-    self, repo_slug: str, *, best_effort: bool = False
+    self: WorktreeManager, repo_slug: str, *, best_effort: bool = False
 ) -> Generator[dict[str, str]]:
     """Yield an environment carrying GitHub credentials for a git fetch.
 
@@ -572,7 +579,7 @@ def _git_credential_env(
 
 
 def _resolve_assigned_fork_point(
-    self,
+    self: WorktreeManager,
     main_repo: Path,
     assigned_branch: str,
     repo_slug: str,
@@ -697,7 +704,7 @@ def _resolve_assigned_fork_point(
 
 
 def _reset_reused_worktree_to_safe_ref(
-    self,
+    self: WorktreeManager,
     worktree_path: Path,
     main_repo: Path,
     container_id: str,
@@ -848,7 +855,7 @@ def _reset_reused_worktree_to_safe_ref(
 
 
 def _run_git_worktree_add(
-    self,
+    self: WorktreeManager,
     args: list[str],
     cwd: Path,
     main_repo: Path,
@@ -941,7 +948,7 @@ def _run_git_worktree_add(
 
 
 def create_phase_worktree(
-    self,
+    self: WorktreeManager,
     repo_name: str,
     container_id: str,
     phase_id: str,

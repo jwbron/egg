@@ -8,11 +8,18 @@ off the barrel via ``_barrel()`` so ``patch("worktree_manager.get_active_docker_
 resolves.
 """
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from . import WorktreeManager
+
+
 import os
 import shutil
 import subprocess
 import sys
 import time
+import types
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +34,7 @@ except ImportError:  # pragma: no cover - flat (container) import path
     from git_client import git_cmd  # type: ignore[no-redef, import-untyped]
 
 
-def _barrel():
+def _barrel() -> types.ModuleType:
     """Return the package barrel so patched seams resolve at call time.
 
     Method bodies extracted here reference module-level symbols that tests
@@ -60,7 +67,7 @@ def _is_pipeline_anchored(container_id: str, active_pipeline_ids: set[str]) -> b
 
 
 def cleanup_orphaned_worktrees(
-    self,
+    self: WorktreeManager,
     active_containers: set[str],
     session_manager: Any | None = None,
     active_pipeline_ids: set[str] | None = None,
@@ -175,7 +182,7 @@ def cleanup_orphaned_worktrees(
     return removed
 
 
-def prune_stale_worktrees(self) -> int:
+def prune_stale_worktrees(self: WorktreeManager) -> int:
     """
     Run ``git worktree prune`` on every repo to remove registrations
     whose working directories no longer exist.
@@ -244,7 +251,7 @@ def prune_stale_worktrees(self) -> int:
     return repos_checked
 
 
-def git_worktree_prune_all(self) -> dict[str, list[str]]:
+def git_worktree_prune_all(self: WorktreeManager) -> dict[str, list[str]]:
     """Run ``git worktree prune -v`` on each repo, returning pruned paths.
 
     Unlike :meth:`prune_stale_worktrees` (which returns the *count* of
@@ -308,7 +315,7 @@ def git_worktree_prune_all(self) -> dict[str, list[str]]:
 
 
 def list_orphan_worktree_dirs(
-    self,
+    self: WorktreeManager,
     active_containers: set[str],
     active_pipeline_ids: set[str] | None = None,
 ) -> list[str]:
@@ -362,7 +369,7 @@ def list_orphan_worktree_dirs(
 
 
 def cleanup_orphaned_pack_files(
-    self,
+    self: WorktreeManager,
     repo_name: str | None = None,
     max_age_seconds: float | None = None,
 ) -> tuple[int, int]:
@@ -472,7 +479,7 @@ def cleanup_orphaned_pack_files(
 
 
 def cleanup_stale_pipeline_worktrees(
-    self,
+    self: WorktreeManager,
     max_age_hours: int = 48,
     active_containers: set[str] | None = None,
     active_pipeline_ids: set[str] | None = None,
