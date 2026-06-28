@@ -297,7 +297,7 @@ anything more invasive is a follow-up.
 - [ ] No submodule lands over the 1,500-line / 100-KB cap; further
       splits are in-slice (section (g)).
 - [ ] Allowlist entry for the file is removed (section (e)).
-- [ ] Slice's CLAUDE.md seam table is updated with the new
+- [ ] Module layout section in CLAUDE.md is updated with the new
       submodule layout (see `orchestrator/CLAUDE.md` and
       `gateway/CLAUDE.md`).
 - [ ] `make lint` and `make test-all` are green.
@@ -312,8 +312,8 @@ anything more invasive is a follow-up.
   [#2250](https://github.com/jwbron/egg/issues/2250) — the file-size
   cap lint and allowlist this program drives down.
 - [orchestrator/CLAUDE.md](../../orchestrator/CLAUDE.md) and
-  [gateway/CLAUDE.md](../../gateway/CLAUDE.md) — submodule seam
-  tables that downstream slices populate.
+  [gateway/CLAUDE.md](../../gateway/CLAUDE.md) — module layout
+  sections updated as each decomposition lands.
 - [docs/architecture/slice-dag.md](../architecture/slice-dag.md) —
   the slice-DAG implement phase that drives the 15 slices in
   parallel.
