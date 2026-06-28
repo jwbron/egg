@@ -107,13 +107,34 @@ class ApprovalMatrix:
         self._revision_counts: dict[tuple[str, str], int] = {}
 
         # Initialize entries from graph edges
-        for edge in graph.edges:
+        self._seed_entries_from_graph()
+
+    def _seed_entries_from_graph(self) -> None:
+        """(Re)initialize every edge to a fresh PENDING entry from the graph."""
+        for edge in self._graph.edges:
             key = (edge.reviewer_role, edge.producer_role)
             self._entries[key] = ApprovalEntry(
                 reviewer_role=edge.reviewer_role,
                 producer_role=edge.producer_role,
             )
             self._revision_counts[key] = 0
+
+    def reset(self) -> None:
+        """Clear all ACK/NACK state back to a fresh, never-reviewed matrix.
+
+        Re-seeds every graph edge to a PENDING :class:`ApprovalEntry` (so
+        ``timestamp`` is ``None`` again) and drops proposal versions, no-op
+        flags, and revision counts. Used by :meth:`PeerConsensus.clear` on a
+        ``restart_phase`` / ``restart_agent`` so a stale ACK/NACK timestamp
+        cannot survive the restart and make ``get_latest_entry_timestamp``
+        (and thus the convergence-stall / consensus-timeout clocks) read time
+        from the pre-restart phase (#3315).
+        """
+        self._entries.clear()
+        self._proposal_versions.clear()
+        self._proposal_no_changes.clear()
+        self._revision_counts.clear()
+        self._seed_entries_from_graph()
 
     def record_proposal(self, producer: str, no_changes: bool = False) -> int:
         """Record a new proposal from a producer. Returns the version number.
