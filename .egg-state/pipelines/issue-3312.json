@@ -293,10 +293,28 @@
       "resolution": null,
       "phase": "implement",
       "content_changed": null
+    },
+    {
+      "id": "decision-9",
+      "question": "Consensus timed out; consensus incomplete; agents never confirmed: reviewer_security, reviewer_concurrency, reviewer_code, coder, reviewer_contract, reviewer_code_holistic, tester, documenter. Committed work is preserved on the per-role branch — 'Retry phase' restarts with artifacts intact. How to proceed?",
+      "context": "",
+      "options": [
+        "Retry phase",
+        "Accept current state",
+        "Abort phase"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-06-28T01:34:24.948256Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "implement",
+      "content_changed": null
     }
   ],
   "created_at": "2026-06-26T23:14:44.700849Z",
-  "updated_at": "2026-06-28T01:29:55.337354Z",
+  "updated_at": "2026-06-28T01:34:24.948798Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -309,7 +327,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-28T00:34:29.302175Z",
-  "version": 144,
+  "version": 145,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
