@@ -1,0 +1,114 @@
+{
+  "issue": 3312,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "title": "Risk Assessment: decompose 19 oversize Python files until the size allowlist is empty (#3312)",
+  "summary": "Technical risk assessment for the full #3312 decomposition program as scoped by the operator (all 19 files in scope, no descope, empty `files:` allowlist as the binding acceptance criterion, `_run_pipeline` tackled head-on, pure refactor). Grounded against the live worktree at HEAD 3b1a97c30 and the confirmed refine analysis. This is a PURE-REFACTOR program, so the dominant risks are not algorithmic but mechanical-at-scale: (1) preserving the large test patch-target back-compat surface through barrel re-exports (57 distinct `routes.pipelines.*` targets across 137 test files; ~6-12 `gateway.gateway.*`); (2) extracting the `_run_pipeline` phase-transition state machine (pipelines.py:23345) without behavior drift; and a NEWLY-SURFACED, high-impact mechanical risk the refine analysis did not cover — (3) several in-scope files are copied into their container images by a top-level `*.py` glob or as a single explicit file, so converting them to sub-packages SILENTLY breaks the image while `make lint` + `make test-all` stay GREEN, because the size lint and unit tests run against the source tree, not the built image. Overall risk MEDIUM. The work is well-precedented (pattern doc + select_tests reference + merged PR #2335) and every individual slice is small, but the program is long, serially ratcheted, and edits shared conflict-hotspot files (the allowlist + CLAUDE.md seam tables) from many in-flight slices. Recommendation: PROCEED_WITH_MITIGATIONS.",
+  "overall_risk_level": "MEDIUM",
+  "recommendation": "PROCEED_WITH_MITIGATIONS",
+  "scope_note": "Grounded against the confirmed refine analysis (.egg-state/drafts/3312-analysis.md + 3312-analysis-human.md), the live issue task_description (all 19 files, empty allowlist, no descope), the working tree on 2026-06-26 (HEAD 3b1a97c30), the canonical pattern (docs/guides/decomposition-pattern.md), the worked reference (scripts/select_tests/), and both container Dockerfiles. The architect/task_planner plan artifacts (3312-plan*.md/json, 3312-architect-slices.yaml) were NOT yet present on this branch when this assessment was drafted (all producers still WORKING in parallel). Risks are framed against the issue's work program and the real touchpoints; reconcile each against the planner's slice DAG on review — see plan_reconciliation_pending. Reviewer (risk_analyst also reviews in plan) must check the planner's slices against R1-R3 mitigations specifically before ACK.",
+  "grounded_facts": {
+    "head": "3b1a97c30 (Persist HITL resolution after refine phase gate)",
+    "allowlist_entries": "19 live `files:` entries in scripts/file-size-allowlist.yaml; caps hard_lines=1500 hard_bytes=100000; provenance issues mixed (2248, 2261, 2548, 3033, 3124, 3231).",
+    "top_targets_live": "orchestrator/routes/pipelines.py 27,211 lines / 1,268,310 B; gateway/gateway.py 10,385 / 407,978; routes/signals.py 3,398 / 142,839; mcp_tools.py 2,948 / 130,445; peer_consensus.py 2,326 / 102,933. Live counts authoritative; issue table is a snapshot.",
+    "patch_surface": "grep-verified: 57 distinct `routes.pipelines.*` patch targets across 137 test files; ~6 strict `gateway.gateway.X` patch targets (refiner estimated ~12 counting looser refs). Refine-time estimates; coder re-runs the per-cluster section-(d) audit at implement.",
+    "run_pipeline": "def _run_pipeline at orchestrator/routes/pipelines.py:23345 — the phase-transition state machine; non-negotiable #7 requires it addressed directly, not deferred.",
+    "reference_inputs": "docs/guides/decomposition-pattern.md (13,292 B) present; scripts/select_tests/ present (__init__.py barrel + __main__.py + _cli/_constants/_graph/_io). NOTE: select_tests/_graph.py is itself 52,051 B — a live reminder that a sub-module can land near/over the cap and need a further-split (pattern section g).",
+    "pattern_invariants": "Barrel = stable API (decision-7); explicit per-symbol re-exports (decision-5); underscore-private submodules (decision-6); class-identity stays in __init__.py for class-dominated files (mcp_tools PipelineToolHandler, gateway_client GatewayClient); routes decorators stay in __init__.py, bodies delegate (decision-8); audit external importers BEFORE extracting; further-split in-slice rather than a fresh allowlist entry (section g); ratchet enforced by the lint — never bypass with a new allowlist entry.",
+    "dockerfile_copy_audit": "orchestrator/Dockerfile: `COPY orchestrator/*.py ./` (top-level glob, NON-recursive) + `COPY orchestrator/routes/ ./routes/` (whole dir, recursive) + `COPY orchestrator/health_checks/ ./`. gateway/Dockerfile: `COPY gateway/*.py ./` (top-level glob, NON-recursive) + explicit `COPY gateway/config_validator.py`. sandbox/Dockerfile: `COPY sandbox/entrypoint.py /usr/local/bin/entrypoint.py` (single file to a bin path); no COPY line found for sandbox/egg_lib/ (packaging mechanism for orch_cli.py/contract_cli.py must be confirmed — likely pip/setuptools find_packages, but UNVERIFIED)."
+  },
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Test patch-target back-compat surface — a dropped barrel re-export breaks tests",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "description": "Non-negotiables #2/#3: the barrel is the stable API and existing `patch(\"routes.pipelines._foo\")` targets must keep resolving. 57 distinct symbols are patched through `routes.pipelines` across 137 test files; ~6-12 through `gateway.gateway`. Per the pattern doc (line 87): 'A submodule extraction that drops the barrel re-export is a bug.' A single missed re-export surfaces as `AttributeError: module 'routes.pipelines' has no attribute '_foo'` in whatever test patches `_foo` — and ONLY in that test, so it is easy to miss in a partial run. The dominant surface is pipelines.py; gateway.py is smaller but same shape.",
+      "mitigation": "Per cluster, run the section-(d) external-importer + patch-target grep audit BEFORE extracting, and re-export EVERY symbol with any external reference (public or underscore-private) through the sub-package __init__.py. Reviewer must confirm each slice's __init__.py re-export list covers the audited targets. `make test-all` (not narrowed `make test`) green at every landing is the backstop — the planner must mandate test-all at each boundary, since a narrowed run can skip the one test that patches the dropped symbol."
+    },
+    {
+      "id": "R2",
+      "title": "_run_pipeline phase-transition state machine — behavior drift in a pure-refactor program",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "description": "pipelines.py:23345 `_run_pipeline` is a stateful loop driving phase transitions inside a 27k-line file. Non-negotiable #7 forbids deferring it; non-negotiable (pure refactor) forbids behavior change. Mechanical line-extraction will not work — the loop carries control flow, shared local state, and ordering that a naive per-phase split can subtly reorder. This is simultaneously the hardest extraction AND the highest behavior-change blast radius (it sequences every pipeline's lifecycle). A latent reorder here is exactly the kind of regression a 'we only moved things' review is least likely to catch.",
+      "mitigation": "Treat _run_pipeline as its own isolated multi-step cluster (per-phase handlers behind preserved signatures + a thin orchestration loop, the pattern doc's prior design). Require characterization/behavioral tests around the loop landed BEFORE the extraction so a drift is caught. Land it late (after the independent files de-risk the recipe) but DO NOT drop it. Reviewer scrutinizes this slice's diff for any non-mechanical change (reordered calls, changed early-returns, merged branches). If a real bug is found, file a separate `Part of #3312` issue — never bundle (see R7)."
+    },
+    {
+      "id": "R3",
+      "title": "Dockerfile COPY breaks for sub-package conversions while lint + test-all stay GREEN",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "description": "NEWLY SURFACED (refine analysis did not cover this). Several in-scope files are NOT copied by a recursive directory COPY: (a) the 5 top-level orchestrator modules — gateway_client.py, kubernetes_spawner.py, mcp_tools.py, peer_consensus.py, state_store.py — ship via `COPY orchestrator/*.py ./`, a glob that does NOT recurse into a new sub-package directory; (b) the 3 gateway files — gateway.py, worktree_manager.py, git_client.py — ship via `COPY gateway/*.py ./`, same non-recursive glob; (c) sandbox/entrypoint.py ships as a SINGLE explicit file to a bin path (`COPY sandbox/entrypoint.py /usr/local/bin/entrypoint.py`) and is invoked as that file. When any of these becomes a `foo/` sub-package, the package directory is NOT copied into the image -> ModuleNotFoundError at container runtime. The insidious part: the binding 'green at every landing' gate (`make lint` + `make test-all`) runs against the SOURCE TREE, not the built image, so it can stay fully GREEN while the shipped image is broken. The routes/ files (pipelines, signals, deployment, phases, decisions, event_prompt) are SAFE — `COPY orchestrator/routes/ ./routes/` is recursive. entrypoint.py is additionally awkward: it is invoked as an executable file, so it likely must stay a thin shim re-exporting from a sub-package located elsewhere rather than itself becoming a package.",
+      "mitigation": "Planner MUST add a Dockerfile-COPY task to every slice that converts a top-level-glob or single-file-COPY target into a sub-package: add `COPY orchestrator/<pkg>/ ./<pkg>/` (or gateway equivalent) in the SAME slice as the extraction. For sandbox/entrypoint.py, keep entrypoint.py as a thin executable shim importing the new sub-package, or update both the COPY and the invocation path together. CONFIRM the sandbox egg_lib packaging mechanism (no COPY found for egg_lib/ — verify orch_cli.py/contract_cli.py reach the image via pip/setuptools find_packages before assuming sub-packages are auto-included). Add an image-build or integration smoke check to the landing gate for these specific slices so a missing COPY is caught, since test-all alone will not catch it."
+    },
+    {
+      "id": "R4",
+      "title": "A sub-module itself over the cap re-trips the lint after the allowlist entry is dropped",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "description": "Acceptance is an EMPTY allowlist. The lint ratchet forbids adding a fresh allowlist entry for 'this new submodule is also over the cap' (pattern section g; a new entry directly contradicts the issue's empty-allowlist goal). select_tests/_graph.py at 52KB is a live example of a sub-module that lands large. For the giants (pipelines.py 27k, gateway.py 10k), a single decomposition pass plausibly produces sub-modules still over 1,500 lines / 100KB, which re-trips the lint the moment the parent's allowlist entry is removed.",
+      "mitigation": "Planner sizes every target sub-module under the cap during cluster design and PRE-ALLOCATES the expected further-splits per cluster (pattern section g). The rule is hard: further-split in-slice, NEVER add a new allowlist entry. If a non-obvious further-split is needed, escalate via HITL (pattern section g) rather than allowlisting. Reviewer checks that no slice adds an allowlist key."
+    },
+    {
+      "id": "R5",
+      "title": "Shared conflict-hotspot files — allowlist + CLAUDE.md seam tables edited by many in-flight slices",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM-HIGH",
+      "description": "Every slice edits scripts/file-size-allowlist.yaml (delete its one key) and a CLAUDE.md seam table (orchestrator/, gateway/, sandbox/, or the new shared/CLAUDE.md). With ~19+ slices and parallel landings, these shared files are guaranteed rebase-conflict points. The pattern doc (section e) explicitly calls the allowlist conflict 'expected' on rebase. Mishandled conflicts can silently re-add a removed entry or drop a seam row.",
+      "mitigation": "Each slice touches ONLY its own allowlist key and its own seam row — single-key delete, single-row add, no reflow of unrelated lines (minimizes conflict surface). Follow the pattern doc's section-(e) rebase recipe (re-resolve the allowlist conflict by re-deleting your key, re-run the lint to confirm the allowlist still matches reality). Sequence landings rather than racing many through the same file simultaneously where the DAG allows. Reviewer diff-checks that exactly one allowlist key was removed and no unrelated entry changed."
+    },
+    {
+      "id": "R6",
+      "title": "'Green at every landing' couples to image breakage and serialized test-all cost/flakiness",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "description": "The binding gate is `make lint` + `make test-all` green at EVERY landing boundary (acceptance #3). Two issues: (a) test-all green does NOT prove the image is intact (see R3) — the gate has a blind spot for COPY breakage; (b) over 19+ serialized landings, full test-all on each boundary is expensive and any pre-existing flaky test can falsely block or be falsely waved through, eroding the 'green at every boundary' guarantee.",
+      "mitigation": "For the R3-affected slices, add an image-build/integration smoke step to the per-landing gate. Treat any test-all failure at a boundary as blocking (do not land on red); if a failure is a known pre-existing flake, quarantine it as a separate `Part of #3312` follow-up rather than waving the landing through. Keep slices small so each boundary's test-all delta is reviewable."
+    },
+    {
+      "id": "R7",
+      "title": "Pure-refactor discipline — bug fixes bundled into 'we only moved things' PRs",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "description": "Non-negotiable: pure refactor, no behavior change; bugs surfaced get a SEPARATE follow-up (`Part of #3312`), never bundled. A 27k-line file (and a 10k gateway) almost certainly hide latent bugs a coder will notice mid-extraction. The temptation to 'fix while moving' introduces behavior change into a diff reviewed as mechanical, making the review unsound and the regression risk invisible.",
+      "mitigation": "Every slice's task text states the pure-refactor rule explicitly. Reviewer scans each diff for non-mechanical changes (logic edits, reordered/added/removed calls, changed conditionals) and NACKs any behavior change found in a decomposition slice, directing it to a separate follow-up. Characterization tests (R2) catch unintended behavior deltas."
+    },
+    {
+      "id": "R8",
+      "title": "Seam-table acceptance criterion mis-scoped — no live #2261 rows to 'retag'",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "description": "The issue (status + non-negotiable #6) asserts orchestrator/CLAUDE.md and gateway/CLAUDE.md still carry stale `#2261` slice tags / placeholder TBD rows to retag. The refiner verified this is NOT true of the live tree — those files have only a component-overview table + a generic decompose paragraph; the live #2261 refs are in docs/, not the seam tables. A planner task literally worded 'retag the #2261 rows' would have no target and could be marked blocked/failed.",
+      "mitigation": "Planner frames acceptance #5 as 'ADD concrete submodule seam rows per landing + ADD a sandbox/CLAUDE.md seam table + CREATE shared/CLAUDE.md covering plan_parser.py' — NOT 'retag #2261 rows.' Honor the literal #2261 wording only opportunistically against the docs/ files (optional, non-gating). Binding criterion: concrete seam coverage exists for every in-scope file at its landing."
+    },
+    {
+      "id": "R9",
+      "title": "Program-completion risk — the two giants stall while the empty-allowlist criterion stays unmet",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "description": "Acceptance is a fully EMPTY allowlist. If pipelines.py (27k, with _run_pipeline) or gateway.py (10k) stalls, the program cannot satisfy its binding criterion even though the other 17 files landed. This is a completion/throughput risk, not a correctness one. Scope is LOCKED — the giants must NOT be descoped to escape it (explicit operator directive).",
+      "mitigation": "Planner applies the issue's own ordering heuristic: front-load the 17 independent per-file slices so they land value early and de-risk the recipe, while keeping the giants in scope as their own multi-slice clusters with internal checkpoints so partial progress is visible. Do NOT drop the giants. If a giant genuinely cannot land after honest effort, that is a HITL escalation about the program, never a silent descope."
+    },
+    {
+      "id": "R10",
+      "title": "New seam artifacts forgotten — shared/CLAUDE.md creation + sandbox/ seam table + test-layout drift",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "description": "Acceptance #5 requires CREATING shared/CLAUDE.md (currently ABSENT) for plan_parser.py and ADDING a seam table to sandbox/CLAUDE.md (exists, no seam table today). Non-negotiable #10 (guidance, not a hard 1:1 gate): tests keep using the barrel surface so they don't move when internal layout shifts. Low engineering risk; the failure mode is simply forgetting a new-file/new-section deliverable or needlessly relocating tests.",
+      "mitigation": "Planner attaches the seam-artifact deliverable to the specific slice that lands each relevant file (plan_parser -> create shared/CLAUDE.md; first sandbox file -> add sandbox/ seam table). Tests stay on the barrel surface; only add matching tests/.../foo/ sub-packages where the mapping is clean (non-negotiable #10 is guidance). Reviewer confirms the seam artifact exists at the landing that introduces the corresponding sub-package."
+    }
+  ],
+  "reviewer_checklist_for_plan": [
+    "R1: every cluster has a section-(d) patch-target audit task; __init__.py re-export lists cover the audited targets; make test-all (not narrowed) mandated at each boundary.",
+    "R2: _run_pipeline is its own cluster with preserved-signature per-phase handlers + characterization tests landed before extraction; not deferred, not descoped.",
+    "R3: every slice converting a top-level-glob orchestrator/gateway module or sandbox single-file-COPY target into a sub-package includes the matching Dockerfile COPY update IN THE SAME SLICE; entrypoint.py stays a thin executable shim or COPY+invocation updated together; egg_lib packaging mechanism confirmed; image/integration smoke added to those landing gates.",
+    "R4: no slice adds a new allowlist key; over-cap sub-modules are further-split in-slice; sized under cap during planning.",
+    "R5: each slice removes exactly one allowlist key + adds one seam row, minimal-diff; section-(e) rebase recipe referenced.",
+    "R7: every slice text carries the pure-refactor / no-behavior-change / separate-follow-up rule.",
+    "R8: seam criterion worded as ADD/CREATE, not 'retag #2261'.",
+    "R9: ordering front-loads the 17 independents; giants retained as checkpointed clusters; no descope.",
+    "R10: shared/CLAUDE.md creation + sandbox/ seam table attached to the right landing slices."
+  ],
+  "plan_reconciliation_pending": true
+}
