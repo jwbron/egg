@@ -2332,6 +2332,10 @@ class TestEventJobStatusView:
         removed = {c.args[0] for c in mock_k8s_client.remove_container.call_args_list}
         assert removed == {"dead", "done"}
         assert "live" not in removed
+        # Terminal sweep: pods have already exited, so background propagation.
+        assert all(
+            c.kwargs.get("force") is False for c in mock_k8s_client.remove_container.call_args_list
+        )
 
     def test_reap_terminated_swallows_delete_errors(self, spawner, mock_k8s_client):
         """Reaping is best-effort: a delete failure is logged, never raised,
@@ -2347,6 +2351,39 @@ class TestEventJobStatusView:
         mock_k8s_client.list_jobs.return_value = []
         view = spawner.create_event_job_status_view()
         assert view.reap_terminated(self._KEY) == 0
+
+    # -- reap (force, #3337 same-role supersession) ------------------------
+
+    def test_reap_deletes_live_and_terminal_jobs(self, spawner, mock_k8s_client):
+        """The force-reap removes a still-RUNNING Job too (unlike reap_terminated),
+        so a superseded same-role sibling's live pod is actually torn down."""
+        mock_k8s_client.list_jobs.return_value = [
+            self._named(ContainerStatus.RUNNING, "live"),
+            self._named(ContainerStatus.FAILED, "dead"),
+            self._named(ContainerStatus.EXITED, "done"),
+        ]
+        view = spawner.create_event_job_status_view()
+        assert view.reap(self._KEY) == 3
+        removed = {c.args[0] for c in mock_k8s_client.remove_container.call_args_list}
+        assert removed == {"live", "dead", "done"}
+        # Supersession path tears down a still-RUNNING sibling, so it uses force
+        # (foreground) propagation to drop the racing pod before returning.
+        assert all(
+            c.kwargs.get("force") is True for c in mock_k8s_client.remove_container.call_args_list
+        )
+
+    def test_reap_swallows_delete_errors(self, spawner, mock_k8s_client):
+        """Force-reap is best-effort, like reap_terminated."""
+        mock_k8s_client.list_jobs.return_value = [self._named(ContainerStatus.RUNNING, "live")]
+        mock_k8s_client.remove_container.side_effect = RuntimeError("API down")
+        view = spawner.create_event_job_status_view()
+        assert view.reap(self._KEY) == 0
+
+    def test_reap_no_jobs_is_noop(self, spawner, mock_k8s_client):
+        """No matching Job reaps nothing and never deletes."""
+        mock_k8s_client.list_jobs.return_value = []
+        view = spawner.create_event_job_status_view()
+        assert view.reap(self._KEY) == 0
         mock_k8s_client.remove_container.assert_not_called()
 
 

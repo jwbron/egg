@@ -438,8 +438,11 @@ class KubernetesClient:
     ) -> None:
         """Remove a Job and its pods.
 
-        Uses ``Foreground`` propagation when *force* is ``True`` so that
-        all dependent pods are deleted before the call returns.
+        Uses ``Foreground`` propagation when *force* is ``True`` so that the
+        dependent pods are torn down *before* the Job's own removal, rather
+        than after (``Background``). This orders pod teardown ahead of the
+        owner, but the GC deletes the pods asynchronously — they are not
+        guaranteed gone by the time the call returns.
         """
         job_name = self._resolve_job_name(container_id)
         propagation = "Foreground" if force else "Background"

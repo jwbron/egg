@@ -22,6 +22,20 @@ simulated orchestrator restart never double-spawn. No spawn bookkeeping is
 persisted — the tracker plus live-Job labels are the only sources of truth,
 so a restart is stateless by construction.
 
+**Same-role serialization (#3337)**
+
+Per-key dedupe alone does NOT bound how many pods a *role* has live: when the
+open-NACK set grows reviewer-by-reviewer, each increment yields a *new*
+identity → a new key → a fresh spawn, while the prior key's pod is still
+running. Because every event for a ``(role, slice)`` re-attaches to the SAME
+shared worktree (the draft artifact lives there, keyed by role — not by
+event), those concurrent same-role pods race and corrupt each other's
+in-progress draft. So before spawning a fresh event for a role the loop
+**reaps any other live key for that same role**: the newest event reflects
+the fullest tracker state (the complete NACK set), so the older sibling — now
+working a stale subset — is superseded and torn down. The invariant the loop
+holds is **at most one live one-shot Job per (role, slice)**.
+
 **Slice-3 (#3138): supervision, backoff, respawn, and alerting**
 
 The ``JobSupervisor`` watches, per-dupe-key, the health of spawned jobs,
@@ -849,6 +863,14 @@ class OrchestratorEventLoop:
             )
             return EventDecision(role=role, action=action, dedupe_key=key, spawned=False)
 
+        # #3337: serialize same-role producers. We are about to spawn a *fresh*
+        # event for ``role``; any other live key for this same role belongs to
+        # an older event working a now-stale tracker state, and its pod shares
+        # this role's worktree (the draft artifact). Reap it first so at most
+        # one one-shot Job per (role, slice) is ever live and concurrent
+        # siblings can't corrupt the shared draft.
+        self._reap_superseded_siblings(role, keep_key=key)
+
         requested_at = self.clock()
         spawn_result = self.spawner.spawn_event(
             role=role, action=action, dedupe_key=key, payload=payload
@@ -887,6 +909,79 @@ class OrchestratorEventLoop:
             spawn_requested_at=requested_at,
         )
         return EventDecision(role=role, action=action, dedupe_key=key, spawned=True, timing=timing)
+
+    def _reap_superseded_siblings(self, role: str, *, keep_key: str) -> None:
+        """Tear down any live one-shot Job for ``role`` other than ``keep_key`` (#3337).
+
+        Every event for a ``(role, slice)`` re-attaches to one shared worktree
+        (the draft artifact is keyed by role, not by event), so two concurrent
+        same-role pods race on that draft. When the loop is about to spawn a
+        fresh event for ``role`` — which reflects the fullest tracker state —
+        any *other* live key for the same role is a superseded older event; we
+        reap its Job and drop it from the live set so the invariant "at most one
+        live Job per (role, slice)" holds.
+
+        Reaping is best-effort: when no Job-status view is wired (pure slice-2
+        mode / unit tests) there is no cluster Job to delete, but the in-memory
+        live set is still pruned so the serialization invariant holds. A reap
+        failure is logged and swallowed — the spawner's live-only adoption
+        filter is the cross-process backstop.
+
+        Restart-boundary limitation: this matches superseded siblings via the
+        in-memory ``_key_meta`` role label, which ``reconcile()`` does *not*
+        seed for keys adopted after an orchestrator restart (see
+        ``reconcile`` / ``_publish_active_roles``). So a *stale* same-role key
+        adopted across a restart — one whose identity no longer matches the
+        freshly-derived event — is unlabeled and won't be reaped here. That
+        re-opens the #3337 two-live-pods window, but only across the narrow
+        restart boundary (a fresh spawn whose superseded sibling's Job deletion
+        had not yet propagated when the orchestrator went down). The spawner's
+        live-only adoption filter still prevents a *duplicate* Job for the new
+        key, and warm-resume's dirty-state clean covers the handoff, so the
+        steady-state invariant is fully held; only this restart-race tail is
+        uncovered. Deriving the same-role live set from the spawner's live-Job
+        labels (cross-process truth) would close it, at the cost of a cluster
+        query on the hot fresh-spawn path.
+        """
+        superseded = [
+            k
+            for k in list(self._live_keys)
+            if k != keep_key and self._key_meta.get(k, (None, None))[1] == role
+        ]
+        if not superseded:
+            return
+        reaper = getattr(self._job_status_view, "reap", None) if self._job_status_view else None
+        for k in superseded:
+            if reaper is not None:
+                try:
+                    reaper(k)
+                except Exception as exc:  # noqa: BLE001 — reaping is best-effort
+                    logger.warning(
+                        "event-loop: reap of superseded same-role sibling failed",
+                        pipeline_id=self.pipeline_id,
+                        slice_id=self.slice_id,
+                        role=role,
+                        superseded_key=k,
+                        error=str(exc),
+                    )
+            self._live_keys.discard(k)
+            self._key_meta.pop(k, None)
+            # The superseded event will never be re-derived (its tracker state
+            # is stale), so retire its supervision state — otherwise a leftover
+            # streak/exhaustion latch for the dead key lingers for the process
+            # lifetime. ``record_success`` is the existing "this key is done,
+            # forget it" primitive (clears streak + latches + exhaustion).
+            self.supervisor.record_success(k)
+            logger.info(
+                "event-loop: reaped superseded same-role sibling",
+                event_type="event_loop_supersede_reap",
+                pipeline_id=self.pipeline_id,
+                slice_id=self.slice_id,
+                phase=self.phase,
+                role=role,
+                superseded_key=k,
+                kept_key=keep_key,
+            )
 
     # ------------------------------------------------------------------
     # Convergence-stall detection (#3064 slice-5, TASK-5-1)

@@ -1019,11 +1019,10 @@ obligations) so reviewers approaching any slice PR see the strategic
 direction below it.
 
 The pipeline work branch is itself the context PR's head — there is no
-separate `egg/<id>/context` doc-only branch, so slice-1 (and every
-later slice) stacks directly on `egg/<id>/work` rather than on a
-distinct context branch ([#2548](https://github.com/jwbron/egg/issues/2548)/[#2777](https://github.com/jwbron/egg/issues/2777)
-— the context branch / `context_*` fields introduced in #2548 were
-reshaped into this single-work-branch model by #2777). The open path is a single
+separate `egg/<id>/context` doc-only branch; `slice-1`'s PR stacks
+directly on `egg/<id>/work` as its base (the diagram above), with later
+slices stacking in turn, so the work branch doubles as both the context
+PR head and slice-1's base. The open path is a single
 idempotent gateway call: `GatewayClient.lookup_open_pr("egg/<id>/work", base)`
 runs `gh pr list --head <branch> --base <base> --state open --json
 number` first; on hit, the existing PR number is reused, on miss
