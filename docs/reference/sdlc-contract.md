@@ -63,7 +63,7 @@ context via `get_submitted_feedback()` or the selected decision option.
 
 ## Recovering the task — `task_description`
 
-Under the BRC event-pump (default-on since #2908 slice-4) the
+Under the BRC event-pump (default-on since #2908) the
 orchestrator-built spawn prompt is **not** delivered to agents — the
 event-pump prompt carries the event banner, git-log delta, NACKs, and
 BRC memory, but no `## Task Description` section. Agents therefore
