@@ -338,7 +338,7 @@ The local distributed orchestrator (`orchestrator/` package) manages the full li
 | Orchestrator contract endpoints | `orchestrator/routes/contracts.py` |
 | Orchestrator contract store | `orchestrator/contract_store.py` |
 | Orchestrator | `orchestrator/` |
-| CLI tools | `sandbox/egg_lib/contract_cli.py` |
+| CLI tools | `sandbox/egg_lib/contract_cli/` |
 | HITL documentation | `docs/hitl-decisions.md` |
 
 ## Related Documentation

@@ -36,9 +36,9 @@ sandbox/
 │   ├── timing.py           # Timing utilities
 │   ├── output.py           # Output formatting
 │   ├── compose.py          # Docker Compose operations
-│   ├── contract_cli.py     # SDLC contract CLI (egg-contract)
+│   ├── contract_cli/       # SDLC contract CLI package (egg-contract; entry point: __main__.py)
 │   ├── orchestration.py    # Multi-agent orchestration support
-│   ├── orch_cli.py         # Orchestrator CLI (egg-orch)
+│   ├── orch_cli/           # Orchestrator CLI package (egg-orch; entry point: __main__.py)
 │   ├── orch_client.py      # Orchestrator API client (decision creation with type support)
 │   ├── sdlc_cli.py         # SDLC pipeline CLI (egg-sdlc)
 │   ├── sdlc_hitl.py        # SDLC human-in-the-loop support (type-aware rendering)
@@ -62,8 +62,8 @@ sandbox/
 │   ├── git -> ../scripts/git
 │   ├── gh -> ../scripts/gh
 │   ├── git-credential-github-token -> ../scripts/git-credential-github-token
-│   ├── egg-contract -> ../egg_lib/contract_cli.py
-│   ├── egg-orch -> ../egg_lib/orch_cli.py
+│   ├── egg-contract -> ../egg_lib/contract_cli/__main__.py
+│   ├── egg-orch -> ../egg_lib/orch_cli/__main__.py
 │   ├── egg-onboarding-docs      # Onboarding doc generator (bash)
 │   ├── egg-pipeline-watch       # Pipeline progress watcher
 │   └── egg-sdlc                 # Interactive SDLC pipeline CLI

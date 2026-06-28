@@ -75,7 +75,7 @@ The gateway enforces role-based mutations via the `/api/v1/contract/` endpoints.
 
 ### Contract CLI
 
-Agents interact with contract state via the `egg-contract` CLI (`sandbox/egg_lib/contract_cli.py`):
+Agents interact with contract state via the `egg-contract` CLI (`sandbox/egg_lib/contract_cli/`):
 
 | Command | Purpose |
 |---------|---------|

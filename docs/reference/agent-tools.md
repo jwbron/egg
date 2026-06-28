@@ -340,8 +340,8 @@ to the appropriate rule doc in the same PR; CI fails otherwise.
 ## Input/output schemas
 
 Input schemas are derived automatically from the argparse subparsers
-that back the CLI counterparts (`sandbox/egg_lib/orch_cli.py::create_parser`
-and `sandbox/egg_lib/contract_cli.py::create_parser`) by
+that back the CLI counterparts (`sandbox/egg_lib/orch_cli/_parser.py::create_parser`
+and `sandbox/egg_lib/contract_cli/__init__.py::create_parser`) by
 `sandbox/egg_agent_tools/schemas.py::derive_schema_from_argparse`.
 Each tool may supply a per-tool override dict for cases where argparse
 help is insufficient (e.g. richer descriptions or tighter enum
@@ -474,7 +474,7 @@ so shell behaviour is byte-identical.
 > handler in `egg_agent_tools` and was refactored in #1765 to raise
 > `GatewayError` instead of exiting. This rule is
 > about **handlers**, not shell CLI shims: unrefactored `cmd_*`
-> functions in `sandbox/egg_lib/orch_cli.py` may still call
+> functions in `sandbox/egg_lib/orch_cli/` may still call
 > `sys.exit(1)` on argparse-level errors (e.g. missing `--role`),
 > which is fine because they run in their own process, not inside
 > the agent SDK loop. When adding a new verb, inherit this contract:
@@ -494,8 +494,8 @@ drift gate.
 ## CLI surface preserved (decision-4 of #1765)
 
 Existing `sandbox/bin/egg-*` CLIs are **not deprecated**. Every
-refactored `cmd_*` function in `sandbox/egg_lib/contract_cli.py` and
-`sandbox/egg_lib/orch_cli.py`
+refactored `cmd_*` function in `sandbox/egg_lib/contract_cli/` and
+`sandbox/egg_lib/orch_cli/`
 still:
 
 - Accepts the same argparse flags.
@@ -508,7 +508,8 @@ function, and renders
 the response for stdout. Humans, bash scripts, recovery tooling, and
 the existing test suite see zero behaviour change. Parity is enforced
 by committed fixture tests under `tests/sandbox/test_contract_cli.py`
-and `tests/sandbox/test_orch_cli.py` (no auto-record
+and `tests/sandbox/test_orch_cli_*.py` /
+`tests/sandbox/egg_lib/test_orch_cli_*.py` (no auto-record
 — every expected value is in the repo).
 
 See [Orchestrator CLI reference](orchestrator-cli.md) and [SDLC Contract
@@ -566,7 +567,7 @@ SDK release notes rather than silently breaking every sandbox.
 | `tests/sandbox/egg_agent_tools/test_sdk_surface.py` | SDK import smoke (fails loud on incompatible SDK upgrade). |
 | `tests/sandbox/egg_agent_tools/test_full_tool_registry.py` | Integration test: loads `TOOL_LIST` via `create_sdk_mcp_server`; asserts no registration errors and that completion/mutation verbs (`task_complete`, `phase__complete_phase`, `task__add_commit`, `sdlc__verify_criterion`) name the state-machine effect in their description. |
 | `tests/shared/egg_agent/test_client.py` | Flag-on/flag-off wire-up in `run_agent_async`; `can_use_tool` passes `mcp__*` tool names. |
-| `tests/sandbox/test_contract_cli.py`, `tests/sandbox/test_orch_cli.py` | CLI parity against committed fixtures. |
+| `tests/sandbox/test_contract_cli.py`, `tests/sandbox/test_orch_cli_*.py`, `tests/sandbox/egg_lib/test_orch_cli_*.py` | CLI parity against committed fixtures. |
 | `tests/tools/test_mcp_cli_drift.py` | Every tool with a `cli_command` attribute dispatches the same handler as its CLI subparser. |
 | `tests/tools/test_rule_doc_drift.py` | Two-way rule-doc invariant: (A) every `Prefer this over `egg-…`` line resolves to a `TOOL_REGISTRY` entry; (B) every `cli_command != None` registration has a matching rule-doc line; (C) every `cli_command == None` registration has a handler docstring mentioning `"no CLI"` or `"no-CLI"` (decision-13 gate). |
 | `tests/shared/egg_contracts/test_models_gaps.py` | Pydantic round-trip for `Task.gaps`; back-compat with old contract fixtures (parse to `gaps: []`). |
