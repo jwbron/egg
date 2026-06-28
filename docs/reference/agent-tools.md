@@ -341,7 +341,7 @@ to the appropriate rule doc in the same PR; CI fails otherwise.
 
 Input schemas are derived automatically from the argparse subparsers
 that back the CLI counterparts (`sandbox/egg_lib/orch_cli.py::create_parser`
-and `sandbox/egg_lib/contract_cli.py::create_parser`) by
+and `sandbox/egg_lib/contract_cli/__init__.py::create_parser`) by
 `sandbox/egg_agent_tools/schemas.py::derive_schema_from_argparse`.
 Each tool may supply a per-tool override dict for cases where argparse
 help is insufficient (e.g. richer descriptions or tighter enum
@@ -494,7 +494,7 @@ drift gate.
 ## CLI surface preserved (decision-4 of #1765)
 
 Existing `sandbox/bin/egg-*` CLIs are **not deprecated**. Every
-refactored `cmd_*` function in `sandbox/egg_lib/contract_cli.py` and
+refactored `cmd_*` function in `sandbox/egg_lib/contract_cli/` and
 `sandbox/egg_lib/orch_cli.py`
 still:
 

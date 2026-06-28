@@ -231,7 +231,7 @@ sandbox/
 │   ├── git
 │   ├── gh
 │   ├── egg-artifact        # Symlink to scripts/egg-artifact; served artifact reads by spec name via gateway (#3216)
-│   ├── egg-contract        # Symlink to contract_cli.py
+│   ├── egg-contract        # Symlink to contract_cli/__main__.py
 │   ├── egg-onboarding-docs # Generate repository documentation via egg-sdlc
 │   ├── egg-pipeline-watch  # Real-time pipeline progress viewer via SSE
 │   ├── egg-orch            # Symlink to orch_cli.py
@@ -263,7 +263,7 @@ sandbox/
 │   ├── timing.py           # Timing utilities
 │   ├── output.py           # Output formatting
 │   ├── compose.py          # Docker Compose operations
-│   ├── contract_cli.py     # SDLC contract CLI implementation
+│   ├── contract_cli/       # SDLC contract CLI implementation (package)
 │   ├── orchestration.py    # Multi-agent orchestration support
 │   ├── orch_cli.py         # Orchestrator CLI implementation
 │   ├── cli_session_state.py # `egg-orch session-state pull|push` — cross-pod warm-resume sync CLI (thin layer over session_state_sync; resolves identity from env, calls orchestrator /session-state route; #3278)

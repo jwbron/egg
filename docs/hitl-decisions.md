@@ -563,7 +563,7 @@ the row to `complete` and `incomplete_tasks` then returns nothing to reopen for.
 - `sandbox/egg_lib/sdlc_hitl.py` — Type-aware terminal HITL handler
 - `skills/sdlc/SKILL.md` — `/sdlc` Claude Code skill defining Phase 4 HITL handling: **two-wave surfacing** (phase_gate alone in Wave 1, deferred `choice`/`feedback` in Wave 2 after approval) and the session-scoped `resolved_questions_map` that handles cross-wave deduplication
 - `sandbox/egg_lib/orch_client.py` — `OrchClient.create_decision()` for typed decisions
-- `sandbox/egg_lib/contract_cli.py` — CLI for creating decisions and feedback
+- `sandbox/egg_lib/contract_cli/` — CLI for creating decisions and feedback
 - `shared/egg_contracts/feedback.py` — Feedback generation and parsing
 - `docs/templates/analysis.md` — Template showing decision usage
 - `docs/templates/phase-completion.md` — Template for approval format
