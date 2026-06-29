@@ -303,8 +303,8 @@ def _decide(*, model: str, occupancy: int | None, session_id: str, enabled: bool
 
 
 # Models used across the boundary tests.
-_CLAUDE = "opus[1m]"  # real window 1M -> threshold 400_000 (floor caps 0.80*1M)
-_SUB_1M = "kimi-k2.7-code[1m]"  # real window 262_144 -> threshold ~209_715 (< 400k floor)
+_CLAUDE = "opus[1m]"  # real window 1M -> threshold 800_000 (floor == 0.80*1M margin)
+_SUB_1M = "kimi-k2.7-code[1m]"  # real window 262_144 -> threshold ~209_715 (< 800k floor)
 _WARM_SID = "sess-warm-0001"
 
 
@@ -356,20 +356,23 @@ def test_no_warm_session_with_known_low_occupancy_still_reseeds():
 # --------------------------------------------------------------------------- #
 # Real-window threshold: no [1m] mis-trigger (the slice-2 regression, carried
 # into the decision). For a sub-1M backend, an occupancy above the REAL
-# threshold but below the 400k floor the [1m] alias would imply MUST reseed.
+# threshold but below the 800k threshold the [1m] alias would imply MUST reseed.
 # --------------------------------------------------------------------------- #
 
 
 def test_sub_1m_backend_uses_real_window_not_1m_alias():
-    """kimi[1m]: occupancy > real threshold but < 400k floor -> reseed (no mis-trigger)."""
+    """kimi[1m]: occupancy > real threshold but < 800k [1m]-implied -> reseed (no mis-trigger)."""
     real_t = _threshold_for(_SUB_1M)
-    # Sanity: the sub-1M threshold is genuinely below the 400k [1m]-implied floor,
+    # The threshold the [1m]-implied 1M window would (wrongly) produce: the bug
+    # would gate on this instead of the real sub-1M threshold.
+    implied_t = _threshold_for(_CLAUDE)  # opus[1m] -> 800_000
+    # Sanity: the sub-1M threshold is genuinely below the [1m]-implied threshold,
     # otherwise this regression has nothing to catch.
-    assert real_t < 400_000
-    occ = (real_t + 400_000) // 2  # strictly between real threshold and the floor
-    assert real_t < occ < 400_000
+    assert real_t < implied_t
+    occ = (real_t + implied_t) // 2  # strictly between real threshold and the implied one
+    assert real_t < occ < implied_t
     # The mis-trigger bug (threshold off the [1m]-implied 1M window) would see
-    # occ < 400_000 and RESUME; the correct real-window gate reseeds.
+    # occ < implied threshold and RESUME; the correct real-window gate reseeds.
     assert _decide(model=_SUB_1M, occupancy=occ, session_id=_WARM_SID) == _RESEED
 
 

@@ -29,7 +29,7 @@ a reseed, never to a "resume below threshold":
 - resume disabled (``EGG_SESSION_RESUME`` off — the staged-rollout default).
 
 **Threshold uses the REAL backend window, never the ``[1m]`` alias.** The
-threshold is ``min(400_000, 0.80 * real_backend_window)`` (slice-2,
+threshold is ``min(800_000, 0.80 * real_backend_window)`` (slice-2,
 ``orchestrator.agent_model_resolution.reseed_threshold``). Computing 80% of the
 ``[1m]``-implied 1M for a model whose real backend is, e.g., Qwen-128K is the
 mis-trigger bug; resolving against the real window avoids it.
@@ -117,7 +117,7 @@ def resolve_reseed_threshold(model: str) -> int | None:
        cross-boundary channel for the sandbox (see module docstring).
     2. :func:`orchestrator.agent_model_resolution.reseed_threshold` when that
        module is importable (tests + orchestrator runtime). This is the
-       authoritative ``min(400_000, 0.80 * real_backend_window)`` computed
+       authoritative ``min(800_000, 0.80 * real_backend_window)`` computed
        against the REAL backend window, not the ``[1m]`` alias.
 
     Returns ``None`` when neither yields a usable value (e.g. the sandbox with no
