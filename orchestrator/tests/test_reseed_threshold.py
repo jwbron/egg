@@ -172,7 +172,7 @@ def test_threshold_kimi_262k():
 
 
 def test_sub_1m_threshold_uses_real_window_not_1m_alias(monkeypatch):
-    """Qwen/128K-class -> ~102k, and the [1m] suffix never lifts it to the 400k floor.
+    """Qwen/128K-class -> ~102k, and the [1m] suffix never lifts it to the 800k floor.
 
     This is the central mis-trigger regression (task-2-3 AC). A synthetic 128K
     backend is registered for the duration of the test so the assertion exercises
@@ -189,7 +189,7 @@ def test_sub_1m_threshold_uses_real_window_not_1m_alias(monkeypatch):
     assert real("qwen3-128k-test") == 128_000
     assert real("qwen3-128k-test[1m]") == 128_000  # NOT 1_000_000 — the mis-trigger bug
 
-    # ... so the threshold stays ~102k and never reaches the 400k floor a 1M
+    # ... so the threshold stays ~102k and never reaches the 800k floor a 1M
     # mis-read would produce.
     expected = int(0.80 * 128_000)  # 102_400
     assert thr("qwen3-128k-test") == expected

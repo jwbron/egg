@@ -20,8 +20,8 @@ model's REAL backend window (slice-2), and decides:
 
 The threshold MUST be computed against the model's real window, never the
 ``[1m]`` alias: ``[1m]`` is Claude Code's compaction opt-in, not a window size,
-so for a sub-1M backend the trigger has to fire well below the 400k floor that
-``[1m]`` would imply. That mis-trigger (deferring reseed to 400k and
+so for a sub-1M backend the trigger has to fire well below the 800k floor that
+``[1m]`` would imply. That mis-trigger (deferring reseed to 800k and
 overflowing a 128K/262K backend) is the central regression slice-2 guarded and
 this gate must not reintroduce.
 

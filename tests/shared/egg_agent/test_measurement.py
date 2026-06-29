@@ -74,8 +74,8 @@ def _reseed_decision(**overrides) -> ResumeDecision:
         "resume": False,
         "session_id": None,
         "reason": "at_or_above_threshold",
-        "occupancy": 500_000,
-        "threshold": 400_000,
+        "occupancy": 900_000,
+        "threshold": 800_000,
     }
     base.update(overrides)
     return ResumeDecision(**base)
@@ -217,7 +217,7 @@ def test_synthetic_reseed_event_builds_all_six_metrics():
     assert snap.reseeded is True
     assert snap.resumed is False
     assert snap.reseed_reason == "at_or_above_threshold"
-    assert snap.prior_occupancy == 500_000
+    assert snap.prior_occupancy == 900_000
 
     # (1) window occupancy + slice-1 component breakout
     assert snap.window_occupancy == 120_000

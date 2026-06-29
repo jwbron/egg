@@ -1665,8 +1665,8 @@ class TestEventSpawnReseedThreshold:
         )
 
     def test_build_event_spawn_params_returns_default_threshold(self):
-        """Default (opus) → ``reseed_threshold`` is the 400k floor
-        (``min(400k, 0.80 * 1M)``), returned as the 4th tuple element, and the
+        """Default (opus) → ``reseed_threshold`` is the 800k floor
+        (``min(800k, 0.80 * 1M)``), returned as the 4th tuple element, and the
         real backend window (1M) is returned as the 5th (#3316).
         """
         from concurrent_executor import ConcurrentPhaseExecutor
