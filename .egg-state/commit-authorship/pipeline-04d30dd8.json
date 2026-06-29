@@ -152,6 +152,14 @@
       "repo": null,
       "role": "architect"
     },
+    "f13af1167f96853d0ae4f8f8556372f4dddfa949": {
+      "branch": "egg/pipeline-04d30dd8/work",
+      "patch_id": "9d0aa094a0bf0688ef2fc60b363ebb393ab2cb24",
+      "pipeline_id": "pipeline-04d30dd8",
+      "registered_at": "2026-06-29T22:23:06.599969+00:00",
+      "repo": null,
+      "role": "risk_analyst"
+    },
     "f5ac9d65ff6a84ccdda892012899986c9e368885": {
       "branch": "egg/pipeline-04d30dd8/work",
       "patch_id": "b32d1e6ada34745992a69d8ff1b98a63608c83ce",
