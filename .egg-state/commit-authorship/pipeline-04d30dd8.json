@@ -16,6 +16,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "1dc49f65bd9872b3bef085f1cd0513ab58b06849": {
+      "branch": "egg/pipeline-04d30dd8/work",
+      "patch_id": "eff4a74b6e1b4fdef047e368ddc57cc621973e70",
+      "pipeline_id": "pipeline-04d30dd8",
+      "registered_at": "2026-06-29T22:19:32.818083+00:00",
+      "repo": null,
+      "role": "risk_analyst"
+    },
     "267be1545035847fb8ecb3628a3f0750e626639e": {
       "branch": "egg/pipeline-04d30dd8/work",
       "patch_id": "7017f3ce1bf69b403df98e3d10c1bbd8bcede4c2",
