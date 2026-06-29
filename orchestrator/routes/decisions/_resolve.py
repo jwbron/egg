@@ -182,6 +182,7 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
         # treats the absent resolution as approval and marks the current
         # phase complete. Only a phase_gate resolution is meant to drive the
         # phase forward, so only it triggers the revival.
+        outstanding_contract_decisions: list[dict[str, Any]] = []
         if decision.decision_type == "phase_gate":
             try:
                 from routes.pipelines import maybe_revive_orphaned_awaiting_human_driver
@@ -196,6 +197,14 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
                     exc_info=True,
                 )
 
+            # Gate-approval guard: report contract-resident HITL questions
+            # (``cq-N``) that this gate resolution leaves outstanding, so the
+            # operator is not told "proceeding" while agent-registered HITL
+            # questions sit unanswered. The post-gate bridge promotes the
+            # current phase's ``cq-N`` into the queue; questions tagged for a
+            # later phase remain outstanding and are the ones worth flagging.
+            outstanding_contract_decisions = _outstanding_contract_hitl(pipeline_id, _pipeline)
+
         return make_success_response(
             "Decision resolved",
             data={
@@ -209,6 +218,11 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
                     "scope": "queue",
                 },
                 **({"executed_action": executed_action} if executed_action else {}),
+                **(
+                    {"outstanding_contract_decisions": outstanding_contract_decisions}
+                    if outstanding_contract_decisions
+                    else {}
+                ),
             },
         )
 
@@ -233,6 +247,54 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
         )
     except DecisionAlreadyResolvedError as e:
         return make_error_response(str(e), status_code=409)
+
+
+def _outstanding_contract_hitl(pipeline_id: str, pipeline: Any) -> list[dict[str, Any]]:
+    """Return unresolved contract HITL (``cq-N``) decisions a gate leaves open.
+
+    Best-effort summary attached to a phase_gate resolve response (#3374):
+    contract-resident HITL questions that are *not* the current phase (so
+    the post-gate bridge will not promote them into the queue) and remain
+    unanswered. Reports ``id`` / ``question`` (truncated) / ``phase`` so the
+    operator gets explicit signal instead of a silent "proceeding". Any
+    failure yields ``[]`` — this guard must never block a resolution.
+    """
+    try:
+        import contract_store
+        from egg_contracts import load_contract
+        from routes.pipelines import _pipeline_identifier
+
+        worktree = contract_store.resolve_pipeline_worktree(pipeline_id)
+        if worktree is None:
+            return []
+        identifier = _pipeline_identifier(getattr(pipeline, "issue_number", None), pipeline_id)
+        contract = load_contract(identifier, worktree)
+    except Exception:
+        logger.debug(
+            "Outstanding-contract-decision scan failed after gate resolve",
+            pipeline_id=pipeline_id,
+            exc_info=True,
+        )
+        return []
+
+    current_phase = getattr(contract, "current_phase", None)
+    current_phase_val = getattr(current_phase, "value", current_phase)
+
+    outstanding: list[dict[str, Any]] = []
+    for d in contract.decisions or []:
+        if d.resolved or getattr(d.type, "value", d.type) != "hitl":
+            continue
+        d_phase = getattr(d.phase, "value", d.phase)
+        # The bridge promotes the current phase (and phase-less) questions
+        # into the queue on approval; only later-phase questions are left
+        # genuinely outstanding and invisible.
+        if d_phase is None or d_phase == current_phase_val:
+            continue
+        question = d.question or ""
+        if len(question) > 2_000:
+            question = question[:2_000] + "… (truncated)"
+        outstanding.append({"id": d.id, "question": question, "phase": d_phase})
+    return outstanding
 
 
 def _resolve_contract_decision(

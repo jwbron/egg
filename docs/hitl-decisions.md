@@ -183,11 +183,29 @@ router. Like `feedback-N`, those decisions are bridged into the orchestrator
 queue only *after* the phase gate is approved. An agent blocked on such a
 question before proposing never reaches the gate, so:
 
-- the decision does not appear in `get_status(...).pending_decisions`;
+- the decision does not appear in `get_status(...).pending_decisions` (which
+  lists only orchestrator-queue decisions);
 - calling `provide_input(decision_id="cq-N", ...)` previously returned
   **HTTP 404** (not in the queue), leaving the operator with no resolution
   channel and the pipeline deadlocking (#3071, observed on
   pipeline-c2faf164).
+
+**Surfacing (#3374).** Unresolved `cq-N` HITL decisions that are not yet
+bridged into the queue are surfaced in their own `get_status(...)` field,
+`pending_contract_decisions` — each entry carries `id`, `question`, `phase`,
+`options`, and `scope: "contract"`. It is kept distinct from
+`pending_decisions` so the two-wave resolve flow is unaffected; an operator
+driving via `get_status` no longer has to call `get_contract` out of band to
+discover them. Already-bridged questions are filtered out of this field so a
+mirrored `cq-N` is not listed twice.
+
+**Deduplication (#3374).** A later phase (or a re-run agent) that re-asks a
+question already registered and unresolved adopts the existing `cq-N` rather
+than minting a duplicate: `register_open_question` and the impasse-escalation
+router both dedupe on the normalized question text + phase via
+`egg_contracts.decisions.find_duplicate_open_question`. The registration is
+idempotent — the response carries `deduped: true` and no second contract
+write occurs.
 
 `provide_input` now falls back to the contract when the id is not found in
 the queue. It writes the resolution fields straight onto the contract
@@ -320,6 +338,8 @@ Two complementary bridges ensure contract-scoped decisions created by agents via
 **Server-side bridge (all modes):** After a phase gate is approved, `_queue_and_await_contract_decisions()` in `orchestrator/routes/pipelines.py` promotes any unresolved contract HITL decisions and feedback into the orchestrator's decision queue. HTTP/MCP callers (e.g., the `/sdlc` skill's Phase 4 handler) receive them as individual `choice` or `feedback` decisions. Once resolved, answers are written back to the contract so implement-phase agents see the human's choices. Without this bridge, contract questions registered via `egg-contract` would be silently dropped when a phase gate was approved, leaving the next phase's agents without the answers they need.
 
 **Client-side bridge (prompt-driven mode only):** In prompt-driven mode, the phase gate menu displays a `[q] Answer open questions` option when unanswered decisions exist in the contract JSON, letting humans respond from the terminal before approving. Approving a phase gate with unanswered questions triggers a warning prompt.
+
+**Gate-approval guard (#3374):** The bridge only promotes the *current* phase's `cq-N`; questions tagged for a later phase remain unanswered and otherwise invisible until that phase's gate. To avoid narrating an approval as "nothing else pending" while such questions sit outstanding, the `provide_input` response for a resolved `phase_gate` includes an `outstanding_contract_decisions` list of those later-phase unresolved `cq-N` (`id` / `question` / `phase`). They also remain visible in every `get_status` snapshot under `pending_contract_decisions`.
 
 ### Draft Document Display
 

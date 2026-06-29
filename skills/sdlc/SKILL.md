@@ -513,9 +513,17 @@ approved; an agent blocked pre-proposal never reaches the gate.
 deadlocked. **As of #3071**, the `provide_input` tool falls back to the contract and resolves the
 decision directly.
 
-**Detection.** When a `stuck-phase-transition` alert fires (or a pipeline sits blocked with an
-empty `pending_decisions`), call `get_contract(task_id)` and inspect the `decisions` array. If
-any entry has `resolved: false`, its `id`, `question`, and `options` are awaiting the operator.
+**Detection.** As of #3374, `get_status` surfaces these directly: unresolved `cq-N` HITL
+decisions that the queue does not yet know about appear in a sibling `pending_contract_decisions`
+list (each entry carries `id`, `question`, `phase`, `options`, and `scope: "contract"`). Check it
+on every snapshot — do not rely on `pending_decisions` alone, which only lists queue decisions.
+As a fallback (or to see resolved history), call `get_contract(task_id)` and inspect the
+`decisions` array; any entry with `resolved: false` is awaiting the operator.
+
+> **Duplicates.** A question already registered and unresolved is no longer re-minted as a new
+> `cq-N` by a later phase or a re-run agent — `register_open_question` (and the impasse router)
+> dedupe on the normalized question + phase and adopt the existing decision (#3374). You should
+> not see two `cq-N` for the same question; if you do, it predates the fix.
 
 **Answer it via `provide_input`:**
 
@@ -795,6 +803,8 @@ A phase that registers agent-level `choice` / `feedback` decisions (via `registe
 2. **Wave 2 — deferred decisions.** On `approve`, the pipeline **stays in `awaiting_human`** and the orchestrator moves the deferred choice/feedback decisions into `pending_decisions`. They wake the next `wait-status` Monitor invocation via `decision.created`. The next phase does not start until all of them are resolved. On `request_changes` / `change_approach`, the deferred decisions are discarded with the phase reset — no Wave 2.
 
 **Operator messaging implications** — when narrating a `phase_gate` approval to the user, do not say "approves and moves to the next phase". The accurate framing is: "approves the draft; if the phase registered deferred decisions, they will surface next for you to resolve before `<next phase>` starts." When the draft lists open questions that are not in the current `pending_decisions` snapshot, frame them as "these will surface as `<phase>`-phase decisions once the gate is approved", not "these will come up in the `<next phase>` phase".
+
+**Gate-approval guard (#3374)** — the `provide_input` response for a `phase_gate` includes an `outstanding_contract_decisions` list when the approval leaves *later-phase* `cq-N` HITL questions unanswered (current-phase ones are promoted by Wave 2; only questions tagged for a future phase remain genuinely outstanding). Surface these to the user so an approval is never narrated as "nothing else pending" while HITL questions sit unanswered downstream. They also appear in every `get_status` snapshot under `pending_contract_decisions` until resolved.
 
 **Handling rules by `decision_type`**:
 

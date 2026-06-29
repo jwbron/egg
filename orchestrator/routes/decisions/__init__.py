@@ -90,7 +90,10 @@ from ._handlers import (  # noqa: E402,F401
     _maybe_complete_task_from_resolution,
     _normalize_choice_resolution,
 )
-from ._resolve import _resolve_contract_decision  # noqa: E402,F401
+from ._resolve import (  # noqa: E402,F401
+    _outstanding_contract_hitl,
+    _resolve_contract_decision,
+)
 from ._responses import (  # noqa: E402,F401
     make_error_response,
     make_success_response,

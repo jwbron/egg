@@ -86,7 +86,9 @@ from .audit import (
 )
 from .decisions import (
     CQ_ID_PATTERN,
+    find_duplicate_open_question,
     next_cq_id,
+    normalize_question,
 )
 from .dependency_graph import (
     DependencyGraph,
@@ -298,8 +300,10 @@ __all__ = [
     "list_contracts",
     "load_contract",
     "load_contract_from_branch",
+    "find_duplicate_open_question",
     "next_cq_id",
     "normalize_path",
+    "normalize_question",
     "save_contract",
     "validate_mutation",
     "validate_phase_mutation",

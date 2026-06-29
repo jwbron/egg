@@ -28,6 +28,76 @@ from typing import Any
 # stable as legacy ``decision-N`` entries come and go.
 CQ_ID_PATTERN = re.compile(r"^cq-([0-9]+)$")
 
+# Collapse runs of whitespace so trivially-reformatted re-registrations
+# of the same question (extra spaces, a wrapped newline) normalize to the
+# same key.
+_WHITESPACE_RUN = re.compile(r"\s+")
+
+
+def normalize_question(question: Any) -> str:
+    """Return the dedupe-normalized form of a decision question.
+
+    Lower-cased, leading/trailing-stripped, and internal whitespace runs
+    collapsed to a single space. Non-string input normalizes to ``""``.
+    This is the single source of truth for the equivalence used by
+    :func:`find_duplicate_open_question`.
+    """
+    if not isinstance(question, str):
+        return ""
+    return _WHITESPACE_RUN.sub(" ", question).strip().lower()
+
+
+def _field(d: Any, name: str) -> Any:
+    """Read ``name`` from a Decision instance or a plain contract dict."""
+    if isinstance(d, dict):
+        return d.get(name)
+    return getattr(d, name, None)
+
+
+def find_duplicate_open_question(
+    existing: Iterable[Any],
+    question: str,
+    phase: Any,
+) -> Any | None:
+    """Return an existing unresolved HITL decision equivalent to ``question``.
+
+    A later phase or a re-run agent that registers a question already
+    posed (and not yet answered) should adopt the prior ``cq-N`` rather
+    than mint a duplicate (the operator who answers ``cq-1`` should not
+    then face an identical ``cq-4``). This scans ``existing`` for the
+    first decision that is
+
+    - a HITL decision (``type == "hitl"``),
+    - unresolved (``resolved`` is falsy), and
+    - whose :func:`normalize_question` form equals that of ``question``
+      under the same ``phase``.
+
+    ``existing`` may hold :class:`Decision` instances or plain dicts
+    (the gateway's JSON contract payload), mirroring :func:`next_cq_id`.
+    ``phase`` is compared on its string value so a ``PipelinePhase`` enum,
+    its ``.value``, or ``None`` all match consistently. Returns the
+    matching entry (so callers can reuse its id) or ``None``.
+    """
+    target = normalize_question(question)
+    if not target:
+        return None
+    target_phase = getattr(phase, "value", phase)
+
+    for d in existing:
+        d_type = _field(d, "type")
+        d_type = getattr(d_type, "value", d_type)
+        if d_type != "hitl":
+            continue
+        if _field(d, "resolved"):
+            continue
+        d_phase = _field(d, "phase")
+        d_phase = getattr(d_phase, "value", d_phase)
+        if d_phase != target_phase:
+            continue
+        if normalize_question(_field(d, "question")) == target:
+            return d
+    return None
+
 
 def next_cq_id(existing: Iterable[Any]) -> str:
     """Return the next ``cq-N`` id, ignoring non-``cq-`` ids in ``existing``.

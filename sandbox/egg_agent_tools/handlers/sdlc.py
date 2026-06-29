@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from egg_contracts.decisions import next_cq_id
+from egg_contracts.decisions import find_duplicate_open_question, next_cq_id
 
 from egg_agent_tools.handlers._gateway import (
     container_id_field,
@@ -101,6 +101,20 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
         decisions = contract.get("decisions", []) or []
         next_idx = len(decisions)
         decision_phase = phase or contract.get("current_phase")
+
+        # Dedupe: a later phase (or a re-run agent) that re-asks a
+        # question already registered and unanswered should adopt the
+        # existing ``cq-N`` rather than mint a duplicate — otherwise the
+        # operator who answers ``cq-1`` still faces an identical ``cq-4``.
+        # Idempotent: no contract write, return the prior decision.
+        duplicate = find_duplicate_open_question(decisions, question, decision_phase)
+        if duplicate is not None:
+            return {
+                "ok": True,
+                "id": duplicate.get("id"),
+                "decision": duplicate,
+                "deduped": True,
+            }
 
         # Agent-registered contract questions allocate ``cq-N`` from a
         # counter that ignores ``decision-N`` entries (written by the

@@ -9,8 +9,13 @@ side still allocates ``decision-N``; the helper here is what both
 
 from __future__ import annotations
 
-from egg_contracts.decisions import CQ_ID_PATTERN, next_cq_id
-from egg_contracts.models import Decision, DecisionType
+from egg_contracts.decisions import (
+    CQ_ID_PATTERN,
+    find_duplicate_open_question,
+    next_cq_id,
+    normalize_question,
+)
+from egg_contracts.models import Decision, DecisionType, PipelinePhase
 
 
 class TestNextCqId:
@@ -58,3 +63,91 @@ class TestNextCqId:
         assert CQ_ID_PATTERN.match("decision-1") is None
         assert CQ_ID_PATTERN.match("cq-") is None
         assert CQ_ID_PATTERN.match("cq-1a") is None
+
+
+class TestNormalizeQuestion:
+    def test_lowercases_strips_and_collapses_whitespace(self):
+        assert normalize_question("  Drop the   Slider?\n") == "drop the slider?"
+
+    def test_non_string_normalizes_to_empty(self):
+        assert normalize_question(None) == ""
+        assert normalize_question(42) == ""
+
+    def test_equivalent_reformattings_match(self):
+        assert normalize_question("Drop the slider?") == normalize_question("drop   the\tslider?")
+
+
+class TestFindDuplicateOpenQuestion:
+    def test_returns_none_for_empty_question(self):
+        existing = [{"id": "cq-1", "type": "hitl", "question": "x", "resolved": False}]
+        assert find_duplicate_open_question(existing, "", None) is None
+
+    def test_matches_equivalent_unresolved_hitl_in_same_phase(self):
+        existing = [
+            {
+                "id": "cq-1",
+                "type": "hitl",
+                "question": "Drop the slider?",
+                "phase": "plan",
+                "resolved": False,
+            }
+        ]
+        hit = find_duplicate_open_question(existing, "drop the   slider?", "plan")
+        assert hit is not None
+        assert hit["id"] == "cq-1"
+
+    def test_no_match_when_phase_differs(self):
+        existing = [
+            {
+                "id": "cq-1",
+                "type": "hitl",
+                "question": "Drop the slider?",
+                "phase": "plan",
+                "resolved": False,
+            }
+        ]
+        assert find_duplicate_open_question(existing, "Drop the slider?", "refine") is None
+
+    def test_skips_resolved_decisions(self):
+        existing = [
+            {
+                "id": "cq-1",
+                "type": "hitl",
+                "question": "Drop the slider?",
+                "phase": "plan",
+                "resolved": True,
+            }
+        ]
+        assert find_duplicate_open_question(existing, "Drop the slider?", "plan") is None
+
+    def test_skips_non_hitl_decisions(self):
+        existing = [
+            {
+                "id": "decision-1",
+                "type": "phase_gate",
+                "question": "Drop the slider?",
+                "phase": "plan",
+                "resolved": False,
+            }
+        ]
+        assert find_duplicate_open_question(existing, "Drop the slider?", "plan") is None
+
+    def test_matches_pydantic_decisions_with_enum_phase(self):
+        existing = [
+            Decision(
+                id="cq-7",
+                question="Need a V2 schema?",
+                type=DecisionType.HITL,
+                phase=PipelinePhase.PLAN,
+            )
+        ]
+        hit = find_duplicate_open_question(existing, "need a v2 schema?", PipelinePhase.PLAN)
+        assert hit is not None
+        assert hit.id == "cq-7"
+
+    def test_phaseless_questions_match_on_none(self):
+        existing = [
+            {"id": "cq-1", "type": "hitl", "question": "Q?", "phase": None, "resolved": False}
+        ]
+        hit = find_duplicate_open_question(existing, "q?", None)
+        assert hit is not None and hit["id"] == "cq-1"

@@ -230,6 +230,41 @@ class TestRouteImpassesEscalate:
         assert "external_blocker" in decision.question
         assert "upstream PR not merged" in decision.question
 
+    def test_repeated_escalation_dedupes_onto_existing_decision(self, tmp_path):
+        """Re-escalating the same impasse adopts the open ``cq-N`` rather
+        than appending an identical duplicate (#3374)."""
+        pid = _seed_contract(tmp_path)
+        contract = load_contract(pid, tmp_path)
+        contract.slices[0].tasks[0].delegation_attempts = DELEGATION_LIMIT
+        save_contract(contract, tmp_path)
+
+        imp = Impasse(
+            category=ImpasseCategory.PLAN_BUG,
+            reason="acceptance criteria contradict each other",
+            task_id="task-1-1",
+        )
+
+        def _escalate_once():
+            return route_impasses(
+                repo_path=tmp_path,
+                pipeline_id=pid,
+                contract_identifier=pid,
+                impasses=[(ContractAgentRole.CODER, imp)],
+                slice_id="slice-1",
+            )
+
+        first = _escalate_once()
+        second = _escalate_once()
+
+        assert first[0].action == ImpasseAction.ESCALATE
+        assert second[0].action == ImpasseAction.ESCALATE
+        # Both routing decisions point at the same HITL id...
+        assert first[0].hitl_decision_id == second[0].hitl_decision_id
+        # ...and only one decision was ever written to the contract.
+        contract = load_contract(pid, tmp_path)
+        hitl_ids = [d.id for d in contract.decisions if d.id.startswith("cq-")]
+        assert hitl_ids == [first[0].hitl_decision_id]
+
     def test_self_delegation_escalates(self, tmp_path):
         # Even though report_impasse rejects suggested_role==role at the
         # handler boundary, defense-in-depth: if a malformed payload

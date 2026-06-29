@@ -1617,16 +1617,25 @@ class TestGetStatusSyncHandler:
     def test_running_agents_no_fallback_when_persisted_present(self, handler):
         """Persisted running agents short-circuit the /status fallback (#3230).
 
-        Only two requests (pipeline + messages) are issued — no /status call —
-        when the persisted list already has a running agent.
+        No ``/status`` call is issued when the persisted list already has a
+        running agent. (A trailing contract fetch for ``cq-N`` surfacing
+        also runs — #3374 — so we assert on the absence of ``/status``
+        rather than a raw request count.)
         """
-        mock_make = MagicMock(side_effect=[self._pipeline_response(), self._messages_response()])
+        mock_make = MagicMock(
+            side_effect=[
+                self._pipeline_response(),
+                self._messages_response(),
+                {"data": {"decisions": []}},  # contract fetch (#3374)
+            ]
+        )
         with patch.object(handler, "_make_request", mock_make):
             result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
 
         assert [a["role"] for a in result["running_agents"]] == ["coder"]
-        # No /status request was made — exactly pipeline + messages.
-        assert mock_make.call_count == 2
+        # No /status request was made — the live-cohort fallback never fired.
+        requested = [call.args[0] for call in mock_make.call_args_list]
+        assert not any("/status" in endpoint for endpoint in requested)
 
     def test_running_agents_empty_when_no_live_pods(self, handler):
         """Quiescence (no live pods) stays empty — not misreported (#3230).
