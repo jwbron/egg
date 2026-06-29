@@ -96,6 +96,14 @@
       "repo": null,
       "role": "refiner"
     },
+    "d384e898367ab44562fcfb74a964dff7c2fe958a": {
+      "branch": "egg/pipeline-04d30dd8/work",
+      "patch_id": null,
+      "pipeline_id": "pipeline-04d30dd8",
+      "registered_at": "2026-06-29T22:20:13.050915+00:00",
+      "repo": null,
+      "role": "risk_analyst"
+    },
     "e4f4a45dab1984a7b954efa516f45eff97de350b": {
       "branch": "egg/pipeline-04d30dd8/work",
       "patch_id": "32555362e058a04d7c2346293532db387c1bb6ad",
