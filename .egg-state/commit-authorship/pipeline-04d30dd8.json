@@ -39,6 +39,14 @@
       "registered_at": "2026-06-29T21:30:27.314560+00:00",
       "repo": null,
       "role": "simplifier"
+    },
+    "f90306c8cce905ab8f0fad5faf116fbc1ca2ff31": {
+      "branch": "egg/pipeline-04d30dd8/work",
+      "patch_id": "97896d4cd57708ecebbdf27e7ba86202caa55595",
+      "pipeline_id": "pipeline-04d30dd8",
+      "registered_at": "2026-06-29T22:08:35.258051+00:00",
+      "repo": null,
+      "role": "simplifier"
     }
   },
   "version": 2
