@@ -548,15 +548,20 @@ SIMPLIFIER_ROLE = AgentRoleDefinition(
     role=AgentRole.SIMPLIFIER,
     description=(
         "Distills the producer's draft into a jargon-free, human-focused "
-        "companion summary in the refine and plan phases"
+        "companion summary for a broad audience (engineers, PMs, managers) "
+        "in the refine and plan phases"
     ),
     category=AgentCategory.ANALYSIS,
     responsibilities=[
         "Read the upstream producer's draft (refine analysis or plan)",
         "Write a simplified, higher-level companion that captures the essence",
-        "Keep it digestible for a technical reader outside the pipeline",
+        "Keep it digestible for a broad audience — engineers, PMs, and "
+        "managers — readable by a non-engineer",
         "Use no egg-internal jargon (no BRC, consensus, slice-DAG, contract, "
-        "propose/ACK/NACK, phase, or agent-role terms)",
+        "propose/ACK/NACK, phase, or agent-role terms) and no implementation "
+        "minutiae (no file:line refs or code identifiers)",
+        "Summarise the draft — do NOT review or critique it; no ACK/NACK or "
+        "constraint-list framing in the companion",
         "Faithfully reflect the upstream draft — introduce no new scope",
     ],
     dependencies=[],

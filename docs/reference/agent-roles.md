@@ -83,7 +83,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 ### `simplifier`
 
-**Purpose**: Produce a **human-focused companion** to the agent draft — a simplified, higher-level, jargon-free summary for a technical human reviewer outside the pipeline. Runs in **both** the refine and plan phases. The agent-focused drafts (`-analysis.md` / `-plan.md`) are unchanged; the companion is an additional, mandatory artifact.
+**Purpose**: Produce a **human-focused companion** to the agent draft — a plain-language summary for a **broad audience (engineers, PMs, and managers)**, readable by a non-engineer, free of egg-internal jargon and implementation minutiae (no `file:line` refs or code identifiers). It **summarises** the draft — it does not review or critique it (no ACK/NACK or constraint-list framing in the companion). Runs in **both** the refine and plan phases. The agent-focused drafts (`-analysis.md` / `-plan.md`) are unchanged; the companion is an additional, mandatory artifact.
 
 **Dual-role**: like the implement-phase `tester`, the simplifier is a producer whose work depends on an upstream producer's draft. It carries an **advisory** review edge over the upstream producer (`refiner` in refine, `task_planner` in plan) purely so the BRC `ack` arm re-invokes it when that producer proposes — its verdict never blocks the upstream's consensus. It then reads the proposed draft, writes the companion, and proposes it. The companion is reviewed CRITICAL by `reviewer_refine` (refine) / `reviewer_plan` (plan).
 
