@@ -13206,7 +13206,42 @@ def _build_brc_preamble(
     # harden; (b) subsequent re-proposes and peer-producer proposals
     # (after the tester has proposed) likewise re-invoke the tester to
     # handle the Reviewer Lifecycle for those events.
-    if is_dual_role:
+    if is_dual_role and role_value == "simplifier":
+        # The simplifier is dual-role but ASYMMETRIC: its primary job is the
+        # producer one (the human-focused companion); the reviewer edge is
+        # advisory-only (the event-pump wake-up arm). It must NOT inherit the
+        # tester's review-and-harden banner below, which primes an ACK/NACK
+        # mental model and leads the companion to come out as a critique of
+        # the upstream draft instead of a plain-language summary.
+        lines.append(
+            "### Dual-Role Execution Order (READ FIRST — simplifier)\n\n"
+            "You are dual-role, but the two roles are **not symmetric**. Your "
+            "PRIMARY job is the PRODUCER one: writing a plain-language, "
+            "human-focused companion to the upstream producer's draft. Your "
+            "reviewer edge is **advisory only** — it exists so the event pump "
+            "re-invokes you when the upstream producer proposes, and your "
+            "verdict never blocks consensus.\n\n"
+            "**Execute in this order:**\n\n"
+            "1. **Producer ORIENT (FIRST).** Read the contract and orient. "
+            "Your producer WORK depends on the upstream producer's draft "
+            "existing, so you begin writing only once that producer issues "
+            "`CONSENSUS_PROPOSE` — the event-pump wrapper re-invokes you "
+            "carrying that proposal. Do not race ahead before the draft "
+            "exists.\n"
+            "2. **On the upstream producer's PROPOSE**, the wrapper re-invokes "
+            "you with the proposal in your event payload. SYNC the worktree, "
+            "read the draft, then write and PROPOSE the human-focused "
+            "companion (see Producer role below).\n"
+            "3. **Issue your advisory verdict in the same pass.** ACK the "
+            "upstream producer (you read its draft to summarise it); NACK "
+            "only if the draft is too incoherent or incomplete to summarise "
+            "faithfully. **Any critique you have belongs in this verdict and "
+            "its message — NEVER in the companion document.** The companion "
+            "is a simplified summary written *for humans to read*, not a "
+            "review of the draft, not a list of constraints the draft should "
+            "satisfy, and not an ACK/NACK rationale.\n"
+        )
+    elif is_dual_role:
         lines.append(
             "### Dual-Role Execution Order (READ FIRST — #2749, updated for "
             "coder-owns-tests)\n\n"
@@ -13406,6 +13441,17 @@ def _build_brc_preamble(
                 "step 3 (SYNC) with the proposal already in context."
                 + (
                     "\n\n   **Dual-role agents (you)** — per the "
+                    "*Dual-Role Execution Order* banner above (simplifier): "
+                    "your first invocation does ORIENT/PREPARE only. On the "
+                    "upstream producer's `CONSENSUS_PROPOSE` the wrapper "
+                    "re-invokes you with the proposal in your event payload; "
+                    "SYNC, write and PROPOSE your human-focused companion, "
+                    "then issue your ADVISORY ACK/NACK on the upstream "
+                    "producer in the same invocation. Your verdict is "
+                    "advisory and never blocks consensus — keep any critique "
+                    "in that verdict, never in the companion document."
+                    if role_value == "simplifier"
+                    else "\n\n   **Dual-role agents (you)** — per the "
                     "*Dual-Role Execution Order* banner above (updated "
                     "for coder-owns-tests): your first invocation does "
                     "ORIENT/PREPARE only. On the coder's "
@@ -13835,15 +13881,23 @@ def _build_reviewer_preparation(
                 "\n\n"
                 "**Human-focused plan companion (the simplifier's "
                 "``*-plan-human.md``):** the simplifier produces a simplified, "
-                "jargon-free companion to the plan for a technical human "
-                "reviewer outside the pipeline. You review it (CRITICAL). ACK "
-                "only when it faithfully captures the plan's essence, stays "
-                "high-level and digestible, and is free of egg-internal jargon "
-                "(no BRC/consensus/slice-DAG/contract/role terms). NACK the "
+                "plain-language companion to the plan for a **broad audience — "
+                "engineers, PMs, and managers**. You review it (CRITICAL). "
+                "**Read it side-by-side with the full plan** and ACK only when "
+                "it (a) faithfully captures the plan's essence, (b) is "
+                "materially lighter and more digestible than the full plan — "
+                "not a near-copy, (c) is readable by a non-engineer, and (d) "
+                "is free of egg-internal jargon (no "
+                "BRC/consensus/slice-DAG/contract/role terms). NACK the "
                 "**simplifier** (not the task_planner) if it misrepresents the "
-                "plan, leaks pipeline jargon, omits a material point, or merely "
-                "duplicates the full plan. A missing or empty companion is a "
-                "NACK — the companion is mandatory."
+                "plan, leaks pipeline jargon, omits a material point, merely "
+                "duplicates the full plan, or — critically — reads as a "
+                "**review/critique** of the plan rather than a summary of it "
+                '(ACK/NACK language, "should commit to", "anti-pattern to '
+                'reject", constraint lists) or buries the reader in '
+                "implementation detail (`file:line` refs, function/struct/field "
+                "names). A missing or empty companion is a NACK — the companion "
+                "is mandatory."
             )
     elif phase == "refine":
         if role_value in ("reviewer_refine", "reviewer_agent_design"):
@@ -13862,13 +13916,21 @@ def _build_reviewer_preparation(
                     "\n\n"
                     "**Human-focused analysis companion (the simplifier's "
                     "``*-analysis-human.md``):** the simplifier produces a "
-                    "simplified, jargon-free companion to the analysis for a "
-                    "technical human reviewer outside the pipeline. You review "
-                    "it (CRITICAL). ACK only when it faithfully captures the "
-                    "analysis's essence, stays high-level and digestible, and is "
-                    "free of egg-internal jargon. NACK the **simplifier** (not "
-                    "the refiner) if it misrepresents the analysis, leaks "
-                    "pipeline jargon, or merely duplicates the full draft. A "
+                    "simplified, plain-language companion to the analysis for a "
+                    "**broad audience — engineers, PMs, and managers**. You "
+                    "review it (CRITICAL). **Read it side-by-side with the full "
+                    "analysis** and ACK only when it (a) faithfully captures the "
+                    "analysis's essence, (b) is materially lighter and more "
+                    "digestible than the full draft — not a near-copy, (c) is "
+                    "readable by a non-engineer, and (d) is free of "
+                    "egg-internal jargon. NACK the **simplifier** (not the "
+                    "refiner) if it misrepresents the analysis, leaks pipeline "
+                    "jargon, omits a material point, merely duplicates the full "
+                    "draft, or — critically — reads as a **review/critique** of "
+                    "the analysis rather than a summary of it (ACK/NACK "
+                    'language, "should commit to", "anti-pattern to reject", '
+                    "constraint lists) or buries the reader in implementation "
+                    "detail (`file:line` refs, function/struct/field names). A "
                     "missing or empty companion is a NACK — it is mandatory."
                 )
             return base
@@ -14107,7 +14169,8 @@ def _build_producer_orientation(
             "proposal in your event payload. On that invocation: read the "
             "upstream draft, then write a simplified, higher-level companion "
             "that captures its essence in plain, jargon-free language for a "
-            "technical reader outside the pipeline, and PROPOSE it. In the same "
+            "broad audience (engineers, PMs, and managers) — a summary, NOT a "
+            "review of the draft — and PROPOSE it. In the same "
             f"pass, issue your ADVISORY review verdict on **{upstream}** — ACK "
             "(you read the draft to summarize it), or NACK only if the draft is "
             "too incoherent to faithfully summarize. Your verdict is advisory "
@@ -15342,22 +15405,33 @@ def _build_agent_prompt(
                 "",
                 f"1. Read **{_upstream}**'s draft of {_upstream_draft}.",
                 f"2. Write a HUMAN-FOCUSED companion to `{_human_path}`. This is a "
-                "simplified, higher-level summary for a **technical** human "
-                "reviewer who is NOT part of the pipeline. Capture the essence: "
-                f"{_essence}.",
+                "simplified, higher-level summary for a **broad audience — "
+                "engineers, PMs, and managers** — not a peer review. Capture the "
+                f"essence: {_essence}.",
                 "",
                 "   Rules:",
+                "   - **Broad, mixed audience.** Write so a non-engineer "
+                "(PM, manager) can follow *what is changing and why it matters*, "
+                "while staying accurate enough for an engineer. Explain any "
+                "unavoidable technical term in plain language.",
                 "   - **No egg-internal jargon.** Do not mention BRC, consensus, "
                 "propose/ACK/NACK, slices / slice-DAG, contracts, phases, "
                 "`serialized_chain_order`, Jaccard, or agent-role names. Describe "
                 "independently-shippable pieces in plain terms if you must "
                 "reference them at all.",
+                "   - **No implementation minutiae.** No `file:line` references, "
+                "no function / struct / field / type names or other code "
+                "identifiers, no per-field enumerations. Describe behaviour and "
+                "impact, not the code.",
+                "   - **This is NOT a review.** Do not critique, score, or gate "
+                'the upstream draft. No ACK/NACK language, no "the draft should '
+                'commit to …", no "anti-pattern to reject", no constraint '
+                "lists. Any critique you have goes in your advisory reviewer "
+                "verdict (below), never in this document.",
                 "   - **Much shorter and more digestible** than the upstream "
-                "draft — prose and short lists, not exhaustive enumeration.",
+                "draft — plain prose and short lists, not exhaustive enumeration.",
                 "   - **Faithful** — reflect the upstream draft accurately; "
                 "introduce no new scope, claims, or recommendations.",
-                "   - The audience is technical, so domain and code specifics are "
-                "fine; pipeline mechanics are not.",
                 "",
                 f"3. Commit and push `{_human_path}`, then PROPOSE it via "
                 "`egg-orch consensus propose`. The companion is **mandatory** — "

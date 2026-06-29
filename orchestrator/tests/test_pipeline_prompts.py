@@ -4542,6 +4542,106 @@ class TestProducerOrientation:
         assert "task_planner" in orient
         assert "CONSENSUS_PROPOSE" in orient
 
+    def test_simplifier_orientation_is_summary_not_review(self):
+        """Orientation frames the companion as a broad-audience summary, not
+        a review of the upstream draft (issue: human doc came out as a
+        critique/ACK-NACK constraint set rather than a simplification)."""
+        orient = _build_producer_orientation("simplifier", "refine", ["reviewer_refine"])
+        assert "broad audience" in orient.lower()
+        assert "NOT a review" in orient
+        # The legacy "technical reader outside the pipeline" narrowing must
+        # not creep back — that phrasing licensed the implementation jargon.
+        assert "technical reader outside the pipeline" not in orient
+
+
+class TestSimplifierHumanCompanionPrompt:
+    """The simplifier's human companion must be a plain-language summary for a
+    broad audience — NOT a review/critique of the upstream draft, and free of
+    implementation minutiae. Guards the prompt against the regression where the
+    ``*-human.md`` artifact came out as an ACK/NACK constraint set dense with
+    ``file:line`` / struct-field detail.
+    """
+
+    def test_simplifier_gets_own_banner_not_tester_banner(self):
+        """The dual-role simplifier must get its own producer-first banner, not
+        the tester's review-and-harden banner (which primed the ACK/NACK
+        mental model that turned the companion into a critique)."""
+        preamble = _build_brc_preamble(
+            "simplifier",
+            "refine",
+            repo="egg",
+            branch="egg/issue-1/work",
+            base_branch="main",
+        )
+        assert "Dual-Role Execution Order (READ FIRST — simplifier)" in preamble
+        # The tester-specific banner and its hardening language must be absent.
+        assert "coder-owns-tests" not in preamble
+        assert "hardening the coder's tests" not in preamble
+        # Critique belongs in the verdict, never in the companion document.
+        assert "NEVER in the companion document" in preamble
+
+    def test_tester_banner_unchanged_for_tester(self):
+        """The simplifier carve-out must not disturb the tester's banner."""
+        preamble = _build_brc_preamble(
+            "tester",
+            "implement",
+            repo="egg",
+            branch="egg/issue-1/work",
+            base_branch="main",
+        )
+        assert "coder-owns-tests" in preamble
+        assert "READ FIRST — simplifier" not in preamble
+
+    def test_simplifier_producer_rules_forbid_review_and_jargon(self):
+        """The producer rules must demand a broad-audience summary and forbid
+        review framing and implementation minutiae."""
+        result = _build_agent_prompt(
+            role_value="simplifier",
+            phase="refine",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+        )
+        # Broad audience, not "technical reviewer outside the pipeline".
+        assert "engineers, PMs, and managers" in result
+        assert "technical** human" not in result
+        # Explicit "not a review" prohibition with the offending markers.
+        assert "This is NOT a review." in result
+        assert "anti-pattern to reject" in result
+        # No implementation minutiae.
+        assert "No implementation minutiae." in result
+        assert "file:line" in result
+
+    def test_simplifier_producer_rules_present_in_plan_phase(self):
+        """The same broad-audience / no-review rules apply in the plan phase."""
+        result = _build_agent_prompt(
+            role_value="simplifier",
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+        )
+        assert "engineers, PMs, and managers" in result
+        assert "This is NOT a review." in result
+
+    def test_refine_reviewer_compares_companion_against_full_draft(self):
+        """The refine reviewer must read the companion side-by-side with the
+        full analysis and NACK a review-shaped or jargon-heavy companion."""
+        prep = _build_reviewer_preparation("reviewer_refine", "refine")
+        assert "side-by-side with the full analysis" in prep
+        assert "broad audience" in prep
+        assert "review/critique" in prep
+        assert "materially lighter" in prep
+
+    def test_plan_reviewer_compares_companion_against_full_draft(self):
+        """The plan reviewer carries the same side-by-side comparison gate."""
+        prep = _build_reviewer_preparation("reviewer_plan", "plan")
+        assert "side-by-side with the full plan" in prep
+        assert "broad audience" in prep
+        assert "review/critique" in prep
+
     def test_tester_orientation_contains_dual_mandate_pointer(self):
         """Tester orientation carries a brief dual-mandate pointer, NOT the
         full failing-test → NACK → HANDOFF instruction.
