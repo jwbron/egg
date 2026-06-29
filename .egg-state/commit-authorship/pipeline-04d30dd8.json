@@ -120,6 +120,14 @@
       "repo": null,
       "role": "architect"
     },
+    "ae094c852b00d3a3a3f892ff406d9a7f1fd334f2": {
+      "branch": "egg/pipeline-04d30dd8/work",
+      "patch_id": "2fcea82013b9d2050835961e2da97fb4b272504a",
+      "pipeline_id": "pipeline-04d30dd8",
+      "registered_at": "2026-06-29T22:24:34.952788+00:00",
+      "repo": null,
+      "role": "task_planner"
+    },
     "b16c83c7eac765bc0a7e312db04d73ac79e9e408": {
       "branch": "egg/pipeline-04d30dd8/work",
       "patch_id": "079a6a125924f28b7cbcf0b289351cbc6e840f71",
