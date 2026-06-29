@@ -2312,6 +2312,68 @@ class TestEventJobStatusView:
         _, kwargs = mock_k8s_client.list_jobs.call_args
         assert kwargs["label_selector"] == f"egg.event.dedupe-key={self._KEY[:63]}"
 
+    # -- auth-fatal exit code (#3373) --------------------------------------
+
+    def _info_exit(self, status, exit_code):
+        return ContainerInfo(
+            container_id="uid-1",
+            container_name="job-1",
+            status=status,
+            job_name="job-1",
+            exit_code=exit_code,
+        )
+
+    def test_failed_job_with_auth_fatal_exit_code_is_fatal(self, spawner, mock_k8s_client):
+        """A FAILED Job whose pod exited EX_AUTH_FATAL classifies as fatal."""
+        import event_loop
+        from egg_agent.auth_errors import EX_AUTH_FATAL
+
+        mock_k8s_client.list_jobs.return_value = [self._info(ContainerStatus.FAILED)]
+        mock_k8s_client.list_containers.return_value = [
+            self._info_exit(ContainerStatus.FAILED, EX_AUTH_FATAL)
+        ]
+        view = spawner.create_event_job_status_view()
+        assert view.outcome_for(self._KEY) == event_loop.JOB_OUTCOME_FATAL
+
+    def test_auth_fatal_read_uses_dedupe_label(self, spawner, mock_k8s_client):
+        """The exit-code read scopes to this event's dedupe-key label."""
+        from egg_agent.auth_errors import EX_AUTH_FATAL
+
+        mock_k8s_client.list_jobs.return_value = [self._info(ContainerStatus.FAILED)]
+        mock_k8s_client.list_containers.return_value = [
+            self._info_exit(ContainerStatus.FAILED, EX_AUTH_FATAL)
+        ]
+        spawner.create_event_job_status_view().outcome_for(self._KEY)
+        _, kwargs = mock_k8s_client.list_containers.call_args
+        assert kwargs["labels"] == {"egg.event.dedupe-key": self._KEY[:63]}
+
+    def test_failed_job_with_other_exit_code_is_abnormal(self, spawner, mock_k8s_client):
+        """A FAILED Job with an ordinary non-zero rc stays abnormal (retryable)."""
+        import event_loop
+
+        mock_k8s_client.list_jobs.return_value = [self._info(ContainerStatus.FAILED)]
+        mock_k8s_client.list_containers.return_value = [self._info_exit(ContainerStatus.FAILED, 1)]
+        view = spawner.create_event_job_status_view()
+        assert view.outcome_for(self._KEY) == event_loop.JOB_OUTCOME_ABNORMAL
+
+    def test_failed_job_exit_code_unreadable_falls_back_to_abnormal(self, spawner, mock_k8s_client):
+        """If the pod exit code can't be read, classify abnormal (today's behaviour)."""
+        import event_loop
+
+        mock_k8s_client.list_jobs.return_value = [self._info(ContainerStatus.FAILED)]
+        mock_k8s_client.list_containers.side_effect = RuntimeError("API down")
+        view = spawner.create_event_job_status_view()
+        assert view.outcome_for(self._KEY) == event_loop.JOB_OUTCOME_ABNORMAL
+
+    def test_failed_job_no_pod_found_falls_back_to_abnormal(self, spawner, mock_k8s_client):
+        """A FAILED Job whose pod is already GC'd stays abnormal, not fatal."""
+        import event_loop
+
+        mock_k8s_client.list_jobs.return_value = [self._info(ContainerStatus.FAILED)]
+        mock_k8s_client.list_containers.return_value = []
+        view = spawner.create_event_job_status_view()
+        assert view.outcome_for(self._KEY) == event_loop.JOB_OUTCOME_ABNORMAL
+
     # -- reap_terminated (#3181 re-review) ---------------------------------
 
     @staticmethod

@@ -493,7 +493,11 @@ cw_log "One-shot invocation done (action=$ONE_SHOT_ACTION, rc=$one_shot_rc, dura
 # Exit-code contract for the orchestrator supervisor: 75/EX_TEMPFAIL is
 # RESERVED for the inconclusive-re-check outcome above ("freshness could
 # not be confirmed, re-derive next-action"). Agent passthrough rcs do not
-# include 75, so the two meanings never collide.
+# include 75, so the two meanings never collide. The agent CLI's auth-fatal
+# code (77/EX_AUTH_FATAL, egg_agent.auth_errors.EX_AUTH_FATAL — a
+# non-retryable credential/quota failure, #3373) is a genuine agent
+# passthrough rc and rides through here unchanged; the orchestrator event
+# loop reads it off the failed pod and fast-fails the dedupe key.
 exit "$one_shot_rc"
 """
 

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import kubernetes_spawner as _pkg
+from egg_agent.auth_errors import EX_AUTH_FATAL
 from gateway_client import SessionInfo
 from kubernetes_spawner import (
     LABEL_EVENT_DEDUPE,
@@ -38,6 +39,7 @@ class _EventJobStatusView:
         self._RUNNING = _event_loop.JOB_OUTCOME_RUNNING
         self._SUCCESS = _event_loop.JOB_OUTCOME_SUCCESS
         self._ABNORMAL = _event_loop.JOB_OUTCOME_ABNORMAL
+        self._FATAL = _event_loop.JOB_OUTCOME_FATAL
 
     def outcome_for(self, dedupe_key: str) -> str:
         selector = f"{LABEL_EVENT_DEDUPE}={_pkg._dedupe_label_value(dedupe_key)}"
@@ -56,6 +58,14 @@ class _EventJobStatusView:
             return self._RUNNING
         statuses = [getattr(j, "status", None) for j in jobs]
         if any(s == ContainerStatus.FAILED for s in statuses):
+            # #3373: distinguish a non-retryable credential failure (the agent
+            # exited with EX_AUTH_FATAL) from an ordinary crash. Reading the
+            # pod's exit code costs one extra list call, but only on the cold
+            # path where a Job has already FAILED. Any read failure (or an exit
+            # code that doesn't match) falls back to ``abnormal`` — today's
+            # behaviour — so this can never manufacture a spurious fatal.
+            if self._failed_with_auth_fatal(dedupe_key):
+                return self._FATAL
             return self._ABNORMAL
         # Live = PENDING/CREATING/RUNNING — the same single-source set the
         # adoption filter (``_event_dedupe_key_live``) and live-pod accounting
@@ -65,6 +75,29 @@ class _EventJobStatusView:
         if any(s == ContainerStatus.EXITED for s in statuses):
             return self._SUCCESS
         return self._RUNNING
+
+    def _failed_with_auth_fatal(self, dedupe_key: str) -> bool:
+        """Return True iff the failed event pod exited with ``EX_AUTH_FATAL``.
+
+        Reads the pod(s) carrying this event's dedupe-key label and checks the
+        terminated container's exit code. Best-effort: a list error, a missing
+        pod (already GC'd), or an unreadable exit code all return ``False`` so
+        the caller falls back to the ordinary ``abnormal`` classification.
+        """
+        try:
+            containers = self._spawner.k8s.list_containers(
+                labels={LABEL_EVENT_DEDUPE: _pkg._dedupe_label_value(dedupe_key)}
+            )
+        except Exception as exc:  # noqa: BLE001 — best-effort; fall back to abnormal
+            logger.warning(
+                "Failed to read pod exit code for event-loop supervision",
+                dedupe_key=dedupe_key,
+                error=str(exc),
+            )
+            return False
+        if not isinstance(containers, (list, tuple)):
+            return False
+        return any(getattr(c, "exit_code", None) == EX_AUTH_FATAL for c in containers)
 
     def reap_terminated(self, dedupe_key: str) -> int:
         """Delete terminal (FAILED/EXITED) Jobs carrying this dedupe-key label.
