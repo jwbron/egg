@@ -28,6 +28,27 @@ from typing import Any
 # stable as legacy ``decision-N`` entries come and go.
 CQ_ID_PATTERN = re.compile(r"^cq-([0-9]+)$")
 
+# Single source of truth for how long a HITL question may be before a
+# status/gate surface truncates it. Shared by the ``get_status``
+# surfacing (``_pending_contract_decisions``) and the phase_gate guard
+# (``_outstanding_contract_hitl``) so the same ``cq-N`` renders at one
+# consistent length on both surfaces (#3374 review).
+CONTRACT_QUESTION_MAX_CHARS = 4_000
+CONTRACT_QUESTION_TRUNCATION_SUFFIX = "… (truncated)"
+
+
+def truncate_question(question: str, max_chars: int = CONTRACT_QUESTION_MAX_CHARS) -> str:
+    """Return ``question`` truncated to ``max_chars`` with a suffix marker.
+
+    Single source of truth for the length cap applied when a HITL
+    question is echoed onto a status/gate surface, so both surfaces
+    truncate identically.
+    """
+    if len(question) > max_chars:
+        return question[:max_chars] + CONTRACT_QUESTION_TRUNCATION_SUFFIX
+    return question
+
+
 # Collapse runs of whitespace so trivially-reformatted re-registrations
 # of the same question (extra spaces, a wrapped newline) normalize to the
 # same key.

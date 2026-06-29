@@ -515,15 +515,18 @@ decision directly.
 
 **Detection.** As of #3374, `get_status` surfaces these directly: unresolved `cq-N` HITL
 decisions that the queue does not yet know about appear in a sibling `pending_contract_decisions`
-list (each entry carries `id`, `question`, `phase`, `options`, and `scope: "contract"`). Check it
-on every snapshot — do not rely on `pending_decisions` alone, which only lists queue decisions.
-As a fallback (or to see resolved history), call `get_contract(task_id)` and inspect the
-`decisions` array; any entry with `resolved: false` is awaiting the operator.
+list (each entry carries `id`, `question`, `phase`, `options`, and `scope: "contract"`, plus
+`type: "hitl"` and a `note` pointing at the `provide_input` flow). Check it on every snapshot — do
+not rely on `pending_decisions` alone, which only lists queue decisions. As a fallback (or to see
+resolved history), call `get_contract(task_id)` and inspect the `decisions` array; any entry with
+`resolved: false` is awaiting the operator.
 
-> **Duplicates.** A question already registered and unresolved is no longer re-minted as a new
-> `cq-N` by a later phase or a re-run agent — `register_open_question` (and the impasse router)
-> dedupe on the normalized question + phase and adopt the existing decision (#3374). You should
-> not see two `cq-N` for the same question; if you do, it predates the fix.
+> **Duplicates.** A question already open and unresolved *under the same phase* is no longer
+> re-minted as a new `cq-N` by a re-run agent or a re-escalated impasse — `register_open_question`
+> (and the impasse router) dedupe on the normalized question keyed by phase and adopt the existing
+> decision (#3374). The dedup is phase-scoped: a genuine cross-phase re-ask (a different phase tag)
+> is a distinct question and *does* get a fresh `cq-N` by design. Within one phase you should not
+> see two `cq-N` for the same question; if you do, it predates the fix.
 
 **Answer it via `provide_input`:**
 

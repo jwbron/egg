@@ -193,17 +193,28 @@ question before proposing never reaches the gate, so:
 **Surfacing (#3374).** Unresolved `cq-N` HITL decisions that are not yet
 bridged into the queue are surfaced in their own `get_status(...)` field,
 `pending_contract_decisions` — each entry carries `id`, `question`, `phase`,
-`options`, and `scope: "contract"`. It is kept distinct from
-`pending_decisions` so the two-wave resolve flow is unaffected; an operator
-driving via `get_status` no longer has to call `get_contract` out of band to
-discover them. Already-bridged questions are filtered out of this field so a
-mirrored `cq-N` is not listed twice.
+`options`, and `scope: "contract"`, plus `type: "hitl"` (mirroring the
+queue-decision shape) and a `note` string pointing the operator at the
+`provide_input` resolution flow. It is kept distinct from `pending_decisions`
+so the two-wave resolve flow is unaffected; an operator driving via
+`get_status` no longer has to call `get_contract` out of band to discover them.
+Already-bridged questions are filtered out of this field so a mirrored `cq-N`
+is not listed twice.
 
-**Deduplication (#3374).** A later phase (or a re-run agent) that re-asks a
-question already registered and unresolved adopts the existing `cq-N` rather
-than minting a duplicate: `register_open_question` and the impasse-escalation
-router both dedupe on the normalized question text + phase via
-`egg_contracts.decisions.find_duplicate_open_question`. The registration is
+**Deduplication (#3374).** A re-registration of a question already open and
+unresolved *under the same phase* adopts the existing `cq-N` rather than
+minting a duplicate: `register_open_question` and the impasse-escalation
+router both dedupe on the normalized question text **keyed by phase** via
+`egg_contracts.decisions.find_duplicate_open_question`. This covers the
+observed repro — a re-run agent, or a re-escalated impasse, re-asking within a
+single phase — and any re-ask explicitly tagged for that same phase. A genuine
+*cross-phase* re-ask (a different phase tag) is treated as a distinct question
+and mints a fresh `cq-N` by design, because its decision context differs: in
+the agent path the phase defaults to the contract's `current_phase`, so a
+question first posed in `refine` and re-posed in `plan` does **not** dedupe.
+The dedup key is (question, phase) only — the option set is not part of it, so
+a re-registration carrying a *different* option set adopts the stored options
+and logs a warning (the new options are not merged). The registration is
 idempotent — the response carries `deduped: true` and no second contract
 write occurs.
 

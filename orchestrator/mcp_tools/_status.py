@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from egg_contracts.decisions import truncate_question
 from mcp_tools import logger
 
 
@@ -234,9 +235,6 @@ def _build_status_snapshot(self, raw_task_id: str) -> dict[str, Any]:
     return status
 
 
-_CONTRACT_QUESTION_MAX_CHARS = 4_000
-
-
 def _pending_contract_decisions(
     self,
     task_id: str,
@@ -291,8 +289,8 @@ def _pending_contract_decisions(
         if decision_id in bridged_ids:
             continue
         question = d.get("question") or ""
-        if isinstance(question, str) and len(question) > _CONTRACT_QUESTION_MAX_CHARS:
-            question = question[:_CONTRACT_QUESTION_MAX_CHARS] + "… (truncated)"
+        if isinstance(question, str):
+            question = truncate_question(question)
         surfaced.append(
             {
                 "id": decision_id,

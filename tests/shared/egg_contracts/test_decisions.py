@@ -10,12 +10,36 @@ side still allocates ``decision-N``; the helper here is what both
 from __future__ import annotations
 
 from egg_contracts.decisions import (
+    CONTRACT_QUESTION_MAX_CHARS,
+    CONTRACT_QUESTION_TRUNCATION_SUFFIX,
     CQ_ID_PATTERN,
     find_duplicate_open_question,
     next_cq_id,
     normalize_question,
+    truncate_question,
 )
 from egg_contracts.models import Decision, DecisionType, PipelinePhase
+
+
+class TestTruncateQuestion:
+    """Single source of truth for the status/gate surface length cap (#3374 review)."""
+
+    def test_short_question_unchanged(self):
+        assert truncate_question("short") == "short"
+
+    def test_question_at_cap_unchanged(self):
+        q = "x" * CONTRACT_QUESTION_MAX_CHARS
+        assert truncate_question(q) == q
+
+    def test_overlong_question_truncated_with_suffix(self):
+        q = "x" * (CONTRACT_QUESTION_MAX_CHARS + 50)
+        out = truncate_question(q)
+        assert out == "x" * CONTRACT_QUESTION_MAX_CHARS + CONTRACT_QUESTION_TRUNCATION_SUFFIX
+
+    def test_respects_explicit_max_chars(self):
+        assert (
+            truncate_question("abcdef", max_chars=3) == "abc" + CONTRACT_QUESTION_TRUNCATION_SUFFIX
+        )
 
 
 class TestNextCqId:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from egg_contracts.decisions import find_duplicate_open_question, next_cq_id
@@ -13,6 +14,8 @@ from egg_agent_tools.handlers._gateway import (
     get_repo_path,
 )
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
+_logger = logging.getLogger(__name__)
 
 _VALID_PHASES = {"refine", "plan", "implement", "pr"}
 
@@ -109,6 +112,24 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
         # Idempotent: no contract write, return the prior decision.
         duplicate = find_duplicate_open_question(decisions, question, decision_phase)
         if duplicate is not None:
+            # The dedup key is (normalized question, phase) — the option set
+            # is *not* part of it. If the re-registration carries a different
+            # option set, the operator only ever sees the stored options; the
+            # new ones are silently discarded. Log it so that loss is not
+            # invisible (#3374 review).
+            new_labels = [o["label"] for o in opt_objs]
+            existing_labels = [
+                o.get("label") for o in (duplicate.get("options") or []) if isinstance(o, dict)
+            ]
+            if new_labels != existing_labels:
+                _logger.warning(
+                    "register_open_question deduped onto %s but the re-registration's "
+                    "options differ from the stored ones; keeping the stored set "
+                    "(new=%r, stored=%r)",
+                    duplicate.get("id"),
+                    new_labels,
+                    existing_labels,
+                )
             return {
                 "ok": True,
                 "id": duplicate.get("id"),

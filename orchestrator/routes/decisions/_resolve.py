@@ -6,6 +6,7 @@ from typing import Any
 
 import routes.decisions as _pkg
 from decision_queue import DecisionAlreadyResolvedError, DecisionNotFoundError
+from egg_contracts.decisions import truncate_question
 from events import EventType
 from flask import Response, request
 from state_store import InvalidPipelineIdError, PipelineNotFoundError
@@ -290,9 +291,7 @@ def _outstanding_contract_hitl(pipeline_id: str, pipeline: Any) -> list[dict[str
         # genuinely outstanding and invisible.
         if d_phase is None or d_phase == current_phase_val:
             continue
-        question = d.question or ""
-        if len(question) > 2_000:
-            question = question[:2_000] + "… (truncated)"
+        question = truncate_question(d.question or "")
         outstanding.append({"id": d.id, "question": question, "phase": d_phase})
     return outstanding
 

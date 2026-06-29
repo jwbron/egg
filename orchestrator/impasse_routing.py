@@ -535,11 +535,18 @@ def _record_escalate(
     # current decisions for an equivalent open question.
     duplicate = find_duplicate_open_question(contract.decisions, decision.question, decision.phase)
     if duplicate is not None:
+        # The dedup key is (normalized question, phase); the option set is
+        # not. If the re-escalation produced a different option set, the
+        # operator only ever sees the stored options — log it so the loss
+        # is not invisible (#3374 review).
+        new_labels = [getattr(o, "label", None) for o in (decision.options or [])]
+        existing_labels = [getattr(o, "label", None) for o in (duplicate.options or [])]
         logger.info(
             "Impasse escalation deduped onto existing HITL decision",
             slice_id=slice_obj.id if slice_obj else None,
             task_id=task.id if task else impasse.task_id,
             decision_id=duplicate.id,
+            options_differ=new_labels != existing_labels,
         )
         return RoutingDecision(
             action=ImpasseAction.ESCALATE,
