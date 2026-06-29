@@ -74,8 +74,8 @@ def _reseed_decision(**overrides) -> ResumeDecision:
         "resume": False,
         "session_id": None,
         "reason": "at_or_above_threshold",
-        "occupancy": 500_000,
-        "threshold": 400_000,
+        "occupancy": 900_000,
+        "threshold": 800_000,
     }
     base.update(overrides)
     return ResumeDecision(**base)
@@ -217,7 +217,7 @@ def test_synthetic_reseed_event_builds_all_six_metrics():
     assert snap.reseeded is True
     assert snap.resumed is False
     assert snap.reseed_reason == "at_or_above_threshold"
-    assert snap.prior_occupancy == 500_000
+    assert snap.prior_occupancy == 900_000
 
     # (1) window occupancy + slice-1 component breakout
     assert snap.window_occupancy == 120_000
@@ -232,13 +232,13 @@ def test_synthetic_reseed_event_builds_all_six_metrics():
     # (6) tokens per event = occupancy + output
     assert snap.tokens_per_event == 123_000
 
-    # (2)/(3) real backend window, threshold, utilization (opus[1m] -> 1M / 400k).
+    # (2)/(3) real backend window, threshold, utilization (opus[1m] -> 1M / 800k).
     # This exercises the dev/CI import-succeeds path (orchestrator on sys.path).
     # The production in-pod path — orchestrator off PYTHONPATH, window fed by the
     # EGG_REAL_BACKEND_WINDOW override or null — is covered by
     # test_real_window_resolves_from_env_in_pod / test_real_window_null_in_pod_*.
     assert snap.real_backend_window == 1_000_000
-    assert snap.reseed_threshold == 400_000
+    assert snap.reseed_threshold == 800_000
     assert snap.window_utilization == pytest.approx(120_000 / 1_000_000)
 
 
