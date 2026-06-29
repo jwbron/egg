@@ -8,6 +8,14 @@
       "repo": null,
       "role": "refiner"
     },
+    "040ee82f2d12f350147913ae407372caf0df8d39": {
+      "branch": "egg/pipeline-04d30dd8/work",
+      "patch_id": null,
+      "pipeline_id": "pipeline-04d30dd8",
+      "registered_at": "2026-06-29T22:23:32.776243+00:00",
+      "repo": null,
+      "role": "risk_analyst"
+    },
     "0ead2c7aae48c559136ce58bcb13423183aace7e": {
       "branch": "egg/pipeline-04d30dd8/work",
       "patch_id": "51be98bfe5dc8580d1608f32d4e24a06e2af482c",
