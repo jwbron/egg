@@ -68,8 +68,14 @@ FIELD_OWNERSHIP: dict[str, FieldOwner] = {
     "acceptance_criteria.*.verified": Role.REVIEWER,
     # Pipeline phase transitions owned by reviewer (allows implement→pr advancement)
     "current_phase": Role.REVIEWER,
-    # Decisions: implementer can CREATE new decisions, but only human can RESOLVE them
-    "decisions.*": Role.IMPLEMENTER,
+    # Decisions: implementer AND reviewer can CREATE new decisions, but only
+    # human can RESOLVE them. Reviewer create-access (the frozenset) lets a
+    # review-phase agent surface a HITL decision of its own — e.g. the
+    # ``first_principles_reviewer`` raising a redirect of the pipeline's seed
+    # for an operator to decide — without being mapped to IMPLEMENTER just to
+    # borrow the write. Resolution stays HUMAN-only (the fields below), so the
+    # broadened create-access cannot let an agent self-resolve.
+    "decisions.*": frozenset({Role.IMPLEMENTER, Role.REVIEWER}),
     "decisions.*.resolved": Role.HUMAN,
     "decisions.*.resolution": Role.HUMAN,
     "decisions.*.resolved_by": Role.HUMAN,

@@ -61,6 +61,11 @@ class TestRoleValueToReviewerTypeMappingInvariant:
             ("reviewer_contract", "contract"),
             ("reviewer_agent_design", "agent-design"),
             ("reviewer_refine", "refine"),
+            # Mandate-first name (no ``reviewer_`` prefix): the one-liner
+            # leaves it intact and only swaps underscores, yielding the
+            # slightly redundant but correct ``first-principles-reviewer``
+            # type the criteria dispatch keys on.
+            ("first_principles_reviewer", "first-principles-reviewer"),
             ("reviewer_plan", "plan"),
             # The two new lens reviewers — pitfall-1 guard. The current
             # one-liner already produces the right reviewer_type for

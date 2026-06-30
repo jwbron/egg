@@ -310,3 +310,274 @@ def _maybe_complete_task_from_resolution(
         commit=commit,
     )
     return {"action": "complete_task", "success": True, **result}
+
+
+# ---------------------------------------------------------------------------
+# First-principles redirect accept-path
+# ---------------------------------------------------------------------------
+#
+# The ``first_principles_reviewer`` files a refine-phase HITL decision whose
+# options are EXACTLY these labels; the resolve hook below keys on the resolved
+# label. SINGLE SOURCE OF TRUTH — the reviewer criteria in
+# ``routes/pipelines.py`` interpolate these same strings into the agent's
+# prompt, so the label the agent writes and the label this hook matches can
+# never drift. The reviewer also carries the proposed new direction on the
+# decision's ``redirect_seed`` field (written through the same contract-mutate
+# RPC that creates the decision — the one channel proven to reach the shared
+# pipeline worktree); ``adopt`` reads it back from there.
+FIRST_PRINCIPLES_ADOPT_OPTION = "Adopt the redirect (rewrite the seed and re-run the refine phase)"
+FIRST_PRINCIPLES_PROCEED_OPTION = "Proceed as-is (the current direction stands)"
+FIRST_PRINCIPLES_CANCEL_OPTION = "Don't build this (cancel the pipeline)"
+FIRST_PRINCIPLES_OPTIONS = (
+    FIRST_PRINCIPLES_ADOPT_OPTION,
+    FIRST_PRINCIPLES_PROCEED_OPTION,
+    FIRST_PRINCIPLES_CANCEL_OPTION,
+)
+
+
+def _read_first_principles_redirect(pipeline_id: str, decision: Any) -> str | None:
+    """Recover the reviewer's proposed redirect (the new seed) for ``adopt``.
+
+    The ``first_principles_reviewer`` carries its proposed redirect on the
+    decision's ``redirect_seed`` field, written through the same
+    ``register_open_question`` → contract-mutate RPC that creates the decision.
+    That RPC writes **directly into the shared pipeline worktree**, so unlike a
+    free-standing file in the reviewer's per-agent worktree (which has no
+    commit/push path off it under BRC isolation) the payload actually reaches
+    the orchestrator.
+
+    The primary resolve path hands us the contract ``Decision`` itself, so the
+    field is read straight off ``decision``. The bridged queue path hands us a
+    pipeline ``HITLDecision`` (a ``list[str]`` of bare option labels with no
+    structured payload), so we fall back to reloading the contract and reading
+    ``redirect_seed`` off the matching ``cq-N`` decision. Returns the stripped
+    new seed, or ``None`` when no payload is present.
+    """
+    seed = getattr(decision, "redirect_seed", None)
+    if isinstance(seed, str) and seed.strip():
+        return seed.strip()
+    # Fallback (bridged queue path): the pipeline HITLDecision doesn't carry
+    # ``redirect_seed``; recover it from the contract decision of the same id.
+    return _read_redirect_seed_from_contract(pipeline_id, getattr(decision, "id", None))
+
+
+def _read_redirect_seed_from_contract(pipeline_id: str, decision_id: Any) -> str | None:
+    """Read ``redirect_seed`` off the contract decision ``decision_id``.
+
+    Best-effort: returns ``None`` (and logs) when the worktree/contract can't
+    be loaded or the decision carries no redirect payload. When ``decision_id``
+    doesn't resolve to a contract decision, scans for the single first-
+    principles decision carrying a ``redirect_seed`` (the reviewer is the only
+    producer of that field, so the match is unambiguous).
+    """
+    import contract_store
+
+    try:
+        from egg_contracts import load_contract
+        from routes.pipelines import _pipeline_identifier
+
+        store, _ = _pkg.get_state_store_for_pipeline(pipeline_id)
+        pipeline = store.load_pipeline(pipeline_id)
+        worktree = contract_store.resolve_pipeline_worktree(pipeline_id)
+        if worktree is None:
+            return None
+        identifier = _pipeline_identifier(getattr(pipeline, "issue_number", None), pipeline_id)
+        contract = load_contract(identifier, worktree)
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Could not load contract to recover first-principles redirect seed",
+            pipeline_id=pipeline_id,
+            decision_id=decision_id,
+            exc_info=True,
+        )
+        return None
+
+    decisions = getattr(contract, "decisions", None) or []
+    seed_carriers: list[tuple[Any, str]] = []
+    for d in decisions:
+        seed = getattr(d, "redirect_seed", None)
+        if not (isinstance(seed, str) and seed.strip()):
+            continue
+        did = getattr(d, "id", None)
+        if did == decision_id:
+            return seed.strip()
+        seed_carriers.append((did, seed.strip()))
+
+    if not seed_carriers:
+        return None
+    # Id miss: fall back to the sole redirect-carrying decision. With more than
+    # one candidate the choice is order-dependent (no id matched), so warn —
+    # in normal operation the reviewer files exactly one such decision.
+    if len(seed_carriers) > 1:
+        logger.warning(
+            "Ambiguous first-principles redirect fallback: %d decisions carry a "
+            "redirect_seed but none match the resolved id; using the last",
+            len(seed_carriers),
+            pipeline_id=pipeline_id,
+            decision_id=decision_id,
+            candidate_ids=[did for did, _ in seed_carriers],
+        )
+    return seed_carriers[-1][1]
+
+
+def _cancel_pipeline_in_process(pipeline_id: str, *, reason: str) -> None:
+    """Cancel a pipeline from a resolution hook (status CANCELLED + cleanup).
+
+    Mirrors the inline cancel pattern used elsewhere: flip status under the
+    pipeline state lock, emit ``PIPELINE_CANCELLED``, and cancel pending
+    decisions so any ``wait_for_decision`` unblocks.
+    """
+    from models import PipelineStatus
+    from state_store import get_pipeline_state_lock
+
+    store, _ = _pkg.get_state_store_for_pipeline(pipeline_id)
+    lock = get_pipeline_state_lock(pipeline_id)
+    with lock:
+        pipeline = store.load_pipeline(pipeline_id)
+        pipeline.status = PipelineStatus.CANCELLED
+        pipeline.error = reason
+        store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
+
+    try:
+        _pkg.emit_event(
+            EventType.PIPELINE_CANCELLED,
+            pipeline_id=pipeline_id,
+            data={"reason": reason},
+        )
+    except Exception:
+        logger.warning(
+            "Failed to emit PIPELINE_CANCELLED event after first-principles cancel",
+            pipeline_id=pipeline_id,
+            exc_info=True,
+        )
+    try:
+        queue = _pkg.get_decision_queue(pipeline_id, store.repo_path)
+        for d in queue.get_pending_decisions():
+            queue.cancel_decision(d.id)
+    except Exception:
+        logger.warning(
+            "Failed to cancel pending decisions after first-principles cancel",
+            pipeline_id=pipeline_id,
+            exc_info=True,
+        )
+
+
+def _maybe_apply_first_principles_redirect(
+    pipeline_id: str,
+    decision: Any,
+    resolution_label: str,
+    pipeline: Any,
+) -> dict[str, Any] | None:
+    """Execute a first-principles redirect resolution — the accept-path.
+
+    Keys on the resolved option label (one of ``FIRST_PRINCIPLES_OPTIONS``):
+
+    - **Adopt** → rewrite the seed to the reviewer's proposed redirect and
+      re-run the refine phase against it.
+    - **Don't build** → cancel the pipeline.
+    - **Proceed** → no-op; the current direction stands and the decision is
+      simply marked resolved.
+
+    Returns an executed-action payload merged into the resolve response, or
+    ``None`` when the resolution is not a first-principles option. Failure is
+    logged AND surfaced in the payload — the decision is already resolved by
+    the time dispatch runs, so a silent failure would strand the operator's
+    intent.
+    """
+    label = resolution_label or ""
+    if label not in FIRST_PRINCIPLES_OPTIONS:
+        return None
+
+    # Guard: only act on refine-phase first-principles decisions. The labels
+    # are specific enough to be effectively unique, but the phase check keeps a
+    # coincidental match outside refine from triggering a seed rewrite. The
+    # phase is always populated on both resolve paths (the contract Decision is
+    # filed with ``--phase refine``; the bridged HITLDecision auto-infers it
+    # from the pipeline's current phase, which is refine while this gate is
+    # open), so require an exact match rather than letting ``phase=None``
+    # through.
+    phase = getattr(decision, "phase", None)
+    phase_val = getattr(phase, "value", phase)
+    if phase_val != "refine":
+        return None
+
+    decision_id = getattr(decision, "id", "?")
+
+    if label == FIRST_PRINCIPLES_PROCEED_OPTION:
+        logger.info(
+            "First-principles redirect: operator chose proceed-as-is",
+            pipeline_id=pipeline_id,
+            decision_id=decision_id,
+        )
+        return {"action": "first_principles_redirect", "outcome": "proceed", "success": True}
+
+    if label == FIRST_PRINCIPLES_CANCEL_OPTION:
+        try:
+            _cancel_pipeline_in_process(
+                pipeline_id,
+                reason=f"first-principles redirect: operator chose not to build (decision {decision_id})",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "First-principles cancel failed; pipeline not cancelled",
+                pipeline_id=pipeline_id,
+                decision_id=decision_id,
+                error=str(exc),
+                exc_info=True,
+            )
+            return {
+                "action": "first_principles_redirect",
+                "outcome": "cancel",
+                "success": False,
+                "error": str(exc),
+            }
+        return {"action": "first_principles_redirect", "outcome": "cancelled", "success": True}
+
+    # Adopt: rewrite the seed and re-run refine.
+    new_seed = _read_first_principles_redirect(pipeline_id, decision)
+    if not new_seed:
+        logger.error(
+            "First-principles adopt: no proposed redirect found on the "
+            "decision's redirect_seed; cannot rewrite the seed",
+            pipeline_id=pipeline_id,
+            decision_id=decision_id,
+        )
+        return {
+            "action": "first_principles_redirect",
+            "outcome": "adopt",
+            "success": False,
+            "error": "no proposed redirect found on the decision's redirect_seed",
+        }
+    try:
+        from routes.pipelines import apply_first_principles_redirect
+
+        agents = apply_first_principles_redirect(
+            pipeline_id, new_seed, reason=f"decision {decision_id} adopted"
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "First-principles adopt failed; seed/refine state may be partially "
+            "updated (the decision is still resolved)",
+            pipeline_id=pipeline_id,
+            decision_id=decision_id,
+            error=str(exc),
+            exc_info=True,
+        )
+        return {
+            "action": "first_principles_redirect",
+            "outcome": "adopt",
+            "success": False,
+            "error": str(exc),
+        }
+    logger.info(
+        "First-principles redirect adopted: seed rewritten, refine re-run",
+        pipeline_id=pipeline_id,
+        decision_id=decision_id,
+        agents_restarted=agents,
+    )
+    return {
+        "action": "first_principles_redirect",
+        "outcome": "adopted",
+        "success": True,
+        "agents_restarted": agents,
+    }

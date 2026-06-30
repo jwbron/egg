@@ -553,6 +553,18 @@ REVIEWER_REFINE_PATTERNS = AgentFilePattern(
     blocked_patterns=_REVIEWER_BLOCKED,
 )
 
+# First-principles reviewer: same reviewer write surface (reviews +
+# agent-outputs only, never source/drafts/contracts). It writes its
+# assessment under .egg-state/agent-outputs/ and its verdict under
+# .egg-state/reviews/; redirects go to the operator as HITL decisions, not
+# pushed files.
+FIRST_PRINCIPLES_REVIEWER_PATTERNS = AgentFilePattern(
+    role=AgentRole.FIRST_PRINCIPLES_REVIEWER,
+    description="reviews and agent-outputs only",
+    allowed_patterns=_REVIEWER_ALLOWED,
+    blocked_patterns=_REVIEWER_BLOCKED,
+)
+
 REVIEWER_PLAN_PATTERNS = AgentFilePattern(
     role=AgentRole.REVIEWER_PLAN,
     description="reviews and agent-outputs only",
@@ -751,6 +763,7 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.REFINER: REFINER_PATTERNS,
     AgentRole.SIMPLIFIER: SIMPLIFIER_PATTERNS,
     AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_PATTERNS,
+    AgentRole.FIRST_PRINCIPLES_REVIEWER: FIRST_PRINCIPLES_REVIEWER_PATTERNS,
     AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_PATTERNS,
     AgentRole.REVIEWER_SECURITY: REVIEWER_SECURITY_PATTERNS,
     AgentRole.REVIEWER_CONCURRENCY: REVIEWER_CONCURRENCY_PATTERNS,
@@ -854,6 +867,7 @@ def build_agent_patterns(
         AgentRole.REFINER: REFINER_PATTERNS,
         AgentRole.SIMPLIFIER: SIMPLIFIER_PATTERNS,
         AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_PATTERNS,
+        AgentRole.FIRST_PRINCIPLES_REVIEWER: FIRST_PRINCIPLES_REVIEWER_PATTERNS,
         AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_PATTERNS,
         AgentRole.REVIEWER_SECURITY: REVIEWER_SECURITY_PATTERNS,
         AgentRole.REVIEWER_CONCURRENCY: REVIEWER_CONCURRENCY_PATTERNS,

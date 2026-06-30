@@ -227,9 +227,10 @@ def get_default_refine_graph() -> ReviewGraph:
     Review adjacency per the phase-role mappings:
     - reviewer_refine reviews refiner (critical)
     - reviewer_agent_design reviews refiner (critical)
+    - first_principles_reviewer reviews refiner (critical)
 
     Producers: refiner
-    Reviewers: reviewer_refine, reviewer_agent_design
+    Reviewers: reviewer_refine, reviewer_agent_design, first_principles_reviewer
     """
     return ReviewGraph(
         [
@@ -237,6 +238,15 @@ def get_default_refine_graph() -> ReviewGraph:
             ReviewEdge("reviewer_refine", "refiner", ReviewCriticality.CRITICAL),
             # reviewer_agent_design reviews refiner (critical)
             ReviewEdge("reviewer_agent_design", "refiner", ReviewCriticality.CRITICAL),
+            # first_principles_reviewer reviews refiner (critical). The CRITICAL
+            # edge is the "must weigh in" lever: refine consensus cannot close
+            # until this role has reviewed and ACKed the refiner. It does NOT
+            # NACK on first-principles grounds — premise/direction concerns are
+            # the operator's call, not the refiner's to fix (the seed is
+            # operator-owned), so it ACKs and raises any redirect as a
+            # phase-scoped HITL decision, which independently holds the
+            # refine→plan completion gate open until the operator resolves it.
+            ReviewEdge("first_principles_reviewer", "refiner", ReviewCriticality.CRITICAL),
             # The simplifier produces the human-focused analysis companion
             # (faithful + jargon-free), gated CRITICAL by reviewer_refine.
             # It is a PRODUCER ONLY (#3381): the propose-arm wakes it to

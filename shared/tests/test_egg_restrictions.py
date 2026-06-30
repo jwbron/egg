@@ -75,14 +75,15 @@ class TestAgentRole:
 
 
 class TestAgentPatterns:
-    def test_registry_has_all_20_roles(self):
+    def test_registry_has_all_roles(self):
         # Issue #1557 — APPLIER joined the registry (Jira-epic SDLC
         # support); the count grew from 19 to 20. Issue #2925 — ORCHESTRATOR
         # was removed (the orchestrator is the control plane, not an agent
         # role; its gh pre-flights now run on launcher-authed control-plane
         # routes), dropping the count back to 19. SIMPLIFIER (human-focused
-        # draft companions) brings it to 20.
-        assert len(AGENT_PATTERNS) == 20
+        # draft companions) brings it to 20. FIRST_PRINCIPLES_REVIEWER
+        # (adversarial premise/direction reviewer, refine phase) brings it to 21.
+        assert len(AGENT_PATTERNS) == 21
 
     def test_registry_keys_match_role_constants(self):
         expected_roles = {
@@ -102,6 +103,8 @@ class TestAgentPatterns:
             AgentRole.REVIEWER_CONTRACT,
             AgentRole.REVIEWER_AGENT_DESIGN,
             AgentRole.REVIEWER_REFINE,
+            # Adversarial premise/direction reviewer (refine phase).
+            AgentRole.FIRST_PRINCIPLES_REVIEWER,
             AgentRole.REVIEWER_PLAN,
             AgentRole.REVIEWER_SECURITY,
             AgentRole.REVIEWER_CONCURRENCY,

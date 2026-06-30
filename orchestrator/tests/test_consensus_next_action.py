@@ -604,14 +604,21 @@ def test_advisory_reviewer_can_confirm_after_producer_confirmed(client, advisory
 
 @pytest.fixture
 def simplifier_refine_tracker():
-    """The real refine-phase graph: refiner (producer) + its two CRITICAL
-    reviewers + the simplifier, which is a PRODUCER of the human companion
-    and carries a WAKE-ONLY advisory edge over the refiner.
+    """The real refine-phase graph: refiner (producer) + its three CRITICAL
+    reviewers (reviewer_refine, reviewer_agent_design, first_principles_reviewer)
+    + the simplifier, which is a PRODUCER of the human companion and carries a
+    WAKE-ONLY advisory edge over the refiner.
     """
     from review_graph import get_default_refine_graph
 
     t = PeerConsensusTracker(PIPELINE_ID, get_default_refine_graph(), cooldown_seconds=0)
-    for role in ("refiner", "reviewer_refine", "reviewer_agent_design", "simplifier"):
+    for role in (
+        "refiner",
+        "reviewer_refine",
+        "reviewer_agent_design",
+        "first_principles_reviewer",
+        "simplifier",
+    ):
         t.register_agent(role)
     return t
 
@@ -658,6 +665,10 @@ def test_wake_only_simplifier_confirms_without_verdict(client, simplifier_refine
     # Refiner's CRITICAL reviewers ACK it; the simplifier never does.
     _ack(t, "reviewer_refine", "refiner", version=1)
     _ack(t, "reviewer_agent_design", "refiner", version=1)
+    # first_principles_reviewer is also a CRITICAL reviewer of the refiner: it
+    # ACKs (it escalates redirects via HITL, never via NACK), so consensus on
+    # the refiner now requires its ACK too.
+    _ack(t, "first_principles_reviewer", "refiner", version=1)
     # reviewer_refine ACKs the companion (the simplifier's only CRITICAL reviewer).
     _ack(t, "reviewer_refine", "simplifier", version=1)
 
@@ -671,6 +682,7 @@ def test_wake_only_simplifier_confirms_without_verdict(client, simplifier_refine
     t.handle_confirmed("simplifier")
     t.handle_confirmed("reviewer_refine")
     t.handle_confirmed("reviewer_agent_design")
+    t.handle_confirmed("first_principles_reviewer")
     assert t.evaluate()["is_complete"] is True
     # The simplifier never cast a verdict on the refiner — its wake-only
     # matrix entry stays at the registration-time PENDING (never ACK/NACK).
