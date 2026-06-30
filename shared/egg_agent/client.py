@@ -304,16 +304,15 @@ async def run_agent_async(
         # CLIJSONDecodeError is a subclass of ClaudeSDKError, so it's
         # caught by the existing handler below — issue #2804 relies on
         # its error message preserving the ``exceeded maximum buffer
-        # size`` marker so the consensus-wrapper can short-circuit
-        # retry on this failure class. Tests pin that the marker
-        # propagates into ``result.error`` once raised, and that the
-        # consensus-wrapper grep matches ``_BUFFER_OVERFLOW_MARKER``;
-        # stability of the marker against future ``claude-agent-sdk``
-        # releases is NOT verified (the SDK could change the wording
-        # at any minor bump and the wrapper would silently fall back
-        # to burning the transient-crash retry budget). See #2823 for
-        # the follow-up to pin or smoke-test the marker against the
-        # installed SDK.
+        # size`` marker (``_BUFFER_OVERFLOW_MARKER``). Tests pin that the
+        # marker propagates into ``result.error`` once raised. #3164
+        # removed the consensus-wrapper grep that once short-circuited
+        # retry on this marker (the in-pod loop went with it), so the
+        # overflow now takes the same orchestrator-side ``record_abort``
+        # streak path as any other non-zero exit — nothing greps the
+        # marker today. #2823 tracks pinning the marker against the
+        # installed ``claude-agent-sdk`` should a future classifier-gated
+        # fast-fail path reintroduce a grep.
     except ImportError:
         return AgentResult(
             success=False,
