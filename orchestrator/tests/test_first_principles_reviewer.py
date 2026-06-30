@@ -246,7 +246,7 @@ class TestAcceptPathHookDispatch:
         assert out["outcome"] == "adopted"
         assert out["success"] is True
 
-    def test_fallback_warns_when_multiple_seeds_and_id_misses(self, caplog) -> None:
+    def test_fallback_warns_when_multiple_seeds_and_id_misses(self) -> None:
         from routes.decisions._handlers import _read_redirect_seed_from_contract
 
         # Id miss with more than one redirect-carrying decision: the choice is
@@ -265,13 +265,17 @@ class TestAcceptPathHookDispatch:
             patch("contract_store.resolve_pipeline_worktree", return_value="/tmp/wt"),
             patch("routes.pipelines._pipeline_identifier", return_value=7),
             patch("egg_contracts.load_contract", return_value=contract),
-            caplog.at_level("WARNING"),
+            patch("routes.decisions._handlers.logger") as mock_logger,
         ):
             seed = _read_redirect_seed_from_contract("p1", "cq-99")
 
         assert seed == "second seed"
+        # egg's structured logger sets ``propagate=False``, so its records
+        # bypass pytest's caplog fixture; assert the warning call directly.
+        assert mock_logger.warning.called
         assert any(
-            "Ambiguous first-principles redirect fallback" in r.getMessage() for r in caplog.records
+            "Ambiguous first-principles redirect fallback" in str(call.args[0])
+            for call in mock_logger.warning.call_args_list
         )
 
 
