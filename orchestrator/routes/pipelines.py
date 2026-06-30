@@ -5387,7 +5387,62 @@ def _get_refine_review_criteria() -> str:
         "the agent must re-run `egg-contract add-decision` or "
         "`egg-contract add-feedback` for each question.\n"
         "- If there are zero open questions, verify that the requirements are "
-        "genuinely unambiguous and no assumptions were made silently.\n"
+        "genuinely unambiguous and no assumptions were made silently.\n\n"
+        + _human_companion_review_criteria(
+            companion="`*-analysis-human.md`",
+            parent="the refine analysis",
+            producer="refiner",
+        )
+    )
+
+
+def _human_companion_review_criteria(*, companion: str, parent: str, producer: str) -> str:
+    """Forcing checklist for verifying the simplifier's human companion.
+
+    Shared by the refine and plan reviewer rubrics so the companion is
+    judged at VERDICT time (#3381), not merely mentioned in the reviewer's
+    "while waiting" preparation text. The simplifier is a producer-only role
+    whose companion is gated CRITICAL by this reviewer; the companion is the
+    only artifact with no automated content check, so this reviewer is the
+    sole gate on its format. Walk every item before ACKing the **simplifier**
+    (this section governs the simplifier's proposal, never the {producer}'s).
+    """
+    return (
+        f"### Human-Focused Companion ({companion} — the simplifier's "
+        "proposal)\n"
+        f"The simplifier produces {companion}, a plain-language companion to "
+        f"{parent} for a **broad audience — engineers, PMs, and managers**. "
+        "It is gated CRITICAL by you and has no automated content check, so "
+        "you are the only gate on its format. **You must walk this checklist "
+        "and answer every item before you ACK the simplifier** (this is a "
+        f"separate verdict from your review of the {producer}; NACK the "
+        "**simplifier**, never the "
+        f"{producer}, for companion defects):\n"
+        f"1. **Is it a summary, not a review?** Open {companion} and the full "
+        f"{parent} side-by-side. NACK if the companion reads as a "
+        "review/critique of the draft rather than a summary of it — any "
+        'verdict/scoring framing ("verdict", "what I verified", "I '
+        'affirm", "sound", ACK/NACK language), any directives aimed at a '
+        'later phase ("the plan should commit to", "don\'t let the plan '
+        'inflate", "guardrails", "anti-pattern to reject"), or any '
+        "constraint lists. The companion explains the change to a human; it "
+        "does not judge it.\n"
+        "2. **Is it free of implementation minutiae?** NACK if it contains "
+        "`file:line` references (e.g. `foo.go::Bar` / `L209`), function / "
+        "struct / field / type names or other code identifiers, or per-field "
+        "enumerations. It should describe behaviour and user-visible impact, "
+        "not the code.\n"
+        "3. **Is it materially lighter than the parent?** NACK if it is a "
+        "near-copy or as long/dense as the full draft. It must be "
+        "substantially shorter and more digestible — plain prose and short "
+        "lists.\n"
+        "4. **Is it readable by a non-engineer?** NACK if a PM or manager "
+        "could not follow *what is changing and why it matters*, or if it "
+        "leaks egg-internal jargon (BRC, consensus, slice-DAG, contract, "
+        "phase, agent-role terms).\n"
+        f"5. **Is it faithful?** NACK if it misrepresents {parent}, omits a "
+        "material point, or introduces new scope/claims.\n"
+        "A missing or empty companion is a NACK — it is mandatory.\n"
     )
 
 
@@ -5623,7 +5678,12 @@ def _get_plan_review_criteria() -> str:
         "Belt-and-suspenders self-check: "
         '`python3 -c "from egg_contracts.plan_parser import parse_plan_file, '
         "validate_slice_file_overlap as v; r = parse_plan_file('<plan-path>'); "
-        "print('\\n'.join(v(r.to_contract_slices())))\"`.\n"
+        "print('\\n'.join(v(r.to_contract_slices())))\"`.\n\n"
+        + _human_companion_review_criteria(
+            companion="`*-plan-human.md`",
+            parent="the implementation plan",
+            producer="task_planner",
+        )
     )
 
 
@@ -13207,39 +13267,36 @@ def _build_brc_preamble(
     # (after the tester has proposed) likewise re-invoke the tester to
     # handle the Reviewer Lifecycle for those events.
     if is_dual_role and role_value == "simplifier":
-        # The simplifier is dual-role but ASYMMETRIC: its primary job is the
-        # producer one (the human-focused companion); the reviewer edge is
-        # advisory-only (the event-pump wake-up arm). It must NOT inherit the
-        # tester's review-and-harden banner below, which primes an ACK/NACK
-        # mental model and leads the companion to come out as a critique of
-        # the upstream draft instead of a plain-language summary.
+        # The simplifier carries an advisory review edge over the upstream
+        # producer PURELY as the event-pump wake-wire — it is what re-invokes
+        # the simplifier when the upstream proposes. It is NOT a reviewer in
+        # any behavioural sense: it issues no verdict, casts no ACK/NACK, and
+        # never critiques the draft (#3381). Treating it as a reviewer is what
+        # made the companion come out as a review/critique memo instead of a
+        # plain-language summary. So it gets a PRODUCER-ONLY banner here and
+        # must NOT inherit the tester's review-and-harden banner below.
         lines.append(
-            "### Dual-Role Execution Order (READ FIRST — simplifier)\n\n"
-            "You are dual-role, but the two roles are **not symmetric**. Your "
-            "PRIMARY job is the PRODUCER one: writing a plain-language, "
-            "human-focused companion to the upstream producer's draft. Your "
-            "reviewer edge is **advisory only** — it exists so the event pump "
-            "re-invokes you when the upstream producer proposes, and your "
-            "verdict never blocks consensus.\n\n"
+            "### Execution Order (READ FIRST — simplifier)\n\n"
+            "You are a **producer only**: your single job is to write a "
+            "plain-language, human-focused companion to the upstream "
+            "producer's draft. You do **not** review, critique, score, or "
+            "vote on that draft — you never issue an ACK or a NACK. (An "
+            "internal wake-wire re-invokes you when the upstream proposes so "
+            "you know its draft is ready; consensus never waits on a verdict "
+            "from you, so there is nothing to respond to.)\n\n"
             "**Execute in this order:**\n\n"
-            "1. **Producer ORIENT (FIRST).** Read the contract and orient. "
-            "Your producer WORK depends on the upstream producer's draft "
-            "existing, so you begin writing only once that producer issues "
-            "`CONSENSUS_PROPOSE` — the event-pump wrapper re-invokes you "
-            "carrying that proposal. Do not race ahead before the draft "
-            "exists.\n"
+            "1. **ORIENT (FIRST).** Read the contract and orient. Your work "
+            "depends on the upstream producer's draft existing, so you begin "
+            "writing only once that producer issues `CONSENSUS_PROPOSE` — the "
+            "event-pump wrapper re-invokes you carrying that proposal. Do not "
+            "race ahead before the draft exists.\n"
             "2. **On the upstream producer's PROPOSE**, the wrapper re-invokes "
             "you with the proposal in your event payload. SYNC the worktree, "
             "read the draft, then write and PROPOSE the human-focused "
-            "companion (see Producer role below).\n"
-            "3. **Issue your advisory verdict in the same pass.** ACK the "
-            "upstream producer (you read its draft to summarise it); NACK "
-            "only if the draft is too incoherent or incomplete to summarise "
-            "faithfully. **Any critique you have belongs in this verdict and "
-            "its message — NEVER in the companion document.** The companion "
-            "is a simplified summary written *for humans to read*, not a "
-            "review of the draft, not a list of constraints the draft should "
-            "satisfy, and not an ACK/NACK rationale.\n"
+            "companion (see Producer role below). That is the whole job — "
+            "the companion is a simplified summary written *for humans to "
+            "read*, never a review of the draft, a list of constraints the "
+            "draft should satisfy, or an ACK/NACK rationale.\n"
         )
     elif is_dual_role:
         lines.append(
@@ -13440,16 +13497,14 @@ def _build_brc_preamble(
                 "invocation; subsequent invocations land you directly at "
                 "step 3 (SYNC) with the proposal already in context."
                 + (
-                    "\n\n   **Dual-role agents (you)** — per the "
-                    "*Dual-Role Execution Order* banner above (simplifier): "
-                    "your first invocation does ORIENT/PREPARE only. On the "
-                    "upstream producer's `CONSENSUS_PROPOSE` the wrapper "
-                    "re-invokes you with the proposal in your event payload; "
-                    "SYNC, write and PROPOSE your human-focused companion, "
-                    "then issue your ADVISORY ACK/NACK on the upstream "
-                    "producer in the same invocation. Your verdict is "
-                    "advisory and never blocks consensus — keep any critique "
-                    "in that verdict, never in the companion document."
+                    "\n\n   **You (simplifier) are a producer only** — per the "
+                    "*Execution Order* banner above: your first invocation does "
+                    "ORIENT/PREPARE only. On the upstream producer's "
+                    "`CONSENSUS_PROPOSE` the wrapper re-invokes you with the "
+                    "proposal in your event payload; SYNC, then write and "
+                    "PROPOSE your human-focused companion. That is the whole "
+                    "job — you do not review the draft, and you issue no "
+                    "ACK/NACK on it."
                     if role_value == "simplifier"
                     else "\n\n   **Dual-role agents (you)** — per the "
                     "*Dual-Role Execution Order* banner above (updated "
@@ -14142,13 +14197,13 @@ def _build_producer_orientation(
             "keep their review criteria in mind as you work."
         )
 
-    # The simplifier runs in both the refine and plan phases and is
-    # DUAL-ROLE (advisory reviewer of the upstream producer + producer of
-    # the human-focused companion). Its producer WORK depends on the
-    # upstream producer's draft existing, so — like the implement-phase
-    # tester — it orients up-front and starts producing only once the
-    # upstream proposes (the event pump re-invokes it on that PROPOSE via
-    # its advisory review arm).
+    # The simplifier runs in both the refine and plan phases as a PRODUCER
+    # ONLY (the human-focused companion). It carries an advisory review edge
+    # over the upstream producer purely as the event-pump wake-wire — that is
+    # what re-invokes it on the upstream's PROPOSE — but it issues no verdict
+    # and never reviews the draft (#3381). Its work depends on the upstream
+    # producer's draft existing, so — like the implement-phase tester — it
+    # orients up-front and starts producing only once the upstream proposes.
     if role_value == "simplifier":
         if phase == "plan":
             upstream, draft_desc = "task_planner", "the implementation plan"
@@ -14161,7 +14216,7 @@ def _build_producer_orientation(
                 f"`git fetch origin && git merge origin/{branch} --no-edit`."
             )
         return (
-            f"your producer WORK depends on **{upstream}**'s draft of {draft_desc} "
+            f"your WORK depends on **{upstream}**'s draft of {draft_desc} "
             "existing — do NOT write your companion before it is pushed. ORIENT "
             "now (read the contract and the issue/task description so you "
             "understand the subject), then exit; the event pump re-invokes you "
@@ -14170,11 +14225,9 @@ def _build_producer_orientation(
             "upstream draft, then write a simplified, higher-level companion "
             "that captures its essence in plain, jargon-free language for a "
             "broad audience (engineers, PMs, and managers) — a summary, NOT a "
-            "review of the draft — and PROPOSE it. In the same "
-            f"pass, issue your ADVISORY review verdict on **{upstream}** — ACK "
-            "(you read the draft to summarize it), or NACK only if the draft is "
-            "too incoherent to faithfully summarize. Your verdict is advisory "
-            f"and never blocks **{upstream}**'s consensus." + sync_note + reviewer_awareness
+            "review of the draft — and PROPOSE it. That is the whole job: you "
+            f"do NOT review **{upstream}**'s draft and you issue no ACK or NACK "
+            "on it." + sync_note + reviewer_awareness
         )
 
     if phase == "implement":
@@ -15388,13 +15441,13 @@ def _build_agent_prompt(
             _essence = "the problem, the recommended approach, and the key trade-offs"
         lines.extend(
             [
-                "**You are dual-role (producer AND advisory reviewer) in this "
-                "phase.** You produce a human-focused companion to "
-                f"{_upstream_draft}, and you carry an ADVISORY review edge over "
-                f"**{_upstream}** purely so the event pump re-invokes you when it "
-                "proposes — your verdict never blocks its consensus. The "
-                "*Dual-Role Execution Order* banner in your BRC preamble is the "
-                "authoritative ordering — read it first.",
+                "**You are a producer only in this phase.** You produce a "
+                f"human-focused companion to {_upstream_draft}. You do NOT "
+                f"review **{_upstream}**'s draft, and you issue no ACK or NACK "
+                "on it: an internal wake-wire re-invokes you when it proposes "
+                "so you know its draft is ready, and consensus never waits on a "
+                "verdict from you. The *Execution Order* banner in your BRC "
+                "preamble is the authoritative ordering — read it first.",
                 "",
                 "## Producer role (human-focused companion)",
                 "",
@@ -15426,8 +15479,8 @@ def _build_agent_prompt(
                 "   - **This is NOT a review.** Do not critique, score, or gate "
                 'the upstream draft. No ACK/NACK language, no "the draft should '
                 'commit to …", no "anti-pattern to reject", no constraint '
-                "lists. Any critique you have goes in your advisory reviewer "
-                "verdict (below), never in this document.",
+                "lists. You have no critique to record anywhere — your only "
+                "output is this plain-language summary.",
                 "   - **Much shorter and more digestible** than the upstream "
                 "draft — plain prose and short lists, not exhaustive enumeration.",
                 "   - **Faithful** — reflect the upstream draft accurately; "
@@ -15436,16 +15489,7 @@ def _build_agent_prompt(
                 f"3. Commit and push `{_human_path}`, then PROPOSE it via "
                 "`egg-orch consensus propose`. The companion is **mandatory** — "
                 "always write at least a one-paragraph summary; do NOT take the "
-                "no-op propose path.",
-                "",
-                f"## Reviewer role (advisory, on {_upstream})",
-                "",
-                f"When **{_upstream}** proposes, emit an ADVISORY verdict in the "
-                "same pass: `egg-orch consensus ack` (you read the draft to "
-                "summarize it), or `egg-orch consensus nack` **only** if the "
-                "draft is too incoherent or incomplete to summarize faithfully. "
-                "Advisory means your verdict is recorded but never blocks "
-                f"**{_upstream}**'s consensus.",
+                "no-op propose path. That completes your work for this phase.",
                 "",
                 *_EXPLORATION_SUBAGENT_GUIDANCE,
             ]

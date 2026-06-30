@@ -4562,10 +4562,11 @@ class TestSimplifierHumanCompanionPrompt:
     ``file:line`` / struct-field detail.
     """
 
-    def test_simplifier_gets_own_banner_not_tester_banner(self):
-        """The dual-role simplifier must get its own producer-first banner, not
-        the tester's review-and-harden banner (which primed the ACK/NACK
-        mental model that turned the companion into a critique)."""
+    def test_simplifier_gets_producer_only_banner_not_tester_banner(self):
+        """The simplifier must get its own PRODUCER-ONLY banner, not the
+        tester's review-and-harden banner (which primed the ACK/NACK mental
+        model that turned the companion into a critique). Per #3381 the
+        simplifier issues no verdict at all."""
         preamble = _build_brc_preamble(
             "simplifier",
             "refine",
@@ -4573,12 +4574,45 @@ class TestSimplifierHumanCompanionPrompt:
             branch="egg/issue-1/work",
             base_branch="main",
         )
-        assert "Dual-Role Execution Order (READ FIRST — simplifier)" in preamble
+        assert "Execution Order (READ FIRST — simplifier)" in preamble
+        assert "producer only" in preamble
         # The tester-specific banner and its hardening language must be absent.
         assert "coder-owns-tests" not in preamble
         assert "hardening the coder's tests" not in preamble
-        # Critique belongs in the verdict, never in the companion document.
-        assert "NEVER in the companion document" in preamble
+
+    def test_simplifier_banner_issues_no_verdict(self):
+        """#3381: the simplifier must not be told to issue an ACK/NACK or
+        verdict on the upstream draft — being a reviewer is what made the
+        companion come out review-shaped. The advisory edge stays in the
+        review graph purely as the event-pump wake-wire."""
+        preamble = _build_brc_preamble(
+            "simplifier",
+            "refine",
+            repo="egg",
+            branch="egg/issue-1/work",
+            base_branch="main",
+        )
+        lowered = preamble.lower()
+        # No instruction to cast a verdict on the upstream draft.
+        assert "issue your advisory verdict" not in lowered
+        assert "advisory ack/nack" not in lowered
+        # The banner explicitly tells it it issues no ACK/NACK.
+        assert "you never issue an ack or a nack" in lowered
+
+    def test_simplifier_agent_prompt_has_no_reviewer_section(self):
+        """#3381: the simplifier agent prompt must not carry a reviewer-role
+        section instructing an advisory ACK/NACK on the upstream."""
+        result = _build_agent_prompt(
+            role_value="simplifier",
+            phase="refine",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+        )
+        assert "## Reviewer role" not in result
+        assert "emit an ADVISORY verdict" not in result
+        assert "producer only" in result
 
     def test_tester_banner_unchanged_for_tester(self):
         """The simplifier carve-out must not disturb the tester's banner."""
@@ -4641,6 +4675,31 @@ class TestSimplifierHumanCompanionPrompt:
         assert "side-by-side with the full plan" in prep
         assert "broad audience" in prep
         assert "review/critique" in prep
+
+    def test_refine_verdict_rubric_includes_companion_checklist(self):
+        """#3381 (gate side): the companion checklist must live in the refine
+        reviewer's VERDICT rubric, not just its 'while waiting' prep text —
+        the prep text is not the rubric the reviewer runs at ACK/NACK time, so
+        the gate had no companion criteria and ACKed a review-shaped doc."""
+        criteria = _get_refine_review_criteria()
+        assert "Human-Focused Companion" in criteria
+        assert "*-analysis-human.md" in criteria
+        # Forcing language + the specific defects it must NACK on.
+        assert "before you ACK the simplifier" in criteria
+        assert "summary, not a review" in criteria
+        assert "file:line" in criteria
+        assert "materially lighter" in criteria
+        # NACK the simplifier, never the producer it summarises.
+        assert "NACK the **simplifier**, never the refiner" in criteria
+
+    def test_plan_verdict_rubric_includes_companion_checklist(self):
+        """The plan reviewer's verdict rubric carries the same forcing
+        companion checklist, scoped to the plan companion + task_planner."""
+        criteria = _get_plan_review_criteria()
+        assert "Human-Focused Companion" in criteria
+        assert "*-plan-human.md" in criteria
+        assert "before you ACK the simplifier" in criteria
+        assert "NACK the **simplifier**, never the task_planner" in criteria
 
     def test_tester_orientation_contains_dual_mandate_pointer(self):
         """Tester orientation carries a brief dual-mandate pointer, NOT the
