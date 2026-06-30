@@ -246,6 +246,34 @@ class TestAcceptPathHookDispatch:
         assert out["outcome"] == "adopted"
         assert out["success"] is True
 
+    def test_fallback_warns_when_multiple_seeds_and_id_misses(self, caplog) -> None:
+        from routes.decisions._handlers import _read_redirect_seed_from_contract
+
+        # Id miss with more than one redirect-carrying decision: the choice is
+        # order-dependent, so the scan warns and returns the last candidate
+        # rather than silently picking one (#3385 review).
+        contract = SimpleNamespace(
+            decisions=[
+                SimpleNamespace(id="cq-1", redirect_seed="first seed"),
+                SimpleNamespace(id="cq-2", redirect_seed="second seed"),
+            ]
+        )
+        store = SimpleNamespace(load_pipeline=lambda _pid: SimpleNamespace(issue_number=7))
+
+        with (
+            patch("routes.decisions.get_state_store_for_pipeline", return_value=(store, None)),
+            patch("contract_store.resolve_pipeline_worktree", return_value="/tmp/wt"),
+            patch("routes.pipelines._pipeline_identifier", return_value=7),
+            patch("egg_contracts.load_contract", return_value=contract),
+            caplog.at_level("WARNING"),
+        ):
+            seed = _read_redirect_seed_from_contract("p1", "cq-99")
+
+        assert seed == "second seed"
+        assert any(
+            "Ambiguous first-principles redirect fallback" in r.getMessage() for r in caplog.records
+        )
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

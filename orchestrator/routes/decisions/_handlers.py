@@ -393,15 +393,31 @@ def _read_redirect_seed_from_contract(pipeline_id: str, decision_id: Any) -> str
         return None
 
     decisions = getattr(contract, "decisions", None) or []
-    fallback: str | None = None
+    seed_carriers: list[tuple[Any, str]] = []
     for d in decisions:
         seed = getattr(d, "redirect_seed", None)
         if not (isinstance(seed, str) and seed.strip()):
             continue
-        if getattr(d, "id", None) == decision_id:
+        did = getattr(d, "id", None)
+        if did == decision_id:
             return seed.strip()
-        fallback = seed.strip()
-    return fallback
+        seed_carriers.append((did, seed.strip()))
+
+    if not seed_carriers:
+        return None
+    # Id miss: fall back to the sole redirect-carrying decision. With more than
+    # one candidate the choice is order-dependent (no id matched), so warn —
+    # in normal operation the reviewer files exactly one such decision.
+    if len(seed_carriers) > 1:
+        logger.warning(
+            "Ambiguous first-principles redirect fallback: %d decisions carry a "
+            "redirect_seed but none match the resolved id; using the last",
+            len(seed_carriers),
+            pipeline_id=pipeline_id,
+            decision_id=decision_id,
+            candidate_ids=[did for did, _ in seed_carriers],
+        )
+    return seed_carriers[-1][1]
 
 
 def _cancel_pipeline_in_process(pipeline_id: str, *, reason: str) -> None:

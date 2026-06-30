@@ -126,11 +126,12 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
         # Idempotent: no contract write, return the prior decision.
         duplicate = find_duplicate_open_question(decisions, question, decision_phase)
         if duplicate is not None:
-            # The dedup key is (normalized question, phase) — the option set
-            # is *not* part of it. If the re-registration carries a different
-            # option set, the operator only ever sees the stored options; the
-            # new ones are silently discarded. Log it so that loss is not
-            # invisible (#3374 review).
+            # The dedup key is (normalized question, phase) — neither the option
+            # set nor the redirect seed is part of it. If the re-registration
+            # carries a different option set or a different ``redirect_seed``,
+            # the operator only ever sees the stored values; the new ones are
+            # silently discarded. Log it so that loss is not invisible
+            # (#3374 review).
             new_labels = [o["label"] for o in opt_objs]
             existing_labels = [
                 o.get("label") for o in (duplicate.get("options") or []) if isinstance(o, dict)
@@ -143,6 +144,14 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
                     duplicate.get("id"),
                     new_labels,
                     existing_labels,
+                )
+            existing_seed = duplicate.get("redirect_seed")
+            if redirect_seed is not None and redirect_seed != existing_seed:
+                _logger.warning(
+                    "register_open_question deduped onto %s but the re-registration's "
+                    "redirect_seed differs from the stored one; keeping the stored "
+                    "seed (the operator adopts the originally-registered redirect)",
+                    duplicate.get("id"),
                 )
             return {
                 "ok": True,

@@ -298,6 +298,42 @@ class TestRegisterOpenQuestion:
         # Only the contract read happened — no mutate write.
         assert gr.call_count == 1
 
+    def test_dedup_warns_when_redirect_seed_differs(self, caplog):
+        """A re-registration that dedupes onto an existing open question but
+        carries a *different* ``redirect_seed`` keeps the stored seed and logs
+        the discard so the loss is not invisible (#3385 review)."""
+        existing = _fake_contract(
+            current_phase="refine",
+            decisions=[
+                {
+                    "id": "cq-1",
+                    "question": "Redirect the seed?",
+                    "type": "hitl",
+                    "phase": "refine",
+                    "resolved": False,
+                    "redirect_seed": "original proposed seed",
+                }
+            ],
+        )
+        with (
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request",
+                side_effect=lambda *a, **kw: {"success": True, "data": existing},
+            ) as gr,
+            patch("egg_agent_tools.handlers.sdlc.get_contract_identifier", return_value=42),
+            caplog.at_level("WARNING", logger="egg_agent_tools.handlers.sdlc"),
+        ):
+            resp = sdlc.register_open_question(
+                {"question": "Redirect the seed?", "redirect_seed": "a different seed"}
+            )
+
+        assert resp["id"] == "cq-1"
+        assert resp["deduped"] is True
+        # The stored seed wins; the new one is discarded but logged.
+        assert resp["decision"]["redirect_seed"] == "original proposed seed"
+        assert gr.call_count == 1
+        assert any("redirect_seed differs" in r.message for r in caplog.records)
+
     def test_resolved_duplicate_does_not_block_new_registration(self):
         """An already-*resolved* identical question must not suppress a
         fresh registration — only open questions dedupe (#3374)."""
