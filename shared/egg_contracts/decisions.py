@@ -75,6 +75,51 @@ def _field(d: Any, name: str) -> Any:
     return getattr(d, name, None)
 
 
+def _find_equivalent_question(
+    existing: Iterable[Any],
+    question: str,
+    phase: Any,
+    *,
+    resolved: bool,
+) -> Any | None:
+    """Return the first HITL decision equivalent to ``question`` in the
+    requested resolution state.
+
+    Shared scan behind :func:`find_duplicate_open_question` (``resolved``
+    is :data:`False`) and :func:`find_resolved_question` (``resolved`` is
+    :data:`True`). Matches a decision that is
+
+    - a HITL decision (``type == "hitl"``),
+    - in the requested ``resolved`` state, and
+    - whose :func:`normalize_question` form equals that of ``question``
+      under the same ``phase``.
+
+    ``existing`` may hold :class:`Decision` instances or plain dicts
+    (the gateway's JSON contract payload), mirroring :func:`next_cq_id`.
+    ``phase`` is compared on its string value so a ``PipelinePhase`` enum,
+    its ``.value``, or ``None`` all match consistently.
+    """
+    target = normalize_question(question)
+    if not target:
+        return None
+    target_phase = getattr(phase, "value", phase)
+
+    for d in existing:
+        d_type = _field(d, "type")
+        d_type = getattr(d_type, "value", d_type)
+        if d_type != "hitl":
+            continue
+        if bool(_field(d, "resolved")) != resolved:
+            continue
+        d_phase = _field(d, "phase")
+        d_phase = getattr(d_phase, "value", d_phase)
+        if d_phase != target_phase:
+            continue
+        if normalize_question(_field(d, "question")) == target:
+            return d
+    return None
+
+
 def find_duplicate_open_question(
     existing: Iterable[Any],
     question: str,
@@ -99,25 +144,32 @@ def find_duplicate_open_question(
     its ``.value``, or ``None`` all match consistently. Returns the
     matching entry (so callers can reuse its id) or ``None``.
     """
-    target = normalize_question(question)
-    if not target:
-        return None
-    target_phase = getattr(phase, "value", phase)
+    return _find_equivalent_question(existing, question, phase, resolved=False)
 
-    for d in existing:
-        d_type = _field(d, "type")
-        d_type = getattr(d_type, "value", d_type)
-        if d_type != "hitl":
-            continue
-        if _field(d, "resolved"):
-            continue
-        d_phase = _field(d, "phase")
-        d_phase = getattr(d_phase, "value", d_phase)
-        if d_phase != target_phase:
-            continue
-        if normalize_question(_field(d, "question")) == target:
-            return d
-    return None
+
+def find_resolved_question(
+    existing: Iterable[Any],
+    question: str,
+    phase: Any,
+) -> Any | None:
+    """Return an existing **resolved** HITL decision equivalent to ``question``.
+
+    The convergence counterpart to :func:`find_duplicate_open_question`.
+    When a refine/plan phase re-runs to fold operator resolutions into its
+    documents (the converge-before-advance loop, #3392), its agents may
+    re-register a question that was already *answered* in a prior round.
+    Minting a fresh ``cq-N`` would re-surface an answered decision, so the
+    loop would never reach a fixpoint. Adopting the resolved decision
+    makes re-registration idempotent and carries the prior answer forward,
+    so each round's open-decision set shrinks toward zero (modulo
+    genuinely-new questions).
+
+    Same matching rules as :func:`find_duplicate_open_question` except the
+    decision must be **resolved** (``resolved`` is truthy). Returns the
+    matching entry (so callers can reuse its id and resolution) or
+    ``None``.
+    """
+    return _find_equivalent_question(existing, question, phase, resolved=True)
 
 
 def next_cq_id(existing: Iterable[Any]) -> str:

@@ -85,8 +85,9 @@ class TestHITLRevisionCounterIndependence:
         assert phase.review_cycles == 0
         assert phase.review_cycles < config.max_review_cycles
 
-    def test_circuit_breaker_uses_hitl_counter(self):
-        """Circuit breaker should fire based on hitl_review_cycles, not max_hitl_review_cycles."""
+    def test_nonconvergence_alert_uses_hitl_counter(self):
+        """The non-convergence alert threshold reads hitl_review_cycles,
+        independent of the agentic review_cycles budget (#3392)."""
         config = PipelineConfig(max_review_cycles=3, max_hitl_review_cycles=3)
         phase = PhaseExecution(phase=PipelinePhase.PLAN)
 
@@ -94,12 +95,12 @@ class TestHITLRevisionCounterIndependence:
         phase.review_cycles = 3
         phase.hitl_review_cycles = 1
 
-        # HITL circuit breaker should NOT fire
+        # HITL non-convergence alert should NOT fire yet
         assert phase.hitl_review_cycles < config.max_hitl_review_cycles
 
-        # Increment HITL to limit
+        # Increment HITL to threshold
         phase.hitl_review_cycles = 3
-        # Now it should fire
+        # Now the alert fires (but never force-advances)
         assert phase.hitl_review_cycles >= config.max_hitl_review_cycles
 
     def test_independent_config_limits(self):
@@ -191,7 +192,8 @@ class TestContractRePopulation:
 
 
 class TestMaxHITLReviewCyclesConfig:
-    """Verify max_hitl_review_cycles is a separate config field wired to the circuit breaker."""
+    """Verify max_hitl_review_cycles is a separate config field wired to the
+    non-convergence alert threshold (#3392)."""
 
     def test_config_field_exists_with_default(self):
         """max_hitl_review_cycles should default to 3."""
@@ -426,56 +428,36 @@ class TestHITLRevisionFlowIntegration:
 
         assert hitl_revision_feedback is None
 
-    def test_circuit_breaker_prevents_unbounded_revisions(self):
-        """Circuit breaker should force approval after max HITL cycles.
+    def test_revisions_are_unbounded_no_force_advance(self):
+        """Revisions are no longer capped (#3392): feedback after the former
+        cap still re-runs the phase rather than force-advancing.
 
-        Simulates: human requests changes repeatedly →
-        hitl_review_cycles reaches max_hitl_review_cycles →
-        circuit breaker fires → pipeline advances despite feedback.
+        Mirrors the production gate path: when the operator provides
+        feedback the phase always re-runs (sets revision feedback +
+        continues), regardless of how many rounds have elapsed. Past the
+        threshold only a non-fatal alert is added — never an advance.
         """
         config = PipelineConfig(max_hitl_review_cycles=2)
         phase = PhaseExecution(phase=PipelinePhase.PLAN)
 
-        # Simulate two prior HITL revision cycles
-        phase.hitl_review_cycles = 2
+        # Far beyond the former cap.
+        phase.hitl_review_cycles = 9
         resolution = "Please fix the formatting"
-        circuit_breaker_fired = False
         hitl_revision_feedback = None
+        alert_emitted = False
 
-        if resolution.lower() not in _APPROVE_KEYWORDS:
-            if resolution.lower() not in _BARE_OPTION_LABELS:
-                phase.hitl_review_cycles += 1  # Would be incremented
-                # But check against config
-                # Revert — in real code the increment happens, then check
-                if phase.hitl_review_cycles >= config.max_hitl_review_cycles:
-                    circuit_breaker_fired = True
-                else:
-                    hitl_revision_feedback = resolution
+        if (
+            resolution.lower() not in _APPROVE_KEYWORDS
+            and resolution.lower() not in _BARE_OPTION_LABELS
+        ):
+            phase.hitl_review_cycles += 1
+            if phase.hitl_review_cycles >= config.max_hitl_review_cycles:
+                alert_emitted = True  # non-fatal observability only
+            # Always re-runs — feedback is set and the loop continues.
+            hitl_revision_feedback = resolution
 
-        assert circuit_breaker_fired is True
-        assert hitl_revision_feedback is None
-
-    def test_circuit_breaker_respects_hitl_config_not_agentic(self):
-        """Circuit breaker should use max_hitl_review_cycles, not max_review_cycles.
-
-        With max_review_cycles=1 and max_hitl_review_cycles=5, the HITL
-        circuit breaker should not fire until hitl_review_cycles reaches 5.
-        """
-        config = PipelineConfig(max_review_cycles=1, max_hitl_review_cycles=5)
-        phase = PhaseExecution(phase=PipelinePhase.PLAN)
-
-        # Agentic cycles maxed out
-        phase.review_cycles = 1
-
-        # HITL has used 3 of 5 cycles
-        phase.hitl_review_cycles = 3
-
-        # Should NOT fire — 3 < 5
-        assert phase.hitl_review_cycles < config.max_hitl_review_cycles
-
-        # At limit — should fire
-        phase.hitl_review_cycles = 5
-        assert phase.hitl_review_cycles >= config.max_hitl_review_cycles
+        assert hitl_revision_feedback == resolution  # re-run, not advance
+        assert alert_emitted is True  # alert fired, but did not force-advance
 
     def test_multiple_revision_cycles_increment_counter(self):
         """Each revision cycle should increment hitl_review_cycles by 1."""
@@ -664,102 +646,136 @@ class TestJSONResolutionParsing:
         assert revision is True
 
 
-class TestCircuitBreakerFallThrough:
-    """Verify the circuit breaker falls through to the approval path.
+class TestNoForceAdvance:
+    """Verify the HITL gate never force-advances (#3392).
 
-    When hitl_review_cycles >= max_hitl_review_cycles, the code must NOT
-    continue the outer loop. It must fall through to the approval block
-    that sets phase status to COMPLETE.
+    The pre-#3392 circuit breaker advanced the phase after
+    ``max_hitl_review_cycles`` revision rounds, leaving the operator's
+    feedback unaddressed. The converge-before-advance loop removes that:
+    every round is human-gated, so the loop always re-runs and only
+    surfaces a non-fatal overseer alert past the threshold. These tests
+    assert the production source no longer carries the force-advance
+    behavior and instead arms the alert + re-run.
     """
 
-    def test_circuit_breaker_does_not_set_revision_feedback(self):
-        """When circuit breaker fires, hitl_revision_feedback must remain unset.
+    def _pipelines_source(self) -> str:
+        import inspect
 
-        The `continue` is inside the `else` branch only, so when the breaker
-        fires (the `if` branch), execution exits the `with` block and reaches
-        the approval path — hitl_revision_feedback stays None.
+        from routes import pipelines
+
+        return inspect.getsource(pipelines)
+
+    def test_force_advance_log_removed(self):
+        """The "advancing despite feedback" force-advance log must be gone."""
+        source = self._pipelines_source()
+        assert "advancing despite feedback" not in source
+
+    def test_threshold_arms_alert_not_advance(self):
+        """``max_hitl_review_cycles`` now gates the non-convergence alert."""
+        source = self._pipelines_source()
+        # The threshold is read into the alert path, and the alert helper is
+        # invoked when it is reached.
+        assert "_alert_threshold = pipeline.config.max_hitl_review_cycles" in source
+        assert "_broadcast_hitl_nonconvergence_alert(" in source
+
+    def test_alert_is_non_fatal(self):
+        """The non-convergence alert must never fail or force-advance — it is
+        a best-effort broadcast."""
+        import inspect
+
+        from routes.pipelines import _broadcast_hitl_nonconvergence_alert
+
+        src = inspect.getsource(_broadcast_hitl_nonconvergence_alert)
+        # Best-effort: swallows broadcast errors, never raises to the caller.
+        assert "except Exception" in src
+        assert "FAILED" not in src
+
+    def test_alert_threshold_comparison(self):
+        """The alert fires when hitl_review_cycles reaches the threshold."""
+        config = PipelineConfig(max_hitl_review_cycles=3)
+        phase = PhaseExecution(phase=PipelinePhase.PLAN)
+
+        phase.hitl_review_cycles = 2
+        assert phase.hitl_review_cycles < config.max_hitl_review_cycles  # no alert
+
+        phase.hitl_review_cycles = 3
+        assert phase.hitl_review_cycles >= config.max_hitl_review_cycles  # alert fires
+
+    def test_autonomous_escape_when_hitl_gates_false(self):
+        """A fully-autonomous pipeline (``hitl_gates=False``) must not hang at
+        the refine/plan gate (#3392 review).
+
+        Dropping the force-advance backstop is only safe when a human is in
+        the loop. With ``hitl_gates=False`` the converge loop has no human to
+        answer and ``wait_for_decision`` polls indefinitely, so the gate must
+        surface a non-blocking event and advance autonomously rather than
+        block forever. The source must branch on ``hitl_gates`` before
+        entering the gate body.
         """
-        config = PipelineConfig(max_hitl_review_cycles=2)
-        phase = PhaseExecution(phase=PipelinePhase.PLAN)
+        source = self._pipelines_source()
+        # The gate body is guarded by an autonomous-escape branch that fires
+        # when hitl_gates is False for a refine/plan phase.
+        assert (
+            "current_phase.value in _HITL_GATE_PHASES and not pipeline.config.hitl_gates" in source
+        )
+        # The escape surfaces the gate as a non-blocking event rather than
+        # queuing a decision and waiting on it.
+        assert 'event_type="phase.gate_skipped"' in source
 
-        # Simulate: 2 prior cycles, human provides feedback again
-        phase.hitl_review_cycles = 1  # Will be incremented to 2
-        _revision_feedback = "Fix the tests"
+    def test_escape_predicate_fires_only_for_autonomous_refine_plan(self):
+        """Behavioral check of the escape guard against the *production*
+        constant + config object (not a source substring).
 
-        # Simulate the pipeline code path
-        phase.hitl_review_cycles += 1
-        hitl_revision_feedback = None  # This is the outer-scope variable
+        The escape must fire for a refine/plan phase iff ``hitl_gates`` is
+        False, and never for a human-gated pipeline or a non-gated phase.
+        Asserting the predicate directly catches a regression where
+        ``_HITL_GATE_PHASES`` or the config default drifts out from under the
+        source-substring assertion above.
+        """
+        from routes.pipelines import _HITL_GATE_PHASES
 
-        max_hitl_cycles = config.max_hitl_review_cycles
-        if phase.hitl_review_cycles >= max_hitl_cycles:
-            # Circuit breaker fires — do NOT set hitl_revision_feedback
-            # do NOT continue — fall through to approval
-            breaker_fired = True
-        else:
-            hitl_revision_feedback = _revision_feedback
-            breaker_fired = False
+        assert _HITL_GATE_PHASES == {"refine", "plan"}
 
-        assert breaker_fired is True
-        assert hitl_revision_feedback is None
-        assert phase.hitl_review_cycles == 2
+        def escape_fires(phase: str, hitl_gates: bool) -> bool:
+            cfg = PipelineConfig(hitl_gates=hitl_gates)
+            return phase in _HITL_GATE_PHASES and not cfg.hitl_gates
 
-    def test_normal_revision_sets_feedback_and_continues(self):
-        """When under the limit, hitl_revision_feedback IS set (continue path)."""
-        config = PipelineConfig(max_hitl_review_cycles=5)
-        phase = PhaseExecution(phase=PipelinePhase.PLAN)
+        # Autonomous (hitl_gates=False) refine/plan → escape (advance, no hang).
+        assert escape_fires("refine", hitl_gates=False) is True
+        assert escape_fires("plan", hitl_gates=False) is True
+        # Human-gated refine/plan → converge loop, not the escape.
+        assert escape_fires("refine", hitl_gates=True) is False
+        assert escape_fires("plan", hitl_gates=True) is False
+        # Non-gated phases never take the refine/plan gate at all.
+        assert escape_fires("implement", hitl_gates=False) is False
+        assert escape_fires("pr", hitl_gates=False) is False
 
-        phase.hitl_review_cycles = 0
-        _revision_feedback = "Add error handling"
+    def test_escape_branch_falls_through_does_not_block_or_skip(self):
+        """The autonomous-escape branch must *fall through* to the normal
+        advance path — not block on a decision or skip the rest of the loop.
 
-        phase.hitl_review_cycles += 1
-        hitl_revision_feedback = None
+        The substring test above proves the branch exists; this guards the
+        regression the #3392 review flagged: a future edit that leaves the
+        branch in place but breaks the fall-through (a ``wait_for_decision``
+        re-introducing the hang, or a ``continue`` that skips the advance).
+        We isolate the branch body — from its ``if`` to the ``elif`` that
+        opens the human-gated path — and assert it neither blocks nor skips.
+        """
+        source = self._pipelines_source()
+        guard = "if current_phase.value in _HITL_GATE_PHASES and not pipeline.config.hitl_gates:"
+        start = source.index(guard)
+        # The branch body ends where the human-gated converge path begins.
+        elif_marker = "elif current_phase.value in _HITL_GATE_PHASES:"
+        end = source.index(elif_marker, start)
+        branch_body = source[start:end]
 
-        max_hitl_cycles = config.max_hitl_review_cycles
-        if phase.hitl_review_cycles >= max_hitl_cycles:
-            breaker_fired = True
-        else:
-            hitl_revision_feedback = _revision_feedback
-            breaker_fired = False
-
-        assert breaker_fired is False
-        assert hitl_revision_feedback == "Add error handling"
-        assert phase.hitl_review_cycles == 1
-
-    def test_circuit_breaker_at_exact_limit(self):
-        """Breaker fires when hitl_review_cycles == max (not just >)."""
-        config = PipelineConfig(max_hitl_review_cycles=3)
-        phase = PhaseExecution(phase=PipelinePhase.PLAN)
-
-        phase.hitl_review_cycles = 2  # Will increment to 3 == max
-        phase.hitl_review_cycles += 1
-
-        hitl_revision_feedback = None
-        if phase.hitl_review_cycles >= config.max_hitl_review_cycles:
-            breaker_fired = True
-        else:
-            hitl_revision_feedback = "some feedback"
-            breaker_fired = False
-
-        assert breaker_fired is True
-        assert hitl_revision_feedback is None
-
-    def test_circuit_breaker_just_under_limit(self):
-        """One under the limit should NOT fire the breaker."""
-        config = PipelineConfig(max_hitl_review_cycles=3)
-        phase = PhaseExecution(phase=PipelinePhase.PLAN)
-
-        phase.hitl_review_cycles = 1  # Will increment to 2, under max of 3
-        phase.hitl_review_cycles += 1
-
-        hitl_revision_feedback = None
-        if phase.hitl_review_cycles >= config.max_hitl_review_cycles:
-            breaker_fired = True
-        else:
-            hitl_revision_feedback = "some feedback"
-            breaker_fired = False
-
-        assert breaker_fired is False
-        assert hitl_revision_feedback == "some feedback"
+        # It surfaces the gate + warns, but must not re-enter a blocking wait
+        # (that was the indefinite-hang bug) …
+        assert 'event_type="phase.gate_skipped"' in branch_body
+        assert "wait_for_decision" not in branch_body
+        # … and must not short-circuit the loop before the advance runs.
+        assert "continue" not in branch_body
+        assert "return" not in branch_body
 
 
 class TestSyncPipelineDecisionsToContract:
@@ -1375,37 +1391,40 @@ class TestInlineRequestChangesStateReset:
         assert phase.operator_directives[-1].iteration_n == 2
         assert phase.iteration_history[-1].iteration_n == 2
 
-    def test_circuit_breaker_preserves_artifacts(self):
-        """When the circuit breaker trips, containers/agents/artifacts must be preserved."""
+    def test_rerun_resets_iteration_state_no_force_advance_preservation(self):
+        """A HITL re-run always resets per-iteration state (#3392).
+
+        The pre-#3392 force-advance path preserved containers/agents/
+        artifacts because it did not re-run. With force-advance removed,
+        every revision goes through the kickback helper, which resets the
+        per-iteration state for a clean re-spawn. There is no longer any
+        path that bumps ``hitl_review_cycles`` while preserving artifacts.
+        """
         from models import AgentExecution, ContainerInfo, ContainerStatus
+        from routes.pipelines import _apply_inline_hitl_kickback_to_phase
 
         phase = PhaseExecution(phase=PipelinePhase.PLAN)
         phase.status = PipelineStatus.COMPLETE
-        original_containers = [
+        phase.containers = [
             ContainerInfo(
                 container_id="old-ctr",
                 container_name="old-ctr",
                 status=ContainerStatus.EXITED,
             )
         ]
-        original_agents = [AgentExecution(role="coder")]
-        original_artifacts = {"pr_url": "https://github.com/old"}
-        phase.containers = list(original_containers)
-        phase.agents = list(original_agents)
-        phase.artifacts = dict(original_artifacts)
+        phase.agents = [AgentExecution(role="coder")]
+        phase.artifacts = {"pr_url": "https://github.com/old"}
         phase.review_cycles = 2
 
-        # Simulate the circuit breaker path: only increment cycle counter,
-        # do NOT reset containers/agents/artifacts.
-        phase.completed_at = None
-        phase.hitl_review_cycles += 1
+        stale = _apply_inline_hitl_kickback_to_phase(phase, "fix it", tracker=None)
 
-        # Verify artifacts are preserved for the force-approved phase
-        assert len(phase.containers) == 1
-        assert phase.containers[0].container_id == "old-ctr"
-        assert len(phase.agents) == 1
-        assert phase.artifacts == {"pr_url": "https://github.com/old"}
-        assert phase.review_cycles == 2  # Not reset
+        # The stale containers are returned for teardown, and the phase's
+        # per-iteration state is reset for the re-run (not preserved).
+        assert [c.container_id for c in stale] == ["old-ctr"]
+        assert phase.containers == []
+        assert phase.agents == []
+        assert phase.artifacts == {}
+        assert phase.review_cycles == 0
 
     def test_content_changed_detection(self):
         """content_changed should be True when draft differs from prior decision."""

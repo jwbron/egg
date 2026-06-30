@@ -5,7 +5,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from egg_contracts.decisions import find_duplicate_open_question, next_cq_id
+from egg_contracts.decisions import (
+    find_duplicate_open_question,
+    find_resolved_question,
+    next_cq_id,
+)
+from egg_contracts.feedback import find_carry_forward_feedback
 
 from egg_agent_tools.handlers._gateway import (
     container_id_field,
@@ -160,6 +165,29 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
                 "deduped": True,
             }
 
+        # Carry-forward: a phase that re-runs to fold in operator
+        # resolutions (the converge-before-advance loop, #3392) may
+        # re-register a question already *answered* in a prior round.
+        # Minting a fresh ``cq-N`` here would re-surface an answered
+        # decision and the loop would never reach a fixpoint. Adopt the
+        # resolved decision instead — idempotent, no contract write, and
+        # the response carries the prior ``resolution`` so the agent reads
+        # the answer rather than re-asking the operator.
+        resolved_match = find_resolved_question(decisions, question, decision_phase)
+        if resolved_match is not None:
+            _logger.info(
+                "register_open_question adopted resolved decision %s "
+                "(carry-forward across phase re-run); not re-surfacing",
+                resolved_match.get("id"),
+            )
+            return {
+                "ok": True,
+                "id": resolved_match.get("id"),
+                "decision": resolved_match,
+                "deduped": True,
+                "carried_forward": True,
+            }
+
         # Agent-registered contract questions allocate ``cq-N`` from a
         # counter that ignores ``decision-N`` entries (written by the
         # orchestrator's pipeline-side bridge). See
@@ -253,6 +281,34 @@ def request_feedback(req: dict[str, Any]) -> dict[str, Any]:
         raise HandlerError(f"egg_contracts.feedback unavailable: {exc}") from exc
 
     existing_feedback = contract.get("feedback")
+
+    # Carry-forward (#3392): a phase that re-runs to fold operator
+    # resolutions (the converge-before-advance loop) re-registers the same
+    # feedback already answered in a prior round. Replacing the *submitted*
+    # slot with a fresh ``submitted=False`` entry would re-surface it via
+    # the orchestrator bridge, re-tick the convergence count, and the loop
+    # would never reach a fixpoint — the same non-termination the ``cq-N``
+    # carry-forward avoids in ``register_open_question``. Adopt the
+    # submitted feedback idempotently: no contract write, and the response
+    # carries the prior answers so the agent reads them rather than
+    # re-asking the operator.
+    carried = find_carry_forward_feedback(
+        existing_feedback, questions_list, contract.get("current_phase")
+    )
+    if carried is not None:
+        _logger.info(
+            "request_feedback adopted submitted feedback %s "
+            "(carry-forward across phase re-run); not re-surfacing",
+            carried.get("id"),
+        )
+        return {
+            "ok": True,
+            "id": carried.get("id"),
+            "questions": list(carried.get("questions") or []),
+            "carried_forward": True,
+            "deduped": True,
+        }
+
     warning: str | None = None
     if existing_feedback and not existing_feedback.get("submitted"):
         warning = (

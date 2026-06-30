@@ -12,9 +12,12 @@ checkbox to trigger processing.
 """
 
 import re
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
+from .decisions import normalize_question
 from .hitl import DEFAULT_DEBOUNCE_SECONDS
 
 
@@ -80,6 +83,57 @@ def generate_feedback_id(existing_ids: list[str] | None = None) -> str:
 
     next_num = max(numbers) + 1 if numbers else 1
     return f"feedback-{next_num}"
+
+
+def find_carry_forward_feedback(
+    existing_feedback: Mapping[str, Any] | None,
+    questions: Iterable[Any],
+    phase: Any,
+) -> Mapping[str, Any] | None:
+    """Return ``existing_feedback`` if it is a *submitted* (answered)
+    feedback request equivalent to ``questions`` under ``phase``.
+
+    The single-feedback-slot counterpart to
+    :func:`egg_contracts.decisions.find_resolved_question` (#3392
+    convergence carry-forward). The converge-before-advance loop re-runs a
+    phase after the operator answers its feedback, and the re-run's agents
+    re-register the same feedback. Replacing the submitted slot with a
+    fresh ``submitted=False`` entry would re-surface an answered request
+    via the orchestrator bridge, the convergence count would tick again,
+    and the loop would never reach a fixpoint — the same non-termination
+    the ``cq-N`` carry-forward avoids in ``register_open_question``.
+    Adopting the submitted feedback makes re-registration idempotent and
+    carries the prior answers forward.
+
+    Matches when the existing feedback is submitted, shares the same
+    ``phase`` (compared on its string value so a ``PipelinePhase`` enum,
+    its ``.value``, or ``None`` all match consistently), and has the same
+    normalized question multiset (order-insensitive; reuses
+    :func:`normalize_question` so trivially-reformatted re-registrations
+    still match). Returns the matching feedback mapping or ``None``.
+    """
+    if not existing_feedback or not existing_feedback.get("submitted"):
+        return None
+
+    target_phase = getattr(phase, "value", phase)
+    fb_phase = existing_feedback.get("phase")
+    fb_phase = getattr(fb_phase, "value", fb_phase)
+    if fb_phase != target_phase:
+        return None
+
+    new_norm = sorted(normalize_question(q) for q in questions)
+    # A blank / non-string question normalizes to "" and cannot be matched
+    # safely (mirrors the empty-target guard in ``_find_equivalent_question``).
+    if not new_norm or "" in new_norm:
+        return None
+
+    existing_norm = sorted(
+        normalize_question(q.get("question") if isinstance(q, Mapping) else None)
+        for q in (existing_feedback.get("questions") or [])
+    )
+    if new_norm == existing_norm:
+        return existing_feedback
+    return None
 
 
 def generate_feedback_comment(

@@ -37,7 +37,11 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 from egg_contracts.agent_roles import AgentRole as ContractAgentRole
-from egg_contracts.decisions import find_duplicate_open_question, next_cq_id
+from egg_contracts.decisions import (
+    find_duplicate_open_question,
+    find_resolved_question,
+    next_cq_id,
+)
 from egg_contracts.impasse import Impasse, ImpasseCategory
 from egg_contracts.loader import load_contract, save_contract
 from egg_contracts.models import (
@@ -556,6 +560,30 @@ def _record_escalate(
             new_role=None,
             reason=reason,
             hitl_decision_id=duplicate.id,
+        )
+
+    # Carry-forward (parity with ``register_open_question``, #3392): a
+    # re-escalation of an impasse whose HITL question was already
+    # *resolved* in a prior phase re-run should adopt the resolved
+    # ``cq-N`` rather than re-surface an answered decision. Without this,
+    # the converge-before-advance loop would re-ask the operator every
+    # round and never reach a fixpoint.
+    resolved_match = find_resolved_question(contract.decisions, decision.question, decision.phase)
+    if resolved_match is not None:
+        logger.info(
+            "Impasse escalation adopted resolved HITL decision (carry-forward)",
+            slice_id=slice_obj.id if slice_obj else None,
+            task_id=task.id if task else impasse.task_id,
+            decision_id=resolved_match.id,
+        )
+        return RoutingDecision(
+            action=ImpasseAction.ESCALATE,
+            impasse=impasse,
+            role=impassed_role,
+            task_id=task.id if task else impasse.task_id,
+            new_role=None,
+            reason=reason,
+            hitl_decision_id=resolved_match.id,
         )
 
     # decisions.* is owned by IMPLEMENTER per FIELD_OWNERSHIP — mirror

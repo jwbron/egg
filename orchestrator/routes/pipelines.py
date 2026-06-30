@@ -12800,6 +12800,134 @@ def _apply_inline_hitl_kickback_to_phase(
     return stale_containers
 
 
+def _broadcast_hitl_nonconvergence_alert(
+    pipeline_id: str,
+    pipeline: Pipeline,
+    current_phase: PipelinePhase,
+    cycles: int,
+    threshold: int,
+) -> None:
+    """Non-fatal overseer alert when the HITL converge loop runs long (#3392).
+
+    The converge-before-advance loop is human-gated every round (the
+    operator resolves decisions before each re-run), so a long-running loop
+    cannot burn compute silently and is never force-advanced. After
+    ``threshold`` rounds we surface an ``OVERSEER_ALERT`` so a pathological
+    non-convergence — a real carry-forward bug, or a genuinely churning
+    design — is visible. Best-effort: a broadcast failure never blocks the
+    re-run.
+    """
+    try:
+        from message_store import Message, MessageType
+
+        store_fn = _get_message_store()
+        if store_fn is None:
+            return
+        msg_store = store_fn()
+        phase = current_phase.value if current_phase else None
+        msg_store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="orchestrator",
+                to_role="all",
+                message_type=MessageType.OVERSEER_ALERT,
+                subject="hitl_nonconvergence: orchestrator [medium]",
+                body=(
+                    f"The {phase} phase HITL converge-before-advance loop has run "
+                    f"{cycles} rounds (>= {threshold}) without reaching a fixpoint. "
+                    f"Each round is human-gated, so this is surfaced for visibility, "
+                    f"not force-advanced. Investigate whether a decision keeps "
+                    f"re-surfacing (carry-forward bug) or the design is genuinely "
+                    f"churning. See #3392."
+                ),
+                metadata={"reason": "hitl_nonconvergence", "cycles": cycles},
+                phase=phase,
+            )
+        )
+    except Exception as alert_err:  # noqa: BLE001
+        logger.warning(
+            "Failed to broadcast HITL non-convergence alert (non-fatal)",
+            pipeline_id=pipeline_id,
+            error=str(alert_err),
+        )
+
+
+def _perform_hitl_phase_rerun(
+    *,
+    store: Any,
+    spawner: Any,
+    pipeline: Pipeline,
+    phase_execution: PhaseExecution,
+    pipeline_id: str,
+    current_phase: PipelinePhase,
+    feedback_text: str,
+    event_message: str,
+) -> None:
+    """Tear down the current phase iteration and arm a re-run (#3392).
+
+    Shared by the two re-run triggers in the converge-before-advance HITL
+    loop: the operator-feedback kickback (``request_changes`` /
+    ``change_approach``) and the decision-driven re-run that folds resolved
+    HITL answers back into the phase documents. Snapshots the BRC tracker
+    for the next iteration's prompt, appends the operator directive +
+    iteration summary (#2795), clears concurrent state so the re-run does
+    not short-circuit on stale ``CONSENSUS_CONFIRMED`` messages (#1296),
+    persists, and stops the stale containers (the K8s delete is async, so an
+    explicit idempotent stop prevents iteration N+1 racing iteration N's
+    still-terminating pods).
+
+    The caller must already hold the pipeline state lock, have set the
+    pipeline/phase status back to RUNNING, and incremented
+    ``phase_execution.hitl_review_cycles``. The caller issues the
+    ``continue`` that re-enters the outer loop.
+    """
+    # Capture the BRC tracker state BEFORE _clear_concurrent_state drops
+    # it — that's our only chance to snapshot this iteration's verdicts for
+    # the next iteration's prompt.
+    rerun_tracker = None
+    try:
+        from peer_consensus import get_peer_consensus_tracker as _gpct
+
+        rerun_tracker = _gpct(pipeline_id)
+    except Exception as tracker_err:  # noqa: BLE001
+        logger.debug(
+            "Tracker lookup failed during HITL re-run snapshot",
+            pipeline_id=pipeline_id,
+            error=str(tracker_err),
+        )
+
+    stale_containers = _apply_inline_hitl_kickback_to_phase(
+        phase_execution,
+        feedback_text,
+        tracker=rerun_tracker,
+    )
+
+    from routes.phases import _clear_concurrent_state
+
+    _clear_concurrent_state(pipeline_id)
+
+    store.save_pipeline(pipeline)
+
+    for _ctr in stale_containers:
+        if _ctr.container_id and _ctr.status == ContainerStatus.RUNNING:
+            try:
+                spawner.backend.stop_container(_ctr.container_id, timeout=10)
+            except Exception as stop_err:  # noqa: BLE001
+                logger.debug(
+                    "Best-effort HITL re-run teardown failed",
+                    pipeline_id=pipeline_id,
+                    container_id=_ctr.container_id,
+                    error=str(stop_err),
+                )
+
+    report_pipeline_status(
+        pipeline,
+        event_type="phase.revision_requested",
+        message=event_message,
+    )
+    _emit_pipeline_event(pipeline, "phase.revision_requested")
+
+
 def _build_phase_prompt(
     phase: str,
     pipeline_id: str,
@@ -23007,8 +23135,20 @@ def _queue_and_await_contract_decisions(
     pipeline_id: str,
     pipeline_identifier: int | str,
     phase: PipelinePhase,
-) -> None:
+) -> int:
     """Promote unresolved contract decisions/feedback into the orchestrator queue.
+
+    Returns the number of contract decisions/feedback this call surfaced and
+    the operator *resolved* this round — the converge-before-advance signal
+    (#3392). Decisions that were surfaced but came back non-RESOLVED (e.g. the
+    operator cancelled them) are **not** counted: the contract ``cq-N`` stays
+    open, and counting it would re-run the phase, re-surface the still-open
+    question (carry-forward only adopts *resolved* questions), and loop with no
+    termination now that the force-advance backstop is gone. A non-zero count
+    means the operator just answered something, so the caller re-runs the
+    phase to fold the resolutions into the documents; a zero count means the
+    round resolved nothing new and the caller may advance.
+
 
     Agents register architectural questions via ``egg-contract add-decision``
     and ``add-feedback``.  Those writes only touch ``.egg-state/contracts/
@@ -23042,7 +23182,7 @@ def _queue_and_await_contract_decisions(
             "egg_contracts not available, skipping contract decision bridge",
             pipeline_id=pipeline_id,
         )
-        return
+        return 0
 
     try:
         contract = load_contract(pipeline_identifier, worktree_repo_path)
@@ -23052,7 +23192,7 @@ def _queue_and_await_contract_decisions(
             pipeline_id=pipeline_id,
             error=str(e),
         )
-        return
+        return 0
 
     phase_value = phase.value
     pending_decisions = [
@@ -23070,7 +23210,7 @@ def _queue_and_await_contract_decisions(
             pending_feedback = fb
 
     if not pending_decisions and pending_feedback is None:
-        return
+        return 0
 
     logger.info(
         "Bridging contract decisions/feedback into orchestrator queue",
@@ -23148,10 +23288,18 @@ def _queue_and_await_contract_decisions(
         )
 
     # Pass 2: wait for each to resolve and persist back to the contract.
+    # Count only decisions whose queue resolution was RESOLVED — a
+    # CANCELLED / non-resolved outcome leaves the contract ``cq-N`` open and
+    # must NOT count toward the convergence signal, or the caller would re-run
+    # the phase, re-surface the still-open question (carry-forward only adopts
+    # *resolved* questions), and loop without the operator ever being able to
+    # break out (#3392 review).
+    resolved_count = 0
     for contract_id, queued in queued_decisions:
         resolved = dq.wait_for_decision(queued.id)
         if resolved.status != DecisionStatus.RESOLVED:
             continue
+        resolved_count += 1
         resolution_str = (resolved.resolution or "").strip()
 
         def _apply(latest: Any, _cd_id: str = contract_id, _res: str = resolution_str) -> bool:
@@ -23166,9 +23314,11 @@ def _queue_and_await_contract_decisions(
 
         _save_contract_update(_apply)
 
+    feedback_resolved = False
     if queued_feedback is not None and pending_feedback is not None:
         resolved = dq.wait_for_decision(queued_feedback.id)
         if resolved.status == DecisionStatus.RESOLVED:
+            feedback_resolved = True
             answers: dict[str, str] = {}
             try:
                 payload = json.loads(resolved.resolution or "")
@@ -23198,6 +23348,15 @@ def _queue_and_await_contract_decisions(
                 return True
 
             _save_contract_update(_apply_fb)
+
+    # Convergence signal (#3392): the number of decisions + feedback this
+    # round the operator actually *resolved* (not merely surfaced). Non-zero ⇒
+    # the operator answered something ⇒ caller re-runs the phase to fold the
+    # resolutions in. A surfaced-but-cancelled decision is deliberately
+    # excluded: counting it would re-run the phase, re-surface the still-open
+    # question, and loop indefinitely now that the force-advance backstop is
+    # gone.
+    return resolved_count + (1 if feedback_resolved else 0)
 
 
 def _await_unresolved_gap_gate(
@@ -26080,7 +26239,40 @@ def _run_pipeline(
                     )
 
             # --- HITL gate: pause for human approval ---
-            if pipeline.config.hitl_gates and current_phase.value in _HITL_GATE_PHASES:
+            # Refine/plan are gated by the converge-before-advance loop
+            # (#3392): it resolves decisions with a human each round, which is
+            # what lets us drop the force-advance backstop — a human is present
+            # to resolve and approve.
+            #
+            # But a fully-autonomous pipeline (``hitl_gates is False``) has no
+            # human to resolve or approve, and ``wait_for_decision`` polls
+            # indefinitely — so unconditionally gating here would convert that
+            # explicitly-chosen, first-class config into an indefinite hang
+            # with no operator-facing signal that the flag was ignored. Mirror
+            # the unresolved-gap gate's autonomous escape (#3300): when
+            # ``hitl_gates is False`` we *surface* the gate (event + loud
+            # warning) but do not block, advancing autonomously instead.
+            # ``hitl_gates`` therefore still governs refine/plan, but only by
+            # toggling between the human-gated converge loop and an autonomous
+            # advance — never an indefinite stall.
+            if current_phase.value in _HITL_GATE_PHASES and not pipeline.config.hitl_gates:
+                report_pipeline_status(
+                    pipeline,
+                    event_type="phase.gate_skipped",
+                    message=(
+                        f"{current_phase.value} phase gate skipped "
+                        f"(hitl_gates=False) — advancing autonomously"
+                    ),
+                )
+                logger.warning(
+                    "HITL gate: refine/plan gate on an autonomous pipeline "
+                    "(hitl_gates=False); surfacing but not blocking — advancing "
+                    "without human approval (the converge-before-advance loop "
+                    "requires a human, so it cannot run unattended)",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                )
+            elif current_phase.value in _HITL_GATE_PHASES:
                 # Check for an existing pending phase_gate decision for this
                 # phase.  A prior agent-exit event may
                 # have already created one — creating a duplicate confuses the
@@ -26281,6 +26473,14 @@ def _run_pipeline(
                         _needs_revision = True
                         _revision_feedback = resolution
 
+                # Holds the operator's resolution from the "bare request →
+                # asked for specifics → approve-with-context" follow-up path,
+                # if that path is taken. When set, it (not the original
+                # ``resolution``) carries any context attached to the final
+                # gate approval, so the convergence re-run below must thread it
+                # rather than the stale original resolution (#3392 review).
+                followup_resolution: str | None = None
+
                 if _needs_revision and _revision_feedback is None:
                     # Bare request without actionable feedback — ask for specifics.
                     # This handles both legacy "request changes" and JSON
@@ -26367,95 +26567,46 @@ def _run_pipeline(
                         phase_execution.completed_at = None  # Reset — phase is re-running
                         phase_execution.hitl_review_cycles += 1
 
-                        # Circuit breaker: don't allow unbounded HITL revision loops.
-                        # Uses a dedicated counter so agentic review cycles don't
-                        # consume the human's revision budget.
-                        max_hitl_cycles = pipeline.config.max_hitl_review_cycles
-                        if phase_execution.hitl_review_cycles >= max_hitl_cycles:
-                            logger.warning(
-                                "HITL revision circuit breaker — advancing despite feedback",
-                                pipeline_id=pipeline_id,
-                                phase=current_phase,
-                                hitl_review_cycles=phase_execution.hitl_review_cycles,
-                                max_hitl_review_cycles=max_hitl_cycles,
-                            )
-                            store.save_pipeline(pipeline)
-                            # Fall through to the approval path below
-                        else:
-                            # #2795: append the directive + frozen iteration
-                            # summary instead of writing a single hitl_feedback
-                            # string. Both lists accumulate across kickbacks so
-                            # iteration N+1's prompts can render them with
-                            # explicit precedence prose.
-                            # Capture the BRC tracker state BEFORE
-                            # _clear_concurrent_state drops it — that's our
-                            # only chance to snapshot iteration N's verdicts
-                            # for the iteration N+1 prompt.
-                            _kickback_tracker = None
-                            try:
-                                from peer_consensus import (
-                                    get_peer_consensus_tracker as _gpct_kickback,
-                                )
-
-                                _kickback_tracker = _gpct_kickback(pipeline_id)
-                            except Exception as tracker_err:  # noqa: BLE001
-                                logger.debug(
-                                    "Tracker lookup failed during kickback snapshot",
-                                    pipeline_id=pipeline_id,
-                                    error=str(tracker_err),
-                                )
-
-                            # Defensive teardown of iteration N's containers
-                            # before we reset and respawn (#2795). The
-                            # consensus-close path already SIGTERMs at the end
-                            # of _run_concurrent_phase, but the K8s delete is
-                            # asynchronous — calling stop_container again here
-                            # is idempotent and guarantees iteration N+1 will
-                            # not race iteration N's still-terminating pods.
-                            _kickback_stale_containers = _apply_inline_hitl_kickback_to_phase(
-                                phase_execution,
-                                _revision_feedback,
-                                tracker=_kickback_tracker,
-                            )
-
-                            # Clear message store and consensus tracker so the
-                            # re-run doesn't short-circuit on stale CONSENSUS_CONFIRMED
-                            # messages from the previous run (issue #1296).
-                            from routes.phases import _clear_concurrent_state
-
-                            _clear_concurrent_state(pipeline_id)
-
-                            store.save_pipeline(pipeline)
-
-                            for _ctr in _kickback_stale_containers:
-                                if _ctr.container_id and _ctr.status == ContainerStatus.RUNNING:
-                                    try:
-                                        spawner.backend.stop_container(
-                                            _ctr.container_id, timeout=10
-                                        )
-                                    except Exception as stop_err:  # noqa: BLE001
-                                        logger.debug(
-                                            "Best-effort kickback teardown failed",
-                                            pipeline_id=pipeline_id,
-                                            container_id=_ctr.container_id,
-                                            error=str(stop_err),
-                                        )
-
-                            report_pipeline_status(
+                        # No force-advance (#3392). The converge-before-advance
+                        # loop is human-gated every round, so an unbounded loop
+                        # cannot burn compute silently and we must never advance
+                        # with the operator's feedback unaddressed. After the
+                        # configured number of rounds, emit a non-fatal overseer
+                        # alert for visibility, then always re-run. The
+                        # ``max_hitl_review_cycles`` config is now this alert
+                        # threshold, not a force-advance budget.
+                        _alert_threshold = pipeline.config.max_hitl_review_cycles
+                        if phase_execution.hitl_review_cycles >= _alert_threshold:
+                            _broadcast_hitl_nonconvergence_alert(
+                                pipeline_id,
                                 pipeline,
-                                event_type="phase.revision_requested",
-                                message=f"Human requested changes to {current_phase.value}",
+                                current_phase,
+                                phase_execution.hitl_review_cycles,
+                                _alert_threshold,
                             )
-                            _emit_pipeline_event(pipeline, "phase.revision_requested")
-                            continue  # Re-enter outer loop → re-run phase with feedback
+                        # #2795: the directive + frozen iteration summary
+                        # accumulate across kickbacks so iteration N+1's prompts
+                        # render them with explicit precedence prose.
+                        _perform_hitl_phase_rerun(
+                            store=store,
+                            spawner=spawner,
+                            pipeline=pipeline,
+                            phase_execution=phase_execution,
+                            pipeline_id=pipeline_id,
+                            current_phase=current_phase,
+                            feedback_text=_revision_feedback,
+                            event_message=f"Human requested changes to {current_phase.value}",
+                        )
+                    continue  # Re-enter outer loop → re-run phase with feedback
 
                 # Before advancing, surface any contract-scoped decisions /
                 # feedback the phase's agents registered via ``egg-contract``.
                 # Without this bridge, approving the phase_gate silently
                 # discards them (#1889).  Wrapped in try/except so a bug
                 # here can never strand the pipeline.
+                _decisions_resolved_this_round = 0
                 try:
-                    _queue_and_await_contract_decisions(
+                    _decisions_resolved_this_round = _queue_and_await_contract_decisions(
                         dq,
                         worktree_repo_path,
                         pipeline_id,
@@ -26469,6 +26620,84 @@ def _run_pipeline(
                         phase=current_phase.value,
                         error=str(bridge_err),
                     )
+
+                # Converge-before-advance (#3392): if the operator just
+                # resolved one or more decisions, re-run the phase so the
+                # documents reflect those resolutions and any decision the
+                # resolutions induce is surfaced in the next round. Re-asks of
+                # already-answered questions are suppressed by carry-forward
+                # (find_resolved_question), so the open-decision set shrinks
+                # toward a fixpoint; we advance only on a round that resolved
+                # nothing new. The phase gate is re-presented after the re-run.
+                if _decisions_resolved_this_round and current_phase.value in _HITL_GATE_PHASES:
+                    # Preserve any operator context attached to the approve so
+                    # the re-run's agents see it (the bridge already persisted
+                    # the decision answers themselves; this carries the gate
+                    # prose that would otherwise be dropped on a re-run round).
+                    # When the operator went through the "bare request → asked
+                    # for specifics → approve-with-context" follow-up path, the
+                    # context lives in ``followup_resolution`` (the final
+                    # answer), not the stale original ``resolution`` — prefer
+                    # it so that context is not silently dropped (#3392 review).
+                    _context_source = (
+                        followup_resolution if followup_resolution is not None else resolution
+                    )
+                    _approve_context = ""
+                    try:
+                        _ap = json.loads(_context_source)
+                        if isinstance(_ap, dict):
+                            _approve_context = (
+                                _ap.get("context") or _ap.get("feedback") or ""
+                            ).strip()
+                    except json.JSONDecodeError, TypeError, AttributeError:
+                        _approve_context = ""
+
+                    _rerun_feedback = (
+                        f"The operator resolved {_decisions_resolved_this_round} HITL "
+                        f"decision(s) for the {current_phase.value} phase. Update the "
+                        f"{current_phase.value} document(s) to reflect the resolved "
+                        f"decisions (read them from the contract's `decisions`), and "
+                        f"register any new decisions the resolutions induce."
+                    )
+                    if _approve_context:
+                        _rerun_feedback += f"\n\nOperator note at the gate: {_approve_context}"
+
+                    logger.info(
+                        "HITL gate: decisions resolved, re-running phase to fold them in",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        resolved_count=_decisions_resolved_this_round,
+                    )
+                    with get_pipeline_state_lock(pipeline_id):
+                        pipeline = store.load_pipeline(pipeline_id)
+                        pipeline.status = PipelineStatus.RUNNING
+                        phase_execution = pipeline.get_phase_execution(current_phase)
+                        phase_execution.status = PipelineStatus.RUNNING
+                        phase_execution.completed_at = None
+                        phase_execution.hitl_review_cycles += 1
+                        _alert_threshold = pipeline.config.max_hitl_review_cycles
+                        if phase_execution.hitl_review_cycles >= _alert_threshold:
+                            _broadcast_hitl_nonconvergence_alert(
+                                pipeline_id,
+                                pipeline,
+                                current_phase,
+                                phase_execution.hitl_review_cycles,
+                                _alert_threshold,
+                            )
+                        _perform_hitl_phase_rerun(
+                            store=store,
+                            spawner=spawner,
+                            pipeline=pipeline,
+                            phase_execution=phase_execution,
+                            pipeline_id=pipeline_id,
+                            current_phase=current_phase,
+                            feedback_text=_rerun_feedback,
+                            event_message=(
+                                f"Folding {_decisions_resolved_this_round} resolved "
+                                f"decision(s) into {current_phase.value}"
+                            ),
+                        )
+                    continue  # Re-enter outer loop → re-run phase, re-surface gate
 
                 # Approved — resume and advance
                 with get_pipeline_state_lock(pipeline_id):

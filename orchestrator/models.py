@@ -580,11 +580,26 @@ class PipelineConfig(BaseModel):
     max_hitl_review_cycles: int = Field(
         default=3,
         ge=1,
-        description="Max HITL revision cycles per phase (independent of agentic review budget)",
+        description=(
+            "HITL converge-before-advance round count at which a non-fatal "
+            "overseer non-convergence alert is emitted (#3392). No longer a "
+            "force-advance budget: the loop is human-gated every round and "
+            "never force-advances."
+        ),
     )
     hitl_gates: bool = Field(
         default=True,
-        description="Pause for human approval after refine and plan phases",
+        description=(
+            "Pause for human approval after non-gated phases. For refine and "
+            "plan this flag selects the gate *mode* rather than disabling the "
+            "gate outright (#3392): when True (the default) those phases run "
+            "the converge-before-advance loop, resolving decisions with a human "
+            "each round; when False they advance autonomously after surfacing a "
+            "non-blocking gate event (the converge loop requires a human, so it "
+            "cannot run unattended — blocking on it would hang the pipeline "
+            "indefinitely). For phases outside refine/plan the flag toggles the "
+            "post-phase approval pause as before."
+        ),
     )
     concurrent_execution: bool = Field(
         default=False,
