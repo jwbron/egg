@@ -326,7 +326,7 @@ Multi-agent orchestration is managed by the local orchestrator (`orchestrator/co
 The refine and plan phases include an automated internal review step before human approval. All reviews happen internally without posting to the issue until approval:
 
 1. **Producer agent runs** — The refine/plan agent writes its output to `.egg-state/drafts/{identifier}-{analysis|plan}.md`
-2. **Simplifier runs** — Once the producer proposes, the simplifier reads the draft and writes a human-focused companion (`{identifier}-{analysis|plan}-human.md`) free of pipeline jargon, for the human reviewer's benefit
+2. **Simplifier runs** — Once the producer proposes, the simplifier reads the draft and writes a plain-language companion (`{identifier}-{analysis|plan}-human.md`) free of pipeline jargon and implementation minutiae, for a broad audience (engineers, PMs, and managers) — a summary of the draft, not a review of it
 3. **Reviewer agents run in parallel** — Each reviewer reads the draft (the relevant reviewer also reviews the simplifier's companion), then writes its verdict to its own file
 4. **Verdicts aggregated** — If any reviewer needs revision, the aggregate verdict is `needs_revision`
 5. **If approved** — The final draft (and companion) is posted to the issue with an approval checkbox for human review
