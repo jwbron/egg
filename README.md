@@ -112,11 +112,12 @@ There is **no separate "PR" phase**. The pipeline's context PR (`egg/<id>/work` 
 A completed pipeline looks like this:
 
 ```
-╔══════════════════════════════════════════════╗
-│ ✓ Refine                            complete │
-│   ✓ refiner  ✓ simplifier                    │
-│   ✓ reviewer_refine  ✓ reviewer_agent_design │
-╚══════════════════════════════════════════════╝
+╔═══════════════════════════════════════════════════════╗
+│ ✓ Refine                                    complete  │
+│   ✓ refiner  ✓ simplifier                             │
+│   ✓ reviewer_refine  ✓ reviewer_agent_design          │
+│   ✓ first_principles_reviewer                         │
+╚═══════════════════════════════════════════════════════╝
     │
     ▼
 ╔══════════════════════════════════════════════╗
