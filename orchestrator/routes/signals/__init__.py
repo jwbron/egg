@@ -147,6 +147,7 @@ from ._validation import (  # noqa: E402,F401
     _BRC_CONDITION_MIN_LEN,
     _BRC_MIN_CONTENT_LEN,
     _artifact_human_label,
+    _reject_extra_simplifier_drafts,
     _require_route_version,
     _validate_brc_content,
     _validate_plan_extensions,
