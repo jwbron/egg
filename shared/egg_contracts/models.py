@@ -501,6 +501,19 @@ class Decision(EggContractBaseModel):
     resolved_by: str | None = Field(default=None, description="Who resolved")
     resolved_at: datetime | None = Field(default=None, description="When resolved")
     debounce_until: datetime | None = Field(default=None, description="Debounce expiration")
+    redirect_seed: str | None = Field(
+        default=None,
+        description=(
+            "Machine-consumed payload for the first_principles_reviewer "
+            "seed-redirect accept-path: the FULL proposed task_description the "
+            "operator adopts when they resolve this decision with "
+            "``FIRST_PRINCIPLES_ADOPT_OPTION``. Carried on the decision itself "
+            "(written through the same contract-mutate RPC that creates the "
+            "decision) rather than a free-standing agent-worktree file, because "
+            "a BRC reviewer has no commit/push path to the shared pipeline "
+            "worktree. ``None`` for every other decision."
+        ),
+    )
 
 
 class DeferredAction(EggContractBaseModel):

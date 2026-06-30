@@ -3,7 +3,9 @@
 Covers the additive wiring (role registry, refine review graph, gateway
 patterns, the broadened ``decisions.*`` capability), the prompt single-source
 invariant (the criteria interpolate the exact accept-path option labels), and
-the resolution-hook dispatch logic (proceed / phase-guard / adopt-no-artifact).
+the resolution-hook dispatch logic (proceed / phase-guard / adopt — reading the
+proposed seed off the decision's ``redirect_seed`` field, the channel that
+actually propagates from a BRC reviewer to the orchestrator).
 
 The integration the hook drives end-to-end — the durable seed rewrite and the
 refine re-run — is validated by a live proving run, not here; these tests pin
@@ -97,7 +99,10 @@ class TestPromptSingleSource:
         assert FIRST_PRINCIPLES_ADOPT_OPTION in criteria
         assert FIRST_PRINCIPLES_PROCEED_OPTION in criteria
         assert FIRST_PRINCIPLES_CANCEL_OPTION in criteria
-        assert "-first-principles.json" in criteria
+        # The proposed seed travels on the decision's redirect_seed field via
+        # register_open_question — NOT a free-standing worktree file.
+        assert "redirect_seed" in criteria
+        assert "register_open_question" in criteria
         assert "Never NACK" in criteria
 
     def test_reviewer_type_dispatch(self) -> None:
@@ -154,16 +159,19 @@ class TestAcceptPathHookDispatch:
         )
         assert out is None
 
-    def test_adopt_without_artifact_fails_loudly(self, tmp_path) -> None:
+    def test_adopt_without_redirect_seed_fails_loudly(self) -> None:
         from routes.decisions import (
             FIRST_PRINCIPLES_ADOPT_OPTION,
             _maybe_apply_first_principles_redirect,
         )
 
-        # No first-principles artifact on the (empty) worktree → adopt cannot
-        # recover the proposed seed and must surface a failure, never silently
-        # succeed.
-        with patch("contract_store.resolve_pipeline_worktree", return_value=tmp_path):
+        # The decision carries no redirect_seed and the contract fallback finds
+        # none → adopt cannot recover the proposed seed and must surface a
+        # failure, never silently succeed.
+        with patch(
+            "routes.decisions._handlers._read_redirect_seed_from_contract",
+            return_value=None,
+        ):
             out = _maybe_apply_first_principles_redirect(
                 "p1",
                 self._decision(),
@@ -175,37 +183,66 @@ class TestAcceptPathHookDispatch:
         assert out["success"] is False
         assert "no proposed redirect" in out["error"]
 
-    def test_adopt_reads_artifact_and_calls_redirect(self, tmp_path) -> None:
-        import json
-
+    def test_adopt_reads_redirect_seed_off_decision(self) -> None:
         from routes.decisions import (
             FIRST_PRINCIPLES_ADOPT_OPTION,
             _maybe_apply_first_principles_redirect,
         )
 
-        outputs = tmp_path / ".egg-state" / "agent-outputs"
-        outputs.mkdir(parents=True)
-        (outputs / "7-first-principles.json").write_text(
-            json.dumps({"concern": "c", "proposed_task_description": "Do the simpler thing"})
-        )
+        # Primary resolve path: the contract Decision is handed in directly and
+        # carries the proposed seed on ``redirect_seed`` — read it straight off,
+        # no worktree file involved.
+        decision = self._decision()
+        decision.redirect_seed = "Do the simpler thing"
 
-        with (
-            patch("contract_store.resolve_pipeline_worktree", return_value=tmp_path),
-            patch("routes.pipelines._pipeline_identifier", return_value=7),
-            patch(
-                "routes.pipelines.apply_first_principles_redirect",
-                return_value=["refiner", "reviewer_refine"],
-            ) as mock_redirect,
-        ):
+        with patch(
+            "routes.pipelines.apply_first_principles_redirect",
+            return_value=["refiner", "reviewer_refine"],
+        ) as mock_redirect:
             out = _maybe_apply_first_principles_redirect(
                 "p1",
-                self._decision(),
+                decision,
                 FIRST_PRINCIPLES_ADOPT_OPTION,
                 SimpleNamespace(issue_number=7),
             )
 
         mock_redirect.assert_called_once()
         assert mock_redirect.call_args.args[1] == "Do the simpler thing"
+        assert out["outcome"] == "adopted"
+        assert out["success"] is True
+
+    def test_adopt_recovers_redirect_seed_from_contract_on_queue_path(self) -> None:
+        from routes.decisions import (
+            FIRST_PRINCIPLES_ADOPT_OPTION,
+            _maybe_apply_first_principles_redirect,
+        )
+
+        # Bridged queue path: the pipeline HITLDecision has no redirect_seed, so
+        # the hook falls back to the contract decision of the same id, which the
+        # register_open_question RPC wrote into the shared worktree.
+        contract_decision = SimpleNamespace(id="cq-1", redirect_seed="Narrow the scope")
+        contract = SimpleNamespace(decisions=[contract_decision])
+        store = SimpleNamespace(load_pipeline=lambda _pid: SimpleNamespace(issue_number=7))
+
+        with (
+            patch("routes.decisions.get_state_store_for_pipeline", return_value=(store, None)),
+            patch("contract_store.resolve_pipeline_worktree", return_value="/tmp/wt"),
+            patch("routes.pipelines._pipeline_identifier", return_value=7),
+            patch("egg_contracts.load_contract", return_value=contract),
+            patch(
+                "routes.pipelines.apply_first_principles_redirect",
+                return_value=["refiner"],
+            ) as mock_redirect,
+        ):
+            out = _maybe_apply_first_principles_redirect(
+                "p1",
+                self._decision(decision_id="cq-1"),  # no redirect_seed on this object
+                FIRST_PRINCIPLES_ADOPT_OPTION,
+                SimpleNamespace(issue_number=7),
+            )
+
+        mock_redirect.assert_called_once()
+        assert mock_redirect.call_args.args[1] == "Narrow the scope"
         assert out["outcome"] == "adopted"
         assert out["success"] is True
 

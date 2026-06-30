@@ -321,8 +321,10 @@ def _maybe_complete_task_from_resolution(
 # label. SINGLE SOURCE OF TRUTH — the reviewer criteria in
 # ``routes/pipelines.py`` interpolate these same strings into the agent's
 # prompt, so the label the agent writes and the label this hook matches can
-# never drift. The reviewer also commits the proposed new direction to
-# ``FIRST_PRINCIPLES_ARTIFACT_TEMPLATE``; ``adopt`` reads it back from there.
+# never drift. The reviewer also carries the proposed new direction on the
+# decision's ``redirect_seed`` field (written through the same contract-mutate
+# RPC that creates the decision — the one channel proven to reach the shared
+# pipeline worktree); ``adopt`` reads it back from there.
 FIRST_PRINCIPLES_ADOPT_OPTION = "Adopt the redirect (rewrite the seed and re-run the refine phase)"
 FIRST_PRINCIPLES_PROCEED_OPTION = "Proceed as-is (the current direction stands)"
 FIRST_PRINCIPLES_CANCEL_OPTION = "Don't build this (cancel the pipeline)"
@@ -331,42 +333,75 @@ FIRST_PRINCIPLES_OPTIONS = (
     FIRST_PRINCIPLES_PROCEED_OPTION,
     FIRST_PRINCIPLES_CANCEL_OPTION,
 )
-FIRST_PRINCIPLES_ARTIFACT_TEMPLATE = ".egg-state/agent-outputs/{identifier}-first-principles.json"
 
 
-def _read_first_principles_redirect(pipeline_id: str, pipeline: Any) -> str | None:
-    """Read the reviewer's proposed redirect (the new seed) from its artifact.
+def _read_first_principles_redirect(pipeline_id: str, decision: Any) -> str | None:
+    """Recover the reviewer's proposed redirect (the new seed) for ``adopt``.
 
-    The ``first_principles_reviewer`` commits its proposed redirect to
-    ``{identifier}-first-principles.json`` (``proposed_task_description``); the
-    ``adopt`` path reads it back here rather than relying on the lossy decision
-    bridge (the pipeline-queue ``HITLDecision.options`` is ``list[str]`` — bare
-    labels with no structured payload). Returns the stripped new seed, or
-    ``None`` when no artifact / payload is present.
+    The ``first_principles_reviewer`` carries its proposed redirect on the
+    decision's ``redirect_seed`` field, written through the same
+    ``register_open_question`` → contract-mutate RPC that creates the decision.
+    That RPC writes **directly into the shared pipeline worktree**, so unlike a
+    free-standing file in the reviewer's per-agent worktree (which has no
+    commit/push path off it under BRC isolation) the payload actually reaches
+    the orchestrator.
+
+    The primary resolve path hands us the contract ``Decision`` itself, so the
+    field is read straight off ``decision``. The bridged queue path hands us a
+    pipeline ``HITLDecision`` (a ``list[str]`` of bare option labels with no
+    structured payload), so we fall back to reloading the contract and reading
+    ``redirect_seed`` off the matching ``cq-N`` decision. Returns the stripped
+    new seed, or ``None`` when no payload is present.
+    """
+    seed = getattr(decision, "redirect_seed", None)
+    if isinstance(seed, str) and seed.strip():
+        return seed.strip()
+    # Fallback (bridged queue path): the pipeline HITLDecision doesn't carry
+    # ``redirect_seed``; recover it from the contract decision of the same id.
+    return _read_redirect_seed_from_contract(pipeline_id, getattr(decision, "id", None))
+
+
+def _read_redirect_seed_from_contract(pipeline_id: str, decision_id: Any) -> str | None:
+    """Read ``redirect_seed`` off the contract decision ``decision_id``.
+
+    Best-effort: returns ``None`` (and logs) when the worktree/contract can't
+    be loaded or the decision carries no redirect payload. When ``decision_id``
+    doesn't resolve to a contract decision, scans for the single first-
+    principles decision carrying a ``redirect_seed`` (the reviewer is the only
+    producer of that field, so the match is unambiguous).
     """
     import contract_store
-    from routes.pipelines import _pipeline_identifier
 
-    worktree = contract_store.resolve_pipeline_worktree(pipeline_id)
-    if worktree is None:
-        return None
-    identifier = _pipeline_identifier(getattr(pipeline, "issue_number", None), pipeline_id)
-    path = Path(worktree) / FIRST_PRINCIPLES_ARTIFACT_TEMPLATE.format(identifier=identifier)
-    if not path.exists():
-        return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except OSError, json.JSONDecodeError:
+        from egg_contracts import load_contract
+        from routes.pipelines import _pipeline_identifier
+
+        store, _ = _pkg.get_state_store_for_pipeline(pipeline_id)
+        pipeline = store.load_pipeline(pipeline_id)
+        worktree = contract_store.resolve_pipeline_worktree(pipeline_id)
+        if worktree is None:
+            return None
+        identifier = _pipeline_identifier(getattr(pipeline, "issue_number", None), pipeline_id)
+        contract = load_contract(identifier, worktree)
+    except Exception:  # noqa: BLE001
         logger.warning(
-            "First-principles artifact present but unreadable",
+            "Could not load contract to recover first-principles redirect seed",
             pipeline_id=pipeline_id,
-            path=str(path),
+            decision_id=decision_id,
+            exc_info=True,
         )
         return None
-    proposed = data.get("proposed_task_description") if isinstance(data, dict) else None
-    if isinstance(proposed, str) and proposed.strip():
-        return proposed.strip()
-    return None
+
+    decisions = getattr(contract, "decisions", None) or []
+    fallback: str | None = None
+    for d in decisions:
+        seed = getattr(d, "redirect_seed", None)
+        if not (isinstance(seed, str) and seed.strip()):
+            continue
+        if getattr(d, "id", None) == decision_id:
+            return seed.strip()
+        fallback = seed.strip()
+    return fallback
 
 
 def _cancel_pipeline_in_process(pipeline_id: str, *, reason: str) -> None:
@@ -439,10 +474,15 @@ def _maybe_apply_first_principles_redirect(
 
     # Guard: only act on refine-phase first-principles decisions. The labels
     # are specific enough to be effectively unique, but the phase check keeps a
-    # coincidental match in another phase from triggering a seed rewrite.
+    # coincidental match outside refine from triggering a seed rewrite. The
+    # phase is always populated on both resolve paths (the contract Decision is
+    # filed with ``--phase refine``; the bridged HITLDecision auto-infers it
+    # from the pipeline's current phase, which is refine while this gate is
+    # open), so require an exact match rather than letting ``phase=None``
+    # through.
     phase = getattr(decision, "phase", None)
     phase_val = getattr(phase, "value", phase)
-    if phase_val is not None and phase_val != "refine":
+    if phase_val != "refine":
         return None
 
     decision_id = getattr(decision, "id", "?")
@@ -478,11 +518,11 @@ def _maybe_apply_first_principles_redirect(
         return {"action": "first_principles_redirect", "outcome": "cancelled", "success": True}
 
     # Adopt: rewrite the seed and re-run refine.
-    new_seed = _read_first_principles_redirect(pipeline_id, pipeline)
+    new_seed = _read_first_principles_redirect(pipeline_id, decision)
     if not new_seed:
         logger.error(
-            "First-principles adopt: no proposed redirect found in the "
-            "first-principles artifact; cannot rewrite the seed",
+            "First-principles adopt: no proposed redirect found on the "
+            "decision's redirect_seed; cannot rewrite the seed",
             pipeline_id=pipeline_id,
             decision_id=decision_id,
         )
@@ -490,7 +530,7 @@ def _maybe_apply_first_principles_redirect(
             "action": "first_principles_redirect",
             "outcome": "adopt",
             "success": False,
-            "error": "no proposed redirect found in the first-principles artifact",
+            "error": "no proposed redirect found on the decision's redirect_seed",
         }
     try:
         from routes.pipelines import apply_first_principles_redirect

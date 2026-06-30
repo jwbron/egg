@@ -86,7 +86,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 **Purpose**: Adversarially review the pipeline's *seed* (the operator's task statement) and the *direction* the refiner's analysis is taking — from first principles. It asks whether the premise is sound and the direction appropriate, not whether the analysis is well-written (that is `reviewer_refine`'s job). Spawned for all repos.
 
-**Escalation, not NACK**: a redirect of the seed is the operator's call, not the refiner's to fix — the seed is operator-owned and the refiner cannot rewrite it. So this role **never NACKs the refiner**. It surfaces significant redirects (a materially simpler path, a different approach, a scope change, or not building the work at all) as **phase-scoped HITL decisions** via `egg-contract add-decision --phase refine`, then ACKs the refiner. Its CRITICAL review edge guarantees it weighs in before consensus closes; an open redirect decision independently holds the refine→plan completion gate until the operator resolves it. It is fine for it to be relatively noisy, provided each redirect is concrete and evidence-backed.
+**Escalation, not NACK**: a redirect of the seed is the operator's call, not the refiner's to fix — the seed is operator-owned and the refiner cannot rewrite it. So this role **never NACKs the refiner**. It surfaces significant redirects (a materially simpler path, a different approach, a scope change, or not building the work at all) as **phase-scoped HITL decisions** via `mcp__sdlc__register_open_question` (`phase=refine`), then ACKs the refiner. Its CRITICAL review edge guarantees it weighs in before consensus closes; an open redirect decision independently holds the refine→plan completion gate until the operator resolves it. It is fine for it to be relatively noisy, provided each redirect is concrete and evidence-backed.
 
 **Contract role**: `reviewer`. Reviewers may *create* HITL decisions (resolution stays human-only) — see `shared/egg_contracts/roles.py`.
 
@@ -94,14 +94,13 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 **Outputs**:
 - `.egg-state/reviews/{identifier}-refine-first-principles-reviewer-review.json` — Verdict file
-- `.egg-state/agent-outputs/{identifier}-first-principles.json` — proposed redirect (`proposed_task_description`), read by the accept-path on adopt
-- Phase-scoped HITL decisions on the contract (the redirects)
+- Phase-scoped HITL decisions on the contract (the redirects). When a redirect proposes a concrete new direction, the decision also carries the FULL proposed seed on its `redirect_seed` field — written through the same `register_open_question` RPC that creates the decision, so it reaches the shared pipeline worktree even though a BRC reviewer has no commit/push path of its own.
 
 **Accept-path**: the redirect decision carries three verbatim option labels. On the operator's choice the orchestrator acts:
 
 | Choice | Effect |
 |--------|--------|
-| Adopt the redirect | Rewrites the seed (`contract.task_description`, audited operator mutation) to the reviewer's `proposed_task_description`, commits+pushes it to the work branch, and re-runs the refine phase against it (`apply_first_principles_redirect` → `_restart_refine_phase`). |
+| Adopt the redirect | Rewrites the seed (`contract.task_description`, audited operator mutation) to the reviewer's `redirect_seed`, commits+pushes it to the work branch, and re-runs the refine phase against it (`apply_first_principles_redirect` → `_restart_refine_phase`). |
 | Proceed as-is | No-op; the current direction stands and the decision is marked resolved. |
 | Don't build this | Cancels the pipeline. |
 

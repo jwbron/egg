@@ -25,6 +25,15 @@ _REGISTER_SCHEMA: dict[str, Any] = {
             "enum": ["refine", "plan", "implement", "pr"],
             "description": "Pipeline phase (defaults to contract's current_phase)",
         },
+        "redirect_seed": {
+            "type": "string",
+            "description": (
+                "first_principles_reviewer only: the FULL proposed "
+                "task_description the operator adopts via the seed-redirect "
+                "accept-path. Stored on the decision (rides this same RPC) so "
+                "the orchestrator can read it back without a worktree file."
+            ),
+        },
         "issue": {"type": "integer", "description": "Optional issue-number override"},
         "pipeline_id": {
             "type": "string",

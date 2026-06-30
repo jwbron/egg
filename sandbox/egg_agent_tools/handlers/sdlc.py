@@ -65,6 +65,13 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
             appended automatically for parity with the CLI.
         phase (str): optional override; defaults to the contract's
             ``current_phase``.
+        redirect_seed (str): optional. Machine-consumed payload for the
+            ``first_principles_reviewer`` seed-redirect accept-path — the FULL
+            proposed ``task_description`` the operator adopts when resolving
+            this decision. Stored on the decision itself (it rides the same
+            contract-mutate RPC that creates the decision), because a BRC
+            reviewer has no commit/push path to carry a free-standing
+            agent-worktree file into the shared pipeline worktree.
         repo_path (str): optional override for repo path.
         pipeline_id / issue: optional contract identifier.
 
@@ -82,6 +89,9 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
     if phase is not None and phase not in _VALID_PHASES:
         raise HandlerError(f"'phase' must be one of {sorted(_VALID_PHASES)}; got {phase!r}")
     options = list(req.get("options") or [])
+    redirect_seed = req.get("redirect_seed")
+    if redirect_seed is not None and not isinstance(redirect_seed, str):
+        raise HandlerError("'redirect_seed' must be a string when provided")
     repo_path = req.get("repo_path") or get_repo_path()
 
     identifier = _resolve_identifier(req)
@@ -160,6 +170,8 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
             "resolved_at": None,
             "debounce_until": None,
         }
+        if redirect_seed is not None:
+            new_decision["redirect_seed"] = redirect_seed
 
         reason = f"Created HITL decision: {question[:50]}" + ("..." if len(question) > 50 else "")
         result = gateway_request(

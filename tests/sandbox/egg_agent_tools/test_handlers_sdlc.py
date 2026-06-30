@@ -70,6 +70,54 @@ class TestRegisterOpenQuestion:
         assert data["new_value"]["phase"] == "plan"
         assert data["actor"] == "egg"
 
+    def test_redirect_seed_carried_on_decision(self):
+        # The first_principles_reviewer's proposed seed rides this same RPC so
+        # the orchestrator can read it back off the decision — no worktree file.
+        fake_contract = _fake_contract()
+        responses = [
+            {"success": True, "data": fake_contract},
+            {"success": True, "data": {}},
+        ]
+        with (
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request",
+                side_effect=lambda *a, **kw: responses.pop(0),
+            ) as gr,
+            patch("egg_agent_tools.handlers.sdlc.get_contract_identifier", return_value=42),
+        ):
+            resp = sdlc.register_open_question(
+                {"question": "redirect?", "redirect_seed": "Do the simpler thing"}
+            )
+
+        assert resp["decision"]["redirect_seed"] == "Do the simpler thing"
+        # And it reaches the gateway mutate payload verbatim.
+        data = gr.call_args_list[1].kwargs["data"]
+        assert data["new_value"]["redirect_seed"] == "Do the simpler thing"
+
+    def test_redirect_seed_omitted_when_absent(self):
+        # No redirect_seed key on a normal decision — the field stays off the
+        # payload so it defaults to None on the model.
+        fake_contract = _fake_contract()
+        responses = [
+            {"success": True, "data": fake_contract},
+            {"success": True, "data": {}},
+        ]
+        with (
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request",
+                side_effect=lambda *a, **kw: responses.pop(0),
+            ) as gr,
+            patch("egg_agent_tools.handlers.sdlc.get_contract_identifier", return_value=42),
+        ):
+            resp = sdlc.register_open_question({"question": "q?"})
+
+        assert "redirect_seed" not in resp["decision"]
+        assert "redirect_seed" not in gr.call_args_list[1].kwargs["data"]["new_value"]
+
+    def test_non_string_redirect_seed_rejected(self):
+        with pytest.raises(HandlerError):
+            sdlc.register_open_question({"question": "q?", "redirect_seed": 123})
+
     def test_no_options_keeps_list_empty(self):
         fake_contract = _fake_contract()
         responses = [

@@ -5681,18 +5681,16 @@ def _get_first_principles_review_criteria() -> str:
     """Return review criteria for the adversarial first-principles reviewer.
 
     The escalation instructions interpolate the accept-path's sentinel option
-    labels + artifact path from ``routes.decisions`` so the labels the agent
-    writes (here) and the labels the resolve hook matches stay a single source
-    of truth — they cannot drift. Lazy import avoids a module-load cycle.
+    labels from ``routes.decisions`` so the labels the agent writes (here) and
+    the labels the resolve hook matches stay a single source of truth — they
+    cannot drift. Lazy import avoids a module-load cycle.
     """
     from routes.decisions import (
         FIRST_PRINCIPLES_ADOPT_OPTION,
         FIRST_PRINCIPLES_CANCEL_OPTION,
         FIRST_PRINCIPLES_PROCEED_OPTION,
     )
-    from routes.decisions._handlers import FIRST_PRINCIPLES_ARTIFACT_TEMPLATE
 
-    artifact_path = FIRST_PRINCIPLES_ARTIFACT_TEMPLATE.format(identifier="<identifier>")
     return (
         "You are the **first-principles reviewer**. Your subject is the "
         "pipeline's **seed** — the operator's task statement (run "
@@ -5739,30 +5737,29 @@ def _get_first_principles_review_criteria() -> str:
         "re-runs the refiner, which cannot change the operator-owned seed; "
         "premise and direction are the operator's call, not the refiner's to "
         "fix.\n"
-        "- When you have a redirect, do BOTH of the following so the operator "
-        "can act on it with one click (the **accept-path**):\n"
-        f"  1. **Write your proposed redirect to `{artifact_path}`** (replace "
-        "`<identifier>` with this pipeline's identifier — the same one used "
-        "for your other agent-output files). It must be a JSON object with a "
-        "`proposed_task_description` field holding the FULL rewritten seed — "
-        "the complete task statement as it should read if the operator adopts "
-        "your redirect (not a diff, not just the objection). Include a short "
-        "`concern` field too. Example: "
-        '`{"concern": "...", "proposed_task_description": "..."}`.\n'
-        "  2. **File the phase-scoped HITL decision** with these EXACT option "
-        "labels (do not paraphrase — the orchestrator matches them verbatim to "
-        "drive the accept-path):\n"
-        "     `egg-contract add-decision --phase refine --question "
-        '"<state the concern, then the concrete redirect and why>" '
-        f'--options "{FIRST_PRINCIPLES_ADOPT_OPTION}" '
-        f'"{FIRST_PRINCIPLES_PROCEED_OPTION}" '
-        f'"{FIRST_PRINCIPLES_CANCEL_OPTION}"`\n'
-        "     On the operator's choice the orchestrator will: **adopt** → "
-        "rewrite the seed to your `proposed_task_description` and re-run the "
-        "refine phase against it; **proceed** → leave the direction unchanged; "
-        "**don't build** → cancel the pipeline. If you have only an objection "
-        "with no concrete alternative direction, you do not have a redirect — "
-        "do not file the decision.\n"
+        "- When you have a redirect, **file one phase-scoped HITL decision** "
+        "via the `mcp__sdlc__register_open_question` tool so the operator can "
+        "act on it with one click (the **accept-path**). Pass these args:\n"
+        '  - `phase`: `"refine"`.\n'
+        "  - `question`: state the concern, then the concrete redirect and "
+        "why (operator-facing prose).\n"
+        "  - `options`: these EXACT labels, in this order — do NOT paraphrase, "
+        "the orchestrator matches them verbatim to drive the accept-path: "
+        f'`["{FIRST_PRINCIPLES_ADOPT_OPTION}", '
+        f'"{FIRST_PRINCIPLES_PROCEED_OPTION}", '
+        f'"{FIRST_PRINCIPLES_CANCEL_OPTION}"]`.\n'
+        "  - `redirect_seed`: the FULL rewritten seed — the complete "
+        "`task_description` as it should read if the operator adopts your "
+        "redirect (not a diff, not just the objection). This rides the same "
+        "RPC that files the decision, so the orchestrator can read it back "
+        "directly; do NOT write it to a free-standing file (a reviewer "
+        "worktree has no path to carry one to the orchestrator).\n"
+        "  On the operator's choice the orchestrator will: **adopt** → rewrite "
+        "the seed to your `redirect_seed` and re-run the refine phase against "
+        "it; **proceed** → leave the direction unchanged; **don't build** → "
+        "cancel the pipeline. If you have only an objection with no concrete "
+        "alternative direction, you do not have a redirect — do not file the "
+        "decision (omit `redirect_seed`).\n"
         "- Then **ACK the refiner**: your first-principles pass is done and "
         "any concerns are filed for the operator. Your ACK does not endorse "
         "the direction — it records that you reviewed it; the open decision "
