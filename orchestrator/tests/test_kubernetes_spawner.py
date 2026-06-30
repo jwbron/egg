@@ -322,6 +322,53 @@ class TestSpawnAgentJob:
         assert "GATEWAY_URL" in env
         assert "EGG_ORCHESTRATOR_URL" in env
 
+    def test_spawn_single_repo_env_carries_one_element_repo_set(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """#3393: single-repo spawn still exports the repo-set env vars."""
+        import json
+
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1repo",
+            agent_role=AgentRole.TESTER,
+            repos=["owner/repo"],
+        )
+        env = result.environment
+        # Primary stays on EGG_PIPELINE_REPO for back-compat.
+        assert env["EGG_PIPELINE_REPO"] == "owner/repo"
+        assert json.loads(env["EGG_PIPELINE_REPOS"]) == ["owner/repo"]
+        assert json.loads(env["EGG_REPO_VOLUMES_JSON"]) == {"owner/repo": "/home/egg/repos/repo"}
+
+    def test_spawn_multi_repo_env_exposes_full_repo_set(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """#3393: the spawn env no longer collapses to repos[0].
+
+        EGG_PIPELINE_REPO is the primary, but EGG_PIPELINE_REPOS and
+        EGG_REPO_VOLUMES_JSON carry every repo so an agent on a slice
+        scoped to a secondary repo can locate its worktree.
+        """
+        import json
+
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-multi",
+            agent_role=AgentRole.CODER,
+            repos=["owner/primary", "owner/schema"],
+        )
+        env = result.environment
+        assert env["EGG_PIPELINE_REPO"] == "owner/primary"
+        assert json.loads(env["EGG_PIPELINE_REPOS"]) == [
+            "owner/primary",
+            "owner/schema",
+        ]
+        assert json.loads(env["EGG_REPO_VOLUMES_JSON"]) == {
+            "owner/primary": "/home/egg/repos/primary",
+            "owner/schema": "/home/egg/repos/schema",
+        }
+        # The full set is also handed to the gateway session.
+        reg_kwargs = mock_gateway.register_session.call_args.kwargs
+        assert reg_kwargs["repos"] == ["owner/primary", "owner/schema"]
+
     def test_spawn_injects_oauth_placeholder_on_anthropic_path(
         self, spawner, mock_k8s_client, mock_gateway
     ):

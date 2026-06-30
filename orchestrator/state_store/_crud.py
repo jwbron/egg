@@ -162,6 +162,7 @@ def create_pipeline(
     repo: str | None = None,
     branch: str | None = None,
     base_branch: str | None = None,
+    additional_repos: list[dict[str, Any]] | None = None,
     config: dict[str, Any] | None = None,
     prompt: str | None = None,
     pipeline_id: str | None = None,
@@ -226,6 +227,9 @@ def create_pipeline(
             "repo": repo,
             "branch": branch,
             "base_branch": base_branch,
+            # #3393: pydantic coerces the list[dict] from the request body
+            # into list[AdditionalRepo]; empty/None stays a single-repo pipeline.
+            "additional_repos": additional_repos or [],
             "prompt": prompt,
             "network_mode": network_mode,
             # Contract is created separately — mark as unsynced until verified

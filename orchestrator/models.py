@@ -1102,6 +1102,35 @@ class PipelineConfig(BaseModel):
         return v
 
 
+class AdditionalRepo(BaseModel):
+    """A secondary repo attached to a multi-repo pipeline (#3393).
+
+    The pipeline's primary repo stays on ``Pipeline.repo`` /
+    ``Pipeline.base_branch``; each *additional* repo a pipeline operates on
+    is one of these. ``base_branch`` is per-repo (a schema repo and its
+    consumer repo may track different default branches); ``None`` lets the
+    gateway resolve that repo's remote default branch, matching the
+    primary-repo behaviour.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    repo: str = Field(..., description="Repository in owner/name format")
+    base_branch: str | None = Field(
+        default=None,
+        description="Base branch for this repo's worktree/PRs. None → the "
+        "repo's remote default branch (resolved by the gateway).",
+    )
+
+    @field_validator("repo")
+    @classmethod
+    def _validate_repo(cls, v: str) -> str:
+        trimmed = (v or "").strip()
+        if not re.fullmatch(r"[^/\s]+/[^/\s]+", trimmed):
+            raise ValueError("repo must be in 'owner/name' format")
+        return trimmed
+
+
 class Pipeline(BaseModel):
     """Complete state of an SDLC pipeline execution.
 
@@ -1118,6 +1147,19 @@ class Pipeline(BaseModel):
     base_branch: str | None = Field(
         default=None,
         description="Base branch for PR creation. When None, auto-detected from repo's default branch.",
+    )
+    additional_repos: list[AdditionalRepo] = Field(
+        default_factory=list,
+        description=(
+            "Secondary repos this pipeline also operates on (#3393 "
+            "multi-repo pipelines). The primary repo stays on ``repo`` / "
+            "``base_branch``; these are the extra repos a slice may target "
+            "via ``Slice.repo``. Empty for single-repo pipelines and every "
+            "contract written before this field existed. Grown at submit "
+            "time (``additional_repos`` arg) or by HITL-approved agent "
+            "proposals at a phase gate. Use ``all_repos`` / "
+            "``base_branch_for`` rather than reading this directly."
+        ),
     )
     prompt: str | None = Field(default=None, description="User prompt for prompt-driven pipelines")
     status: PipelineStatus = Field(
@@ -1311,6 +1353,38 @@ class Pipeline(BaseModel):
         if phase.value not in self.phases:
             self.phases[phase.value] = PhaseExecution(phase=phase)
         return self.phases[phase.value]
+
+    @property
+    def all_repos(self) -> list[str]:
+        """Every repo this pipeline operates on, primary first (#3393).
+
+        The canonical accessor that replaces the historical
+        ``[pipeline.repo]`` collapse at the worktree / spawn / session call
+        sites. Returns the primary ``repo`` (when set) followed by each
+        ``additional_repos`` entry, de-duplicated while preserving order so
+        a repo accidentally listed as both primary and additional only
+        provisions once. Empty for local pipelines with no repo.
+        """
+        ordered: list[str] = []
+        for candidate in [self.repo, *(r.repo for r in self.additional_repos)]:
+            if candidate and candidate not in ordered:
+                ordered.append(candidate)
+        return ordered
+
+    def base_branch_for(self, repo: str) -> str | None:
+        """Base branch for ``repo`` — primary's or the additional entry's.
+
+        Returns ``self.base_branch`` for the primary repo and the matching
+        ``additional_repos`` entry's ``base_branch`` otherwise. ``None``
+        (the default) means "let the gateway resolve that repo's remote
+        default branch", identical to the single-repo behaviour.
+        """
+        if repo == self.repo:
+            return self.base_branch
+        for extra in self.additional_repos:
+            if extra.repo == repo:
+                return extra.base_branch
+        return None
 
     def get_pending_decisions(self) -> list[HITLDecision]:
         """Get all pending HITL decisions."""

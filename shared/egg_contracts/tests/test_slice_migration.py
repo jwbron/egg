@@ -258,3 +258,27 @@ class TestContractIssueOrPipelineIdRequirement:
     def test_pipeline_id_only_loads(self) -> None:
         contract = Contract.model_validate({"slices": [], "pipeline_id": "issue-2137"})
         assert contract.pipeline_id == "issue-2137"
+
+
+class TestSliceRepoDimension:
+    """#3393: per-slice ``repo`` pointer and ``resolve_repo`` fallback."""
+
+    def test_repo_defaults_to_none(self) -> None:
+        """Unset on construction and on pre-#3393 payloads."""
+        assert Slice(id="slice-1", name="x").repo is None
+        loaded = Slice.model_validate({"id": "slice-1", "name": "x"})
+        assert loaded.repo is None
+
+    def test_resolve_repo_falls_back_to_primary(self) -> None:
+        """Unscoped slice resolves to the pipeline primary repo."""
+        assert Slice(id="slice-1", name="x").resolve_repo("o/primary") == "o/primary"
+
+    def test_resolve_repo_prefers_slice_repo(self) -> None:
+        """A scoped slice resolves to its own repo, not the primary."""
+        s = Slice(id="slice-1", name="x", repo="o/secondary")
+        assert s.resolve_repo("o/primary") == "o/secondary"
+
+    def test_repo_round_trips_through_dump(self) -> None:
+        """``repo`` serialises and reloads unchanged."""
+        s = Slice(id="slice-1", name="x", repo="o/secondary")
+        assert Slice.model_validate(s.model_dump()).repo == "o/secondary"

@@ -520,31 +520,49 @@ def spawn_agent_job(
         if pipeline_repo:
             # owner/repo string used by the overseer auto-issue verb
             # (issue #1962) and the gateway's overseer guardrails.
+            # Stays the PRIMARY repo even for multi-repo pipelines.
             environment["EGG_PIPELINE_REPO"] = pipeline_repo
+            import json as _json
+
+            # #3393 multi-repo: expose the full repo set instead of
+            # collapsing to the primary. EGG_PIPELINE_REPOS is the JSON
+            # list of every owner/repo the pipeline operates on (primary
+            # first); EGG_REPO_VOLUMES_JSON maps each to its in-container
+            # worktree path (deterministic: /home/egg/repos/<name>) so an
+            # agent working a slice scoped to a secondary repo can cd into
+            # the right tree. Both omit-safe: single-repo pipelines still
+            # carry a one-element list / map.
+            environment["EGG_PIPELINE_REPOS"] = _json.dumps(repos)
+            environment["EGG_REPO_VOLUMES_JSON"] = _json.dumps(
+                {r: f"{repo_base}/{r.split('/')[-1]}" for r in repos}
+            )
+
             # #2528: sandbox containers don't have repositories.yaml
             # mounted, so the orchestrator pre-resolves the per-repo
             # role-pattern override here and passes it as a JSON
             # env var. ``shared.egg_restrictions.patterns`` checks
             # this env var first before attempting a filesystem
             # lookup. Failures are non-fatal — the lookup degrades
-            # to the global defaults.
+            # to the global defaults. #3393: resolve for EVERY repo,
+            # not just the primary, so per-repo restrictions apply when
+            # an agent touches a secondary repo.
             try:
-                import json as _json
-
                 from egg_restrictions.patterns import (
                     load_repo_pattern_override,
                 )
 
-                snapshot = load_repo_pattern_override(pipeline_repo)
-                if snapshot:
-                    environment["EGG_PIPELINE_REPO_PATTERNS_JSON"] = _json.dumps(
-                        {pipeline_repo: snapshot}
-                    )
+                overrides: dict[str, Any] = {}
+                for _repo in repos:
+                    snapshot = load_repo_pattern_override(_repo)
+                    if snapshot:
+                        overrides[_repo] = snapshot
+                if overrides:
+                    environment["EGG_PIPELINE_REPO_PATTERNS_JSON"] = _json.dumps(overrides)
             except Exception:
                 logger.exception(
-                    "Failed to pre-resolve role-pattern override for sandbox; "
+                    "Failed to pre-resolve role-pattern overrides for sandbox; "
                     "falling back to defaults",
-                    repo=pipeline_repo,
+                    repos=repos,
                 )
         if issue_number is not None:
             environment["EGG_ISSUE_NUMBER"] = str(issue_number)

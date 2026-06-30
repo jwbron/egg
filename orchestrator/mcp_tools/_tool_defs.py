@@ -32,6 +32,32 @@ PIPELINE_TOOLS = [
                     "type": "string",
                     "description": "Base branch for PR creation (optional). Defaults to the repo's default branch if not specified.",
                 },
+                "additional_repos": {
+                    "type": "array",
+                    "description": (
+                        "Secondary repos this pipeline should also operate on "
+                        "(#3393 multi-repo pipelines). The 'repo' arg is the "
+                        "primary repo; each entry here is an extra repo a slice "
+                        "may target. All repos must share the same auth mode "
+                        "(all public or all private). Omit for single-repo "
+                        "pipelines."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "repo": {
+                                "type": "string",
+                                "description": "Repository in owner/name format",
+                            },
+                            "base_branch": {
+                                "type": "string",
+                                "description": "Base branch for this repo (optional; "
+                                "defaults to the repo's default branch).",
+                            },
+                        },
+                        "required": ["repo"],
+                    },
+                },
                 "config": {
                     "type": "object",
                     "description": 'Optional pipeline configuration overrides (e.g. {"start_phase": "implement", "hitl_gates": false})',

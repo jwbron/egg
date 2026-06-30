@@ -77,6 +77,27 @@ def _handle_submit_task(self, args: dict[str, Any]) -> dict[str, Any]:
         data["branch"] = args.get("branch") or f"egg/{base_id}"
     if args.get("repo"):
         data["repo"] = args["repo"]
+    # #3393 multi-repo: forward the optional secondary-repo list. Validate
+    # each entry's repo is owner/name up front so a malformed submission
+    # fails fast with a clear message rather than 500ing in the route.
+    if args.get("additional_repos"):
+        additional = args["additional_repos"]
+        if not isinstance(additional, list):
+            return {"error": "additional_repos must be a list of {repo, base_branch?} objects"}
+        normalized: list[dict[str, Any]] = []
+        for entry in additional:
+            if not isinstance(entry, dict) or not entry.get("repo"):
+                return {
+                    "error": "each additional_repos entry must be an object with a 'repo' field"
+                }
+            repo_val = str(entry["repo"]).strip()
+            if not re.fullmatch(r"[^/\s]+/[^/\s]+", repo_val):
+                return {"error": f"Invalid additional_repos repo '{repo_val}': expected owner/name"}
+            item: dict[str, Any] = {"repo": repo_val}
+            if entry.get("base_branch"):
+                item["base_branch"] = str(entry["base_branch"]).strip()
+            normalized.append(item)
+        data["additional_repos"] = normalized
     if args.get("config"):
         config = args["config"]
         if isinstance(config, str):

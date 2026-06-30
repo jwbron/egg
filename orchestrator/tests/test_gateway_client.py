@@ -834,6 +834,36 @@ class TestWorktreeManagement:
         assert sent["assigned_branch"] == "egg/issue-1759-v3"
         assert sent["base_branch"] == "main"
 
+    def test_create_worktrees_forwards_base_branches_map(self, gateway_client):
+        """#3393: per-repo base_branches override map is forwarded."""
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            mock_request.return_value = {
+                "success": True,
+                "data": {"worktrees": {"repo1": "/tmp/wt"}, "errors": []},
+            }
+            gateway_client.create_worktrees(
+                container_id="issue-1",
+                repos=["owner/primary", "owner/schema"],
+                base_branch="main",
+                base_branches={"owner/schema": "develop"},
+            )
+        sent = mock_request.call_args.kwargs["data"]
+        assert sent["base_branch"] == "main"
+        assert sent["base_branches"] == {"owner/schema": "develop"}
+
+    def test_create_worktrees_omits_base_branches_when_empty(self, gateway_client):
+        """An empty/omitted base_branches map leaves the key off the wire."""
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            mock_request.return_value = {
+                "success": True,
+                "data": {"worktrees": {"repo1": "/tmp/wt"}, "errors": []},
+            }
+            gateway_client.create_worktrees(
+                container_id="issue-1",
+                repos=["owner/primary"],
+            )
+        assert "base_branches" not in mock_request.call_args.kwargs["data"]
+
     def test_create_worktrees_omits_assigned_branch_when_none(self, gateway_client):
         """When assigned_branch is None, the key is omitted from the request."""
         with patch.object(gateway_client, "_make_request") as mock_request:

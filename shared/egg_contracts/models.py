@@ -353,6 +353,19 @@ class Slice(EggContractBaseModel):
             "body then falls back to the program-description blurb)."
         ),
     )
+    repo: str | None = Field(
+        default=None,
+        description=(
+            "Target repository for this slice in ``owner/name`` format "
+            "(#3393 multi-repo pipelines). ``None`` — the default and the "
+            "value for every contract written before this field existed — "
+            "means the slice targets the pipeline's primary repo. A value "
+            "naming a repo not yet attached to the pipeline is treated by "
+            "``populate_contract`` as a *proposed* new repo requiring HITL "
+            "approval at the phase gate. Resolve with ``resolve_repo`` "
+            "rather than reading this field directly."
+        ),
+    )
     status: SliceStatus = Field(default=SliceStatus.PENDING, description="Slice status")
     review_cycles: int = Field(default=0, ge=0, description="Number of review cycles")
     max_cycles: int = Field(default=3, ge=1, description="Max cycles before escalation")
@@ -443,6 +456,19 @@ class Slice(EggContractBaseModel):
     @classmethod
     def validate_commit(cls, v: Any) -> str | None:
         return _normalize_commit(v)
+
+    def resolve_repo(self, primary: str | None) -> str | None:
+        """Repo this slice targets, falling back to the pipeline primary.
+
+        The canonical accessor for a slice's repo (#3393 multi-repo
+        pipelines): returns ``self.repo`` when the planner scoped the
+        slice to a specific repo, else the pipeline's ``primary`` repo.
+        Every slice-PR / worktree / review-graph call site should resolve
+        through this rather than reading ``self.repo`` so the
+        "unset means primary" default lives in one place and pre-#3393
+        contracts keep working.
+        """
+        return self.repo or primary
 
     @property
     def tasks_all_complete(self) -> bool:

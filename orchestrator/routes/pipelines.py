@@ -2107,6 +2107,22 @@ def create_pipeline() -> tuple[Response, int]:
     repo = data.get("repo")
     branch = data.get("branch")
     base_branch = data.get("base_branch")
+    # #3393 multi-repo: secondary repos this pipeline also operates on.
+    # The MCP submit_task handler already normalised/validated each entry
+    # to {repo, base_branch?}; pydantic coerces into AdditionalRepo on the
+    # Pipeline model. Reject obviously-malformed direct-API payloads.
+    additional_repos = data.get("additional_repos")
+    if additional_repos is not None:
+        if not isinstance(additional_repos, list):
+            return make_error_response(
+                "additional_repos must be a list of {repo, base_branch?} objects"
+            )
+        for entry in additional_repos:
+            entry_repo = entry.get("repo") if isinstance(entry, dict) else None
+            if not entry_repo or not re.fullmatch(r"[^/\s]+/[^/\s]+", str(entry_repo).strip()):
+                return make_error_response(
+                    f"Invalid additional_repos entry {entry!r}: each needs a 'owner/name' repo"
+                )
     prompt = data.get("prompt")
     mode = data.get("mode", "issue")
     analysis = data.get("analysis")
@@ -2475,6 +2491,7 @@ def create_pipeline() -> tuple[Response, int]:
             repo=repo,
             branch=branch,
             base_branch=base_branch,
+            additional_repos=additional_repos,
             config=config,
             prompt=prompt,
             network_mode=network_mode,
@@ -24154,12 +24171,21 @@ def _run_pipeline(
         worktree_repo_path = repo_path  # default; overridden when worktrees exist
         host_uid = int(os.environ.get("HOST_UID", 1000))
         host_gid = int(os.environ.get("HOST_GID", 1000))
-        pipeline_repos = [pipeline.repo] if pipeline.repo else []
+        # #3393 multi-repo: provision a worktree for every repo the pipeline
+        # operates on (primary + additional), not just the primary.
+        pipeline_repos = pipeline.all_repos
 
         if host_repo_map:
             try:
                 # Request repos in owner/repo format if available, else bare names
                 wt_repos = pipeline_repos if pipeline_repos else list(host_repo_map.keys())
+                # Per-repo base branches (#3393): the primary uses
+                # pipeline.base_branch; each additional repo uses its own.
+                # Absent entries fall back to the repo's remote default
+                # branch (resolved by the gateway).
+                wt_base_branches = {
+                    r: pipeline.base_branch_for(r) for r in wt_repos if pipeline.base_branch_for(r)
+                }
                 # When the pipeline specifies a base_branch, pass it through
                 # so the worktree is branched from that ref instead of the
                 # repo's default branch.  Otherwise let the gateway resolve
@@ -24178,6 +24204,7 @@ def _run_pipeline(
                             uid=host_uid,
                             gid=host_gid,
                             base_branch=pipeline.base_branch,
+                            base_branches=wt_base_branches or None,
                         )
                         break  # Success — exit retry loop
                     except GatewayError as gw_err:
@@ -25172,11 +25199,13 @@ def _run_pipeline(
             if pipeline.prompt:
                 sandbox_env["EGG_PIPELINE_PROMPT"] = pipeline.prompt
 
+            # #3393 multi-repo: hand the spawn path every repo the pipeline
+            # operates on. EGG_REPO stays the primary for back-compat;
+            # _spawn.py exports the full set (EGG_PIPELINE_REPOS /
+            # EGG_REPO_VOLUMES_JSON) for agents that touch secondary repos.
+            repos = pipeline.all_repos
             if pipeline.repo:
-                repos = [pipeline.repo]
                 sandbox_env["EGG_REPO"] = pipeline.repo
-            else:
-                repos = []
 
             # Jira ticket advisory env vars (issue #1556).  These give sandbox
             # agents a stable handle for the ticket the pipeline is working

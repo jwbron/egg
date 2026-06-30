@@ -17,6 +17,7 @@ def create_worktrees(
     uid: int | None = None,
     gid: int | None = None,
     base_branch: str | None = None,
+    base_branches: dict[str, str] | None = None,
     assigned_branch: str | None = None,
     timeout: int = 120,
 ) -> WorktreeResult:
@@ -33,6 +34,12 @@ def create_worktrees(
         gid: Group ID for worktree ownership
         base_branch: Branch to base worktrees on. When None, the gateway
             resolves the remote default branch per-repo (e.g., origin/main).
+            Applies to every repo without a ``base_branches`` override.
+        base_branches: Optional per-repo base-branch overrides
+            (owner/name → branch) for #3393 multi-repo pipelines, where a
+            schema repo and its consumer repo may track different default
+            branches. A repo absent from this map falls back to
+            ``base_branch`` and then to the gateway-resolved default.
         assigned_branch: Remote branch that pushes from the worktree
             should target.  When set, the gateway configures
             ``branch.<local>.merge`` so a naive ``git push`` from the
@@ -54,6 +61,8 @@ def create_worktrees(
     }
     if base_branch is not None:
         request_data["base_branch"] = base_branch
+    if base_branches:
+        request_data["base_branches"] = base_branches
     if assigned_branch is not None:
         request_data["assigned_branch"] = assigned_branch
     if uid is not None:

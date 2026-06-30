@@ -5255,6 +5255,61 @@ class TestWorktreeCreateEndpointResolution:
             base = call_kwargs.kwargs.get("base_branch") or call_kwargs[1].get("base_branch")
             assert base == "origin/develop"
 
+    def test_worktree_create_per_repo_base_branches_override(self, client, launcher_auth_headers):
+        """#3393: base_branches[repo] wins over the pipeline-wide base_branch.
+
+        Repos absent from the override map fall back to the shared
+        base_branch (or the resolved default).
+        """
+        with patch.object(gateway, "get_worktree_manager") as mock_worktree:
+            mock_wt_manager = mock_worktree.return_value
+            mock_worktree_info = MagicMock()
+            mock_worktree_info.worktree_path = "/path/to/worktree"
+            mock_wt_manager.create_worktree.return_value = mock_worktree_info
+
+            response = client.post(
+                "/api/v1/worktree/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "repos": ["owner/primary", "owner/schema"],
+                        "base_branch": "origin/main",
+                        "base_branches": {"owner/schema": "origin/develop"},
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            # The overridden repo got develop; the other got the shared base.
+            bases = {
+                c.kwargs["repo_slug"]: c.kwargs["base_branch"]
+                for c in mock_wt_manager.create_worktree.call_args_list
+            }
+            assert bases["owner/primary"] == "origin/main"
+            assert bases["owner/schema"] == "origin/develop"
+            # resolve_default_branch is never needed — both had an explicit base.
+            mock_wt_manager.resolve_default_branch.assert_not_called()
+
+    def test_worktree_create_rejects_unsafe_base_branches_value(
+        self, client, launcher_auth_headers
+    ):
+        """A base_branches value with an unsafe ref shape is rejected."""
+        response = client.post(
+            "/api/v1/worktree/create",
+            headers=launcher_auth_headers,
+            data=json.dumps(
+                {
+                    "container_id": "test-container",
+                    "repos": ["owner/schema"],
+                    "base_branches": {"owner/schema": "--upload-pack=evil"},
+                }
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code != 200
+
 
 class TestWorktreeCreateFailureLogging:
     """Tests for worktree_create's failure-path observability and cleanup.

@@ -112,6 +112,30 @@ class TestPipelineCreation:
         loaded = state_store.load_pipeline("issue-496")
         assert loaded.issue_number == 496
 
+    def test_create_pipeline_with_additional_repos(self, state_store):
+        """#3393: additional_repos round-trips through create + reload."""
+        state_store.create_pipeline(
+            issue_number=496,
+            repo="owner/primary",
+            branch="egg/issue-496",
+            additional_repos=[
+                {"repo": "owner/schema", "base_branch": "develop"},
+                {"repo": "owner/client"},
+            ],
+        )
+        loaded = state_store.load_pipeline("issue-496")
+        assert loaded.all_repos == ["owner/primary", "owner/schema", "owner/client"]
+        assert loaded.base_branch_for("owner/schema") == "develop"
+        assert loaded.base_branch_for("owner/client") is None
+
+    def test_create_pipeline_without_additional_repos_is_single_repo(self, state_store):
+        """Omitting additional_repos yields a plain single-repo pipeline."""
+        pipeline = state_store.create_pipeline(
+            issue_number=496, repo="owner/primary", branch="egg/issue-496"
+        )
+        assert pipeline.additional_repos == []
+        assert pipeline.all_repos == ["owner/primary"]
+
     def test_create_pipeline_with_config(self, state_store):
         """Test creating pipeline with custom config."""
         pipeline = state_store.create_pipeline(

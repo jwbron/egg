@@ -3248,3 +3248,73 @@ class TestUpdatePipelineConfig:
         required = tool["inputSchema"]["required"]
         assert "task_id" in required
         assert "agent_models" in required
+
+
+class TestSubmitTaskAdditionalRepos:
+    """#3393: submit_task accepts/validates the additional_repos list."""
+
+    def test_additional_repos_forwarded(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"pipeline_id": "issue-1", "status": "pending"}
+            handler.handle_tool_call(
+                "submit_task",
+                {
+                    "description": "cross-repo change",
+                    "repo": "owner/primary",
+                    "issue_number": 1,
+                    "additional_repos": [
+                        {"repo": "owner/schema", "base_branch": "develop"},
+                        {"repo": "owner/client"},
+                    ],
+                },
+            )
+        sent = mock_req.call_args.kwargs["data"]
+        assert sent["repo"] == "owner/primary"
+        assert sent["additional_repos"] == [
+            {"repo": "owner/schema", "base_branch": "develop"},
+            {"repo": "owner/client"},
+        ]
+
+    def test_additional_repos_rejects_bad_repo(self, handler):
+        result = handler.handle_tool_call(
+            "submit_task",
+            {
+                "description": "x",
+                "repo": "owner/primary",
+                "issue_number": 1,
+                "additional_repos": [{"repo": "not-a-slug"}],
+            },
+        )
+        assert "error" in result
+        assert "owner/name" in result["error"]
+
+    def test_additional_repos_rejects_missing_repo_field(self, handler):
+        result = handler.handle_tool_call(
+            "submit_task",
+            {
+                "description": "x",
+                "repo": "owner/primary",
+                "issue_number": 1,
+                "additional_repos": [{"base_branch": "main"}],
+            },
+        )
+        assert "error" in result
+
+    def test_omitted_additional_repos_not_forwarded(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"pipeline_id": "issue-1", "status": "pending"}
+            handler.handle_tool_call(
+                "submit_task",
+                {"description": "x", "repo": "owner/primary", "issue_number": 1},
+            )
+        assert "additional_repos" not in mock_req.call_args.kwargs["data"]
+
+    def test_schema_advertises_additional_repos(self):
+        from mcp_tools import PIPELINE_TOOLS
+
+        tool = next(t for t in PIPELINE_TOOLS if t["name"] == "submit_task")
+        props = tool["inputSchema"]["properties"]
+        assert "additional_repos" in props
+        assert props["additional_repos"]["type"] == "array"
+        item_props = props["additional_repos"]["items"]["properties"]
+        assert "repo" in item_props and "base_branch" in item_props

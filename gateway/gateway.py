@@ -7703,6 +7703,10 @@ def worktree_create() -> tuple[Response, int] | Response:
     container_id = data.get("container_id")
     repos = data.get("repos", [])
     base_branch = data.get("base_branch")  # None = resolve per-repo
+    # #3393 multi-repo: optional per-repo base-branch overrides
+    # (owner/name → branch). A repo absent here falls back to base_branch
+    # and then to the gateway-resolved default branch.
+    base_branches = data.get("base_branches") or {}
     assigned_branch = data.get("assigned_branch")  # None = skip upstream config
     # UID/GID for worktree ownership (default: 1000 for egg user)
     uid = data.get("uid")
@@ -7731,6 +7735,27 @@ def worktree_create() -> tuple[Response, int] | Response:
     if gid is not None and (not isinstance(gid, int) or gid < 0):
         return make_error("Invalid gid: must be a non-negative integer")
 
+    # Validate per-repo base_branches (#3393). Same defense-in-depth as the
+    # session-register endpoint: each override flows into git as positional
+    # argv, so reject non-strings and unsafe ref shapes (leading dash, ``..``,
+    # null bytes, ``//``) via validate_branch_ref before it touches git.
+    if base_branches:
+        if not isinstance(base_branches, dict):
+            return make_error("Invalid base_branches: must be an object mapping repo→branch")
+        for _repo_key, _branch_val in base_branches.items():
+            if not isinstance(_branch_val, str) or not _branch_val:
+                return make_error(
+                    f"Invalid base_branches[{_repo_key!r}]: must be a non-empty string"
+                )
+            if len(_branch_val) > 256:
+                return make_error(
+                    f"Invalid base_branches[{_repo_key!r}]: must be 256 characters or fewer"
+                )
+            try:
+                validate_branch_ref(_branch_val, "base_branch")
+            except ValueError as exc:
+                return make_error(str(exc))
+
     manager = get_worktree_manager()
     worktrees = {}
     errors = []
@@ -7748,12 +7773,17 @@ def worktree_create() -> tuple[Response, int] | Response:
         # feedback — previously hoisted out of the try, which let
         # resolve_default_branch failures bypass the per-repo errors[]
         # safety net entirely.
-        effective_branch = base_branch
+        # #3393: a per-repo override (keyed by the full owner/name slug, with
+        # a bare-name fallback) wins over the pipeline-wide base_branch.
+        repo_override = base_branches.get(repo) or base_branches.get(repo_name)
+        effective_branch = repo_override or base_branch
         try:
             # Resolve the default branch per-repo when no explicit base is given.
             # This ensures repos with non-standard default branches (e.g., master)
             # are handled correctly.  See #860.
-            effective_branch = base_branch or manager.resolve_default_branch(repo_name)
+            effective_branch = (
+                repo_override or base_branch or manager.resolve_default_branch(repo_name)
+            )
             info = manager.create_worktree(
                 repo_name=repo_name,
                 container_id=container_id,

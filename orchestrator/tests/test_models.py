@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 import pytest
 from models import (
     PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN,
+    AdditionalRepo,
     AgentExecution,
     AgentExecutionStatus,
     AgentExitInfo,
@@ -1206,3 +1207,46 @@ class TestPipelinePhase:
         assert PipelinePhase.APPLY == "apply"
         # StrEnum: value-equal to string for serialisation symmetry.
         assert PipelinePhase("apply") == PipelinePhase.APPLY
+
+
+class TestMultiRepoPipeline:
+    """#3393: Pipeline repo-set accessors and back-compat."""
+
+    def test_additional_repo_owner_name_validation(self):
+        """AdditionalRepo.repo must be 'owner/name'; trims whitespace."""
+        assert AdditionalRepo(repo="  owner/name  ").repo == "owner/name"
+        for bad in ("bad", "a/b/c", "owner/", "/name", "owner name"):
+            with pytest.raises(ValueError):
+                AdditionalRepo(repo=bad)
+
+    def test_all_repos_primary_only(self):
+        """Single-repo pipeline reports just its primary repo."""
+        p = Pipeline(id="issue-1", repo="o/primary", base_branch="main")
+        assert p.all_repos == ["o/primary"]
+        assert p.base_branch_for("o/primary") == "main"
+
+    def test_all_repos_primary_first_then_additional(self):
+        """Primary leads; additional follow; duplicates collapse once."""
+        p = Pipeline(
+            id="issue-2",
+            repo="o/primary",
+            additional_repos=[
+                AdditionalRepo(repo="o/secondary", base_branch="dev"),
+                # a redundant restatement of the primary must not double-provision
+                AdditionalRepo(repo="o/primary"),
+            ],
+        )
+        assert p.all_repos == ["o/primary", "o/secondary"]
+        assert p.base_branch_for("o/secondary") == "dev"
+        # unknown / unset repos fall back to None (gateway resolves default)
+        assert p.base_branch_for("o/unknown") is None
+
+    def test_all_repos_empty_when_no_repo(self):
+        """Local pipelines with no repo report an empty repo set."""
+        assert Pipeline(id="local-1").all_repos == []
+
+    def test_back_compat_pre_3393_pipeline_json(self):
+        """Contracts written before #3393 (no additional_repos) still load."""
+        p = Pipeline.model_validate({"id": "issue-3", "repo": "o/p"})
+        assert p.additional_repos == []
+        assert p.all_repos == ["o/p"]
