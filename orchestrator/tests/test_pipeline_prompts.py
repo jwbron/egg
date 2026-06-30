@@ -6377,6 +6377,20 @@ class TestDualRoleExecutionOrdering:
             )
             assert "Your role type: **REVIEWER**" in preamble
 
+        # risk_analyst is a genuine *dual-role* reviewer in the plan graph
+        # (CRITICAL reviewer of architect + task_planner, #2809) and a producer
+        # of the risk register. The fallback is_reviewer set must list it so the
+        # degraded path keeps its Reviewer Lifecycle instead of stripping it to
+        # producer-only — matching the live plan graph.
+        risk_analyst_preamble = _build_brc_preamble("risk_analyst", "plan")
+        assert "### Reviewer Lifecycle" in risk_analyst_preamble, (
+            "risk_analyst is a genuine plan-graph reviewer; the review_graph "
+            "fallback must keep its Reviewer Lifecycle rather than degrade it "
+            "to producer-only."
+        )
+        dual_role_label = "Your role type: **PRODUCER and REVIEWER (dual role)**"
+        assert dual_role_label in risk_analyst_preamble
+
         # The de-roled simplifier stays producer-only in the fallback: no
         # Reviewer Lifecycle, no ACK/NACK template.
         for phase in ("refine", "plan"):

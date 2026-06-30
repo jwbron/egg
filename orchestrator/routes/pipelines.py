@@ -13210,6 +13210,15 @@ def _build_brc_preamble(
             "reviewer_refine",
             "reviewer_agent_design",
             "reviewer_plan",
+            # risk_analyst is a genuine dual-role reviewer in the plan graph
+            # (CRITICAL reviewer of architect + task_planner, #2809) as well as
+            # a producer of the risk register. Listed here so the degraded
+            # fallback path keeps its Reviewer Lifecycle / "As a reviewer"
+            # block instead of stripping it to producer-only — mirroring the
+            # live plan graph. Unlike the simplifier its edges are real
+            # verdicts, so ``casts_real_verdicts`` (raw ``is_reviewer`` in the
+            # degraded path) correctly stays True for it.
+            "risk_analyst",
             # simplifier retains a wake_only advisory edge over the upstream
             # refine/plan producer, so the graph reports it as a reviewer —
             # but it casts no verdict (#3381) and is rendered PRODUCER-ONLY
