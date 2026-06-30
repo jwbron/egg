@@ -4599,6 +4599,28 @@ class TestSimplifierHumanCompanionPrompt:
         # The banner explicitly tells it it issues no ACK/NACK.
         assert "you never issue an ack or a nack" in lowered
 
+    def test_simplifier_preamble_has_no_reviewer_lifecycle(self):
+        """#3381: the de-roled simplifier is a producer only, so by the
+        project's own invariant (see ``test_producer_only_no_sync_step`` for
+        the coder) it must NOT receive the Reviewer Lifecycle or the
+        ``As a reviewer`` coordination block. Gating those blocks on
+        ``casts_real_verdicts`` rather than raw ``is_reviewer`` keeps the
+        wake-only advisory edge from leaking a full ACK/NACK + adversarial
+        re-review playbook that contradicts the producer-only banner."""
+        for phase in ("refine", "plan"):
+            preamble = _build_brc_preamble(
+                "simplifier",
+                phase,
+                repo="egg",
+                branch="egg/issue-1/work",
+                base_branch="main",
+            )
+            assert "### Reviewer Lifecycle" not in preamble, phase
+            assert "egg-orch consensus nack <role>" not in preamble, phase
+            assert "**As a reviewer**" not in preamble, phase
+            # No adversarial re-review mandate either.
+            assert "NACK without hesitance" not in preamble, phase
+
     def test_simplifier_agent_prompt_has_no_reviewer_section(self):
         """#3381: the simplifier agent prompt must not carry a reviewer-role
         section instructing an advisory ACK/NACK on the upstream."""

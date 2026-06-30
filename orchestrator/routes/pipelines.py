@@ -13496,7 +13496,17 @@ def _build_brc_preamble(
         )
         lines.extend(producer_lifecycle)
 
-    if is_reviewer:
+    # Gate the Reviewer Lifecycle on ``casts_real_verdicts``, not raw
+    # ``is_reviewer`` (#3381). A role whose only reviewed producers are
+    # reached via ``wake_only`` edges (the de-roled simplifier) issues no
+    # ACK/NACK and must NOT receive the reviewer playbook — REVIEW, ACK/NACK,
+    # CONFIRM, adversarial re-review — which would directly contradict its
+    # producer-only execution banner. This mirrors the producer-only invariant
+    # already asserted for the coder (``test_producer_only_no_sync_step``): a
+    # producer-only role gets no ``### Reviewer Lifecycle`` at all. A pure
+    # reviewer (``reviewer_refine``) and the dual-role tester both cast real
+    # verdicts, so they keep it.
+    if is_reviewer and casts_real_verdicts:
         lines.extend(
             [
                 "### Reviewer Lifecycle",
@@ -13515,16 +13525,7 @@ def _build_brc_preamble(
                 "invocation; subsequent invocations land you directly at "
                 "step 3 (SYNC) with the proposal already in context."
                 + (
-                    "\n\n   **You (simplifier) are a producer only** — per the "
-                    "*Execution Order* banner above: your first invocation does "
-                    "ORIENT/PREPARE only. On the upstream producer's "
-                    "`CONSENSUS_PROPOSE` the wrapper re-invokes you with the "
-                    "proposal in your event payload; SYNC, then write and "
-                    "PROPOSE your human-focused companion. That is the whole "
-                    "job — you do not review the draft, and you issue no "
-                    "ACK/NACK on it."
-                    if role_value == "simplifier"
-                    else "\n\n   **Dual-role agents (you)** — per the "
+                    "\n\n   **Dual-role agents (you)** — per the "
                     "*Dual-Role Execution Order* banner above (updated "
                     "for coder-owns-tests): your first invocation does "
                     "ORIENT/PREPARE only. On the coder's "
@@ -13695,7 +13696,10 @@ def _build_brc_preamble(
             ]
         )
 
-    if is_reviewer:
+    # Same gate as the Reviewer Lifecycle above (#3381): a wake-only,
+    # verdict-free role (de-roled simplifier) gets no reviewer-coordination
+    # guidance, since it never ACK/NACKs.
+    if is_reviewer and casts_real_verdicts:
         lines.extend(
             [
                 "**As a reviewer**, when you need clarification before "
