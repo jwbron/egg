@@ -21,7 +21,7 @@ Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by 
 | Role | Category | Phase | Parallel? | Depends On |
 |------|----------|-------|-----------|------------|
 | `refiner` | Analysis | Refine | No | — |
-| `simplifier` | Analysis (dual-role: advisory reviewer of the upstream producer) | Refine + Plan | Yes | refiner (refine) / task_planner (plan), advisory |
+| `simplifier` | Analysis (producer only) | Refine + Plan | Yes | refiner (refine) / task_planner (plan) |
 | `reviewer_refine` | Review | Refine | Yes (with `reviewer_agent_design`) | refiner, simplifier |
 | `reviewer_agent_design` | Review | Refine (egg repo only) | Yes (with `reviewer_refine`) | refiner |
 | `architect` | Analysis | Plan | No | — |
@@ -85,7 +85,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 **Purpose**: Produce a **human-focused companion** to the agent draft — a plain-language summary for a **broad audience (engineers, PMs, and managers)**, readable by a non-engineer, free of egg-internal jargon and implementation minutiae (no `file:line` refs or code identifiers). It **summarises** the draft — it does not review or critique it (no ACK/NACK or constraint-list framing in the companion). Runs in **both** the refine and plan phases. The agent-focused drafts (`-analysis.md` / `-plan.md`) are unchanged; the companion is an additional, mandatory artifact.
 
-**Dual-role**: like the implement-phase `tester`, the simplifier is a producer whose work depends on an upstream producer's draft. It carries an **advisory** review edge over the upstream producer (`refiner` in refine, `task_planner` in plan) purely so the BRC `ack` arm re-invokes it when that producer proposes — its verdict never blocks the upstream's consensus. It then reads the proposed draft, writes the companion, and proposes it. The companion is reviewed CRITICAL by `reviewer_refine` (refine) / `reviewer_plan` (plan).
+**Producer only** (#3381): the simplifier produces its companion and casts no verdict on anyone. It retains a **wake-only** advisory edge over the upstream producer (`refiner` in refine, `task_planner` in plan) as a structural marker — this edge carries no review obligation and is excluded from pending-review derivation and the reviewer confirm guards. The simplifier is woken to write the companion by the ordinary producer propose-arm (it self-gates on the upstream draft existing, orienting-and-exiting until the upstream proposes); it never issues an ACK or NACK on the upstream draft. The companion is reviewed CRITICAL by `reviewer_refine` (refine) / `reviewer_plan` (plan).
 
 **File access**:
 - Allowed writes: `.egg-state/drafts/`, `.egg-state/agent-outputs/`
