@@ -64,6 +64,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "5ba5492769a2f17faf64011e8d432d04655074d5": {
+      "branch": "egg/pipeline-585fca46/work",
+      "patch_id": null,
+      "pipeline_id": "pipeline-585fca46",
+      "registered_at": "2026-06-30T19:36:41.105730+00:00",
+      "repo": null,
+      "role": "architect"
+    },
     "5caee2e141b010f72d195e8bd10ac9e3e14ed8a2": {
       "branch": "egg/pipeline-585fca46/work",
       "patch_id": "863aa5638033b1596faed97662da2c45d21321db",
