@@ -13459,17 +13459,22 @@ def _build_brc_preamble(
                     " (or a `CONSENSUS_PROPOSE` for a re-propose — "
                     "version > 1, after you NACKed a prior version; "
                     "dual-role agents handle both — see Reviewer "
-                    "Lifecycle step 8 for the adversarial re-review "
+                    "Lifecycle step 7 for the adversarial re-review "
                     "framing)"
-                    if is_dual_role
+                    if is_dual_role and casts_real_verdicts
                     else ""
                 )
                 + ", act on it — failure to respond stalls the pipeline. "
-                "If you are a reviewer of the re-proposing producer, "
-                "re-review and ACK/NACK the new proposal (dual-role agents: "
-                "see Reviewer Lifecycle step 8 below for the adversarial "
-                "re-review framing that applies to this case). Otherwise, "
-                "re-confirm via `egg-orch consensus confirmed`.",
+                + (
+                    "If you are a reviewer of the re-proposing producer, "
+                    "re-review and ACK/NACK the new proposal (dual-role "
+                    "agents: see Reviewer Lifecycle step 7 below for the "
+                    "adversarial re-review framing that applies to this "
+                    "case). Otherwise, re-confirm via "
+                    "`egg-orch consensus confirmed`."
+                    if casts_real_verdicts
+                    else "Re-confirm via `egg-orch consensus confirmed`."
+                ),
                 "7. **RESOLVE OBLIGATIONS YOU SATISFY (#2338)**: If you "
                 "land a commit that satisfies a *different* producer's "
                 "conditional-ACK obligation in-cycle — typical pattern: "

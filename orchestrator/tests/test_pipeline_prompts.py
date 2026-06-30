@@ -4620,6 +4620,13 @@ class TestSimplifierHumanCompanionPrompt:
             assert "**As a reviewer**" not in preamble, phase
             # No adversarial re-review mandate either.
             assert "NACK without hesitance" not in preamble, phase
+            # Producer Lifecycle step 6 must not leak dual-role reviewer
+            # framing to the producer-only simplifier, nor a dangling
+            # cross-reference to a Reviewer Lifecycle section it no longer
+            # receives.
+            assert "re-review and ACK/NACK the new proposal" not in preamble, phase
+            assert "dual-role agents handle both" not in preamble, phase
+            assert "Reviewer Lifecycle step" not in preamble, phase
 
     def test_simplifier_agent_prompt_has_no_reviewer_section(self):
         """#3381: the simplifier agent prompt must not carry a reviewer-role
