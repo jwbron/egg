@@ -3312,3 +3312,164 @@ class TestSpecDerivedProposeValidation:
         message = response.get_json().get("message", "")
         assert "role↔files alignment violations" in message, message
         mock_tracker.handle_propose.assert_not_called()
+
+
+class TestSimplifierSingleArtifactEnforcement:
+    """Propose-time enforcement that the simplifier persists exactly ONE draft.
+
+    The simplifier is a producer-only role whose sole output is the registered
+    human-focused companion (``*-analysis-human.md`` / ``*-plan-human.md``). Its
+    review reasoning belongs in the BRC channel (its verdict), not a second
+    persisted document. Prompt + reviewer-rubric prose forbid a freelanced
+    ``*-simplifier-*.md`` constraints/guardrails companion, but those are soft
+    gates; this hard gate in ``_validate_producer_artifacts`` makes "one
+    simplifier draft, no more" a structural invariant at propose time.
+
+    The check inspects only the files the *proposed commit* introduced under
+    ``.egg-state/drafts/{identifier}-`` — so the upstream producer's draft
+    (which the simplifier's commit never touches) is never implicated — and
+    rejects any draft that is not the registered human companion.
+    """
+
+    _PLAN_HUMAN_PATH = ".egg-state/drafts/42-plan-human.md"
+    _ANALYSIS_HUMAN_PATH = ".egg-state/drafts/42-analysis-human.md"
+    _EXTRA_PLAN_COMPANION = ".egg-state/drafts/42-simplifier-plan.md"
+    _EXTRA_ANALYSIS_COMPANION = ".egg-state/drafts/42-simplifier-analysis.md"
+
+    @staticmethod
+    def _router(name_only_stdout: str, *, name_only_returncode: int = 0):
+        """Route the two ``git show`` shapes this validator emits: the
+        per-spec presence ``git show <sha>:<path>`` (always present here) and
+        the new ``git show --name-only --pretty=format: <sha>`` enumerating the
+        commit's files.
+        """
+
+        def _run(cmd, *_args, **_kwargs):
+            cmd_str = " ".join(str(p) for p in cmd)
+            if "--name-only" in cmd_str:
+                return _make_subprocess_result(
+                    stdout=name_only_stdout, returncode=name_only_returncode
+                )
+            if "show" in cmd_str:
+                # Per-spec presence check — the human companion exists.
+                return _make_subprocess_result(stdout="present\n")
+            return _make_subprocess_result()
+
+        return _run
+
+    def _validate(self, *, agent_role="simplifier", phase="plan", router):
+        from routes.signals import _validate_producer_artifacts
+
+        pipeline = _pipeline_with_phase(phase)
+        with patch("routes.signals.subprocess.run", side_effect=router):
+            _validate_producer_artifacts(
+                "issue-42",
+                {"commit_sha": "abc1234"},
+                Path("/tmp/repo"),
+                agent_role=agent_role,
+                phase=phase,
+                pipeline_state=pipeline,
+                worktree_path=Path("/tmp/wt"),
+                branch_verified=True,
+            )
+
+    def test_accepts_when_only_human_companion_committed(self):
+        """Plan simplifier whose commit introduces only the human companion ⇒
+        no raise.
+        """
+        self._validate(router=self._router(f"\n{self._PLAN_HUMAN_PATH}\n"))
+
+    def test_rejects_extra_simplifier_plan_companion(self):
+        """The historically-observed failure: the plan simplifier commits the
+        human doc AND a second ``*-simplifier-plan.md`` guardrails companion ⇒
+        rejected, naming the extra file.
+        """
+        router = self._router(f"\n{self._PLAN_HUMAN_PATH}\n{self._EXTRA_PLAN_COMPANION}\n")
+        with pytest.raises(ValueError, match="beyond your one registered"):
+            self._validate(router=router)
+
+    def test_rejects_extra_simplifier_analysis_companion_in_refine(self):
+        """Structural, not plan-specific: the refine simplifier is gated the
+        same way for a ``*-simplifier-analysis.md`` companion.
+        """
+        router = self._router(f"\n{self._ANALYSIS_HUMAN_PATH}\n{self._EXTRA_ANALYSIS_COMPANION}\n")
+        with pytest.raises(ValueError, match="exactly one artifact per phase"):
+            self._validate(phase="refine", router=router)
+
+    def test_ignores_non_draft_and_upstream_files(self):
+        """The gate is scoped to ``.egg-state/drafts/{id}-`` files the commit
+        introduced. A stray non-draft path (or an agent-output) in the commit's
+        file list is not a second *draft*, so it does not trip the gate.
+        """
+        router = self._router(
+            f"\n{self._PLAN_HUMAN_PATH}\n"
+            "src/incidental.py\n"
+            ".egg-state/agent-outputs/42-architect-output.json\n"
+        )
+        self._validate(router=router)
+
+    def test_non_simplifier_producer_not_subject_to_gate(self):
+        """The task_planner legitimately commits ``42-plan.md`` (its registered
+        draft); the simplifier-only gate must never fire for it even though that
+        path matches the drafts prefix.
+        """
+
+        # task_planner's presence spec is plan-draft; the router returns a
+        # parseable plan so the presence/extension checks pass, and the
+        # --name-only branch is never consulted for a non-simplifier role.
+        def _run(cmd, *_args, **_kwargs):
+            cmd_str = " ".join(str(p) for p in cmd)
+            if "--name-only" in cmd_str:
+                raise AssertionError("simplifier gate ran for task_planner")
+            if "show" in cmd_str:
+                return _make_subprocess_result(
+                    stdout=(
+                        "# Plan\n\n```yaml\n# yaml-tasks\nslices:\n"
+                        "  - id: 1\n    name: S\n    goal: g\n    tasks:\n"
+                        "      - id: TASK-1-1\n        description: d\n"
+                        "        acceptance: a\n        role: tester\n"
+                        "        files:\n          - integration_tests/conftest.py\n```\n"
+                    )
+                )
+            return _make_subprocess_result()
+
+        self._validate(agent_role="task_planner", phase="plan", router=_run)
+
+    # -- graceful degradation on the helper itself --------------------------
+
+    def test_helper_skips_when_git_show_errors(self):
+        """A non-zero ``git show --name-only`` (commit not enumerable) ⇒ skip,
+        never blame the producer.
+        """
+        from routes.signals import _reject_extra_simplifier_drafts
+
+        with patch(
+            "routes.signals.subprocess.run",
+            return_value=_make_subprocess_result(returncode=128),
+        ):
+            # Should not raise even though we cannot list the commit's files.
+            _reject_extra_simplifier_drafts(
+                pipeline_id="issue-42",
+                worktree_path=Path("/tmp/wt"),
+                commit_sha="abc1234",
+                identifier=42,
+                allowed_rel_paths={self._PLAN_HUMAN_PATH},
+                phase="plan",
+            )
+
+    def test_helper_skips_on_subprocess_exception(self):
+        """An infra failure (timeout) on the enumerate call degrades gracefully."""
+        from routes.signals import _reject_extra_simplifier_drafts
+
+        with patch(
+            "routes.signals.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="git", timeout=15),
+        ):
+            _reject_extra_simplifier_drafts(
+                pipeline_id="issue-42",
+                worktree_path=Path("/tmp/wt"),
+                commit_sha="abc1234",
+                identifier=42,
+                allowed_rel_paths={self._PLAN_HUMAN_PATH},
+                phase="plan",
+            )

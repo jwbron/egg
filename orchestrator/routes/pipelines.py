@@ -15895,6 +15895,13 @@ def _build_agent_prompt(
                 'commit to …", no "anti-pattern to reject", no constraint '
                 "lists. You have no critique to record anywhere — your only "
                 "output is this plain-language summary.",
+                f"   - **Exactly one file.** Commit ONLY `{_human_path}`. Do "
+                "NOT create any other `.egg-state/drafts/` file — no separate "
+                "`*-simplifier-*.md` constraints/guardrails/verification "
+                "companion. Any review reasoning goes in the BRC channel "
+                "(your verdict), never a second persisted document. A "
+                "proposal that introduces a second draft is rejected at "
+                "propose time.",
                 "   - **Much shorter and more digestible** than the upstream "
                 "draft — plain prose and short lists, not exhaustive enumeration.",
                 "   - **Faithful** — reflect the upstream draft accurately; "
