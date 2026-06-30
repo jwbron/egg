@@ -334,9 +334,17 @@ class TestRegisterOpenQuestion:
         assert gr.call_count == 1
         assert any("redirect_seed differs" in r.message for r in caplog.records)
 
-    def test_resolved_duplicate_does_not_block_new_registration(self):
-        """An already-*resolved* identical question must not suppress a
-        fresh registration — only open questions dedupe (#3374)."""
+    def test_resolved_duplicate_carries_forward(self):
+        """An already-*resolved* identical question (same phase) adopts the
+        resolved ``cq-N`` rather than minting a fresh one (#3392 carry-forward).
+
+        This inverts the original #3374 behavior: the converge-before-advance
+        loop re-runs a phase after the operator resolves its decisions, and the
+        re-run's agents re-register the same questions. Minting a fresh ``cq-N``
+        would re-surface an answered question and the loop would never reach a
+        fixpoint, so the resolved decision is adopted (idempotent, no write) and
+        the prior answer is carried forward.
+        """
         existing = _fake_contract(
             current_phase="plan",
             decisions=[
@@ -346,6 +354,7 @@ class TestRegisterOpenQuestion:
                     "type": "hitl",
                     "phase": "plan",
                     "resolved": True,
+                    "resolution": "Yes, drop it",
                 }
             ],
         )
@@ -362,9 +371,11 @@ class TestRegisterOpenQuestion:
         ):
             resp = sdlc.register_open_question({"question": "Drop the slider?"})
 
-        assert resp["id"] == "cq-2"
-        assert "deduped" not in resp
-        assert gr.call_count == 2
+        assert resp["id"] == "cq-1"
+        assert resp["deduped"] is True
+        assert resp["carried_forward"] is True
+        # Only the contract fetch happened — no second mutate write.
+        assert gr.call_count == 1
 
 
 class TestFetchContractNullData:

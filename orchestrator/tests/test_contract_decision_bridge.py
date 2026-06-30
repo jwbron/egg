@@ -131,13 +131,16 @@ def test_bridge_promotes_unresolved_hitl_decisions(tmp_path: Path) -> None:
     )
     dq = _FakeQueue(resolutions=["Postgres"])
 
-    _queue_and_await_contract_decisions(
+    resolved_count = _queue_and_await_contract_decisions(
         dq,
         tmp_path,
         "pipeline-id",
         identifier,
         PipelinePhase.REFINE,
     )
+
+    # Convergence signal (#3392): one decision surfaced + resolved this round.
+    assert resolved_count == 1
 
     # Exactly one promotion — the already-resolved one is skipped.
     assert len(dq.queued) == 1
@@ -229,13 +232,16 @@ def test_bridge_skips_decisions_for_other_phases(tmp_path: Path) -> None:
     )
     dq = _FakeQueue(resolutions=[])
 
-    _queue_and_await_contract_decisions(
+    resolved_count = _queue_and_await_contract_decisions(
         dq,
         tmp_path,
         "pipeline-id",
         identifier,
         PipelinePhase.REFINE,
     )
+
+    # Nothing surfaced this round → zero convergence signal → caller advances.
+    assert resolved_count == 0
 
     # A plan-scoped decision must not be surfaced at the refine phase_gate.
     assert dq.queued == []

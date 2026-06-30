@@ -14,7 +14,7 @@ Four mechanisms exist for gathering human input:
 3. **Phase approval** — Single checkbox to approve and advance to the next phase
 4. **Orchestrator-emitted decisions** — Automatically created by the orchestrator during pipeline recovery scenarios (e.g., sync divergence); require operator acknowledgment before the pipeline can continue. See [Orchestrator-Emitted Decisions](#orchestrator-emitted-decisions).
 
-In prompt-driven mode, decisions carry a `decision_type` field (`phase_gate`, `choice`, or `feedback`) that drives type-specific terminal rendering. The orchestrator's decision queue supports a "request changes" option at phase gates, with a circuit breaker (`max_hitl_review_cycles`, default 3) to prevent unbounded revision loops. See [Prompt-Driven Mode: Type-Aware Terminal Rendering](#prompt-driven-mode-type-aware-terminal-rendering) for details.
+In prompt-driven mode, decisions carry a `decision_type` field (`phase_gate`, `choice`, or `feedback`) that drives type-specific terminal rendering. The orchestrator's decision queue supports a "request changes" option at phase gates. Revision rounds are **not capped** (#3392): the converge-before-advance loop re-runs the phase after each round of resolved decisions and only advances once a round resolves nothing new, so refine/plan never force-advance with feedback or decisions unaddressed. `max_hitl_review_cycles` (default 3) is now the threshold at which a non-fatal overseer non-convergence alert is surfaced, not a force-advance budget. See [Prompt-Driven Mode: Type-Aware Terminal Rendering](#prompt-driven-mode-type-aware-terminal-rendering) and [Converge-Before-Advance Gate](#converge-before-advance-gate) for details.
 
 **Decision sync to contract**: Resolved decisions made during refine and plan phases are automatically synced to the contract (`.egg-state/contracts/{identifier}.json`) after each phase completes, so implement-phase agents can see substantive choices (database selection, API style, config handling, etc.) made earlier. Plain phase gate approvals (without context) are excluded from sync as they are process control. However, when a human approves a phase gate with additional context or feedback, that context is persisted to the contract and appended to the phase draft file as a `## HITL Resolution` section, so next-phase agents can see the human's guidance. See [SDLC Pipeline Guide § Decision Sync to Contract](sdlc-pipeline.md#decision-sync-to-contract) for details.
 
@@ -271,7 +271,7 @@ Phase approval is a simpler mechanism for advancing the pipeline at HITL gates.
 3. When the human checks the `[x] Approve` checkbox, the orchestrator detects the change
 4. The contract phase is updated and the next pipeline phase is triggered
 
-In **prompt-driven mode**, the orchestrator handles phase approval via its decision queue with `decision_type="phase_gate"`. The terminal displays the full document in a pager (default: `less -R`) and offers view, edit, approve, and request-changes options. A circuit breaker (`max_hitl_review_cycles`, default 3) prevents unbounded revision loops.
+In **prompt-driven mode**, the orchestrator handles phase approval via its decision queue with `decision_type="phase_gate"`. The terminal displays the full document in a pager (default: `less -R`) and offers view, edit, approve, and request-changes options. Revision rounds are not capped (#3392) — see [Converge-Before-Advance Gate](#converge-before-advance-gate); `max_hitl_review_cycles` only sets the non-convergence alert threshold.
 
 When an operator selects `request_changes` or `change_approach`, the feedback text is stored as a timestamped `OperatorDirective` on the phase. Directives **accumulate** — they are never cleared. Whenever producer or reviewer prompts are subsequently built and the directive list is non-empty, agents receive a `## Phase Iteration Context` prompt section that lists all prior directives in chronological order with explicit precedence prose (later directives override earlier ones), plus a snapshot of each prior iteration's BRC verdict matrix and NACK reasons. This ensures reviewer agents do not unwittingly NACK a directive-driven change against a stale default rubric.
 
@@ -283,6 +283,47 @@ When an operator selects `request_changes` or `change_approach`, the feedback te
 | Purpose | Choose between options | Advance to next phase |
 | Multiple options | Yes (with "Other") | No (single checkbox) |
 | Workflow job | `handle-decision` | `handle-approval` |
+
+## Converge-Before-Advance Gate
+
+The refine and plan phase gates iterate to a fixpoint before advancing (#3392).
+A phase does not advance the moment its gate is approved; it advances only once
+a re-run produces no new decisions and the operator approves. The loop:
+
+1. The phase runs and registers its HITL decisions on the contract.
+2. The gate surfaces those decisions (the [two-wave](#contract-decision-bridge)
+   bridge promotes them into `pending_decisions` with a `decision.created`
+   event) and the pipeline stays `AWAITING_HUMAN` until **every** one is
+   resolved.
+3. When a round resolves one or more decisions, the phase **re-runs** so the
+   draft reflects the resolutions, then re-surfaces the gate. Re-runs are
+   expected to converge quickly because the resolution-driven delta is small.
+4. Any decision a resolution **induces** surfaces in the next round and must
+   also be resolved.
+5. The phase advances only on a round that resolved nothing new and the
+   operator approves the `phase_gate`.
+
+**Carry-forward.** A re-run's agents may re-register a question that was
+already answered in a prior round. The registration paths
+(`register_open_question`, the impasse-escalation router) adopt the prior
+**resolved** `cq-N` via `egg_contracts.decisions.find_resolved_question`
+instead of minting a new decision, so answered questions are never re-asked and
+the open-decision set shrinks toward zero. This is what guarantees the loop
+terminates.
+
+**No force-advance.** The pre-#3392 circuit breaker advanced the phase after
+`max_hitl_review_cycles` rounds, leaving operator feedback unaddressed. That is
+removed: every round is human-gated, so the loop never advances with decisions
+or feedback outstanding. After `max_hitl_review_cycles` rounds a non-fatal
+`OVERSEER_ALERT` (`reason="hitl_nonconvergence"`) is surfaced for visibility — a
+pathological non-convergence (a real bug, or a genuinely churning design) — but
+the phase is never force-advanced or failed.
+
+**Mandatory HITL for refine/plan.** Because the loop resolves decisions with a
+human each round, refine and plan **always** require the human gate;
+`hitl_gates: false` is not honored for those phases (it remains meaningful only
+for phases outside the mandatory set). This is what lets the force-advance
+backstop be dropped: a human is always present to resolve and approve.
 
 ## Detection Mechanism
 

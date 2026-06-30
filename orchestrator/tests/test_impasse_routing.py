@@ -265,6 +265,54 @@ class TestRouteImpassesEscalate:
         hitl_ids = [d.id for d in contract.decisions if d.id.startswith("cq-")]
         assert hitl_ids == [first[0].hitl_decision_id]
 
+    def test_re_escalation_adopts_resolved_decision(self, tmp_path):
+        """Carry-forward (#3392): re-escalating an impasse whose HITL question
+        was already *resolved* adopts the resolved ``cq-N`` rather than minting
+        a fresh one. Without this a phase re-run would re-ask an answered
+        question and the converge-before-advance loop would never terminate."""
+        pid = _seed_contract(tmp_path)
+        contract = load_contract(pid, tmp_path)
+        contract.slices[0].tasks[0].delegation_attempts = DELEGATION_LIMIT
+        save_contract(contract, tmp_path)
+
+        imp = Impasse(
+            category=ImpasseCategory.PLAN_BUG,
+            reason="acceptance criteria contradict each other",
+            task_id="task-1-1",
+        )
+
+        def _escalate_once():
+            return route_impasses(
+                repo_path=tmp_path,
+                pipeline_id=pid,
+                contract_identifier=pid,
+                impasses=[(ContractAgentRole.CODER, imp)],
+                slice_id="slice-1",
+            )
+
+        first = _escalate_once()
+        assert first[0].action == ImpasseAction.ESCALATE
+        cq_id = first[0].hitl_decision_id
+        assert cq_id is not None
+
+        # Operator resolves the decision (as a HITL resolution would).
+        contract = load_contract(pid, tmp_path)
+        decision = next(d for d in contract.decisions if d.id == cq_id)
+        decision.resolved = True
+        decision.resolution = "Rewrite the acceptance criteria"
+        decision.resolved_by = "human"
+        save_contract(contract, tmp_path)
+
+        # A phase re-run re-escalates the same impasse: it must adopt the
+        # resolved decision, not mint a new one.
+        second = _escalate_once()
+        assert second[0].action == ImpasseAction.ESCALATE
+        assert second[0].hitl_decision_id == cq_id
+
+        contract = load_contract(pid, tmp_path)
+        hitl_ids = [d.id for d in contract.decisions if d.id.startswith("cq-")]
+        assert hitl_ids == [cq_id]  # no fresh cq-N minted
+
     def test_self_delegation_escalates(self, tmp_path):
         # Even though report_impasse rejects suggested_role==role at the
         # handler boundary, defense-in-depth: if a malformed payload
