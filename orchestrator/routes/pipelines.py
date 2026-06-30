@@ -13190,6 +13190,7 @@ def _build_brc_preamble(
         producers = graph.producers_for(role_value) if is_reviewer else []
         wake_only_producers = graph.wake_only_producers_for(role_value)
         all_roles = sorted(graph.all_roles())
+        graph_available = True
     except Exception:
         is_producer = role_value in (
             "coder",
@@ -13221,6 +13222,7 @@ def _build_brc_preamble(
         producers = []
         wake_only_producers = set()
         all_roles = []
+        graph_available = False
 
     lines: list[str] = [
         "\n\n## CRITICAL: BRC Consensus Protocol\n",
@@ -13239,7 +13241,20 @@ def _build_brc_preamble(
     # exclude wake_only producers, so the preamble does not contradict the
     # producer-only execution banner the simplifier receives.
     real_producers = [p for p in producers if p not in wake_only_producers]
-    casts_real_verdicts = bool(real_producers)
+    if graph_available:
+        casts_real_verdicts = bool(real_producers)
+    else:
+        # Degraded path: the graph load failed, so ``producers == []`` for every
+        # role and we cannot distinguish wake_only edges from real ones. Fall
+        # back to raw ``is_reviewer`` so we don't silently strip the Reviewer
+        # Lifecycle / "As a reviewer" coordination block from a *genuine*
+        # reviewer (reviewer_code/refine/plan) when the graph is unavailable —
+        # pre-#3381 this path gated those blocks on raw ``is_reviewer``. The
+        # simplifier — the only wake_only role — stays producer-only: it is
+        # excluded here, and is independently rendered producer-only by the
+        # ``is_dual_role and role_value == "simplifier"`` banner dispatch, which
+        # still fires in the fallback.
+        casts_real_verdicts = is_reviewer and role_value != "simplifier"
 
     if is_producer and casts_real_verdicts:
         role_type_desc = "PRODUCER and REVIEWER (dual role)"

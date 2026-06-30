@@ -6347,6 +6347,43 @@ class TestDualRoleExecutionOrdering:
         )
         assert "### Dual-Role Execution Order" not in coder_preamble
 
+    def test_genuine_reviewer_keeps_lifecycle_in_review_graph_fallback(self, monkeypatch):
+        """The ``casts_real_verdicts`` gate (#3381) must NOT silently strip the
+        Reviewer Lifecycle from a *genuine* reviewer when the ``review_graph``
+        load fails. In the fallback ``producers == []`` for every role, so a
+        naive ``bool(real_producers)`` gate would degrade every reviewer to
+        PARTICIPANT; the fallback instead reverts to raw ``is_reviewer``. The
+        simplifier — the only wake_only role — must still be producer-only."""
+        import review_graph
+
+        def _raise(*_args, **_kwargs):
+            raise RuntimeError("simulated review_graph failure")
+
+        monkeypatch.setattr(review_graph, "get_review_graph_for_phase", _raise)
+
+        # Genuine pure reviewers retain the full reviewer playbook even in the
+        # degraded path (the fallback is the last line of defense, not a
+        # degraded mode that strips real reviewers).
+        for role, phase in (
+            ("reviewer_code", "implement"),
+            ("reviewer_refine", "refine"),
+            ("reviewer_plan", "plan"),
+        ):
+            preamble = _build_brc_preamble(role, phase)
+            assert "### Reviewer Lifecycle" in preamble, (
+                f"Genuine reviewer {role!r} must keep its Reviewer Lifecycle "
+                "in the review_graph fallback — the casts_real_verdicts gate "
+                "must revert to raw is_reviewer when the graph is unavailable."
+            )
+            assert "Your role type: **REVIEWER**" in preamble
+
+        # The de-roled simplifier stays producer-only in the fallback: no
+        # Reviewer Lifecycle, no ACK/NACK template.
+        for phase in ("refine", "plan"):
+            simplifier_preamble = _build_brc_preamble("simplifier", phase)
+            assert "### Reviewer Lifecycle" not in simplifier_preamble
+            assert "egg-orch consensus nack <role>" not in simplifier_preamble
+
 
 # ---------------------------------------------------------------------------
 # #2527 — plan reviewer's task role↔files alignment check
