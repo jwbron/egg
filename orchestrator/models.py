@@ -1111,6 +1111,17 @@ class AdditionalRepo(BaseModel):
     consumer repo may track different default branches); ``None`` lets the
     gateway resolve that repo's remote default branch, matching the
     primary-repo behaviour.
+
+    **Auth-mode constraint (deferred, unenforced — #3403).** All repos in a
+    pipeline must share the same visibility (all public or all private) so
+    they match the pipeline ``network_mode``. This is currently a documented
+    contract, not a validated one: nothing cross-checks each additional
+    repo's visibility against ``network_mode`` at submit. A private secondary
+    attached to a public pipeline therefore fails opaquely at gateway access
+    time rather than loudly at submit. Enforcing it needs a per-repo
+    ``get_repo_visibility`` gateway round-trip on every submit path (both the
+    MCP handler and the direct-API route) with defined gateway-unreachable
+    semantics; until that lands, operators must ensure uniform visibility.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -1212,6 +1223,45 @@ class Pipeline(BaseModel):
         if v is not None and not re.fullmatch(r"[0-9a-f]{7,40}", v):
             raise ValueError("pr_head_sha must be a 7-40 char hex string")
         return v
+
+    @model_validator(mode="after")
+    def _validate_repo_set_integrity(self) -> Pipeline:
+        """Validate the multi-repo repo set is well-formed (#3403).
+
+        Two checks, both failing loudly at construction so operator
+        misconfig surfaces at submit rather than opaquely at spawn time:
+
+        1. **No bare-name collisions.** Every downstream worktree path keys
+           by the bare name (``repo.split("/")[-1]``): ``EGG_REPO_VOLUMES_JSON``
+           in the spawner, and the gateway worktree manager's
+           ``worktrees[repo_name]`` map plus its on-disk
+           ``/home/egg/repos/<name>`` path. So ``owner1/api`` and
+           ``owner2/api`` would both collapse to ``api`` — the second worktree
+           clobbers the first and an agent could silently be handed the wrong
+           repo's tree. ``all_repos`` only de-dupes by full ``owner/name``,
+           which does not catch this.
+        2. **No additional repos without a primary.** ``additional_repos`` are
+           *secondary* to ``repo``; with ``repo`` unset, ``all_repos`` would
+           provision worktrees while ``EGG_REPO`` / ``EGG_PIPELINE_REPO`` stay
+           unset — an invalid submission.
+        """
+        if self.repo is None and self.additional_repos:
+            raise ValueError(
+                "additional_repos requires a primary repo; set `repo` "
+                "(additional repos are secondary to the primary)"
+            )
+        seen: dict[str, str] = {}
+        for full in self.all_repos:
+            bare = full.split("/")[-1]
+            prior = seen.get(bare)
+            if prior is not None and prior != full:
+                raise ValueError(
+                    f"repos {prior!r} and {full!r} share the bare name {bare!r}; "
+                    "multi-repo pipelines require distinct repo names because "
+                    "worktree paths key by the bare name"
+                )
+            seen[bare] = full
+        return self
 
     has_contract: bool = Field(
         default=True,

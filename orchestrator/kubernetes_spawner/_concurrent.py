@@ -121,6 +121,7 @@ def create_concurrent_spawn_fn(
     sandbox_env: dict[str, str] | None = None,
     image: str | None = None,
     base_branch: str | None = None,
+    base_branches: dict[str, str] | None = None,
     certs_volume: str | None = None,  # noqa: ARG002 — Docker-era compat
     spawn_max_retries: int = DEFAULT_SPAWN_MAX_RETRIES,
     spawn_retry_initial_backoff_seconds: float = (DEFAULT_SPAWN_RETRY_INITIAL_BACKOFF_SECONDS),
@@ -140,7 +141,13 @@ def create_concurrent_spawn_fn(
         phase: Current pipeline phase.
         sandbox_env: Base environment variables.
         image: Container image override.
-        base_branch: Branch to base worktrees on.
+        base_branch: Branch to base worktrees on (the primary repo's base;
+            also exported as ``EGG_BASE_BRANCH``).
+        base_branches: Optional per-repo base-branch overrides
+            (owner/name → branch) for #3393 multi-repo pipelines. Forwarded
+            to ``spawn_agent_job`` → ``create_worktrees`` so each per-agent
+            worktree forks its repo from the right base; a secondary repo
+            absent from the map resolves its own remote default (#3403).
         slice_id: Optional slice scope (#2403). When supplied, every
             spawn (including ``spawn_specific_roles`` retries) is
             tagged with this slice so concurrent slices in the same
@@ -174,6 +181,7 @@ def create_concurrent_spawn_fn(
             "phase": phase,
             "branch": branch,
             "base_branch": base_branch,
+            "base_branches": base_branches,
             "command": command,
             "spawn_max_retries": spawn_max_retries,
             "spawn_retry_initial_backoff_seconds": (spawn_retry_initial_backoff_seconds),

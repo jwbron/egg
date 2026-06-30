@@ -52,6 +52,7 @@ def spawn_agent_job(
     command: list[str] | None = None,
     branch: str | None = None,
     base_branch: str | None = None,
+    base_branches: dict[str, str] | None = None,
     extra_mounts: list["MountSpec"] | None = None,  # noqa: UP037
     preserve_worktree_on_failure: bool = False,
     certs_volume: str | None = None,  # noqa: ARG002 — Docker-era compat
@@ -82,7 +83,15 @@ def spawn_agent_job(
         phase: SDLC pipeline phase for gateway session
         command: Command to execute in the container
         branch: Git branch for the agent
-        base_branch: Branch to base worktrees on
+        base_branch: Branch to base worktrees on. Also exported as
+            ``EGG_BASE_BRANCH`` for the BRC delta (the primary repo's base).
+        base_branches: Optional per-repo base-branch overrides
+            (owner/name → branch) for #3393 multi-repo pipelines. When set it
+            already carries the primary's resolved base, so the per-agent
+            worktree creation passes ``base_branch=None`` and lets this map
+            govern each repo — a secondary repo absent from the map resolves
+            its own remote default branch rather than inheriting the primary's
+            (#3403). ``None`` preserves the single-value, single-repo path.
         extra_mounts: Additional mount specs (not used in k8s — handled by pod template)
         preserve_worktree_on_failure: If True, do not delete worktree on failure
         spawn_max_retries: Additional retry attempts for transient gateway
@@ -230,7 +239,16 @@ def spawn_agent_job(
                     repos=repos,
                     uid=host_uid,
                     gid=host_gid,
-                    base_branch=base_branch,
+                    # #3403: when a per-repo ``base_branches`` map is supplied
+                    # (multi-repo pipelines), it already carries the primary's
+                    # resolved base, so pass ``base_branch=None`` here — a
+                    # non-None ``base_branch`` would be broadcast by the gateway
+                    # to every repo lacking an override, forking a secondary
+                    # repo from the *primary's* default branch (which may not
+                    # exist there → spawn failure). Without a map, the single
+                    # value flows through unchanged (single-repo back-compat).
+                    base_branch=None if base_branches else base_branch,
+                    base_branches=base_branches,
                     # Wire the per-agent worktree's local branch to push to
                     # the pipeline's assigned branch.  Without this, a naive
                     # ``git push`` from the agent targets the per-agent

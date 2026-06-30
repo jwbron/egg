@@ -591,6 +591,65 @@ class TestSpawnAgentJob:
         create_kwargs = mock_k8s_client.create_container.call_args.kwargs
         assert create_kwargs["environment"].get("EGG_BASE_BRANCH") == "develop"
 
+    def test_spawn_with_base_branches_map_does_not_broadcast_primary(self, spawner, mock_gateway):
+        """#3403: a per-repo ``base_branches`` map governs worktree bases.
+
+        When a map is supplied, the per-agent worktree creation must pass
+        ``base_branch=None`` so the resolved-primary value is NOT broadcast to
+        secondary repos (which would fork them from the primary's default —
+        possibly a branch that doesn't exist there). The map itself carries
+        the per-repo bases, and ``EGG_BASE_BRANCH`` still reflects the
+        single ``base_branch`` (the primary's, for the BRC delta).
+        """
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["o/primary", "o/secondary"],
+            base_branch="main",
+            base_branches={"o/primary": "main", "o/secondary": "develop"},
+        )
+        cw_kwargs = mock_gateway.create_worktrees.call_args.kwargs
+        # base_branch must be None so secondaries without a map entry resolve
+        # their own default rather than inheriting the primary's.
+        assert cw_kwargs["base_branch"] is None
+        assert cw_kwargs["base_branches"] == {
+            "o/primary": "main",
+            "o/secondary": "develop",
+        }
+        # The single value is still exported for the per-producer git-log delta.
+        assert result.environment.get("EGG_BASE_BRANCH") == "main"
+
+    def test_spawn_without_base_branches_map_passes_single_value(self, spawner, mock_gateway):
+        """Single-repo back-compat: no map → the single ``base_branch`` flows
+        through to ``create_worktrees`` unchanged."""
+        spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["o/primary"],
+            base_branch="main",
+        )
+        cw_kwargs = mock_gateway.create_worktrees.call_args.kwargs
+        assert cw_kwargs["base_branch"] == "main"
+        assert cw_kwargs["base_branches"] is None
+
+    def test_concurrent_spawn_fn_threads_base_branches(self, spawner, mock_gateway):
+        """#3403: ``create_concurrent_spawn_fn`` forwards the per-repo map
+        through to the per-agent ``create_worktrees`` call."""
+        spawn_fn = spawner.create_concurrent_spawn_fn(
+            pipeline_id="pipe-1",
+            issue_number=None,
+            repo_volumes=None,
+            mode="public",
+            repos=["o/primary", "o/secondary"],
+            phase="implement",
+            base_branch="main",
+            base_branches={"o/secondary": "develop"},
+        )
+        spawn_fn(AgentRole.CODER, branch="egg/work")
+        cw_kwargs = mock_gateway.create_worktrees.call_args.kwargs
+        assert cw_kwargs["base_branch"] is None
+        assert cw_kwargs["base_branches"] == {"o/secondary": "develop"}
+
     def test_spawn_sets_egg_wait_producer_allowlist_for_reviewer(
         self, spawner, mock_k8s_client, mock_gateway
     ):

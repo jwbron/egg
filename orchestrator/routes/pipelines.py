@@ -19660,6 +19660,26 @@ def _run_concurrent_phase(
         except Exception:
             _resolved_base_branch = None
 
+    # #3403 multi-repo: per-agent worktrees (the trees agents actually edit)
+    # must fork each repo from its own base. The primary is keyed to its
+    # resolved default (or explicit ``base_branch``) so that value is NOT
+    # broadcast to secondary repos; each additional repo with an explicit
+    # base gets its own. A repo with no entry reaches the gateway as ``None``
+    # and resolves its own remote default — so a secondary repo whose default
+    # branch differs from the primary's (e.g. ``master`` vs ``main``) no
+    # longer fails to spawn by being forked from a branch that doesn't exist
+    # there. Single-repo pipelines collapse to ``{primary: resolved}`` (or an
+    # empty map when nothing resolved), identical to the prior behaviour.
+    _agent_base_branches: dict[str, str] = {}
+    for _wt_repo in repos:
+        _wt_base = (
+            _resolved_base_branch
+            if _wt_repo == pipeline.repo
+            else pipeline.base_branch_for(_wt_repo)
+        )
+        if _wt_base:
+            _agent_base_branches[_wt_repo] = _wt_base
+
     # A producer with no work in this slice is no longer pre-seeded (#3027
     # retired the #2581 pre-seed). It stays spawned and, if it finds it has
     # nothing to contribute, submits a generic no-op propose
@@ -19704,9 +19724,12 @@ def _run_concurrent_phase(
         # ``git log --not origin/<base>`` delta (#2967); without a concrete
         # value the wrapper + composer fall back to ``origin/main`` and the
         # delta errors out on every non-``main`` repo. Worktree creation is
-        # unaffected: the gateway resolves the same default branch when handed
-        # ``None``, so resolving one layer up here is equivalent.
+        # governed by ``base_branches`` below (the resolved-primary value is
+        # keyed to the primary alone), so this single value is only used for
+        # the ``EGG_BASE_BRANCH`` export — it is no longer broadcast to
+        # secondary repos at worktree-create time (#3403).
         base_branch=_resolved_base_branch,
+        base_branches=_agent_base_branches or None,
         spawn_max_retries=pipeline.config.spawn_max_retries,
         spawn_retry_initial_backoff_seconds=pipeline.config.spawn_retry_initial_backoff_seconds,
         slice_id=slice_id,

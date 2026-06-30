@@ -1250,3 +1250,30 @@ class TestMultiRepoPipeline:
         p = Pipeline.model_validate({"id": "issue-3", "repo": "o/p"})
         assert p.additional_repos == []
         assert p.all_repos == ["o/p"]
+
+    def test_bare_name_collision_across_owners_rejected(self):
+        """#3403: repos sharing a bare name across owners are rejected.
+
+        Worktree paths key by the bare name, so ``owner1/api`` and
+        ``owner2/api`` would clobber each other — fail loudly at construction.
+        """
+        with pytest.raises(ValueError, match="bare name"):
+            Pipeline(
+                id="issue-4",
+                repo="owner1/api",
+                additional_repos=[AdditionalRepo(repo="owner2/api")],
+            )
+
+    def test_distinct_bare_names_across_owners_allowed(self):
+        """Distinct bare names across owners are fine even if owners differ."""
+        p = Pipeline(
+            id="issue-5",
+            repo="owner1/api",
+            additional_repos=[AdditionalRepo(repo="owner2/web")],
+        )
+        assert p.all_repos == ["owner1/api", "owner2/web"]
+
+    def test_additional_repos_without_primary_rejected(self):
+        """#3403: additional_repos with no primary repo is an invalid set."""
+        with pytest.raises(ValueError, match="requires a primary repo"):
+            Pipeline(id="local-2", additional_repos=[AdditionalRepo(repo="o/extra")])
