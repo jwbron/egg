@@ -13188,6 +13188,7 @@ def _build_brc_preamble(
         is_reviewer = graph.is_reviewer(role_value)
         reviewers = graph.reviewers_for(role_value) if is_producer else []
         producers = graph.producers_for(role_value) if is_reviewer else []
+        wake_only_producers = graph.wake_only_producers_for(role_value)
         all_roles = sorted(graph.all_roles())
     except Exception:
         is_producer = role_value in (
@@ -13208,13 +13209,17 @@ def _build_brc_preamble(
             "reviewer_refine",
             "reviewer_agent_design",
             "reviewer_plan",
-            # simplifier is dual-role: advisory reviewer of the upstream
-            # refine/plan producer (its wake-up arm), plus producer of the
-            # human-focused companion draft.
+            # simplifier retains a wake_only advisory edge over the upstream
+            # refine/plan producer, so the graph reports it as a reviewer —
+            # but it casts no verdict (#3381) and is rendered PRODUCER-ONLY
+            # below (the wake_only edge is excluded from the real-reviewer
+            # determination). Listed here so the degraded fallback path still
+            # recognizes it; producer-only rendering is handled uniformly.
             "simplifier",
         )
         reviewers = []
         producers = []
+        wake_only_producers = set()
         all_roles = []
 
     lines: list[str] = [
@@ -13225,11 +13230,22 @@ def _build_brc_preamble(
     ]
 
     is_dual_role = is_producer and is_reviewer
-    if is_dual_role:
+
+    # A role whose only reviewed producers are reached via wake_only edges
+    # (the de-roled simplifier, #3381) casts no verdict on anyone, so it is a
+    # PRODUCER in every behavioural sense — render it as one. We keep the
+    # graph-level ``is_dual_role`` flag intact for the banner dispatch below;
+    # only the rendered role-type label and the "assigned producers" line
+    # exclude wake_only producers, so the preamble does not contradict the
+    # producer-only execution banner the simplifier receives.
+    real_producers = [p for p in producers if p not in wake_only_producers]
+    casts_real_verdicts = bool(real_producers)
+
+    if is_producer and casts_real_verdicts:
         role_type_desc = "PRODUCER and REVIEWER (dual role)"
     elif is_producer:
         role_type_desc = "PRODUCER"
-    elif is_reviewer:
+    elif casts_real_verdicts:
         role_type_desc = "REVIEWER"
     else:
         role_type_desc = "PARTICIPANT"
@@ -13237,8 +13253,8 @@ def _build_brc_preamble(
     lines.append(f"Your role type: **{role_type_desc}**")
     if reviewers:
         lines.append(f"Your reviewers: {', '.join(reviewers)}")
-    if producers:
-        lines.append(f"Your assigned producers: {', '.join(producers)}")
+    if real_producers:
+        lines.append(f"Your assigned producers: {', '.join(real_producers)}")
     lines.append("")
 
     # Agent roster: show all active agents and what they do
@@ -13267,14 +13283,16 @@ def _build_brc_preamble(
     # (after the tester has proposed) likewise re-invoke the tester to
     # handle the Reviewer Lifecycle for those events.
     if is_dual_role and role_value == "simplifier":
-        # The simplifier carries an advisory review edge over the upstream
-        # producer PURELY as the event-pump wake-wire — it is what re-invokes
-        # the simplifier when the upstream proposes. It is NOT a reviewer in
-        # any behavioural sense: it issues no verdict, casts no ACK/NACK, and
-        # never critiques the draft (#3381). Treating it as a reviewer is what
-        # made the companion come out as a review/critique memo instead of a
-        # plain-language summary. So it gets a PRODUCER-ONLY banner here and
-        # must NOT inherit the tester's review-and-harden banner below.
+        # The simplifier is a PRODUCER ONLY (#3381). It is woken to write the
+        # companion by the ordinary producer propose-arm (it self-gates on the
+        # upstream draft existing), NOT by its advisory edge over the upstream
+        # — that edge is wake_only and casts no verdict, so it is inert in
+        # consensus derivation (see review_graph.ReviewEdge.wake_only). It is
+        # NOT a reviewer in any behavioural sense: it issues no verdict, casts
+        # no ACK/NACK, and never critiques the draft. Treating it as a reviewer
+        # is what made the companion come out as a review/critique memo instead
+        # of a plain-language summary. So it gets a PRODUCER-ONLY banner here
+        # and must NOT inherit the tester's review-and-harden banner below.
         lines.append(
             "### Execution Order (READ FIRST — simplifier)\n\n"
             "You are a **producer only**: your single job is to write a "

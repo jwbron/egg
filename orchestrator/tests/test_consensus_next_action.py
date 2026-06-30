@@ -680,6 +680,35 @@ def test_wake_only_simplifier_confirms_without_verdict(client, simplifier_refine
     assert entry is None or entry.state == ApprovalState.PENDING
 
 
+def test_wake_only_simplifier_woken_to_propose_by_propose_arm(client, simplifier_refine_tracker):
+    """#3382 non-blocking-3: the simplifier's wake-to-propose is the producer
+    ``propose`` arm, NOT its wake-only advisory edge.
+
+    The two tests above ``_propose(t, "simplifier")`` first, driving the FSM
+    straight to PROPOSED and skipping the WORKING-state wake. This test covers
+    the actual wake mechanism the corrected comments point at: a WORKING
+    producer re-derives ``propose`` on every poll (the event loop's re-spawn
+    of a legitimate orient-and-exit is what wakes it — see
+    ``test_event_loop.py::test_stale_exit_is_a_non_trigger_through_loop``).
+    The wake-only edge over the refiner contributes nothing here: the
+    simplifier derives ``propose`` regardless of whether the refiner has
+    proposed, so it is never gated on (and never ``ack``s) the advisory edge.
+    """
+    t = simplifier_refine_tracker
+
+    # WORKING simplifier, refiner has NOT yet proposed: the simplifier is woken
+    # to propose its companion by the propose arm, not by any upstream event.
+    for _ in range(3):
+        resp = _post_next_action(client, "simplifier", tracker=t)
+        _assert_action(resp, "propose")
+
+    # The refiner proposing does not change the simplifier's own wake-to-propose
+    # (it is not routed to ``ack`` for the wake-only edge).
+    _propose(t, "refiner")
+    resp = _post_next_action(client, "simplifier", tracker=t)
+    _assert_action(resp, "propose")
+
+
 # ---------------------------------------------------------------------------
 # Edge cases — these are NOT in the 9-case list but cover regressions
 # the route would otherwise allow.
