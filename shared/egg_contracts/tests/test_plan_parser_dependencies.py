@@ -177,3 +177,53 @@ class TestLegacyToContractPhaseAlias:
         # Same shape, same canonical ids, same migrated deps.
         assert legacy.id == canonical.id == "slice-2"
         assert legacy.dependencies == canonical.dependencies == ["slice-1"]
+
+
+class TestSliceRepoParsing:
+    """#3393: per-slice ``repo`` key flows plan → ParsedPhase → Slice."""
+
+    def test_repo_propagates_to_contract_slice(self):
+        phase = ParsedPhase(number=1, name="s", goal="g", repo="owner/schema")
+        assert phase.to_contract_slice().repo == "owner/schema"
+
+    def test_blank_repo_normalises_to_none(self):
+        assert ParsedPhase(number=1, name="s", goal="g", repo="  ").to_contract_slice().repo is None
+
+    def test_absent_repo_defaults_to_none(self):
+        assert ParsedPhase(number=1, name="s", goal="g").to_contract_slice().repo is None
+
+    def test_repo_key_parsed_from_yaml_tasks_fence(self):
+        from egg_contracts.plan_parser import parse_plan
+
+        plan = (
+            "# Plan\n\n"
+            "```yaml\n"
+            "# yaml-tasks\n"
+            "slices:\n"
+            "  - id: slice-1\n"
+            "    name: schema bump\n"
+            "    goal: add v2 schema\n"
+            "    repo: owner/schema\n"
+            "    tasks:\n"
+            "      - id: task-1-1\n"
+            "        description: add schema\n"
+            "        acceptance_criteria: it exists\n"
+            "        role: coder\n"
+            "  - id: slice-2\n"
+            "    name: migrate consumer\n"
+            "    goal: cut over\n"
+            "    dependencies: slice-1\n"
+            "    tasks:\n"
+            "      - id: task-2-1\n"
+            "        description: migrate\n"
+            "        acceptance_criteria: done\n"
+            "        role: coder\n"
+            "```\n"
+        )
+        result = parse_plan(plan)
+        assert result.success, result.error
+        by_id = {s.id: s for s in result.to_contract_slices()}
+        assert by_id["slice-1"].repo == "owner/schema"
+        assert by_id["slice-2"].repo is None
+        # `repo` is a recognised key — no unknown-key warning.
+        assert not any("repo" in w.message.lower() for w in result.warnings)

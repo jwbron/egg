@@ -458,6 +458,9 @@ def parse_phases_from_yaml(
 
         phase_name = phase_data.get("name", f"Slice {phase_num}")
         phase_goal = phase_data.get("goal", "")
+        # #3393 multi-repo: optional per-slice target repo (owner/name).
+        # Absent → None → the pipeline's primary repo.
+        phase_repo = phase_data.get("repo")
         # #2743 — accept ``depends_on`` as an alias for ``dependencies``.
         # Pipeline-8b81ed32 produced a plan that used ``depends_on: <int>``
         # on every phase and the contract came back with empty deps because
@@ -651,6 +654,7 @@ def parse_phases_from_yaml(
                 dependencies=phase_dependencies,
                 exit_criteria=phase_exit_criteria,
                 serialized_chain_order=phase_serialized_chain_order,
+                repo=phase_repo,
             )
         )
 

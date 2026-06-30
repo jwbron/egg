@@ -11343,6 +11343,51 @@ def _is_slice_dag_mode(contract) -> bool:
     return len(slices) > 1
 
 
+class SliceRepoContext(NamedTuple):
+    """Resolved repo + orchestrator worktree path for a slice (#3393).
+
+    ``repo`` is the slice's effective target repo (``slice.repo`` or the
+    pipeline primary). ``worktree_path`` is the orchestrator-accessible
+    git worktree for that repo — the *primary* worktree for primary-repo
+    slices, or the sibling repo dir under the same container worktree
+    root for a provisioned secondary repo. ``is_secondary`` is True only
+    when the slice targets a non-primary repo. ``provisioned`` is False
+    when a secondary repo has no worktree yet (e.g. an agent named a repo
+    that was never attached to the pipeline) — the caller must fail the
+    slice loudly rather than silently open its PR against the primary.
+    """
+
+    repo: str | None
+    worktree_path: Path | None
+    is_secondary: bool
+    provisioned: bool
+
+
+def _resolve_slice_repo_context(
+    pipeline,
+    slice_obj,
+    worktree_repo_path: Path,
+    repo_volumes: dict[str, str],
+) -> SliceRepoContext:
+    """Resolve where a slice's branch / PR / git ops should land (#3393).
+
+    Primary-repo (or unset) slices resolve to the primary worktree
+    unchanged, so the single-repo flow is byte-for-byte untouched. A
+    slice scoped to a secondary repo resolves to that repo's sibling
+    worktree (``<container-root>/<repo-name>``) when it was provisioned;
+    otherwise ``provisioned=False`` so the caller can fail the slice.
+    """
+    primary = pipeline.repo
+    repo = slice_obj.resolve_repo(primary) if slice_obj is not None else primary
+    if not repo or repo == primary:
+        return SliceRepoContext(repo or primary, worktree_repo_path, False, True)
+    short = repo.split("/")[-1]
+    candidate = worktree_repo_path.parent / short
+    if short in repo_volumes and candidate.exists():
+        return SliceRepoContext(repo, candidate, True, True)
+    return SliceRepoContext(repo, None, True, False)
+
+
 def _resolve_slice_base_branch(
     contract,
     slice_id: str,
@@ -18433,6 +18478,36 @@ def _run_implement_phase_slices(
                 slice_id: str,
                 parent_slice_id: str | None,  # noqa: ARG001 — kept for caller compat; resolver reads contract
             ) -> tuple[int, str]:
+                # #3393 multi-repo: resolve which repo (and orchestrator
+                # worktree) this slice's branch/PR/git ops target BEFORE
+                # any branch work. Primary-repo slices resolve to the
+                # primary worktree, so the single-repo flow is unchanged.
+                _slice_ctx_obj = next((s for s in contract.slices if s.id == slice_id), None)
+                slice_repo_ctx = _resolve_slice_repo_context(
+                    pipeline, _slice_ctx_obj, worktree_repo_path, repo_volumes
+                )
+                if slice_repo_ctx.is_secondary and not slice_repo_ctx.provisioned:
+                    # An agent scoped the slice to a repo the pipeline never
+                    # attached/provisioned. Fail loudly rather than silently
+                    # open the PR against the primary repo.
+                    logger.error(
+                        "Slice targets an unprovisioned repo; failing slice (#3393)",
+                        pipeline_id=pipeline_id,
+                        slice_id=slice_id,
+                        slice_repo=slice_repo_ctx.repo,
+                    )
+                    scheduler.record_failure(slice_id)
+                    return 1, (
+                        f"slice {slice_id}: target repo {slice_repo_ctx.repo!r} "
+                        "is not attached to this pipeline (no worktree provisioned)"
+                    )
+                slice_repo = slice_repo_ctx.repo
+                # Git ops for this slice (branch create, ls-remote, diff,
+                # BRC commit, PR) run against the slice's repo worktree;
+                # the CONTRACT lives only in the primary worktree, so
+                # contract load/save below stay on ``worktree_repo_path``.
+                slice_worktree_path = slice_repo_ctx.worktree_path or worktree_repo_path
+
                 # Resolve parent branch for stacking via
                 # :func:`_resolve_slice_base_branch` (#2777, cq-2 / cq-4 /
                 # cq-9 / cq-10). The helper handles both:
@@ -18479,18 +18554,31 @@ def _run_implement_phase_slices(
                         return True
                     return spawner.gateway.ls_remote_branch_strict(
                         pipeline_id,
-                        str(worktree_repo_path),
+                        str(slice_worktree_path),
                         f"refs/heads/{parent_branch}",
                         mode=gateway_mode,  # type: ignore[arg-type]
                     )
 
-                parent_branch = _resolve_slice_base_branch(
-                    contract,
-                    slice_id,
-                    pipeline_id=pipeline_id,
-                    pipeline_branch=pipeline_branch,
-                    parent_branch_exists=_probe_parent_branch_exists,
-                )
+                if slice_repo_ctx.is_secondary:
+                    # #3393: a secondary-repo slice has no context PR / work
+                    # branch in its repo and the stacked-PR model is
+                    # primary-repo-centric, so it bases its integration
+                    # branch + standalone PR on its OWN repo's base branch
+                    # (the per-repo base if configured, else that repo's
+                    # default branch). Cross-repo dependencies still
+                    # sequence execution via the scheduler; they do not
+                    # stack branches across repos.
+                    parent_branch = pipeline.base_branch_for(slice_repo) or _detect_default_branch(
+                        slice_worktree_path
+                    )
+                else:
+                    parent_branch = _resolve_slice_base_branch(
+                        contract,
+                        slice_id,
+                        pipeline_id=pipeline_id,
+                        pipeline_branch=pipeline_branch,
+                        parent_branch_exists=_probe_parent_branch_exists,
+                    )
                 integration_branch = f"{issue_branch}/{slice_id}"
 
                 # Persist the parent-branch reference on the contract
@@ -18554,7 +18642,7 @@ def _run_implement_phase_slices(
                     try:
                         already_merged = spawner.gateway.is_slice_branch_merged_into_parent(
                             pipeline_id,
-                            str(worktree_repo_path),
+                            str(slice_worktree_path),
                             integration_branch=integration_branch,
                             parent_branch=parent_branch,
                             integration_base_sha=recorded_base_sha,
@@ -18640,7 +18728,7 @@ def _run_implement_phase_slices(
                         # restart.
                         created_base_sha = spawner.gateway.create_slice_integration_branch(
                             pipeline_id,
-                            str(worktree_repo_path),
+                            str(slice_worktree_path),
                             integration_branch=integration_branch,
                             parent_branch=parent_branch,
                             # #2947 — hand the slice's recorded fork
@@ -18810,7 +18898,7 @@ def _run_implement_phase_slices(
                     evidence_failure = _check_slice_evidence_reachability(
                         pipeline_id,
                         spawner,
-                        worktree_repo_path,
+                        slice_worktree_path,
                         slice_id,
                         integration_branch,
                         gateway_mode=gateway_mode,  # type: ignore[arg-type]
@@ -18948,7 +19036,7 @@ def _run_implement_phase_slices(
                         _commit_slice_brc_history_to_integration_branch(
                             pipeline,
                             spawner,
-                            worktree_repo_path,
+                            slice_worktree_path,
                             slice_id,
                             integration_branch,
                             gateway_mode=gateway_mode,  # type: ignore[arg-type]
@@ -18979,7 +19067,7 @@ def _run_implement_phase_slices(
                     commit_subjects, diffstat = _build_slice_diff_summary(
                         pipeline,
                         spawner,
-                        worktree_repo_path,
+                        slice_worktree_path,
                         integration_branch,
                         parent_branch,
                         gateway_mode=gateway_mode,  # type: ignore[arg-type]
@@ -18987,7 +19075,7 @@ def _run_implement_phase_slices(
                     try:
                         slice_pr_url = spawner.gateway.create_slice_pr(
                             pipeline_id=pipeline_id,
-                            repo=pipeline.repo,
+                            repo=slice_repo,
                             slice_id=slice_id,
                             slice_name=slice_pr_data["slice_name"],
                             slice_tasks=slice_pr_data["slice_tasks"],

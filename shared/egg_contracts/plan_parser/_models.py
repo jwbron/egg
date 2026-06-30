@@ -108,6 +108,7 @@ _KNOWN_SLICE_KEYS = frozenset(
         "id",
         "name",
         "goal",
+        "repo",
         "dependencies",
         "depends_on",
         "serialized_chain_order",
@@ -168,6 +169,9 @@ class ParsedPhase:
     dependencies: str = ""
     exit_criteria: str = ""
     serialized_chain_order: list[str] = field(default_factory=list)
+    # #3393 multi-repo: optional ``owner/name`` repo this slice targets.
+    # ``None`` (the default) means the pipeline's primary repo.
+    repo: str | None = None
 
     def to_contract_phase(self) -> Slice:
         """Convert to a contract Slice model (legacy alias name)."""
@@ -250,6 +254,9 @@ class ParsedPhase:
             tasks=[task.to_contract_task() for task in self.tasks],
             dependencies=normalized_deps,
             serialized_chain_order=normalised_chain,
+            # #3393 — carry the planner's per-slice repo onto the contract
+            # slice. A blank/whitespace value normalises to None (primary).
+            repo=(self.repo or "").strip() or None,
         )
 
 

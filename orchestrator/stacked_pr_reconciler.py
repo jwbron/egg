@@ -216,7 +216,14 @@ def find_orphaned_child_prs(
         slice_branch = f"{slice_namespace_root}/{slice_.id}"
         pr = pr_by_head.get(slice_branch)
         if pr is None:
-            continue  # slice's PR hasn't been opened yet (or is closed)
+            # Slice's PR hasn't been opened yet (or is closed). This is
+            # also where #3393 secondary-repo slices fall out: ``open_prs``
+            # is scoped to the pipeline's primary repo, and a secondary
+            # slice's PR lives in a different repo, so its branch is never
+            # in ``pr_by_head``. Secondary slices base on their own repo's
+            # branch (no cross-repo stacking), so they have no stacked-PR
+            # orphan to reconcile here.
+            continue
         deleted_base = pr.get("base_ref") or pr.get("base")
         if not isinstance(deleted_base, str) or deleted_base in extant_branches:
             continue  # base still alive — GitHub auto-retarget did its job
