@@ -4562,10 +4562,11 @@ class TestSimplifierHumanCompanionPrompt:
     ``file:line`` / struct-field detail.
     """
 
-    def test_simplifier_gets_own_banner_not_tester_banner(self):
-        """The dual-role simplifier must get its own producer-first banner, not
-        the tester's review-and-harden banner (which primed the ACK/NACK
-        mental model that turned the companion into a critique)."""
+    def test_simplifier_gets_producer_only_banner_not_tester_banner(self):
+        """The simplifier must get its own PRODUCER-ONLY banner, not the
+        tester's review-and-harden banner (which primed the ACK/NACK mental
+        model that turned the companion into a critique). Per #3381 the
+        simplifier issues no verdict at all."""
         preamble = _build_brc_preamble(
             "simplifier",
             "refine",
@@ -4573,12 +4574,74 @@ class TestSimplifierHumanCompanionPrompt:
             branch="egg/issue-1/work",
             base_branch="main",
         )
-        assert "Dual-Role Execution Order (READ FIRST — simplifier)" in preamble
+        assert "Execution Order (READ FIRST — simplifier)" in preamble
+        assert "producer only" in preamble
         # The tester-specific banner and its hardening language must be absent.
         assert "coder-owns-tests" not in preamble
         assert "hardening the coder's tests" not in preamble
-        # Critique belongs in the verdict, never in the companion document.
-        assert "NEVER in the companion document" in preamble
+
+    def test_simplifier_banner_issues_no_verdict(self):
+        """#3381: the simplifier must not be told to issue an ACK/NACK or
+        verdict on the upstream draft — being a reviewer is what made the
+        companion come out review-shaped. The advisory edge stays in the
+        review graph purely as the event-pump wake-wire."""
+        preamble = _build_brc_preamble(
+            "simplifier",
+            "refine",
+            repo="egg",
+            branch="egg/issue-1/work",
+            base_branch="main",
+        )
+        lowered = preamble.lower()
+        # No instruction to cast a verdict on the upstream draft.
+        assert "issue your advisory verdict" not in lowered
+        assert "advisory ack/nack" not in lowered
+        # The banner explicitly tells it it issues no ACK/NACK.
+        assert "you never issue an ack or a nack" in lowered
+
+    def test_simplifier_preamble_has_no_reviewer_lifecycle(self):
+        """#3381: the de-roled simplifier is a producer only, so by the
+        project's own invariant (see ``test_producer_only_no_sync_step`` for
+        the coder) it must NOT receive the Reviewer Lifecycle or the
+        ``As a reviewer`` coordination block. Gating those blocks on
+        ``casts_real_verdicts`` rather than raw ``is_reviewer`` keeps the
+        wake-only advisory edge from leaking a full ACK/NACK + adversarial
+        re-review playbook that contradicts the producer-only banner."""
+        for phase in ("refine", "plan"):
+            preamble = _build_brc_preamble(
+                "simplifier",
+                phase,
+                repo="egg",
+                branch="egg/issue-1/work",
+                base_branch="main",
+            )
+            assert "### Reviewer Lifecycle" not in preamble, phase
+            assert "egg-orch consensus nack <role>" not in preamble, phase
+            assert "**As a reviewer**" not in preamble, phase
+            # No adversarial re-review mandate either.
+            assert "NACK without hesitance" not in preamble, phase
+            # Producer Lifecycle step 6 must not leak dual-role reviewer
+            # framing to the producer-only simplifier, nor a dangling
+            # cross-reference to a Reviewer Lifecycle section it no longer
+            # receives.
+            assert "re-review and ACK/NACK the new proposal" not in preamble, phase
+            assert "dual-role agents handle both" not in preamble, phase
+            assert "Reviewer Lifecycle step" not in preamble, phase
+
+    def test_simplifier_agent_prompt_has_no_reviewer_section(self):
+        """#3381: the simplifier agent prompt must not carry a reviewer-role
+        section instructing an advisory ACK/NACK on the upstream."""
+        result = _build_agent_prompt(
+            role_value="simplifier",
+            phase="refine",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+        )
+        assert "## Reviewer role" not in result
+        assert "emit an ADVISORY verdict" not in result
+        assert "producer only" in result
 
     def test_tester_banner_unchanged_for_tester(self):
         """The simplifier carve-out must not disturb the tester's banner."""
@@ -4641,6 +4704,31 @@ class TestSimplifierHumanCompanionPrompt:
         assert "side-by-side with the full plan" in prep
         assert "broad audience" in prep
         assert "review/critique" in prep
+
+    def test_refine_verdict_rubric_includes_companion_checklist(self):
+        """#3381 (gate side): the companion checklist must live in the refine
+        reviewer's VERDICT rubric, not just its 'while waiting' prep text —
+        the prep text is not the rubric the reviewer runs at ACK/NACK time, so
+        the gate had no companion criteria and ACKed a review-shaped doc."""
+        criteria = _get_refine_review_criteria()
+        assert "Human-Focused Companion" in criteria
+        assert "*-analysis-human.md" in criteria
+        # Forcing language + the specific defects it must NACK on.
+        assert "before you ACK the simplifier" in criteria
+        assert "summary, not a review" in criteria
+        assert "file:line" in criteria
+        assert "materially lighter" in criteria
+        # NACK the simplifier, never the producer it summarises.
+        assert "NACK the **simplifier**, never the refiner" in criteria
+
+    def test_plan_verdict_rubric_includes_companion_checklist(self):
+        """The plan reviewer's verdict rubric carries the same forcing
+        companion checklist, scoped to the plan companion + task_planner."""
+        criteria = _get_plan_review_criteria()
+        assert "Human-Focused Companion" in criteria
+        assert "*-plan-human.md" in criteria
+        assert "before you ACK the simplifier" in criteria
+        assert "NACK the **simplifier**, never the task_planner" in criteria
 
     def test_tester_orientation_contains_dual_mandate_pointer(self):
         """Tester orientation carries a brief dual-mandate pointer, NOT the
@@ -6258,6 +6346,57 @@ class TestDualRoleExecutionOrdering:
             "defense, not a degraded mode."
         )
         assert "### Dual-Role Execution Order" not in coder_preamble
+
+    def test_genuine_reviewer_keeps_lifecycle_in_review_graph_fallback(self, monkeypatch):
+        """The ``casts_real_verdicts`` gate (#3381) must NOT silently strip the
+        Reviewer Lifecycle from a *genuine* reviewer when the ``review_graph``
+        load fails. In the fallback ``producers == []`` for every role, so a
+        naive ``bool(real_producers)`` gate would degrade every reviewer to
+        PARTICIPANT; the fallback instead reverts to raw ``is_reviewer``. The
+        simplifier — the only wake_only role — must still be producer-only."""
+        import review_graph
+
+        def _raise(*_args, **_kwargs):
+            raise RuntimeError("simulated review_graph failure")
+
+        monkeypatch.setattr(review_graph, "get_review_graph_for_phase", _raise)
+
+        # Genuine pure reviewers retain the full reviewer playbook even in the
+        # degraded path (the fallback is the last line of defense, not a
+        # degraded mode that strips real reviewers).
+        for role, phase in (
+            ("reviewer_code", "implement"),
+            ("reviewer_refine", "refine"),
+            ("reviewer_plan", "plan"),
+        ):
+            preamble = _build_brc_preamble(role, phase)
+            assert "### Reviewer Lifecycle" in preamble, (
+                f"Genuine reviewer {role!r} must keep its Reviewer Lifecycle "
+                "in the review_graph fallback — the casts_real_verdicts gate "
+                "must revert to raw is_reviewer when the graph is unavailable."
+            )
+            assert "Your role type: **REVIEWER**" in preamble
+
+        # risk_analyst is a genuine *dual-role* reviewer in the plan graph
+        # (CRITICAL reviewer of architect + task_planner, #2809) and a producer
+        # of the risk register. The fallback is_reviewer set must list it so the
+        # degraded path keeps its Reviewer Lifecycle instead of stripping it to
+        # producer-only — matching the live plan graph.
+        risk_analyst_preamble = _build_brc_preamble("risk_analyst", "plan")
+        assert "### Reviewer Lifecycle" in risk_analyst_preamble, (
+            "risk_analyst is a genuine plan-graph reviewer; the review_graph "
+            "fallback must keep its Reviewer Lifecycle rather than degrade it "
+            "to producer-only."
+        )
+        dual_role_label = "Your role type: **PRODUCER and REVIEWER (dual role)**"
+        assert dual_role_label in risk_analyst_preamble
+
+        # The de-roled simplifier stays producer-only in the fallback: no
+        # Reviewer Lifecycle, no ACK/NACK template.
+        for phase in ("refine", "plan"):
+            simplifier_preamble = _build_brc_preamble("simplifier", phase)
+            assert "### Reviewer Lifecycle" not in simplifier_preamble
+            assert "egg-orch consensus nack <role>" not in simplifier_preamble
 
 
 # ---------------------------------------------------------------------------

@@ -424,13 +424,20 @@ def check_confirm_guard(
 
     # --- Reviewer confirmation guards ---
     if is_reviewer:
-        # Exclude two classes of producer from the four reviewer guards
+        # Exclude three classes of producer from the four reviewer guards
         # below (has-reviewed / zero-proposal / stale-ACK / stale-NACK /
         # unresolved-NACK):
         #
         #   * Generic no-op producers (#3027): the producer declared it has
         #     no work, so there is nothing for the reviewer to review and it
         #     must not block the reviewer's confirm.
+        #   * Wake-only producers (#3381 / #3382-review): the de-roled
+        #     simplifier carries an advisory edge over the upstream producer
+        #     PURELY as the event-pump wake-wire and casts no verdict, so it
+        #     can never satisfy a has-reviewed guard on that edge. Excluding
+        #     it here lets the simplifier confirm its companion without a
+        #     verdict it will never cast — matching the pre-PR timing where
+        #     its (now-removed) advisory ACK cleared the guard.
         #   * Already-CONFIRMED producers (#3043): a producer only reaches
         #     the confirmed set after its CRITICAL reviewers have ACKed it,
         #     so its work is settled. A reviewer still carrying a missing
@@ -447,10 +454,11 @@ def check_confirm_guard(
         #     advance_phase(force=true) tripping #2806) are tracked
         #     separately in #3051; this filter is the tactical root-cause
         #     fix only and intentionally does not patch the recovery path.
+        wake_only = graph.wake_only_producers_for(agent_role)
         producers = [
             p
             for p in graph.producers_for(agent_role)
-            if not matrix.is_no_changes_proposal(p) and p not in confirmed
+            if not matrix.is_no_changes_proposal(p) and p not in confirmed and p not in wake_only
         ]
 
         # Guard 1: Must have reviewed all producers
