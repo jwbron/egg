@@ -56,6 +56,14 @@
       "repo": null,
       "role": "refiner"
     },
+    "4550d485ed26c8672133b351c92fabf98a2ede17": {
+      "branch": "egg/pipeline-585fca46/work",
+      "patch_id": "a05db3f6d29855bc925340dcdf2a16ac88672751",
+      "pipeline_id": "pipeline-585fca46",
+      "registered_at": "2026-06-30T19:53:26.937947+00:00",
+      "repo": null,
+      "role": "task_planner"
+    },
     "543c588cd835295ca1b8cfd9bb47dec2fae00777": {
       "branch": "egg/pipeline-585fca46/work",
       "patch_id": "947893667e0f0edafd42c8970f6ff05032ed8124",
