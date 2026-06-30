@@ -576,22 +576,36 @@ def _validate_producer_artifacts(
         )
 
     # The simplifier persists exactly ONE artifact per phase — the registered
-    # human-focused companion. Its review reasoning and simplification
-    # constraints belong in the BRC channel (its ACK/NACK and review verdict),
-    # not a second persisted document. The presence loop above only confirms
-    # the human companion *exists*; it never catches an *extra* draft the agent
-    # freelanced alongside it (e.g. a "*-simplifier-*.md" guardrails/constraints
-    # companion). The producer prompt and reviewer rubric forbid that in prose,
-    # but those are soft gates — this makes "one simplifier draft, no more" a
-    # structural invariant at propose time. Deliberately scoped to the
-    # simplifier: other producers' extra-draft policy is out of scope here.
+    # human-focused companion. Its sole output is that plain-language summary;
+    # it has no critique to record anywhere (it is the de-roled, producer-only
+    # role of #3381 — it casts no ACK/NACK and no verdict). The presence loop
+    # above only confirms the human companion *exists*; it never catches an
+    # *extra* draft the agent freelanced alongside it (e.g. a
+    # "*-simplifier-*.md" guardrails/constraints companion). The producer
+    # prompt and reviewer rubric forbid that in prose, but those are soft
+    # gates — this rejects an extra simplifier draft present in the proposed
+    # commit's tree. Deliberately scoped to the simplifier: other producers'
+    # extra-draft policy is out of scope here.
     if agent_role == "simplifier":
+        # Tree-state, not commit-diff: the allow-set is *every* registered
+        # draft artifact (resolved against this identifier), so the upstream
+        # producer's draft — present in the tree but committed by another
+        # role — is exempt rather than flagged, and the gate catches an extra
+        # draft regardless of which commit introduced it (an extra committed
+        # in an ancestor, with the tip touching only the human companion, is
+        # still caught).
+        registered_draft_paths = {
+            spec.resolve_path(identifier)
+            for spec in all_specs()
+            if spec.path_template.startswith(".egg-state/drafts/")
+        }
         _pkg._reject_extra_simplifier_drafts(
             pipeline_id=pipeline_id,
             worktree_path=worktree_path,
             commit_sha=commit_sha,
             identifier=identifier,
-            allowed_rel_paths={spec.resolve_path(identifier) for spec in specs},
+            human_companion_paths={spec.resolve_path(identifier) for spec in specs},
+            registered_draft_paths=registered_draft_paths,
             phase=phase,
         )
 
@@ -602,29 +616,35 @@ def _reject_extra_simplifier_drafts(
     worktree_path: Path,
     commit_sha: str,
     identifier: str | int,
-    allowed_rel_paths: set[str],
+    human_companion_paths: set[str],
+    registered_draft_paths: set[str],
     phase: str,
 ) -> None:
-    """Reject a simplifier proposal that persists any draft beyond its one
-    registered human companion.
+    """Reject a simplifier proposal whose tree carries any draft beyond the
+    registered set.
 
     The simplifier is a producer-only role whose sole output is the
-    human-focused ``*-human.md`` summary. A second persisted document (the
+    human-focused ``*-human.md`` summary. A second freelanced document (the
     historically-observed ``*-simplifier-*.md`` constraints/guardrails
     companion) is redundant with the architect/planner's authoritative draft
     and the BRC review, and is an extra surface to drift out of sync with
-    operator decisions. The review reasoning the companion tried to carry
-    belongs in the BRC channel instead.
+    operator decisions. The simplifier has no critique to record anywhere — the
+    human companion is its only output.
 
-    This inspects only the files the *proposed commit* introduced under
-    ``.egg-state/drafts/{identifier}-`` (so upstream producers' drafts, which
-    that commit does not touch, are never implicated) and raises if any of them
-    is not in ``allowed_rel_paths`` (the registered human-companion path).
+    This inspects the **tree state** at ``commit_sha`` (``git ls-tree``), not
+    the commit diff, so the hole the per-commit check left — an extra draft
+    committed in an ancestor while the tip touches only the human companion —
+    is closed. It lists every ``.egg-state/drafts/{identifier}-`` file present
+    in the proposed tree and raises if any is not a ``registered_draft_paths``
+    entry. The allow-set is the full registry (every phase's draft artifact),
+    so the upstream producer's draft (``{id}-analysis.md`` / ``{id}-plan.md``)
+    and prior phases' drafts are exempt — never implicated — while an
+    unregistered companion is flagged.
 
     Graceful degradation mirrors the surrounding validator: a git failure or a
-    non-zero ``git show`` (we cannot list the commit's files) returns silently
+    non-zero ``git ls-tree`` (we cannot enumerate the tree) returns silently
     rather than blaming the producer. The raise fires only when we can
-    positively name an extra draft the commit added.
+    positively name an extra, unregistered draft in the proposed tree.
     """
     drafts_prefix = f".egg-state/drafts/{identifier}-"
     try:
@@ -633,10 +653,12 @@ def _reject_extra_simplifier_drafts(
                 "git",
                 "-C",
                 str(worktree_path),
-                "show",
+                "ls-tree",
+                "-r",
                 "--name-only",
-                "--pretty=format:",
                 commit_sha,
+                "--",
+                ".egg-state/drafts/",
             ],
             capture_output=True,
             text=True,
@@ -645,7 +667,7 @@ def _reject_extra_simplifier_drafts(
         )
     except Exception as exc:
         _pkg.logger.warning(
-            "simplifier extra-draft check: git show failed (non-blocking)",
+            "simplifier extra-draft check: git ls-tree failed (non-blocking)",
             pipeline_id=pipeline_id,
             phase=phase,
             commit_sha=commit_sha,
@@ -654,30 +676,30 @@ def _reject_extra_simplifier_drafts(
         return
 
     if result.returncode != 0:
-        # Could not enumerate the commit's files (e.g. commit not resolvable
-        # locally). Treat as inconclusive and degrade gracefully — the presence
-        # check already gates the human companion itself.
+        # Could not enumerate the tree (e.g. commit not resolvable locally).
+        # Treat as inconclusive and degrade gracefully — the presence check
+        # already gates the human companion itself.
         return
 
     extras = sorted(
         path
         for line in result.stdout.splitlines()
         for path in (line.strip(),)
-        if path.startswith(drafts_prefix) and path not in allowed_rel_paths
+        if path.startswith(drafts_prefix) and path not in registered_draft_paths
     )
     if not extras:
         return
 
-    allowed_display = ", ".join(f"`{p}`" for p in sorted(allowed_rel_paths))
+    human_display = ", ".join(f"`{p}`" for p in sorted(human_companion_paths))
     extras_display = ", ".join(f"`{p}`" for p in extras)
     raise ValueError(
         f"simplifier proposal rejected: the proposed commit ({commit_sha[:8]}) "
-        f"introduces draft file(s) {extras_display} beyond your one registered "
-        f"human-focused companion ({allowed_display}). The simplifier persists "
-        f"exactly one artifact per phase — the plain-language summary. Your "
-        f"review reasoning and any simplification constraints belong in the BRC "
-        f"channel (your ACK/NACK and review verdict), not a second persisted "
-        f"document. Remove the extra draft file(s), commit, and re-propose."
+        f"carries draft file(s) {extras_display} beyond your one registered "
+        f"human-focused companion ({human_display}). The simplifier persists "
+        f"exactly one artifact per phase — the plain-language summary. You have "
+        f"no critique to record anywhere; the human companion is your only "
+        f"output, not a second persisted document. Remove the extra draft "
+        f"file(s), commit, and re-propose."
     )
 
 

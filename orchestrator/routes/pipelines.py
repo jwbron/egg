@@ -15898,10 +15898,10 @@ def _build_agent_prompt(
                 f"   - **Exactly one file.** Commit ONLY `{_human_path}`. Do "
                 "NOT create any other `.egg-state/drafts/` file — no separate "
                 "`*-simplifier-*.md` constraints/guardrails/verification "
-                "companion. Any review reasoning goes in the BRC channel "
-                "(your verdict), never a second persisted document. A "
-                "proposal that introduces a second draft is rejected at "
-                "propose time.",
+                "companion. You have no critique to record anywhere — the "
+                "human companion is your only output, never a second persisted "
+                "document. A proposal whose tree carries an extra simplifier "
+                "draft is rejected at propose time.",
                 "   - **Much shorter and more digestible** than the upstream "
                 "draft — plain prose and short lists, not exhaustive enumeration.",
                 "   - **Faithful** — reflect the upstream draft accurately; "

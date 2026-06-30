@@ -7,6 +7,7 @@ and interact with the contract orchestrator for contract-mapped roles (e.g. CODE
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -3317,38 +3318,44 @@ class TestSpecDerivedProposeValidation:
 class TestSimplifierSingleArtifactEnforcement:
     """Propose-time enforcement that the simplifier persists exactly ONE draft.
 
-    The simplifier is a producer-only role whose sole output is the registered
-    human-focused companion (``*-analysis-human.md`` / ``*-plan-human.md``). Its
-    review reasoning belongs in the BRC channel (its verdict), not a second
-    persisted document. Prompt + reviewer-rubric prose forbid a freelanced
-    ``*-simplifier-*.md`` constraints/guardrails companion, but those are soft
-    gates; this hard gate in ``_validate_producer_artifacts`` makes "one
-    simplifier draft, no more" a structural invariant at propose time.
+    The simplifier is a producer-only role (#3381) whose sole output is the
+    registered human-focused companion (``*-analysis-human.md`` /
+    ``*-plan-human.md``). It casts no ACK/NACK and no verdict — the human
+    companion is its only output, never a second persisted document. Prompt +
+    reviewer-rubric prose forbid a freelanced ``*-simplifier-*.md``
+    constraints/guardrails companion, but those are soft gates; this hard gate
+    in ``_validate_producer_artifacts`` rejects an extra simplifier draft at
+    propose time.
 
-    The check inspects only the files the *proposed commit* introduced under
-    ``.egg-state/drafts/{identifier}-`` — so the upstream producer's draft
-    (which the simplifier's commit never touches) is never implicated — and
-    rejects any draft that is not the registered human companion.
+    The check inspects the **tree state** at the proposed SHA (``git
+    ls-tree``), not the commit diff, and allows the *full* registered draft set
+    (every phase's draft artifact). So the upstream producer's draft
+    (``{id}-plan.md`` / ``{id}-analysis.md``) and prior phases' drafts are
+    exempt — never implicated — while an extra committed in any commit
+    (including an ancestor, with the tip touching only the human companion) is
+    still caught.
     """
 
+    _PLAN_DRAFT_PATH = ".egg-state/drafts/42-plan.md"
+    _ANALYSIS_DRAFT_PATH = ".egg-state/drafts/42-analysis.md"
     _PLAN_HUMAN_PATH = ".egg-state/drafts/42-plan-human.md"
     _ANALYSIS_HUMAN_PATH = ".egg-state/drafts/42-analysis-human.md"
     _EXTRA_PLAN_COMPANION = ".egg-state/drafts/42-simplifier-plan.md"
     _EXTRA_ANALYSIS_COMPANION = ".egg-state/drafts/42-simplifier-analysis.md"
 
     @staticmethod
-    def _router(name_only_stdout: str, *, name_only_returncode: int = 0):
-        """Route the two ``git show`` shapes this validator emits: the
-        per-spec presence ``git show <sha>:<path>`` (always present here) and
-        the new ``git show --name-only --pretty=format: <sha>`` enumerating the
-        commit's files.
+    def _router(ls_tree_stdout: str, *, ls_tree_returncode: int = 0):
+        """Route the two ``git`` shapes this validator emits: the per-spec
+        presence ``git show <sha>:<path>`` (always present here) and the new
+        ``git ls-tree -r --name-only <sha> -- .egg-state/drafts/`` enumerating
+        the draft files present in the proposed *tree*.
         """
 
         def _run(cmd, *_args, **_kwargs):
             cmd_str = " ".join(str(p) for p in cmd)
-            if "--name-only" in cmd_str:
+            if "ls-tree" in cmd_str:
                 return _make_subprocess_result(
-                    stdout=name_only_stdout, returncode=name_only_returncode
+                    stdout=ls_tree_stdout, returncode=ls_tree_returncode
                 )
             if "show" in cmd_str:
                 # Per-spec presence check — the human companion exists.
@@ -3373,38 +3380,67 @@ class TestSimplifierSingleArtifactEnforcement:
                 branch_verified=True,
             )
 
-    def test_accepts_when_only_human_companion_committed(self):
-        """Plan simplifier whose commit introduces only the human companion ⇒
-        no raise.
+    def test_accepts_when_tree_holds_only_registered_drafts(self):
+        """Plan simplifier whose tree holds the upstream plan draft + the human
+        companion (both registered) ⇒ no raise.
         """
-        self._validate(router=self._router(f"\n{self._PLAN_HUMAN_PATH}\n"))
+        self._validate(
+            router=self._router(f"{self._PLAN_DRAFT_PATH}\n{self._PLAN_HUMAN_PATH}\n")
+        )
+
+    def test_upstream_draft_in_tree_is_exempt_not_flagged(self):
+        """The exact boundary the docstring leans on: the upstream producer's
+        draft (``42-plan.md``) is present in the proposed tree. Because the
+        allow-set is the full registry — not just the simplifier's companion —
+        the upstream draft is exempt rather than flagged with a confusing
+        "second draft" message (#3400 review item 3).
+        """
+        # Tree holds ONLY the upstream draft (no extra) ⇒ accepted.
+        self._validate(router=self._router(f"{self._PLAN_DRAFT_PATH}\n"))
 
     def test_rejects_extra_simplifier_plan_companion(self):
-        """The historically-observed failure: the plan simplifier commits the
-        human doc AND a second ``*-simplifier-plan.md`` guardrails companion ⇒
-        rejected, naming the extra file.
+        """The historically-observed failure: the plan simplifier's tree holds
+        the human doc AND a second ``*-simplifier-plan.md`` guardrails companion
+        ⇒ rejected, naming the extra file.
         """
-        router = self._router(f"\n{self._PLAN_HUMAN_PATH}\n{self._EXTRA_PLAN_COMPANION}\n")
+        router = self._router(
+            f"{self._PLAN_DRAFT_PATH}\n{self._PLAN_HUMAN_PATH}\n{self._EXTRA_PLAN_COMPANION}\n"
+        )
         with pytest.raises(ValueError, match="beyond your one registered"):
+            self._validate(router=router)
+
+    def test_rejects_extra_drafted_in_ancestor_with_clean_tip(self):
+        """Tree-state, not commit-diff: even if the tip commit touches only the
+        human companion, an extra draft committed in an ancestor still sits in
+        the proposed tree ⇒ rejected. This is the hole the per-commit ``git
+        show --name-only`` check left open (#3400 review item 2).
+        """
+        router = self._router(
+            f"{self._PLAN_DRAFT_PATH}\n{self._PLAN_HUMAN_PATH}\n{self._EXTRA_PLAN_COMPANION}\n"
+        )
+        with pytest.raises(ValueError, match=re.escape(self._EXTRA_PLAN_COMPANION)):
             self._validate(router=router)
 
     def test_rejects_extra_simplifier_analysis_companion_in_refine(self):
         """Structural, not plan-specific: the refine simplifier is gated the
         same way for a ``*-simplifier-analysis.md`` companion.
         """
-        router = self._router(f"\n{self._ANALYSIS_HUMAN_PATH}\n{self._EXTRA_ANALYSIS_COMPANION}\n")
+        router = self._router(
+            f"{self._ANALYSIS_DRAFT_PATH}\n{self._ANALYSIS_HUMAN_PATH}\n"
+            f"{self._EXTRA_ANALYSIS_COMPANION}\n"
+        )
         with pytest.raises(ValueError, match="exactly one artifact per phase"):
             self._validate(phase="refine", router=router)
 
-    def test_ignores_non_draft_and_upstream_files(self):
-        """The gate is scoped to ``.egg-state/drafts/{id}-`` files the commit
-        introduced. A stray non-draft path (or an agent-output) in the commit's
-        file list is not a second *draft*, so it does not trip the gate.
+    def test_ignores_prior_phase_drafts_in_tree(self):
+        """During the plan phase the refine drafts (``42-analysis.md`` /
+        ``42-analysis-human.md``) still sit in the tree. They are registered
+        draft artifacts (other phases'), so the allow-set spans every phase and
+        they do not trip the gate.
         """
         router = self._router(
-            f"\n{self._PLAN_HUMAN_PATH}\n"
-            "src/incidental.py\n"
-            ".egg-state/agent-outputs/42-architect-output.json\n"
+            f"{self._ANALYSIS_DRAFT_PATH}\n{self._ANALYSIS_HUMAN_PATH}\n"
+            f"{self._PLAN_DRAFT_PATH}\n{self._PLAN_HUMAN_PATH}\n"
         )
         self._validate(router=router)
 
@@ -3416,10 +3452,10 @@ class TestSimplifierSingleArtifactEnforcement:
 
         # task_planner's presence spec is plan-draft; the router returns a
         # parseable plan so the presence/extension checks pass, and the
-        # --name-only branch is never consulted for a non-simplifier role.
+        # ls-tree branch is never consulted for a non-simplifier role.
         def _run(cmd, *_args, **_kwargs):
             cmd_str = " ".join(str(p) for p in cmd)
-            if "--name-only" in cmd_str:
+            if "ls-tree" in cmd_str:
                 raise AssertionError("simplifier gate ran for task_planner")
             if "show" in cmd_str:
                 return _make_subprocess_result(
@@ -3437,9 +3473,9 @@ class TestSimplifierSingleArtifactEnforcement:
 
     # -- graceful degradation on the helper itself --------------------------
 
-    def test_helper_skips_when_git_show_errors(self):
-        """A non-zero ``git show --name-only`` (commit not enumerable) ⇒ skip,
-        never blame the producer.
+    def test_helper_skips_when_git_ls_tree_errors(self):
+        """A non-zero ``git ls-tree`` (tree not enumerable) ⇒ skip, never blame
+        the producer.
         """
         from routes.signals import _reject_extra_simplifier_drafts
 
@@ -3447,13 +3483,14 @@ class TestSimplifierSingleArtifactEnforcement:
             "routes.signals.subprocess.run",
             return_value=_make_subprocess_result(returncode=128),
         ):
-            # Should not raise even though we cannot list the commit's files.
+            # Should not raise even though we cannot enumerate the tree.
             _reject_extra_simplifier_drafts(
                 pipeline_id="issue-42",
                 worktree_path=Path("/tmp/wt"),
                 commit_sha="abc1234",
                 identifier=42,
-                allowed_rel_paths={self._PLAN_HUMAN_PATH},
+                human_companion_paths={self._PLAN_HUMAN_PATH},
+                registered_draft_paths={self._PLAN_DRAFT_PATH, self._PLAN_HUMAN_PATH},
                 phase="plan",
             )
 
@@ -3470,6 +3507,7 @@ class TestSimplifierSingleArtifactEnforcement:
                 worktree_path=Path("/tmp/wt"),
                 commit_sha="abc1234",
                 identifier=42,
-                allowed_rel_paths={self._PLAN_HUMAN_PATH},
+                human_companion_paths={self._PLAN_HUMAN_PATH},
+                registered_draft_paths={self._PLAN_DRAFT_PATH, self._PLAN_HUMAN_PATH},
                 phase="plan",
             )
