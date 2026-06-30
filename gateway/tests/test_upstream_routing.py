@@ -357,6 +357,24 @@ def _routed(
 def client():
     gateway.app.config["TESTING"] = True
     with gateway.app.test_client() as c:
+        # Force buffered responses. The ``/v1/messages`` proxy returns a
+        # ``stream_with_context`` response whose generator pushes a Flask
+        # app/request context on first iteration and pops it only when the
+        # generator is exhausted or closed. With the werkzeug default
+        # (``buffered=False``) a streaming response left unread by the test
+        # keeps that generator suspended, so the pushed contexts survive
+        # until the garbage collector finalizes it — which can happen mid-way
+        # through an unrelated later test and corrupt the context stack
+        # ("Popped wrong request context ... of gateway"). Buffering fully
+        # consumes the generator within the request, popping its contexts
+        # deterministically.
+        original_open = c.open
+
+        def _buffered_open(*args, **kwargs):
+            kwargs.setdefault("buffered", True)
+            return original_open(*args, **kwargs)
+
+        c.open = _buffered_open
         yield c
 
 
