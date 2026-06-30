@@ -120,7 +120,7 @@ The label↔hook match is a single source of truth (`FIRST_PRINCIPLES_*_OPTION` 
 - `.egg-state/drafts/{identifier}-analysis-human.md` — Human companion to the refine analysis
 - `.egg-state/drafts/{identifier}-plan-human.md` — Human companion to the implementation plan
 
-**Surfacing**: the companion leads the refine/plan HITL gate comment (with a link to the full agent draft), and is linked from the context PR body. Registered in `shared/egg_contracts/artifact_spec.py` as `analysis-draft-human` / `plan-draft-human`, so its presence is enforced at propose time (existence-only — no parse check).
+**Surfacing**: the companion leads the refine/plan HITL gate comment (with a link to the full agent draft), and is linked from the context PR body. Registered in `shared/egg_contracts/artifact_spec.py` as `analysis-draft-human` / `plan-draft-human`, so its presence is enforced at propose time (existence-only — no parse check). Propose-time validation also rejects any *extra* draft the proposed commit introduces under `.egg-state/drafts/{identifier}-` beyond that one registered companion (#3400, `_reject_extra_simplifier_drafts` in `orchestrator/routes/signals/_validation.py`) — the simplifier persists exactly one artifact per phase, and any review reasoning or simplification constraints belong in the BRC channel (its ACK/NACK and review verdict), never a second persisted document.
 
 **Reviewed by**: `reviewer_refine` (refine, CRITICAL) / `reviewer_plan` (plan, CRITICAL).
 
