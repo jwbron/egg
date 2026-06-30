@@ -355,6 +355,8 @@ shared/
 │       ├── test_agent_roles.py                  # reviewer_security / reviewer_concurrency role tests (#1965)
 │       ├── test_artifact_spec.py                # Artifact-spec consistency suite (#3077)
 │       ├── test_composite_execution.py          # Composite (phase_id, role) execution tracking tests
+│       ├── test_decisions_carry_forward.py      # find_resolved_question carry-forward tests (#3392)
+│       ├── test_feedback_carry_forward.py       # find_carry_forward_feedback carry-forward tests (#3392)
 │       ├── test_orchestrator.py                 # load_agent_output / save_agent_output identifier-prefixed path tests
 │       ├── test_orchestrator_phase_id.py        # Orchestrator phase_id parameter tests
 │       ├── test_plan_parser_dependencies.py     # Plan-parser dependencies field propagation tests

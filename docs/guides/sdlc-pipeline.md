@@ -51,7 +51,7 @@ Code reviews are performed by the existing PR review workflow (`reusable-review.
 
 ### 4. Human-in-the-Loop at Critical Points
 
-The pipeline pauses for human approval at phase transitions (refine and plan). The orchestrator's decision queue handles approval and supports requesting changes with a circuit breaker (`max_review_cycles`, default 3) to prevent unbounded revision loops.
+The pipeline pauses for human approval at phase transitions (refine and plan). The orchestrator's decision queue handles approval and supports requesting changes; refine and plan run a converge-before-advance loop that re-runs the phase after each round of resolved decisions/feedback and only advances once a round resolves nothing new (#3392) — there is no force-advance while a human is in the loop. See [HITL Decisions § Converge-Before-Advance Gate](../hitl-decisions.md#converge-before-advance-gate) for details.
 
 ## Pipeline Architecture
 
@@ -1333,7 +1333,7 @@ per-phase overrides unless that uniform behaviour is intended.
 |-------|------|---------|-------------|
 | `parallel_agents` | bool | `true` | Run independent agents in parallel |
 | `max_review_cycles` | int | `3` | Max agentic review cycles per phase |
-| `max_hitl_review_cycles` | int | `3` | Max HITL revision cycles per phase |
+| `max_hitl_review_cycles` | int | `3` | Round threshold for a non-fatal overseer non-convergence alert in the refine/plan converge-before-advance loop (#3392); no longer a force-advance cap |
 | `hitl_gates` | bool | `true` | Pause for human approval after refine and plan phases |
 | `concurrent_execution` | bool | `false` | Enable concurrent mode (opt-in) |
 | `concurrent_phases` | list[str] | `["refine", "plan", "implement"]` | Phases where BRC is active when `concurrent_execution` is `false` |
