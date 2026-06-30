@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from egg_contracts.decisions import truncate_question
 from mcp_tools import logger
 
 
@@ -216,7 +217,100 @@ def _build_status_snapshot(self, raw_task_id: str) -> dict[str, Any]:
     # Enrichment: attach draft content to pending decisions (optional)
     self._enrich_pending_decisions(status, raw_task_id, pipeline_data)
 
+    # Surface contract-resident HITL decisions (``cq-N``) that the
+    # orchestrator queue does not yet know about. Agents register these
+    # via ``register_open_question``; they live on the SDLC contract and
+    # only reach ``pending_decisions`` (above) once the post-gate bridge
+    # promotes them. Until then they gate upcoming work but are invisible
+    # to an operator driving via ``get_status`` / ``wait-status`` — they
+    # had to call ``get_contract`` out of band to find them. Expose them
+    # as a sibling field (kept distinct from the queue so the documented
+    # two-wave resolve flow is unaffected). Issued last and best-effort:
+    # any failure leaves the field absent rather than breaking the
+    # snapshot. ``task_id`` is already URL-quoted above.
+    contract_pending = self._pending_contract_decisions(task_id, status["pending_decisions"])
+    if contract_pending:
+        status["pending_contract_decisions"] = contract_pending
+
     return status
+
+
+def _pending_contract_decisions(
+    self,
+    task_id: str,
+    queue_pending: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return unresolved contract-resident HITL (``cq-N``) decisions.
+
+    ``task_id`` must already be URL-quoted (the caller quotes it once).
+    Reads the SDLC contract via the orchestrator's ``/api/v1/contracts``
+    endpoint and returns the unresolved ``type == "hitl"`` decisions that
+    are *not already mirrored* into the orchestrator queue — the post-gate
+    bridge mirrors a ``cq-N`` into a fresh ``decision-M`` whose context is
+    ``"Open contract question {cq-id}, ..."`` and the contract entry stays
+    unresolved until that queue decision is answered and written back, so
+    without this filter a bridged question would appear twice.
+
+    Best-effort: returns ``[]`` on any failure (missing contract, request
+    error) so a status snapshot is never broken by this enrichment.
+    """
+    try:
+        result = self._make_request(f"/api/v1/contracts/{task_id}?pipeline_id={task_id}")
+    except Exception as e:
+        logger.debug(
+            "Contract fetch for pending-decision surfacing failed",
+            task_id=task_id,
+            error=str(e),
+        )
+        return []
+
+    contract = result.get("data") if isinstance(result.get("data"), dict) else result
+    if not isinstance(contract, dict):
+        return []
+    decisions = contract.get("decisions") or []
+
+    # Ids already bridged into the queue (so we don't double-list them).
+    bridged_ids: set[str] = set()
+    for q in queue_pending:
+        context = q.get("context") or ""
+        match = re.match(r"Open contract question (cq-\d+),", context)
+        if match:
+            bridged_ids.add(match.group(1))
+
+    surfaced: list[dict[str, Any]] = []
+    for d in decisions:
+        if not isinstance(d, dict):
+            continue
+        if d.get("type") != "hitl" or d.get("resolved"):
+            continue
+        decision_id = d.get("id", "")
+        if not isinstance(decision_id, str) or not decision_id.startswith("cq-"):
+            continue
+        if decision_id in bridged_ids:
+            continue
+        question = d.get("question") or ""
+        if isinstance(question, str):
+            question = truncate_question(question)
+        surfaced.append(
+            {
+                "id": decision_id,
+                "question": question,
+                "phase": d.get("phase"),
+                "type": "hitl",
+                "options": [
+                    opt.get("label", "")
+                    for opt in (d.get("options") or [])
+                    if isinstance(opt, dict)
+                ],
+                "scope": "contract",
+                "note": (
+                    "Agent-registered contract question, not yet bridged into the "
+                    "decision queue. Resolve with the same decision-resolve flow "
+                    "(provide_input) using this id."
+                ),
+            }
+        )
+    return surfaced
 
 
 def _enrich_pending_decisions(

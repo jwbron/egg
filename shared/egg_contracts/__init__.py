@@ -85,8 +85,13 @@ from .audit import (
     format_audit_log,
 )
 from .decisions import (
+    CONTRACT_QUESTION_MAX_CHARS,
+    CONTRACT_QUESTION_TRUNCATION_SUFFIX,
     CQ_ID_PATTERN,
+    find_duplicate_open_question,
     next_cq_id,
+    normalize_question,
+    truncate_question,
 )
 from .dependency_graph import (
     DependencyGraph,
@@ -298,8 +303,13 @@ __all__ = [
     "list_contracts",
     "load_contract",
     "load_contract_from_branch",
+    "find_duplicate_open_question",
+    "CONTRACT_QUESTION_MAX_CHARS",
+    "CONTRACT_QUESTION_TRUNCATION_SUFFIX",
     "next_cq_id",
     "normalize_path",
+    "normalize_question",
+    "truncate_question",
     "save_contract",
     "validate_mutation",
     "validate_phase_mutation",

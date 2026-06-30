@@ -37,7 +37,7 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 from egg_contracts.agent_roles import AgentRole as ContractAgentRole
-from egg_contracts.decisions import next_cq_id
+from egg_contracts.decisions import find_duplicate_open_question, next_cq_id
 from egg_contracts.impasse import Impasse, ImpasseCategory
 from egg_contracts.loader import load_contract, save_contract
 from egg_contracts.models import (
@@ -527,6 +527,37 @@ def _record_escalate(
     field_path, decision = _build_hitl_decision(
         contract, slice_obj, task, impasse, impassed_role, reason
     )
+
+    # Dedupe: a re-escalation of an impasse whose HITL question is already
+    # open and unanswered should adopt the existing ``cq-N`` rather than
+    # append an identical one (parity with ``register_open_question``).
+    # ``_build_hitl_decision`` did not mutate the contract, so scan the
+    # current decisions for an equivalent open question.
+    duplicate = find_duplicate_open_question(contract.decisions, decision.question, decision.phase)
+    if duplicate is not None:
+        # The dedup key is (normalized question, phase); the option set is
+        # not. If the re-escalation produced a different option set, the
+        # operator only ever sees the stored options — log it so the loss
+        # is not invisible (#3374 review).
+        new_labels = [getattr(o, "label", None) for o in (decision.options or [])]
+        existing_labels = [getattr(o, "label", None) for o in (duplicate.options or [])]
+        logger.info(
+            "Impasse escalation deduped onto existing HITL decision",
+            slice_id=slice_obj.id if slice_obj else None,
+            task_id=task.id if task else impasse.task_id,
+            decision_id=duplicate.id,
+            options_differ=new_labels != existing_labels,
+        )
+        return RoutingDecision(
+            action=ImpasseAction.ESCALATE,
+            impasse=impasse,
+            role=impassed_role,
+            task_id=task.id if task else impasse.task_id,
+            new_role=None,
+            reason=reason,
+            hitl_decision_id=duplicate.id,
+        )
+
     # decisions.* is owned by IMPLEMENTER per FIELD_OWNERSHIP — mirror
     # the existing ``register_open_question`` MCP tool's role choice.
     # The audit log records the orchestrator-side actor so it stays

@@ -220,6 +220,68 @@ class TestRegisterOpenQuestion:
         # Exactly two calls — read + mutate; no retry.
         assert gr.call_count == 2
 
+    def test_dedupes_onto_existing_unresolved_question(self):
+        """A question already registered and unanswered for the same phase
+        is returned idempotently — no second ``cq-N`` is minted and no
+        contract mutate is issued (#3374)."""
+        existing = _fake_contract(
+            current_phase="plan",
+            decisions=[
+                {
+                    "id": "cq-1",
+                    "question": "Drop the slider?",
+                    "type": "hitl",
+                    "phase": "plan",
+                    "resolved": False,
+                }
+            ],
+        )
+        with (
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request",
+                side_effect=lambda *a, **kw: {"success": True, "data": existing},
+            ) as gr,
+            patch("egg_agent_tools.handlers.sdlc.get_contract_identifier", return_value=42),
+        ):
+            resp = sdlc.register_open_question({"question": "drop the   slider?"})
+
+        assert resp["id"] == "cq-1"
+        assert resp["deduped"] is True
+        # Only the contract read happened — no mutate write.
+        assert gr.call_count == 1
+
+    def test_resolved_duplicate_does_not_block_new_registration(self):
+        """An already-*resolved* identical question must not suppress a
+        fresh registration — only open questions dedupe (#3374)."""
+        existing = _fake_contract(
+            current_phase="plan",
+            decisions=[
+                {
+                    "id": "cq-1",
+                    "question": "Drop the slider?",
+                    "type": "hitl",
+                    "phase": "plan",
+                    "resolved": True,
+                }
+            ],
+        )
+        responses = [
+            {"success": True, "data": existing},
+            {"success": True, "data": {}},
+        ]
+        with (
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request",
+                side_effect=lambda *a, **kw: responses.pop(0),
+            ) as gr,
+            patch("egg_agent_tools.handlers.sdlc.get_contract_identifier", return_value=42),
+        ):
+            resp = sdlc.register_open_question({"question": "Drop the slider?"})
+
+        assert resp["id"] == "cq-2"
+        assert "deduped" not in resp
+        assert gr.call_count == 2
+
 
 class TestFetchContractNullData:
     """_fetch_contract must return {} when the gateway response has
