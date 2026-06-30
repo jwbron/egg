@@ -16,6 +16,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "122ad036263ba22565b4a708949400707504d2de": {
+      "branch": "egg/pipeline-585fca46/work",
+      "patch_id": "35475eff44c588508f939e8fa56b477fb46ce055",
+      "pipeline_id": "pipeline-585fca46",
+      "registered_at": "2026-06-30T19:33:52.299157+00:00",
+      "repo": null,
+      "role": "task_planner"
+    },
     "14a71430bceb6675e54f23c5f59aa44e03d2cbd5": {
       "branch": "egg/pipeline-585fca46/work",
       "patch_id": "d45a6fa32ce18bbb30fcd8359257168da8bcec20",
