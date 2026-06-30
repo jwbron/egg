@@ -46,15 +46,35 @@ EX_AUTH_FATAL = 77
 # overloaded) simply do not appear here.
 _AUTH_FATAL_PATTERNS: tuple[re.Pattern[str], ...] = (
     # Subscription weekly / usage caps (the #3373 repro: "You've hit your
-    # weekly limit · resets Jul 3, 5am (UTC)"). NOT a plain "rate limit".
-    re.compile(r"weekly limit", re.IGNORECASE),
-    re.compile(r"\busage limit\b", re.IGNORECASE),
+    # weekly limit · resets Jul 3, 5am (UTC)"). Anchored to the characteristic
+    # stop phrasing ("hit your weekly limit", "weekly limit reached / exceeded
+    # / resets") rather than the bare words — on the ``ResultMessage.is_error``
+    # path ``result.error`` is the agent's own final text, so incidental prose
+    # that merely mentions a "weekly limit" (e.g. an agent editing this very
+    # file, #3373 re-review note 3) is far less likely to trip the classifier
+    # than a real CLI stop message. NOT a plain "rate limit".
+    re.compile(
+        r"\b(?:hit|reached|exceeded|resets?)\b[^.\n]{0,40}\b(?:weekly|usage) limit\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:weekly|usage) limit\b[^.\n]{0,40}\b(?:reached|exceeded|resets?)\b",
+        re.IGNORECASE,
+    ),
     # Authentication / credential rejection (the Anthropic API error shapes).
     re.compile(r"authentication[_ ]error", re.IGNORECASE),
     re.compile(r"\binvalid[\s_-]*(?:x-)?api[\s_-]*key\b", re.IGNORECASE),
     re.compile(r"invalid bearer token", re.IGNORECASE),
     re.compile(r"oauth token (?:has )?expired", re.IGNORECASE),
     re.compile(r"could not resolve authentication", re.IGNORECASE),
+    # Bare HTTP 401 (#3373 re-review note 4): the structured patterns above
+    # only catch 401s carrying "authentication_error" / "could not resolve
+    # authentication", so a plain ``HTTP 401 Unauthorized`` from the API would
+    # slip through. A 401 status is unambiguously a credential rejection;
+    # requiring the "unauthorized" word or an http/status lead-in keeps an
+    # incidental "401" in agent prose from matching.
+    re.compile(r"\b401\s+unauthorized\b", re.IGNORECASE),
+    re.compile(r"\b(?:http|status)[\s_/]*401\b", re.IGNORECASE),
     # Exhausted billing — non-retryable until the account is topped up.
     re.compile(r"credit balance is too low", re.IGNORECASE),
 )

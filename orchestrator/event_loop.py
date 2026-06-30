@@ -525,13 +525,19 @@ class JobSupervisor:
                 )
         # A producer's propose arm that fails fatally is just as stuck as one
         # that exhausts its streak — route it through the same AGENT_FAILED /
-        # HITL path so the failure reaches the operator's decision queue.
+        # HITL path so the failure reaches the operator's decision queue. Pass
+        # ``fatal=True`` (and the honest ``streak=1`` — a fatal exhausts on its
+        # first failure, not after the streak-to-10 budget) so the handler
+        # renders the HITL entry as a named credential failure with its
+        # remediation, rather than the generic "exhausted after 10 consecutive
+        # agent-invocation failures" message this work set out to replace.
         if action == "propose" and self._agent_failed is not None:
             self._agent_failed(
                 role=role,
                 action=action,
                 dedupe_key=dedupe_key,
-                streak=SUPERVISION_FAILURE_STREAK_ALERT,
+                streak=1,
+                fatal=True,
             )
 
     @property

@@ -31,6 +31,10 @@ class TestIsAuthFatalError:
             "Your OAuth token has expired",
             "oauth token expired",
             "Could not resolve authentication method",
+            # Bare HTTP 401 (#3373 re-review note 4) — no structured body.
+            "HTTP 401 Unauthorized",
+            "API request failed with status 401",
+            "http_401: token rejected",
             # Billing exhaustion.
             "Your credit balance is too low to access the API",
         ],
@@ -52,11 +56,20 @@ class TestIsAuthFatalError:
             "Timed out after 7200 seconds",
             "Tool execution failed: file not found",
             "connection reset by peer",
+            # False-positive hardening (#3373 re-review note 3): incidental
+            # agent prose that merely mentions these terms — e.g. an agent
+            # editing auth_errors.py or summarising a credential discussion —
+            # must NOT be misclassified as a credential-fatal stop. Only the
+            # characteristic stop / status phrasing matches.
+            "The weekly limit pattern lives in auth_errors.py",
+            "Configure the usage limit in the dashboard before launch",
+            "the endpoint returns 401 when the payload is malformed",
         ],
     )
     def test_does_not_match_transient_or_unrelated(self, text):
         assert is_auth_fatal_error(text) is False
 
     def test_case_insensitive(self):
-        assert is_auth_fatal_error("WEEKLY LIMIT") is True
+        # Real stop phrasing, upper-cased — matching is case-insensitive.
+        assert is_auth_fatal_error("YOU'VE HIT YOUR WEEKLY LIMIT") is True
         assert is_auth_fatal_error("Authentication_Error") is True

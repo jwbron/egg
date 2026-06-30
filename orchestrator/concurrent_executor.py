@@ -996,7 +996,7 @@ class ConcurrentPhaseExecutor:
             )
 
     def _handle_propose_arm_exhaustion(
-        self, *, role: str, action: str, dedupe_key: str, streak: int
+        self, *, role: str, action: str, dedupe_key: str, streak: int, fatal: bool = False
     ) -> None:
         """Engage the existing AGENT_FAILED path for a producer propose arm.
 
@@ -1005,11 +1005,32 @@ class ConcurrentPhaseExecutor:
         it through :meth:`_handle_single_failure` (AGENT_FAILED broadcast +
         crash handling + HITL decision) — the same path a long-lived pod
         failure takes in pod mode.
+
+        ``fatal`` (#3373): the arm hit a non-retryable credential / quota
+        failure (the agent exited ``EX_AUTH_FATAL``) and was exhausted on its
+        *first* failure, not after the streak-to-10 budget. The ``error`` that
+        becomes the AGENT_FAILED body and the HITL question must name the
+        credential cause and its remediation — the generic "exhausted after N
+        consecutive failures" wording would be both false (there was one
+        failure, not ``streak``) and unactionable, exactly the degraded
+        operator surface this work set out to replace.
         """
-        error = (
-            f"producer propose arm exhausted after {streak} consecutive "
-            f"agent-invocation failures (dedupe_key={dedupe_key})"
-        )
+        if fatal:
+            error = (
+                f"producer propose arm hit a non-retryable credential/quota failure "
+                f"(dedupe_key={dedupe_key}): the agent's Claude credential was rejected "
+                f"(subscription weekly/usage limit, expired/invalid token, 401, or "
+                f"exhausted credit balance). Not retried — a respawn would re-use the "
+                f"same rejected credential. Remediation: rotate the Claude credential "
+                f"(set the intended account as the active CLAUDE_CODE_OAUTH_TOKEN in "
+                f"secrets.env and apply the gateway secret), then restart this phase to "
+                f"mint a fresh dedupe key so pods respawn."
+            )
+        else:
+            error = (
+                f"producer propose arm exhausted after {streak} consecutive "
+                f"agent-invocation failures (dedupe_key={dedupe_key})"
+            )
         try:
             self._handle_single_failure(role, error)
         except Exception as exc:  # noqa: BLE001 — never wedge the loop on this

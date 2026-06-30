@@ -1788,6 +1788,11 @@ class TestRecordFatal:
         assert len(failures) == 1
         assert failures[0]["role"] == "coder"
         assert failures[0]["action"] == "propose"
+        # #3373 re-review: a fatal is flagged fatal and exhausts on the *first*
+        # failure (streak=1), so the HITL handler renders the credential cause
+        # rather than the false "10 consecutive failures" message.
+        assert failures[0]["fatal"] is True
+        assert failures[0]["streak"] == 1
 
     def test_reviewer_arm_does_not_engage_agent_failed(self):
         import event_loop
