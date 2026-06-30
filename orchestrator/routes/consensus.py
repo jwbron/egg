@@ -170,12 +170,25 @@ def _has_pending_peer_proposals(
     producers = tracker.graph.producers_for(reviewer)
     if not producers:
         return False, []
+    wake_only = tracker.graph.wake_only_producers_for(reviewer)
     pending: list[dict[str, Any]] = []
     for producer in producers:
         # Skip self-reviews (a dual-role agent reviewing its own producer
         # role); BRC does not require self-review and including it would
         # let a dual-role agent block on itself.
         if producer == reviewer:
+            continue
+        # Skip wake-only edges (#3381 / #3382-review): the de-roled
+        # simplifier carries an advisory edge over the upstream producer
+        # PURELY as the event-pump wake-wire and casts no verdict. Treating
+        # it as a pending review would derive a spawn-able ``ack`` for the
+        # entire window the upstream is PROPOSED, re-invoking an agent that
+        # can no longer satisfy the event (and risks re-PROPOSING the
+        # companion, invalidating the companion reviewer's ACK). The edge
+        # wakes the simplifier on the upstream's PROPOSE; it never obliges a
+        # review. This restores the pre-PR self-terminating wake-wire
+        # without reintroducing a verdict.
+        if producer in wake_only:
             continue
         # Skip a generic no-op proposal (#3027): the producer declared it
         # has no work in this slice, so there is nothing to review and the

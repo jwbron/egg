@@ -593,6 +593,94 @@ def test_advisory_reviewer_can_confirm_after_producer_confirmed(client, advisory
 
 
 # ---------------------------------------------------------------------------
+# Wake-only edge (#3381 / #3382-review): the de-roled simplifier carries an
+# ADVISORY wake_only edge over the upstream producer PURELY as the
+# event-pump wake-wire. It casts no verdict, so that edge must impose NO
+# review obligation — never a spawn-able ``ack`` and never a confirm block.
+# These are BEHAVIORAL guards over the next-action derivation (the prompt
+# de-roling is covered separately in test_pipeline_prompts.py).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def simplifier_refine_tracker():
+    """The real refine-phase graph: refiner (producer) + its two CRITICAL
+    reviewers + the simplifier, which is a PRODUCER of the human companion
+    and carries a WAKE-ONLY advisory edge over the refiner.
+    """
+    from review_graph import get_default_refine_graph
+
+    t = PeerConsensusTracker(PIPELINE_ID, get_default_refine_graph(), cooldown_seconds=0)
+    for role in ("refiner", "reviewer_refine", "reviewer_agent_design", "simplifier"):
+        t.register_agent(role)
+    return t
+
+
+def test_wake_only_simplifier_never_routed_to_ack(client, simplifier_refine_tracker):
+    """Blocking #3382 finding: for the whole window the refiner is PROPOSED,
+    the de-roled simplifier must derive a quiet ``wait`` — never a spawn-able
+    ``ack``.
+
+    Pre-fix, ``_has_pending_peer_proposals`` did not skip the advisory
+    wake-only edge, so the simplifier (which now casts no verdict) was
+    derived ``ack`` for the entire span ``[refiner proposes → refiner
+    confirms]`` and got re-spawned on every 5s poll — invoking an agent that
+    could no longer satisfy the event, and risking a companion re-PROPOSE
+    that invalidates reviewer_refine's ACK. The wake_only flag restores the
+    self-terminating wake-wire without reintroducing a verdict.
+    """
+    t = simplifier_refine_tracker
+    _propose(t, "refiner")
+    _propose(t, "simplifier")  # the human-focused companion
+
+    # Refiner is PROPOSED and the simplifier has not (and never will) cast a
+    # verdict on it. Repeated derivations must stay ``wait``, not ``ack``.
+    for _ in range(3):
+        resp = _post_next_action(client, "simplifier", tracker=t)
+        _assert_action(resp, "wait")
+
+    # Even once the refiner is fully ACKed by its CRITICAL reviewers (the
+    # full pre-fix re-spawn window), the simplifier still owes it no verdict.
+    _ack(t, "reviewer_refine", "refiner", version=1)
+    _ack(t, "reviewer_agent_design", "refiner", version=1)
+    resp = _post_next_action(client, "simplifier", tracker=t)
+    _assert_action(resp, "wait")
+
+
+def test_wake_only_simplifier_confirms_without_verdict(client, simplifier_refine_tracker):
+    """The phase must CONVERGE: the simplifier confirms its companion once
+    reviewer_refine ACKs it, WITHOUT ever casting a verdict on the refiner,
+    and global consensus completes.
+    """
+    t = simplifier_refine_tracker
+    _propose(t, "refiner")
+    _propose(t, "simplifier")
+    # Refiner's CRITICAL reviewers ACK it; the simplifier never does.
+    _ack(t, "reviewer_refine", "refiner", version=1)
+    _ack(t, "reviewer_agent_design", "refiner", version=1)
+    # reviewer_refine ACKs the companion (the simplifier's only CRITICAL reviewer).
+    _ack(t, "reviewer_refine", "simplifier", version=1)
+
+    # The wake-only edge over the refiner imposes no review obligation, so
+    # the simplifier is now eligible to confirm.
+    resp = _post_next_action(client, "simplifier", tracker=t)
+    _assert_action(resp, "confirm")
+
+    # Drive everyone to CONFIRMED — consensus completes with no simplifier verdict.
+    t.handle_confirmed("refiner")
+    t.handle_confirmed("simplifier")
+    t.handle_confirmed("reviewer_refine")
+    t.handle_confirmed("reviewer_agent_design")
+    assert t.evaluate()["is_complete"] is True
+    # The simplifier never cast a verdict on the refiner — its wake-only
+    # matrix entry stays at the registration-time PENDING (never ACK/NACK).
+    from approval_matrix import ApprovalState
+
+    entry = t.matrix.get_entry("simplifier", "refiner")
+    assert entry is None or entry.state == ApprovalState.PENDING
+
+
+# ---------------------------------------------------------------------------
 # Edge cases — these are NOT in the 9-case list but cover regressions
 # the route would otherwise allow.
 # ---------------------------------------------------------------------------
