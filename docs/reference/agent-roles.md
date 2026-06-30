@@ -10,7 +10,7 @@ Every agent role belongs to one of five categories. Categories enable dynamic te
 |----------|---------|-------|
 | **EXECUTION** | Produce artifacts (code, tests, docs, Jira mutations) | `coder`, `tester`, `documenter`, `applier` |
 | **ANALYSIS** | Analyze tasks and plan work | `refiner`, `architect`, `task_planner`, `risk_analyst`, `simplifier` |
-| **REVIEW** | Validate quality and correctness | `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_refine`, `reviewer_plan`, `reviewer_agent_design`, `reviewer_security`, `reviewer_concurrency` |
+| **REVIEW** | Validate quality and correctness | `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_refine`, `first_principles_reviewer`, `reviewer_plan`, `reviewer_agent_design`, `reviewer_security`, `reviewer_concurrency` |
 | **UTILITY** | Cross-cutting support tasks | `autofixer`, `conflict_resolver` |
 | **INTERFACE** | Pipeline health and monitoring | `overseer` |
 
@@ -24,6 +24,7 @@ Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by 
 | `simplifier` | Analysis (dual-role: advisory reviewer of the upstream producer) | Refine + Plan | Yes | refiner (refine) / task_planner (plan), advisory |
 | `reviewer_refine` | Review | Refine | Yes (with `reviewer_agent_design`) | refiner, simplifier |
 | `reviewer_agent_design` | Review | Refine (egg repo only) | Yes (with `reviewer_refine`) | refiner |
+| `first_principles_reviewer` | Review | Refine | Yes (with `reviewer_refine`) | refiner (premise/direction; escalates via HITL, never NACKs) |
 | `architect` | Analysis | Plan | No | — |
 | `task_planner` | Analysis | Plan | Yes (with `risk_analyst`) | architect |
 | `risk_analyst` | Analysis (dual-role: also reviews `architect` + `task_planner`) | Plan | Yes (with `task_planner`) | architect |
@@ -80,6 +81,31 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 **Outputs**:
 - `.egg-state/reviews/{identifier}-refine-agent-design-review.json` — Verdict file
+
+### `first_principles_reviewer`
+
+**Purpose**: Adversarially review the pipeline's *seed* (the operator's task statement) and the *direction* the refiner's analysis is taking — from first principles. It asks whether the premise is sound and the direction appropriate, not whether the analysis is well-written (that is `reviewer_refine`'s job). Spawned for all repos.
+
+**Escalation, not NACK**: a redirect of the seed is the operator's call, not the refiner's to fix — the seed is operator-owned and the refiner cannot rewrite it. So this role **never NACKs the refiner**. It surfaces significant redirects (a materially simpler path, a different approach, a scope change, or not building the work at all) as **phase-scoped HITL decisions** via `egg-contract add-decision --phase refine`, then ACKs the refiner. Its CRITICAL review edge guarantees it weighs in before consensus closes; an open redirect decision independently holds the refine→plan completion gate until the operator resolves it. It is fine for it to be relatively noisy, provided each redirect is concrete and evidence-backed.
+
+**Contract role**: `reviewer`. Reviewers may *create* HITL decisions (resolution stays human-only) — see `shared/egg_contracts/roles.py`.
+
+**File access**: Same as `reviewer_refine` (`.egg-state/reviews/`, `.egg-state/agent-outputs/`; no source/drafts/contracts).
+
+**Outputs**:
+- `.egg-state/reviews/{identifier}-refine-first-principles-reviewer-review.json` — Verdict file
+- `.egg-state/agent-outputs/{identifier}-first-principles.json` — proposed redirect (`proposed_task_description`), read by the accept-path on adopt
+- Phase-scoped HITL decisions on the contract (the redirects)
+
+**Accept-path**: the redirect decision carries three verbatim option labels. On the operator's choice the orchestrator acts:
+
+| Choice | Effect |
+|--------|--------|
+| Adopt the redirect | Rewrites the seed (`contract.task_description`, audited operator mutation) to the reviewer's `proposed_task_description`, commits+pushes it to the work branch, and re-runs the refine phase against it (`apply_first_principles_redirect` → `_restart_refine_phase`). |
+| Proceed as-is | No-op; the current direction stands and the decision is marked resolved. |
+| Don't build this | Cancels the pipeline. |
+
+The label↔hook match is a single source of truth (`FIRST_PRINCIPLES_*_OPTION` in `orchestrator/routes/decisions/_handlers.py`, interpolated into the reviewer prompt). Dispatch lives in `_maybe_apply_first_principles_redirect`, wired into both decision-resolve paths (the contract-fallback path is the primary trigger — the decision blocks the refine gate and is resolved pre-bridge).
 
 ### `simplifier`
 

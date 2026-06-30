@@ -1107,6 +1107,7 @@ class TestAgentRole:
         assert AgentRole.REVIEWER_CONTRACT in roles
         assert AgentRole.REVIEWER_AGENT_DESIGN in roles
         assert AgentRole.REVIEWER_REFINE in roles
+        assert AgentRole.FIRST_PRINCIPLES_REVIEWER in roles
         assert AgentRole.REVIEWER_PLAN in roles
         assert AgentRole.REVIEWER_SECURITY in roles
         assert AgentRole.REVIEWER_CONCURRENCY in roles
@@ -1117,9 +1118,11 @@ class TestAgentRole:
         # APPLIER (#1557) → 20 with ORCHESTRATOR (#2893) → back to 19 when
         # ORCHESTRATOR was removed (#2925: the orchestrator is the control
         # plane, not an agent role) → 20 with SIMPLIFIER (human-focused
-        # draft companions). Bump this and add the matching
-        # `assert AgentRole.X in roles` above whenever a new role lands.
-        assert len(roles) == 20
+        # draft companions) → 21 with FIRST_PRINCIPLES_REVIEWER (adversarial
+        # premise/direction reviewer in the refine phase). Bump this and add
+        # the matching `assert AgentRole.X in roles` above whenever a new role
+        # lands.
+        assert len(roles) == 21
 
 
 class TestBackwardCompatibility:

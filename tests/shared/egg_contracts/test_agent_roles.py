@@ -88,6 +88,7 @@ class TestAgentRole:
         "reviewer_concurrency",
         "reviewer_agent_design",
         "reviewer_refine",
+        "first_principles_reviewer",
         "reviewer_plan",
         "overseer",
         "autofixer",
@@ -95,7 +96,7 @@ class TestAgentRole:
     }
 
     def test_all_expected_roles_exist(self):
-        """All 20 expected roles should be present in the enum."""
+        """All 21 expected roles should be present in the enum."""
         actual = {r.value for r in AgentRole}
         assert self.EXPECTED_ROLES == actual, (
             f"Missing roles: {self.EXPECTED_ROLES - actual}, "
@@ -103,8 +104,8 @@ class TestAgentRole:
         )
 
     def test_role_count(self):
-        """Should have exactly 20 canonical roles."""
-        assert len(AgentRole) == 20
+        """Should have exactly 21 canonical roles."""
+        assert len(AgentRole) == 21
 
     def test_execution_roles(self):
         assert AgentRole.CODER == "coder"
@@ -123,6 +124,7 @@ class TestAgentRole:
         assert AgentRole.REVIEWER_CONTRACT == "reviewer_contract"
         assert AgentRole.REVIEWER_AGENT_DESIGN == "reviewer_agent_design"
         assert AgentRole.REVIEWER_REFINE == "reviewer_refine"
+        assert AgentRole.FIRST_PRINCIPLES_REVIEWER == "first_principles_reviewer"
         assert AgentRole.REVIEWER_PLAN == "reviewer_plan"
 
     def test_utility_roles(self):
@@ -315,6 +317,7 @@ class TestAgentRolesRegistry:
             "reviewer_contract",
             "reviewer_agent_design",
             "reviewer_refine",
+            "first_principles_reviewer",
             "reviewer_plan",
         ]:
             role = AgentRole(role_name)
@@ -401,10 +404,11 @@ class TestGetRolesByCategory:
         assert "reviewer_contract" in role_values
         assert "reviewer_agent_design" in role_values
         assert "reviewer_refine" in role_values
+        assert "first_principles_reviewer" in role_values
         assert "reviewer_plan" in role_values
         assert "reviewer_security" in role_values
         assert "reviewer_concurrency" in role_values
-        assert len(roles) == 8
+        assert len(roles) == 9
 
     def test_utility_roles(self):
         from egg_contracts.agent_roles import get_roles_by_category

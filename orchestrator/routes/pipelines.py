@@ -4231,6 +4231,237 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
     )
 
 
+def apply_first_principles_redirect(
+    pipeline_id: str,
+    new_task_description: str,
+    *,
+    reason: str,
+) -> list[str]:
+    """Adopt a first-principles redirect: rewrite the seed and re-run refine.
+
+    Called in-process from the decision-resolve hook when an operator adopts a
+    redirect raised by the ``first_principles_reviewer``. Two durable steps:
+
+    1. **Rewrite the seed** via the operator-grade
+       ``rewrite_task_description_as_operator`` (audited, ``Role.HUMAN``), then
+       commit+push the worktree to the work branch so the refine restart's
+       re-fork (which forks fresh worktrees from ``origin/<branch>``) sees the
+       rewritten ``task_description`` rather than the old one.
+    2. **Re-run refine** via :func:`_restart_refine_phase`.
+
+    Returns the role values respawned. Raises on failure; the caller logs and
+    leaves the decision resolved (the operator's intent is recorded regardless).
+    """
+    from operator_actions import rewrite_task_description_as_operator
+
+    repo_path = get_repo_path()
+    store, pipeline = _resolve_pipeline(pipeline_id, repo_path)
+    issue_number = getattr(pipeline, "issue_number", None)
+    gateway_mode, _ = _compute_gateway_mode(pipeline)
+    spawner = _get_spawner()
+
+    rewrite = rewrite_task_description_as_operator(
+        pipeline_id,
+        new_task_description,
+        reason=reason,
+        actor="operator:first-principles-redirect",
+        issue_number=issue_number,
+    )
+
+    # Durably land the rewritten seed on the work branch. The refine restart
+    # below deletes per-agent worktrees and re-forks fresh ones from
+    # ``origin/<branch>``; without this push the re-fork would re-materialise
+    # the OLD seed and the redirect would be silently lost (#3080 re-fork
+    # semantics).
+    worktree = Path(rewrite["worktree"])
+    identifier = _pipeline_identifier(issue_number, pipeline_id)
+    try:
+        committed = _commit_statefiles_to_worktree(
+            worktree,
+            f"first-principles redirect: rewrite seed — {reason}"[:200],
+            identifier,
+            pipeline_id=pipeline_id,
+        )
+        if committed and pipeline.branch:
+            spawner.gateway.push_worktree_branch(
+                pipeline_id=pipeline_id,
+                repo_path=str(worktree),
+                branch=pipeline.branch,
+                mode=gateway_mode,
+                base_branch=pipeline.base_branch,
+            )
+    except Exception as exc:  # noqa: BLE001 — best-effort; restart still proceeds
+        logger.warning(
+            "Failed to push rewritten seed to work branch; refine restart may "
+            "re-fork the prior seed (first-principles redirect)",
+            pipeline_id=pipeline_id,
+            error=str(exc),
+        )
+
+    return _restart_refine_phase(
+        pipeline_id, store, reason=reason, spawner=spawner, gateway_mode=gateway_mode
+    )
+
+
+def _restart_refine_phase(
+    pipeline_id: str,
+    store: Any,
+    *,
+    reason: str,
+    spawner: Any,
+    gateway_mode: str,
+) -> list[str]:
+    """Re-run the refine phase in-process (non-route sibling of ``restart_phase``).
+
+    Mirrors ``restart_phase``'s essential steps for the refine phase so the
+    first-principles accept-path can re-run refine from the decision-resolve
+    hook (no Flask request). Refine has no slices, so the per-slice tracker
+    loop in ``restart_phase`` is intentionally omitted. Raises ``ValueError``
+    if the pipeline is not currently parked at the refine phase.
+    """
+    phase = PipelinePhase.REFINE.value
+    lock = get_pipeline_state_lock(pipeline_id)
+    with lock:
+        pipeline = store.load_pipeline(pipeline_id)
+        if pipeline.current_phase.value != phase:
+            raise ValueError(
+                f"_restart_refine_phase: pipeline {pipeline_id} is not at the "
+                f"refine phase (current: {pipeline.current_phase.value})"
+            )
+        phase_exec = pipeline.phases.get(phase)
+        if phase_exec is None:
+            raise ValueError(f"Refine phase not found in pipeline {pipeline_id}")
+
+        agent_roles: list[AgentRole] = []
+        for agent in phase_exec.agents:
+            if hasattr(agent, "role"):
+                role = agent.role if isinstance(agent.role, AgentRole) else AgentRole(agent.role)
+                agent_roles.append(role)
+        if not agent_roles:
+            from egg_contracts.agent_roles import get_roles_for_phase as _grfp
+
+            for r in _grfp(
+                phase,
+                include_reviewers=True,
+                repo=pipeline.repo,
+                has_contract=getattr(pipeline, "has_contract", True),
+            ):
+                try:
+                    agent_roles.append(AgentRole(r.value))
+                except ValueError:
+                    continue
+
+        old_container_ids = [c.container_id for c in phase_exec.containers]
+        phase_exec.containers = []
+        phase_exec.agents = []
+        phase_exec.review_cycles = 0
+        phase_exec.hitl_review_cycles = 0
+        phase_exec.status = PipelineStatus.PENDING
+        phase_exec.started_at = None
+        phase_exec.work_started_at = None
+        phase_exec.completed_at = None
+        phase_exec.error = None
+        phase_exec.cycle_timings = []
+        pipeline.status = PipelineStatus.RUNNING
+        pipeline.error = None
+        pipeline.run_epoch = datetime.now(UTC)
+        store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
+
+    # --- Outside the lock: slow, idempotent, best-effort teardown ---
+    for container_id in old_container_ids:
+        try:
+            spawner.stop_agent_container(container_id, cleanup_session=True)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "Failed to stop container during refine redirect restart",
+                container_id=container_id[:12] if container_id else "?",
+                error=str(e),
+            )
+        try:
+            spawner.remove_agent_container(container_id, force=True, cleanup_session=False)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "Failed to remove container during refine redirect restart",
+                container_id=container_id[:12] if container_id else "?",
+                error=str(e),
+            )
+
+    restart_role_values = {role.value for role in agent_roles}
+    try:
+        all_worktrees = agent_salvage.enumerate_agent_worktrees(pipeline_id, validate_git=False)
+    except (OSError, ImportError, RuntimeError) as e:
+        logger.warning(
+            "Failed to enumerate per-agent worktrees during refine redirect restart",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+        all_worktrees = []
+    worktrees_to_delete = [wt for wt in all_worktrees if wt.agent_role in restart_role_values]
+    if worktrees_to_delete:
+        try:
+            agent_salvage.auto_salvage_pipeline(
+                spawner.gateway,
+                pipeline_id,
+                worktree_filter={wt.worktree_id for wt in worktrees_to_delete},
+                mode=gateway_mode,
+                base_branch=pipeline.base_branch,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "Auto-salvage failed during refine redirect restart; proceeding",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+    for wt in worktrees_to_delete:
+        try:
+            spawner.gateway.delete_worktrees(container_id=wt.worktree_id, force=True)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "Failed to delete per-agent worktree during refine redirect restart",
+                agent_worktree_id=wt.worktree_id,
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+
+    try:
+        from peer_consensus import get_peer_consensus_tracker
+
+        tracker = get_peer_consensus_tracker(pipeline_id)
+        if tracker:
+            tracker.clear()
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "Failed to clear peer consensus during refine redirect restart",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+
+    spawner.reset_restart_counts(pipeline_id)
+    try:
+        from health_monitor import get_health_monitor
+
+        _hm = get_health_monitor()
+        if _hm is not None:
+            for role in agent_roles:
+                _hm.reset_agent(role.value)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "Failed to reset health-monitor state during refine redirect restart",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+
+    _spawn_pipeline_run_thread(pipeline_id, store.repo_path, pipeline.run_epoch)
+    agents_to_restart = [role.value for role in agent_roles]
+    logger.info(
+        "Refine phase re-run for first-principles redirect",
+        pipeline_id=pipeline_id,
+        reason=reason,
+        agents_to_restart=agents_to_restart,
+    )
+    return agents_to_restart
+
+
 def _filter_salvage_worktrees(
     worktrees: list[Any],
     *,
@@ -5446,6 +5677,100 @@ def _human_companion_review_criteria(*, companion: str, parent: str, producer: s
     )
 
 
+def _get_first_principles_review_criteria() -> str:
+    """Return review criteria for the adversarial first-principles reviewer.
+
+    The escalation instructions interpolate the accept-path's sentinel option
+    labels + artifact path from ``routes.decisions`` so the labels the agent
+    writes (here) and the labels the resolve hook matches stay a single source
+    of truth — they cannot drift. Lazy import avoids a module-load cycle.
+    """
+    from routes.decisions import (
+        FIRST_PRINCIPLES_ADOPT_OPTION,
+        FIRST_PRINCIPLES_CANCEL_OPTION,
+        FIRST_PRINCIPLES_PROCEED_OPTION,
+    )
+    from routes.decisions._handlers import FIRST_PRINCIPLES_ARTIFACT_TEMPLATE
+
+    artifact_path = FIRST_PRINCIPLES_ARTIFACT_TEMPLATE.format(identifier="<identifier>")
+    return (
+        "You are the **first-principles reviewer**. Your subject is the "
+        "pipeline's **seed** — the operator's task statement (run "
+        "`egg-contract show` and read `task_description`, plus the linked "
+        "issue) — and the **direction** the refiner's analysis is taking. You "
+        "judge whether the *premise is sound and the direction is "
+        "appropriate*, NOT the quality of the analysis — that is "
+        "`reviewer_refine`'s job, so do not duplicate it.\n\n"
+        "### 1. Interrogate the premise\n"
+        "- Is the stated problem real, and is solving it worth the work?\n"
+        "- Is the premise contradicted by what's actually in the codebase — "
+        "the thing it proposes to build already exists, or the problem is "
+        "already handled?\n"
+        "- Will the stated direction actually achieve the stated goal, or does "
+        "it solve something adjacent?\n\n"
+        "### 2. Surface significant redirects (where warranted)\n"
+        "Raise a redirect only when you can name a concrete, evidence-backed "
+        "alternative — never a vague 'have you considered'. Valid redirects:\n"
+        "- A **materially simpler path** that achieves the same goal.\n"
+        "- A **fundamentally different approach** that is better on the "
+        "merits.\n"
+        "- A **scope change** — widen it if the seed under-reaches the real "
+        "goal, narrow it if it over-reaches.\n"
+        "- **Don't build it** — the work is unnecessary, already solved, or "
+        "solves a non-problem.\n"
+        "Back each redirect with evidence: a codebase fact (`file:line`), the "
+        "seed's own stated goal, or a specific contradiction. Raising more "
+        "than one is fine — it is acceptable to be relatively noisy — but "
+        "consolidate related concerns and hold every one to the "
+        "concrete-and-evidenced bar.\n\n"
+        "### 3. What NOT to raise (stay in your lane)\n"
+        "- Analysis-quality issues (research depth, option trade-offs, "
+        "completeness) — `reviewer_refine` owns those.\n"
+        "- Work decomposition, slice-DAG shape, PR packaging, or "
+        "implementation strategy (API shape, migration approach) — those "
+        "belong to the plan phase and the planner.\n"
+        "- Taste, stylistic preference, or 'did you consider X' with no "
+        "concrete better alternative.\n"
+        "If the premise and direction are sound, say so briefly and ACK — a "
+        "clean pass is a common and correct outcome. Do not manufacture an "
+        "objection to look diligent.\n\n"
+        "### 4. How to act — escalate, never NACK\n"
+        "- **Never NACK the refiner on first-principles grounds.** A NACK only "
+        "re-runs the refiner, which cannot change the operator-owned seed; "
+        "premise and direction are the operator's call, not the refiner's to "
+        "fix.\n"
+        "- When you have a redirect, do BOTH of the following so the operator "
+        "can act on it with one click (the **accept-path**):\n"
+        f"  1. **Write your proposed redirect to `{artifact_path}`** (replace "
+        "`<identifier>` with this pipeline's identifier — the same one used "
+        "for your other agent-output files). It must be a JSON object with a "
+        "`proposed_task_description` field holding the FULL rewritten seed — "
+        "the complete task statement as it should read if the operator adopts "
+        "your redirect (not a diff, not just the objection). Include a short "
+        "`concern` field too. Example: "
+        '`{"concern": "...", "proposed_task_description": "..."}`.\n'
+        "  2. **File the phase-scoped HITL decision** with these EXACT option "
+        "labels (do not paraphrase — the orchestrator matches them verbatim to "
+        "drive the accept-path):\n"
+        "     `egg-contract add-decision --phase refine --question "
+        '"<state the concern, then the concrete redirect and why>" '
+        f'--options "{FIRST_PRINCIPLES_ADOPT_OPTION}" '
+        f'"{FIRST_PRINCIPLES_PROCEED_OPTION}" '
+        f'"{FIRST_PRINCIPLES_CANCEL_OPTION}"`\n'
+        "     On the operator's choice the orchestrator will: **adopt** → "
+        "rewrite the seed to your `proposed_task_description` and re-run the "
+        "refine phase against it; **proceed** → leave the direction unchanged; "
+        "**don't build** → cancel the pipeline. If you have only an objection "
+        "with no concrete alternative direction, you do not have a redirect — "
+        "do not file the decision.\n"
+        "- Then **ACK the refiner**: your first-principles pass is done and "
+        "any concerns are filed for the operator. Your ACK does not endorse "
+        "the direction — it records that you reviewed it; the open decision "
+        "independently holds the refine→plan gate until the operator resolves "
+        "it.\n"
+    )
+
+
 def _get_plan_review_criteria() -> str:
     """Return review criteria for the dedicated plan reviewer."""
     return (
@@ -5800,6 +6125,8 @@ def _get_review_criteria_for_type(
         return _get_contract_review_criteria(repo_path=repo_path)
     elif reviewer_type == "refine":
         return _get_refine_review_criteria()
+    elif reviewer_type == "first-principles-reviewer":
+        return _get_first_principles_review_criteria()
     elif reviewer_type == "plan":
         return _get_plan_review_criteria()
     elif reviewer_type == "security":
@@ -5877,6 +6204,17 @@ def _get_reviewer_scope_preamble(reviewer_type: str, phase: str) -> str:
             "approach. Agent-mode design alignment is handled by another reviewer.\n\n"
             "**Analysis format:** Provide section-by-section evaluation of the refine "
             "output — assess each major section for depth, accuracy, and completeness."
+        )
+    elif reviewer_type == "first-principles-reviewer":
+        return (
+            "This is an adversarial **first-principles review**. Focus ONLY on "
+            "whether the premise is sound and the direction appropriate — the "
+            "seed and where the refiner's analysis is heading. Do NOT review "
+            "analysis quality, code, or implementation detail; other agents "
+            "own those.\n\n"
+            "You escalate by surfacing HITL decisions for the operator, not by "
+            "NACKing the refiner. If the direction is sound, a brief approval "
+            "and ACK is the right outcome — do not manufacture an objection."
         )
     elif reviewer_type == "plan":
         return (
@@ -13209,6 +13547,13 @@ def _build_brc_preamble(
             "tester",
             "reviewer_refine",
             "reviewer_agent_design",
+            # first_principles_reviewer is a genuine refine-phase reviewer: it
+            # casts a real ACK verdict on the refiner (CRITICAL edge), so the
+            # degraded fallback keeps its Reviewer Lifecycle block. It never
+            # NACKs (redirects go to the operator as HITL decisions), but it
+            # DOES vote, so — unlike the simplifier — it is a real verdict and
+            # ``casts_real_verdicts`` (raw ``is_reviewer`` here) stays True.
+            "first_principles_reviewer",
             "reviewer_plan",
             # risk_analyst is a genuine dual-role reviewer in the plan graph
             # (CRITICAL reviewer of architect + task_planner, #2809) as well as
@@ -13814,6 +14159,12 @@ _ROLE_DESCRIPTIONS: dict[str, tuple[str, str]] = {
         "Reviews refinement changes",
         "ACK/NACK on refined implementation",
     ),
+    "first_principles_reviewer": (
+        "Adversarially reviews the seed and the refiner's direction from "
+        "first principles; surfaces significant redirects to the operator as "
+        "HITL decisions and never NACKs the refiner",
+        "an ACK on the refiner plus any HITL redirect decisions",
+    ),
     "reviewer_agent_design": (
         "Reviews agent design and architecture decisions",
         "ACK/NACK on design choices",
@@ -14040,6 +14391,21 @@ def _build_reviewer_preparation(
                     "missing or empty companion is a NACK — it is mandatory."
                 )
             return base
+        if role_value == "first_principles_reviewer":
+            return (
+                "While waiting for the refiner's proposal, prepare your "
+                "first-principles pass: (a) read the seed — `egg-contract "
+                "show` and the linked issue — and restate, in your own words, "
+                "the problem it claims to solve and why; (b) explore the "
+                "codebase to test that premise against reality (does the thing "
+                "already exist? is the problem already handled? is there a far "
+                "simpler path?); (c) form your own view of whether this is the "
+                "right direction and what a materially better one would be. "
+                "When the refiner proposes, you are checking the *premise and "
+                "direction*, not the analysis quality — surface any concrete "
+                "redirect as a phase-scoped HITL decision for the operator and "
+                "ACK the refiner. Never NACK on first-principles grounds."
+            )
 
     # Generic fallback
     return (

@@ -257,7 +257,7 @@ The orchestrator runs multiple specialized reviewers in parallel, with phase-spe
 
 | Phase | Reviewers | Focus |
 |-------|-----------|-------|
-| **Refine** | Refine, Agent-Design | Analysis quality, agent-mode alignment |
+| **Refine** | Refine, First-Principles, Agent-Design | Analysis quality, premise/direction (escalates redirects via HITL), agent-mode alignment |
 | **Plan** | Plan | Plan quality, task breakdown, alignment with analysis |
 | **Implement** | Contract, Code | Contract fulfillment, security, correctness |
 

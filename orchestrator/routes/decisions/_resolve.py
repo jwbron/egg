@@ -156,10 +156,21 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
         # required one was removed), so resolution just marks the decision
         # RESOLVED.
 
+        # First-principles redirect accept-path: when the operator resolves a
+        # refine-phase first-principles decision, "adopt" rewrites the seed and
+        # re-runs refine, "don't build" cancels, "proceed" is a no-op. Keyed on
+        # the resolved option label. (Primary trigger is the contract-fallback
+        # path below — these decisions block the refine gate and are resolved
+        # pre-bridge — but it is wired here too as a safety net for the bridged
+        # case.)
+        first_principles_action = _pkg._maybe_apply_first_principles_redirect(
+            pipeline_id, decision, dispatch_resolution, _pipeline
+        )
+
         # Executable task-completion option (#3124): "Mark task <id>
         # complete" performs the audited operator mutation instead of
         # leaving the operator to impersonate an agent role via pod exec.
-        executed_action = _pkg._maybe_complete_task_from_resolution(
+        executed_action = first_principles_action or _pkg._maybe_complete_task_from_resolution(
             pipeline_id, decision_id, dispatch_resolution
         )
 
@@ -488,11 +499,21 @@ def _resolve_contract_decision(
             exc_info=True,
         )
 
+    # First-principles redirect accept-path — same dispatch as the queue path.
+    # This is the PRIMARY trigger: a first_principles_reviewer redirect decision
+    # is phase-scoped to refine and blocks the refine gate, so the operator
+    # resolves it here (pre-bridge) — "adopt" rewrites the seed and re-runs
+    # refine, "don't build" cancels, "proceed" is a no-op.
+    normalized_resolution = _pkg._normalize_choice_resolution(resolution)
+    first_principles_action = _pkg._maybe_apply_first_principles_redirect(
+        pipeline_id, decision, normalized_resolution, pipeline
+    )
+
     # Executable task-completion option (#3124) — same dispatch as the
     # queue path, so a contract-resident (``cq-N``) decision resolved
     # pre-bridge also executes instead of only recording the choice.
-    executed_action = _pkg._maybe_complete_task_from_resolution(
-        pipeline_id, decision_id, _pkg._normalize_choice_resolution(resolution)
+    executed_action = first_principles_action or _pkg._maybe_complete_task_from_resolution(
+        pipeline_id, decision_id, normalized_resolution
     )
 
     return make_success_response(

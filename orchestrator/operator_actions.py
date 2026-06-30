@@ -212,3 +212,98 @@ def _complete_task_locked(
         "commit": commit or getattr(task, "commit", None) or None,
         "actor": actor,
     }
+
+
+def rewrite_task_description_as_operator(
+    pipeline_id: str,
+    new_task_description: str,
+    *,
+    reason: str = "",
+    actor: str = "operator",
+    issue_number: int | None = None,
+) -> dict[str, Any]:
+    """Rewrite the pipeline's seed (``contract.task_description``) as an operator action.
+
+    The first-principles redirect accept-path calls this when an operator
+    adopts a redirect: the seed is rewritten to the proposed direction so the
+    re-run refine phase analyzes against it. Runs as ``Role.HUMAN`` — the seed
+    is otherwise immutable by agents (it is the operator-owned identity anchor),
+    which is exactly why a redirect must be a human's call. The mutation goes
+    through ``apply_mutation`` so the audit log records the actor and reason.
+
+    Returns ``{"worktree", "identifier", "prior", "new"}``. The caller is
+    responsible for durably committing+pushing the worktree to the work branch
+    so a subsequent refine restart's re-fork sees the rewrite. Raises
+    :class:`OperatorActionError` on failure.
+    """
+    new_seed = (new_task_description or "").strip()
+    if not new_seed:
+        raise OperatorActionError("new_task_description must be non-empty", status_code=400)
+
+    worktree = contract_store.resolve_pipeline_worktree(pipeline_id)
+    if worktree is None:
+        raise OperatorActionError(
+            f"No pipeline worktree found for {pipeline_id} (pipeline not "
+            f"set up on this host, or already cleaned up)",
+            status_code=404,
+        )
+
+    identifiers: list[int | str] = [pipeline_id]
+    if issue_number:
+        identifiers.append(issue_number)
+
+    audit_reason = "Operator first-principles redirect (seed rewrite)"
+    if reason:
+        audit_reason = f"{audit_reason}: {reason}"
+
+    last_error = "contract not found"
+    for identifier in identifiers:
+        with contract_store.lock_for(identifier):
+            try:
+                contract = load_contract(identifier, worktree)
+            except ContractNotFoundError:
+                continue
+            except Exception as exc:
+                last_error = str(exc)
+                continue
+
+            prior = getattr(contract, "task_description", None)
+            result = apply_mutation(
+                contract,
+                role=Role.HUMAN,
+                actor=actor,
+                field_path="task_description",
+                new_value=new_seed,
+                reason=audit_reason,
+            )
+            if not result.success:
+                raise OperatorActionError(
+                    f"task_description mutation rejected: {result.message}",
+                    status_code=400,
+                )
+
+            try:
+                save_contract(contract, worktree)
+            except Exception as exc:
+                raise OperatorActionError(
+                    f"Failed to save contract: {exc}",
+                    status_code=500,
+                ) from exc
+
+            logger.info(
+                "Operator rewrote seed for first-principles redirect",
+                identifier=str(identifier),
+                pipeline_id=pipeline_id,
+                actor=actor,
+            )
+            return {
+                "worktree": str(worktree),
+                "identifier": identifier,
+                "prior": prior,
+                "new": new_seed,
+            }
+
+    raise OperatorActionError(
+        f"Contract for {pipeline_id} not loadable ({last_error})",
+        status_code=404,
+    )
