@@ -70,6 +70,10 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
 
     Response:
         { ok: True, decision: {...}, id: "cq-N" }
+
+        On a dedup hit (the same normalized question already registered and
+        unanswered in the same phase), the existing decision is returned
+        verbatim with an extra ``deduped: True`` and no contract write.
     """
     question = req.get("question")
     if not question or not isinstance(question, str):
