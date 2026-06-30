@@ -200,3 +200,63 @@ class TestEnrichPendingDecisions:
         mock_repo_resolve.assert_not_called()
         mock_resolve.assert_not_called()
         assert "draft_content" not in status["pending_decisions"][0]
+
+
+def _contract_payload(decisions: list[dict]) -> dict:
+    return {"success": True, "data": {"decisions": decisions}}
+
+
+class TestPendingContractDecisions:
+    """Surface unresolved contract-resident HITL (``cq-N``) decisions (#3374)."""
+
+    def test_surfaces_unresolved_hitl(self, handler):
+        contract = _contract_payload(
+            [
+                {
+                    "id": "cq-1",
+                    "type": "hitl",
+                    "question": "Drop the slider?",
+                    "phase": "plan",
+                    "resolved": False,
+                    "options": [{"label": "Yes"}, {"label": "No"}],
+                }
+            ]
+        )
+        with patch.object(handler, "_make_request", return_value=contract):
+            out = handler._pending_contract_decisions("pipeline-1", queue_pending=[])
+
+        assert len(out) == 1
+        assert out[0]["id"] == "cq-1"
+        assert out[0]["scope"] == "contract"
+        assert out[0]["options"] == ["Yes", "No"]
+
+    def test_excludes_resolved_and_non_hitl(self, handler):
+        contract = _contract_payload(
+            [
+                {"id": "cq-1", "type": "hitl", "question": "a", "resolved": True},
+                {"id": "decision-1", "type": "phase_gate", "question": "b", "resolved": False},
+                {"id": "cq-2", "type": "hitl", "question": "c", "resolved": False},
+            ]
+        )
+        with patch.object(handler, "_make_request", return_value=contract):
+            out = handler._pending_contract_decisions("pipeline-1", queue_pending=[])
+
+        assert [d["id"] for d in out] == ["cq-2"]
+
+    def test_excludes_already_bridged(self, handler):
+        contract = _contract_payload(
+            [{"id": "cq-1", "type": "hitl", "question": "a", "resolved": False}]
+        )
+        # cq-1 already mirrored into the queue by the post-gate bridge.
+        queue_pending = [
+            {"id": "decision-9", "context": "Open contract question cq-1, registered by an agent."}
+        ]
+        with patch.object(handler, "_make_request", return_value=contract):
+            out = handler._pending_contract_decisions("pipeline-1", queue_pending=queue_pending)
+
+        assert out == []
+
+    def test_request_failure_returns_empty(self, handler):
+        with patch.object(handler, "_make_request", side_effect=RuntimeError("boom")):
+            out = handler._pending_contract_decisions("pipeline-1", queue_pending=[])
+        assert out == []

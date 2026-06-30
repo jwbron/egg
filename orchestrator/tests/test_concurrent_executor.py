@@ -1665,8 +1665,8 @@ class TestEventSpawnReseedThreshold:
         )
 
     def test_build_event_spawn_params_returns_default_threshold(self):
-        """Default (opus) → ``reseed_threshold`` is the 400k floor
-        (``min(400k, 0.80 * 1M)``), returned as the 4th tuple element, and the
+        """Default (opus) → ``reseed_threshold`` is the 800k floor
+        (``min(800k, 0.80 * 1M)``), returned as the 4th tuple element, and the
         real backend window (1M) is returned as the 5th (#3316).
         """
         from concurrent_executor import ConcurrentPhaseExecutor
@@ -1683,7 +1683,7 @@ class TestEventSpawnReseedThreshold:
             real_window,
         ) = executor._build_event_spawn_params(AgentRole.CODER)
 
-        assert threshold == 400_000
+        assert threshold == 800_000
         assert real_window == 1_000_000
 
     def test_event_spawn_injects_default_threshold_env(self):
@@ -1697,7 +1697,7 @@ class TestEventSpawnReseedThreshold:
         spawner.spawn_event(role="coder", action="propose", dedupe_key="k1")
 
         env = mock_spawn.call_args.kwargs["extra_env"]
-        assert env["EGG_RESEED_THRESHOLD"] == "400000"
+        assert env["EGG_RESEED_THRESHOLD"] == "800000"
 
     def test_event_spawn_threshold_uses_real_window_for_sub_1m_model(self):
         """A sub-1M LiteLLM model resolves against its REAL backend window, not
@@ -1712,7 +1712,7 @@ class TestEventSpawnReseedThreshold:
         spawner.spawn_event(role="coder", action="propose", dedupe_key="k1")
 
         env = mock_spawn.call_args.kwargs["extra_env"]
-        assert env["EGG_RESEED_THRESHOLD"] == str(int(0.80 * 262_144))  # 209_715, NOT 400_000
+        assert env["EGG_RESEED_THRESHOLD"] == str(int(0.80 * 262_144))  # 209_715, NOT 800_000
 
     def test_event_spawn_threshold_conservative_for_unregistered_litellm_model(self):
         """An unregistered LiteLLM model (not in ``_SUB_1M_CONTEXT_MODELS``, not a
@@ -1833,7 +1833,7 @@ class TestEventSpawnSessionStoreEnv:
         assert "CLAUDE_CONFIG_DIR" not in env
         assert "EGG_SESSION_STATE_FILE" not in env
         # The threshold rides regardless (#3279) — it's inert data, not substrate env.
-        assert env["EGG_RESEED_THRESHOLD"] == "400000"
+        assert env["EGG_RESEED_THRESHOLD"] == "800000"
 
 
 class TestProposeArmExhaustionMessage:

@@ -406,5 +406,62 @@ def test_requires_lifecycle_secret(client, tmp_path):
     assert resp.status_code == 401
 
 
+class TestOutstandingContractHitl:
+    """The gate-approval guard summary attached to phase_gate resolutions (#3374)."""
+
+    def _save_mixed_contract(self, worktree: Path):
+        from egg_contracts import Contract, save_contract
+        from egg_contracts.models import Decision, DecisionType, PipelinePhase
+
+        contract = Contract(pipeline_id=PIPELINE_ID, current_phase=PipelinePhase.REFINE)
+        contract.decisions = [
+            # Later-phase, unresolved → outstanding (the bridge won't promote
+            # it at the refine gate).
+            Decision(
+                id="cq-1",
+                question="Drop the slider in the plan phase?",
+                type=DecisionType.HITL,
+                phase=PipelinePhase.PLAN,
+                resolved=False,
+            ),
+            # Current-phase question → the bridge promotes it; not flagged.
+            Decision(
+                id="cq-2",
+                question="Refine-scoped question?",
+                type=DecisionType.HITL,
+                phase=PipelinePhase.REFINE,
+                resolved=False,
+            ),
+            # Resolved later-phase question → not outstanding.
+            Decision(
+                id="cq-3",
+                question="Already answered?",
+                type=DecisionType.HITL,
+                phase=PipelinePhase.PLAN,
+                resolved=True,
+            ),
+        ]
+        save_contract(contract, worktree)
+
+    def test_reports_only_unresolved_later_phase_questions(self, tmp_path):
+        from routes.decisions import _outstanding_contract_hitl
+
+        self._save_mixed_contract(tmp_path)
+        pipeline_mock = MagicMock(issue_number=None)
+
+        with patch("contract_store.resolve_pipeline_worktree", return_value=tmp_path):
+            out = _outstanding_contract_hitl(PIPELINE_ID, pipeline_mock)
+
+        assert [d["id"] for d in out] == ["cq-1"]
+        assert out[0]["phase"] == "plan"
+
+    def test_no_worktree_returns_empty(self, tmp_path):
+        from routes.decisions import _outstanding_contract_hitl
+
+        pipeline_mock = MagicMock(issue_number=None)
+        with patch("contract_store.resolve_pipeline_worktree", return_value=None):
+            assert _outstanding_contract_hitl(PIPELINE_ID, pipeline_mock) == []
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

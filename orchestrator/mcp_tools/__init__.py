@@ -149,6 +149,7 @@ class PipelineToolHandler:
     _handle_get_status = _status._handle_get_status
     _live_running_agents_fallback = _status._live_running_agents_fallback
     _build_status_snapshot = _status._build_status_snapshot
+    _pending_contract_decisions = _status._pending_contract_decisions
     _enrich_pending_decisions = _status._enrich_pending_decisions
     _read_reviewer_feedback = _status._read_reviewer_feedback
     _handle_get_phase = _status._handle_get_phase

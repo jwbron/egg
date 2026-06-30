@@ -90,7 +90,11 @@ PIPELINE_TOOLS = [
             "Get the current status of a pipeline task. "
             "Returns pipeline state (current_phase, status, agents, decisions), "
             "pipeline details (id, repo, issue_number, created_at, mode), "
-            "and recent_messages (from_role, type, subject, timestamp)."
+            "and recent_messages (from_role, type, subject, timestamp). "
+            "Also surfaces pending_contract_decisions: agent-registered "
+            "contract-resident HITL questions (`cq-N`) that are unresolved and "
+            "not yet bridged into the decision queue — these gate upcoming "
+            "work and are resolved via the same provide_input flow."
         ),
         "inputSchema": {
             "type": "object",

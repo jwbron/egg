@@ -118,17 +118,22 @@ At each re-invocation the wrapper compares the resumed session's cumulative
   compaction would fire.
 
 ```
-threshold = min(400_000, 0.80 × real_backend_window)
+threshold = min(800_000, 0.80 × real_backend_window)
 ```
 
-(`orchestrator/agent_model_resolution.reseed_threshold`). The `400_000` floor
-is a context-rot/cost ceiling — an initial knob to tune, not derived. The
-`0.80` margin pre-empts CC's ~95% compaction.
+(`orchestrator/agent_model_resolution.reseed_threshold`). The `800_000` floor
+is a context-rot/cost ceiling — a knob to tune, not derived; raised from
+`400_000` per the [#3249](https://github.com/jwbron/egg/issues/3249) measurement
+runs (warm-resume holds ~0.996 root-cache-hit on opus and the 1M window sat
+~60% empty at the old cap, so riding higher is cheap). At `800_000` the floor
+coincides with the `0.80×1M` margin, so opus reseeds at 800k and every sub-1M
+route stays margin-bound below the floor — only the 1M-window route moves. The
+`0.80` margin pre-empts CC's ~95% compaction (800k < ~950k on the 1M window).
 
 **The margin is computed against the REAL backend window, never the `[1m]`
 alias.** Computing 80% of the `[1m]`-implied 1M for a model whose real backend
 is, e.g., a 128K-class route is the *mis-trigger bug*; resolving against the
-real window avoids it. Worked examples: `opus[1m]` → 400k (the floor caps
+real window avoids it. Worked examples: `opus[1m]` → 800k (the floor equals
 0.80×1M); the 200K profile → 160k; a 128K-class backend → ~102k.
 
 **Bias to reseed on any uncertainty.** A reseed is cheap and safe — it only

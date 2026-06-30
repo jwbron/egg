@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
-from egg_contracts.decisions import next_cq_id
+from egg_contracts.decisions import find_duplicate_open_question, next_cq_id
 
 from egg_agent_tools.handlers._gateway import (
     container_id_field,
@@ -13,6 +14,8 @@ from egg_agent_tools.handlers._gateway import (
     get_repo_path,
 )
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
+_logger = logging.getLogger(__name__)
 
 _VALID_PHASES = {"refine", "plan", "implement", "pr"}
 
@@ -67,6 +70,10 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
 
     Response:
         { ok: True, decision: {...}, id: "cq-N" }
+
+        On a dedup hit (the same normalized question already registered and
+        unanswered in the same phase), the existing decision is returned
+        verbatim with an extra ``deduped: True`` and no contract write.
     """
     question = req.get("question")
     if not question or not isinstance(question, str):
@@ -101,6 +108,38 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
         decisions = contract.get("decisions", []) or []
         next_idx = len(decisions)
         decision_phase = phase or contract.get("current_phase")
+
+        # Dedupe: a later phase (or a re-run agent) that re-asks a
+        # question already registered and unanswered should adopt the
+        # existing ``cq-N`` rather than mint a duplicate — otherwise the
+        # operator who answers ``cq-1`` still faces an identical ``cq-4``.
+        # Idempotent: no contract write, return the prior decision.
+        duplicate = find_duplicate_open_question(decisions, question, decision_phase)
+        if duplicate is not None:
+            # The dedup key is (normalized question, phase) — the option set
+            # is *not* part of it. If the re-registration carries a different
+            # option set, the operator only ever sees the stored options; the
+            # new ones are silently discarded. Log it so that loss is not
+            # invisible (#3374 review).
+            new_labels = [o["label"] for o in opt_objs]
+            existing_labels = [
+                o.get("label") for o in (duplicate.get("options") or []) if isinstance(o, dict)
+            ]
+            if new_labels != existing_labels:
+                _logger.warning(
+                    "register_open_question deduped onto %s but the re-registration's "
+                    "options differ from the stored ones; keeping the stored set "
+                    "(new=%r, stored=%r)",
+                    duplicate.get("id"),
+                    new_labels,
+                    existing_labels,
+                )
+            return {
+                "ok": True,
+                "id": duplicate.get("id"),
+                "decision": duplicate,
+                "deduped": True,
+            }
 
         # Agent-registered contract questions allocate ``cq-N`` from a
         # counter that ignores ``decision-N`` entries (written by the

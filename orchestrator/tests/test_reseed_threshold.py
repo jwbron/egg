@@ -11,18 +11,19 @@ deterministic helpers in ``orchestrator/agent_model_resolution.py``:
     (``kimi-k2.7-code`` -> 262_144); any other non-Claude / 200K-profile model
     -> 200_000.
   * ``reseed_threshold(model)`` (task-2-2) — ``min(FLOOR, 0.80 * real_window)``
-    where ``FLOOR`` is a named, overridable constant (400_000). The 0.80 margin
-    pre-empts Claude Code's ~95% lossy auto-compaction.
+    where ``FLOOR`` is a named, overridable constant (800_000, raised from
+    400_000 per the #3249 measurement runs). The 0.80 margin pre-empts Claude
+    Code's ~95% lossy auto-compaction.
 
 These tests assert the issue's worked examples:
 
-    opus[1m]        -> 400_000   (min(400k, 0.80 * 1_000_000 = 800k))
-    200K profile    -> 160_000   (min(400k, 0.80 *   200_000 = 160k))
-    Qwen/128K-class -> 102_400   (min(400k, 0.80 *   128_000 = 102.4k))
+    opus[1m]        -> 800_000   (min(800k, 0.80 * 1_000_000 = 800k))
+    200K profile    -> 160_000   (min(800k, 0.80 *   200_000 = 160k))
+    Qwen/128K-class -> 102_400   (min(800k, 0.80 *   128_000 = 102.4k))
 
 plus the central mis-trigger regression (task-2-3 AC): a sub-1M model's
 threshold is computed against its REAL window, NEVER the ``[1m]``-implied 1M —
-the bug that would defer reseed to 400k and overflow a small backend.
+the bug that would defer reseed to the floor and overflow a small backend.
 
 Tester and coder run as parallel BRC producers on separate branches, so these
 symbols may be absent when this file is collected on the tester branch. The
@@ -80,11 +81,11 @@ def _threshold():
 
 
 def _floor_constant_name(amr):
-    """Best-effort locate the module-level ``400_000`` floor constant by name."""
+    """Best-effort locate the module-level ``800_000`` floor constant by name."""
     matches = [
         name
         for name, value in vars(amr).items()
-        if name.isupper() and isinstance(value, int) and value == 400_000
+        if name.isupper() and isinstance(value, int) and value == 800_000
     ]
     return matches[0] if matches else None
 
@@ -142,15 +143,15 @@ def test_unknown_window_decoupled_from_registry(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# reseed_threshold — min(400_000, 0.80 * real_window), worked examples
+# reseed_threshold — min(800_000, 0.80 * real_window), worked examples
 # --------------------------------------------------------------------------- #
 
 
-def test_threshold_opus_hits_400k_floor():
-    """opus[1m] -> 400k: the floor caps 0.80*1M=800k (worked example)."""
+def test_threshold_opus_hits_800k_floor():
+    """opus[1m] -> 800k: floor (800k) == 0.80*1M margin, so opus rides to 800k."""
     thr = _threshold()
-    assert thr("opus") == 400_000
-    assert thr("opus[1m]") == 400_000
+    assert thr("opus") == 800_000
+    assert thr("opus[1m]") == 800_000
 
 
 def test_threshold_200k_profile_is_160k():
@@ -171,7 +172,7 @@ def test_threshold_kimi_262k():
 
 
 def test_sub_1m_threshold_uses_real_window_not_1m_alias(monkeypatch):
-    """Qwen/128K-class -> ~102k, and the [1m] suffix never lifts it to the 400k floor.
+    """Qwen/128K-class -> ~102k, and the [1m] suffix never lifts it to the 800k floor.
 
     This is the central mis-trigger regression (task-2-3 AC). A synthetic 128K
     backend is registered for the duration of the test so the assertion exercises
@@ -188,7 +189,7 @@ def test_sub_1m_threshold_uses_real_window_not_1m_alias(monkeypatch):
     assert real("qwen3-128k-test") == 128_000
     assert real("qwen3-128k-test[1m]") == 128_000  # NOT 1_000_000 — the mis-trigger bug
 
-    # ... so the threshold stays ~102k and never reaches the 400k floor a 1M
+    # ... so the threshold stays ~102k and never reaches the 800k floor a 1M
     # mis-read would produce.
     expected = int(0.80 * 128_000)  # 102_400
     assert thr("qwen3-128k-test") == expected
@@ -201,12 +202,12 @@ def test_sub_1m_threshold_uses_real_window_not_1m_alias(monkeypatch):
 
 
 def test_floor_is_named_overridable_constant(monkeypatch):
-    """Lowering the named 400_000 floor lowers the capped threshold accordingly."""
+    """Lowering the named 800_000 floor lowers the capped threshold accordingly."""
     amr = _module()
     thr = _threshold()
     name = _floor_constant_name(amr)
     if name is None:
-        pytest.skip("400_000 floor constant not locatable by name (coder naming TBD)")
+        pytest.skip("800_000 floor constant not locatable by name (coder naming TBD)")
     monkeypatch.setattr(amr, name, 50_000)
     # opus' 0.80*1M=800k is now capped by the lowered 50k floor.
     assert thr("opus") == 50_000

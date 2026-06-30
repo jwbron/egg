@@ -181,12 +181,23 @@ _CLAUDE_BACKEND_WINDOW = 1_000_000
 # unknown-model resolution (:func:`_conservative_unknown_window`).
 _PROFILE_200K_WINDOW = 200_000
 
-# Reseed-threshold knobs (task-2-2). The floor is an initial, operator-tunable
-# knob (NOT derived — a context-rot / cost ceiling); the margin reseeds
-# deterministically below Claude Code's ~95% lossy auto-compaction wall. Both
-# are read live inside :func:`reseed_threshold` so an operator can override them
-# (reassign / monkeypatch) without re-importing.
-RESEED_THRESHOLD_FLOOR = 400_000
+# Reseed-threshold knobs (task-2-2). The floor is an operator-tunable knob (NOT
+# derived — a context-rot / cost ceiling); the margin reseeds deterministically
+# below Claude Code's ~95% lossy auto-compaction wall. Both are read live inside
+# :func:`reseed_threshold` so an operator can override them (reassign /
+# monkeypatch) without re-importing.
+#
+# Raised 400_000 -> 800_000 from the #3249 measurement runs (issue-3288 +
+# issue-3312, opus route): warm-resume holds ~0.996 root-cache-hit and even cold
+# reseeds hit ~0.972, so riding higher is cheap on every prefix-caching route;
+# the 400k cap forced a reseed at ~40% of the real 1M window with ~600k of
+# headroom unused, and the threshold backstop only ever fired on 10k+-line
+# giants (~2.6pp hit-rate dip, no cliff). At 800_000 the floor coincides with
+# the 0.80 margin on the 1M Claude window (opus reseeds at 800k = 0.80*1M);
+# every sub-1M route stays margin-bound below 800k, so only the 1M-window route
+# moves. The context-rot ceiling that would justify a lower flat cap is being
+# measured separately in #3363.
+RESEED_THRESHOLD_FLOOR = 800_000
 RESEED_THRESHOLD_MARGIN = 0.80
 
 # Context guardrails for agent spawns (#3175). Every SDK turn re-sends
@@ -509,12 +520,14 @@ def reseed_threshold(model: str) -> int:
 
     ``min(RESEED_THRESHOLD_FLOOR, floor(RESEED_THRESHOLD_MARGIN *
     real_backend_window(model)))`` (#3200 task-2-2). The floor
-    (:data:`RESEED_THRESHOLD_FLOOR`, 400_000) is an absolute context-rot / cost
-    ceiling — an initial knob, not derived. The margin
+    (:data:`RESEED_THRESHOLD_FLOOR`, 800_000) is an absolute context-rot / cost
+    ceiling — a knob, not derived; raised from 400_000 per the #3249 measurement
+    runs (see the constant's comment). The margin
     (:data:`RESEED_THRESHOLD_MARGIN`, 0.80) reseeds deterministically below
     Claude Code's ~95% lossy auto-compaction wall, computed against the REAL
     backend window (never the ``[1m]`` alias). Worked examples: ``opus[1m]`` ->
-    400_000; a 200K-profile model -> 160_000; a 128K-class backend -> ~102_000.
+    800_000 (floor == 0.80*1M margin); a 200K-profile model -> 160_000; a
+    128K-class backend -> ~102_000.
     """
     real = real_backend_window(model)
     return min(RESEED_THRESHOLD_FLOOR, int(RESEED_THRESHOLD_MARGIN * real))
