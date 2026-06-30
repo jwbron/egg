@@ -448,6 +448,73 @@ class TestRequestFeedback:
             resp = sdlc.request_feedback({"questions": ["hi"]})
         assert "warning" in resp
 
+    def test_submitted_feedback_carries_forward(self):
+        """An already-*submitted* identical feedback (same phase + question
+        set) is adopted idempotently rather than replaced (#3392
+        carry-forward).
+
+        Replacing a submitted feedback slot with a fresh ``submitted=False``
+        entry on a phase re-run would re-surface an answered request via the
+        orchestrator bridge, re-tick the convergence count, and the
+        converge-before-advance loop would never terminate — the feedback
+        analogue of the ``cq-N`` carry-forward in ``register_open_question``.
+        """
+        existing = _fake_contract(
+            current_phase="plan",
+            feedback={
+                "id": "feedback-1",
+                "phase": "plan",
+                "submitted": True,
+                "questions": [
+                    {"id": "Q1", "question": "What scope?", "answer": "Just the API"},
+                ],
+            },
+        )
+        with (
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request",
+                return_value={"success": True, "data": existing},
+            ) as gr,
+            patch("egg_agent_tools.handlers.sdlc.get_contract_identifier", return_value=42),
+        ):
+            resp = sdlc.request_feedback({"questions": ["What scope?"]})
+
+        assert resp["id"] == "feedback-1"
+        assert resp["carried_forward"] is True
+        assert resp["questions"][0]["answer"] == "Just the API"
+        # Only the contract fetch happened — no mutate write replacing the
+        # answered feedback.
+        assert gr.call_count == 1
+
+    def test_submitted_feedback_with_new_questions_is_replaced(self):
+        """A submitted feedback with a *different* question set is a genuinely
+        new request and must be registered fresh, not carried forward."""
+        existing = _fake_contract(
+            current_phase="plan",
+            feedback={
+                "id": "feedback-1",
+                "phase": "plan",
+                "submitted": True,
+                "questions": [{"id": "Q1", "question": "Old question?", "answer": "yes"}],
+            },
+        )
+        responses = [
+            {"success": True, "data": existing},
+            {"success": True, "data": {}},
+        ]
+        with (
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request",
+                side_effect=lambda *a, **kw: responses.pop(0),
+            ) as gr,
+            patch("egg_agent_tools.handlers.sdlc.get_contract_identifier", return_value=42),
+        ):
+            resp = sdlc.request_feedback({"questions": ["A brand new question?"]})
+
+        assert resp.get("carried_forward") is None
+        # Fetch + mutate both happened (the slot was replaced).
+        assert gr.call_count == 2
+
     def test_empty_questions_raises(self):
         with pytest.raises(HandlerError):
             sdlc.request_feedback({"questions": []})

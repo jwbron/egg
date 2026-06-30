@@ -722,6 +722,61 @@ class TestNoForceAdvance:
         # queuing a decision and waiting on it.
         assert 'event_type="phase.gate_skipped"' in source
 
+    def test_escape_predicate_fires_only_for_autonomous_refine_plan(self):
+        """Behavioral check of the escape guard against the *production*
+        constant + config object (not a source substring).
+
+        The escape must fire for a refine/plan phase iff ``hitl_gates`` is
+        False, and never for a human-gated pipeline or a non-gated phase.
+        Asserting the predicate directly catches a regression where
+        ``_HITL_GATE_PHASES`` or the config default drifts out from under the
+        source-substring assertion above.
+        """
+        from routes.pipelines import _HITL_GATE_PHASES
+
+        assert _HITL_GATE_PHASES == {"refine", "plan"}
+
+        def escape_fires(phase: str, hitl_gates: bool) -> bool:
+            cfg = PipelineConfig(hitl_gates=hitl_gates)
+            return phase in _HITL_GATE_PHASES and not cfg.hitl_gates
+
+        # Autonomous (hitl_gates=False) refine/plan → escape (advance, no hang).
+        assert escape_fires("refine", hitl_gates=False) is True
+        assert escape_fires("plan", hitl_gates=False) is True
+        # Human-gated refine/plan → converge loop, not the escape.
+        assert escape_fires("refine", hitl_gates=True) is False
+        assert escape_fires("plan", hitl_gates=True) is False
+        # Non-gated phases never take the refine/plan gate at all.
+        assert escape_fires("implement", hitl_gates=False) is False
+        assert escape_fires("pr", hitl_gates=False) is False
+
+    def test_escape_branch_falls_through_does_not_block_or_skip(self):
+        """The autonomous-escape branch must *fall through* to the normal
+        advance path — not block on a decision or skip the rest of the loop.
+
+        The substring test above proves the branch exists; this guards the
+        regression the #3392 review flagged: a future edit that leaves the
+        branch in place but breaks the fall-through (a ``wait_for_decision``
+        re-introducing the hang, or a ``continue`` that skips the advance).
+        We isolate the branch body — from its ``if`` to the ``elif`` that
+        opens the human-gated path — and assert it neither blocks nor skips.
+        """
+        source = self._pipelines_source()
+        guard = "if current_phase.value in _HITL_GATE_PHASES and not pipeline.config.hitl_gates:"
+        start = source.index(guard)
+        # The branch body ends where the human-gated converge path begins.
+        elif_marker = "elif current_phase.value in _HITL_GATE_PHASES:"
+        end = source.index(elif_marker, start)
+        branch_body = source[start:end]
+
+        # It surfaces the gate + warns, but must not re-enter a blocking wait
+        # (that was the indefinite-hang bug) …
+        assert 'event_type="phase.gate_skipped"' in branch_body
+        assert "wait_for_decision" not in branch_body
+        # … and must not short-circuit the loop before the advance runs.
+        assert "continue" not in branch_body
+        assert "return" not in branch_body
+
 
 class TestSyncPipelineDecisionsToContract:
     """Verify _sync_pipeline_decisions_to_contract converts pipeline decisions to contract format."""

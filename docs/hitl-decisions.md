@@ -308,8 +308,15 @@ already answered in a prior round. The registration paths
 (`register_open_question`, the impasse-escalation router) adopt the prior
 **resolved** `cq-N` via `egg_contracts.decisions.find_resolved_question`
 instead of minting a new decision, so answered questions are never re-asked and
-the open-decision set shrinks toward zero. This is what guarantees the loop
-terminates.
+the open-decision set shrinks toward zero. Open-ended **feedback** carries
+forward the same way: `request_feedback` adopts an already-**submitted**
+feedback request for the same phase and question set
+(`egg_contracts.feedback.find_carry_forward_feedback`) instead of replacing the
+slot with a fresh unsubmitted entry, so an answered feedback request is never
+re-surfaced either. Because resolved feedback also drives a re-run (the
+convergence count includes it), this feedback-side carry-forward is required for
+the guarantee to hold for feedback as well as `cq-N`. This is what guarantees
+the loop terminates.
 
 **No force-advance.** The pre-#3392 circuit breaker advanced the phase after
 `max_hitl_review_cycles` rounds, leaving operator feedback unaddressed. That is
