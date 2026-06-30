@@ -1734,3 +1734,153 @@ class TestAdoptionTimingSuppression:
         assert d.dedupe_key in list(loop.live_dedupe_keys())
         loop.poll_once(["coder"])
         assert spawner.spawn_count == 1, "adopted key must dedupe like a fresh spawn"
+
+
+class TestRecordFatal:
+    """``JobSupervisor.record_fatal`` — non-retryable auth failure (#3373)."""
+
+    def test_exhausts_on_first_occurrence(self):
+        import event_loop
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        assert not supervisor.is_exhausted("key-f")
+        supervisor.record_fatal("key-f", "propose", "coder")
+        assert supervisor.is_exhausted("key-f")
+
+    def test_emits_named_actionable_alert(self):
+        import event_loop
+
+        alerts: list[dict] = []
+        supervisor = event_loop.JobSupervisor(
+            clock=_FakeClock(), overseer_alert=lambda **kw: alerts.append(kw)
+        )
+        supervisor.record_fatal("key-f", "propose", "coder")
+
+        assert len(alerts) == 1
+        alert = alerts[0]
+        # Distinct, named anomaly — NOT the generic streak alert.
+        assert alert["anomaly"] == "agent-credential-fatal"
+        assert alert["anomaly"] != "agent-invocation-fail-streak"
+        assert alert["priority"] == "high"
+        # The detail names the cause and the remediation.
+        detail = alert["detail"].lower()
+        assert "credential" in detail
+        assert "rotate" in detail and "restart" in detail
+
+    def test_fires_on_exhausted_teardown_once(self):
+        import event_loop
+
+        fired: list[dict] = []
+        supervisor = event_loop.JobSupervisor(
+            clock=_FakeClock(), on_exhausted=lambda **kw: fired.append(kw)
+        )
+        supervisor.record_fatal("key-f", "ack", "reviewer_code")
+        assert fired == [{"role": "reviewer_code", "action": "ack", "dedupe_key": "key-f"}]
+
+    def test_producer_propose_engages_agent_failed(self):
+        import event_loop
+
+        failures: list[dict] = []
+        supervisor = event_loop.JobSupervisor(
+            clock=_FakeClock(), agent_failed=lambda **kw: failures.append(kw)
+        )
+        supervisor.record_fatal("key-f", "propose", "coder")
+        assert len(failures) == 1
+        assert failures[0]["role"] == "coder"
+        assert failures[0]["action"] == "propose"
+        # #3373 re-review: a fatal is flagged fatal and exhausts on the *first*
+        # failure (streak=1), so the HITL handler renders the credential cause
+        # rather than the false "10 consecutive failures" message.
+        assert failures[0]["fatal"] is True
+        assert failures[0]["streak"] == 1
+
+    def test_reviewer_arm_does_not_engage_agent_failed(self):
+        import event_loop
+
+        failures: list[dict] = []
+        alerts: list[dict] = []
+        supervisor = event_loop.JobSupervisor(
+            clock=_FakeClock(),
+            agent_failed=lambda **kw: failures.append(kw),
+            overseer_alert=lambda **kw: alerts.append(kw),
+        )
+        supervisor.record_fatal("key-f", "ack", "reviewer_code")
+        # Alert fires for any arm, but AGENT_FAILED is producer-only.
+        assert len(alerts) == 1
+        assert failures == []
+
+    def test_idempotent_no_double_alert(self):
+        import event_loop
+
+        alerts: list[dict] = []
+        supervisor = event_loop.JobSupervisor(
+            clock=_FakeClock(), overseer_alert=lambda **kw: alerts.append(kw)
+        )
+        supervisor.record_fatal("key-f", "propose", "coder")
+        supervisor.record_fatal("key-f", "propose", "coder")
+        assert len(alerts) == 1
+
+    def test_teardown_failure_never_wedges_exhaustion(self):
+        import event_loop
+
+        def _boom(**_kw):
+            raise RuntimeError("gateway down")
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock(), on_exhausted=_boom)
+        supervisor.record_fatal("key-f", "propose", "coder")
+        assert supervisor.is_exhausted("key-f")
+
+    def test_no_streak_increment_unlike_abort(self):
+        """A fatal is not counted toward the streak — it stands on its own."""
+        import event_loop
+
+        supervisor = event_loop.JobSupervisor(clock=_FakeClock())
+        supervisor.record_fatal("key-f", "propose", "coder")
+        # Exhausted, but with no abort recorded the backoff anchor is unset
+        # (the key never enters the retry/backoff cycle).
+        assert supervisor.is_exhausted("key-f")
+        assert supervisor.backoff_seconds("key-f") == 0
+
+
+class TestFatalDrivenThroughLoop:
+    """``poll_once`` routes a ``fatal`` job outcome to ``record_fatal``."""
+
+    def test_fatal_outcome_exhausts_and_alerts_without_respawn(self, monkeypatch):
+        import event_loop
+
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "x")})
+        spawner = _RecordingSpawner()
+        clock = _ManualClock()
+        alerts: list[dict] = []
+        failures: list[dict] = []
+        supervisor = event_loop.JobSupervisor(
+            clock=clock,
+            overseer_alert=lambda **kw: alerts.append(kw),
+            agent_failed=lambda **kw: failures.append(kw),
+        )
+        view = _FakeJobStatusView()
+        loop = _make_supervised_loop(spawner, clock=clock, supervisor=supervisor, status_view=view)
+        key = _propose_key(loop)
+
+        # Initial spawn.
+        loop.poll_once(["coder"])
+        assert len(spawner.calls) == 1
+
+        # The agent exited auth-fatal → the view reports ``fatal``.
+        view.set(key, event_loop.JOB_OUTCOME_FATAL)
+        loop.poll_once(["coder"])
+
+        # Exhausted on the first fatal, named alert, producer routed to HITL,
+        # terminated Job reaped.
+        assert supervisor.is_exhausted(key)
+        assert len(alerts) == 1
+        assert alerts[0]["anomaly"] == "agent-credential-fatal"
+        assert len(failures) == 1
+        assert key in view.reaped
+
+        # No respawn for the exhausted key, even far past any backoff window.
+        spawn_count = len(spawner.calls)
+        clock.advance(supervisor.backoff_cap + 100)
+        loop.poll_once(["coder"])
+        loop.poll_once(["coder"])
+        assert len(spawner.calls) == spawn_count

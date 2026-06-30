@@ -1834,3 +1834,44 @@ class TestEventSpawnSessionStoreEnv:
         assert "EGG_SESSION_STATE_FILE" not in env
         # The threshold rides regardless (#3279) — it's inert data, not substrate env.
         assert env["EGG_RESEED_THRESHOLD"] == "800000"
+
+
+class TestProposeArmExhaustionMessage:
+    """``_handle_propose_arm_exhaustion`` renders the right operator-facing
+    error for the AGENT_FAILED body / HITL question (#3373 re-review).
+    """
+
+    def _executor(self):
+        from concurrent_executor import ConcurrentPhaseExecutor
+
+        return ConcurrentPhaseExecutor(_make_pipeline(), spawn_fn=MagicMock())
+
+    def test_fatal_renders_credential_cause_and_remediation(self):
+        executor = self._executor()
+        with patch.object(executor, "_handle_single_failure") as handle:
+            executor._handle_propose_arm_exhaustion(
+                role="coder", action="propose", dedupe_key="k-fatal", streak=1, fatal=True
+            )
+        assert handle.call_count == 1
+        role_arg, error = handle.call_args.args
+        assert role_arg == "coder"
+        low = error.lower()
+        # Names the credential cause, not a generic "exhausted after N failures".
+        assert "credential" in low
+        assert "non-retryable" in low
+        # Carries the remediation an operator can act on.
+        assert "rotate" in low and "restart this phase" in low
+        # Must NOT claim a false streak — a fatal exhausts on the first failure.
+        assert "consecutive" not in low
+        assert "10" not in error
+
+    def test_non_fatal_keeps_generic_streak_message(self):
+        executor = self._executor()
+        with patch.object(executor, "_handle_single_failure") as handle:
+            executor._handle_propose_arm_exhaustion(
+                role="coder", action="propose", dedupe_key="k-streak", streak=10
+            )
+        _role, error = handle.call_args.args
+        # Unchanged behaviour for ordinary streak exhaustion.
+        assert "exhausted after 10 consecutive" in error
+        assert "credential" not in error.lower()

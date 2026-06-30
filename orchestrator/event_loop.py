@@ -109,10 +109,17 @@ AGENT_FREE_ACTIONS: frozenset[str] = frozenset({"confirm", "complete"})
 #                      The path and its ``record_legitimate_outcome`` driver
 #                      exist for an observer that can read BRC intent.
 #   * ``abnormal``   — pod died mid-event / non-zero rc; increment the streak.
+#   * ``fatal``      — the agent exited with the auth-fatal code
+#                      (``egg_agent.auth_errors.EX_AUTH_FATAL``): a
+#                      non-retryable credential / quota failure (#3373). Skip
+#                      the streak entirely — exhaust the key on the first
+#                      occurrence and raise a named, actionable alert. Retrying
+#                      only re-uses the same rejected credential.
 JOB_OUTCOME_RUNNING = "running"
 JOB_OUTCOME_SUCCESS = "success"
 JOB_OUTCOME_LEGITIMATE = "legitimate"
 JOB_OUTCOME_ABNORMAL = "abnormal"
+JOB_OUTCOME_FATAL = "fatal"
 
 # Poll cadence (#3064 slice-2: "poll interval env-tunable (default 5s)").
 DEFAULT_POLL_INTERVAL_SECONDS = 5.0
@@ -475,6 +482,64 @@ class JobSupervisor:
                     streak=streak,
                 )
 
+    def record_fatal(self, dedupe_key: str, action: str, role: str) -> None:
+        """Called when a Job terminates with a non-retryable credential failure.
+
+        The agent exited with ``egg_agent.auth_errors.EX_AUTH_FATAL`` (#3373):
+        its Claude credential is unusable (subscription weekly/usage limit,
+        expired/invalid token, 401, exhausted credit balance). Retrying only
+        re-uses the same rejected credential, so — unlike :meth:`record_abort`,
+        which increments a streak toward the ALERT threshold — this exhausts the
+        key on the *first* occurrence and emits a named, actionable alert that
+        identifies the cause and the remediation. Idempotent per key (a
+        re-read before the Job is reaped does not re-emit).
+        """
+        if dedupe_key in self._exhausted:
+            return
+        self._exhausted.add(dedupe_key)
+        self._last_action[dedupe_key] = (action, role)
+        # Latch the streak alerts so a later abort on the same key cannot
+        # re-fire the generic streak alert after this fatal one.
+        self._alerted_warn[dedupe_key] = True
+        self._alerted_10[dedupe_key] = True
+        logger.warning(
+            "JobSupervisor: fatal credential failure for key=%s (action=%s, role=%s) "
+            "— exhausting immediately, no retry (agent credential rejected)",
+            dedupe_key,
+            action,
+            role,
+        )
+        self._emit_fatal_alert(dedupe_key, action, role)
+        # Mirror the streak-exhaustion transition: release the role's reused
+        # gateway session (the arm spawns no further events) — best-effort.
+        if self._on_exhausted is not None:
+            try:
+                self._on_exhausted(role=role, action=action, dedupe_key=dedupe_key)
+            except Exception:  # noqa: BLE001 — teardown is best-effort
+                logger.warning(
+                    "JobSupervisor: on_exhausted teardown failed for fatal key=%s "
+                    "(action=%s, role=%s)",
+                    dedupe_key,
+                    action,
+                    role,
+                )
+        # A producer's propose arm that fails fatally is just as stuck as one
+        # that exhausts its streak — route it through the same AGENT_FAILED /
+        # HITL path so the failure reaches the operator's decision queue. Pass
+        # ``fatal=True`` (and the honest ``streak=1`` — a fatal exhausts on its
+        # first failure, not after the streak-to-10 budget) so the handler
+        # renders the HITL entry as a named credential failure with its
+        # remediation, rather than the generic "exhausted after 10 consecutive
+        # agent-invocation failures" message this work set out to replace.
+        if action == "propose" and self._agent_failed is not None:
+            self._agent_failed(
+                role=role,
+                action=action,
+                dedupe_key=dedupe_key,
+                streak=1,
+                fatal=True,
+            )
+
     @property
     def backoff_factor(self) -> int:
         """Backoff multiplication factor. ``streak * fac`` → seconds."""
@@ -565,6 +630,35 @@ class JobSupervisor:
                     f"dedupe key ({dedupe_key}). No further pods will be "
                     f"spawned until the BRC state changes (new dedupe key). "
                     f"Threshold: streak >= {SUPERVISION_FAILURE_STREAK_ALERT}."
+                ),
+            )
+
+    def _emit_fatal_alert(self, dedupe_key: str, action: str, role: str) -> None:
+        """Emit a named, actionable alert for an auth-fatal exhaustion (#3373).
+
+        Distinct from :meth:`_emit_alert`'s generic
+        ``agent-invocation-fail-streak``: this names the credential cause and
+        the remediation so the operator is not left reading a generic "failing
+        repeatedly" message with no pointer to the fix.
+        """
+        if self._overseer_alert is not None:
+            self._overseer_alert(
+                anomaly="agent-credential-fatal",
+                priority="high",
+                summary=(
+                    f"agent credential rejected — non-retryable (action={action}, role={role})"
+                ),
+                detail=(
+                    f"Event-pump for role={role} (action={action}) failed with a "
+                    f"non-retryable credential error: the agent's Claude credential "
+                    f"was rejected (subscription weekly/usage limit, expired/invalid "
+                    f"token, 401, or exhausted credit balance). The orchestrator "
+                    f"exhausted dedupe key {dedupe_key} on the first failure rather "
+                    f"than retrying — a retry would re-use the same rejected "
+                    f"credential. Remediation: rotate the Claude credential (set the "
+                    f"intended account as the active CLAUDE_CODE_OAUTH_TOKEN in "
+                    f"secrets.env and apply the gateway secret), then restart this "
+                    f"phase to mint a fresh dedupe key so pods respawn."
                 ),
             )
 
@@ -709,6 +803,28 @@ class OrchestratorEventLoop:
                 self._key_meta.pop(key, None)
             elif outcome == JOB_OUTCOME_LEGITIMATE:
                 self.supervisor.record_legitimate_outcome(key, "legitimate")
+                self._live_keys.discard(key)
+                self._key_meta.pop(key, None)
+            elif outcome == JOB_OUTCOME_FATAL:
+                # #3373: non-retryable credential failure. Exhaust the key now
+                # (record_fatal) and reap the terminated Job, exactly like the
+                # abnormal branch — but skip the streak: a respawn would re-use
+                # the same rejected credential. The key is left exhausted so the
+                # next poll's is_exhausted guard blocks respawn until an operator
+                # rotates the credential and restarts the phase (new dedupe key).
+                self.supervisor.record_fatal(key, action, role)
+                reaper = getattr(self._job_status_view, "reap_terminated", None)
+                if reaper is not None:
+                    try:
+                        reaper(key)
+                    except Exception as exc:  # noqa: BLE001 — reaping is best-effort
+                        logger.warning(
+                            "event-loop: reap of fatal job failed",
+                            pipeline_id=self.pipeline_id,
+                            slice_id=self.slice_id,
+                            dedupe_key=key,
+                            error=str(exc),
+                        )
                 self._live_keys.discard(key)
                 self._key_meta.pop(key, None)
             elif outcome == JOB_OUTCOME_ABNORMAL:

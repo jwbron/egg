@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from egg_agent.auth_errors import EX_AUTH_FATAL, is_auth_fatal_error
 from egg_agent.client import run_agent
 from egg_agent.measurement import record_measurement
 from egg_agent.reseed import decide_resume_session
@@ -128,6 +129,18 @@ def main() -> int:
 
     if result.stderr:
         print(result.stderr, file=sys.stderr)
+
+    # #3373: a credential / quota-fatal failure (subscription weekly limit,
+    # expired/invalid token, 401, exhausted credit balance) is not retryable —
+    # every respawn re-uses the same rejected credential. Map it to a distinct
+    # process exit code that the consensus wrapper passes straight through to
+    # the k8s Job, so the orchestrator event loop can fast-fail the dedupe key
+    # and raise a named, actionable alert instead of burning the full
+    # streak-to-10 retry budget per role. The ``AgentResult`` itself is left
+    # untouched (returncode unchanged) — only the CLI's process exit code,
+    # which is what propagates to k8s, carries the auth-fatal signal.
+    if not result.success and is_auth_fatal_error(result.error):
+        return EX_AUTH_FATAL
 
     return result.returncode
 
