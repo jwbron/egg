@@ -590,11 +590,15 @@ class PipelineConfig(BaseModel):
     hitl_gates: bool = Field(
         default=True,
         description=(
-            "Pause for human approval after non-gated phases. NOTE: refine and "
-            "plan always require the human gate regardless of this flag (#3392) "
-            "— the converge-before-advance loop resolves decisions with a human "
-            "each round, so those phases cannot run unattended. This flag now "
-            "only affects phases outside the mandatory refine/plan set."
+            "Pause for human approval after non-gated phases. For refine and "
+            "plan this flag selects the gate *mode* rather than disabling the "
+            "gate outright (#3392): when True (the default) those phases run "
+            "the converge-before-advance loop, resolving decisions with a human "
+            "each round; when False they advance autonomously after surfacing a "
+            "non-blocking gate event (the converge loop requires a human, so it "
+            "cannot run unattended — blocking on it would hang the pipeline "
+            "indefinitely). For phases outside refine/plan the flag toggles the "
+            "post-phase approval pause as before."
         ),
     )
     concurrent_execution: bool = Field(

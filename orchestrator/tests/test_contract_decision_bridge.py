@@ -156,6 +156,123 @@ def test_bridge_promotes_unresolved_hitl_decisions(tmp_path: Path) -> None:
     assert decision_1["resolved_at"] is not None
 
 
+class _FakeQueueWithStatuses:
+    """Queue stand-in that resolves each decision to a caller-given status.
+
+    Lets a test exercise the non-RESOLVED path (e.g. operator cancellation),
+    which the convergence count must exclude (#3392).
+    """
+
+    def __init__(self, outcomes: list[tuple[DecisionStatus, str]]) -> None:
+        self._outcomes = list(outcomes)
+        self.queued: list[HITLDecision] = []
+        self._counter = 0
+
+    def queue_decision(
+        self,
+        question: str,
+        context: str = "",
+        options: list[str] | None = None,
+        decision_type: str = "choice",
+        questions: list[dict[str, str]] | None = None,
+        phase: PipelinePhase | None = None,
+        content_changed: bool | None = None,
+    ) -> HITLDecision:
+        self._counter += 1
+        status, resolution = (
+            self._outcomes.pop(0) if self._outcomes else (DecisionStatus.RESOLVED, "")
+        )
+        decision = HITLDecision(
+            id=f"orch-{self._counter}",
+            question=question,
+            context=context,
+            options=options or [],
+            decision_type=decision_type,  # type: ignore[arg-type]
+            questions=questions or [],
+            phase=phase,
+            status=status,
+            resolution=resolution,
+        )
+        self.queued.append(decision)
+        return decision
+
+    def wait_for_decision(self, decision_id: str) -> HITLDecision:
+        for d in self.queued:
+            if d.id == decision_id:
+                return d
+        raise AssertionError(f"decision {decision_id} not queued")
+
+
+def test_bridge_excludes_cancelled_decision_from_convergence_count(
+    tmp_path: Path,
+) -> None:
+    """A surfaced-but-cancelled decision must not count toward the signal.
+
+    Counting a non-RESOLVED outcome would re-run the phase, re-surface the
+    still-open contract question (carry-forward only adopts *resolved*
+    questions), and loop with no termination now that the force-advance
+    backstop is gone (#3392 review).
+    """
+    from routes.pipelines import _queue_and_await_contract_decisions
+
+    identifier = "issue-77"
+    _make_contract_file(
+        tmp_path,
+        identifier,
+        decisions=[
+            {
+                "id": "decision-1",
+                "question": "Resolved one?",
+                "type": "hitl",
+                "phase": "refine",
+                "options": [],
+                "resolved": False,
+                "resolution": None,
+                "resolved_by": None,
+                "resolved_at": None,
+                "debounce_until": None,
+            },
+            {
+                "id": "decision-2",
+                "question": "Cancelled one?",
+                "type": "hitl",
+                "phase": "refine",
+                "options": [],
+                "resolved": False,
+                "resolution": None,
+                "resolved_by": None,
+                "resolved_at": None,
+                "debounce_until": None,
+            },
+        ],
+    )
+    dq = _FakeQueueWithStatuses(
+        outcomes=[
+            (DecisionStatus.RESOLVED, "answer"),
+            (DecisionStatus.CANCELLED, ""),
+        ]
+    )
+
+    resolved_count = _queue_and_await_contract_decisions(
+        dq,
+        tmp_path,
+        "pipeline-id",
+        identifier,
+        PipelinePhase.REFINE,
+    )
+
+    # Both decisions were surfaced, but only one resolved.
+    assert len(dq.queued) == 2
+    assert resolved_count == 1
+
+    data = json.loads((tmp_path / f".egg-state/contracts/{identifier}.json").read_text())
+    resolved_d = next(d for d in data["decisions"] if d["id"] == "decision-1")
+    cancelled_d = next(d for d in data["decisions"] if d["id"] == "decision-2")
+    # The resolved one is persisted; the cancelled one stays open.
+    assert resolved_d["resolved"] is True
+    assert cancelled_d["resolved"] is False
+
+
 def test_bridge_promotes_unsubmitted_feedback(tmp_path: Path) -> None:
     from routes.pipelines import _queue_and_await_contract_decisions
 

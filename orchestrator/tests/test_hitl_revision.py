@@ -701,6 +701,27 @@ class TestNoForceAdvance:
         phase.hitl_review_cycles = 3
         assert phase.hitl_review_cycles >= config.max_hitl_review_cycles  # alert fires
 
+    def test_autonomous_escape_when_hitl_gates_false(self):
+        """A fully-autonomous pipeline (``hitl_gates=False``) must not hang at
+        the refine/plan gate (#3392 review).
+
+        Dropping the force-advance backstop is only safe when a human is in
+        the loop. With ``hitl_gates=False`` the converge loop has no human to
+        answer and ``wait_for_decision`` polls indefinitely, so the gate must
+        surface a non-blocking event and advance autonomously rather than
+        block forever. The source must branch on ``hitl_gates`` before
+        entering the gate body.
+        """
+        source = self._pipelines_source()
+        # The gate body is guarded by an autonomous-escape branch that fires
+        # when hitl_gates is False for a refine/plan phase.
+        assert (
+            "current_phase.value in _HITL_GATE_PHASES and not pipeline.config.hitl_gates" in source
+        )
+        # The escape surfaces the gate as a non-blocking event rather than
+        # queuing a decision and waiting on it.
+        assert 'event_type="phase.gate_skipped"' in source
+
 
 class TestSyncPipelineDecisionsToContract:
     """Verify _sync_pipeline_decisions_to_contract converts pipeline decisions to contract format."""

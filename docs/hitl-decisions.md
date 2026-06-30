@@ -319,11 +319,19 @@ or feedback outstanding. After `max_hitl_review_cycles` rounds a non-fatal
 pathological non-convergence (a real bug, or a genuinely churning design) — but
 the phase is never force-advanced or failed.
 
-**Mandatory HITL for refine/plan.** Because the loop resolves decisions with a
-human each round, refine and plan **always** require the human gate;
-`hitl_gates: false` is not honored for those phases (it remains meaningful only
-for phases outside the mandatory set). This is what lets the force-advance
-backstop be dropped: a human is always present to resolve and approve.
+**HITL for refine/plan.** Because the loop resolves decisions with a human each
+round, refine and plan run the human-gated converge loop **whenever a human is
+in the loop** (`hitl_gates: true`, the default) — and the force-advance backstop
+can be dropped precisely because a human is then always present to resolve and
+approve. For those phases `hitl_gates` selects the gate *mode* rather than
+disabling the gate outright: when `hitl_gates: false`, the converge loop cannot
+run (it would block forever on `wait_for_decision` with no human to answer), so
+the gate is **surfaced as a non-blocking event and the phase advances
+autonomously** — mirroring the unresolved-gap gate's autonomous escape (#3300).
+A fully-autonomous pipeline (`hitl_gates: false` with no `start_phase`, i.e.
+starting at refine) therefore advances through refine/plan without hanging,
+exactly as it did before #3392; for phases outside refine/plan the flag toggles
+the post-phase approval pause as before.
 
 ## Detection Mechanism
 

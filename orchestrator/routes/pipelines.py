@@ -23132,10 +23132,15 @@ def _queue_and_await_contract_decisions(
     """Promote unresolved contract decisions/feedback into the orchestrator queue.
 
     Returns the number of contract decisions/feedback this call surfaced and
-    resolved this round — the converge-before-advance signal (#3392). A
-    non-zero count means the operator just answered something, so the caller
-    re-runs the phase to fold the resolutions into the documents; a zero
-    count means the round resolved nothing new and the caller may advance.
+    the operator *resolved* this round — the converge-before-advance signal
+    (#3392). Decisions that were surfaced but came back non-RESOLVED (e.g. the
+    operator cancelled them) are **not** counted: the contract ``cq-N`` stays
+    open, and counting it would re-run the phase, re-surface the still-open
+    question (carry-forward only adopts *resolved* questions), and loop with no
+    termination now that the force-advance backstop is gone. A non-zero count
+    means the operator just answered something, so the caller re-runs the
+    phase to fold the resolutions into the documents; a zero count means the
+    round resolved nothing new and the caller may advance.
 
 
     Agents register architectural questions via ``egg-contract add-decision``
@@ -23276,10 +23281,18 @@ def _queue_and_await_contract_decisions(
         )
 
     # Pass 2: wait for each to resolve and persist back to the contract.
+    # Count only decisions whose queue resolution was RESOLVED — a
+    # CANCELLED / non-resolved outcome leaves the contract ``cq-N`` open and
+    # must NOT count toward the convergence signal, or the caller would re-run
+    # the phase, re-surface the still-open question (carry-forward only adopts
+    # *resolved* questions), and loop without the operator ever being able to
+    # break out (#3392 review).
+    resolved_count = 0
     for contract_id, queued in queued_decisions:
         resolved = dq.wait_for_decision(queued.id)
         if resolved.status != DecisionStatus.RESOLVED:
             continue
+        resolved_count += 1
         resolution_str = (resolved.resolution or "").strip()
 
         def _apply(latest: Any, _cd_id: str = contract_id, _res: str = resolution_str) -> bool:
@@ -23294,9 +23307,11 @@ def _queue_and_await_contract_decisions(
 
         _save_contract_update(_apply)
 
+    feedback_resolved = False
     if queued_feedback is not None and pending_feedback is not None:
         resolved = dq.wait_for_decision(queued_feedback.id)
         if resolved.status == DecisionStatus.RESOLVED:
+            feedback_resolved = True
             answers: dict[str, str] = {}
             try:
                 payload = json.loads(resolved.resolution or "")
@@ -23328,9 +23343,13 @@ def _queue_and_await_contract_decisions(
             _save_contract_update(_apply_fb)
 
     # Convergence signal (#3392): the number of decisions + feedback this
-    # round surfaced and awaited. Non-zero ⇒ the operator answered something
-    # ⇒ caller re-runs the phase to fold the resolutions in.
-    return len(queued_decisions) + (1 if queued_feedback is not None else 0)
+    # round the operator actually *resolved* (not merely surfaced). Non-zero ⇒
+    # the operator answered something ⇒ caller re-runs the phase to fold the
+    # resolutions in. A surfaced-but-cancelled decision is deliberately
+    # excluded: counting it would re-run the phase, re-surface the still-open
+    # question, and loop indefinitely now that the force-advance backstop is
+    # gone.
+    return resolved_count + (1 if feedback_resolved else 0)
 
 
 def _await_unresolved_gap_gate(
@@ -26213,14 +26232,40 @@ def _run_pipeline(
                     )
 
             # --- HITL gate: pause for human approval ---
-            # Refine/plan always require the human gate (#3392). The
-            # converge-before-advance loop resolves decisions with a human
-            # each round, so these phases cannot run unattended; ``hitl_gates``
-            # no longer disables the gate for them (the flag remains meaningful
-            # only for phases that are not in ``_HITL_GATE_PHASES``). This is
-            # what lets us drop the force-advance backstop: a human is always
-            # present to resolve and approve.
-            if current_phase.value in _HITL_GATE_PHASES:
+            # Refine/plan are gated by the converge-before-advance loop
+            # (#3392): it resolves decisions with a human each round, which is
+            # what lets us drop the force-advance backstop — a human is present
+            # to resolve and approve.
+            #
+            # But a fully-autonomous pipeline (``hitl_gates is False``) has no
+            # human to resolve or approve, and ``wait_for_decision`` polls
+            # indefinitely — so unconditionally gating here would convert that
+            # explicitly-chosen, first-class config into an indefinite hang
+            # with no operator-facing signal that the flag was ignored. Mirror
+            # the unresolved-gap gate's autonomous escape (#3300): when
+            # ``hitl_gates is False`` we *surface* the gate (event + loud
+            # warning) but do not block, advancing autonomously instead.
+            # ``hitl_gates`` therefore still governs refine/plan, but only by
+            # toggling between the human-gated converge loop and an autonomous
+            # advance — never an indefinite stall.
+            if current_phase.value in _HITL_GATE_PHASES and not pipeline.config.hitl_gates:
+                report_pipeline_status(
+                    pipeline,
+                    event_type="phase.gate_skipped",
+                    message=(
+                        f"{current_phase.value} phase gate skipped "
+                        f"(hitl_gates=False) — advancing autonomously"
+                    ),
+                )
+                logger.warning(
+                    "HITL gate: refine/plan gate on an autonomous pipeline "
+                    "(hitl_gates=False); surfacing but not blocking — advancing "
+                    "without human approval (the converge-before-advance loop "
+                    "requires a human, so it cannot run unattended)",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                )
+            elif current_phase.value in _HITL_GATE_PHASES:
                 # Check for an existing pending phase_gate decision for this
                 # phase.  A prior agent-exit event may
                 # have already created one — creating a duplicate confuses the
@@ -26421,6 +26466,14 @@ def _run_pipeline(
                         _needs_revision = True
                         _revision_feedback = resolution
 
+                # Holds the operator's resolution from the "bare request →
+                # asked for specifics → approve-with-context" follow-up path,
+                # if that path is taken. When set, it (not the original
+                # ``resolution``) carries any context attached to the final
+                # gate approval, so the convergence re-run below must thread it
+                # rather than the stale original resolution (#3392 review).
+                followup_resolution: str | None = None
+
                 if _needs_revision and _revision_feedback is None:
                     # Bare request without actionable feedback — ask for specifics.
                     # This handles both legacy "request changes" and JSON
@@ -26574,9 +26627,17 @@ def _run_pipeline(
                     # the re-run's agents see it (the bridge already persisted
                     # the decision answers themselves; this carries the gate
                     # prose that would otherwise be dropped on a re-run round).
+                    # When the operator went through the "bare request → asked
+                    # for specifics → approve-with-context" follow-up path, the
+                    # context lives in ``followup_resolution`` (the final
+                    # answer), not the stale original ``resolution`` — prefer
+                    # it so that context is not silently dropped (#3392 review).
+                    _context_source = (
+                        followup_resolution if followup_resolution is not None else resolution
+                    )
                     _approve_context = ""
                     try:
-                        _ap = json.loads(resolution)
+                        _ap = json.loads(_context_source)
                         if isinstance(_ap, dict):
                             _approve_context = (
                                 _ap.get("context") or _ap.get("feedback") or ""
