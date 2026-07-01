@@ -1,0 +1,13 @@
+{
+  "entries": {
+    "107c9309abc33d3f26e0ff269c6aa24707af7fb0": {
+      "branch": "egg/issue-3393/work",
+      "patch_id": "0064f53a7bb1c4c81527c975b39de74e5880f54d",
+      "pipeline_id": "issue-3393",
+      "registered_at": "2026-07-01T23:31:12.654486+00:00",
+      "repo": null,
+      "role": "refiner"
+    }
+  },
+  "version": 2
+}
