@@ -8,6 +8,14 @@
       "repo": null,
       "role": "refiner"
     },
+    "4bb71004b9821085f2712f266587d7bba8c87250": {
+      "branch": "egg/issue-3393/work",
+      "patch_id": "f7931949b9f88f8140e171bf6f61a0ed7de66c55",
+      "pipeline_id": "issue-3393",
+      "registered_at": "2026-07-01T23:37:26.048911+00:00",
+      "repo": null,
+      "role": "refiner"
+    },
     "787953fd27280f1c52a571e45cc68b041ff5eb28": {
       "branch": "egg/issue-3393/work",
       "patch_id": "b4cca8ce811a65847de2ce47036c1d034d973fe2",
