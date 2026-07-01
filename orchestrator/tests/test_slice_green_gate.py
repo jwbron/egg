@@ -42,6 +42,7 @@ _shared_path = _orchestrator_path.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
+from egg_config.constants import TEST_GATEWAY_PORT  # noqa: E402
 import slice_green_gate as sgg  # noqa: E402
 from gateway_client import SessionInfo, WorktreeResult  # noqa: E402
 
@@ -334,7 +335,10 @@ def _manifest(**overrides: Any) -> dict[str, Any]:
         "checks": CHECKS,
         "repo_mounts": {"/home/egg/repos/egg": "/home/host/.egg-worktrees/x/egg"},
         "repo_dir": "/home/egg/repos/egg",
-        "env": {"GATEWAY_URL": "http://gw:9848", "EGG_GREEN_GATE_REQUIRE_PREBUILT": "1"},
+        "env": {
+            "GATEWAY_URL": f"http://gw:{TEST_GATEWAY_PORT}",
+            "EGG_GREEN_GATE_REQUIRE_PREBUILT": "1",
+        },
         "timeout_seconds": 1800,
         "host_uid": 1000,
         "host_gid": 1000,
@@ -375,7 +379,7 @@ class TestBuildRunnerJobManifest:
         assert json.loads(env["EGG_GREEN_GATE_CHECKS"]) == CHECKS
         assert env["EGG_GREEN_GATE_REPO_DIR"] == "/home/egg/repos/egg"
         assert env["EGG_GREEN_GATE_REQUIRE_PREBUILT"] == "1"
-        assert env["GATEWAY_URL"] == "http://gw:9848"
+        assert env["GATEWAY_URL"] == f"http://gw:{TEST_GATEWAY_PORT}"
 
     def test_worktree_mount(self) -> None:
         manifest = _manifest()
