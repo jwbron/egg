@@ -65,6 +65,55 @@ class DocumenterAttestation(BaseModel):
     concern_considered: str = Field(default="", description="One concern considered")
 
 
+class DecisionSurfacingAttestation(BaseModel):
+    """Decision-ledger attestation for refine/plan producers (#3390).
+
+    Refine/plan producers own the phase's operator-decision surface: every
+    HITL decision they identify must be registered via ``egg-contract
+    add-decision`` / ``mcp__sdlc__register_open_question``, and their
+    proposal must attest to the resulting ledger — either the list of
+    registered ``cq-N`` ids or an explicit rationale for why the phase
+    deliberately raises none. This is what makes "0 decisions at the
+    gate" trustworthy as *deliberately none* rather than *forgot to
+    register* (the motivating failure of #3390).
+
+    The exactly-one-of shape is validated here (via the shared
+    ``decision_attestation_errors`` helper, so this model and the
+    propose-time signal validator cannot drift) and enforced regardless
+    of the pipeline's attestation strictness: an incoherent ledger claim
+    is malformed input, not a relaxed-mode allowance. Cross-checking the
+    attested ids against the contract's registered decisions requires
+    contract access and lives in the propose-time signal validator
+    (``routes/signals/_validation.py``), not here.
+    """
+
+    decisions_registered: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Every cq-N decision id this producer registered for the "
+            "current phase (the ids returned by `egg-contract add-decision`)"
+        ),
+    )
+    no_decisions_rationale: str = Field(
+        default="",
+        description=(
+            "Why this phase deliberately raises no operator decisions. "
+            "Required when decisions_registered is empty — an explicit "
+            "empty ledger, never an omission."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_ledger_shape(self) -> DecisionSurfacingAttestation:
+        """Require exactly one of decisions_registered / no_decisions_rationale."""
+        from egg_contracts.decisions import decision_attestation_errors
+
+        errors = decision_attestation_errors(self.decisions_registered, self.no_decisions_rationale)
+        if errors:
+            raise ValueError("Decision-ledger attestation invalid: " + " ".join(errors))
+        return self
+
+
 # --- Reviewer attestations ---
 
 
@@ -96,6 +145,13 @@ PRODUCER_ATTESTATION_MODELS: dict[str, type[BaseModel]] = {
     "coder": CoderAttestation,
     "tester": TesterAttestation,
     "documenter": DocumenterAttestation,
+    # Refine/plan producers attest their decision ledger (#3390). The
+    # simplifier is deliberately absent: its human-focused companion
+    # summarizes the upstream draft and owns no decision surface.
+    "refiner": DecisionSurfacingAttestation,
+    "task_planner": DecisionSurfacingAttestation,
+    "architect": DecisionSurfacingAttestation,
+    "risk_analyst": DecisionSurfacingAttestation,
 }
 
 REVIEWER_ATTESTATION_MODELS: dict[str, type[BaseModel]] = {

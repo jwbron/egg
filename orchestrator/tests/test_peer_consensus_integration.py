@@ -475,6 +475,62 @@ class TestAttestationSchemas:
         # Relaxed should not raise
         validate_attestation("coder", {}, AttestationStrictness.RELAXED, is_producer=True)
 
+    def test_decision_ledger_registered_ids_valid(self):
+        """Refine/plan producer attestation with registered cq ids validates (#3390)."""
+        from attestation_schemas import AttestationStrictness, validate_attestation
+
+        for role in ("refiner", "task_planner", "architect", "risk_analyst"):
+            validate_attestation(
+                role,
+                {"decisions_registered": ["cq-1", "cq-2"]},
+                AttestationStrictness.STRICT,
+                is_producer=True,
+            )
+
+    def test_decision_ledger_explicit_none_valid(self):
+        """The explicit empty ledger (rationale, no ids) validates (#3390)."""
+        from attestation_schemas import AttestationStrictness, validate_attestation
+
+        validate_attestation(
+            "refiner",
+            {"no_decisions_rationale": "mechanical change; no operator-grade choices"},
+            AttestationStrictness.STRICT,
+            is_producer=True,
+        )
+
+    def test_decision_ledger_rejects_empty_claim(self):
+        """Neither ids nor rationale ⇒ malformed ledger, rejected even RELAXED (#3390)."""
+        from attestation_schemas import AttestationStrictness, validate_attestation
+
+        for strictness in (AttestationStrictness.STRICT, AttestationStrictness.RELAXED):
+            with pytest.raises(ValueError, match="must carry either"):
+                validate_attestation("refiner", {}, strictness, is_producer=True)
+
+    def test_decision_ledger_rejects_both_fields(self):
+        from attestation_schemas import AttestationStrictness, validate_attestation
+
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            validate_attestation(
+                "task_planner",
+                {
+                    "decisions_registered": ["cq-1"],
+                    "no_decisions_rationale": "also none",
+                },
+                AttestationStrictness.STRICT,
+                is_producer=True,
+            )
+
+    def test_decision_ledger_rejects_malformed_ids(self):
+        from attestation_schemas import AttestationStrictness, validate_attestation
+
+        with pytest.raises(ValueError, match="not a valid cq-N id"):
+            validate_attestation(
+                "architect",
+                {"decisions_registered": ["decision-3"]},
+                AttestationStrictness.STRICT,
+                is_producer=True,
+            )
+
     def test_tester_strict_rejects_zero_tests_run(self):
         """Tester attestation in strict mode requires tests_run > 0 when not blocked."""
         from attestation_schemas import AttestationStrictness, validate_attestation

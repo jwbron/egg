@@ -2511,11 +2511,17 @@ def _propose_payload(
     """Build a propose payload that satisfies ``_validate_brc_content``
     (the minimum-content guard rejects short summaries) so the test
     actually reaches the spec-derived validator under test.
+
+    Carries an explicit-none decision-ledger attestation by default so
+    refine/plan producer proposes pass the #3390 ledger requirement;
+    implement-phase roles ignore the field. Tests exercising the ledger
+    validator itself override ``attestation`` via ``extra``.
     """
     payload: dict = {
         "summary": summary,
         "artifacts": list(artifacts),
         "commit_sha": commit_sha,
+        "attestation": {"no_decisions_rationale": "test fixture: no operator decisions"},
     }
     if no_changes_needed:
         payload["no_changes_needed"] = True
@@ -3314,6 +3320,247 @@ class TestSpecDerivedProposeValidation:
         mock_tracker.handle_propose.assert_not_called()
 
 
+class TestDecisionLedgerProposeValidation:
+    """Propose-time decision-ledger enforcement for refine/plan producers (#3390).
+
+    The registration guarantee: a refine/plan producer cannot reach
+    consensus (and therefore the phase gate) without attesting its HITL
+    decision ledger — either the ``cq-N`` ids it registered or an explicit
+    rationale for why the phase deliberately raises none. Attested ids are
+    cross-checked against the contract's registered decisions, and the
+    draft must cite each attested id so the operator/reviewers can see it.
+    """
+
+    _ANALYSIS_DRAFT_PATH = ".egg-state/drafts/42-analysis.md"
+
+    @staticmethod
+    def _contract_with_decisions(*decisions):
+        contract = MagicMock()
+        contract.decisions = list(decisions)
+        return contract
+
+    @staticmethod
+    def _decision(decision_id: str, phase: str):
+        d = MagicMock()
+        d.id = decision_id
+        d.phase = phase
+        return d
+
+    def _validate(
+        self,
+        *,
+        payload: dict,
+        agent_role: str = "refiner",
+        phase: str = "refine",
+        router=None,
+        contract=None,
+        contract_error: Exception | None = None,
+    ):
+        from routes.signals import _validate_producer_artifacts
+
+        pipeline = _pipeline_with_phase(phase)
+        router = router or _make_subprocess_router()
+        load_patch = (
+            patch("routes.signals.load_contract", side_effect=contract_error)
+            if contract_error is not None
+            else patch("routes.signals.load_contract", return_value=contract or MagicMock())
+        )
+        with patch("routes.signals.subprocess.run", side_effect=router), load_patch:
+            _validate_producer_artifacts(
+                "issue-42",
+                payload,
+                Path("/tmp/repo"),
+                agent_role=agent_role,
+                phase=phase,
+                pipeline_state=pipeline,
+                worktree_path=Path("/tmp/wt"),
+                branch_verified=True,
+            )
+
+    # -- shape ---------------------------------------------------------------
+
+    def test_missing_attestation_rejected(self):
+        with pytest.raises(ValueError, match="decision-ledger attestation"):
+            self._validate(payload={"commit_sha": "abc1234"})
+
+    def test_empty_attestation_rejected(self):
+        with pytest.raises(ValueError, match="decision-ledger attestation"):
+            self._validate(payload={"commit_sha": "abc1234", "attestation": {}})
+
+    def test_both_fields_rejected(self):
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            self._validate(
+                payload={
+                    "commit_sha": "abc1234",
+                    "attestation": {
+                        "decisions_registered": ["cq-1"],
+                        "no_decisions_rationale": "also none",
+                    },
+                }
+            )
+
+    def test_explicit_none_accepted(self):
+        self._validate(
+            payload={
+                "commit_sha": "abc1234",
+                "attestation": {"no_decisions_rationale": "no operator-grade choices here"},
+            }
+        )
+
+    def test_every_attesting_role_subject_to_gate(self):
+        for role, phase in (
+            ("refiner", "refine"),
+            ("task_planner", "plan"),
+            ("architect", "plan"),
+            ("risk_analyst", "plan"),
+        ):
+            with pytest.raises(ValueError, match="decision-ledger attestation"):
+                self._validate(payload={"commit_sha": "abc1234"}, agent_role=role, phase=phase)
+
+    def test_simplifier_exempt(self):
+        # The simplifier owns no decision surface; no ledger requirement.
+        self._validate(payload={"commit_sha": "abc1234"}, agent_role="simplifier", phase="refine")
+
+    # -- contract cross-check --------------------------------------------------
+
+    def test_unregistered_id_rejected(self):
+        contract = self._contract_with_decisions(self._decision("cq-1", "refine"))
+        with pytest.raises(ValueError, match="`cq-9` is not registered"):
+            self._validate(
+                payload={
+                    "commit_sha": "abc1234",
+                    "attestation": {"decisions_registered": ["cq-9"]},
+                },
+                contract=contract,
+            )
+
+    def test_phase_mismatched_id_rejected(self):
+        contract = self._contract_with_decisions(self._decision("cq-1", "plan"))
+        with pytest.raises(ValueError, match="registered for the 'plan' phase"):
+            self._validate(
+                payload={
+                    "commit_sha": "abc1234",
+                    "attestation": {"decisions_registered": ["cq-1"]},
+                },
+                contract=contract,
+            )
+
+    def test_registered_and_cited_accepted(self):
+        contract = self._contract_with_decisions(self._decision("cq-1", "refine"))
+        router = _make_subprocess_router(
+            show_stdout_overrides={
+                self._ANALYSIS_DRAFT_PATH: (
+                    "# Analysis\n\n## Open Questions\n"
+                    "<!-- egg-hitl-decision id=cq-1 -->\n- [ ] Option A\n"
+                )
+            }
+        )
+        self._validate(
+            payload={
+                "commit_sha": "abc1234",
+                "attestation": {"decisions_registered": ["cq-1"]},
+            },
+            contract=contract,
+            router=router,
+        )
+
+    def test_contract_unloadable_skips_cross_check(self):
+        """Orchestrator-side contract glitch is not the producer's fault:
+        the shape requirement still holds but the cross-check degrades.
+        The draft cites the id so the citation check passes too.
+        """
+        router = _make_subprocess_router(
+            show_stdout_overrides={self._ANALYSIS_DRAFT_PATH: "cites cq-1 inline\n"}
+        )
+        self._validate(
+            payload={
+                "commit_sha": "abc1234",
+                "attestation": {"decisions_registered": ["cq-1"]},
+            },
+            contract_error=FileNotFoundError("no contract"),
+            router=router,
+        )
+
+    # -- draft citation ---------------------------------------------------------
+
+    def test_uncited_id_rejected(self):
+        contract = self._contract_with_decisions(self._decision("cq-1", "refine"))
+        router = _make_subprocess_router(
+            show_stdout_overrides={
+                self._ANALYSIS_DRAFT_PATH: "# Analysis with no decision markers\n"
+            }
+        )
+        with pytest.raises(ValueError, match="not cited anywhere"):
+            self._validate(
+                payload={
+                    "commit_sha": "abc1234",
+                    "attestation": {"decisions_registered": ["cq-1"]},
+                },
+                contract=contract,
+                router=router,
+            )
+
+    def test_rationale_form_skips_citation_check(self):
+        # No ids attested → nothing to cite; the presence check still runs.
+        router = _make_subprocess_router(
+            show_stdout_overrides={self._ANALYSIS_DRAFT_PATH: "# Analysis, no decisions\n"}
+        )
+        self._validate(
+            payload={
+                "commit_sha": "abc1234",
+                "attestation": {"no_decisions_rationale": "nothing operator-grade"},
+            },
+            router=router,
+        )
+
+    # -- e2e propose path ---------------------------------------------------------
+
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    @patch("routes.signals.subprocess.run")
+    def test_propose_without_ledger_rejected_400(
+        self,
+        mock_subprocess_run,
+        mock_get_tracker,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_gateway_fetch,
+        app,
+    ):
+        """A refiner propose with no ledger attestation bounces 400 and the
+        tracker is never mutated — the hard-fail of #3390.
+        """
+        pipeline = _pipeline_with_phase("refine")
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        mock_tracker = MagicMock()
+        mock_get_tracker.return_value = mock_tracker
+
+        mock_subprocess_run.side_effect = _make_subprocess_router()
+
+        payload = _propose_payload()
+        del payload["attestation"]
+
+        with app.app_context():
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {"agent_role": "refiner", "payload": payload},
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 400, response.get_json()
+        message = response.get_json().get("message", "")
+        assert "decision-ledger attestation" in message, message
+        mock_tracker.handle_propose.assert_not_called()
+
+
 class TestSimplifierSingleArtifactEnforcement:
     """Propose-time enforcement that the simplifier persists exactly ONE draft.
 
@@ -3361,10 +3608,16 @@ class TestSimplifierSingleArtifactEnforcement:
         from routes.signals import _validate_producer_artifacts
 
         pipeline = _pipeline_with_phase(phase)
+        # Explicit-none ledger attestation so non-simplifier roles pass the
+        # #3390 decision-ledger requirement and reach the gate under test.
+        payload = {
+            "commit_sha": "abc1234",
+            "attestation": {"no_decisions_rationale": "test fixture: no operator decisions"},
+        }
         with patch("routes.signals.subprocess.run", side_effect=router):
             _validate_producer_artifacts(
                 "issue-42",
-                {"commit_sha": "abc1234"},
+                payload,
                 Path("/tmp/repo"),
                 agent_role=agent_role,
                 phase=phase,

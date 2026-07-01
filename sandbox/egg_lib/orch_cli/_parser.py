@@ -501,6 +501,27 @@ def create_parser() -> argparse.ArgumentParser:
         "--tasks", nargs="*", help="Contract tasks satisfied by this proposal"
     )
     cons_propose.add_argument(
+        "--decisions-registered",
+        dest="decisions_registered",
+        nargs="*",
+        help=(
+            "Decision-ledger attestation (#3390, refine/plan producers): "
+            "every cq-N id you registered this phase via "
+            "`egg-contract add-decision`. Mutually exclusive with "
+            "--no-decisions-rationale."
+        ),
+    )
+    cons_propose.add_argument(
+        "--no-decisions-rationale",
+        dest="no_decisions_rationale",
+        help=(
+            "Decision-ledger attestation (#3390, refine/plan producers): "
+            "why this phase deliberately raises no operator decisions — the "
+            "explicit empty ledger. Mutually exclusive with "
+            "--decisions-registered."
+        ),
+    )
+    cons_propose.add_argument(
         "--push",
         action="store_true",
         help="Run git push before sending the proposal (bundles push+propose "
