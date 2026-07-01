@@ -95,6 +95,28 @@
   already consistent with my v2, but verify anything else that changes.
 - Re-proposed as my v2.
 
+### 2026-07-01 ~23:46 UTC — event #9: iteration-0 gate — HITL cq-1 resolved → v3
+
+- Iteration-0 outcome: reviewer_refine ACKed my v2; refiner v2 (4bb71004b)
+  ACKed by all three of its reviewers; my reviewer edge simplifier->refiner
+  left "pending" in the frozen matrix (did not ACK v2 — iteration ended at
+  the operator gate; expect a fresh review event next iteration).
+- HITL cq-1 RESOLVED (Other): plain merge ordering AUTOMATED — dependent
+  slice developed in parallel, PR held as draft, orchestrator auto-marks
+  ready when upstream merges. HITL only for beyond-merge-state conditions
+  (release/publish waits, version pinning) and genuine development blocks.
+- Faithfulness recheck vs refiner v2 DISCHARGED: (a) three collapse sites —
+  my draft already correct; (b) two-layer naming — my draft never names the
+  method, no change; (c) NEW per-repo-conventions point (v2 design rec #5 /
+  AC-7) — ADDED to my draft ("that repo's own house rules" bullet).
+- cq-1 resolution rendered into hard-bit #1 (replaces "open decision"
+  framing) directly from the operator's authoritative resolution text —
+  robust even if refiner's v3 wording differs.
+- No new decisions induced (remaining mechanics are planner-owned).
+- NEW OBLIGATION: when refiner v3 lands (their cq-1 update), re-check my
+  draft's faithfulness against it before/while ACKing my pending
+  simplifier->refiner review edge.
+
 ## Next invocation checklist
 
 1. Read `.egg-state/drafts/issue-3393-analysis.md` (pull the refiner's
