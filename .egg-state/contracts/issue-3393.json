@@ -10,9 +10,87 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "v1 merge-sequencing gate: when a dependent slice's PR (repo B) must wait for an upstream slice's PR in another repo (repo A) to merge, what holds it? This is the cross-repo ordering mechanism the issue flags as most likely to be underestimated; atomic cross-repo merge is impossible on GitHub, so v1 ships a hold. Options trade automation vs. human rigor.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Orchestrator polls upstream PR merge state; dependent slice's PR stays draft until upstream merges, then auto-marks ready (automated, no human in the loop for the release)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "HITL gate: dependent slice's PR is held and a human decision releases it after confirming the upstream PR merged (maximum rigor, human owns the release)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid: orchestrator polling detects the upstream merge, then raises a HITL decision to release the dependent PR (automated detection, human release)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-07-01T23:31:09.220505Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "v1 merge-sequencing gate: when a dependent slice's PR (repo B) must wait for an upstream slice's PR in another repo (repo A) to merge, what holds it? This is the cross-repo ordering mechanism the issue flags as most likely to be underestimated; atomic cross-repo merge is impossible on GitHub, so v1 ships a hold. Options trade automation vs. human rigor.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Orchestrator polls upstream PR merge state; dependent slice's PR stays draft until upstream merges, then auto-marks ready (automated, no human in the loop for the release)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "HITL gate: dependent slice's PR is held and a human decision releases it after confirming the upstream PR merged (maximum rigor, human owns the release)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hybrid: orchestrator polling detects the upstream merge, then raises a HITL decision to release the dependent PR (automated detection, human release)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: v1 merge-sequencing gate: when a dependent slice's...",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
