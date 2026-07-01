@@ -2,7 +2,22 @@
 
 ## Status
 
-- v2 analysis proposed (addresses all three v1 NACKs in one round-trip).
+- CURRENT: v4 proposed (iteration 1) — sole change: restored
+  `3393-analysis-human.md` byte-exact to the simplifier's `e88c16d61`
+  rendering, un-doing my v3 clobber. `3393-analysis.md` untouched (both
+  reviewers called it ACK-ready / "do not touch it further").
+- v3 (`c2a3a8e80`) folded in operator's cq-1 resolution correctly in the
+  analysis, but CLOBBERED the simplifier-owned human summary: my rebase
+  conflict "resolution" ran `git checkout --theirs` — in a REBASE, --theirs
+  is YOUR OWN commit being replayed, --ours is upstream — so I took my
+  stale copy wholesale: deleted their per-repo house-rules bullet and
+  replaced their hard-bit #1 (dropping the development-blocks element and
+  overstating "work proceeds in parallel either way"). Two NACKs
+  (reviewer_refine, reviewer_agent_design), both verified correct.
+- HARD RULE going forward: `3393-analysis-human.md` is the SIMPLIFIER's
+  artifact — never edit it, even when directives say "update the refine
+  document(s)"; hand wording suggestions to the simplifier instead.
+- v2 analysis (`4bb71004b`) addressed all three v1 NACKs in one round-trip.
   Artifacts: `.egg-state/drafts/3393-analysis.md`, `3393-analysis-human.md`.
 - HITL decision cq-1 registered: v1 merge-sequencing gate semantics
   (poll+auto-release / HITL release / hybrid / other).
