@@ -22,6 +22,10 @@ change gets split across an automated pipeline plus a human side-task.
   mechanism that already exists.
 - The pipeline opens **one PR per slice, in that slice's repo**, and the PRs
   reference each other.
+- Every repo that ends up with work also gets its own **working branch and
+  umbrella PR**, exactly like today's single repo does — so each repo keeps
+  the same audit trail it has now. Repos submitted but left without work get
+  neither.
 - Two safety rules are enforced at submission: all repos in a run must be
   **uniformly private or uniformly public** (no leaking private context into
   public surfaces), and all must use the **same auth mode** (mixing bot and
@@ -29,12 +33,13 @@ change gets split across an automated pipeline plus a human side-task.
 
 ## The good news (verified against the code)
 
-Most of the plumbing is already multi-repo-ready: worktree creation already
-takes a list of repos, credentials already resolve per repo, PR creation
-already takes a repo argument. The real gap is narrow: the plan/contract has
-**no notion of which repo a slice belongs to**, and two spots in the code
-quietly throw away everything after the *first* repo in the list. Fixing that
-gap — plus the new submission checks — is the heart of the work.
+Most of the plumbing is already multi-repo-ready: the machinery that checks
+out code already accepts a list of repos, credentials already resolve per
+repo, PR creation already takes a repo argument. The real gap is narrow: the
+plan/contract has **no notion of which repo a slice belongs to**, and two
+spots in the code quietly throw away everything after the *first* repo in the
+list. Fixing that gap — plus the new submission checks — is the heart of the
+work.
 
 ## The genuinely hard bits
 
@@ -45,6 +50,7 @@ gap — plus the new submission checks — is the heart of the work.
 2. **The contract format is saved as JSON** and read by every phase, so
    adding the new "repo" field needs a careful, backward-compatible
    migration — fortunately the codebase has done this four times before.
-3. One subtle trap found during grounding: the repo→folder map is keyed by
-   the repo's short name, so two repos that share a name (different owners)
-   would collide. v1 must re-key it or reject that combination.
+3. One subtle trap found during grounding: the map from repo to checked-out
+   folder is keyed by the repo's short name, so two repos that share a name
+   (different owners) would collide. v1 must re-key it or reject that
+   combination.
