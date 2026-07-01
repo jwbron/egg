@@ -44,6 +44,30 @@
       "resolved_at": "2026-07-01T23:45:19.607965Z",
       "debounce_until": null,
       "redirect_seed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Pipeline issue-3393: the worktree diverged from origin at the refine boundary and the rebase autoresolve could not reconcile it (a conflict outside .egg-state/agent-outputs/). Nothing was discarded \u2014 the worktree is left at the local HEAD with the orchestrator's committed work intact, and the pipeline is paused (not failed) for a manual reconcile (#2979). A backup ref pins the current tip: refs/egg-backup/sync-recovery/issue-3393/1782950018469674949 (inspect with `git log refs/egg-backup/sync-recovery/issue-3393/1782950018469674949`).\nLocal-only commits preserved on the worktree HEAD:\n  - 75f499d32 Persist agent statefile writes before refine sync\n\nReconcile the orchestrator-side worktree manually (e.g. rebase the local commits onto origin/<branch> and resolve the conflict), then choose:\n- 'Reconciled \u2014 resume' \u2014 re-run the worktree sync and resume the refine phase's post-processing from where it paused (no full phase re-run).\n- 'Abort pipeline' \u2014 fail the pipeline; the backup ref preserves the commits for offline inspection.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Reconciled \u2014 resume",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Abort pipeline",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Reconciled \u2014 resume\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-01T23:57:31.927074Z",
+      "debounce_until": null,
+      "redirect_seed": null
     }
   ],
   "workflow_owner": null,
