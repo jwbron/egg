@@ -396,26 +396,49 @@ class TestFixtureTreeCarveOut:
             assert not TESTER_PATTERNS.can_write(path), path
 
     def test_carveout_does_not_punch_through_egg_state_blocks(self):
-        # #3396 regression: a fixture/testdata segment under a sensitive
-        # ``.egg-state/`` subtree must stay blocked — the exemption must not
-        # reach contracts/drafts/pipelines/reviews/oversight.
+        # #3396 regression: a fixture/testdata segment under ANY ``.egg-state/``
+        # subtree must stay blocked for BOTH roles. The whole ``.egg-state/``
+        # tree is hard-blocked (only agent-outputs/agent-anchors carved back),
+        # so no ``**/fixtures/`` / ``**/testdata/`` exemption can reach it.
+        #
+        # These include the subtrees the previous (enumeration-based) fix
+        # missed — ``brc-history`` and ``checks`` are present and git-tracked
+        # in the repo today — plus contracts/drafts/pipelines/reviews/oversight.
         egg_state_fixture_paths = [
             ".egg-state/contracts/fixtures/z.json",
             ".egg-state/drafts/fixtures/a.json",
             ".egg-state/pipelines/testdata/b.json",
             ".egg-state/reviews/testdata/c.json",
             ".egg-state/oversight/fixtures/d.json",
+            ".egg-state/brc-history/fixtures/x.json",
+            ".egg-state/checks/fixtures/x.json",
+            ".egg-state/checkpoints/fixtures/y.json",
         ]
         for path in egg_state_fixture_paths:
-            assert not CODER_PATTERNS.can_write(path), path
-        # Tester's contract hard-block is likewise non-exemptible.
-        assert not TESTER_PATTERNS.can_write(".egg-state/contracts/fixtures/z.json")
+            assert not CODER_PATTERNS.can_write(path), f"coder {path}"
+            assert not TESTER_PATTERNS.can_write(path), f"tester {path}"
 
-    def test_coder_egg_state_carvebacks_still_writable(self):
-        # The `.egg-state/` block stays *soft* so the coder's own handoff
-        # carve-backs keep working after the hard-block tier was added.
+    def test_carveout_does_not_punch_through_future_egg_state_subdir(self):
+        # The invariant must hold for subdirs that don't exist yet — the
+        # whole-tree hard block is what makes this true without editing the
+        # pattern list when a new ``.egg-state/`` subdir is added.
+        for role_pattern in (CODER_PATTERNS, TESTER_PATTERNS):
+            assert not role_pattern.can_write(".egg-state/some-new-dir/fixtures/x.json"), (
+                role_pattern.role
+            )
+            assert not role_pattern.can_write(".egg-state/another-future-dir/testdata/y.json"), (
+                role_pattern.role
+            )
+
+    def test_egg_state_carvebacks_still_writable(self):
+        # The whole ``.egg-state/`` tree is hard-blocked, but the handoff
+        # carve-backs (agent-outputs/, and for the coder agent-anchors/) are
+        # restored via ``hard_block_exempt_patterns`` so they keep working.
         assert CODER_PATTERNS.can_write(".egg-state/agent-outputs/handoff.json")
         assert CODER_PATTERNS.can_write(".egg-state/agent-anchors/anchor.json")
+        # Markdown handoffs (brc-memory.md) must clear the docs block too.
+        assert CODER_PATTERNS.can_write(".egg-state/agent-outputs/coder/brc-memory.md")
+        assert TESTER_PATTERNS.can_write(".egg-state/agent-outputs/tester.json")
 
 
 class TestTesterPatterns:

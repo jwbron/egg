@@ -282,9 +282,12 @@ def _is_file_blocked_for_role(role: str, file_path: str, repo: str | None = None
     if normalized.startswith("../") or normalized.startswith("/"):
         return True
 
-    # Hard blocks cannot be carved back by block_exempt_patterns (#3396).
+    # Hard blocks cannot be carved back by the broad block_exempt_patterns —
+    # only by the narrow, explicitly-anchored hard_block_exempt_patterns
+    # (#3396).
     if any(match_pattern(normalized, p) for p in pattern.hard_blocked_patterns):
-        return True
+        if not any(match_pattern(normalized, p) for p in pattern.hard_block_exempt_patterns):
+            return True
     if not any(match_pattern(normalized, p) for p in pattern.blocked_patterns):
         return False
     if any(match_pattern(normalized, p) for p in pattern.block_exempt_patterns):

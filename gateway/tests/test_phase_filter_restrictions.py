@@ -205,26 +205,61 @@ class TestFileRestriction:
         # But the exemption must NOT punch through the hard block.
         assert restriction.is_file_blocked(".github/fixtures/readme.md") is True
 
+    def test_hard_block_exempt_carves_back_only_anchored_paths(self):
+        """#3396: hard_block_exempt_patterns is the ONLY way to carve a path
+        back out of a hard block — and only the narrow, anchored paths in it,
+        never the broad block_exempt_patterns."""
+        restriction = FileRestriction(
+            role="coder",
+            blocked_patterns=["**/*.md"],
+            block_exempt_patterns=["**/fixtures/"],
+            hard_blocked_patterns=[".egg-state/"],
+            hard_block_exempt_patterns=[".egg-state/agent-outputs/"],
+        )
+        # The anchored carve-back resolves under the whole-tree hard block.
+        assert restriction.is_file_blocked(".egg-state/agent-outputs/handoff.json") is False
+        # But the broad fixtures/ exemption cannot reach a hard-blocked subdir,
+        # including one not enumerated anywhere (future-subdir invariant).
+        assert restriction.is_file_blocked(".egg-state/checks/fixtures/x.json") is True
+        assert restriction.is_file_blocked(".egg-state/some-new-dir/fixtures/x.json") is True
+
     def test_from_dict_hard_blocked_patterns(self):
         restriction = FileRestriction.from_dict(
             {
                 "role": "coder",
                 "blocked_patterns": ["**/*.md"],
-                "hard_blocked_patterns": [".github/"],
+                "hard_blocked_patterns": [".github/", ".egg-state/"],
+                "hard_block_exempt_patterns": [".egg-state/agent-outputs/"],
             }
         )
-        assert restriction.hard_blocked_patterns == [".github/"]
+        assert restriction.hard_blocked_patterns == [".github/", ".egg-state/"]
+        assert restriction.hard_block_exempt_patterns == [".egg-state/agent-outputs/"]
 
     def test_default_restrictions_project_hard_blocks(self):
         """The projection from AGENT_PATTERNS must carry hard_blocked_patterns
-        so the gateway early-reject enforces the non-exemptible tier (#3396)."""
+        AND hard_block_exempt_patterns so the gateway early-reject enforces the
+        non-exemptible tier with its carve-backs (#3396)."""
         pf = PhaseFilter()
         restrictions = {r.role: r for r in pf._get_default_file_restrictions()}
         coder = restrictions[AgentRole.CODER]
         assert ".github/" in coder.hard_blocked_patterns
-        # The fixture carve-out must not open .github/ for the coder.
+        assert ".egg-state/" in coder.hard_blocked_patterns
+        assert ".egg-state/agent-outputs/" in coder.hard_block_exempt_patterns
+        # The fixture carve-out must not open .github/ or any .egg-state/ subdir
+        # for the coder — including subdirs not hand-listed anywhere.
         assert coder.is_file_blocked(".github/fixtures/x.md") is True
         assert coder.is_file_blocked(".egg-state/contracts/fixtures/x.json") is True
+        assert coder.is_file_blocked(".egg-state/brc-history/fixtures/x.json") is True
+        assert coder.is_file_blocked(".egg-state/some-new-dir/fixtures/x.json") is True
+        # ...but the coder's own handoff carve-backs still resolve.
+        assert coder.is_file_blocked(".egg-state/agent-outputs/handoff.json") is False
+        assert coder.is_file_blocked(".egg-state/agent-anchors/coder.json") is False
+        # The tester's whole-tree .egg-state/ block behaves the same way.
+        tester = restrictions[AgentRole.TESTER]
+        assert ".egg-state/" in tester.hard_blocked_patterns
+        assert tester.is_file_blocked(".egg-state/drafts/fixtures/x.json") is True
+        assert tester.is_file_blocked(".egg-state/some-new-dir/fixtures/x.json") is True
+        assert tester.is_file_blocked(".egg-state/agent-outputs/tester.json") is False
 
 
 class TestPhaseFilterDefaultPermissions:

@@ -76,6 +76,7 @@ class FileRestriction:
     blocked_patterns: list[str] = field(default_factory=list)
     block_exempt_patterns: list[str] = field(default_factory=list)
     hard_blocked_patterns: list[str] = field(default_factory=list)
+    hard_block_exempt_patterns: list[str] = field(default_factory=list)
     blocked_reason: str = ""
 
     @classmethod
@@ -86,6 +87,7 @@ class FileRestriction:
             blocked_patterns=data.get("blocked_patterns", []),
             block_exempt_patterns=data.get("block_exempt_patterns", []),
             hard_blocked_patterns=data.get("hard_blocked_patterns", []),
+            hard_block_exempt_patterns=data.get("hard_block_exempt_patterns", []),
             blocked_reason=data.get("blocked_reason", ""),
         )
 
@@ -105,11 +107,14 @@ class FileRestriction:
             # Paths that escape the repository are always blocked
             return True
 
-        # Hard blocks cannot be carved back by block_exempt_patterns. This
-        # mirrors AgentFilePattern.can_write so the gateway early-reject
-        # agrees with per-commit attribution (#3396).
+        # Hard blocks cannot be carved back by the broad block_exempt_patterns —
+        # only by the narrow, explicitly-anchored hard_block_exempt_patterns
+        # (e.g. `.egg-state/agent-outputs/` under a whole-tree `.egg-state/`
+        # hard block). This mirrors AgentFilePattern.can_write so the gateway
+        # early-reject agrees with per-commit attribution (#3396).
         if any(match_pattern(normalized, p) for p in self.hard_blocked_patterns):
-            return True
+            if not any(match_pattern(normalized, p) for p in self.hard_block_exempt_patterns):
+                return True
 
         if not any(match_pattern(normalized, p) for p in self.blocked_patterns):
             return False
@@ -579,6 +584,7 @@ class PhaseFilter:
                     blocked_patterns=list(pattern.blocked_patterns),
                     block_exempt_patterns=list(pattern.block_exempt_patterns),
                     hard_blocked_patterns=list(pattern.hard_blocked_patterns),
+                    hard_block_exempt_patterns=list(pattern.hard_block_exempt_patterns),
                     blocked_reason=blocked_reason,
                 )
             )

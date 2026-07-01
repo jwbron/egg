@@ -245,25 +245,24 @@ worktree branch.
   extensionless scripts (e.g. `bin/egg`, `sandbox/egg`), **and test files**
   are all coder-writable by default — the coder authors its own tests
   (intentional overlap with the tester; see the phase preamble above).
-- Blocked: `docs/`, `**/README.md`, `**/*.md` (documenter's scope);
-  `.egg-state/` (pipeline state);
-  plus a block on `.github/` (CI workflows —
-  branch-protection invariant). To propose `.github/` changes,
-  write the end-state to `.github-staging/` mirroring the `.github/`
-  structure (e.g. stage `.github/workflows/ci.yml` as
-  `.github-staging/workflows/ci.yml`); the agent must call the staged
-  files out in its PR body so the human reviewer moves them into
-  `.github/` before merge
+- Blocked (*soft* — the docs scope, carved back for functional-code
+  markdown below): `docs/`, `**/README.md`, `**/*.md` (documenter's
+  scope). `.github/` and the whole `.egg-state/` tree are **hard**-blocked
+  (see below), not soft — to propose `.github/` changes, write the
+  end-state to `.github-staging/` mirroring the `.github/` structure (e.g.
+  stage `.github/workflows/ci.yml` as `.github-staging/workflows/ci.yml`);
+  the agent must call the staged files out in its PR body so the human
+  reviewer moves them into `.github/` before merge
   ([#2508](https://github.com/jwbron/egg/issues/2508)).
   `sandbox/scripts/` is **writable** — the gateway is the sole egress
   chokepoint, so credential-shim modifications are reviewed by
   `reviewer_security` rather than blocked at the role-pattern layer.
   See [security-review-criteria.md](../../shared/prompts/security-review-criteria.md).
-- Block exemptions (writable, overriding the *soft* blocks above —
-  docs and the broad `.egg-state/` block):
-  `.egg-state/agent-outputs/` (coder's handoff output),
-  `.egg-state/agent-anchors/` (per-agent anchor state, scoped by
-  `check_anchor_write_permission`),
+- Block exemptions (writable, overriding the *soft* docs block only —
+  these are markdown files that are functional code / test inputs, not
+  documentation, and can NEVER reach the hard blocks below):
+  `.egg-state/agent-outputs/` (coder's handoff output — clears the docs
+  block for `brc-memory.md` and other markdown handoffs),
   `skills/` (skill definitions are functional code),
   `sandbox/agent-config/rules/*.md` and
   `sandbox/agent-config/commands/*.md` (Claude Code agent config
@@ -274,13 +273,21 @@ worktree branch.
   doc files, so the `**/*.md` docs block would otherwise misclassify them
   as documenter-owned; see
   [#3396](https://github.com/jwbron/egg/issues/3396)).
-- Hard blocks (non-exemptible — no block exemption above can carve these
-  back, because exemptions are evaluated against the union of all blocks
-  and the broad `**/fixtures/` / `**/testdata/` carve-outs would
-  otherwise punch through): `.github/` (branch-protection invariant) and
-  the sensitive `.egg-state/` state subtrees `.egg-state/contracts/`,
-  `.egg-state/drafts/`, `.egg-state/pipelines/`, `.egg-state/reviews/`,
-  `.egg-state/oversight/`. See
+- Hard blocks (non-exemptible — the broad `**/fixtures/` / `**/testdata/`
+  block exemptions are evaluated against the union of all blocks, so
+  without this tier a fixtures/testdata path under any of these would
+  become writable): `.github/` (branch-protection invariant) and the
+  **whole `.egg-state/` tree**. Hard-blocking `.egg-state/` as a whole
+  (rather than enumerating sensitive subtrees) makes the "current and
+  future subdir" invariant hold without maintenance — no fixtures/testdata
+  exemption can reach `contracts/`, `drafts/`, `pipelines/`, `reviews/`,
+  `oversight/`, `brc-history/`, `checks/`, or any subdir added later.
+- Hard-block carve-backs (the *only* paths carved back out of the
+  `.egg-state/` hard block, via a narrow explicitly-anchored allowlist
+  that can never match `.github/` or a future `.egg-state/<newdir>/`):
+  `.egg-state/agent-outputs/` (coder's git-pushed handoff output) and
+  `.egg-state/agent-anchors/` (per-agent anchor state, scoped downstream
+  by `check_anchor_write_permission`). See
   [#3396](https://github.com/jwbron/egg/issues/3396).
 
 **Outputs**:
@@ -332,17 +339,26 @@ tests, and its mandate is two-fold: **(1) comprehensive regression coverage** �
   production module that happens to live under one — intended, as
   fixtures are treated as test inputs the tester co-owns); and
   `.egg-state/agent-outputs/`.
-- Blocked: `docs/`, `**/README.md`, `**/*.md` (documenter's scope). The
-  `**/fixtures/` / `**/testdata/` carve-out clears this docs block for
-  fixture markdown, mirroring the coder.
-- Hard-blocked (non-exemptible — the fixture/testdata carve-out cannot
-  reach these): `.github/` (branch-protection invariant) and
-  `.egg-state/contracts/` (contracts flow through the contract API, not
-  git). A CI fix uncovered during testing must be handed off to the
-  coder via `HANDOFF` rather than staged directly. Source code and
-  config files outside tests/fixtures are out of scope by definition —
-  the coder owns them (everything not listed in this section or the
-  documenter's).
+- Blocked (*soft* — docs scope): `docs/`, `**/README.md`, `**/*.md`
+  (documenter's scope). The `**/fixtures/` / `**/testdata/` carve-out
+  clears this docs block for fixture markdown, mirroring the coder.
+- Hard-blocked (non-exemptible — the fixture/testdata patterns appear in
+  BOTH the tester's allowlist and its docs-block exemption, so without
+  this tier a fixtures/testdata path under any of these would be
+  tester-writable): `.github/` (branch-protection invariant) and the
+  **whole `.egg-state/` tree** — contracts flow through the contract API,
+  not git, and `drafts/`/`pipelines/`/`reviews/`/`oversight/` (and any
+  future subdir) are owned by other roles. Hard-blocking the whole tree
+  (rather than only `.egg-state/contracts/`) closes the hole where
+  `**/fixtures/` made every other `.egg-state/` subdir tester-writable
+  ([#3396](https://github.com/jwbron/egg/issues/3396)). A CI fix uncovered
+  during testing must be handed off to the coder via `HANDOFF` rather than
+  staged directly. Source code and config files outside tests/fixtures are
+  out of scope by definition — the coder owns them (everything not listed
+  in this section or the documenter's).
+- Hard-block carve-back (the *only* `.egg-state/` subdir the tester can
+  write, via a narrow anchored allowlist): `.egg-state/agent-outputs/`
+  (the tester's handoff output).
 
 **Outputs**:
 - Test file commits on the worktree branch

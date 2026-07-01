@@ -7245,6 +7245,17 @@ def _build_role_restrictions_section(repo: str | None = None) -> str:
             lines.append(f"- **Allowed**: {', '.join(f'`{p}`' for p in pattern.allowed_patterns)}")
         if pattern.blocked_patterns:
             lines.append(f"- **Blocked**: {', '.join(f'`{p}`' for p in pattern.blocked_patterns)}")
+        # Hard blocks are rejected even when they'd match the allow list or a
+        # fixture/docs exemption (#3396) — the planner must see them so it
+        # doesn't route a hard-blocked path (e.g. a fixture under `.github/`
+        # or any `.egg-state/` subdir) to this role.
+        if pattern.hard_blocked_patterns:
+            hard = f"- **Hard-blocked (never pushable)**: {', '.join(f'`{p}`' for p in pattern.hard_blocked_patterns)}"
+            if pattern.hard_block_exempt_patterns:
+                hard += (
+                    f" (except {', '.join(f'`{p}`' for p in pattern.hard_block_exempt_patterns)})"
+                )
+            lines.append(hard)
         lines.append("")
 
     lines.append(
@@ -14913,7 +14924,11 @@ def _build_file_boundary_section(role_value: str, repo: str | None = None) -> st
     if pattern is None:
         return ""
 
-    if not pattern.allowed_patterns and not pattern.blocked_patterns:
+    if (
+        not pattern.allowed_patterns
+        and not pattern.blocked_patterns
+        and not pattern.hard_blocked_patterns
+    ):
         return ""
 
     lines = [
@@ -14927,6 +14942,20 @@ def _build_file_boundary_section(role_value: str, repo: str | None = None) -> st
         lines.append("**Allowed:** " + ", ".join(f"`{p}`" for p in pattern.allowed_patterns))
     if pattern.blocked_patterns:
         lines.append("**Blocked:** " + ", ".join(f"`{p}`" for p in pattern.blocked_patterns))
+    # Hard blocks are a stricter tier: they are rejected even when they would
+    # otherwise match your allow list or a docs/fixture exemption (#3396). The
+    # agent must see them, or it will author a hard-blocked path (e.g.
+    # `.egg-state/contracts/fixtures/x.json`, `.github/actions/x/testdata/`),
+    # hit a gateway 403, and have no way to understand why.
+    if pattern.hard_blocked_patterns:
+        hard_line = "**Hard-blocked (never pushable, no exemption applies):** " + ", ".join(
+            f"`{p}`" for p in pattern.hard_blocked_patterns
+        )
+        if pattern.hard_block_exempt_patterns:
+            hard_line += " — except " + ", ".join(
+                f"`{p}`" for p in pattern.hard_block_exempt_patterns
+            )
+        lines.append(hard_line)
 
     # `.github/` staging-dir convention (issue #2508). Surfaced for the
     # coder role specifically because it's the producer that's expected
