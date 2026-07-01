@@ -62,5 +62,29 @@ gap — plus the new submission checks — is the heart of the work.
    migration — fortunately the codebase has done this four times before.
 3. One subtle trap found during grounding: the map from repo to checked-out
    folder is keyed by the repo's short name, so two repos that share a name
-   (different owners) would collide. v1 must re-key it or reject that
-   combination.
+   (different owners) would collide. The operator has ruled on the fix: the
+   map is **re-keyed by the full owner-plus-name** ("owner/repo"). Simply
+   rejecting same-name combinations at submission was considered and ruled
+   out — it would quietly break the "any number of repos" promise. If
+   re-keying turns out to be far more work than expected, that comes back
+   to the operator as a new decision, never as a silent fallback to
+   rejection.
+
+## Where decisions stand
+
+Nothing above is provisional anymore. The operator has settled all the open
+design questions, with the same binding force as the merge-ordering decision:
+
+- **Merge ordering** (hard bit 1): automated draft-hold, human decisions
+  only for beyond-merge-order conditions.
+- **Branches and umbrella PRs**: one per repo that has work, none for repos
+  that end up without any — as described above.
+- **Folder-map collision** (hard bit 3): re-key by "owner/repo"; rejection
+  shortcut ruled out.
+- **Testing and review scope**: each slice is tested and reviewed inside its
+  own repo only — no cross-repo diff in v1.
+- **Naming and house rules**: the pipeline is named after the first repo in
+  the list; branch naming is uniform; status displays list PRs per repo; and
+  each slice follows its own repo's conventions.
+
+Only a new operator decision can reopen any of these.
