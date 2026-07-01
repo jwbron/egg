@@ -42,8 +42,8 @@ _shared_path = _orchestrator_path.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
-from egg_config.constants import TEST_GATEWAY_PORT  # noqa: E402
 import slice_green_gate as sgg  # noqa: E402
+from egg_config.constants import TEST_GATEWAY_PORT  # noqa: E402
 from gateway_client import SessionInfo, WorktreeResult  # noqa: E402
 
 PIPELINE_ID = "pipeline-green-gate-test"
