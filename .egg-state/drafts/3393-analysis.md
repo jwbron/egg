@@ -122,11 +122,13 @@ pervasive* — **holds**. Verdicts per claim:
    but ending up with no slices get neither. A single-slice repo still gets
    the standard context PR (uniformity beats special-casing; the context PR
    is the audit surface).
-2. **Merge-sequencing gate semantics → registered as HITL decision-1**
-   (operator picks; see below). This is the piece the issue flags as most
-   likely to be underestimated, and the option space (orchestrator polling
-   vs. HITL hold vs. draft-until-upstream-merges) is a genuine operator
-   fork on rigor-vs-automation.
+2. **Merge-sequencing gate semantics → RESOLVED by operator (HITL cq-1,
+   2026-07-01; see "HITL Resolution" section below).** Binding two-tier
+   model: plain merge ordering is **automated** (dependent slice developed
+   in parallel, PR held in draft, orchestrator auto-marks ready when the
+   upstream PR merges); anything **beyond merge state** (release/publish
+   waits, version-pinning choices, genuine development blocks) is
+   **HITL-resolved**, never programmatically detected.
 3. **Test-gate / reviewer-diff scoping:** the slice↔repo 1:1 rule makes this
    mechanical — the test gate runs in the slice's repo's worktree only, and
    the reviewer diff is `git diff` in that worktree against that repo's
@@ -152,7 +154,9 @@ pervasive* — **holds**. Verdicts per claim:
    field.
 2. **Atomic cross-repo landing is impossible** — GitHub merges PRs
    independently. v1 ships an *ordering hold*, not atomicity. The
-   merge-sequencing gate design is HITL decision-1.
+   merge-sequencing gate semantics were resolved by the operator in HITL
+   cq-1 (two-tier: automated merge-ordering hold; HITL for beyond-merge-state
+   blocks — see "HITL Resolution" section).
 3. **Mixed auth modes are OUT of v1** — submission validates uniformity and
    rejects mixed sets (same shape as the visibility check).
 
@@ -174,9 +178,16 @@ pervasive* — **holds**. Verdicts per claim:
 5. Slice PRs are created in `slice.repo`; each participating repo (≥1 slice)
    gets its own work branch + context PR; PR descriptions cross-reference
    sibling PRs in the pipeline.
-6. Cross-repo ordering expressed via existing `Slice.dependencies`; a
-   dependent slice whose upstream slice lives in another repo is held by the
-   v1 merge-sequencing mechanism chosen in decision-1.
+6. Cross-repo ordering expressed via existing `Slice.dependencies`, with the
+   operator-resolved (cq-1) merge-sequencing semantics: cross-repo
+   dependencies gate **merge-readiness, not development** — the dependent
+   slice is developed in parallel, its PR opened as **draft**, and the
+   orchestrator **auto-marks it ready** when the upstream slice's PR merges
+   (mechanical, observable signal; no HITL step for plain merge ordering).
+   Blocks beyond merge state (waiting on a release/publish of the upstream
+   repo, choosing which released version to pin, or a genuine
+   cannot-continue development block) are held and released via **HITL
+   decisions**, not programmatic detection.
 7. Test gate and reviewer diffs scope to the slice's repo only; a slice's
    agent runs with cwd in the slice's repo worktree and operates under that
    repo's own conventions (`CLAUDE.md`, linters, check commands) — per-repo
@@ -190,6 +201,44 @@ pervasive* — **holds**. Verdicts per claim:
 - Richer first-class merge-sequencing machinery beyond the v1 hold.
 - Cross-repo atomic merge (impossible on GitHub; do not attempt to fake it).
 - Any two-repo special case or primary+secondary data-model shape.
+
+## HITL Resolution (cq-1) — resolved by operator, 2026-07-01
+
+The operator answered decision cq-1 ("what holds a dependent slice's PR when
+its upstream slice's PR lives in another repo?") with a custom ("Other")
+resolution — **binding for the planner**:
+
+> **Merge-gated ordering is automated; genuine blocks are HITL-resolved.**
+> Cross-repo dependencies gate merge-readiness, not development: the
+> dependent slice is developed in parallel, its PR held in draft, and the
+> orchestrator auto-marks it ready when the upstream slice's PR merges
+> (mechanical, observable signal — no human latency, no HITL release step
+> for plain merge ordering). Any block beyond merge state — e.g. waiting on
+> a release/publish of repo A, or deciding which released version repo B
+> should pin — is resolved by a HITL decision, not programmatic detection:
+> signals like "which release" or "this release is out" are
+> context-dependent and not worth fragile automation, so the human confirms
+> the external condition and releases the hold. Development blocks only
+> when work genuinely cannot continue without the upstream artifact, and
+> those blocks are likewise HITL-resolved.
+
+Planner-facing consequences:
+
+1. **Dependencies do NOT serialize development.** Cross-repo-dependent
+   slices are worked in parallel; the dependency bites only at PR
+   merge-readiness.
+2. **v1 needs upstream-PR merge polling + draft→ready transition** in the
+   orchestrator (mechanical GitHub signal), and a **HITL hold type** for
+   beyond-merge-state conditions (release published, version chosen).
+   Automating release-detection is explicitly rejected — do not plan it.
+3. **Two distinct hold kinds, two release paths:** merge-state hold →
+   auto-release; external-condition hold → human-resolved HITL decision.
+
+The resolution is self-contained; **no new HITL decisions are induced** —
+the split between the two hold kinds per dependency edge is planner-phase
+mechanics under the rule above (default: merge-state hold; escalate to the
+HITL kind only where the plan identifies a release/publish or version-pin
+condition).
 
 ## Decision log
 
@@ -215,3 +264,10 @@ pervasive* — **holds**. Verdicts per claim:
   the issue's per-repo-conventions entailment (agent cwd + CLAUDE.md /
   linters / check commands of the slice's repo) as design recommendation #5
   and folded it into AC-7.
+- 2026-07-01 (v3, operator gate feedback): operator resolved HITL cq-1 with
+  a custom two-tier model — automated draft→ready on upstream PR merge for
+  plain merge ordering; HITL-resolved holds for beyond-merge-state
+  conditions (release/publish, version pinning, genuine development
+  blocks). Folded into design recommendation #2, hard part #2, AC-6, and a
+  new "HITL Resolution (cq-1)" section with planner-facing consequences.
+  No new HITL decisions induced (resolution is self-contained).
