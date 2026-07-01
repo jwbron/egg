@@ -38,11 +38,12 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
-      "debounce_until": null
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other: Merge-gated ordering is automated; genuine blocks are HITL-resolved. Cross-repo dependencies gate merge-readiness, not development: the dependent slice is developed in parallel, its PR held in draft, and the orchestrator auto-marks it ready when the upstream slice's PR merges (mechanical, observable signal \u2014 no human latency, no HITL release step for plain merge ordering). Any block beyond merge state \u2014 e.g. waiting on a release/publish of repo A, or deciding which released version repo B should pin \u2014 is resolved by a HITL decision, not programmatic detection: signals like 'which release' or 'this release is out' are context-dependent and not worth fragile automation, so the human confirms the external condition and releases the hold. Development blocks only when work genuinely cannot continue without the upstream artifact, and those blocks are likewise HITL-resolved.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-01T23:45:19.607965Z",
+      "debounce_until": null,
+      "redirect_seed": null
     }
   ],
   "workflow_owner": null,
