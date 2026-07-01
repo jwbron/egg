@@ -34,19 +34,27 @@ pervasive* — **holds**. Verdicts per claim:
 
 | # | Issue claim | Verdict | Evidence (live tree) |
 |---|---|---|---|
-| 1 | Gateway worktree creation takes a repo **list**, returns dict repo→path | **TRUE** (naming drift, see corrections) | `orchestrator/gateway_client/_worktree.py:13-22` — `create_worktree(self, container_id, repos: list[str], ...)`; returns `worktrees: dict[repo_name → path]` (`_worktree.py:74-79`; gateway handler `gateway/gateway.py:~7827`) |
+| 1 | Gateway worktree creation takes a repo **list**, returns dict repo→path | **TRUE** (two-layer naming, see corrections) | `orchestrator/gateway_client/_worktree.py:13-22` — `create_worktrees(self, container_id, repos: list[str], ...)` (plural, exactly as the issue says); returns `WorktreeResult.worktrees: dict[repo_name → path]` (`_worktree.py:74-79`; gateway handler `gateway/gateway.py:~7827`) |
 | 2 | Credentials resolve per repo via `get_token_for_repo(repo)` | **TRUE** | `gateway/git_client/_credentials.py:85-118` — single-repo signature; per-repo `get_auth_mode(repo)` from `repositories.yaml`. Callers invoke once per repo — genuinely multi-repo-capable |
 | 3 | `create_pr` / `create_slice_pr` take explicit `repo` param | **TRUE** | `orchestrator/gateway_client/_pr.py:31-137` and `:139-164` |
 | 4 | `check_branch_ownership` is repo-agnostic | **TRUE in substance** (nuance, see corrections) | `gateway/policy.py` — ownership derives from branch prefix + PR author; no per-repo logic. But the bot identity / prefix set is a single **global** config (`GATEWAY_BOT_NAME`, `GATEWAY_BOT_BRANCH_PREFIX`) — fine under v1 uniform auth mode |
 | 5 | Contract/Slice schema has **no `repo` field** — the load-bearing gap | **TRUE** | `shared/egg_contracts/models.py:322-459` — `Slice` fields: `id`, `name`, `goal`, `status`, `tasks`, `dependencies`, `serialized_chain_order`, `parent_branch_at_creation`, `integration_base_sha`, `commit`, `pr_number`, `pr_url`, `review_feedback`. No repo dimension anywhere in the contract. Dependency mechanism exists: `dependencies: list[str]` of slice IDs (`models.py:362-369`) |
-| 6 | `Pipeline.repo` is a singleton; agent env collapses to `repos[0]` (`EGG_PIPELINE_REPO`) | **TRUE** — two collapse sites | `orchestrator/models.py:1131` (`Pipeline.repo: str \| None`); `orchestrator/kubernetes_spawner/_spawn.py:452` (`repo_name = repos[0].split("/")[-1]`), `:464` (`pipeline_repo = repos[0] if repos else None`), `:523` (`EGG_PIPELINE_REPO`); **plus a second collapse the issue does not mention**: `orchestrator/commit_authorship_store.py:932-933` (`next((r for r in repos if r.name == "egg"), repos[0])`) |
+| 6 | `Pipeline.repo` is a singleton; agent env collapses to `repos[0]` (`EGG_PIPELINE_REPO`) | **TRUE** — three collapse sites | `orchestrator/models.py:1131` (`Pipeline.repo: str \| None`); `orchestrator/kubernetes_spawner/_spawn.py:452` (`repo_name = repos[0].split("/")[-1]`), `:464` (`pipeline_repo = repos[0] if repos else None`), `:523` (`EGG_PIPELINE_REPO`); **plus two more collapses the issue does not mention**: `orchestrator/commit_authorship_store.py:932-933` (`next((r for r in repos if r.name == "egg"), repos[0])`) and `orchestrator/routes/pipelines.py:732` (`overseer_repo = pipeline_repos[0] if pipeline_repos else None`) |
 
 ## GROUNDING CORRECTIONS — flag for planner
 
-1. **Naming drift in the issue table.** The gateway-client method is
-   `create_worktree` (singular), not `create_worktrees`, and the returned
-   mapping is `worktrees`, not `repo_volumes`. Substance of the claim is
-   right; use live names when writing tasks.
+1. **Two-layer naming — distinguish, don't rename.** The issue's method
+   name is CORRECT: the orchestrator gateway-client method is
+   `create_worktrees` (plural, `orchestrator/gateway_client/_worktree.py:13`).
+   A *different*, gateway-internal per-repo helper named `create_worktree`
+   (singular) exists at `gateway/worktree_manager/_create.py:115` — do not
+   conflate the two layers. On the return side, the client returns
+   `WorktreeResult.worktrees` (not `repo_volumes`), but `repo_volumes` is
+   also live: it is the kubernetes-spawner parameter name
+   (`orchestrator/kubernetes_spawner/_spawn.py:45`, `_concurrent.py:117`)
+   fed from the client's `worktrees` field (`_spawn.py:283`). When writing
+   tasks, name the layer: client `create_worktrees` → `worktrees` →
+   spawner `repo_volumes`.
 2. **The worktree dict is keyed by bare repo NAME, not `owner/repo`.**
    `_worktree.py:74-79` keys by short name (`repo.split("/")[-1]`-shaped).
    Two repos with the same name under different owners (`ownerA/foo`,
@@ -59,11 +67,18 @@ pervasive* — **holds**. Verdicts per claim:
    identity + branch-prefix set is one global configuration. Under v1's
    uniform-auth-mode requirement this is a non-issue; it becomes real work
    only in the deferred mixed-auth phase.
-4. **A second `repos[0]` collapse exists** at
-   `orchestrator/commit_authorship_store.py:932-933` (prefers the repo named
-   `"egg"`, falls back to `repos[0]`). The issue names only the agent-env
-   collapse. Any "stop the collapse" acceptance criterion must cover both
-   sites (and a `grep -rn 'repos\[0\]'` sweep at implement time).
+4. **THREE `repos[0]` collapse sites exist, not one.** The issue names only
+   the agent-env collapse. Live enumeration:
+   (a) `orchestrator/kubernetes_spawner/_spawn.py:452/:464` (+
+   `EGG_PIPELINE_REPO` at `:523`) — the agent-env collapse the issue names;
+   (b) `orchestrator/commit_authorship_store.py:932-933` (prefers the repo
+   named `"egg"`, falls back to `repos[0]`);
+   (c) `orchestrator/routes/pipelines.py:732`
+   (`overseer_repo = pipeline_repos[0] if pipeline_repos else None`).
+   Any "stop the collapse" acceptance criterion must cover all three, plus a
+   `grep -rn 'repos\[0\]'` sweep at implement time (the sweep also surfaced
+   `sandbox/egg_lib/sdlc_hitl.py:82`, which is guarded by `len(repos) == 1`
+   and therefore NOT a collapse — listed so the planner doesn't re-flag it).
 
 ## Additional grounding (facts the issue asserts implicitly — verified)
 
@@ -120,6 +135,14 @@ pervasive* — **holds**. Verdicts per claim:
    repo (first in the submitted list unless explicitly flagged); branch
    naming is uniform across repos; status surfaces render per-repo PR lists.
    Planner spells out exact renderings.
+5. **Per-repo conventions (issue entailment — do not drop):** an agent
+   working a slice operates under the conventions of **that slice's repo** —
+   its cwd is the slice's repo worktree, and that repo's `CLAUDE.md`,
+   linters, and check commands govern the work and its gates. The egg repo's
+   `make lint`/`make test` conventions apply only to slices whose repo is
+   egg; other repos bring their own. Planner makes this explicit in slice
+   task wording and in how the test gate resolves each repo's check
+   commands.
 
 ## Hard parts (carried into the contract; do not under-scope)
 
@@ -144,16 +167,20 @@ pervasive* — **holds**. Verdicts per claim:
 3. `Slice.repo` exists (exactly one repo per slice; absent ⇒ primary repo via
    schema migration); contract schemaVersion bumped with a migration
    validator in the established pattern.
-4. Agent environment exposes the **full** repo→worktree map; both `repos[0]`
-   collapse sites (`kubernetes_spawner/_spawn.py`,
-   `commit_authorship_store.py`) are gone, plus a sweep for any others.
+4. Agent environment exposes the **full** repo→worktree map; all three
+   `repos[0]` collapse sites (`kubernetes_spawner/_spawn.py`,
+   `commit_authorship_store.py`, `routes/pipelines.py:732`) are gone, plus a
+   sweep for any others.
 5. Slice PRs are created in `slice.repo`; each participating repo (≥1 slice)
    gets its own work branch + context PR; PR descriptions cross-reference
    sibling PRs in the pipeline.
 6. Cross-repo ordering expressed via existing `Slice.dependencies`; a
    dependent slice whose upstream slice lives in another repo is held by the
    v1 merge-sequencing mechanism chosen in decision-1.
-7. Test gate and reviewer diffs scope to the slice's repo only.
+7. Test gate and reviewer diffs scope to the slice's repo only; a slice's
+   agent runs with cwd in the slice's repo worktree and operates under that
+   repo's own conventions (`CLAUDE.md`, linters, check commands) — per-repo
+   convention scoping, not egg's conventions applied to foreign repos.
 8. `make lint` + `make test-all` green; single-repo pipelines are the
    regression baseline (no behavior change for N=1).
 
@@ -175,3 +202,16 @@ pervasive* — **holds**. Verdicts per claim:
   submission-time visibility validation exists today; confirmed contract
   migration machinery has four precedents. Registered HITL decision-1
   (v1 merge-sequencing gate semantics). Wrote v1 of this analysis.
+- 2026-07-01 (v2, addressing three NACKs on v1 — all conceded after live
+  re-verification): (1) correction #1 was inverted — the client method IS
+  `create_worktrees` (plural, `gateway_client/_worktree.py:13`, the issue
+  was right); the singular `create_worktree` I conflated it with is the
+  gateway-internal helper (`gateway/worktree_manager/_create.py:115`), and
+  `repo_volumes` is the live spawner parameter, not drift — correction #1
+  rewritten as a two-layer naming map. (2) A THIRD `repos[0]` collapse
+  exists at `orchestrator/routes/pipelines.py:732` — correction #4, verdict
+  row 6, and AC-4 now enumerate all three (the sweep also cleared
+  `sandbox/egg_lib/sdlc_hitl.py:82` as guarded, not a collapse). (3) Added
+  the issue's per-repo-conventions entailment (agent cwd + CLAUDE.md /
+  linters / check commands of the slice's repo) as design recommendation #5
+  and folded it into AC-7.
