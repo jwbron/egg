@@ -117,6 +117,30 @@
   draft's faithfulness against it before/while ACKing my pending
   simplifier->refiner review edge.
 
+### 2026-07-01 ~23:59 UTC — event #10: iteration-1 gate — operator ratifies 4 design rulings → iteration-2 proposal
+
+- Operator directive (iteration 1): the four design recommendations are now
+  BINDING operator decisions (same standing as cq-1): (1) lazy-per-repo
+  work branch + context PR RATIFIED; (2) worktree keying → option (a)
+  re-key by full owner/repo, option (b) reject-same-name RULED OUT
+  (contradicts arbitrary-N); prohibitive fan-out ⇒ new HITL, never silent
+  (b); (3) test-gate/reviewer-diff single-repo scoping RATIFIED; (4)
+  naming/status/per-repo conventions RATIFIED.
+- INCIDENT NOTE: refiner's v3 commit (c2a3a8e80) CLOBBERED my
+  3393-analysis-human.md; their 63c824cfe restored it. Verified my worktree
+  file == my e88c16d61 content (empty diff) before editing. Watch for
+  clobbers whenever the refiner re-proposes.
+- Faithfulness vs refiner 63c824cfe DISCHARGED: their cq-1 fold-in matches
+  my hard-bit-1 rendering (both derive from the operator resolution text);
+  no new content requiring summary changes beyond this directive.
+- My edits: hard-bit #3 rewritten (re-key by owner/repo decided; rejection
+  ruled out; prohibitive ⇒ new operator decision); added "Where decisions
+  stand" section marking all five rulings binding. cq-1 paragraph and
+  grounding/good-news sections left untouched per "no other changes".
+- simplifier->refiner review edge STILL pending — refiner must fold the
+  ratifications into the analysis (v4); review when their propose event
+  reaches me.
+
 ## Next invocation checklist
 
 1. Read `.egg-state/drafts/issue-3393-analysis.md` (pull the refiner's
