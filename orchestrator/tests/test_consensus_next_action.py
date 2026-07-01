@@ -818,3 +818,66 @@ def test_next_action_reviewer_pending_reviews_includes_proposal_commit_sha(clien
         f"pending_reviews entry must carry the producer's proposed commit "
         f"SHA (abc1234 from _propose) — entry={entry!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# #3395: pending_reviews entries must carry the orchestrator-authoritative
+# last_reviewed_commit_sha (the commit this reviewer last VERDICTED,
+# ``entry.version`` → per-version commit history). The composer prefers it
+# over the reviewer's self-tracked memory bullet, which can silently advance
+# past the fix commit and render an empty delta forever (the permanent-NACK
+# deadlock).
+# ---------------------------------------------------------------------------
+
+
+def test_next_action_pending_reviews_last_reviewed_sha_after_nack_and_repropose(
+    client, simple_tracker
+):
+    """After a NACK on v1 (abc1234) and a re-propose with the fix commit
+    (def5678), the reviewer's pending entry must anchor the re-review
+    baseline at the v1 SHA it actually verdicted — never at the new
+    proposal SHA (which would make ``git log {sha}..{sha}`` empty by
+    construction, #3395)."""
+    _propose(simple_tracker, "coder")
+    _nack(simple_tracker, "reviewer_code", "coder", "Named blocker on a.py")
+    simple_tracker.handle_re_propose(
+        "coder",
+        {
+            "summary": (
+                "Re-proposal v2 landing the fix commit, with substantive "
+                "content describing the work and tests run for re-review."
+            ),
+            "artifacts": ["a.py"],
+            "commit_sha": "def5678",
+        },
+        ["a.py"],
+    )
+
+    resp = _post_next_action(client, "reviewer_code", tracker=simple_tracker)
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    payload = data.get("data", data)
+    pending = (payload.get("event_payload") or {}).get("pending_reviews") or []
+    assert len(pending) >= 1, f"NACKing reviewer must be re-invoked — payload={payload!r}"
+    entry = pending[0]
+    assert entry.get("proposal_commit_sha") == "def5678"
+    assert entry.get("last_reviewed_commit_sha") == "abc1234", (
+        f"baseline must be the last-VERDICTED commit (abc1234), resolved "
+        f"server-side from entry.version — entry={entry!r}"
+    )
+
+
+def test_next_action_pending_reviews_last_reviewed_sha_empty_on_first_review(
+    client, simple_tracker
+):
+    """A first review has no prior verdict, so the server-resolved baseline
+    is empty and the composer falls back to memory / the degraded
+    artifact-list baseline."""
+    _propose(simple_tracker, "coder")
+    resp = _post_next_action(client, "reviewer_code", tracker=simple_tracker)
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    payload = data.get("data", data)
+    pending = (payload.get("event_payload") or {}).get("pending_reviews") or []
+    assert len(pending) >= 1
+    assert pending[0].get("last_reviewed_commit_sha") == ""
