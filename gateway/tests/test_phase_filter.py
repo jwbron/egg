@@ -571,8 +571,11 @@ class TestPhaseFilterFileRestrictions:
         assert "documenter" in roles
 
         coder = next(r for r in restrictions if r.role == "coder")
-        assert ".egg-state/" in coder.blocked_patterns
+        # The whole `.egg-state/` tree is a non-exemptible hard block (#3396);
+        # `.egg-state/agent-outputs/` is carved back via the two exempt tiers.
+        assert ".egg-state/" in coder.hard_blocked_patterns
         assert ".egg-state/agent-outputs/" in coder.block_exempt_patterns
+        assert ".egg-state/agent-outputs/" in coder.hard_block_exempt_patterns
 
     def test_legacy_file_restrictions_key_emits_deprecation(self, tmp_path: Path):
         """A stale config carrying ``file_restrictions`` warns but does not
