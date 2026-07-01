@@ -8,6 +8,17 @@
   (poll+auto-release / HITL release / hybrid / other).
 - v1 → three NACKs (reviewer_refine, reviewer_agent_design,
   first_principles_reviewer); all conceded after live re-verification.
+- v2 → ACKed by all three named reviewers (simplifier→refiner was pending);
+  operator then resolved HITL cq-1 at the phase gate and kicked back with
+  iteration feedback → v3.
+- **cq-1 RESOLVED (operator, custom answer, BINDING):** two-tier
+  merge-sequencing — (a) plain merge ordering AUTOMATED: dependent slice
+  developed in parallel, PR held in draft, orchestrator auto-marks ready
+  when upstream PR merges; (b) beyond-merge-state blocks (release/publish
+  waits, version-pin choices, genuine development blocks) are HITL-resolved,
+  never programmatically detected. Folded into analysis (design rec #2,
+  hard part #2, AC-6, new "HITL Resolution (cq-1)" section) and the human
+  summary's hard-bit #1. No new HITL decisions induced.
 
 ## v1 NACK resolutions (do not re-litigate — I verified reviewers were right)
 
