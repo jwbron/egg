@@ -76,6 +76,25 @@
   do NOT add a new section per identical event — update this line instead:
   latest identical premature-propose event: **#6 at 23:31:15Z**.
 
+### 2026-07-01 ~23:36 UTC — event #8: reviewer_refine NACK v1 → fixed, re-proposed v2
+
+- NACK reason: "two spots" must be "three spots" — third repos[0] collapse
+  at orchestrator/routes/pipelines.py:732 (overseer_repo). VERIFIED live by
+  grep: all three sites real (_spawn.py:452,464;
+  commit_authorship_store.py:932-933; pipelines.py:732).
+- Also verified: gateway-client method is `create_worktrees` (PLURAL,
+  _worktree.py:13) — refiner's correction #1 was inverted, as the reviewer
+  said. My human draft never names the method ("machinery that checks out
+  code already accepts a list") so it needs no change for that.
+- Fix applied: "two spots" → "three spots" + added plain-language sweep
+  clause ("a sweep at implementation time will catch any stragglers") per
+  reviewer's "keep the sweep language".
+- Refiner v2 NOT yet proposed at fix time (transcript shows only v1).
+  OBLIGATION: when refiner v2 lands, re-check my draft's faithfulness
+  against it — expected v2 delta (three sites, un-inverted naming) is
+  already consistent with my v2, but verify anything else that changes.
+- Re-proposed as my v2.
+
 ## Next invocation checklist
 
 1. Read `.egg-state/drafts/issue-3393-analysis.md` (pull the refiner's
