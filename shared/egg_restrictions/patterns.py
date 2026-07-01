@@ -258,6 +258,19 @@ def _build_coder_pattern(
             "sandbox/agent-config/commands/*.md",
             # Top-level skills directory (skill definitions are functional code)
             "skills/",
+            # Test-fixture / testdata trees are test INPUTS, not documentation.
+            # Fixtures deliberately imitate doc files (AGENTS.md, README.md,
+            # .cursor/rules.md, ...) because the tools under test scan doc
+            # files; the `**/*.md` docs block would otherwise misclassify them
+            # as documenter-owned and 403 the coder that ships them alongside
+            # the test. Same "functional code, not docs" rationale as the
+            # agent-config carve-outs above. The `**/<dir>/` directory form is
+            # the reliably-matched shape (the matcher's multi-`**` handling is
+            # fnmatch-loose and misses direct children); it correctly leaves
+            # genuine docs (`docs/`, `README.md`, nested `README.md`)
+            # documenter-owned. See #3396.
+            "**/fixtures/",
+            "**/testdata/",
         ],
     )
 
@@ -292,6 +305,12 @@ def _build_tester_pattern(
             # Dependency files (test dependency management)
             "**/*.lock",
             "**/requirements*.txt",
+            # Test-fixture / testdata trees are test inputs the tester
+            # review-and-hardens alongside the coder. They are not in
+            # ``tests_globs`` unless nested under a ``tests/`` dir, so they
+            # must be allowed explicitly here (see #3396).
+            "**/fixtures/",
+            "**/testdata/",
             # Handoff output
             ".egg-state/agent-outputs/",
         ],
@@ -302,6 +321,14 @@ def _build_tester_pattern(
             ".egg-state/contracts/",
             # Issue #2521: parity with TESTER_ROLE.blocked_write — see CODER_PATTERNS for rationale.
             ".github/",
+        ],
+        block_exempt_patterns=[
+            # Fixture markdown (AGENTS.md, README.md, ...) is a test input,
+            # not documentation — clear the `**/*.md` docs block for the
+            # fixture/testdata trees the tester co-owns. Mirrors the coder
+            # carve-out. See #3396.
+            "**/fixtures/",
+            "**/testdata/",
         ],
     )
 

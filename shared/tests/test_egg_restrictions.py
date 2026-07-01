@@ -331,6 +331,55 @@ class TestCoderBlocklistComplement:
         assert not CODER_PATTERNS.can_write("../../etc/passwd")
 
 
+class TestFixtureTreeCarveOut:
+    """#3396: test-fixture / testdata trees are test inputs, not docs.
+
+    Fixtures deliberately imitate doc files (``AGENTS.md``, ``README.md``,
+    ``.cursor/rules.md``, ...) because the tools under test scan doc
+    files. Without a carve-out the ``**/*.md`` docs block misclassifies
+    them as documenter-owned and 403s the coder/tester that ship them
+    alongside the test. These are the exact paths from the #3396 denial.
+    """
+
+    FIXTURE_PATHS = [
+        ".agents/tools/agents_tools/harness/fixtures/excluded-siblings/.cursor/rules.md",
+        ".agents/tools/agents_tools/harness/fixtures/excluded-siblings/.github/instructions/copilot.md",
+        ".agents/tools/agents_tools/harness/fixtures/excluded-siblings/.pi/prompts.md",
+        ".agents/tools/agents_tools/harness/fixtures/staled/AGENTS.md",
+        ".agents/tools/agents_tools/harness/fixtures/unresolvable-citation/AGENTS.md",
+        ".agents/tools/testdata/README.md",
+        ".agents/tools/testdata/mini_repo/AGENTS.md",
+    ]
+
+    def test_coder_can_write_fixture_markdown(self):
+        for path in self.FIXTURE_PATHS:
+            assert CODER_PATTERNS.can_write(path), path
+
+    def test_tester_can_write_fixture_markdown(self):
+        # The tester review-and-hardens fixtures alongside the coder.
+        for path in self.FIXTURE_PATHS:
+            assert TESTER_PATTERNS.can_write(path), path
+
+    def test_carveout_covers_non_md_fixture_files(self):
+        # The directory-form carve-out is extension-agnostic: any file
+        # under a fixtures/testdata tree is a test input.
+        assert CODER_PATTERNS.can_write("pkg/fixtures/data/sample.json")
+        assert CODER_PATTERNS.can_write("pkg/testdata/golden.txt")
+
+    def test_real_docs_stay_documenter_owned(self):
+        # Negative control: genuine documentation must NOT be swept in.
+        for path in ["docs/guides/testing.md", "README.md", "shared/README.md", "docs/index.md"]:
+            assert not CODER_PATTERNS.can_write(path), path
+            assert not TESTER_PATTERNS.can_write(path), path
+            assert DOCUMENTER_PATTERNS.can_write(path), path
+
+    def test_hard_blocks_unaffected(self):
+        # The carve-out must not open a hole in the security blocks.
+        assert not CODER_PATTERNS.can_write(".egg-state/contracts/spec.json")
+        assert not CODER_PATTERNS.can_write(".github/workflows/ci.yml")
+        assert not TESTER_PATTERNS.can_write(".egg-state/contracts/spec.json")
+
+
 class TestTesterPatterns:
     def test_allows_test_dirs(self):
         assert TESTER_PATTERNS.can_write("tests/test_foo.py")
