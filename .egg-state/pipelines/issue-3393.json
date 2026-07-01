@@ -164,10 +164,27 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Other: Merge-gated ordering is automated; genuine blocks are HITL-resolved. Cross-repo dependencies gate merge-readiness, not development: the dependent slice is developed in parallel, its PR held in draft, and the orchestrator auto-marks it ready when the upstream slice's PR merges (mechanical, observable signal — no human latency, no HITL release step for plain merge ordering). Any block beyond merge state — e.g. waiting on a release/publish of repo A, or deciding which released version repo B should pin — is resolved by a HITL decision, not programmatic detection: signals like 'which release' or 'this release is out' are context-dependent and not worth fragile automation, so the human confirms the external condition and releases the hold. Development blocks only when work genuinely cannot continue without the upstream artifact, and those blocks are likewise HITL-resolved.\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Pipeline issue-3393: the worktree diverged from origin at the refine boundary and the rebase autoresolve could not reconcile it (a conflict outside .egg-state/agent-outputs/). Nothing was discarded — the worktree is left at the local HEAD with the orchestrator's committed work intact, and the pipeline is paused (not failed) for a manual reconcile (#2979). A backup ref pins the current tip: refs/egg-backup/sync-recovery/issue-3393/1782950018469674949 (inspect with `git log refs/egg-backup/sync-recovery/issue-3393/1782950018469674949`).\nLocal-only commits preserved on the worktree HEAD:\n  - 75f499d32 Persist agent statefile writes before refine sync\n\nReconcile the orchestrator-side worktree manually (e.g. rebase the local commits onto origin/<branch> and resolve the conflict), then choose:\n- 'Reconciled — resume' — re-run the worktree sync and resume the refine phase's post-processing from where it paused (no full phase re-run).\n- 'Abort pipeline' — fail the pipeline; the backup ref preserves the commits for offline inspection.",
+      "context": "divergence_reconcile_unacked",
+      "options": [
+        "Reconciled — resume",
+        "Abort pipeline"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-07-01T23:53:38.507387Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-07-01T23:25:33.719087Z",
-  "updated_at": "2026-07-01T23:53:38.476531Z",
+  "updated_at": "2026-07-01T23:53:38.507736Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -180,7 +197,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 20,
+  "version": 21,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
