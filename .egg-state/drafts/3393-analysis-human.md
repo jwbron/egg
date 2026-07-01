@@ -36,10 +36,10 @@ change gets split across an automated pipeline plus a human side-task.
 Most of the plumbing is already multi-repo-ready: the machinery that checks
 out code already accepts a list of repos, credentials already resolve per
 repo, PR creation already takes a repo argument. The real gap is narrow: the
-plan/contract has **no notion of which repo a slice belongs to**, and two
+plan/contract has **no notion of which repo a slice belongs to**, and three
 spots in the code quietly throw away everything after the *first* repo in the
-list. Fixing that gap — plus the new submission checks — is the heart of the
-work.
+list (a sweep at implementation time will catch any stragglers). Fixing that
+gap — plus the new submission checks — is the heart of the work.
 
 ## The genuinely hard bits
 
