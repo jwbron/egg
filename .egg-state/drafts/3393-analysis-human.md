@@ -26,6 +26,9 @@ change gets split across an automated pipeline plus a human side-task.
   umbrella PR**, exactly like today's single repo does — so each repo keeps
   the same audit trail it has now. Repos submitted but left without work get
   neither.
+- Work on a slice follows **that repo's own house rules** — its own
+  instructions file, linters, and test commands — not the rules of whichever
+  repo happens to be first in the list.
 - Two safety rules are enforced at submission: all repos in a run must be
   **uniformly private or uniformly public** (no leaking private context into
   public surfaces), and all must use the **same auth mode** (mixing bot and
@@ -44,9 +47,16 @@ gap — plus the new submission checks — is the heart of the work.
 ## The genuinely hard bits
 
 1. **You cannot merge two PRs in two repos atomically.** GitHub doesn't work
-   that way. The pipeline can order the work and *hold* the dependent PR
-   until the upstream one merges — the exact holding mechanism is an open
-   decision for the operator (see the registered decision).
+   that way. The operator has now decided how v1 handles this: plain merge
+   ordering is **automated** — the dependent slice is developed in parallel,
+   its PR opened as a draft, and the pipeline automatically marks it ready
+   the moment the upstream PR merges (a mechanical, observable signal; no
+   human latency). A human steps in only when the wait is about **more than
+   merge order** — e.g. waiting for repo A to publish a release, or choosing
+   which released version repo B should pin to. Those judgment calls are
+   released by an explicit human decision instead of fragile automation, and
+   the same goes for the rare case where development itself genuinely cannot
+   continue without the upstream artifact.
 2. **The contract format is saved as JSON** and read by every phase, so
    adding the new "repo" field needs a careful, backward-compatible
    migration — fortunately the codebase has done this four times before.
