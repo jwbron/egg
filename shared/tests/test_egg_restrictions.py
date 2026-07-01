@@ -379,6 +379,44 @@ class TestFixtureTreeCarveOut:
         assert not CODER_PATTERNS.can_write(".github/workflows/ci.yml")
         assert not TESTER_PATTERNS.can_write(".egg-state/contracts/spec.json")
 
+    def test_carveout_does_not_punch_through_github_block(self):
+        # #3396 regression: the ``**/fixtures/`` / ``**/testdata/``
+        # block-exempt carve-outs are evaluated against the union of all
+        # blocked patterns, so a fixture/testdata segment under ``.github/``
+        # must NOT become writable. ``.github/`` is a hard block that no
+        # exemption can override.
+        github_fixture_paths = [
+            ".github/fixtures/x.yml",
+            ".github/fixtures/x.md",
+            ".github/actions/foo/testdata/case.yml",
+            ".github/testdata/readme.md",
+        ]
+        for path in github_fixture_paths:
+            assert not CODER_PATTERNS.can_write(path), path
+            assert not TESTER_PATTERNS.can_write(path), path
+
+    def test_carveout_does_not_punch_through_egg_state_blocks(self):
+        # #3396 regression: a fixture/testdata segment under a sensitive
+        # ``.egg-state/`` subtree must stay blocked — the exemption must not
+        # reach contracts/drafts/pipelines/reviews/oversight.
+        egg_state_fixture_paths = [
+            ".egg-state/contracts/fixtures/z.json",
+            ".egg-state/drafts/fixtures/a.json",
+            ".egg-state/pipelines/testdata/b.json",
+            ".egg-state/reviews/testdata/c.json",
+            ".egg-state/oversight/fixtures/d.json",
+        ]
+        for path in egg_state_fixture_paths:
+            assert not CODER_PATTERNS.can_write(path), path
+        # Tester's contract hard-block is likewise non-exemptible.
+        assert not TESTER_PATTERNS.can_write(".egg-state/contracts/fixtures/z.json")
+
+    def test_coder_egg_state_carvebacks_still_writable(self):
+        # The `.egg-state/` block stays *soft* so the coder's own handoff
+        # carve-backs keep working after the hard-block tier was added.
+        assert CODER_PATTERNS.can_write(".egg-state/agent-outputs/handoff.json")
+        assert CODER_PATTERNS.can_write(".egg-state/agent-anchors/anchor.json")
+
 
 class TestTesterPatterns:
     def test_allows_test_dirs(self):

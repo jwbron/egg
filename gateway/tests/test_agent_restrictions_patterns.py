@@ -196,6 +196,22 @@ class TestCanWrite:
         # Exempt pattern should NOT let paths inside docs/ through
         assert pattern.can_write("docs/rules/evil.md") is False
 
+    def test_hard_block_cannot_be_exempted(self):
+        """hard_blocked_patterns are non-negotiable — no block_exempt
+        pattern can carve them back (#3396)."""
+        pattern = AgentFilePattern(
+            role="test",
+            allowed_patterns=["**", "**/fixtures/"],
+            blocked_patterns=["**/*.md"],
+            block_exempt_patterns=["**/fixtures/"],
+            hard_blocked_patterns=[".github/"],
+        )
+        # A fixtures path outside .github/ is exempted from the docs block.
+        assert pattern.can_write("pkg/fixtures/readme.md") is True
+        # But the same carve-out must NOT punch through the hard block.
+        assert pattern.can_write(".github/fixtures/readme.md") is False
+        assert pattern.can_write(".github/workflows/ci.yml") is False
+
 
 class TestCoderRole:
     """Verify coder agent can/cannot write expected files."""

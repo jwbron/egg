@@ -259,14 +259,29 @@ worktree branch.
   chokepoint, so credential-shim modifications are reviewed by
   `reviewer_security` rather than blocked at the role-pattern layer.
   See [security-review-criteria.md](../../shared/prompts/security-review-criteria.md).
-- Block exemptions (always writable, overriding the blocks above):
+- Block exemptions (writable, overriding the *soft* blocks above —
+  docs and the broad `.egg-state/` block):
   `.egg-state/agent-outputs/` (coder's handoff output),
   `.egg-state/agent-anchors/` (per-agent anchor state, scoped by
   `check_anchor_write_permission`),
   `skills/` (skill definitions are functional code),
   `sandbox/agent-config/rules/*.md` and
   `sandbox/agent-config/commands/*.md` (Claude Code agent config
-  represented as markdown — functional code, not documentation).
+  represented as markdown — functional code, not documentation),
+  `**/fixtures/` and `**/testdata/` (test-fixture / testdata trees are
+  test **inputs**, not documentation — fixtures deliberately imitate doc
+  files like `AGENTS.md` / `README.md` because the tools under test scan
+  doc files, so the `**/*.md` docs block would otherwise misclassify them
+  as documenter-owned; see
+  [#3396](https://github.com/jwbron/egg/issues/3396)).
+- Hard blocks (non-exemptible — no block exemption above can carve these
+  back, because exemptions are evaluated against the union of all blocks
+  and the broad `**/fixtures/` / `**/testdata/` carve-outs would
+  otherwise punch through): `.github/` (branch-protection invariant) and
+  the sensitive `.egg-state/` state subtrees `.egg-state/contracts/`,
+  `.egg-state/drafts/`, `.egg-state/pipelines/`, `.egg-state/reviews/`,
+  `.egg-state/oversight/`. See
+  [#3396](https://github.com/jwbron/egg/issues/3396).
 
 **Outputs**:
 - Commits on the worktree branch
@@ -308,17 +323,26 @@ tests, and its mandate is two-fold: **(1) comprehensive regression coverage** �
   `**/*_test.go`, `**/test_*.go`,
   `**/*.test.{ts,tsx,js,jsx}`, `**/*.spec.{ts,tsx,js,jsx}`;
   `**/conftest.py`; plus the tester-relevant pin files
-  `.python-version`, `**/*.lock`, `**/requirements*.txt`; and
+  `.python-version`, `**/*.lock`, `**/requirements*.txt`;
+  `**/fixtures/` and `**/testdata/` (fixture / testdata trees the tester
+  review-and-hardens alongside the coder — see
+  [#3396](https://github.com/jwbron/egg/issues/3396); note this widens
+  the tester allowlist beyond test files: **any** file under a
+  `fixtures/` / `testdata/` directory is tester-writable, including a
+  production module that happens to live under one — intended, as
+  fixtures are treated as test inputs the tester co-owns); and
   `.egg-state/agent-outputs/`.
-- Blocked: `docs/`, `**/README.md`, `**/*.md` (documenter's scope);
-  `.egg-state/contracts/` (pipeline state); and `.github/`
-  (branch-protection invariant — the tester's `allowed_patterns` does
-  not cover `.yml` / `.yaml` / `.json`, so the tester also has no write
-  access under `.github-staging/`. A CI fix or test-fixture change
-  uncovered during testing must be handed off to the coder via
-  `HANDOFF` rather than staged directly). Source code and config
-  files outside tests are out of scope by definition — the coder owns
-  them (everything not listed in this section or the documenter's).
+- Blocked: `docs/`, `**/README.md`, `**/*.md` (documenter's scope). The
+  `**/fixtures/` / `**/testdata/` carve-out clears this docs block for
+  fixture markdown, mirroring the coder.
+- Hard-blocked (non-exemptible — the fixture/testdata carve-out cannot
+  reach these): `.github/` (branch-protection invariant) and
+  `.egg-state/contracts/` (contracts flow through the contract API, not
+  git). A CI fix uncovered during testing must be handed off to the
+  coder via `HANDOFF` rather than staged directly. Source code and
+  config files outside tests/fixtures are out of scope by definition —
+  the coder owns them (everything not listed in this section or the
+  documenter's).
 
 **Outputs**:
 - Test file commits on the worktree branch
@@ -345,7 +369,10 @@ tests, and its mandate is two-fold: **(1) comprehensive regression coverage** �
   convention). Source-code markdown that is functional (e.g.
   `sandbox/agent-config/rules/*.md`, `sandbox/agent-config/commands/*.md`,
   `skills/**/*.md`) is owned by the coder via block exemptions, not the
-  documenter.
+  documenter. Likewise markdown under `**/fixtures/` / `**/testdata/`
+  trees is a test **input** the coder/tester co-own via block exemptions,
+  not documentation — see
+  [#3396](https://github.com/jwbron/egg/issues/3396).
 
 **Outputs**:
 - Documentation commits on the worktree branch

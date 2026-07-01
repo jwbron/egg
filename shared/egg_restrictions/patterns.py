@@ -52,6 +52,7 @@ class AgentFilePattern:
     allowed_patterns: list[str] = field(default_factory=list)
     blocked_patterns: list[str] = field(default_factory=list)
     block_exempt_patterns: list[str] = field(default_factory=list)
+    hard_blocked_patterns: list[str] = field(default_factory=list)
     description: str = ""
 
     def can_write(self, file_path: str) -> bool:
@@ -75,11 +76,28 @@ class AgentFilePattern:
             coders (documentation), but ``.md`` files in agent-config
             directories (rules, skills, commands) are functional code and
             are exempted via block_exempt_patterns.
+
+            ``hard_blocked_patterns`` is a stricter tier that
+            ``block_exempt_patterns`` can NEVER override. It exists because
+            ``block_exempt_patterns`` is evaluated against the *union* of
+            all blocked patterns, so a broad, un-anchored exemption (e.g.
+            ``**/fixtures/``, added to clear the docs block for fixture
+            markdown) would otherwise also punch through the ``.github/``
+            branch-protection block and the sensitive ``.egg-state/`` state
+            blocks for any path carrying a ``fixtures/``/``testdata/``
+            segment. Security-critical blocks that must survive every
+            exemption live here and are checked before anything else.
+            See #3396.
         """
         normalized = self._normalize_path(file_path)
 
         # Reject invalid paths (e.g., path traversal attempts)
         if normalized == "__INVALID_PATH_TRAVERSAL__":
+            return False
+
+        # Hard blocks are non-negotiable: no block_exempt pattern can carve
+        # them back. Checked before the soft block/exempt pair below.
+        if any(match_pattern(normalized, p) for p in self.hard_blocked_patterns):
             return False
 
         # Check blocked patterns FIRST - security takes precedence
@@ -225,16 +243,10 @@ def _build_coder_pattern(
             # NOTE: tester's test scope is intentionally NOT blocked — the
             # coder authors its own tests (overlap with the tester). See the
             # docstring above.
-            # Defense-in-depth: CI workflows and CODEOWNERS — preserves the
-            # branch-protection invariant. Agents that need to propose
-            # `.github/` changes (CI workflow edits, CODEOWNERS rotation)
-            # write the proposed end-state to top-level `.github-staging/`
-            # mirroring the `.github/` structure; the prefix-match below
-            # leaves `.github-staging/` allowed via the `**` allowlist.
-            # The agent flags the staged files in its PR body so the
-            # human reviewer moves them into `.github/` before merge
-            # (issue #2508).
-            ".github/",
+            # NOTE: `.github/` and the sensitive `.egg-state/` state subtrees
+            # are enforced via `hard_blocked_patterns` below (not here) so the
+            # `**/fixtures/` / `**/testdata/` block-exempt carve-outs cannot
+            # punch through them. See #3396.
         ],
         block_exempt_patterns=[
             # Coder's handoff directory — the only .egg-state/ subdir the coder
@@ -272,6 +284,35 @@ def _build_coder_pattern(
             "**/fixtures/",
             "**/testdata/",
         ],
+        hard_blocked_patterns=[
+            # Non-exemptible blocks. `block_exempt_patterns` (which is
+            # evaluated against the union of all blocked patterns) can never
+            # carve these back — see the AgentFilePattern.can_write docstring
+            # and #3396. Without this tier the `**/fixtures/` / `**/testdata/`
+            # carve-outs would exempt any path with a fixtures/testdata
+            # segment from these blocks too (e.g. `.github/actions/x/testdata/`
+            # or `.egg-state/contracts/fixtures/`).
+            #
+            # Branch-protection invariant: CI workflows and CODEOWNERS. Agents
+            # that need to propose `.github/` changes write the proposed
+            # end-state to top-level `.github-staging/` (allowed via the `**`
+            # allowlist) and flag it in the PR body so a human moves it into
+            # `.github/` before merge (issue #2508).
+            ".github/",
+            # Sensitive pipeline-state subtrees the coder must never write via
+            # git (contracts flow through the contract API, not git — #2979;
+            # drafts/pipelines/reviews/oversight are owned by the plan/review/
+            # overseer roles). The broad `.egg-state/` block above is a *soft*
+            # block so the coder's own carve-backs (agent-outputs/,
+            # agent-anchors/) still work; these specific subtrees are
+            # hard-blocked so no `**/fixtures/`/`**/testdata/` exemption
+            # reaches them.
+            ".egg-state/contracts/",
+            ".egg-state/drafts/",
+            ".egg-state/pipelines/",
+            ".egg-state/reviews/",
+            ".egg-state/oversight/",
+        ],
     )
 
 
@@ -308,7 +349,12 @@ def _build_tester_pattern(
             # Test-fixture / testdata trees are test inputs the tester
             # review-and-hardens alongside the coder. They are not in
             # ``tests_globs`` unless nested under a ``tests/`` dir, so they
-            # must be allowed explicitly here (see #3396).
+            # must be allowed explicitly here (see #3396). NOTE: this widens
+            # the tester allowlist beyond test files — any file under a
+            # ``fixtures/``/``testdata/`` directory becomes tester-writable,
+            # including a production module that happens to live under one
+            # (e.g. ``app/fixtures/loader.py``). That is intended: fixtures
+            # are treated as test inputs the tester co-owns.
             "**/fixtures/",
             "**/testdata/",
             # Handoff output
@@ -317,10 +363,11 @@ def _build_tester_pattern(
         blocked_patterns=[
             # Documentation (Documenter handles)
             *docs_globs,
-            # Contracts
-            ".egg-state/contracts/",
-            # Issue #2521: parity with TESTER_ROLE.blocked_write — see CODER_PATTERNS for rationale.
-            ".github/",
+            # NOTE: `.egg-state/contracts/` and `.github/` are enforced via
+            # `hard_blocked_patterns` below (not here) so the `**/fixtures/` /
+            # `**/testdata/` block-exempt carve-outs — and the same patterns
+            # in `allowed_patterns` above — cannot punch through them. See
+            # #3396.
         ],
         block_exempt_patterns=[
             # Fixture markdown (AGENTS.md, README.md, ...) is a test input,
@@ -329,6 +376,18 @@ def _build_tester_pattern(
             # carve-out. See #3396.
             "**/fixtures/",
             "**/testdata/",
+        ],
+        hard_blocked_patterns=[
+            # Non-exemptible blocks (see AgentFilePattern.can_write docstring
+            # and #3396). The tester allowlist and block-exempt list both
+            # match `**/fixtures/` / `**/testdata/`, so without this tier a
+            # fixture/testdata path under `.github/` or `.egg-state/contracts/`
+            # would be tester-writable.
+            # Contracts flow through the contract API, not git (#2979).
+            ".egg-state/contracts/",
+            # Issue #2521: parity with TESTER_ROLE.blocked_write — see
+            # CODER_PATTERNS for the branch-protection rationale.
+            ".github/",
         ],
     )
 

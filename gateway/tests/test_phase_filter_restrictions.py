@@ -12,6 +12,7 @@ Covers:
 """
 
 import pytest
+from egg_restrictions import AgentRole
 from egg_restrictions.matchers import match_pattern
 from phase_filter import (
     FileRestriction,
@@ -189,6 +190,41 @@ class TestFileRestriction:
         assert restriction.role == "implementer"
         assert restriction.blocked_patterns == [".egg-state/contracts/"]
         assert restriction.blocked_reason == "Use contract API"
+
+    def test_hard_block_is_not_exemptible(self):
+        """#3396: hard_blocked_patterns cannot be carved back by
+        block_exempt_patterns, mirroring AgentFilePattern.can_write."""
+        restriction = FileRestriction(
+            role="coder",
+            blocked_patterns=["**/*.md"],
+            block_exempt_patterns=["**/fixtures/"],
+            hard_blocked_patterns=[".github/"],
+        )
+        # Exemption clears the docs block outside the hard-blocked tree.
+        assert restriction.is_file_blocked("pkg/fixtures/readme.md") is False
+        # But the exemption must NOT punch through the hard block.
+        assert restriction.is_file_blocked(".github/fixtures/readme.md") is True
+
+    def test_from_dict_hard_blocked_patterns(self):
+        restriction = FileRestriction.from_dict(
+            {
+                "role": "coder",
+                "blocked_patterns": ["**/*.md"],
+                "hard_blocked_patterns": [".github/"],
+            }
+        )
+        assert restriction.hard_blocked_patterns == [".github/"]
+
+    def test_default_restrictions_project_hard_blocks(self):
+        """The projection from AGENT_PATTERNS must carry hard_blocked_patterns
+        so the gateway early-reject enforces the non-exemptible tier (#3396)."""
+        pf = PhaseFilter()
+        restrictions = {r.role: r for r in pf._get_default_file_restrictions()}
+        coder = restrictions[AgentRole.CODER]
+        assert ".github/" in coder.hard_blocked_patterns
+        # The fixture carve-out must not open .github/ for the coder.
+        assert coder.is_file_blocked(".github/fixtures/x.md") is True
+        assert coder.is_file_blocked(".egg-state/contracts/fixtures/x.json") is True
 
 
 class TestPhaseFilterDefaultPermissions:

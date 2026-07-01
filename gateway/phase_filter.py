@@ -75,6 +75,7 @@ class FileRestriction:
     role: str
     blocked_patterns: list[str] = field(default_factory=list)
     block_exempt_patterns: list[str] = field(default_factory=list)
+    hard_blocked_patterns: list[str] = field(default_factory=list)
     blocked_reason: str = ""
 
     @classmethod
@@ -84,6 +85,7 @@ class FileRestriction:
             role=data["role"],
             blocked_patterns=data.get("blocked_patterns", []),
             block_exempt_patterns=data.get("block_exempt_patterns", []),
+            hard_blocked_patterns=data.get("hard_blocked_patterns", []),
             blocked_reason=data.get("blocked_reason", ""),
         )
 
@@ -101,6 +103,12 @@ class FileRestriction:
             normalized = self._normalize_path(file_path)
         except ValueError:
             # Paths that escape the repository are always blocked
+            return True
+
+        # Hard blocks cannot be carved back by block_exempt_patterns. This
+        # mirrors AgentFilePattern.can_write so the gateway early-reject
+        # agrees with per-commit attribution (#3396).
+        if any(match_pattern(normalized, p) for p in self.hard_blocked_patterns):
             return True
 
         if not any(match_pattern(normalized, p) for p in self.blocked_patterns):
@@ -553,7 +561,7 @@ class PhaseFilter:
         """
         restrictions: list[FileRestriction] = []
         for role, pattern in AGENT_PATTERNS.items():
-            if not pattern.blocked_patterns:
+            if not pattern.blocked_patterns and not pattern.hard_blocked_patterns:
                 continue
             if pattern.description:
                 blocked_reason = (
@@ -570,6 +578,7 @@ class PhaseFilter:
                     role=role,
                     blocked_patterns=list(pattern.blocked_patterns),
                     block_exempt_patterns=list(pattern.block_exempt_patterns),
+                    hard_blocked_patterns=list(pattern.hard_blocked_patterns),
                     blocked_reason=blocked_reason,
                 )
             )
