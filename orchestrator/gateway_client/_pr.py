@@ -136,6 +136,61 @@ def create_pr(
                 pass
 
 
+def _format_pr_ref(ref: dict[str, Any]) -> str | None:
+    """Render one cross-repo PR reference as ``owner/repo#N`` (#3393).
+
+    GitHub autolinks the ``owner/repo#N`` form to the PR in that repo
+    (a bare ``#N`` would resolve against the repo the body lives in,
+    which is the wrong repo for a cross-repo reference). Returns
+    ``None`` when the ref lacks a repo or a positive integer number so
+    the caller can skip malformed entries rather than emit a dead link.
+    """
+    repo = (ref.get("repo") or "").strip()
+    number = ref.get("number")
+    if not repo or not isinstance(number, int) or isinstance(number, bool) or number < 1:
+        return None
+    return f"{repo}#{number}"
+
+
+def _append_related_prs_section(
+    body_lines: list[str],
+    sibling_pr_refs: list[dict[str, Any]] | None,
+    upstream_pr_ref: dict[str, Any] | None,
+) -> None:
+    """Append the cross-repo ``## Related PRs`` section (#3393, slice-4).
+
+    ``sibling_pr_refs`` are the pipeline's PRs in OTHER repos; the
+    ``upstream_pr_ref`` is the cross-repo upstream slice's PR this
+    slice is ordered behind. Malformed entries (no repo / no valid
+    number) are dropped. When nothing renders (the N=1 case — all
+    relationships are same-repo and covered by ``## Stack``) the
+    section is omitted entirely so the body is unchanged.
+    """
+    sibling_lines: list[str] = []
+    seen: set[str] = set()
+    for ref in sibling_pr_refs or []:
+        rendered = _format_pr_ref(ref)
+        if rendered and rendered not in seen:
+            seen.add(rendered)
+            sibling_lines.append(f"- {rendered}")
+
+    upstream_rendered = _format_pr_ref(upstream_pr_ref) if upstream_pr_ref else None
+
+    if not sibling_lines and not upstream_rendered:
+        return
+
+    body_lines.append("## Related PRs")
+    body_lines.append("")
+    if upstream_rendered:
+        body_lines.append(f"Ordered behind upstream PR: {upstream_rendered}")
+        body_lines.append("")
+    if sibling_lines:
+        body_lines.append("Coordinated PRs in other repos in this pipeline:")
+        body_lines.append("")
+        body_lines.extend(sibling_lines)
+        body_lines.append("")
+
+
 def create_slice_pr(
     self,
     pipeline_id: str,
@@ -161,6 +216,8 @@ def create_slice_pr(
     slice_goal: str | None = None,
     diffstat: str | None = None,
     commit_subjects: list[str] | None = None,
+    sibling_pr_refs: list[dict[str, Any]] | None = None,
+    upstream_pr_ref: dict[str, Any] | None = None,
 ) -> str | None:
     """Open a PR for one slice in a stacked-PR chain.
 
@@ -216,6 +273,18 @@ def create_slice_pr(
     This prevents a transient ``gh pr create`` failure that
     partially succeeded (PR created, network blip on response)
     from cascading the slice to FAILED on retry.
+
+    Cross-repo coordination (#3393, slice-4 / task-4-1). When the
+    pipeline spans more than one repo, ``sibling_pr_refs`` carries
+    the pipeline's PRs that live in a DIFFERENT repo than this
+    slice, and ``upstream_pr_ref`` names the cross-repo upstream
+    slice's PR this slice is ordered behind. Both render a
+    ``## Related PRs`` section so a reviewer opening one repo's PR
+    can navigate the coordinated change across repos. Both are
+    scoped to CROSS-repo relationships only (same-repo slices are
+    already linked via the ``## Stack`` block), so for an N=1
+    single-repo pipeline both are empty/None, the section is
+    omitted, and the body is byte-identical to the pre-#3393 shape.
     """
     has_program_title = bool(program_title and program_title.strip())
     has_base_pr = context_pr_number is not None and context_pr_number >= 1
@@ -281,6 +350,15 @@ def create_slice_pr(
             body_lines.append("")
             body_lines.append(unwrap_soft_breaks(program_manual_steps).strip())
             body_lines.append("")
+
+    # ``## Related PRs`` — cross-repo coordination section (#3393,
+    # slice-4). Rendered only when this pipeline coordinates PRs in
+    # another repo: sibling PRs living in a different repo than this
+    # slice, plus the cross-repo upstream PR this slice is ordered
+    # behind. Empty for an N=1 pipeline (all relationships are
+    # same-repo and already covered by ``## Stack``), so the body
+    # stays byte-identical there.
+    _append_related_prs_section(body_lines, sibling_pr_refs, upstream_pr_ref)
 
     # ``## Stack`` block — parent PR + base PR + position. Replaces
     # the old "Slice X of pipeline Y. Stacked on top of `<base>`."

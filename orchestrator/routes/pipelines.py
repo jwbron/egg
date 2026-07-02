@@ -10986,6 +10986,8 @@ def _compose_context_pr_body(
     pipeline,
     worktree_repo_path: Path,
     identifier: int | str,
+    context_repo: str | None = None,
+    sibling_context_prs: list[dict[str, Any]] | None = None,
 ) -> str:
     """Compose the context-PR body from contract + pipeline state (#3115).
 
@@ -11046,6 +11048,20 @@ def _compose_context_pr_body(
         body_lines.append(f"- Issue: #{pipeline.issue_number}")
         has_meaningful_content = True
 
+    # #3393 slice-4 / task-4-2: the repo this context PR lives in. A
+    # slice PR in this same repo cross-links as a bare ``#N`` autolink;
+    # a slice PR in a DIFFERENT repo of the pipeline must be qualified
+    # as ``owner/repo#N`` (a bare ``#N`` would resolve against the wrong
+    # repo). Defaults to the pipeline primary — the repo the up-front
+    # opener composes the primary context PR for. For an N=1 pipeline
+    # every slice resolves to the primary, so every link stays bare and
+    # the body is byte-identical to the single-repo shape.
+    this_context_repo = context_repo or getattr(pipeline, "primary_repo", None) or pipeline.repo
+    try:
+        from models import resolve_slice_repo  # type: ignore[no-redef]
+    except ImportError:
+        from ..models import resolve_slice_repo  # type: ignore[no-redef]
+
     slices = list(contract.slices or [])
     if slices:
         body_lines.append(f"- Slices ({len(slices)}):")
@@ -11059,10 +11075,17 @@ def _compose_context_pr_body(
             line = f"  {number}. {name} (`{s.id}`)"
             # Cross-link the stack (#3122): once the slice's PR is open
             # its number is persisted on the contract and the run loop
-            # re-composes this body, so the entry gains a link. Bare
-            # ``#N`` autolinks within the repo the context PR lives in.
+            # re-composes this body, so the entry gains a link.
             if getattr(s, "pr_number", None):
-                line += f" — #{s.pr_number}"
+                s_repo = resolve_slice_repo(s, pipeline)
+                if s_repo and this_context_repo and s_repo != this_context_repo:
+                    # Cross-repo sibling — repo-qualify so GitHub resolves
+                    # the autolink to the right repo (#3393 slice-4).
+                    line += f" — {s_repo}#{s.pr_number}"
+                else:
+                    # Same-repo (or repo unknown): bare ``#N`` autolinks
+                    # within the repo this context PR lives in.
+                    line += f" — #{s.pr_number}"
             body_lines.append(line)
         has_meaningful_content = True
 
@@ -11095,6 +11118,35 @@ def _compose_context_pr_body(
 
     if has_meaningful_content:
         sections.append("\n".join(["## Pipeline context", "", *body_lines]))
+
+    # #3393 slice-4 / task-4-2: cross-reference the pipeline's context
+    # PRs in OTHER repos. Rendered only for a multi-repo pipeline (the
+    # opener passes ``sibling_context_prs`` when it coordinates >1
+    # repo); an N=1 pipeline passes ``None`` and this section is
+    # omitted, keeping the body byte-identical to the single-repo shape.
+    coord_lines: list[str] = []
+    for ref in sibling_context_prs or []:
+        ref_repo = (ref.get("repo") or "").strip()
+        ref_number = ref.get("number")
+        if not ref_repo or not isinstance(ref_number, int) or isinstance(ref_number, bool):
+            continue
+        if ref_number < 1:
+            continue
+        # ``owner/repo#N`` autolinks cross-repo (a bare ``#N`` would
+        # resolve against the repo this body lives in).
+        coord_lines.append(f"- {ref_repo}#{ref_number}")
+    if coord_lines:
+        sections.append(
+            "\n".join(
+                [
+                    "## Coordinated repos",
+                    "",
+                    "This pipeline coordinates PRs across multiple repos (#3393):",
+                    "",
+                    *coord_lines,
+                ]
+            )
+        )
     return "\n\n".join(sections)
 
 
@@ -11559,6 +11611,16 @@ def _open_context_pr_at_implement_start(
             head=pipeline.branch,
             base=effective_base,
         )
+        _maybe_open_secondary_context_prs(
+            pipeline_id,
+            pipeline=pipeline,
+            primary_pr_number=existing_pr_number,
+            work_branch=pipeline.branch,
+            worktree_repo_path=worktree_repo_path,
+            identifier=identifier,
+            gateway_mode=gateway_mode,
+            spawner=spawner,
+        )
         return existing_pr_number
 
     # Step 4: open a new context PR. Read title/description from the
@@ -11661,7 +11723,283 @@ def _open_context_pr_at_implement_start(
         base=effective_base,
         url=pr_url,
     )
+    _maybe_open_secondary_context_prs(
+        pipeline_id,
+        pipeline=pipeline,
+        primary_pr_number=new_pr_number,
+        work_branch=pipeline.branch,
+        worktree_repo_path=worktree_repo_path,
+        identifier=identifier,
+        gateway_mode=gateway_mode,
+        spawner=spawner,
+    )
     return new_pr_number
+
+
+def _repos_with_slices(contract, pipeline) -> list[str]:
+    """Repos that own ≥1 slice — the lazy-per-repo participation set (#3393, slice-4).
+
+    A repo *participates* (gets its own ``egg/<id>/work`` branch + context
+    PR) iff at least one slice resolves to it via
+    :func:`models.resolve_slice_repo`. The result is ordered by
+    ``pipeline.repos`` and de-duplicated; a submitted repo that ends up
+    owning no slices is excluded (operator ruling #1). For an N=1 pipeline
+    this returns the single repo. This is the invariant the context-PR
+    opener's per-repo iteration honours (task-4-2).
+    """
+    try:
+        from models import resolve_slice_repo  # type: ignore[no-redef]
+    except ImportError:
+        from ..models import resolve_slice_repo  # type: ignore[no-redef]
+
+    slices = getattr(contract, "slices", None) or []
+    owning = {resolve_slice_repo(s, pipeline) for s in slices}
+    return [spec.repo for spec in (pipeline.repos or []) if spec.repo in owning]
+
+
+def _maybe_open_secondary_context_prs(
+    pipeline_id: str,
+    *,
+    pipeline: Any,
+    primary_pr_number: int,
+    work_branch: str | None,
+    worktree_repo_path: Path,
+    identifier: int | str,
+    gateway_mode: str,
+    spawner: Any,
+) -> None:
+    """Guarded, never-raising entry to the lazy per-repo context opener (#3393).
+
+    No-op unless the pipeline coordinates more than one repo, so the N=1
+    single-repo path in :func:`_open_context_pr_at_implement_start`
+    performs zero extra work (no contract load, no gateway calls) and is
+    byte-for-byte unchanged. Requires a resolvable primary repo + work
+    branch; both are guaranteed set on the multi-repo remote path that
+    reaches here (the opener already returned for local-mode pipelines).
+    """
+    if len(getattr(pipeline, "repos", None) or []) <= 1:
+        return
+    primary_repo = pipeline.primary_repo
+    if not primary_repo or not work_branch:
+        return
+    try:
+        _open_secondary_context_prs(
+            pipeline_id,
+            pipeline=pipeline,
+            primary_repo=primary_repo,
+            primary_pr_number=primary_pr_number,
+            work_branch=work_branch,
+            worktree_repo_path=worktree_repo_path,
+            identifier=identifier,
+            gateway_mode=gateway_mode,
+            spawner=spawner,
+        )
+    except Exception as sec_err:  # noqa: BLE001
+        logger.warning(
+            "Lazy per-repo context PRs raised (continuing — primary context "
+            "PR unaffected) (#3393)",
+            pipeline_id=pipeline_id,
+            error=str(sec_err),
+        )
+
+
+def _open_secondary_context_prs(
+    pipeline_id: str,
+    *,
+    pipeline: Any,
+    primary_repo: str,
+    primary_pr_number: int,
+    work_branch: str,
+    worktree_repo_path: Path,
+    identifier: int | str,
+    gateway_mode: str,
+    spawner: Any,
+) -> dict[str, int]:
+    """Open the lazy per-repo context PRs for a multi-repo pipeline (#3393, slice-4 / task-4-2).
+
+    :func:`_open_context_pr_at_implement_start` opens the PRIMARY repo's
+    context PR (``egg/<id>/work → base``) exactly as it always has. This
+    helper adds the *other* repos: it iterates the set of repos that own
+    ≥1 slice (via ``resolve_slice_repo`` over the contract's slices),
+    drops the primary, and for each remaining repo opens that repo's own
+    ``egg/<id>/work`` context PR (same branch naming, per repo). A
+    submitted repo with NO slices is skipped — lazy-per-repo, operator
+    ruling #1. Every opened context PR (primary + secondaries) then has
+    its body refreshed to cross-reference the sibling context PRs in the
+    other repos (``## Coordinated repos``).
+
+    It is only invoked when ``len(pipeline.repos) > 1``; for an N=1
+    pipeline the caller never reaches here, so the single-repo path is
+    byte-for-byte unchanged.
+
+    Prerequisite / current limit (honest scope note): opening a context
+    PR in a secondary repo requires that repo's ``egg/<id>/work`` branch
+    to exist on its remote, which in turn needs a secondary-repo worktree
+    to push it. Threading the full repo set into worktree CREATION was
+    explicitly deferred by slice-3 (the worktree map is owner/repo-keyed
+    and list-shaped, but only the primary repo is materialised today), so
+    until that later wiring lands the secondary ``create_pr`` will
+    typically fail on a missing head branch. This helper therefore:
+
+    * uses the launcher-auth ``lookup_open_pr`` idempotency primitive
+      (which works per-repo with no worktree) to ADOPT an already-open
+      secondary context PR, and
+    * ATTEMPTS ``create_pr`` otherwise, soft-failing (log, continue) so a
+      missing secondary branch never strands the pipeline.
+
+    The iteration + cross-referencing structure is therefore complete and
+    forward-compatible: once secondary-repo worktree/branch creation is
+    wired, secondary context PRs open with no further change here.
+
+    Every failure is caught and logged; the helper never raises. Returns
+    the ``{repo: pr_number}`` map of context PRs known after the pass
+    (always including the primary), for logging / tests.
+    """
+    opened: dict[str, int] = {primary_repo: primary_pr_number}
+
+    try:
+        from egg_contracts.loader import load_contract
+    except ImportError:
+        logger.warning(
+            "Secondary context PRs: egg_contracts.loader unavailable (skipping) (#3393)",
+            pipeline_id=pipeline_id,
+        )
+        return opened
+
+    try:
+        contract = load_contract(identifier, worktree_repo_path)
+    except Exception as load_err:  # noqa: BLE001
+        logger.warning(
+            "Secondary context PRs: contract load failed (skipping) (#3393)",
+            pipeline_id=pipeline_id,
+            error=str(load_err),
+        )
+        return opened
+
+    # Repos owning ≥1 slice (ordered by ``pipeline.repos``), minus the
+    # primary — the lazy-per-repo participation set (task-4-2).
+    secondary_repos = [r for r in _repos_with_slices(contract, pipeline) if r != primary_repo]
+
+    if not secondary_repos:
+        # Multi-repo pipeline whose slices all resolve to the primary
+        # (e.g. no slice pinned a secondary repo). Nothing lazy to open.
+        return opened
+
+    base_by_repo = {spec.repo: spec.base_branch for spec in (pipeline.repos or [])}
+    context_title = (
+        contract.pr.title.strip()
+        if contract.pr and (contract.pr.title or "").strip()
+        else f"{identifier} context"
+    )
+
+    for repo in secondary_repos:
+        # ``base_branch=None`` ⇒ the repo's default branch. Without a
+        # secondary worktree we cannot run ``_detect_default_branch``
+        # here, so fall back to ``main`` (the create call resolves the
+        # real default server-side when base is omitted anyway).
+        base = base_by_repo.get(repo) or "main"
+        try:
+            existing = spawner.gateway.lookup_open_pr(
+                pipeline_id=pipeline_id,
+                repo=repo,
+                head=work_branch,
+                base=base,
+            )
+            if existing is not None:
+                opened[repo] = existing
+                logger.info(
+                    "Secondary context PR: adopted existing PR (#3393)",
+                    pipeline_id=pipeline_id,
+                    repo=repo,
+                    pr_number=existing,
+                )
+                continue
+
+            body = _compose_context_pr_body(
+                contract=contract,
+                pipeline=pipeline,
+                worktree_repo_path=worktree_repo_path,
+                identifier=identifier,
+                context_repo=repo,
+                sibling_context_prs=[
+                    {"repo": r, "number": n} for r, n in opened.items() if r != repo
+                ],
+            )
+            pr_url = spawner.gateway.create_pr(
+                pipeline_id=pipeline_id,
+                repo=repo,
+                title=context_title,
+                body=body,
+                head=work_branch,
+                base=base,
+                issue_number=pipeline.issue_number,
+                mode=gateway_mode,  # type: ignore[arg-type]
+            )
+            match = re.search(r"/pull/(\d+)(?:[/?#]|$)", pr_url or "")
+            if match:
+                opened[repo] = int(match.group(1))
+                logger.info(
+                    "Secondary context PR: opened new PR (#3393)",
+                    pipeline_id=pipeline_id,
+                    repo=repo,
+                    pr_number=opened[repo],
+                    head=work_branch,
+                    base=base,
+                )
+            else:
+                logger.warning(
+                    "Secondary context PR: create returned no parseable URL (#3393)",
+                    pipeline_id=pipeline_id,
+                    repo=repo,
+                    url=pr_url,
+                )
+        except Exception as sec_err:  # noqa: BLE001
+            # Best-effort: a missing secondary ``egg/<id>/work`` branch
+            # (the deferred-worktree limit above) surfaces here as a
+            # gateway create failure. Log + continue so the primary
+            # context PR + slice stack are unaffected.
+            logger.warning(
+                "Secondary context PR deferred (continuing) — secondary-repo "
+                "work branch likely absent until secondary worktree creation "
+                "is wired (#3393)",
+                pipeline_id=pipeline_id,
+                repo=repo,
+                error=str(sec_err),
+            )
+
+    # Cross-reference pass: refresh every opened context PR body so each
+    # links the sibling context PRs in the other repos. Best-effort and
+    # cosmetic — a failed refresh never affects the slice stack.
+    if len(opened) > 1:
+        for repo, number in opened.items():
+            try:
+                body = _compose_context_pr_body(
+                    contract=contract,
+                    pipeline=pipeline,
+                    worktree_repo_path=worktree_repo_path,
+                    identifier=identifier,
+                    context_repo=repo,
+                    sibling_context_prs=[
+                        {"repo": r, "number": n} for r, n in opened.items() if r != repo
+                    ],
+                )
+                spawner.gateway.update_pr_body(
+                    pipeline_id=pipeline_id,
+                    repo=repo,
+                    pr_number=number,
+                    body=body,
+                    issue_number=pipeline.issue_number,
+                    mode=gateway_mode,  # type: ignore[arg-type]
+                )
+            except Exception as refresh_err:  # noqa: BLE001
+                logger.warning(
+                    "Coordinated-repos cross-reference refresh failed (continuing) (#3393)",
+                    pipeline_id=pipeline_id,
+                    repo=repo,
+                    error=str(refresh_err),
+                )
+
+    return opened
 
 
 def _is_slice_dag_mode(contract) -> bool:
@@ -19592,7 +19930,66 @@ def _run_implement_phase_slices(
                                     if path and path not in seen_paths:
                                         seen_paths.add(path)
                                         slice_files_affected_list.append(path)
+                            # #3393 slice-4 / task-4-1: route this slice's
+                            # PR to its OWN repo (``resolve_slice_repo`` →
+                            # ``slice.repo`` else the pipeline primary) and
+                            # gather CROSS-repo coordination references for
+                            # the PR body. Same-repo relationships are left
+                            # to ``## Stack``, so for an N=1 pipeline
+                            # ``slice_repo`` is the single repo and both
+                            # ref sets are empty — behaviour is unchanged.
+                            try:
+                                from models import (  # type: ignore[no-redef]
+                                    resolve_slice_repo,
+                                )
+                            except ImportError:
+                                from ..models import (  # type: ignore[no-redef]
+                                    resolve_slice_repo,
+                                )
+                            slice_repo = resolve_slice_repo(slice_obj, pipeline) or pipeline.repo
+                            sibling_pr_refs: list[dict[str, Any]] = []
+                            for other in contract_post.slices:
+                                if other.id == slice_id:
+                                    continue
+                                other_repo = (
+                                    resolve_slice_repo(other, pipeline) or pipeline.repo
+                                )
+                                if other_repo and other_repo != slice_repo and other.pr_number:
+                                    sibling_pr_refs.append(
+                                        {"repo": other_repo, "number": other.pr_number}
+                                    )
+                            # Dependent-slice upstream PR — surfaced only
+                            # when the upstream slice is in a DIFFERENT repo
+                            # (a same-repo parent is the stack base already
+                            # rendered by ``## Stack``).
+                            upstream_pr_ref: dict[str, Any] | None = None
+                            upstream_ids = slice_obj.dependencies or []
+                            if upstream_ids:
+                                upstream = next(
+                                    (
+                                        s
+                                        for s in contract_post.slices
+                                        if s.id == upstream_ids[0]
+                                    ),
+                                    None,
+                                )
+                                if upstream is not None and upstream.pr_number:
+                                    upstream_repo = (
+                                        resolve_slice_repo(upstream, pipeline)
+                                        or pipeline.repo
+                                    )
+                                    if upstream_repo and upstream_repo != slice_repo:
+                                        upstream_pr_ref = {
+                                            "repo": upstream_repo,
+                                            "number": upstream.pr_number,
+                                        }
                             slice_pr_data = {
+                                # #3393 slice-4: the repo this slice's PR is
+                                # opened in + its cross-repo coordination
+                                # references (empty for N=1).
+                                "slice_repo": slice_repo,
+                                "sibling_pr_refs": sibling_pr_refs,
+                                "upstream_pr_ref": upstream_pr_ref,
                                 "slice_name": slice_obj.name or slice_id,
                                 # Planner's reviewer-facing summary —
                                 # rendered as the slice PR body's lead
@@ -19708,7 +20105,10 @@ def _run_implement_phase_slices(
                     try:
                         slice_pr_url = spawner.gateway.create_slice_pr(
                             pipeline_id=pipeline_id,
-                            repo=pipeline.repo,
+                            # #3393 slice-4 / task-4-1: route to the slice's
+                            # own repo (falls back to the pipeline primary
+                            # when ``slice.repo`` is absent — the N=1 case).
+                            repo=slice_pr_data["slice_repo"] or pipeline.repo,
                             slice_id=slice_id,
                             slice_name=slice_pr_data["slice_name"],
                             slice_tasks=slice_pr_data["slice_tasks"],
@@ -19728,6 +20128,8 @@ def _run_implement_phase_slices(
                             slice_goal=slice_pr_data["slice_goal"],
                             diffstat=diffstat,
                             commit_subjects=commit_subjects,
+                            sibling_pr_refs=slice_pr_data["sibling_pr_refs"],
+                            upstream_pr_ref=slice_pr_data["upstream_pr_ref"],
                         )
                     except Exception as pr_err:  # noqa: BLE001
                         # Single `gateway.create_slice_pr` HTTP call.
