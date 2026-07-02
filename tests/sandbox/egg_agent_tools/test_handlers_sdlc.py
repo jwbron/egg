@@ -118,6 +118,97 @@ class TestRegisterOpenQuestion:
         with pytest.raises(HandlerError):
             sdlc.register_open_question({"question": "q?", "redirect_seed": 123})
 
+    def test_adds_task_attached_to_referenced_option(self):
+        # An option that mandates a contract mutation carries the structured
+        # payload the orchestrator executes on resolve (#3428).
+        fake_contract = _fake_contract()
+        responses = [
+            {"success": True, "data": fake_contract},
+            {"success": True, "data": {}},
+        ]
+        with (
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request",
+                side_effect=lambda *a, **kw: responses.pop(0),
+            ) as gr,
+            patch("egg_agent_tools.handlers.sdlc.get_contract_identifier", return_value=42),
+        ):
+            resp = sdlc.register_open_question(
+                {
+                    "question": "Wire the dependency?",
+                    "options": ["Add a task to wire it", "Defer"],
+                    "adds_task": {
+                        "option": 1,
+                        "slice_id": "slice-4",
+                        "description": "Wire secondary-repo worktree creation",
+                        "acceptance_criteria": "Worktree exists",
+                        "files_affected": ["a.py"],
+                        "role": "coder",
+                    },
+                }
+            )
+
+        options = resp["decision"]["options"]
+        assert options[0]["adds_task"] == {
+            "slice_id": "slice-4",
+            "description": "Wire secondary-repo worktree creation",
+            "acceptance_criteria": "Worktree exists",
+            "files_affected": ["a.py"],
+            "role": "coder",
+        }
+        # Only the referenced option carries the payload.
+        assert "adds_task" not in options[1]
+        assert "adds_task" not in options[2]  # the auto-appended Other
+        # And it reaches the gateway mutate payload verbatim.
+        sent = gr.call_args_list[1].kwargs["data"]["new_value"]["options"]
+        assert sent[0]["adds_task"]["slice_id"] == "slice-4"
+
+    def test_adds_task_requires_options(self):
+        with pytest.raises(HandlerError, match="requires 'options'"):
+            sdlc.register_open_question(
+                {
+                    "question": "q?",
+                    "adds_task": {"option": 1, "slice_id": "slice-1", "description": "x"},
+                }
+            )
+
+    @pytest.mark.parametrize("option", [0, 3, "1", None, True])
+    def test_adds_task_option_index_must_reference_a_real_option(self, option):
+        # 2 options → valid indices are 1..2; index 3 would point at the
+        # auto-appended "Other", which cannot mandate a mutation.
+        with pytest.raises(HandlerError, match="adds_task.option"):
+            sdlc.register_open_question(
+                {
+                    "question": "q?",
+                    "options": ["A", "B"],
+                    "adds_task": {
+                        "option": option,
+                        "slice_id": "slice-1",
+                        "description": "x",
+                    },
+                }
+            )
+
+    def test_adds_task_slice_id_validated(self):
+        with pytest.raises(HandlerError, match="slice_id"):
+            sdlc.register_open_question(
+                {
+                    "question": "q?",
+                    "options": ["A"],
+                    "adds_task": {"option": 1, "slice_id": "slice-one", "description": "x"},
+                }
+            )
+
+    def test_adds_task_description_required(self):
+        with pytest.raises(HandlerError, match="description"):
+            sdlc.register_open_question(
+                {
+                    "question": "q?",
+                    "options": ["A"],
+                    "adds_task": {"option": 1, "slice_id": "slice-1"},
+                }
+            )
+
     def test_no_options_keeps_list_empty(self):
         fake_contract = _fake_contract()
         responses = [

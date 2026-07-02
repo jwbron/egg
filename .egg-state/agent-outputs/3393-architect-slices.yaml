@@ -1,0 +1,161 @@
+# Recommended slice DAG for issue #3393 — multi-repo pipelines (coordinated PRs across repos).
+# Architect RECOMMENDS; task_planner owns the final DAG, ordering, and PR packaging.
+#
+# CONTEXT: this pipeline implements the feature and is itself a SINGLE-repo (egg) pipeline,
+# so the slice<->repo 1:1 rule (which governs pipelines that USE the feature) does not shape
+# OUR slices — standard #3046 FILE-LEVEL overlap rules do. The dominant constraint is that
+# orchestrator/routes/pipelines.py is still one ~27k-line module (the #3312 slice-19 split is
+# NOT landed): FIVE of this feature's concerns write it, so under #3046 they cannot run
+# concurrently and form a SERIAL SPINE. The data model (S1) is the load-bearing root every
+# other slice reads and MUST land first (refiner hard part #1: refine/plan/implement all read
+# contracts). The plan-parser slice (S2) is file-disjoint from all orchestrator work and is the
+# only fully parallel-capable branch after S1. Docs (S9) are the tail.
+#
+# BINDING operator rulings honored (see .egg-state/drafts/3393-analysis.md): #1 lazy-per-repo
+# branch+context-PR; #3 per-repo test/diff scoping; #4 primary-repo naming + per-repo PR status;
+# #5 per-repo conventions (slice agent cwd = slice repo worktree); #6 owner/repo re-key of the
+# worktree map (reject-same-name FORBIDDEN; prohibitive re-key fan-out is a NEW HITL). HITL cq-1
+# two-tier merge gate is BINDING (auto merge-state draft->ready; HITL for beyond-merge-state).
+slices:
+  - id: 1
+    name: |-
+      Data model — Pipeline.repos + RepoSpec + Slice.repo + schema 1.3->1.4 + resolver
+    goal: |-
+      LOAD-BEARING ROOT. orchestrator/models.py: add RepoSpec{repo:str (owner/name),
+      base_branch:str|None}; add Pipeline.repos:list[RepoSpec] (default_factory=list);
+      model validator synthesizes repos=[RepoSpec(repo,base_branch)] when repos absent but
+      legacy repo set (back-compat), and mirrors repos[0] back onto repo/base_branch for
+      legacy readers; add primary_repo property (repos[0].repo). shared/egg_contracts/models.py:
+      add Slice.repo:str|None (pattern owner/name, default None); bump Contract.schemaVersion
+      '1.3'->'1.4' with _migrate_schema_version_to_1_4 as an ADDITIVE after-stamp mirroring
+      _migrate_schema_version_to_1_3 verbatim (guard schemaVersion=='1.3'; idempotent; no field
+      mutation); update the schemaVersion docstring (:844-862). Add resolve_slice_repo(slice,
+      pipeline)->slice.repo or pipeline.primary_repo at the ORCHESTRATOR layer (the Contract
+      model carries no repo field, so None->primary CANNOT be a model validator). Unit tests:
+      round-trip, absent-field back-compat (pre-1.4 contract, legacy pipeline JSON), N=1
+      behavior-identical. NOTHING may assume len(repos) in {1,2}.
+    dependencies: none
+  - id: 2
+    name: |-
+      Plan parser — `repo:` slice key + in-set validation
+    goal: |-
+      shared/egg_contracts/plan_parser/_models.py: add 'repo' to _KNOWN_SLICE_KEYS (:106-117).
+      _yaml_parse.py: extract phase_data.get('repo') alongside goal/dependencies and feed
+      Slice.repo. _markdown_parse.py: mirror if the markdown fallback must carry repo.
+      _validators.py: when slice.repo present it must be in the pipeline's submitted repo set;
+      a CROSS-REPO dependency edge is LEGAL (the intended cross-repo-ordering expression) — do
+      NOT reject it. Additive + back-compat (absent repo key => Slice.repo None => resolver
+      default). Unknown-key warning (#2870) auto-covers typos once 'repo' is known. FILE-DISJOINT
+      from every orchestrator slice — fully parallel-capable after slice 1.
+    dependencies:
+      - 1
+  - id: 3
+    name: |-
+      Submission — list-shaped submit_task/create_pipeline + uniform visibility + auth-mode validators
+    goal: |-
+      orchestrator/mcp_tools/_submit.py + _tool_defs.py: accept repos (list of {repo,base_branch})
+      in addition to legacy repo/base_branch; wrap a single repo into a one-element list
+      server-side; reject empty set. routes/pipelines.py create_pipeline (:~2071): parse repos[],
+      apply the existing owner/name regex (:2163) per repo, per-repo base-branch auto-detect
+      (_detect_default_branch :2252), construct Pipeline.repos; keep single-repo path working.
+      NEW validate_visibility_uniformity + validate_auth_mode_uniformity: resolve each repo's
+      visibility (gateway get_repo_visibility) and auth mode (repositories.yaml), REJECT a mixed
+      set with an actionable error NAMING the offending repos + buckets. Same-name sets NOT
+      rejected (ruling #6). May need a small new gateway auth-mode read verb (gateway.py +
+      gateway_client/_pr.py). SERIAL SPINE (touches pipelines.py).
+    dependencies:
+      - 1
+  - id: 4
+    name: |-
+      Agent env — stop all three repos[0] collapses; owner/repo-keyed worktree map; per-slice cwd
+    goal: |-
+      kubernetes_spawner/_spawn.py (+ _worktree.py/_events.py): re-key repo->worktree map by FULL
+      owner/repo (ruling #6); expose the FULL map to agent env (EGG_REPO_VOLUMES JSON
+      owner/repo->path, EGG_PIPELINE_REPOS JSON list) — remove the repos[0] collapse (:449-464/
+      :523); for a SLICE agent (event-job carries slice_id) set EGG_REPO_PATH + EGG_PIPELINE_REPO
+      to the SLICE's repo worktree (cwd=slice repo, ruling #5), pipeline-level agents use primary.
+      commit_authorship_store.py:928-933: replace 'prefer egg else repos[0]' with per-repo
+      attribution keyed by the target repo (thread it through callers). routes/pipelines.py:732:
+      overseer_repo = pipeline.primary_repo (explicit primary, not raw repos[0]). Implement-time
+      grep -rn 'repos\[0\]' sweep (sdlc_hitl.py:82 is guarded, NOT a collapse). SERIAL SPINE after
+      slice 3 (both write pipelines.py).
+    dependencies:
+      - 1
+      - 3
+  - id: 5
+    name: |-
+      Per-repo work branch + context PR (lazy-per-repo); slice PR/worktree/integration-branch -> slice.repo
+    goal: |-
+      routes/pipelines.py _open_context_pr_at_implement_start (:~11001): iterate the DISTINCT
+      resolved slice repos (repos with >=1 slice, ruling #1) and open ONE context PR per such repo
+      on that repo's egg/<id>/work -> that repo's base_branch (effective_base per repo);
+      cross-reference sibling PRs in each body; a submitted repo with NO slices gets neither branch
+      nor PR. Slice run time: select the worktree for resolve_slice_repo(slice,pipeline) from the
+      owner/repo-keyed map; create_slice_integration_branch(repo_path=that worktree);
+      create_slice_pr(repo=that repo, head=slice integration branch, base=that repo's work branch/
+      base). Same-repo dependency edges keep stacking on the integration branch as today; cross-repo
+      edges do NOT stack. SERIAL SPINE after slice 4 (worktree map keyed by repo).
+    dependencies:
+      - 1
+      - 4
+  - id: 6
+    name: |-
+      cq-1 merge gate — draft-on-open + mark_ready verb + upstream-merge poll (auto) + HITL external-condition hold
+    goal: |-
+      THE MOST-UNDERESTIMATED PART. Detect: edge B depends_on A is cross-repo iff
+      resolve_slice_repo(A)!=resolve_slice_repo(B) (no new field for the auto path). AUTO merge-state
+      hold (default): open B's PR draft=True (already supported) while upstream A PR unmerged; NEW
+      gateway verb mark_pr_ready(repo,pr_number) (gh pr ready) in gateway/gateway.py +
+      gateway_client/_pr.py; NEW merge-poll pass on the existing reconcile cadence (extend
+      stacked_pr_reconciler.py or add cross_repo_merge_gate.py) that checks upstream slice PR merge
+      state (gh pr view --json state,mergedAt via a small gateway read) and calls mark_ready on
+      merge — development NOT serialized, only PR ready-state waits. HITL external-condition hold
+      (exception, plan-DECLARED release/publish/version-pin edges): register a decision-queue HITL
+      that holds B's ready-transition until a human releases; default absent => auto; do NOT
+      automate release/version detection (cq-1). If the auto path cannot resolve, fall through to
+      the HITL hold rather than hanging; surface held PRs on status. Planner may split auto vs HITL
+      halves (still serialized by shared files). SERIAL SPINE after slice 5.
+    dependencies:
+      - 1
+      - 2
+      - 5
+  - id: 7
+    name: |-
+      Per-repo test-gate + reviewer-diff scoping; per-repo conventions
+    goal: |-
+      Repo-parameterize the test-gate check-command resolution and the reviewer-diff range so both
+      resolve against the slice's repo worktree + that repo's base (rulings #3, #5) — today they
+      assume the single pipeline repo. Verify the resolution sites (run-loop in routes/pipelines.py;
+      routes/signals/_validation.py) and thread slice.repo. May be small; planner may ABSORB into
+      slice 5. SERIAL SPINE (pipelines.py).
+    dependencies:
+      - 4
+      - 5
+  - id: 8
+    name: |-
+      Status + naming surfaces — per-repo PR lists; primary-repo naming
+    goal: |-
+      pipeline id/naming keys off primary_repo (ruling #4); branch naming uniform (egg/<id>/work per
+      repo); status surfaces render the repos list + per-repo PR lists. Files: status_reporter.py +
+      the pipelines status route (routes/pipelines.py). SERIAL SPINE vs other pipelines.py slices.
+    dependencies:
+      - 1
+      - 5
+  - id: 9
+    name: |-
+      Docs — architecture + CLAUDE.md + README (multi-repo model, merge gate, uniformity rules)
+    goal: |-
+      Document the multi-repo model (Pipeline.repos, Slice.repo, primary repo), the lazy-per-repo
+      branch/context-PR shape, the cq-1 two-tier merge gate, and the uniform-visibility/auth rules.
+      Files: docs/architecture/*, orchestrator/CLAUDE.md, shared/CLAUDE.md, docs/guides/
+      sdlc-pipeline.md. Snapshot current-state doctrine (#3288) — no SDLC-artifact/ledger framing.
+      Tail; depends on all.
+    dependencies:
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+      - 6
+      - 7
+      - 8

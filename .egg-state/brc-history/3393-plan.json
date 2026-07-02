@@ -1,0 +1,2233 @@
+[
+  {
+    "id": "f75c6179-4d16-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:03:40.424770+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6956406a-45be-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:03:41.764764+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "52c08d7d-e4a9-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:03:43.268734+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2dc6e19c-0ca7-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:03:44.628077+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c1294060-2928-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:03:45.602481+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "80d80435-ad94-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:03:49.184062+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b99c0502-9158-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:03:50.290989+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "83fadffd-8303-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:03:50.986277+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a7c064fb-ed4a-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:03:54.048377+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6c6882f8-7762-4d",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan phase: simplifier producer artifact plan-draft-human depends on task_planner's plan-draft CONSENSUS_PROPOSE; 3393-plan.md absent, task_planner WORKING. Exiting one-shot; re-spawn me on their propose.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-02T00:04:38.542862+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3bdd6ba9-72a0-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=180651 util=0.18 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:04:53.285823+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5a2a3ff7-15f8-41",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:05:05.502070+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c196b688-fe48-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:05:11.822476+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d2a56e48-0d6a-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:05:51.533593+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "22d16047-aa55-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:05:59.299271+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bf9ea722-3665-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan event #13: still blocked on task_planner's plan-draft proposal (3393-plan.md absent, zero plan proposes). Recreated + committed plan-phase memory entry lost to the phase-gate worktree reseed. Exiting one-shot.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-02T00:06:08.516118+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2665148c-91bd-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=188374 util=0.19 cache_hit=1.00 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:06:17.001650+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e8187bb7-7cc8-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:06:23.637483+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cb2bfbac-473d-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:06:24.093581+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "07c4235f-8894-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:06:30.684278+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "22e3127f-fde2-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:07:14.699937+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "47797e41-d20d-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan event #14: still blocked on task_planner plan-draft (zero plan proposes, no 3393-plan.md). MEMORY-RECOVERY BREADCRUMB for future spawns: worktree reseeds orphan local commits; latest memory snapshot commit = 1234b04b9 (prior orphan 11ad798ef); if brc-memory file lacks plan-phase entries, restore via git checkout 1234b04b9 -- .egg-state/agent-outputs/simplifier/brc-memory-issue-3393.md",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-02T00:07:31.909485+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ee539c99-891c-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=199125 util=0.20 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:07:42.123589+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "38144c98-c2b6-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:07:49.538510+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5eb7384b-cf35-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:07:57.246189+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "356d71d5-d039-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:08:20.026011+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ab6fccdd-f958-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan event #15: still blocked on task_planner plan-draft. MEMORY BREADCRUMB: latest snapshot commit = 701b908ab (restore: git checkout 701b908ab -- .egg-state/agent-outputs/simplifier/brc-memory-issue-3393.md).",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-02T00:08:38.748444+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "97b34905-9b3e-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=208165 util=0.21 cache_hit=1.00 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:08:46.790363+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9ba8ce37-db8c-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from risk_analyst",
+    "body": "Risk assessment for multi-repo pipelines (#3393), plan phase. Verdict PROCEED_WITH_MITIGATIONS (MEDIUM-HIGH), 7 risks grounded against live tree f085265b7. Load-bearing findings: R1 (HIGH/CERTAIN) \u2014 the Contract model carries NO repo field, so the mandated 'Slice.repo absent => primary' migration has no context to resolve 'primary' at load time; the schema change is two fields (Contract repo dimension + Slice.repo), not one. R2 (HIGH/LIKELY) \u2014 'stop the repos[0] collapse' is not a pure deletion: EGG_PIPELINE_REPO is hard-required by the overseer entrypoint (raises without it), so removal must preserve a primary scalar. R3 (MED-HIGH) \u2014 cq-1 auto-release merge-poll is net-new orchestration with unspecified terminal/failure states (closed-unmerged, squash-merge SHA). R4 visibility/auth uniformity must fail-closed at submission entry. R5 owner/repo worktree re-key fan-out. R6 per-repo conventions in test gate. R7 naming/status surfaces.",
+    "metadata": {
+      "payload": {
+        "summary": "Risk assessment for multi-repo pipelines (#3393), plan phase. Verdict PROCEED_WITH_MITIGATIONS (MEDIUM-HIGH), 7 risks grounded against live tree f085265b7. Load-bearing findings: R1 (HIGH/CERTAIN) \u2014 the Contract model carries NO repo field, so the mandated 'Slice.repo absent => primary' migration has no context to resolve 'primary' at load time; the schema change is two fields (Contract repo dimension + Slice.repo), not one. R2 (HIGH/LIKELY) \u2014 'stop the repos[0] collapse' is not a pure deletion: EGG_PIPELINE_REPO is hard-required by the overseer entrypoint (raises without it), so removal must preserve a primary scalar. R3 (MED-HIGH) \u2014 cq-1 auto-release merge-poll is net-new orchestration with unspecified terminal/failure states (closed-unmerged, squash-merge SHA). R4 visibility/auth uniformity must fail-closed at submission entry. R5 owner/repo worktree re-key fan-out. R6 per-repo conventions in test gate. R7 naming/status surfaces.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/3393-risk_analyst-output.json"
+        ],
+        "risk_considered": "Assessed operator-ratified v1 scope only; reviewer follow-up will NACK architect/task_planner plan if R1/R2/R3 unaddressed. Two areas flagged for human review (R3 poll failure semantics, R5 prohibitive re-key fan-out => new HITL per ruling #6).",
+        "commit_sha": "40b701184",
+        "files_changed": [
+          ".egg-state/agent-outputs/3393-risk_analyst-output.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "40b701184"
+    },
+    "timestamp": "2026-07-02T00:08:47.502605+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "adca0423-a07e-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:08:54.229004+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b119eac1-9700-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:08:55.097454+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8974e092-33ab-42",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:09:00.987574+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c508964e-f74f-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:09:02.341668+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b2f55ae6-1c4c-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=105150 util=0.11 cache_hit=0.98 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:09:31.497229+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9a8ecb63-fd6f-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan event #16: risk_analyst proposed (v1, 40b701184) \u2014 noted R1/R2/R3 as context for my future plan-human rendering. Still blocked on task_planner plan-draft for my producer artifact. MEMORY BREADCRUMB: latest snapshot = af1874494 (restore: git checkout af1874494 -- .egg-state/agent-outputs/simplifier/brc-memory-issue-3393.md).",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-02T00:09:38.707508+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6ddedf54-d418-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "risk_analyst",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for risk_analyst",
+    "body": "Plan-phase risk assessment is well-grounded and aligned with the operator-ratified v1 scope. Independently re-verified the two load-bearing anchors against the live tree: R1 (Contract/Slice carry no repo field \u2014 grep 'repo' in shared/egg_contracts/models.py hits only docstrings at :351,:435, and Slice class has none) and R2 (EGG_PIPELINE_REPO hard-raises OSError for the overseer role at sandbox/entrypoint/_environment.py:46) \u2014 both TRUE. Recommendation PROCEED_WITH_MITIGATIONS (MEDIUM-HIGH) is sound; the 7 risks are actionable and correctly scoped. The assessment also states the correct reviewer follow-up obligation (NACK the architect/task_planner plan if R1/R2/R3 are unaddressed), which reviewer_plan will carry forward.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3393-risk_analyst-output.json"
+        ],
+        "reason": "Plan-phase risk assessment is well-grounded and aligned with the operator-ratified v1 scope. Independently re-verified the two load-bearing anchors against the live tree: R1 (Contract/Slice carry no repo field \u2014 grep 'repo' in shared/egg_contracts/models.py hits only docstrings at :351,:435, and Slice class has none) and R2 (EGG_PIPELINE_REPO hard-raises OSError for the overseer role at sandbox/entrypoint/_environment.py:46) \u2014 both TRUE. Recommendation PROCEED_WITH_MITIGATIONS (MEDIUM-HIGH) is sound; the 7 risks are actionable and correctly scoped. The assessment also states the correct reviewer follow-up obligation (NACK the architect/task_planner plan if R1/R2/R3 are unaddressed), which reviewer_plan will carry forward.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-02T00:09:40.942210+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ed6934da-886a-4b",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=62657 util=0.06 cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:09:47.684111+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "61b2242b-edaf-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=218317 util=0.22 cache_hit=1.00 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:09:48.160463+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "27c547a4-1984-41",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:09:59.577371+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d2085e6b-2d67-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:10:07.843082+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "efe7dd55-23af-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:10:23.294973+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b1ec2993-d956-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:10:35.963758+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "287c856c-bd38-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan event #17: still blocked on task_planner plan-draft (no propose, no 3393-plan.md). MEMORY BREADCRUMB: latest snapshot = c78e0704e (restore: git checkout c78e0704e -- .egg-state/agent-outputs/simplifier/brc-memory-issue-3393.md).",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-02T00:10:46.381980+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c2592366-ef42-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=226663 util=0.23 cache_hit=1.00 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:10:52.970987+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a21c5d6e-6367-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:11:04.250903+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d6033e3e-77fc-4b",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:11:11.667349+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ea279e19-104e-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan event #18 (00:11Z): unchanged \u2014 blocked on task_planner plan-draft. MEMORY BREADCRUMB (standing): snapshot = c78e0704e (restore: git checkout c78e0704e -- .egg-state/agent-outputs/simplifier/brc-memory-issue-3393.md). Skipping per-event memory churn on identical states; breadcrumb updates only when content materially changes.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-02T00:11:25.240189+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7f278b79-a1d7-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=230507 util=0.23 cache_hit=1.00 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:11:33.689807+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d99c306b-1f44-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:11:41.546993+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5f0aed5f-13af-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:11:48.371457+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ee0a4fa6-c087-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan event #19 (00:11:49Z): unchanged \u2014 blocked on task_planner plan-draft. Standing memory breadcrumb: c78e0704e.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-02T00:11:55.945790+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0774849d-9132-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=234084 util=0.23 cache_hit=1.00 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:12:01.942189+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d2b58313-b46e-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:12:08.291349+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "17cfd979-c9c9-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:12:08.574171+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0532f60e-a267-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:12:14.842730+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d58b434a-e20f-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan event #20 (00:12:15Z): unchanged \u2014 blocked on task_planner plan-draft. Standing memory breadcrumb: c78e0704e.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-02T00:12:21.348131+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5334ea8a-7b1a-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=237337 util=0.24 cache_hit=1.00 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:12:27.840016+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e0a21e6d-44fa-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:12:35.153695+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8470c0ac-30ba-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:12:38.401914+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "12682bb4-9d5c-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:12:45.271998+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "35ae9a63-a672-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Plan for #3393 multi-repo pipelines: a single serialized 6-slice linear chain (slice-1\u2192\u2026\u2192slice-6, 18 tasks) delivering v1 arbitrary-N-repo support, slice\u2194repo 1:1, uniform auth+visibility. Chain is linear because 5 slices edit orchestrator/routes/pipelines.py and slices 1&3 both edit orchestrator/models.py (#3046 overlap \u21d2 one dependency chain). slice-1 (root): repo dimension in the persisted schema \u2014 Slice.repo + Pipeline repo-list + schemaVersion 1.3\u21921.4 migration (absent\u21d2primary, singleton\u21d21-elem list), the load-bearing gap; nothing writes Slice.repo until it lands. slice-2: list-shaped submit_task/POST pipelines + uniform-visibility & uniform-auth-mode rejection (same-name sets NOT rejected per ruling #6). slice-3: remove all three enumerated repos[0] collapse sites (_spawn.py:452/464/523, commit_authorship_store.py:932-933, pipelines.py:732) + owner/repo re-key of the worktree map + ratchet/grep-sweep (sdlc_hitl.py:82 allowlisted). slice-4: slice-PR routing to slice.repo + lazy-per-repo work-branch/context-PR with sibling cross-refs. slice-5: cq-1 two-tier merge-sequencing hold \u2014 Tier A automated draft\u2192ready on upstream PR merge (no release/version auto-detection), Tier B HITL for beyond-merge-state; deps gate merge-readiness not development. slice-6: per-repo test-gate/reviewer-diff scoping + per-repo conventions (cwd=slice repo worktree) + docs. All 8 refine ACs mapped, all 6 operator rulings + HITL cq-1 honored, N=1 regression baseline asserted in every tester task. Validated locally: parse_plan success, preflight OK, forest/overlap/role-alignment validators all clean.",
+    "metadata": {
+      "payload": {
+        "summary": "Plan for #3393 multi-repo pipelines: a single serialized 6-slice linear chain (slice-1\u2192\u2026\u2192slice-6, 18 tasks) delivering v1 arbitrary-N-repo support, slice\u2194repo 1:1, uniform auth+visibility. Chain is linear because 5 slices edit orchestrator/routes/pipelines.py and slices 1&3 both edit orchestrator/models.py (#3046 overlap \u21d2 one dependency chain). slice-1 (root): repo dimension in the persisted schema \u2014 Slice.repo + Pipeline repo-list + schemaVersion 1.3\u21921.4 migration (absent\u21d2primary, singleton\u21d21-elem list), the load-bearing gap; nothing writes Slice.repo until it lands. slice-2: list-shaped submit_task/POST pipelines + uniform-visibility & uniform-auth-mode rejection (same-name sets NOT rejected per ruling #6). slice-3: remove all three enumerated repos[0] collapse sites (_spawn.py:452/464/523, commit_authorship_store.py:932-933, pipelines.py:732) + owner/repo re-key of the worktree map + ratchet/grep-sweep (sdlc_hitl.py:82 allowlisted). slice-4: slice-PR routing to slice.repo + lazy-per-repo work-branch/context-PR with sibling cross-refs. slice-5: cq-1 two-tier merge-sequencing hold \u2014 Tier A automated draft\u2192ready on upstream PR merge (no release/version auto-detection), Tier B HITL for beyond-merge-state; deps gate merge-readiness not development. slice-6: per-repo test-gate/reviewer-diff scoping + per-repo conventions (cwd=slice repo worktree) + docs. All 8 refine ACs mapped, all 6 operator rulings + HITL cq-1 honored, N=1 regression baseline asserted in every tester task. Validated locally: parse_plan success, preflight OK, forest/overlap/role-alignment validators all clean.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/3393-plan.md"
+        ],
+        "risk_considered": "Migration must land before any producer writes Slice.repo \u2014 enforced by chain-root ordering. pipelines.py is the shared mega-file \u2014 linear chain deliberate, do not re-parallelize (would trip #3046). Draft\u2192ready polling is new but bounded (mechanical GitHub signal, NOT release detection, which cq-1 forbids). Owner/repo re-key fan-out: if prohibitive at implement time, surface a NEW HITL, never silent fallback to reject-same-name (ruling #6). orchestrator/models.py primary_repo property is the intentional primary accessor, explicitly distinct from the 3 removed collapse sites.",
+        "commit_sha": "d0673230d428c450eda0f7e347713b97646cae5b",
+        "files_changed": [
+          ".egg-state/drafts/3393-plan.md",
+          ".egg-state/agent-outputs/task_planner/brc-memory-issue-3393.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-1-1",
+          "task-1-2",
+          "task-1-3",
+          "task-2-1",
+          "task-2-2",
+          "task-2-3",
+          "task-3-1",
+          "task-3-2",
+          "task-3-3",
+          "task-4-1",
+          "task-4-2",
+          "task-4-3",
+          "task-5-1",
+          "task-5-2",
+          "task-5-3",
+          "task-6-1",
+          "task-6-2",
+          "task-6-3"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "d0673230d428c450eda0f7e347713b97646cae5b"
+    },
+    "timestamp": "2026-07-02T00:13:02.719245+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "87deacb2-b750-4b",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:13:07.342536+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c9cf0111-f079-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan event #21 (00:12:46Z): unchanged \u2014 blocked on task_planner plan-draft; liveness verified (their heartbeat 00:12:35Z, WORKING). Standing memory breadcrumb: c78e0704e.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-02T00:13:08.324041+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e2018739-8d71-42",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:13:08.549003+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b75a715d-0fee-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=138594 util=0.14 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:13:14.520121+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1490392b-cd3a-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:13:15.750355+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8b7b7e63-91cc-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:13:16.181414+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f60cc861-2540-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=242475 util=0.24 cache_hit=1.00 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:13:18.811331+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c7397d37-aa61-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:13:25.144182+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "544ceecb-0e79-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:13:31.706180+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fc287d94-028f-4d",
+    "pipeline_id": "issue-3393",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:13:53.567751+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f02c48bd-850c-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from architect",
+    "body": "Architect plan proposal for #3393 multi-repo pipelines \u2014 data-model root (Pipeline.repos + Slice.repo + schema 1.3->1.4), repos[0] de-collapse with owner/repo-keyed worktree map, per-repo lazy branch/context-PR + slice-PR routing, cq-1 two-tier merge gate (auto draft->ready + HITL external-condition), uniform visibility/auth validation. Recommends a 9-slice DAG with S1 root, S2 parallel parser, and a serialized pipelines.py spine.",
+    "metadata": {
+      "payload": {
+        "summary": "Architect plan proposal for #3393 multi-repo pipelines \u2014 data-model root (Pipeline.repos + Slice.repo + schema 1.3->1.4), repos[0] de-collapse with owner/repo-keyed worktree map, per-repo lazy branch/context-PR + slice-PR routing, cq-1 two-tier merge gate (auto draft->ready + HITL external-condition), uniform visibility/auth validation. Recommends a 9-slice DAG with S1 root, S2 parallel parser, and a serialized pipelines.py spine.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/3393-architect-output.json",
+          ".egg-state/agent-outputs/3393-architect-slices.yaml"
+        ],
+        "risk_considered": "Contract migration read across all phases (S1 root; additive/idempotent/guarded after-stamp; read-site None->primary resolver; round-trip+N=1 tests). repos[0] de-collapse misses a site (grep sweep + owner/repo re-key per ruling #6). Merge-gate new machinery / stuck poll (bounded idempotent poll, HITL fallthrough, status surfacing). pipelines.py serial spine (honest under #3046; planner may merge/split). Mixed-visibility leak (hard submission gate). Per-repo conventions not applied (S7 explicit). Cross-repo edge mistaken for same-repo stack (branch the two paths explicitly).",
+        "commit_sha": "aeb3528cdb401a2e21b62bcd64f1df1c119da165",
+        "files_changed": [
+          ".egg-state/agent-outputs/3393-architect-output.json",
+          ".egg-state/agent-outputs/3393-architect-slices.yaml"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "aeb3528cdb401a2e21b62bcd64f1df1c119da165"
+    },
+    "timestamp": "2026-07-02T00:13:54.624849+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b373a72c-760d-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:13:58.458215+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "33e5ea3d-b887-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:13:59.488368+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e1b9813e-dea8-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:14:06.133869+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "461a5793-ad76-42",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:14:10.076618+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6e9f9d34-9cb2-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:14:24.221674+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e3c0b989-04a9-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=178079 util=0.18 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:14:38.395966+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "268fdb5c-4e21-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from simplifier",
+    "body": "Simplifier plan-draft-human v1 for issue #3393 \u2014 plain-language rendering of task_planner v1 (d0673230d). Covers: why the six steps run in a fixed order (five share one large source file; foundation-first value ordering); the six steps in operator terms (1 saved-format repo dimension with automatic upgrade of old plans, 2 list submission with mixed-visibility/mixed-auth rejection and same-name-allowed per ruling #6, 3 the three first-repo-only fixes plus the owner/repo-keyed folder map and a watchdog test, 4 per-repo PR routing with lazy work-branch/umbrella-PR per ruling #1, 5 the cq-1 two-tier hold \u2014 auto draft\u2192ready on upstream merge, human-released holds for beyond-merge conditions, dependencies never delay the work itself, 6 per-repo test/review/house-rules scoping per rulings #3/#5); verification with the explicit N=1 no-behavior-change guarantee; and the after-landing story (lazy migration, no manual steps, deferred items filed as follow-up). All five binding operator rulings and the cq-1 resolution are rendered with their operator-made constraints intact. (Rebased onto origin work-branch tip after a non-fast-forward reject; commit now 291fc5c7f.)",
+    "metadata": {
+      "payload": {
+        "summary": "Simplifier plan-draft-human v1 for issue #3393 \u2014 plain-language rendering of task_planner v1 (d0673230d). Covers: why the six steps run in a fixed order (five share one large source file; foundation-first value ordering); the six steps in operator terms (1 saved-format repo dimension with automatic upgrade of old plans, 2 list submission with mixed-visibility/mixed-auth rejection and same-name-allowed per ruling #6, 3 the three first-repo-only fixes plus the owner/repo-keyed folder map and a watchdog test, 4 per-repo PR routing with lazy work-branch/umbrella-PR per ruling #1, 5 the cq-1 two-tier hold \u2014 auto draft\u2192ready on upstream merge, human-released holds for beyond-merge conditions, dependencies never delay the work itself, 6 per-repo test/review/house-rules scoping per rulings #3/#5); verification with the explicit N=1 no-behavior-change guarantee; and the after-landing story (lazy migration, no manual steps, deferred items filed as follow-up). All five binding operator rulings and the cq-1 resolution are rendered with their operator-made constraints intact. (Rebased onto origin work-branch tip after a non-fast-forward reject; commit now 291fc5c7f.)",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/3393-plan-human.md"
+        ],
+        "risk_considered": "Faithfulness: every claim traced to the plan text; no invented commitments (e.g. did not promise poll failure-state handling the plan does not specify). Observation passed to reviewer_plan rather than silently absorbed: the plan's Tier-A merge-poll does not spell out terminal/failure semantics (risk_analyst R3 \u2014 upstream PR closed-unmerged, squash-merge SHA identification); my summary stays silent on those rather than papering over them. Rebase risk: replayed cleanly onto the architect/task_planner tip with no conflicts; my artifact is untouched by their commits.",
+        "commit_sha": "291fc5c7f",
+        "files_changed": [
+          ".egg-state/drafts/3393-plan-human.md",
+          ".egg-state/agent-outputs/simplifier/brc-memory-issue-3393.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "291fc5c7f"
+    },
+    "timestamp": "2026-07-02T00:15:41.292702+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7ee4e59c-f9ce-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:15:41.741273+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d1a88f20-8f64-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:15:46.604410+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b6ae0e71-74ca-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: PROPOSED",
+    "body": "simplifier plan-draft-human v1 proposed (commit 291fc5c7f, rebased onto work-branch tip after non-fast-forward). Renders task_planner v1 d0673230d with all binding rulings intact; R3 poll-failure-state gap flagged to reviewer_plan in risk_considered. MEMORY BREADCRUMB: snapshot = 291fc5c7f (contains full event log through #22).",
+    "metadata": {
+      "state": "PROPOSED"
+    },
+    "timestamp": "2026-07-02T00:15:48.196188+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7374705c-f310-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=274602 util=0.27 cache_hit=1.00 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:16:00.151302+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c1be81a7-0f5c-41",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from risk_analyst for architect",
+    "body": "ACK. The architecture resolves all seven risks in my assessment (40b701184), including my three NACK-triggers. R1 (Contract has no repo dimension): the architect independently reached the same conclusion I flagged \u2014 \"the Contract model cannot inject the pipeline repo (it carries no repo field), so None->primary is a runtime resolver, not a model migration\" \u2014 and adds resolve_slice_repo(slice, pipeline) at the orchestrator layer plus a pure additive after-stamp schemaVersion 1.3->1.4 migration. Correct and load-bearing. R2 (EGG_PIPELINE_REPO is a hard-required overseer consumer): layer_4 preserves the primary scalar (slice agents get EGG_PIPELINE_REPO = slice repo; pipeline-level agents = primary; overseer_repo = primary_repo) and adds the full owner/repo map ALONGSIDE \u2014 not a naive deletion. R3 (merge-poll terminal states): layer_6 polls upstream merge via gh pr view --json state,mergedAt (mergedAt, not head-SHA equality \u2014 squash/rebase-safe) and falls through to the HITL hold rather than hanging. R4 uniformity validators are a hard submission gate; R5 owner/repo re-key with prohibitive-fan-out => new HITL; R6 per-repo conventions (cwd=slice repo); R7 primary-repo naming + per-repo status. Binding invariants and the N=1 regression baseline are explicit. Note for consensus: the task_planner's slice-1 migration wording diverges from this ratified resolver design (NACKed separately) \u2014 the architect's runtime-resolver approach is the correct one to implement.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3393-architect-output.json",
+          ".egg-state/agent-outputs/3393-architect-slices.yaml"
+        ],
+        "reason": "ACK. The architecture resolves all seven risks in my assessment (40b701184), including my three NACK-triggers. R1 (Contract has no repo dimension): the architect independently reached the same conclusion I flagged \u2014 \"the Contract model cannot inject the pipeline repo (it carries no repo field), so None->primary is a runtime resolver, not a model migration\" \u2014 and adds resolve_slice_repo(slice, pipeline) at the orchestrator layer plus a pure additive after-stamp schemaVersion 1.3->1.4 migration. Correct and load-bearing. R2 (EGG_PIPELINE_REPO is a hard-required overseer consumer): layer_4 preserves the primary scalar (slice agents get EGG_PIPELINE_REPO = slice repo; pipeline-level agents = primary; overseer_repo = primary_repo) and adds the full owner/repo map ALONGSIDE \u2014 not a naive deletion. R3 (merge-poll terminal states): layer_6 polls upstream merge via gh pr view --json state,mergedAt (mergedAt, not head-SHA equality \u2014 squash/rebase-safe) and falls through to the HITL hold rather than hanging. R4 uniformity validators are a hard submission gate; R5 owner/repo re-key with prohibitive-fan-out => new HITL; R6 per-repo conventions (cwd=slice repo); R7 primary-repo naming + per-repo status. Binding invariants and the N=1 regression baseline are explicit. Note for consensus: the task_planner's slice-1 migration wording diverges from this ratified resolver design (NACKed separately) \u2014 the architect's runtime-resolver approach is the correct one to implement.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-02T00:16:11.387799+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ef40d177-0eb9-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:16:11.829786+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a5503f85-cda5-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:16:14.009250+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "15e9ac63-349d-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:16:15.030292+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1b8f6ebd-d9dc-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from risk_analyst for task_planner",
+    "body": "NACK on slice-1 (TASK-1-1) \u2014 the migration mechanism is architecturally impossible and contradicts the ratified architect design (risk R1, my highest-severity item). TASK-1-1 instructs the coder to make the CONTRACT-MODEL migration validator in shared/egg_contracts/models.py \"populate each slice's absent `repo` with the pipeline's primary repo\" and \"normalize any legacy singleton pipeline repo into the one-element list.\" Neither is possible from inside the contract model: a legacy schemaVersion-1.3 contract's JSON carries NO repo anywhere (the Contract model has no repo field \u2014 verified: models.py mentions 'repo' only in field docstrings at :351/:435), and the primary repo lives on the SEPARATELY-loaded orchestrator Pipeline (orchestrator/models.py:1131), which the contract migration validator cannot see. So the model validator has nothing to read to fill Slice.repo, and cannot reach a \"legacy singleton pipeline repo\" at all. The architect (aeb3528, ACKed) explicitly resolved exactly this: \"the Contract model cannot inject the pipeline repo \u2014 it carries no repo field \u2014 so None->primary is a runtime resolver, not a model migration,\" implemented as resolve_slice_repo(slice, pipeline) at the ORCHESTRATOR layer, with the contract migration being a PURE ADDITIVE after-stamp (schemaVersion 1.3->1.4; Slice.repo stays None on legacy load; NOT filled in the validator). This is the load-bearing chain root \u2014 a broken migration cascades across refine/plan/implement and breaks the AC-1/AC-8 back-compat baseline. REQUIRED FIX: rewrite TASK-1-1 (and its acceptance + TASK-1-3 tests) to align with the architect: (1) the shared/egg_contracts/models.py migration is a pure additive schemaVersion 1.3->1.4 stamp mirroring _migrate_schema_version_to_1_3 \u2014 it does NOT populate Slice.repo and does NOT normalize a pipeline repo; (2) absent Slice.repo => primary is a RUNTIME resolver (resolve_slice_repo(slice, pipeline)) at the orchestrator layer, taking the pipeline as a second input; (3) legacy singleton Pipeline.repo -> one-element repos list is an orchestrator/models.py concern (TASK-1-2), not the contract migration; (4) make TASK-1-1(b) explicit about whether a persisted repo list lands on the Contract at all, or only on the orchestrator Pipeline. Everything else in the plan is sound and faithful: R2 is correctly handled (TASK-3-1 keeps EGG_PIPELINE_REPO populated with the primary for back-compat + adds the full owner/repo map), R3 (TASK-5-1/5-2 two-tier draft->ready poll + HITL), R4 (TASK-2-2 uniformity validators), R5 (TASK-3-2 owner/repo re-key + prohibitive-fan-out HITL), R6 (TASK-6-1 per-repo conventions), R7 (slice 6 / status) \u2014 no other blocking issue. Re-propose with slice-1 aligned to the resolver design and I ACK.",
+    "metadata": {
+      "payload": {
+        "reason": "NACK on slice-1 (TASK-1-1) \u2014 the migration mechanism is architecturally impossible and contradicts the ratified architect design (risk R1, my highest-severity item). TASK-1-1 instructs the coder to make the CONTRACT-MODEL migration validator in shared/egg_contracts/models.py \"populate each slice's absent `repo` with the pipeline's primary repo\" and \"normalize any legacy singleton pipeline repo into the one-element list.\" Neither is possible from inside the contract model: a legacy schemaVersion-1.3 contract's JSON carries NO repo anywhere (the Contract model has no repo field \u2014 verified: models.py mentions 'repo' only in field docstrings at :351/:435), and the primary repo lives on the SEPARATELY-loaded orchestrator Pipeline (orchestrator/models.py:1131), which the contract migration validator cannot see. So the model validator has nothing to read to fill Slice.repo, and cannot reach a \"legacy singleton pipeline repo\" at all. The architect (aeb3528, ACKed) explicitly resolved exactly this: \"the Contract model cannot inject the pipeline repo \u2014 it carries no repo field \u2014 so None->primary is a runtime resolver, not a model migration,\" implemented as resolve_slice_repo(slice, pipeline) at the ORCHESTRATOR layer, with the contract migration being a PURE ADDITIVE after-stamp (schemaVersion 1.3->1.4; Slice.repo stays None on legacy load; NOT filled in the validator). This is the load-bearing chain root \u2014 a broken migration cascades across refine/plan/implement and breaks the AC-1/AC-8 back-compat baseline. REQUIRED FIX: rewrite TASK-1-1 (and its acceptance + TASK-1-3 tests) to align with the architect: (1) the shared/egg_contracts/models.py migration is a pure additive schemaVersion 1.3->1.4 stamp mirroring _migrate_schema_version_to_1_3 \u2014 it does NOT populate Slice.repo and does NOT normalize a pipeline repo; (2) absent Slice.repo => primary is a RUNTIME resolver (resolve_slice_repo(slice, pipeline)) at the orchestrator layer, taking the pipeline as a second input; (3) legacy singleton Pipeline.repo -> one-element repos list is an orchestrator/models.py concern (TASK-1-2), not the contract migration; (4) make TASK-1-1(b) explicit about whether a persisted repo list lands on the Contract at all, or only on the orchestrator Pipeline. Everything else in the plan is sound and faithful: R2 is correctly handled (TASK-3-1 keeps EGG_PIPELINE_REPO populated with the primary for back-compat + adds the full owner/repo map), R3 (TASK-5-1/5-2 two-tier draft->ready poll + HITL), R4 (TASK-2-2 uniformity validators), R5 (TASK-3-2 owner/repo re-key + prohibitive-fan-out HITL), R6 (TASK-6-1 per-repo conventions), R7 (slice 6 / status) \u2014 no other blocking issue. Re-propose with slice-1 aligned to the resolver design and I ACK.",
+        "artifact_references": [
+          ".egg-state/drafts/3393-plan.md"
+        ],
+        "nack_version": 1
+      },
+      "reason": "NACK on slice-1 (TASK-1-1) \u2014 the migration mechanism is architecturally impossible and contradicts the ratified architect design (risk R1, my highest-severity item). TASK-1-1 instructs the coder to make the CONTRACT-MODEL migration validator in shared/egg_contracts/models.py \"populate each slice's absent `repo` with the pipeline's primary repo\" and \"normalize any legacy singleton pipeline repo into the one-element list.\" Neither is possible from inside the contract model: a legacy schemaVersion-1.3 contract's JSON carries NO repo anywhere (the Contract model has no repo field \u2014 verified: models.py mentions 'repo' only in field docstrings at :351/:435), and the primary repo lives on the SEPARATELY-loaded orchestrator Pipeline (orchestrator/models.py:1131), which the contract migration validator cannot see. So the model validator has nothing to read to fill Slice.repo, and cannot reach a \"legacy singleton pipeline repo\" at all. The architect (aeb3528, ACKed) explicitly resolved exactly this: \"the Contract model cannot inject the pipeline repo \u2014 it carries no repo field \u2014 so None->primary is a runtime resolver, not a model migration,\" implemented as resolve_slice_repo(slice, pipeline) at the ORCHESTRATOR layer, with the contract migration being a PURE ADDITIVE after-stamp (schemaVersion 1.3->1.4; Slice.repo stays None on legacy load; NOT filled in the validator). This is the load-bearing chain root \u2014 a broken migration cascades across refine/plan/implement and breaks the AC-1/AC-8 back-compat baseline. REQUIRED FIX: rewrite TASK-1-1 (and its acceptance + TASK-1-3 tests) to align with the architect: (1) the shared/egg_contracts/models.py migration is a pure additive schemaVersion 1.3->1.4 stamp mirroring _migrate_schema_version_to_1_3 \u2014 it does NOT populate Slice.repo and does NOT normalize a pipeline repo; (2) absent Slice.repo => primary is a RUNTIME resolver (resolve_slice_repo(slice, pipeline)) at the orchestrator layer, taking the pipeline as a second input; (3) legacy singleton Pipeline.repo -> one-element repos list is an orchestrator/models.py concern (TASK-1-2), not the contract migration; (4) make TASK-1-1(b) explicit about whether a persisted repo list lands on the Contract at all, or only on the orchestrator Pipeline. Everything else in the plan is sound and faithful: R2 is correctly handled (TASK-3-1 keeps EGG_PIPELINE_REPO populated with the primary for back-compat + adds the full owner/repo map), R3 (TASK-5-1/5-2 two-tier draft->ready poll + HITL), R4 (TASK-2-2 uniformity validators), R5 (TASK-3-2 owner/repo re-key + prohibitive-fan-out HITL), R6 (TASK-6-1 per-repo conventions), R7 (slice 6 / status) \u2014 no other blocking issue. Re-propose with slice-1 aligned to the resolver design and I ACK.",
+      "revision_count": 1
+    },
+    "timestamp": "2026-07-02T00:16:24.617148+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d59adc84-d83f-42",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:16:26.473323+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8f53e76e-05d4-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:16:32.586548+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e917de81-12c6-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:16:33.580978+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c87e8a25-984b-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=155460 util=0.16 cache_hit=0.92 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:16:37.749146+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "66f9a3f0-99ef-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:16:43.194119+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d8724fa7-93ca-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:16:48.553515+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "07e0656d-7f00-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:17:07.869666+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d1050255-5d4f-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=133405 util=0.13 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:17:45.306131+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "09258da6-b8c1-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:18:50.763496+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "55df4614-5958-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for architect",
+    "body": "Architecture is well-grounded and honors the operator rulings + risk mitigations. Independently re-verified the load-bearing NEW-machinery claims against the live tree: no mark_pr_ready/ready_for_review verb exists in gateway.py or gateway_client/_pr.py (genuinely new), create_slice_pr already carries draft:bool (_pr.py:42,152), and the third repos[0] collapse (overseer_repo = pipeline_repos[0]) is real at routes/pipelines.py:732. R1 addressed (F1/layer_1: additive after-stamp schema 1.3->1.4 + runtime resolve_slice_repo resolver, correctly noting the Contract model cannot inject primary). R2 addressed (layer_4: overseer_repo=pipeline.primary_repo, EGG_PIPELINE_REPO retained, full owner/repo map exposed alongside \u2014 not instead of \u2014 the primary scalar). R3 addressed at the DESIGN level (layer_6/slice-6: merge-detection uses state+mergedAt, NOT head-SHA equality \u2014 the squash/rebase trap risk_analyst emphasized; bounded poll on the reconcile cadence; fall-through to HITL rather than hanging; own slice, flagged most-underestimated). R4/R5/R6 addressed (layers 3/4/7: submission-entry uniformity validators, owner/repo re-key per ruling #6, per-repo test-gate/diff scoping). Slice DAG is sound: S1 load-bearing root, S2 file-disjoint parallel branch, pipelines.py serial spine honestly acknowledged under #3046. Architect correctly delegates the final DAG + the concrete cq-1 external-condition declaration mechanism (arch-q1) to task_planner.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3393-architect-output.json",
+          ".egg-state/agent-outputs/3393-architect-slices.yaml"
+        ],
+        "reason": "Architecture is well-grounded and honors the operator rulings + risk mitigations. Independently re-verified the load-bearing NEW-machinery claims against the live tree: no mark_pr_ready/ready_for_review verb exists in gateway.py or gateway_client/_pr.py (genuinely new), create_slice_pr already carries draft:bool (_pr.py:42,152), and the third repos[0] collapse (overseer_repo = pipeline_repos[0]) is real at routes/pipelines.py:732. R1 addressed (F1/layer_1: additive after-stamp schema 1.3->1.4 + runtime resolve_slice_repo resolver, correctly noting the Contract model cannot inject primary). R2 addressed (layer_4: overseer_repo=pipeline.primary_repo, EGG_PIPELINE_REPO retained, full owner/repo map exposed alongside \u2014 not instead of \u2014 the primary scalar). R3 addressed at the DESIGN level (layer_6/slice-6: merge-detection uses state+mergedAt, NOT head-SHA equality \u2014 the squash/rebase trap risk_analyst emphasized; bounded poll on the reconcile cadence; fall-through to HITL rather than hanging; own slice, flagged most-underestimated). R4/R5/R6 addressed (layers 3/4/7: submission-entry uniformity validators, owner/repo re-key per ruling #6, per-repo test-gate/diff scoping). Slice DAG is sound: S1 load-bearing root, S2 file-disjoint parallel branch, pipelines.py serial spine honestly acknowledged under #3046. Architect correctly delegates the final DAG + the concrete cq-1 external-condition declaration mechanism (arch-q1) to task_planner.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-02T00:18:53.011442+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b3590f9c-7519-4b",
+    "pipeline_id": "issue-3393",
+    "from_role": "orchestrator",
+    "to_role": "architect",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-07-02T00:18:53.013033+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d80ef3d6-4e5e-42",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:18:53.413194+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a6ff760f-214e-41",
+    "pipeline_id": "issue-3393",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by architect",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-02T00:18:57.623682+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4b2030c0-c4d4-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "simplifier",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for simplifier",
+    "body": "3393-plan-human.md is a faithful, accurate plain-language rendering of the 6-slice plan. Verified against the architect design + task_planner slice chain: the serial-spine rationale (five steps touch the same large file, steps 1&3 touch a second shared file) is accurate; step 1 correctly describes the additive schema bump with absent-slice-repo => primary back-compat; step 2 correctly states the two uniformity gates (visibility + auth) reject mixed sets with an error naming offending repos, and same-name repos are allowed per ruling #6; step 3 the owner/repo re-key + repos[0]-collapse removal + watchdog test; step 4 lazy-per-repo branch/context-PR with cross-referencing; step 5 the cq-1 two-tier hold (auto draft->ready on upstream merge; HITL for beyond-merge-state; development never serialized, only PR merge-readiness); step 6 per-repo test/diff/conventions. The N=1 behavior-identical regression guarantee and the deferred items (mixed auth, richer merge machinery) are correctly surfaced. No overclaims, omissions that mislead, or misrepresentations of the operator rulings.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3393-plan-human.md"
+        ],
+        "reason": "3393-plan-human.md is a faithful, accurate plain-language rendering of the 6-slice plan. Verified against the architect design + task_planner slice chain: the serial-spine rationale (five steps touch the same large file, steps 1&3 touch a second shared file) is accurate; step 1 correctly describes the additive schema bump with absent-slice-repo => primary back-compat; step 2 correctly states the two uniformity gates (visibility + auth) reject mixed sets with an error naming offending repos, and same-name repos are allowed per ruling #6; step 3 the owner/repo re-key + repos[0]-collapse removal + watchdog test; step 4 lazy-per-repo branch/context-PR with cross-referencing; step 5 the cq-1 two-tier hold (auto draft->ready on upstream merge; HITL for beyond-merge-state; development never serialized, only PR merge-readiness); step 6 per-repo test/diff/conventions. The N=1 behavior-identical regression guarantee and the deferred items (mixed auth, richer merge machinery) are correctly surfaced. No overclaims, omissions that mislead, or misrepresentations of the operator rulings.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-02T00:18:59.251089+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6c28690f-44ca-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "orchestrator",
+    "to_role": "simplifier",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-07-02T00:18:59.252467+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "185635b0-a34f-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:19:01.360785+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "af54d62d-579e-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by simplifier",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-02T00:19:04.891281+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "726f06e2-483d-4b",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=99541 util=0.10 cache_hit=0.93 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:19:06.609723+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "75a759b6-4421-4d",
+    "pipeline_id": "issue-3393",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "v2 \u2014 addresses risk_analyst R1 NACK on slice-1 (CONCEDED; realigned to ratified architect design aeb3528). The original TASK-1-1 wrongly instructed the coder to populate Slice.repo and normalize the pipeline repo INSIDE the shared/egg_contracts/models.py migration validator \u2014 architecturally impossible: the Contract model has no repo field and cannot see the separately-loaded orchestrator Pipeline. Realigned to the two-layer resolver design: (1) CONTRACT layer (shared/egg_contracts/models.py) \u2014 add Slice.repo:str|None and bump schemaVersion 1.3\u21921.4 as a PURE ADDITIVE after-stamp `_migrate_schema_version_to_1_4` mirroring `_migrate_schema_version_to_1_3` verbatim (guard ==\"1.3\", idempotent, NO field mutation; Slice.repo stays None on legacy load); the migration does NOT fill repo and does NOT reference any pipeline; no repo list on the Contract. (2) ORCHESTRATOR layer (orchestrator/models.py) \u2014 RepoSpec + Pipeline.repos with a validator that synthesizes the list from a legacy singleton and mirrors repos[0] back for legacy readers, a primary_repo property, and the RUNTIME resolver `resolve_slice_repo(slice, pipeline) -> slice.repo or pipeline.primary_repo` where absent\u21d2primary is resolved. (3) TASK-1-3 tests split across both layers (contract test_models.py: additive stamp + Slice.repo stays None; orchestrator test_models.py: resolver, legacy-singleton synthesis, primary_repo, N=1). Prose Slice-1 section, AC-3 mapping, PR description bullet 1, and risk notes all updated to match. Slices 2\u20136 unchanged (risk_analyst confirmed R2\u2013R7 sound). Re-validated: parse_plan success, preflight OK, forest/overlap/role-alignment all clean; new orchestrator/tests/test_models.py confirmed tester-writable.\n\n**Adversarial re-review**\n\n**Your v2 review has TWO equal-weight mandates:**\n\n1. **Verify named v1 blockers were addressed** \u2014 confirm the producer fixed what you NACK'd.\n2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` \u2014 the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** \u2014 ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes \u2014 whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** \u2014 it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.\n\nBoth mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.\n\n**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** \u2014 security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) \u2014 the persistent reviewer correctly answered mandate 1 (\"did prior issues get fixed? yes\") and skipped mandate 2 (\"does this delta introduce new issues? actually yes\"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward \"verify my fix-request landed \u2192 ACK.\" Recognize the pull and do mandate 2 anyway.\n\n**How to execute mandate 2:**\n\n- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?\n- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.\n- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.\n- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.\n\n**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:\n\n- (a) Which v1 blockers you verified-fixed (mandate 1).\n- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked \u2014 not \"reviewed thoroughly,\" but \"checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes.\" If you can't enumerate (b), you haven't done mandate 2.\n\n**Re-reviews are cheap by design.** Your amortized context means the work is \"read the delta, apply your rubric, decide\" \u2014 minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.",
+    "metadata": {
+      "payload": {
+        "summary": "v2 \u2014 addresses risk_analyst R1 NACK on slice-1 (CONCEDED; realigned to ratified architect design aeb3528). The original TASK-1-1 wrongly instructed the coder to populate Slice.repo and normalize the pipeline repo INSIDE the shared/egg_contracts/models.py migration validator \u2014 architecturally impossible: the Contract model has no repo field and cannot see the separately-loaded orchestrator Pipeline. Realigned to the two-layer resolver design: (1) CONTRACT layer (shared/egg_contracts/models.py) \u2014 add Slice.repo:str|None and bump schemaVersion 1.3\u21921.4 as a PURE ADDITIVE after-stamp `_migrate_schema_version_to_1_4` mirroring `_migrate_schema_version_to_1_3` verbatim (guard ==\"1.3\", idempotent, NO field mutation; Slice.repo stays None on legacy load); the migration does NOT fill repo and does NOT reference any pipeline; no repo list on the Contract. (2) ORCHESTRATOR layer (orchestrator/models.py) \u2014 RepoSpec + Pipeline.repos with a validator that synthesizes the list from a legacy singleton and mirrors repos[0] back for legacy readers, a primary_repo property, and the RUNTIME resolver `resolve_slice_repo(slice, pipeline) -> slice.repo or pipeline.primary_repo` where absent\u21d2primary is resolved. (3) TASK-1-3 tests split across both layers (contract test_models.py: additive stamp + Slice.repo stays None; orchestrator test_models.py: resolver, legacy-singleton synthesis, primary_repo, N=1). Prose Slice-1 section, AC-3 mapping, PR description bullet 1, and risk notes all updated to match. Slices 2\u20136 unchanged (risk_analyst confirmed R2\u2013R7 sound). Re-validated: parse_plan success, preflight OK, forest/overlap/role-alignment all clean; new orchestrator/tests/test_models.py confirmed tester-writable.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/3393-plan.md"
+        ],
+        "risk_considered": "R1 resolved: contract migration is now a pure additive stamp (no field mutation, mirrors the 1.3 precedent); absent\u21d2primary is a runtime resolver at the orchestrator layer taking the pipeline as a second input; legacy singleton\u21d2repos list normalization is an orchestrator/models.py concern; the repo list persists only on the orchestrator Pipeline, never on the Contract. Chain-root ordering still guarantees the schema lands before any producer writes Slice.repo. Remaining risks unchanged: pipelines.py serial spine (linear chain deliberate, do not re-parallelize per #3046); draft\u2192ready poll is a mechanical GitHub signal, not release detection (cq-1); owner/repo re-key prohibitive fan-out \u21d2 new HITL, never silent fallback (ruling #6).",
+        "commit_sha": "bf02392c8886e25c0b95121056237839b61de719",
+        "files_changed": [
+          ".egg-state/drafts/3393-plan.md",
+          ".egg-state/agent-outputs/task_planner/brc-memory-issue-3393.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-1-1",
+          "task-1-2",
+          "task-1-3",
+          "task-2-1",
+          "task-2-2",
+          "task-2-3",
+          "task-3-1",
+          "task-3-2",
+          "task-3-3",
+          "task-4-1",
+          "task-4-2",
+          "task-4-3",
+          "task-5-1",
+          "task-5-2",
+          "task-5-3",
+          "task-6-1",
+          "task-6-2",
+          "task-6-3"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 2,
+      "commit_sha": "bf02392c8886e25c0b95121056237839b61de719"
+    },
+    "timestamp": "2026-07-02T00:19:58.654525+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "05f70e88-48c7-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "orchestrator",
+    "to_role": "simplifier",
+    "message_type": "CONSENSUS_RE_REVIEW",
+    "subject": "Re-review required: task_planner submitted new proposal v2",
+    "body": "Producer task_planner has submitted a new proposal (version 2) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.\n\n**Adversarial re-review**\n\n**Your v2 review has TWO equal-weight mandates:**\n\n1. **Verify named v1 blockers were addressed** \u2014 confirm the producer fixed what you NACK'd.\n2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` \u2014 the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** \u2014 ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes \u2014 whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** \u2014 it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.\n\nBoth mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.\n\n**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** \u2014 security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) \u2014 the persistent reviewer correctly answered mandate 1 (\"did prior issues get fixed? yes\") and skipped mandate 2 (\"does this delta introduce new issues? actually yes\"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward \"verify my fix-request landed \u2192 ACK.\" Recognize the pull and do mandate 2 anyway.\n\n**How to execute mandate 2:**\n\n- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?\n- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.\n- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.\n- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.\n\n**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:\n\n- (a) Which v1 blockers you verified-fixed (mandate 1).\n- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked \u2014 not \"reviewed thoroughly,\" but \"checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes.\" If you can't enumerate (b), you haven't done mandate 2.\n\n**Re-reviews are cheap by design.** Your amortized context means the work is \"read the delta, apply your rubric, decide\" \u2014 minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.",
+    "metadata": {
+      "producer_role": "task_planner",
+      "version": 2
+    },
+    "timestamp": "2026-07-02T00:19:58.656400+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2f6032ac-f993-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by simplifier",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-02T00:20:03.068347+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5496c91b-94ac-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:20:04.534516+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "eae5602a-be35-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:20:05.348911+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "29a68c6d-e578-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=164086 util=0.16 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:20:10.706235+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e9a42212-c41c-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:20:12.892530+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3bdcc090-9a6e-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:20:15.920286+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b84d670a-1463-42",
+    "pipeline_id": "issue-3393",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:20:33.445358+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c9513cac-e509-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from risk_analyst for task_planner",
+    "body": "ACK v2 (bf02392c8). My v1 NACK \u2014 the slice-1 contract-model migration was architecturally impossible (a schemaVersion-1.3 contract carries no repo and cannot see the orchestrator Pipeline, so the validator had nothing to fill Slice.repo from) \u2014 is fully resolved. v2 realigns slice-1 to the ratified architect (aeb3528) two-layer design, addressing all four required-fix points: (1) TASK-1-1 is now a PURE ADDITIVE _migrate_schema_version_to_1_4 stamp mirroring _migrate_schema_version_to_1_3 verbatim (guard on \"1.3\", idempotent, NO field mutation \u2014 Slice.repo stays None on legacy load), and explicitly does NOT populate Slice.repo or reference any pipeline repo, and adds no repo list to the Contract; (2) absent Slice.repo \u21d2 primary is now the RUNTIME resolver resolve_slice_repo(slice, pipeline) at the orchestrator layer (TASK-1-2), taking the pipeline as the second input the contract model cannot provide; (3) legacy singleton Pipeline.repo \u2192 one-element repos list is an orchestrator/models.py concern (TASK-1-2 RepoSpec + Pipeline.repos + synthesize/mirror-back validator), not the contract migration; (4) the plan states outright that the repo list lives only on the orchestrator Pipeline, never on the Contract. TASK-1-3 tests are correctly split: contract-layer asserts Slice.repo stays None on legacy load (no model-filled repo) + idempotent 1.4 stamp + four prior migration branches intact; orchestrator-layer asserts resolve_slice_repo (set\u21d2slice.repo, None\u21d2primary), legacy-singleton\u21d2one-element repos + mirror-back, primary_repo==repos[0].repo, N=1 parity. Verified anchors live: _migrate_schema_version_to_1_3 at models.py:1049 (bump :1067-68), schemaVersion docstring ~:860 \u2014 all accurate. Diff is confined to the slice-1 region (slice-1 detail, AC-3 row, notes, pr summary, TASK-1-1/1-2/1-3); slices 2\u20136 unchanged, so my v1 finding that R2 (TASK-3-1 preserves EGG_PIPELINE_REPO primary + adds owner/repo map), R3 (TASK-5-1/5-2 two-tier draft\u2192ready poll + HITL), R4 (TASK-2-2 uniformity validators), R5 (TASK-3-2 owner/repo re-key + prohibitive-fan-out HITL), R6 (TASK-6-1 per-repo conventions), R7 (slice 6 status) are all sound still holds. No blocking issues remain.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3393-plan.md"
+        ],
+        "reason": "ACK v2 (bf02392c8). My v1 NACK \u2014 the slice-1 contract-model migration was architecturally impossible (a schemaVersion-1.3 contract carries no repo and cannot see the orchestrator Pipeline, so the validator had nothing to fill Slice.repo from) \u2014 is fully resolved. v2 realigns slice-1 to the ratified architect (aeb3528) two-layer design, addressing all four required-fix points: (1) TASK-1-1 is now a PURE ADDITIVE _migrate_schema_version_to_1_4 stamp mirroring _migrate_schema_version_to_1_3 verbatim (guard on \"1.3\", idempotent, NO field mutation \u2014 Slice.repo stays None on legacy load), and explicitly does NOT populate Slice.repo or reference any pipeline repo, and adds no repo list to the Contract; (2) absent Slice.repo \u21d2 primary is now the RUNTIME resolver resolve_slice_repo(slice, pipeline) at the orchestrator layer (TASK-1-2), taking the pipeline as the second input the contract model cannot provide; (3) legacy singleton Pipeline.repo \u2192 one-element repos list is an orchestrator/models.py concern (TASK-1-2 RepoSpec + Pipeline.repos + synthesize/mirror-back validator), not the contract migration; (4) the plan states outright that the repo list lives only on the orchestrator Pipeline, never on the Contract. TASK-1-3 tests are correctly split: contract-layer asserts Slice.repo stays None on legacy load (no model-filled repo) + idempotent 1.4 stamp + four prior migration branches intact; orchestrator-layer asserts resolve_slice_repo (set\u21d2slice.repo, None\u21d2primary), legacy-singleton\u21d2one-element repos + mirror-back, primary_repo==repos[0].repo, N=1 parity. Verified anchors live: _migrate_schema_version_to_1_3 at models.py:1049 (bump :1067-68), schemaVersion docstring ~:860 \u2014 all accurate. Diff is confined to the slice-1 region (slice-1 detail, AC-3 row, notes, pr summary, TASK-1-1/1-2/1-3); slices 2\u20136 unchanged, so my v1 finding that R2 (TASK-3-1 preserves EGG_PIPELINE_REPO primary + adds owner/repo map), R3 (TASK-5-1/5-2 two-tier draft\u2192ready poll + HITL), R4 (TASK-2-2 uniformity validators), R5 (TASK-3-2 owner/repo re-key + prohibitive-fan-out HITL), R6 (TASK-6-1 per-repo conventions), R7 (slice 6 status) are all sound still holds. No blocking issues remain.",
+        "ack_version": 2
+      },
+      "version": 2
+    },
+    "timestamp": "2026-07-02T00:21:06.948250+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0779c76c-ea90-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-07-02T00:21:06.949052+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "450a3a6b-da1e-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by risk_analyst",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-02T00:21:11.752223+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b294684c-787e-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from reviewer_plan for task_planner",
+    "body": "v2 correctly realigned slice-1 to the two-layer resolver design (risk_analyst R1) \u2014 R1/R2/R4/R5/R6 remain addressed. But v2 did NOT touch slice-5, so my standing R3 block is unresolved. risk_analyst flagged R3 requires_human_review=true and said the poll's FAILURE semantics must be pinned by the plan; the architect design I ACKed (aeb3528, layer_6) already pins them \u2014 TASK-5-1 just needs to fold them in. Three concrete gaps in TASK-5-1/acceptance:\n\n(1) MERGE-DETECTION unpinned: TASK-5-1 says only 'observe the upstream slice's PR merge state'. Pin it to the PR merged-boolean / merged_at (gh pr view --json state,mergedAt), NOT head-SHA equality \u2014 a squash/rebase merge produces a merge commit SHA != the PR head, so SHA-equality detection misfires. (architect aeb3528 layer_6 specifies exactly this.)\n\n(2) CLOSED-UNMERGED TERMINAL unpinned: TASK-5-1 + acceptance cover only the happy path (upstream merges => ready). Pin the terminal for upstream PR CLOSED-not-merged: do NOT auto-ready; escalate to a HITL hold (recommended default). Tier B (TASK-5-2) is beyond-merge-state (release/publish/version-pin) and does NOT cover this Tier-A failure terminal.\n\n(3) BOUND/TIMEOUT unpinned: the planning note calls the poll 'bounded' but defines no bound. Pin a bound/timeout so a never-merging upstream escalates to HITL rather than leaving the dependent PR draft indefinitely.\n\nFix: extend TASK-5-1 (description + acceptance) and TASK-5-3 (tests) to pin (a) merged-boolean/merged_at detection, (b) closed-unmerged => HITL, and (c) a poll bound/timeout => HITL. Add test cases for the closed-unmerged and never-merging terminals (mocked). Once TASK-5-1 carries these three, R3 clears and I ACK.",
+    "metadata": {
+      "payload": {
+        "reason": "v2 correctly realigned slice-1 to the two-layer resolver design (risk_analyst R1) \u2014 R1/R2/R4/R5/R6 remain addressed. But v2 did NOT touch slice-5, so my standing R3 block is unresolved. risk_analyst flagged R3 requires_human_review=true and said the poll's FAILURE semantics must be pinned by the plan; the architect design I ACKed (aeb3528, layer_6) already pins them \u2014 TASK-5-1 just needs to fold them in. Three concrete gaps in TASK-5-1/acceptance:\n\n(1) MERGE-DETECTION unpinned: TASK-5-1 says only 'observe the upstream slice's PR merge state'. Pin it to the PR merged-boolean / merged_at (gh pr view --json state,mergedAt), NOT head-SHA equality \u2014 a squash/rebase merge produces a merge commit SHA != the PR head, so SHA-equality detection misfires. (architect aeb3528 layer_6 specifies exactly this.)\n\n(2) CLOSED-UNMERGED TERMINAL unpinned: TASK-5-1 + acceptance cover only the happy path (upstream merges => ready). Pin the terminal for upstream PR CLOSED-not-merged: do NOT auto-ready; escalate to a HITL hold (recommended default). Tier B (TASK-5-2) is beyond-merge-state (release/publish/version-pin) and does NOT cover this Tier-A failure terminal.\n\n(3) BOUND/TIMEOUT unpinned: the planning note calls the poll 'bounded' but defines no bound. Pin a bound/timeout so a never-merging upstream escalates to HITL rather than leaving the dependent PR draft indefinitely.\n\nFix: extend TASK-5-1 (description + acceptance) and TASK-5-3 (tests) to pin (a) merged-boolean/merged_at detection, (b) closed-unmerged => HITL, and (c) a poll bound/timeout => HITL. Add test cases for the closed-unmerged and never-merging terminals (mocked). Once TASK-5-1 carries these three, R3 clears and I ACK.",
+        "artifact_references": [
+          ".egg-state/drafts/3393-plan.md"
+        ],
+        "nack_version": 2
+      },
+      "reason": "v2 correctly realigned slice-1 to the two-layer resolver design (risk_analyst R1) \u2014 R1/R2/R4/R5/R6 remain addressed. But v2 did NOT touch slice-5, so my standing R3 block is unresolved. risk_analyst flagged R3 requires_human_review=true and said the poll's FAILURE semantics must be pinned by the plan; the architect design I ACKed (aeb3528, layer_6) already pins them \u2014 TASK-5-1 just needs to fold them in. Three concrete gaps in TASK-5-1/acceptance:\n\n(1) MERGE-DETECTION unpinned: TASK-5-1 says only 'observe the upstream slice's PR merge state'. Pin it to the PR merged-boolean / merged_at (gh pr view --json state,mergedAt), NOT head-SHA equality \u2014 a squash/rebase merge produces a merge commit SHA != the PR head, so SHA-equality detection misfires. (architect aeb3528 layer_6 specifies exactly this.)\n\n(2) CLOSED-UNMERGED TERMINAL unpinned: TASK-5-1 + acceptance cover only the happy path (upstream merges => ready). Pin the terminal for upstream PR CLOSED-not-merged: do NOT auto-ready; escalate to a HITL hold (recommended default). Tier B (TASK-5-2) is beyond-merge-state (release/publish/version-pin) and does NOT cover this Tier-A failure terminal.\n\n(3) BOUND/TIMEOUT unpinned: the planning note calls the poll 'bounded' but defines no bound. Pin a bound/timeout so a never-merging upstream escalates to HITL rather than leaving the dependent PR draft indefinitely.\n\nFix: extend TASK-5-1 (description + acceptance) and TASK-5-3 (tests) to pin (a) merged-boolean/merged_at detection, (b) closed-unmerged => HITL, and (c) a poll bound/timeout => HITL. Add test cases for the closed-unmerged and never-merging terminals (mocked). Once TASK-5-1 carries these three, R3 clears and I ACK.",
+      "revision_count": 1
+    },
+    "timestamp": "2026-07-02T00:21:20.412520+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0b4ba53d-c1d8-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=152236 util=0.15 cache_hit=0.96 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:21:23.324244+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d693df9b-8a2d-4b",
+    "pipeline_id": "issue-3393",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:21:25.542238+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2b10ec87-7d52-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=121294 util=0.12 cache_hit=0.97 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:21:28.480259+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "710d6e5f-d328-4d",
+    "pipeline_id": "issue-3393",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:21:37.205433+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "527bf8d1-157f-4b",
+    "pipeline_id": "issue-3393",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:23:46.864099+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2dbcab55-d574-41",
+    "pipeline_id": "issue-3393",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "v3 \u2014 addresses reviewer_plan R3 NACK on slice-5 (CONCEDED; aligned to architect aeb3528 layer_6). TASK-5-1 (description + acceptance) and TASK-5-3 (tests) now pin the three previously-unpinned failure semantics: (a) MERGE DETECTION uses the PR merged boolean / mergedAt (gh pr view --json state,mergedAt), NOT head-SHA equality (a squash/rebase merge yields a merge-commit SHA \u2260 PR head, so SHA-equality misfires); on merged\u21d2 a NEW gateway verb mark_pr_ready(repo, pr_number) wrapping the existing gh pr ready (github_client.py:124) transitions the dependent PR draft\u2192ready, with the poll living on the existing reconcile cadence (extend stacked_pr_reconciler.py or a small cross_repo_merge_gate.py). (b) CLOSED-UNMERGED TERMINAL: an upstream PR closed-not-merged does NOT auto-ready \u2014 it escalates to a HITL hold and is surfaced on status (distinct from Tier B's beyond-merge-state conditions; it is the Tier-A failure terminal). (c) BOUND/TIMEOUT: the poll is bounded, and a never-merging upstream that exceeds the bound escalates to the HITL hold rather than leaving the PR draft indefinitely (\"if the auto path cannot resolve, fall through to the HITL hold rather than hanging\"). TASK-5-3 adds mocked test cases for the squash-merge SHA\u2260head path, the closed-unmerged\u21d2HITL terminal, and the never-merging\u21d2HITL bound. TASK-5-1 file list expanded to include stacked_pr_reconciler.py, gateway_client/_pr.py, gateway/gateway.py, gateway/github_client.py (all coder-writable; overlap clean since slice-5 is a transitive descendant of slices 3&4). Prose Slice-5 section and PR-description bullet 5 updated. Slices 1\u20134, 6 unchanged. Re-validated: parse_plan success, preflight OK, forest/overlap/role-alignment all clean.\n\n**Adversarial re-review**\n\n**Your v3 review has TWO equal-weight mandates:**\n\n1. **Verify named v2 blockers were addressed** \u2014 confirm the producer fixed what you NACK'd.\n2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` \u2014 the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** \u2014 ignore your v2 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes \u2014 whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** \u2014 it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.\n\nBoth mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.\n\n**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** \u2014 security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) \u2014 the persistent reviewer correctly answered mandate 1 (\"did prior issues get fixed? yes\") and skipped mandate 2 (\"does this delta introduce new issues? actually yes\"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward \"verify my fix-request landed \u2192 ACK.\" Recognize the pull and do mandate 2 anyway.\n\n**How to execute mandate 2:**\n\n- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?\n- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.\n- **Fresh-reviewer simulation.** Before issuing your v3 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.\n- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.\n\n**Your v3 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:\n\n- (a) Which v2 blockers you verified-fixed (mandate 1).\n- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked \u2014 not \"reviewed thoroughly,\" but \"checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes.\" If you can't enumerate (b), you haven't done mandate 2.\n\n**Re-reviews are cheap by design.** Your amortized context means the work is \"read the delta, apply your rubric, decide\" \u2014 minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.",
+    "metadata": {
+      "payload": {
+        "summary": "v3 \u2014 addresses reviewer_plan R3 NACK on slice-5 (CONCEDED; aligned to architect aeb3528 layer_6). TASK-5-1 (description + acceptance) and TASK-5-3 (tests) now pin the three previously-unpinned failure semantics: (a) MERGE DETECTION uses the PR merged boolean / mergedAt (gh pr view --json state,mergedAt), NOT head-SHA equality (a squash/rebase merge yields a merge-commit SHA \u2260 PR head, so SHA-equality misfires); on merged\u21d2 a NEW gateway verb mark_pr_ready(repo, pr_number) wrapping the existing gh pr ready (github_client.py:124) transitions the dependent PR draft\u2192ready, with the poll living on the existing reconcile cadence (extend stacked_pr_reconciler.py or a small cross_repo_merge_gate.py). (b) CLOSED-UNMERGED TERMINAL: an upstream PR closed-not-merged does NOT auto-ready \u2014 it escalates to a HITL hold and is surfaced on status (distinct from Tier B's beyond-merge-state conditions; it is the Tier-A failure terminal). (c) BOUND/TIMEOUT: the poll is bounded, and a never-merging upstream that exceeds the bound escalates to the HITL hold rather than leaving the PR draft indefinitely (\"if the auto path cannot resolve, fall through to the HITL hold rather than hanging\"). TASK-5-3 adds mocked test cases for the squash-merge SHA\u2260head path, the closed-unmerged\u21d2HITL terminal, and the never-merging\u21d2HITL bound. TASK-5-1 file list expanded to include stacked_pr_reconciler.py, gateway_client/_pr.py, gateway/gateway.py, gateway/github_client.py (all coder-writable; overlap clean since slice-5 is a transitive descendant of slices 3&4). Prose Slice-5 section and PR-description bullet 5 updated. Slices 1\u20134, 6 unchanged. Re-validated: parse_plan success, preflight OK, forest/overlap/role-alignment all clean.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/3393-plan.md"
+        ],
+        "risk_considered": "R3 resolved: merge detection keyed off merged-state (mergedAt), not head-SHA; both Tier-A failure terminals (closed-unmerged, never-merging/timeout) escalate to a HITL hold rather than hanging or false-readying; new mark_pr_ready verb wraps the existing gh pr ready. Development remains non-serialized (only PR ready-state waits); no release/version auto-detection (cq-1). File-overlap ordering preserved: slice-5's added gateway.py/_pr.py edits sit downstream of slices 3&4 that own them, so #3046 stays clean. R1/R2/R4/R5/R6/R7 remain addressed from v2.",
+        "commit_sha": "7fb31c8a5b0310379de04bec4a12bd4e3f3e17d9",
+        "files_changed": [
+          ".egg-state/drafts/3393-plan.md",
+          ".egg-state/agent-outputs/task_planner/brc-memory-issue-3393.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-1-1",
+          "task-1-2",
+          "task-1-3",
+          "task-2-1",
+          "task-2-2",
+          "task-2-3",
+          "task-3-1",
+          "task-3-2",
+          "task-3-3",
+          "task-4-1",
+          "task-4-2",
+          "task-4-3",
+          "task-5-1",
+          "task-5-2",
+          "task-5-3",
+          "task-6-1",
+          "task-6-2",
+          "task-6-3"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 3,
+      "commit_sha": "7fb31c8a5b0310379de04bec4a12bd4e3f3e17d9"
+    },
+    "timestamp": "2026-07-02T00:23:56.397754+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "591dc583-8519-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "CONSENSUS_RE_REVIEW",
+    "subject": "Re-review required: task_planner submitted new proposal v3",
+    "body": "Producer task_planner has submitted a new proposal (version 3) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.\n\n**Adversarial re-review**\n\n**Your v3 review has TWO equal-weight mandates:**\n\n1. **Verify named v2 blockers were addressed** \u2014 confirm the producer fixed what you NACK'd.\n2. **Audit the delta since your last review (`git log bf02392c8886e25c0b95121056237839b61de719..7fb31c8a5b0310379de04bec4a12bd4e3f3e17d9 --not origin/<base> -p` \u2014 the commits landed since the version you last verdicted) as a fresh reviewer** \u2014 ignore your v2 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes \u2014 whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** \u2014 it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.\n\nBoth mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.\n\n**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** \u2014 security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) \u2014 the persistent reviewer correctly answered mandate 1 (\"did prior issues get fixed? yes\") and skipped mandate 2 (\"does this delta introduce new issues? actually yes\"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward \"verify my fix-request landed \u2192 ACK.\" Recognize the pull and do mandate 2 anyway.\n\n**How to execute mandate 2:**\n\n- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?\n- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.\n- **Fresh-reviewer simulation.** Before issuing your v3 verdict, ask: would a reviewer who has only seen this delta (`bf02392c8886e25c0b95121056237839b61de719..7fb31c8a5b0310379de04bec4a12bd4e3f3e17d9`) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.\n- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (`bf02392c8886e25c0b95121056237839b61de719..7fb31c8a5b0310379de04bec4a12bd4e3f3e17d9`) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.\n\n**Your v3 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:\n\n- (a) Which v2 blockers you verified-fixed (mandate 1).\n- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked \u2014 not \"reviewed thoroughly,\" but \"checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes.\" If you can't enumerate (b), you haven't done mandate 2.\n\n**Re-reviews are cheap by design.** Your amortized context means the work is \"read the delta, apply your rubric, decide\" \u2014 minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.",
+    "metadata": {
+      "producer_role": "task_planner",
+      "version": 3
+    },
+    "timestamp": "2026-07-02T00:23:56.399420+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d923b599-0cb4-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "orchestrator",
+    "to_role": "simplifier",
+    "message_type": "CONSENSUS_RE_REVIEW",
+    "subject": "Re-review required: task_planner submitted new proposal v3",
+    "body": "Producer task_planner has submitted a new proposal (version 3) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.\n\n**Adversarial re-review**\n\n**Your v3 review has TWO equal-weight mandates:**\n\n1. **Verify named v2 blockers were addressed** \u2014 confirm the producer fixed what you NACK'd.\n2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` \u2014 the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** \u2014 ignore your v2 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes \u2014 whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** \u2014 it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.\n\nBoth mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.\n\n**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** \u2014 security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) \u2014 the persistent reviewer correctly answered mandate 1 (\"did prior issues get fixed? yes\") and skipped mandate 2 (\"does this delta introduce new issues? actually yes\"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward \"verify my fix-request landed \u2192 ACK.\" Recognize the pull and do mandate 2 anyway.\n\n**How to execute mandate 2:**\n\n- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?\n- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.\n- **Fresh-reviewer simulation.** Before issuing your v3 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.\n- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.\n\n**Your v3 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:\n\n- (a) Which v2 blockers you verified-fixed (mandate 1).\n- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked \u2014 not \"reviewed thoroughly,\" but \"checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes.\" If you can't enumerate (b), you haven't done mandate 2.\n\n**Re-reviews are cheap by design.** Your amortized context means the work is \"read the delta, apply your rubric, decide\" \u2014 minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.",
+    "metadata": {
+      "producer_role": "task_planner",
+      "version": 3
+    },
+    "timestamp": "2026-07-02T00:23:56.400213+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "046e564d-c358-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:23:56.831707+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0fd6dd15-1570-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by simplifier",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-02T00:23:59.910181+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c5d55d5d-d746-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:24:01.504518+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cdcb3bf7-0ab7-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:24:02.209846+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "83a39ae0-9870-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:24:09.884285+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "11822612-1c0c-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=181759 util=0.18 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:24:11.175855+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7fd05bcf-7fa8-42",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:24:13.235707+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a77cc1c2-7b1f-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for task_planner",
+    "body": "R3 fully cleared \u2014 v3 pins all three merge-poll failure semantics I NACKed, matching the ACKed architect design (aeb3528 layer_6). Verified in the v3 delta: (1) MERGE-DETECTION \u2014 TASK-5-1(a) now pins the PR merged-boolean/mergedAt (gh pr view --json state,mergedAt), explicitly NOT head-SHA equality (calls out the squash/rebase merge-commit-SHA\u2260head trap); acceptance + TASK-5-3(a) add a squash-merge SHA\u2260head test asserting the transition still fires. (2) CLOSED-UNMERGED TERMINAL \u2014 TASK-5-1(b): upstream state=CLOSED with null mergedAt does NOT auto-ready; escalates to a HITL hold, correctly distinguished from Tier B's beyond-merge-state conditions; TASK-5-3(b) tests it. (3) BOUND/TIMEOUT \u2014 TASK-5-1(c): bounded poll; a never-merging upstream exceeding the bound escalates to the HITL hold rather than leaving the dependent PR draft indefinitely; TASK-5-3(c) tests it. The concrete new machinery is specified: mark_pr_ready(repo, pr_number) wrapping the existing gh pr ready \u2014 independently verified the anchor (gateway/github_client.py:124 has 'pr ready' in the permitted-command allowlist), wired via gateway/gateway.py + orchestrator/gateway_client/_pr.py with the file list updated accordingly. R1 (two-layer resolver, addressed in v2), R2, R4, R5, R6 remain addressed and unchanged. All my carried-forward reviewer obligations (R1/R2/R3) are now satisfied. ACK.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3393-plan.md"
+        ],
+        "reason": "R3 fully cleared \u2014 v3 pins all three merge-poll failure semantics I NACKed, matching the ACKed architect design (aeb3528 layer_6). Verified in the v3 delta: (1) MERGE-DETECTION \u2014 TASK-5-1(a) now pins the PR merged-boolean/mergedAt (gh pr view --json state,mergedAt), explicitly NOT head-SHA equality (calls out the squash/rebase merge-commit-SHA\u2260head trap); acceptance + TASK-5-3(a) add a squash-merge SHA\u2260head test asserting the transition still fires. (2) CLOSED-UNMERGED TERMINAL \u2014 TASK-5-1(b): upstream state=CLOSED with null mergedAt does NOT auto-ready; escalates to a HITL hold, correctly distinguished from Tier B's beyond-merge-state conditions; TASK-5-3(b) tests it. (3) BOUND/TIMEOUT \u2014 TASK-5-1(c): bounded poll; a never-merging upstream exceeding the bound escalates to the HITL hold rather than leaving the dependent PR draft indefinitely; TASK-5-3(c) tests it. The concrete new machinery is specified: mark_pr_ready(repo, pr_number) wrapping the existing gh pr ready \u2014 independently verified the anchor (gateway/github_client.py:124 has 'pr ready' in the permitted-command allowlist), wired via gateway/gateway.py + orchestrator/gateway_client/_pr.py with the file list updated accordingly. R1 (two-layer resolver, addressed in v2), R2, R4, R5, R6 remain addressed and unchanged. All my carried-forward reviewer obligations (R1/R2/R3) are now satisfied. ACK.",
+        "ack_version": 3
+      },
+      "version": 3
+    },
+    "timestamp": "2026-07-02T00:24:41.632852+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c9a7b9c6-f009-42",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_plan",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-02T00:24:44.081906+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f5be47b5-c1f1-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=135696 util=0.14 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-02T00:24:49.935463+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0448890d-bb76-42",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from risk_analyst for task_planner",
+    "body": "ACK v3 (7fb31c8a5). The v2\u2192v3 delta is confined to slice-5 (cq-1 merge-sequencing hold) and pins its failure semantics in response to reviewer_plan's R3 NACK \u2014 this is precisely the R3 gap I raised in my original risk assessment (unspecified merge-poll terminal/failure states), so v3 strengthens my own finding. All three of my R3 mitigations are now in the plan verbatim: (1) MERGE DETECTION keys off the PR merged boolean / `mergedAt` (`gh pr view --json state,mergedAt`), NOT head-SHA equality \u2014 the plan explicitly notes a squash/rebase merge yields a merge-commit SHA \u2260 PR head so SHA-equality would misfire; (2) CLOSED-UNMERGED terminal (state=CLOSED, mergedAt=null) does NOT auto-ready and escalates to a HITL hold, distinct from Tier-B; (3) the poll is BOUNDED \u2014 a never-merging upstream exceeding the bound escalates to the same HITL hold rather than leaving the PR draft indefinitely. TASK-5-3 tests cover the happy path plus BOTH failure terminals AND a squash-merge SHA\u2260head case. Implementation anchors verified live: `gh pr ready` at gateway/github_client.py:124 (the new mark_pr_ready verb wraps it); orchestrator/stacked_pr_reconciler.py exists and runs on a fixed 30s cadence via reconcile_once \u2014 extending it for the bounded merge-poll reuses proven machinery instead of inventing a scheduler (honors the reconciler's Decision-15 no-new-privilege invariant), which lowers R3 implementation risk; orchestrator/gateway_client/_pr.py already carries draft plumbing (:42,:152). No regression: slice-1's ACKed two-layer runtime-resolver design (my R1) and slices 2/3/4/6 (R2/R4/R5/R6/R7) are untouched by this delta. No blocking issues remain.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3393-plan.md"
+        ],
+        "reason": "ACK v3 (7fb31c8a5). The v2\u2192v3 delta is confined to slice-5 (cq-1 merge-sequencing hold) and pins its failure semantics in response to reviewer_plan's R3 NACK \u2014 this is precisely the R3 gap I raised in my original risk assessment (unspecified merge-poll terminal/failure states), so v3 strengthens my own finding. All three of my R3 mitigations are now in the plan verbatim: (1) MERGE DETECTION keys off the PR merged boolean / `mergedAt` (`gh pr view --json state,mergedAt`), NOT head-SHA equality \u2014 the plan explicitly notes a squash/rebase merge yields a merge-commit SHA \u2260 PR head so SHA-equality would misfire; (2) CLOSED-UNMERGED terminal (state=CLOSED, mergedAt=null) does NOT auto-ready and escalates to a HITL hold, distinct from Tier-B; (3) the poll is BOUNDED \u2014 a never-merging upstream exceeding the bound escalates to the same HITL hold rather than leaving the PR draft indefinitely. TASK-5-3 tests cover the happy path plus BOTH failure terminals AND a squash-merge SHA\u2260head case. Implementation anchors verified live: `gh pr ready` at gateway/github_client.py:124 (the new mark_pr_ready verb wraps it); orchestrator/stacked_pr_reconciler.py exists and runs on a fixed 30s cadence via reconcile_once \u2014 extending it for the bounded merge-poll reuses proven machinery instead of inventing a scheduler (honors the reconciler's Decision-15 no-new-privilege invariant), which lowers R3 implementation risk; orchestrator/gateway_client/_pr.py already carries draft plumbing (:42,:152). No regression: slice-1's ACKed two-layer runtime-resolver design (my R1) and slices 2/3/4/6 (R2/R4/R5/R6/R7) are untouched by this delta. No blocking issues remain.",
+        "ack_version": 3
+      },
+      "version": 3
+    },
+    "timestamp": "2026-07-02T00:25:07.149536+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c3dfe4ce-e968-4d",
+    "pipeline_id": "issue-3393",
+    "from_role": "orchestrator",
+    "to_role": "task_planner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 3) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 3
+    },
+    "timestamp": "2026-07-02T00:25:07.151643+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2c2a9210-36b8-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by task_planner",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-02T00:25:09.608740+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b777980b-80b2-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by risk_analyst",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-02T00:25:09.610417+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bfbb2525-5d97-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by simplifier",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-02T00:25:09.610956+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "744afb1f-b005-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_plan",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-02T00:25:09.611404+00:00",
+    "phase": "plan"
+  }
+]

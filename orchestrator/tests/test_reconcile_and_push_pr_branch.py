@@ -29,6 +29,7 @@ from gateway_client import (
     PushResult,
     _rebase_with_agent_output_autoresolve,
 )
+from gateway_client._push import _compact_path_list
 
 
 def _run_result(returncode=0, stdout="", stderr=""):
@@ -378,6 +379,13 @@ class TestPushWorktreeBranchReconcile:
         the rebase uses ``--onto origin/{branch} origin/{base_branch}`` so
         only ``origin/{base_branch}..HEAD`` is replayed — commits already
         on main are not duplicated onto the pipeline branch (#1976).
+
+        The ``origin/{base_branch}`` upstream is kept here because the
+        merge-base with ``origin/{branch}`` sits on the main lineage
+        (``--is-ancestor`` rc 0) — the fresh-worktree topology #1976 was
+        opened against.  The long-lived-worktree topology takes the
+        merge-base upstream instead (#3416; see
+        ``test_rebase_with_shared_pipeline_history_uses_merge_base_upstream``).
         """
         client = _make_client([False, True])
         with patch(
@@ -386,6 +394,8 @@ class TestPushWorktreeBranchReconcile:
                 _run_result(),  # fetch origin {branch}
                 _run_result(),  # fetch origin {base_branch}
                 _run_result(),  # rev-parse --verify origin/{base_branch}
+                _run_result(stdout="aaa111\n"),  # merge-base HEAD origin/{branch}
+                _run_result(returncode=0),  # merge-base --is-ancestor (on main lineage)
                 _run_result(),  # rebase --onto ...
                 _run_result(),  # diff --diff-filter=U (autostash pop conflict check)
             ],
@@ -398,13 +408,86 @@ class TestPushWorktreeBranchReconcile:
             )
 
         assert ok.ok is True
-        assert mock_run.call_count == 5
+        assert mock_run.call_count == 7
         base_fetch_cmd = mock_run.call_args_list[1].args[0]
         assert "fetch" in base_fetch_cmd and "main" in base_fetch_cmd
-        rebase_cmd = mock_run.call_args_list[3].args[0]
+        rebase_cmd = mock_run.call_args_list[5].args[0]
         # ``--autostash`` (#2714) precedes ``--onto`` so the rebase can run
         # against a dirty worktree; statefile / agent-output writes are
         # routinely uncommitted at sync time.
+        assert rebase_cmd[-5:] == [
+            "rebase",
+            "--autostash",
+            "--onto",
+            "origin/egg/issue-42",
+            "origin/main",
+        ]
+
+    def test_rebase_with_shared_pipeline_history_uses_merge_base_upstream(self, tmp_path):
+        """When the merge-base with ``origin/{branch}`` is NOT on the main
+        lineage (``--is-ancestor`` rc 1 — the long-lived pipeline-worktree
+        topology), the rebase upstream is the merge-base itself, so only
+        the local-only commits are replayed (#3416).  Replaying from
+        ``origin/{base_branch}`` would re-apply the entire shared pipeline
+        history and conflict on any statefile that was rewritten on the
+        shared lineage.
+        """
+        client = _make_client([False, True])
+        with patch(
+            "gateway_client.subprocess.run",
+            side_effect=[
+                _run_result(),  # fetch origin {branch}
+                _run_result(),  # fetch origin {base_branch}
+                _run_result(),  # rev-parse --verify origin/{base_branch}
+                _run_result(stdout="bbb222\n"),  # merge-base HEAD origin/{branch}
+                _run_result(returncode=1),  # merge-base --is-ancestor (pipeline commit)
+                _run_result(),  # rebase --onto ...
+                _run_result(),  # diff --diff-filter=U (autostash pop conflict check)
+            ],
+        ) as mock_run:
+            ok = client.push_worktree_branch(
+                pipeline_id="issue-3416",
+                repo_path=str(tmp_path),
+                branch="egg/issue-3416/work",
+                base_branch="main",
+            )
+
+        assert ok.ok is True
+        rebase_cmd = mock_run.call_args_list[5].args[0]
+        assert rebase_cmd[-5:] == [
+            "rebase",
+            "--autostash",
+            "--onto",
+            "origin/egg/issue-3416/work",
+            "bbb222",
+        ]
+
+    def test_rebase_keeps_base_upstream_when_merge_base_undeterminable(self, tmp_path):
+        """If ``merge-base HEAD origin/{branch}`` fails (no common history,
+        git error), the pre-#3416 ``origin/{base_branch}`` upstream is kept
+        rather than guessing.
+        """
+        client = _make_client([False, True])
+        with patch(
+            "gateway_client.subprocess.run",
+            side_effect=[
+                _run_result(),  # fetch origin {branch}
+                _run_result(),  # fetch origin {base_branch}
+                _run_result(),  # rev-parse --verify origin/{base_branch}
+                _run_result(returncode=1),  # merge-base HEAD origin/{branch} fails
+                _run_result(),  # rebase --onto ...
+                _run_result(),  # diff --diff-filter=U (autostash pop conflict check)
+            ],
+        ) as mock_run:
+            ok = client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path=str(tmp_path),
+                branch="egg/issue-42",
+                base_branch="main",
+            )
+
+        assert ok.ok is True
+        rebase_cmd = mock_run.call_args_list[4].args[0]
         assert rebase_cmd[-5:] == [
             "rebase",
             "--autostash",
@@ -513,6 +596,111 @@ class TestPushWorktreeBranchReconcile:
         assert len(branch_only_shas) == 2, (
             f"expected 2 branch-only commits, got {len(branch_only_shas)}: {branch_only_shas}"
         )
+
+    def test_shared_statefile_history_does_not_false_conflict(self, tmp_path):
+        """End-to-end regression for #3416.
+
+        Reproduces the ``issue-3393`` production shape on a real repo:
+
+        - The pipeline branch carries shared history that first ADDS a
+          ``.egg-state/contracts/*.json`` statefile and later REWRITES it
+          (contract mutations rewrite the file in place).
+        - The long-lived orchestrator worktree sits on that shared
+          lineage with ONE local-only commit (a statefile write).
+        - Origin has advanced by three commits touching disjoint files.
+
+        Before the fix, ``_build_rebase_cmd`` picked ``origin/main`` as
+        the rebase upstream, so the replay range was the ENTIRE pipeline
+        history — and re-applying the initial contract ADD onto the tip
+        (where the contract had since been rewritten) produced a
+        guaranteed add/add conflict: ``reconcile_rebase_conflict`` for a
+        divergence whose actual local-vs-origin file sets were disjoint.
+        The manual operator rebase (upstream = origin tip) was clean,
+        proving the pause a false positive.  After the fix the upstream
+        is the merge-base (a shared pipeline commit), so only the
+        local-only commit is replayed and the reconcile succeeds.
+        """
+        origin = tmp_path / "origin.git"
+        subprocess.run(["git", "init", "--bare", "-b", "main", str(origin)], check=True)
+
+        # Seed main, then the pipeline branch: contract ADD + contract REWRITE.
+        seed = tmp_path / "seed"
+        seed.mkdir()
+        _git_init(seed, str(origin))
+        (seed / "README.md").write_text("initial\n")
+        _git(seed, "add", "README.md")
+        _git(seed, "commit", "-m", "initial main commit")
+        _git(seed, "push", "origin", "main")
+
+        _git(seed, "checkout", "-b", "egg/issue-3416/work")
+        contract = seed / ".egg-state" / "contracts"
+        contract.mkdir(parents=True)
+        (contract / "issue-3416.json").write_text('{"phase": "refine", "open_questions": []}\n')
+        _git(seed, "add", ".egg-state/contracts/issue-3416.json")
+        _git(seed, "commit", "-m", "Initialize SDLC contract for issue-3416")
+        (contract / "issue-3416.json").write_text(
+            '{"phase": "refine", "open_questions": ["cq-1"]}\n'
+        )
+        _git(seed, "add", ".egg-state/contracts/issue-3416.json")
+        _git(seed, "commit", "-m", "Register open question cq-1")
+        _git(seed, "push", "origin", "egg/issue-3416/work")
+
+        # Long-lived orchestrator worktree cut at the shared tip, with one
+        # local-only statefile commit (the operator's cq-1 resolution).
+        work = tmp_path / "work"
+        work.mkdir()
+        _git_init(work, str(origin))
+        _git(work, "fetch", "origin")
+        _git(work, "checkout", "-b", "egg/issue-3416/work", "origin/egg/issue-3416/work")
+        work_contract = work / ".egg-state" / "contracts" / "issue-3416.json"
+        work_contract.write_text(
+            '{"phase": "refine", "open_questions": [], "resolved": ["cq-1"]}\n'
+        )
+        _git(work, "add", ".egg-state/contracts/issue-3416.json")
+        _git(work, "commit", "-m", "Persist agent statefile writes before refine sync")
+
+        # Origin advances by three commits touching disjoint files (agent
+        # artifacts) — the "remote ahead" half of the divergence.
+        for i in range(3):
+            (seed / f"analysis_v{i}.md").write_text(f"refine analysis v{i}\n")
+            _git(seed, "add", f"analysis_v{i}.md")
+            _git(seed, "commit", "-m", f"Refine analysis v{i}")
+        _git(seed, "push", "origin", "egg/issue-3416/work")
+        _git(work, "fetch", "origin")
+        origin_tip = _git(work, "rev-parse", "origin/egg/issue-3416/work").stdout.strip()
+
+        git_base = [
+            "git",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            f"safe.directory={work}",
+            "-C",
+            str(work),
+        ]
+        result = _rebase_with_agent_output_autoresolve(
+            git_base=git_base,
+            pipeline_id="issue-3416",
+            branch="egg/issue-3416/work",
+            base_branch="main",
+        )
+        assert result.ok, (
+            f"reconcile false-conflicted on shared history: {result.category} {result.detail}"
+        )
+
+        # Exactly the one local-only commit was replayed onto the origin tip.
+        replayed = [
+            s
+            for s in _git(work, "log", "--format=%H", f"{origin_tip}..HEAD")
+            .stdout.strip()
+            .splitlines()
+            if s
+        ]
+        assert len(replayed) == 1, f"expected 1 replayed commit, got {len(replayed)}: {replayed}"
+        assert _git(work, "rev-parse", "HEAD~1").stdout.strip() == origin_tip
+
+        # The local statefile write survived the reconcile.
+        assert "resolved" in work_contract.read_text()
 
     def test_rebase_does_not_contaminate_when_base_fetch_silently_failed(self, tmp_path):
         """End-to-end regression for #2222.
@@ -904,3 +1092,34 @@ class TestPushWorktreeBranchReconcile:
         # statefile delta the orchestrator was holding.
         stash_list = _git(work, "stash", "list").stdout
         assert "autostash" in stash_list, f"autostash entry missing from stash list: {stash_list!r}"
+
+
+class TestCompactPathList:
+    """`_compact_path_list` bounds the conflicting-paths detail segment (#3416)."""
+
+    def test_small_list_shown_verbatim(self):
+        paths = ["src/app.py", "src/models.py"]
+        assert _compact_path_list(paths) == "src/app.py, src/models.py"
+
+    def test_empty_list_is_empty_string(self):
+        assert _compact_path_list([]) == ""
+
+    def test_large_list_is_bounded_with_remainder_count(self):
+        paths = [f"src/module_{i:03d}/very_long_path_component.py" for i in range(200)]
+        out = _compact_path_list(paths)
+        # The joined segment stays within the cap (plus the short suffix)…
+        assert len(out) <= 400 + len(" (+200 more)")
+        # …every remaining path is accounted for in the (+N more) tail…
+        shown = out.split(" (+")[0].split(", ")
+        hidden = int(out.split(" (+")[1].split(" more)")[0])
+        assert len(shown) + hidden == len(paths)
+        assert hidden > 0
+        # …and the shown paths are whole (never truncated mid-path).
+        assert all(p in paths for p in shown)
+
+    def test_single_path_never_summarised_away(self):
+        # A single path longer than the limit is still shown in full — the
+        # cap only gates *additional* paths, so the operator always sees at
+        # least one concrete conflicting path.
+        long_path = "src/" + "a" * 500 + ".py"
+        assert _compact_path_list([long_path]) == long_path

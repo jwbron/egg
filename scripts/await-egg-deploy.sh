@@ -32,7 +32,7 @@ DEPLOYMENTS=(orchestrator gateway litellm redis)
 err_file=$(mktemp)
 trap 'rm -f "$err_file"' EXIT
 
-deadline=$(( $(date +%s) + TIMEOUT ))
+deadline=$(($(date +%s) + TIMEOUT))
 
 while :; do
   # Success: every deployment reports Available=True.
@@ -72,9 +72,9 @@ while :; do
   egg_image_pull_failed=0
   for d in "${DEPLOYMENTS[@]}"; do
     if kubectl -n "$NS" get pods \
-        -l "app.kubernetes.io/component=$d" \
-        -o jsonpath='{range .items[*]}{range .status.containerStatuses[*]}{.state.waiting.reason}{"\n"}{end}{end}' \
-        2>/dev/null | grep -qE 'ImagePullBackOff|ErrImagePull'; then
+      -l "app.kubernetes.io/component=$d" \
+      -o jsonpath='{range .items[*]}{range .status.containerStatuses[*]}{.state.waiting.reason}{"\n"}{end}{end}' \
+      2>/dev/null | grep -qE 'ImagePullBackOff|ErrImagePull'; then
       egg_image_pull_failed=1
       break
     fi

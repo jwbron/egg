@@ -87,11 +87,12 @@ class TestReProposeClearsConfirmed:
         tracker.handle_confirmed("producer")
         assert "producer" in tracker._confirmed
 
-        # NACK triggers re-propose path
+        # NACK triggers re-propose path (with a new commit — an
+        # unchanged-tree re-propose is rejected outright, #3395)
         _nack(tracker, "reviewer_a")
         tracker.handle_re_propose(
             "producer",
-            {"summary": "v2", "artifacts": ["a.py"], "commit_sha": "abc1234"},
+            {"summary": "v2", "artifacts": ["a.py"], "commit_sha": "def5678"},
             changed_artifacts=["a.py"],
         )
         assert "producer" not in tracker._confirmed

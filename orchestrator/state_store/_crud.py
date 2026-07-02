@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import state_store as _pkg
-from models import Pipeline, PipelineMode, PipelinePhase, PipelineStatus
+from models import Pipeline, PipelineMode, PipelinePhase, PipelineStatus, RepoSpec
 from pydantic import ValidationError
 
 from . import logger
@@ -162,6 +162,7 @@ def create_pipeline(
     repo: str | None = None,
     branch: str | None = None,
     base_branch: str | None = None,
+    repos: list[RepoSpec] | None = None,
     config: dict[str, Any] | None = None,
     prompt: str | None = None,
     pipeline_id: str | None = None,
@@ -180,9 +181,17 @@ def create_pipeline(
 
     Args:
         issue_number: GitHub issue number (optional)
-        repo: Repository in owner/name format
+        repo: Repository in owner/name format (legacy singleton; the primary
+            repo. Kept in sync with ``repos[0]`` by the Pipeline validator.)
         branch: Work branch name
         base_branch: Base branch for PR creation (optional, auto-detected if not set)
+        repos: Full list of repositories the pipeline coordinates PRs across
+            (#3393, multi-repo pipelines). When provided, it is passed straight
+            through to ``Pipeline.repos`` and the ``repo``/``base_branch``
+            singleton scalars are mirrored from ``repos[0]`` by the Pipeline
+            model validator. When ``None``, the validator synthesizes a
+            one-element ``repos`` from the legacy ``repo``/``base_branch``
+            singleton, so N=1 back-compat is preserved.
         config: Optional pipeline configuration
         prompt: User prompt (for prompt-driven pipelines)
         pipeline_id: Explicit pipeline ID (auto-generated if not provided)
@@ -236,6 +245,13 @@ def create_pipeline(
             "source_artifact_prefix": source_artifact_prefix,
             "has_contract": has_contract,
         }
+        # #3393 (multi-repo): thread the full repo list onto the Pipeline when
+        # the caller supplied one. The Pipeline validator mirrors repos[0] back
+        # onto the repo/base_branch singleton, so legacy readers keep working.
+        # Omitting it (None) leaves the validator to synthesize a one-element
+        # list from the legacy singleton — the N=1 back-compat path.
+        if repos is not None:
+            pipeline_kwargs["repos"] = repos
         if mode is not None:
             pipeline_kwargs["mode"] = mode
         # Issue #1557: persist Jira-epic SDLC fields on the Pipeline.

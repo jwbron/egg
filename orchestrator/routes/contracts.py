@@ -368,10 +368,17 @@ def mutate_contract(identifier: str) -> tuple[Response, int]:
                     "error_kind": result.error_kind,
                 },
             )
-            # 403 only for authorization rejections; value/path errors
-            # are 400 so a client doesn't retry them as if a different
-            # role might succeed (#2495).
-            status_code = 403 if result.error_kind == "authorization" else 400
+            # 403 only for authorization rejections; lost-update
+            # collisions (append-only decisions[] guard, #3427) are 409
+            # so a client re-reads and re-mints; value/path errors are
+            # 400 so a client doesn't retry them as if a different role
+            # might succeed (#2495).
+            if result.error_kind == "authorization":
+                status_code = 403
+            elif result.error_kind == "conflict":
+                status_code = 409
+            else:
+                status_code = 400
             return _error(
                 result.message,
                 status_code=status_code,
@@ -398,12 +405,48 @@ def mutate_contract(identifier: str) -> tuple[Response, int]:
         },
     )
 
+    _persist_decision_mutation(field_path, worktree)
+
     _audit_confirmed_assignee_reassignment(result.contract, field_path, new_value, actor)
 
     return _success(
         "Mutation applied successfully",
         data={"contract": export_contract(result.contract, include_audit_log=False)},
     )
+
+
+def _persist_decision_mutation(field_path: str, worktree: Path) -> None:
+    """Best-effort commit+push after a ``decisions.*`` mutation (#3427).
+
+    Contract HITL decisions written through this RPC (agent
+    ``register_open_question`` etc.) landed only on the worktree file; the
+    phase-(re)start worktree syncs ``git reset --hard`` to origin, so a
+    registration that was not committed+pushed by then was silently
+    reverted — and the next ``cq-N`` mint against the reverted file reused
+    its id, clobbering a live (possibly resolved) decision. Persist at
+    write time so the reset target already contains the decision. Must
+    never fail the mutation response — the write is live on the worktree
+    file regardless.
+    """
+    if field_path != "decisions" and not field_path.startswith("decisions."):
+        return
+    try:
+        pipeline_id, _ = _pipeline_context()
+        if not pipeline_id:
+            return
+        from routes.pipelines import persist_contract_statefiles
+
+        persist_contract_statefiles(
+            pipeline_id,
+            worktree,
+            f"Persist contract decision mutation {field_path} (#3427)",
+        )
+    except Exception:
+        logger.warning(
+            "Failed to persist decisions mutation to work branch",
+            extra={"field_path": field_path},
+            exc_info=True,
+        )
 
 
 _TASK_ROLE_PATH_RE = re.compile(r"^phases\.(\d+)\.tasks\.\d+\.role$")
@@ -550,6 +593,101 @@ def operator_complete_task(identifier: str, task_id: str) -> tuple[Response, int
     )
 
     return _success(f"Task {task_id} marked complete by operator", data=result)
+
+
+@contracts_bp.route("/<identifier>/tasks", methods=["POST"])
+@require_lifecycle_secret
+def operator_add_task(identifier: str) -> tuple[Response, int]:
+    """Append a task to a contract slice as an audited operator action (#3428).
+
+    The in-band remediation for a contract that needs a task no agent can
+    add (agents have no task-add verb). Replaces hand-editing the live
+    contract JSON in the pipeline worktree. The HITL ``adds_task`` option
+    executor (``routes/decisions``) calls the same underlying operator
+    action; this route is the direct path for cases where no decision was
+    registered.
+
+    URL params:
+        identifier: Pipeline id (preferred) or issue number.
+
+    Request body::
+
+        {"slice_id": "slice-4",           # required
+         "description": "<task text>",    # required
+         "acceptance_criteria": "...",    # optional
+         "files_affected": ["a.py"],      # optional
+         "role": "coder",                 # optional (defaults to coder downstream)
+         "reason": "<why>"}               # optional
+
+    Auth: lifecycle-secret guarded — operator/host surface only; not
+    proxied by the gateway.
+    """
+    # Lazy import — same heavy-dependency seam as operator_complete_task.
+    from operator_actions import OperatorActionError, add_task_as_operator
+
+    ident = _coerce_identifier(identifier)
+    validation_error = _validate_identifier(ident)
+    if validation_error:
+        return validation_error
+
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return _error("Request body must be a JSON object")
+
+    pipeline_id = body.get("pipeline_id") or (str(ident) if not isinstance(ident, int) else None)
+    if not pipeline_id:
+        return _error(
+            "Cannot resolve pipeline worktree: pass the pipeline id as the "
+            "URL identifier or in the request body as 'pipeline_id'",
+            status_code=400,
+        )
+
+    slice_id = body.get("slice_id")
+    description = body.get("description")
+    if not slice_id or not isinstance(slice_id, str):
+        return _error("Missing slice_id", status_code=400)
+    if not description or not isinstance(description, str):
+        return _error("Missing description", status_code=400)
+    files_affected = body.get("files_affected") or []
+    if not isinstance(files_affected, list) or not all(isinstance(f, str) for f in files_affected):
+        return _error("files_affected must be a list of strings", status_code=400)
+
+    # Same operator-namespace scoping rationale as operator_complete_task:
+    # a body-provided actor must not read in the audit log as an agent
+    # mutation.
+    actor_suffix = body.get("actor")
+    actor = f"operator:{actor_suffix}" if actor_suffix else "operator"
+
+    try:
+        result = add_task_as_operator(
+            pipeline_id,
+            slice_id,
+            description,
+            acceptance_criteria=body.get("acceptance_criteria") or "",
+            files_affected=files_affected,
+            role=body.get("role"),
+            reason=body.get("reason", ""),
+            actor=actor,
+            issue_number=ident if isinstance(ident, int) else None,
+        )
+    except OperatorActionError as exc:
+        return _error(exc.message, status_code=exc.status_code)
+
+    logger.info(
+        "Operator appended contract task",
+        extra={
+            "pipeline_id": pipeline_id,
+            "task_id": result.get("task_id"),
+            "slice_id": slice_id,
+            "actor": actor,
+            "source": getattr(request, "egg_source", "unknown"),
+        },
+    )
+
+    return _success(
+        f"Task {result.get('task_id')} added to {result.get('slice_id')} by operator",
+        data=result,
+    )
 
 
 @contract_mutations_bp.route("/validate", methods=["POST"])

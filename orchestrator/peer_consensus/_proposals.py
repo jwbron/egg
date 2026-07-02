@@ -45,11 +45,33 @@ def handle_propose(
     ``handle_re_propose``'s aggregation enforcement by omitting the
     ``changed_artifacts`` field.  The barrier self-skips when there are
     fewer than 2 distinct NACKing reviewers.
+
+    **Unchanged-tree guard (#3395, mirrored #3415):** the same bypass
+    surface reintroduces the v3-v12 re-propose churn — a re-propose
+    without ``--changed-artifacts`` routes here, and after a NACK the
+    producer is back in ``WORKING`` so ``check_propose_guard`` allows the
+    call. Without the guard, ``_handle_propose_inner`` would bump the
+    version and re-invoke every reviewer with zero new commits. The guard
+    is applied only when ``check_propose_guard`` would *allow* the propose
+    (phase ``None`` or ``WORKING``); for any other phase — notably a
+    fully-ACKed producer still in ``PROPOSED`` — the propose guard inside
+    ``_handle_propose_inner`` owns the rejection so its phase-specific
+    message ("already fully ACKed → confirm instead") wins. The guard also
+    no-ops on the initial ``version 0 → 1`` propose (``current_sha == ""``)
+    so first proposals are never caught.
     """
     with self._lock:
         barrier = self._open_nacks_barrier_response(agent_role)
         if barrier is not None:
             return barrier
+        # Mirror check_propose_guard's allow condition so its phase-specific
+        # rejections keep precedence: only guard the re-propose-churn path
+        # (a WORKING/unset producer re-proposing an unchanged tree).
+        current_phase = self._producer_phases.get(agent_role)
+        if current_phase is None or current_phase == ConsensusPhase.WORKING:
+            unchanged = self._unchanged_tree_guard_response(agent_role, payload)
+            if unchanged is not None:
+                return unchanged
         result = self._handle_propose_inner(agent_role, payload)
         # Record explicit proposal timestamp (not updated by auto-repropose)
         # so check_auto_repropose can suppress redundant re-reviews when a

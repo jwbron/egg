@@ -14,7 +14,7 @@
       "type": "string",
       "description": "Schema version for migrations",
       "pattern": "^[0-9]+\\.[0-9]+$",
-      "default": "1.3"
+      "default": "1.4"
     },
     "issue": {
       "oneOf": [

@@ -75,8 +75,65 @@ def _handle_submit_task(self, args: dict[str, Any]) -> dict[str, Any]:
             base_id = f"{base_id}-{qualifier}"
         data["pipeline_id"] = base_id
         data["branch"] = args.get("branch") or f"egg/{base_id}"
-    if args.get("repo"):
+    # Repo(s): accept either the single ``repo`` (back-compat) or a
+    # ``repos`` list of {repo, base_branch, primary} entries (#3393,
+    # multi-repo pipelines). Exactly one of the two must be supplied.
+    # A ``repos`` list is normalised to the wire shape the route expects
+    # (``data["repos"]``) and its primary entry is mirrored onto the
+    # legacy ``repo``/``base_branch`` scalars so the single-repo plumbing
+    # (pipeline naming, primary base-branch resolution) keeps working.
+    repos_arg = args.get("repos")
+    if repos_arg is not None:
+        if args.get("repo"):
+            return {
+                "error": (
+                    "Pass either 'repo' (single-repo) or 'repos' (multi-repo list), not both."
+                )
+            }
+        if isinstance(repos_arg, str):
+            try:
+                repos_arg = json.loads(repos_arg)
+            except json.JSONDecodeError as e:
+                return {"error": f"Invalid repos JSON: {e}"}
+        if not isinstance(repos_arg, list) or not repos_arg:
+            return {"error": "repos must be a non-empty list of {repo, base_branch} entries"}
+        normalized: list[dict[str, Any]] = []
+        primary_index = 0
+        seen_primary = False
+        for idx, entry in enumerate(repos_arg):
+            if isinstance(entry, str):
+                entry = {"repo": entry}
+            if not isinstance(entry, dict) or not entry.get("repo"):
+                return {"error": f"repos[{idx}] must be an object with a 'repo' field"}
+            norm: dict[str, Any] = {"repo": entry["repo"]}
+            if entry.get("base_branch"):
+                norm["base_branch"] = entry["base_branch"]
+            normalized.append(norm)
+            if entry.get("primary"):
+                if seen_primary:
+                    return {"error": "At most one repos entry may set 'primary'"}
+                seen_primary = True
+                primary_index = idx
+        # Emit the wire list canonically primary-first (index 0 == primary) and
+        # drop the transient ``primary`` flag: the route treats ``repos[0]`` as
+        # primary, and the Pipeline model mirrors ``repos[0]`` onto the legacy
+        # singleton. Keeping the two in agreement avoids a spurious
+        # repo/primary conflict rejection when a non-first entry is flagged.
+        if primary_index != 0:
+            normalized.insert(0, normalized.pop(primary_index))
+        data["repos"] = normalized
+        primary = normalized[0]
+        # Mirror the primary onto the legacy scalars for downstream plumbing
+        # that still reads the singleton (route naming, base-branch detection).
+        data["repo"] = primary["repo"]
+        if primary.get("base_branch"):
+            data["base_branch"] = primary["base_branch"]
+    elif args.get("repo"):
         data["repo"] = args["repo"]
+    if not data.get("repo"):
+        return {
+            "error": "Missing repo: pass either 'repo' (single-repo) or 'repos' (multi-repo list)"
+        }
     if args.get("config"):
         config = args["config"]
         if isinstance(config, str):

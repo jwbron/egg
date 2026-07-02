@@ -239,6 +239,20 @@ def spawn_agent_job(
                     # "recover" from that rejection with ``git reset --hard``,
                     # destroying their own committed work (#1809).
                     assigned_branch=branch,
+                    # #3393 slice-7 (cq-4): for a MULTI-REPO pipeline, the
+                    # slice-scoped ``repos`` list carries every participating
+                    # repo (slice-first, then the rest — slice-6 wiring), so
+                    # asking the gateway to materialize each repo's
+                    # ``egg/<pipeline_id>/work`` branch here pushes that branch
+                    # onto EVERY participating remote before the slice-4
+                    # secondary-context / slice-PR openers run against it —
+                    # closing the slice-4 missing-head-branch soft-fail.  The
+                    # gateway push is non-forced + idempotent (never clobbers
+                    # the primary's contract-init commit).  Gated strictly on
+                    # ``len(repos) > 1`` so single-repo (N=1) spawns pass
+                    # ``push_branches=False`` and stay byte-identical to
+                    # pre-#3393.
+                    push_branches=bool(repos) and len(repos) > 1,
                 )
             except Exception as e:  # noqa: BLE001 — classify below
                 duration_ms = int((time.monotonic() - attempt_started) * 1000)
@@ -446,10 +460,20 @@ def spawn_agent_job(
 
     try:
         # Build environment variables for the agent container.
-        # Derive repo name from the first repo in the list (owner/name format).
+        #
+        # ``repos`` is canonically PRIMARY-FIRST (Pipeline.repos / RepoSpec
+        # ordering, #3393 slices 1-2), so the first entry is the pipeline's
+        # primary repo. Naming env (EGG_REPO_PATH, EGG_PIPELINE_REPO) derives
+        # from that primary, but the FULL repo set is exposed to the agent via
+        # the owner/repo-keyed worktree map (EGG_PIPELINE_REPOS, built below),
+        # so a per-slice agent can select ITS slice's repo rather than being
+        # collapsed onto the primary (#3393 slice-3, AC-4). This is why the
+        # primary pick here is NOT a ``repos[0]`` collapse — nothing is
+        # discarded. ``next(iter(...))`` takes the first (primary) entry.
         repo_base = "/home/egg/repos"
-        if repos:
-            repo_name = repos[0].split("/")[-1]
+        primary_repo = next(iter(repos or []), None)
+        if primary_repo:
+            repo_name = primary_repo.split("/")[-1]
             repo_path = f"{repo_base}/{repo_name}"
         else:
             repo_path = repo_base
@@ -457,11 +481,11 @@ def spawn_agent_job(
         # EGG_PIPELINE_REPO is the GitHub-style "owner/repo" string the
         # gateway and the auto-issue dedup signature rely on (issue
         # #1962). EGG_REPO_PATH is the *filesystem* path; this is a
-        # separate, distinct env var. Sourced from the first repo in
-        # `repos`; an empty repos list leaves it unset and the sandbox
+        # separate, distinct env var. Sourced from the primary repo;
+        # an empty repos list leaves it unset and the sandbox
         # entrypoint will fail-fast (no silent fallback per the
         # implementation plan).
-        pipeline_repo = repos[0] if repos else None
+        pipeline_repo = primary_repo
 
         environment: dict[str, str] = {
             "CONTAINER_ID": agent_worktree_id,
@@ -546,6 +570,25 @@ def spawn_agent_job(
                     "falling back to defaults",
                     repo=pipeline_repo,
                 )
+
+        # Expose the FULL repo set to the agent as an owner/repo-keyed JSON
+        # map of ``owner/repo`` -> container worktree path, so a per-slice
+        # agent can select the worktree for ITS slice's repo instead of being
+        # collapsed onto the primary (#3393 slice-3, AC-4). The values mirror
+        # the container mount targets built in ``host_path_mounts`` below
+        # (``/home/egg/repos/<bare-name>``); the keys carry the owner prefix
+        # (gateway re-key, operator ruling #6) so same-short-name repos under
+        # different owners stay distinct. Left unset when the role has no
+        # worktrees (``repo_volumes`` empty/None).
+        if repo_volumes:
+            import json as _json
+
+            environment["EGG_PIPELINE_REPOS"] = _json.dumps(
+                {
+                    owner_repo: f"{repo_base}/{owner_repo.split('/')[-1]}"
+                    for owner_repo in repo_volumes
+                }
+            )
         if issue_number is not None:
             environment["EGG_ISSUE_NUMBER"] = str(issue_number)
         if phase:

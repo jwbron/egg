@@ -21,6 +21,19 @@ def get_proposal_commit_sha(self, role: str) -> str:
     return self._proposal_commit_shas.get(role, "")
 
 
+def get_all_proposal_commit_shas(self) -> dict[str, str]:
+    """Return a snapshot of every producer's current proposal commit SHA.
+
+    Used by the overseer's incomplete-consensus stall detector to
+    fingerprint the proposal set (#3395): a re-propose that does not
+    advance any producer's SHA must not refresh the post-proposal grace
+    window, or back-to-back unchanged re-proposes (spaced under the
+    grace interval) suppress the stall timer forever.
+    """
+    with self._lock:
+        return dict(self._proposal_commit_shas)
+
+
 def get_commit_sha_for_version(self, producer: str, version: int) -> str:
     """Return the commit SHA a producer's proposal was at for ``version``.
 

@@ -610,6 +610,37 @@ def get_auth_mode(repo: str) -> str:
     return cast(str, auth_mode)
 
 
+def assert_uniform_auth(repos: list[str]) -> None:
+    """Require a single uniform auth mode across a run's repos (#3393).
+
+    Multi-repo pipelines v1 require every repo in one run to share one auth
+    mode — all ``bot`` or all ``user``. Mixed auth is where the gateway session
+    model gets genuinely complex and is deferred to a later phase (see issue
+    #3393 "Hard parts"). This is the canonical per-run auth-uniformity guard,
+    living beside :func:`get_auth_mode`; it is importable from both the gateway
+    and the orchestrator (``config/repo_config.py`` is bundled into both
+    images).
+
+    Args:
+        repos: Repositories in ``owner/name`` format. A single repo (or an
+            empty list) is trivially uniform.
+
+    Raises:
+        ValueError: when the repos resolve to more than one auth mode. The
+            message names the offending repos grouped by mode so the operator
+            can see exactly which side diverges.
+    """
+    modes: dict[str, list[str]] = {}
+    for repo in repos:
+        modes.setdefault(get_auth_mode(repo), []).append(repo)
+    if len(modes) > 1:
+        groups = "; ".join(f"{mode}: {', '.join(sorted(rs))}" for mode, rs in sorted(modes.items()))
+        raise ValueError(
+            "Mixed auth modes across the pipeline's repos are not supported in v1 "
+            "(a run must be uniformly 'bot' or 'user'). Diverging repos — " + groups + "."
+        )
+
+
 def is_user_mode_repo(repo: str) -> bool:
     """
     Check if a repository is configured to use user mode.

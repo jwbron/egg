@@ -866,6 +866,101 @@ class TestResolveAuthorshipRepoPath:
         assert _resolve_authorship_repo_path() == parent / "myfork"
 
 
+class TestResolveAuthorshipRepoPathPrimaryHint:
+    """The #3393 slice-3 primary-hint branch of ``_resolve_authorship_repo_path``.
+
+    Before slice-3 this resolver had no notion of the pipeline's primary
+    repo: with several repos checked out it blindly preferred ``egg`` /
+    first-alphabetical. Slice-3 added a PRIMARY-HINT branch — when
+    ``EGG_PIPELINE_REPO`` (the ``owner/repo`` slug the spawner derives
+    primary-first from ``Pipeline.repos``) names a repo that is checked out
+    among the discovered repos, resolve to THAT repo. These tests pin the
+    behavioural delta the ratchet's token-absence proof cannot: that the
+    hint is honoured, that it matches on the bare repo name (not the owner),
+    and that it wins over the ``egg``-preference degradation heuristic — plus
+    the preserved degrade path when the hint is absent or does not match.
+    """
+
+    def test_primary_hint_wins_over_egg_preference(self, tmp_path: Path, monkeypatch):
+        """When the primary hint names a checked-out repo, it is returned
+        even though ``egg`` is also present and would otherwise win.
+
+        The hint slug carries an owner (``someorg``) that matches no repo
+        directory, so a green result also proves the resolver splits on the
+        bare repo NAME (``split("/")[-1]``) rather than the owner
+        (``split("/")[0]``) — a ``[0]`` bug would fail to match and silently
+        degrade to ``egg``.
+        """
+        from commit_authorship_store import _resolve_authorship_repo_path
+
+        parent = tmp_path / "repos"
+        parent.mkdir()
+        for name in ("consumer", "egg", "zzz"):
+            child = parent / name
+            child.mkdir()
+            (child / ".git").mkdir()
+        monkeypatch.setenv("EGG_REPO_PATH", str(parent))
+        monkeypatch.delenv("EGG_AUTHORSHIP_REPO", raising=False)
+        # Primary is the (non-egg) consumer repo; owner deliberately differs
+        # from every on-disk directory name.
+        monkeypatch.setenv("EGG_PIPELINE_REPO", "someorg/consumer")
+
+        assert _resolve_authorship_repo_path() == parent / "consumer"
+
+    def test_primary_hint_absent_degrades_to_egg_preference(self, tmp_path: Path, monkeypatch):
+        """With no primary hint the resolver degrades to the preserved
+        ``egg``-preference heuristic (the pre-slice-3 behaviour)."""
+        from commit_authorship_store import _resolve_authorship_repo_path
+
+        parent = tmp_path / "repos"
+        parent.mkdir()
+        for name in ("consumer", "egg", "zzz"):
+            child = parent / name
+            child.mkdir()
+            (child / ".git").mkdir()
+        monkeypatch.setenv("EGG_REPO_PATH", str(parent))
+        monkeypatch.delenv("EGG_AUTHORSHIP_REPO", raising=False)
+        monkeypatch.delenv("EGG_PIPELINE_REPO", raising=False)
+
+        assert _resolve_authorship_repo_path() == parent / "egg"
+
+    def test_primary_hint_not_checked_out_degrades(self, tmp_path: Path, monkeypatch):
+        """A primary hint that names no discovered repo does not win — the
+        resolver falls through to the degradation heuristic rather than
+        returning a phantom path."""
+        from commit_authorship_store import _resolve_authorship_repo_path
+
+        parent = tmp_path / "repos"
+        parent.mkdir()
+        for name in ("consumer", "egg"):
+            child = parent / name
+            child.mkdir()
+            (child / ".git").mkdir()
+        monkeypatch.setenv("EGG_REPO_PATH", str(parent))
+        monkeypatch.delenv("EGG_AUTHORSHIP_REPO", raising=False)
+        # Primary names a repo that is NOT checked out here.
+        monkeypatch.setenv("EGG_PIPELINE_REPO", "someorg/ghost")
+
+        assert _resolve_authorship_repo_path() == parent / "egg"
+
+    def test_primary_hint_degrades_to_first_alpha_when_no_egg(self, tmp_path: Path, monkeypatch):
+        """Hint absent AND no ``egg`` repo → deterministic first-alphabetical
+        pick via ``next(iter(...))`` (no ``repos[0]`` collapse)."""
+        from commit_authorship_store import _resolve_authorship_repo_path
+
+        parent = tmp_path / "repos"
+        parent.mkdir()
+        for name in ("alpha", "beta"):
+            child = parent / name
+            child.mkdir()
+            (child / ".git").mkdir()
+        monkeypatch.setenv("EGG_REPO_PATH", str(parent))
+        monkeypatch.delenv("EGG_AUTHORSHIP_REPO", raising=False)
+        monkeypatch.delenv("EGG_PIPELINE_REPO", raising=False)
+
+        assert _resolve_authorship_repo_path() == parent / "alpha"
+
+
 class TestGetStoreUsesGetStateStore:
     """Regression for #2184: ``get_store()`` must route through
     ``state_store.get_state_store`` so the worktree path matches what

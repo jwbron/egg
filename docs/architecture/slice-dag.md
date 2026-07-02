@@ -69,6 +69,7 @@ pass either.
 
 | Field | Type | Default | Purpose |
 |-------|------|---------|---------|
+| `repo` | `str \| None` | `None` | The single repository this slice operates in, `owner/name`-shaped (#3393). **Slice ↔ repo is 1:1** — exactly one repo per slice. `None` ⇒ resolved to the pipeline's primary repo at runtime by `resolve_slice_repo(slice, pipeline)` in `orchestrator/models.py` (the contract model cannot see the pipeline, so the default is *not* filled in by the model). See [Per-slice repo](#per-slice-repo-multi-repo-pipelines). |
 | `serialized_chain_order` | `list[str]` | `[]` | Architect-emitted ordering for would-be multi-parent slices (#2809). When the architect identifies a slice that would naturally have >1 parents, it serialises the upstream cluster into a chain and records the chosen order on the downstream slice. |
 | `parent_branch_at_creation` | `str \| None` | `None` | Git branch the slice's integration branch was forked off when its worktree was provisioned. Eager-persisted under the per-pipeline state lock in the same contract write that flips `SliceStatus.PENDING → IN_PROGRESS` ([#2777](https://github.com/jwbron/egg/issues/2777)), so Layer-C bootstrap reconciliation has a single signal that distinguishes a fresh slice from an interrupted one and the value is durable across orchestrator restarts. Read by the stacked-PR reconciler when the parent's branch has been deleted by a merge so it can compute the correct rebase target. Empty on legacy/orphaned slices that pre-date the eager-persist contract — in that case `_resolve_slice_base_branch` falls back to a merge-base probe against the dependency-derived parent before routing onto `pipeline_branch`. |
 | `integration_base_sha` | `str \| None` | `None` | Origin SHA the slice's integration branch was forked at when first created (#2871). Written right after branch creation and before any agent is spawned (so the tip still equals this SHA at that point), but can be overwritten by out-of-band actors such as `restart_phase`, `salvage_agent_commits`, or manual contract edits. Lets `is_slice_branch_merged_into_parent` distinguish an *empty, un-started* branch (tip still equals this SHA → trivially an ancestor of any advanced parent, but not merged work) from a *genuinely merged* one (tip has moved past this SHA). Also used by `create_slice_integration_branch` to verify that an existing integration branch is a resumable additive fork (#2947); when this field is absent or corrupted (e.g. overwritten to the advanced parent tip by a restart actor), that method re-derives the fork point via a runtime `git merge-base` (executed on the gateway) and adopts the branch in place rather than non-fast-forward-failing the slice (#3245). Slices provisioned before this field existed fall back to the prior ancestor-only check. |
@@ -724,6 +725,122 @@ route `/api/v1/gh/list_open_prs` with launcher auth rather than a
 synthetic agent session: no general-purpose privileged gh-command surface
 is introduced — the route accepts only `repo`/`limit` and constructs the
 fixed read-only argv server-side.
+
+## Per-slice repo (multi-repo pipelines)
+
+A pipeline can coordinate PRs across an **arbitrary number of repositories**
+(#3393). The repo set is list-shaped end to end — `Pipeline.repos:
+list[RepoSpec]`, one entry per repo, each pinning its own `base_branch`. There
+is no two-repo special case and no primary+secondary shape in the data model;
+nothing may assume `len(repos)` ∈ {1, 2}. See the
+[SDLC Pipeline Guide § Multi-Repo Pipelines](../guides/sdlc-pipeline.md#multi-repo-pipelines)
+for the submission surface, the primary-repo concept, and the uniform-visibility
+/ uniform-auth rules enforced at submission time.
+
+The slice DAG is where cross-repo coordination lives. Each slice maps to
+**exactly one** repo, and cross-repo work is expressed as **multiple slices with
+dependencies** — never a single slice touching two repos.
+
+### `Slice.repo` — the 1:1 rule
+
+`Slice.repo` (`str | None`, `owner/name`-shaped) names the one repository a
+slice operates in. **Slice ↔ repo is 1:1**: a slice's work, worktree, branch,
+review diff, test scope, and PR all live in that single repo. This keeps
+worktree selection, PR routing, reviewer diffs, and test gating single-repo at
+the slice level — the coordination complexity lives only in the slice DAG.
+
+`Slice.repo` defaults to `None`. The absent ⇒ primary default is resolved at
+**runtime** by `resolve_slice_repo(slice, pipeline)` (orchestrator layer), which
+returns `slice.repo` when set else `pipeline.primary_repo`. The contract model
+holds no repo list and cannot see the pipeline, so the default is deliberately
+*not* a model-side migration. Adding the optional field bumped the contract
+`schemaVersion` to `1.4` via a **pure additive after-stamp**
+(`_migrate_schema_version_to_1_4`, mirroring the `1.3` precedent): a persisted
+pre-1.4 contract loads cleanly and `Slice.repo` stays `None` — no field is
+filled by the migration.
+
+### Owner/repo-keyed worktree map
+
+The gateway's `create_worktrees(repos=[...])` already returns a
+`repo → worktree path` map; that map is keyed by the **full `owner/repo` slug**
+(not the bare short name) so two repos with the same short name under different
+owners stay distinct. The full map is exposed to the agent environment as
+`EGG_PIPELINE_REPOS` — a JSON object of `owner/repo → container worktree path` —
+so a per-slice agent can select the worktree for *its* slice's repo rather than
+being collapsed onto the primary. Naming-oriented env (`EGG_PIPELINE_REPO`,
+`EGG_REPO_PATH`) still resolves to the primary for back-compat.
+
+### Per-repo work branch & context PR
+
+Work branches and context PRs are **lazy-per-repo**: every repo that owns ≥1
+slice gets its own `egg/<pipeline_id>/work` branch and its own context PR
+(`egg/<pipeline_id>/work → <that repo's base>`); a submitted repo that ends up
+with no slices gets neither. A single-repo pipeline gets exactly one work branch
+and one context PR, byte-equivalent to the pre-multi-repo path. Context-PR
+bodies cross-reference their sibling context PRs in the pipeline.
+
+### Per-slice PR routing
+
+`GatewayClient.create_slice_pr` is repo-parameterized; the run loop passes each
+slice's resolved repo (`resolve_slice_repo`, falling back to the primary when
+`Slice.repo` is absent), so a slice's PR opens in that slice's repo against that
+repo's `egg/<id>/work` context branch. Slice-PR bodies render **sibling
+cross-references** — the other pipeline PRs (repo + number) and, for a dependent
+slice, the upstream slice's PR it is ordered behind.
+
+### Cross-repo ordering via slice dependencies
+
+A cross-repo dependency is an ordinary slice `dependencies` edge whose two
+endpoints resolve to different repos: an edge `B → A` is cross-repo iff
+`resolve_slice_repo(A) != resolve_slice_repo(B)`. The canonical case — add a new
+schema version in repo A, then migrate the consumer in repo B, where B's cutover
+can't land until A's PR merges — is expressed as slice B depending on slice A,
+with A in repo A and B in repo B. **Dependencies gate merge-readiness, not
+development**: B is developed in parallel with A; only B's PR ready-state waits.
+
+### Cross-repo merge-sequencing hold (two-tier)
+
+`orchestrator/cross_repo_merge_gate.py` implements the two-tier hold that
+sequences a cross-repo dependent PR behind its upstream. It is pure logic over
+injected gateway-read/write and HITL callables, driven on the existing
+stacked-PR reconciler cadence.
+
+- **Tier A — automated merge-state hold (default).** The dependent slice's PR
+  opens as a **draft** while the upstream PR is unmerged. A bounded poll watches
+  the upstream PR's merge state and, on merge, auto-marks the dependent PR ready
+  via the `mark_pr_ready(repo, pr_number)` gateway verb (wrapping `gh pr
+  ready`). **Merge detection keys off the PR `mergedAt` / merged boolean, not
+  head-SHA equality** — a squash or rebase merge produces a merge-commit SHA ≠
+  the PR head, so SHA-equality would misfire. Two failure terminals fall through
+  to a HITL hold rather than hanging: an upstream that reaches
+  **CLOSED-not-merged**, and a poll that exceeds its **attempt bound** (a
+  never-merging upstream). Both surface on pipeline status.
+- **Tier B — HITL beyond-merge-state hold (opt-in).** For an edge the plan (or
+  task description) marks with a beyond-merge-state condition — a
+  release/publish of the upstream repo, a version-pin choice, or a genuine
+  cannot-continue development block — the dependent PR is held and released
+  **only by a HITL decision**, never by programmatic detection. Absent that
+  marker, a cross-repo edge defaults to the Tier-A automated hold.
+
+All HITL holds (Tier B, plus the two Tier-A failure terminals) route through the
+same decision-queue mechanism and share a single release path.
+
+### Per-repo gate, diff & convention scoping
+
+Because slice ↔ repo is 1:1, the implement-phase gates scope naturally to the
+slice's repo:
+
+- The **test gate** runs in the slice's repo worktree only (resolved from the
+  `owner/repo`-keyed worktree map).
+- The **reviewer diff** is `git diff` in that worktree against **that repo's**
+  base branch.
+- The slice agent's **cwd** is the slice's repo worktree, and check/lint
+  commands resolve from **that repo's** conventions — its own `CLAUDE.md`,
+  linters, and check commands. egg's `make lint` / `make test` apply only to
+  slices whose repo is egg.
+
+A slice whose repo is egg (the common case) behaves exactly as a single-repo
+pipeline does today.
 
 ## Architect, planner & plan-reviewer prompts
 
