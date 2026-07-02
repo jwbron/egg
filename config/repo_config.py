@@ -634,9 +634,7 @@ def assert_uniform_auth(repos: list[str]) -> None:
     for repo in repos:
         modes.setdefault(get_auth_mode(repo), []).append(repo)
     if len(modes) > 1:
-        groups = "; ".join(
-            f"{mode}: {', '.join(sorted(rs))}" for mode, rs in sorted(modes.items())
-        )
+        groups = "; ".join(f"{mode}: {', '.join(sorted(rs))}" for mode, rs in sorted(modes.items()))
         raise ValueError(
             "Mixed auth modes across the pipeline's repos are not supported in v1 "
             "(a run must be uniformly 'bot' or 'user'). Diverging repos — " + groups + "."
