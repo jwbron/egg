@@ -457,10 +457,16 @@ class TestEdgeCases:
             {"artifact_references": ["file.py"], "reason": "Needs fix"},
         )
 
-        # Producer re-proposes v2 (using handle_re_propose)
+        # Producer re-proposes v2 (using handle_re_propose). The re-propose
+        # must carry a *new* commit SHA — the unchanged-tree guard (#3395)
+        # rejects a re-propose whose commit SHA equals the current
+        # proposal's, since it lands zero new commits and cannot have
+        # addressed the NACK blockers.
+        v2_proposal = _minimal_proposal("v2")
+        v2_proposal["commit_sha"] = "def5678"
         result = simple_tracker.handle_re_propose(
             "producer",
-            _minimal_proposal("v2"),
+            v2_proposal,
             changed_artifacts=["file.py"],
         )
         assert result["version"] == 2
