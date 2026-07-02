@@ -719,6 +719,49 @@ synthetic agent session: no general-purpose privileged gh-command surface
 is introduced — the route accepts only `repo`/`limit` and constructs the
 fixed read-only argv server-side.
 
+## Cross-repo merge-sequencing gate
+
+`orchestrator/cross_repo_merge_gate.py` (#3393 slice-5) extends the
+stacked-PR model to **multi-repo pipelines**, where a dependency edge
+`B → A` can cross a repo boundary (`resolve_slice_repo(A) != resolve_slice_repo(B)`).
+Cross-repo edges cannot stack via a shared integration branch, so instead:
+
+- Slice `B` is developed in parallel and its PR is opened as a **draft**
+  when any of its dependencies resolves to a different repo (same-repo
+  deps keep the existing stacked-PR behaviour and are ignored here).
+- `B`'s ready transition is gated on its upstream(s), polled on the
+  **same cadence as the stacked-PR reconciler** (`_start_stacked_pr_reconciler`
+  in `orchestrator/routes/pipelines.py`) — no separate scheduler. The
+  gate is a strict no-op (and skips the contract scan) for single-repo
+  pipelines.
+
+Two tiers, selected per dependent slice via the operator ruling (cq-1):
+
+- **Tier A — automated merge-state hold (default).** Polls the upstream
+  PR's merge state via the orchestrator-only gateway routes
+  `POST /api/v1/gh/pr/merge_state` (read) and `POST /api/v1/gh/pr/ready`
+  (write) — see [Gateway README](../../gateway/README.md). Merge
+  detection keys off `mergedAt`/`state`, never head-SHA equality (a
+  squash/rebase merge produces a merge-commit SHA that differs from the
+  PR head). An upstream that closes **without merging**, or a poll that
+  exceeds `EGG_ORCH_CROSS_REPO_MERGE_GATE_MAX_ATTEMPTS` (default 240
+  ticks, ~2h at the default 30s cadence), falls through to a HITL hold
+  rather than leaving the PR draft indefinitely.
+- **Tier B — HITL beyond-merge-state hold (opt-in).** For dependencies
+  the plan declares as gated on something beyond a merge (a release/publish
+  step, a version-pin choice, a genuine cannot-continue block), the
+  dependent slice opts in via the `[hold:beyond-merge-state]` marker in
+  its `goal` (or a task description); `B`'s ready transition is then
+  held and released **only** by a human decision, never programmatic
+  detection.
+
+Every hold — Tier B, plus the two Tier-A failure terminals — registers a
+HITL Decision on the contract with two operator-selectable options:
+release the hold (marks the PR ready) or keep it held (terminal; the PR
+stays draft for manual handling). The gate is pure/injected-callable
+logic (mirroring the stacked-PR reconciler's design) so it is unit-tested
+without a live gateway.
+
 ## Architect, planner & plan-reviewer prompts
 
 The dynamic prompt builders for `task_planner` and `reviewer_plan` teach
@@ -794,6 +837,7 @@ on parse failure.
 | `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES` | int | 10 | Pipeline-wide summed slice-cycle cap. *Currently inert — see local cycles row.* |
 | `EGG_ORCH_SLICE_FAILURE_GRACE_SECONDS` | float | 60.0 | Grace window before a failure cascade marks the downstream subtree `BLOCKED_ON_FAILED_DEPENDENCY`. |
 | `EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS` | float | 30.0 | Reconciler polling cadence for orphaned child PRs. |
+| `EGG_ORCH_CROSS_REPO_MERGE_GATE_MAX_ATTEMPTS` | int | 240 | Poll-attempt budget for the cross-repo merge-sequencing gate (#3393) before a never-merging upstream escalates to a HITL hold; ~2h at the default reconciler cadence. See [Cross-repo merge-sequencing gate](#cross-repo-merge-sequencing-gate). |
 
 ### Per-pipeline vs. global slice caps
 

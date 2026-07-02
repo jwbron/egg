@@ -276,6 +276,22 @@ POST /api/v1/gh/pr/close
   Request: {repo, pr_number}
   Policy: pr_ownership
 
+POST /api/v1/gh/pr/merge_state
+  Request: {repo, pr_number}
+  Auth: Bearer {launcher_secret}
+  Description: Orchestrator-only read of a PR's merge state ({state, mergedAt}).
+               Powers the cross-repo merge-sequencing gate (#3393): the
+               orchestrator polls an upstream slice PR to decide when to
+               mark a downstream draft PR ready. Keys off mergedAt/state,
+               not head-SHA equality (a squash/rebase merge changes the SHA).
+
+POST /api/v1/gh/pr/ready
+  Request: {repo, pr_number}
+  Auth: Bearer {launcher_secret}
+  Description: Orchestrator-only draft→ready transition (wraps `gh pr ready`).
+               Write half of the cross-repo merge-sequencing gate (#3393):
+               called when the upstream PR merges.
+
 POST /api/v1/gh/execute
   Request: {args[], require_auth}
   Policy: deny-by-default allowlist (parity with /api/v1/git/execute).
