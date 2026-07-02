@@ -17101,6 +17101,95 @@ def _latest_active_role_heartbeat(active_role_names: list[str]) -> datetime | No
         return None
 
 
+def _unresolved_contract_hitl_ids(
+    pipeline_id: str,
+    pipeline: Pipeline,
+    phase_str: str,
+) -> list[str]:
+    """Return ids of unresolved contract HITL (``cq-N``) decisions gating ``phase_str``.
+
+    Feeds the consensus-timeout HITL gate (#3426): while an agent-registered
+    contract question (``register_open_question`` / impasse escalation) for
+    the running phase awaits an operator answer, the slice is *operator-gated*
+    — a reviewer correctly withholding its ACK pending the ruling is not a
+    convergence failure, so the consensus-timeout clock must not expire the
+    phase. Scoped to decisions whose ``phase`` matches the running phase;
+    phase-less decisions are skipped, mirroring
+    ``_collect_unresolved_phase_decisions`` (we cannot prove they gate this
+    phase, and an eternally-unanswered legacy entry must not suspend the
+    timeout forever).
+
+    Contract decisions have no slice tag, so during a sliced implement phase
+    any unresolved implement-tagged question suspends every slice's timeout.
+    That errs toward parking rather than failing — acceptable, since the
+    overseer's "wedged on HITL" alert stays sticky and the operator's answer
+    releases the gate.
+
+    The gate keys on the *existence* of an operator-facing HITL decision
+    tagged to this phase, not on causal proof that decision is what a
+    reviewer is withholding an ACK for — decisions carry no link to the
+    ACK they block. An unrelated implement-tagged HITL therefore suspends
+    the timeout too; that is the conservative "park rather than fail"
+    direction, self-corrected by the clock reset on release (a genuine
+    stall times out on the fresh window) and by the overseer's other
+    health checks.
+
+    Fail-open: any failure (missing worktree, unloadable contract) returns
+    ``[]`` so a broken scan degrades to the pre-#3426 timeout behaviour
+    rather than suspending the clock indefinitely. Matching the sibling
+    ``_collect_unresolved_phase_decisions``, the except set is narrowed to
+    the IO/validation failures a real scan can hit and logged at
+    ``warning`` (so a broken scan is observable, not a silent no-op),
+    while programming errors (``AttributeError``/``TypeError``/``NameError``)
+    are left to propagate so they surface during development.
+    """
+    try:
+        import contract_store
+        from egg_contracts import load_contract
+        from egg_contracts.loader import (
+            ContractNotFoundError,
+            ContractValidationError,
+        )
+    except ImportError:
+        logger.warning(
+            "Consensus-timeout HITL gate: egg_contracts unavailable, cannot scan",
+            pipeline_id=pipeline_id,
+            exc_info=True,
+        )
+        return []
+
+    try:
+        worktree = contract_store.resolve_pipeline_worktree(pipeline_id)
+        if worktree is None:
+            return []
+        identifier = _pipeline_identifier(getattr(pipeline, "issue_number", None), pipeline_id)
+        contract = load_contract(identifier, worktree)
+    except OSError, ValueError, ContractNotFoundError, ContractValidationError:
+        # OSError: filesystem failures resolving the worktree / reading the
+        # contract. ValueError: identifier / path-resolution failures from
+        # ``_pipeline_identifier`` (``load_contract`` wraps pydantic-V2
+        # validation errors as ContractValidationError, so a raw ValueError
+        # here does not come from schema validation). Contract*: missing or
+        # corrupt contract JSON. All fail open to ``[]``.
+        logger.warning(
+            "Consensus-timeout HITL gate contract scan failed",
+            pipeline_id=pipeline_id,
+            exc_info=True,
+        )
+        return []
+
+    ids: list[str] = []
+    for d in contract.decisions or []:
+        if d.resolved:
+            continue
+        if getattr(d.type, "value", d.type) != "hitl":
+            continue
+        if getattr(d.phase, "value", d.phase) != phase_str:
+            continue
+        ids.append(d.id)
+    return ids
+
+
 def _publish_consensus_timeout_alert(
     pipeline: Pipeline,
     pipeline_id: str,
@@ -20480,6 +20569,10 @@ def _run_concurrent_phase(
     # ``consensus_timeout``.
     _progress_gate_deferring = False
 
+    # #3426 HITL-gate state: same log-once discipline for the
+    # operator-gated suspension of the consensus timeout.
+    _hitl_gate_deferring = False
+
     while True:
         elapsed = time.monotonic() - start_time
 
@@ -21009,6 +21102,40 @@ def _run_concurrent_phase(
 
         # 6. Consensus timeout
         if elapsed >= consensus_timeout:
+            # #3426 HITL gate: while an unresolved operator HITL decision
+            # (contract ``cq-N``) gates the running phase, the slice is
+            # provably operator-gated — a reviewer withholding its ACK
+            # pending a human ruling is the system working as designed, not
+            # a convergence failure. Suspend the timeout (keep polling, no
+            # alert, no failure) until the operator answers. On release,
+            # reset the convergence clock so the agents folding in the
+            # resolution get a full fresh window instead of a clock that
+            # already expired while the human was thinking.
+            _hitl_ids = _unresolved_contract_hitl_ids(pipeline_id, pipeline, phase_str)
+            if _hitl_ids:
+                if not _hitl_gate_deferring:
+                    logger.info(
+                        "Consensus timeout suspended — phase is operator-gated "
+                        "on unresolved HITL decision(s)",
+                        pipeline_id=pipeline_id,
+                        slice_id=slice_id,
+                        elapsed_seconds=round(elapsed, 1),
+                        decision_ids=_hitl_ids,
+                    )
+                    _hitl_gate_deferring = True
+                time.sleep(poll_interval)
+                continue
+            if _hitl_gate_deferring:
+                _hitl_gate_deferring = False
+                start_time = time.monotonic()
+                logger.info(
+                    "Consensus timeout clock reset — operator HITL decision(s) resolved",
+                    pipeline_id=pipeline_id,
+                    slice_id=slice_id,
+                    suspended_after_seconds=round(elapsed, 1),
+                )
+                continue
+
             # #2243 progress gate: keep polling instead of publishing
             # the consensus-timeout alert while producer/reviewer
             # activity is still live on the BRC bus or in container
