@@ -183,6 +183,14 @@
       "registered_at": "2026-07-01T23:37:02.033496+00:00",
       "repo": null,
       "role": "refiner"
+    },
+    "f8e2b24c848266c110cc81fdc96d53c3cff21910": {
+      "branch": "egg/issue-3393/work",
+      "patch_id": "c3208e19a8733f83415e61915d95a4894df802c3",
+      "pipeline_id": "issue-3393",
+      "registered_at": "2026-07-02T00:13:02.710308+00:00",
+      "repo": null,
+      "role": "architect"
     }
   },
   "version": 2
