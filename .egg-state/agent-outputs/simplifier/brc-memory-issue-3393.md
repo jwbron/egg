@@ -141,6 +141,22 @@
   ratifications into the analysis (v4); review when their propose event
   reaches me.
 
+### 2026-07-02 ~00:02 UTC — event #11: reviewer_refine NACK iteration-2 v1 → v2
+
+- NACK (one-phrase): naming bullet dropped the operator's explicit-flag
+  escape hatch — "first in list UNLESS EXPLICITLY FLAGGED". Stating a
+  stricter-than-operator rule inside the binding "Where decisions stand"
+  section was the defect. Fixed with the reviewer's suggested phrasing:
+  "named after its primary repo — the first in the list unless the
+  submitter explicitly marks another as primary". All else verified
+  faithful by the reviewer.
+- Context from the refiner's parallel NACK (read in full): refiner v4 had
+  AGAIN clobbered my file (deleted house-rules bullet, rewrote my hard-bit
+  #1 dropping the fourth cq-1 element); reviewer ordered them to revert my
+  artifact to e88c16d and never overwrite it again — clobber-watch note
+  validated; keep verifying my file's integrity at every event.
+- Re-proposed as iteration-2 v2.
+
 ## Next invocation checklist
 
 1. Read `.egg-state/drafts/issue-3393-analysis.md` (pull the refiner's

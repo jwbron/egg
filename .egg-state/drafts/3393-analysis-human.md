@@ -83,8 +83,9 @@ design questions, with the same binding force as the merge-ordering decision:
   shortcut ruled out.
 - **Testing and review scope**: each slice is tested and reviewed inside its
   own repo only — no cross-repo diff in v1.
-- **Naming and house rules**: the pipeline is named after the first repo in
-  the list; branch naming is uniform; status displays list PRs per repo; and
+- **Naming and house rules**: the pipeline is named after its primary repo —
+  the first in the list unless the submitter explicitly marks another as
+  primary; branch naming is uniform; status displays list PRs per repo; and
   each slice follows its own repo's conventions.
 
 Only a new operator decision can reopen any of these.
