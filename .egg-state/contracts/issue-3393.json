@@ -14,7 +14,7 @@
       "id": "slice-1",
       "name": "Repo dimension in the persisted contract & pipeline schema (migration)",
       "goal": "Add the load-bearing repo dimension across the two model layers, aligned\nto the ratified architect design. shared/egg_contracts/models.py (contract\nlayer): add `Slice.repo: str | None = None` (owner/name; None \u21d2 resolved\nto primary at runtime, NOT in the model) and bump `Contract.schemaVersion`\n1.3\u21921.4 as a PURE ADDITIVE after-stamp `_migrate_schema_version_to_1_4`\nmirroring `_migrate_schema_version_to_1_3` verbatim (guard\nschemaVersion==\"1.3\"; idempotent; NO field mutation \u2014 `Slice.repo` stays\nNone on legacy load). The Contract model carries NO repo field and cannot\nsee the pipeline, so absent\u21d2primary CANNOT be a model migration.\norchestrator/models.py (orchestrator layer): add `RepoSpec{repo,\nbase_branch}` and `Pipeline.repos: list[RepoSpec]` with a model validator\nthat synthesizes `repos=[RepoSpec(repo, base_branch)]` from the legacy\nsingleton when absent (and mirrors `repos[0]` back onto `repo`/`base_branch`\nfor legacy readers), a `primary_repo` property, and a RUNTIME resolver\n`resolve_slice_repo(slice, pipeline) -> slice.repo or pipeline.primary_repo`.\nN=1 pipelines round-trip / behave identically. Chain root: nothing writes\n`Slice.repo` until it lands.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -23,8 +23,8 @@
         {
           "id": "task-1-1",
           "description": "In shared/egg_contracts/models.py (CONTRACT layer only): (a) add\n`repo: str | None = None` to the `Slice` model, owner/name-shaped,\ndocumented as \"exactly one repo per slice; None \u21d2 resolved to the\npipeline's primary repo at RUNTIME (see resolve_slice_repo), NOT filled\nby the model.\" (b) Bump `Contract.schemaVersion` \"1.3\"\u2192\"1.4\" by adding\n`_migrate_schema_version_to_1_4` as a PURE ADDITIVE after-stamp that\nmirrors `_migrate_schema_version_to_1_3` (models.py:1049-1069)\nVERBATIM: guard `if self.schemaVersion == \"1.3\": self.schemaVersion =\n\"1.4\"`, idempotent, NO field mutation \u2014 `Slice.repo` stays None on a\nlegacy load. Update the schemaVersion field docstring (:844-862) to\nnote the new additive stamp. CRITICAL (per risk_analyst R1 / architect\naeb3528): the Contract model has NO repo field and cannot see the\norchestrator Pipeline, so the validator MUST NOT try to populate\n`Slice.repo` and MUST NOT reference any pipeline repo. The\nabsent\u21d2primary default and the pipeline repo LIST are BOTH orchestrator\nconcerns (TASK-1-2), NOT the contract. Do NOT persist a repo list onto\nthe Contract \u2014 the repo list lives only on the orchestrator Pipeline.\nPreserve every existing field and migration branch byte-for-byte.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "797a5901cf2e367aa6b22d8fb6c210daebcc18c9",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- `Slice.repo` exists (str | None, default None), documented as\n  \"None \u21d2 primary repo resolved at runtime, not by the model\".\n- `Contract.schemaVersion` is \"1.4\"; `_migrate_schema_version_to_1_4`\n  is a pure additive stamp mirroring the 1.3 precedent (guarded on\n  \"1.3\", idempotent, no field mutation); `Slice.repo` stays None when a\n  1.3 contract is loaded.\n- The contract migration does NOT populate `Slice.repo` and does NOT\n  reference any pipeline/primary repo; no repo LIST is added to the\n  Contract.\n- The four existing migration branches are untouched; N=1 contracts\n  serialize/deserialize with no observable change.",
@@ -36,7 +36,16 @@
           "max_cycles": 3,
           "escalated": false,
           "delegation_attempts": 0,
-          "gaps": [],
+          "gaps": [
+            {
+              "id": "gap-1",
+              "from_role": "tester",
+              "to_role": "coder",
+              "description": "Coder gap (slice-1, blocks full-suite green): task-1-1 bumped the Pydantic model default `Contract.schemaVersion` 1.3\u21921.4 but did NOT bump the lockstep JSON schema at `.egg/schemas/contract.schema.json` (`properties.schemaVersion.default` is still \"1.3\", line 17). This breaks `tests/shared/egg_contracts/test_models_task_description.py::TestContractJsonSchemaTaskDescription::test_schema_default_schemaversion_tracks_model` (asserts schema default == model default \u2192 `assert '1.3' == '1.4'`). Tester is role-blocked from `.egg/schemas/contract.schema.json` (alternative_role=coder). FIX: bump that file's `schemaVersion.default` to \"1.4\" in lockstep with the model, then re-propose. This is the only remaining real failure after the tester's stale-assertion fixes (d1becb0e9); the 3 test_agent_roles failures are pre-existing environmental import noise (reproduce at f162bf292).",
+              "created_at": "2026-07-02T04:28:19Z",
+              "resolved": false
+            }
+          ],
           "jira_key": null,
           "jira_action": null,
           "jira_action_status": null
@@ -44,8 +53,8 @@
         {
           "id": "task-1-2",
           "description": "In orchestrator/models.py (ORCHESTRATOR layer): (a) add a `RepoSpec`\nmodel carrying `repo: str` (owner/name) and `base_branch: str | None`.\n(b) add `Pipeline.repos: list[RepoSpec]` (default_factory=list) and a\nmodel validator that, when `repos` is absent but the legacy singleton\n`Pipeline.repo` (models.py:1131) is set, SYNTHESIZES\n`repos=[RepoSpec(repo=repo, base_branch=base_branch)]` (back-compat),\nand mirrors `repos[0]` back onto the legacy `repo`/`base_branch` scalars\nso legacy readers keep working until slice 3 rewires them. (c) add a\n`primary_repo` property returning `repos[0].repo` \u2014 the INTENTIONAL\nprimary accessor for naming/defaulting, explicitly NOT one of the three\n`repos[0]` collapse sites removed in slice 3 (those collapse the\nagent-facing repo set to a single repo; this exposes a named primary\nwhile keeping the full list available). (d) add the RUNTIME resolver\n`resolve_slice_repo(slice, pipeline) -> slice.repo if slice.repo else\npipeline.primary_repo` \u2014 this is where absent-`Slice.repo`\u21d2primary\nlives (it takes the pipeline as a second input, which the contract\nmodel cannot). Nothing may assume `len(repos)` \u2208 {1, 2}.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "d779b0c8ceda750c042c0bba3f925097eff015e8",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- `RepoSpec{repo, base_branch}` and `Pipeline.repos: list[RepoSpec]`\n  exist; the validator synthesizes `repos` from a legacy singleton and\n  mirrors `repos[0]` back onto `repo`/`base_branch`.\n- `primary_repo` returns `repos[0].repo`; no two-repo or\n  primary+secondary shape is baked in; nothing assumes len(repos)\u2208{1,2}.\n- `resolve_slice_repo(slice, pipeline)` returns `slice.repo` when set\n  else `pipeline.primary_repo` \u2014 the absent\u21d2primary default lives HERE,\n  not in the contract migration.\n- No behavioral change for N=1 pipelines; the three collapse sites are\n  untouched (removed in slice 3).",
@@ -65,10 +74,10 @@
         {
           "id": "task-1-3",
           "description": "Add tests covering the two-layer slice-1 design. In\nshared/egg_contracts/tests/test_models.py (CONTRACT layer): (a) a fresh\n1.4 contract accepts and round-trips `Slice.repo`; (b) loading a\npersisted 1.3 contract leaves each slice's `repo` as None and bumps\nschemaVersion to \"1.4\" (pure additive stamp \u2014 assert NO repo is filled\nby the model); (c) the 1.4 stamp is idempotent and the four pre-existing\nmigration branches still fire for their versions (no regression). In\norchestrator/tests (ORCHESTRATOR layer \u2014 nearest existing\npipeline-model test module): (d) `resolve_slice_repo(slice, pipeline)`\nreturns `slice.repo` when set and `pipeline.primary_repo` when\n`slice.repo` is None; (e) a legacy singleton `Pipeline.repo` synthesizes\na one-element `repos` list and mirrors back onto `repo`/`base_branch`;\n(f) `primary_repo` == `repos[0].repo`; (g) N=1 behavior is identical.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "d1becb0e9",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Tests added on top of coder impl d779b0c8c. Contract layer (shared/egg_contracts/tests/test_models.py, new): Slice.repo round-trip; 1.3->1.4 additive stamp leaves repo None (no model-fill), preserves explicit repo; 1.4 idempotent+version-exact; prior branches fire (full-chain None/1.0/1.1/1.2/1.3->1.4, wrap-mode context_* strip, direct 1.0->1.1 & 1.3->1.4). Orchestrator layer (orchestrator/tests/test_models.py): RepoSpec; Pipeline.repos synth-from-singleton + mirror-back (idempotent); arbitrary repo count; primary_repo==repos[0].repo; resolve_slice_repo set=>slice.repo/None=>primary; N=1 both layers. 147 tests pass via system pytest against the working tree; ruff clean. make test could not provision its venv in this sandbox (no network) \u2014 integration gate enforces make test/-all green.",
           "acceptance_criteria": "- Contract-layer tests assert the additive 1.3\u21921.4 stamp with\n  `Slice.repo` staying None on legacy load (no model-filled repo),\n  idempotency, and the four prior branches intact.\n- Orchestrator-layer tests assert `resolve_slice_repo` (set\u21d2slice.repo,\n  None\u21d2primary), legacy singleton\u21d2one-element `repos` + mirror-back, and\n  `primary_repo`==repos[0].repo.\n- N=1 back-compat asserted at both layers.\n- `make test` (narrowed) and `make test-all` green.",
           "files_affected": [
             "shared/egg_contracts/tests/test_models.py",
@@ -87,11 +96,11 @@
       ],
       "dependencies": [],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3393/work",
+      "integration_base_sha": "f162bf292abf5f6cb5c9d9bad8fd9b2c59ba8ec3",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3422,
+      "pr_url": "https://github.com/jwbron/egg/pull/3422",
       "review_feedback": []
     },
     {
@@ -640,6 +649,35 @@
       "resolved_at": "2026-07-02T00:26:21.788283Z",
       "debounce_until": null,
       "redirect_seed": null
+    },
+    {
+      "id": "cq-2",
+      "question": "[#2777 slice-4 TASK-4-4 case 5] Slice slice-1 of pipeline issue-3393 has an impossible status enum value or state combination (e.g. status not in PENDING/IN_PROGRESS/COMPLETE/BLOCKED, or PENDING with commits on the integration branch). Bootstrap reconciliation cannot classify the slice safely. How should the orchestrator proceed?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Mark slice complete and continue",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Restart slice from scratch",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Cancel pipeline for manual investigation",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null,
+      "redirect_seed": null
     }
   ],
   "workflow_owner": null,
@@ -686,6 +724,123 @@
       },
       "reason": "Created HITL decision: v1 merge-sequencing gate: when a dependent slice's...",
       "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T04:12:21.662709Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "d779b0c8ceda750c042c0bba3f925097eff015e8",
+      "reason": "Linked commit d779b0c to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T04:12:21.682492Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T04:12:21.880612Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "d779b0c8ceda750c042c0bba3f925097eff015e8",
+      "reason": "Linked commit d779b0c to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T04:12:21.905470Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T04:18:37.805016Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": null,
+      "new_value": "5a00e0c16",
+      "reason": "Linked commit 5a00e0c to task-1-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T04:18:41.567479Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.notes",
+      "old_value": "",
+      "new_value": "Tests added on top of coder impl d779b0c8c. Contract layer (shared/egg_contracts/tests/test_models.py, new): Slice.repo round-trip; 1.3->1.4 additive stamp leaves repo None (no model-fill), preserves explicit repo; 1.4 idempotent+version-exact; prior branches fire (full-chain None/1.0/1.1/1.2/1.3->1.4, wrap-mode context_* strip, direct 1.0->1.1 & 1.3->1.4). Orchestrator layer (orchestrator/tests/test_models.py): RepoSpec; Pipeline.repos synth-from-singleton + mirror-back (idempotent); arbitrary repo count; primary_repo==repos[0].repo; resolve_slice_repo set=>slice.repo/None=>primary; N=1 both layers. 147 tests pass via system pytest against the working tree; ruff clean. make test could not provision its venv in this sandbox (no network) \u2014 integration gate enforces make test/-all green.",
+      "reason": "Updated notes for task-1-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T04:28:19.650527Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.gaps.0",
+      "old_value": null,
+      "new_value": {
+        "id": "gap-1",
+        "from_role": "tester",
+        "to_role": "coder",
+        "description": "Coder gap (slice-1, blocks full-suite green): task-1-1 bumped the Pydantic model default `Contract.schemaVersion` 1.3\u21921.4 but did NOT bump the lockstep JSON schema at `.egg/schemas/contract.schema.json` (`properties.schemaVersion.default` is still \"1.3\", line 17). This breaks `tests/shared/egg_contracts/test_models_task_description.py::TestContractJsonSchemaTaskDescription::test_schema_default_schemaversion_tracks_model` (asserts schema default == model default \u2192 `assert '1.3' == '1.4'`). Tester is role-blocked from `.egg/schemas/contract.schema.json` (alternative_role=coder). FIX: bump that file's `schemaVersion.default` to \"1.4\" in lockstep with the model, then re-propose. This is the only remaining real failure after the tester's stale-assertion fixes (d1becb0e9); the 3 test_agent_roles failures are pre-existing environmental import noise (reproduce at f162bf292).",
+        "created_at": "2026-07-02T04:28:19Z",
+        "resolved": false
+      },
+      "reason": "Recorded gap gap-1 on task-1-1 (from tester to coder)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T04:28:19.912510Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": "5a00e0c16",
+      "new_value": "d1becb0e9",
+      "reason": "Linked commit d1becb0 to task-1-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T04:28:19.935901Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T04:37:03.155203Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": "d779b0c8ceda750c042c0bba3f925097eff015e8",
+      "new_value": "797a5901cf2e367aa6b22d8fb6c210daebcc18c9",
+      "reason": "Linked commit 797a590 to task-1-1",
+      "checkpoint_id": null
     }
   ],
   "refine_review_cycles": 0,
@@ -697,7 +852,7 @@
     "description": "Lets a single pipeline operate across an arbitrary number of\nrepositories and open coordinated, cross-referencing PRs \u2014 one per\nslice, each in that slice's repo \u2014 with cross-repo ordering expressed\nthrough the existing slice-dependency mechanism. Replaces the manual\nhand-off that today carves the cross-repo half of a logically-single\nchange out of the pipeline and gives it to an engineer.\n\nThe change is built on the ratified refine analysis's verified thesis:\nthe single-repo assumption is concentrated, not pervasive. The gateway\nworktree list, per-repo credentials, `create_slice_pr(repo=...)`, and\nrepo-agnostic push policy already exist; the concentrated gaps are the\ncontract's missing repo dimension and the `repos[0]` collapse in the\nagent environment.\n\nDelivered as a single serialized six-slice chain (five slices edit\norchestrator/routes/pipelines.py, so per #3046 they are ordered along\none dependency chain):\n\n1. Repo dimension across the two model layers: contract-layer\n   `Slice.repo` + a pure additive schemaVersion 1.3\u21921.4 stamp (Slice.repo\n   stays None on legacy load), and orchestrator-layer `Pipeline.repos`\n   (RepoSpec) + `primary_repo` + a runtime `resolve_slice_repo` where\n   absent\u21d2primary is resolved; N=1 round-trips/behaves unchanged.\n2. List-shaped submission (`submit_task` / `POST /api/v1/pipelines`\n   accept a list of {repo, base_branch}) with submission-time\n   validation rejecting mixed-visibility and mixed-auth-mode sets.\n3. Removal of all three enumerated `repos[0]` collapse sites plus a\n   full repo\u2192worktree map exposed to the agent environment re-keyed by\n   full `owner/repo` (operator ruling #6), guarded by a ratchet test +\n   grep sweep.\n4. Slice-PR routing to `slice.repo` and a lazy-per-repo work branch +\n   context PR (every repo with \u22651 slice; PRs cross-reference siblings).\n5. Cross-repo merge-sequencing hold (cq-1 two-tier) with pinned failure\n   semantics: automated draft\u2192ready on the upstream PR's merged\n   boolean/mergedAt (not head-SHA) via a new mark_pr_ready gateway verb;\n   closed-unmerged and never-merging (bounded poll) both escalate to a\n   HITL hold; a separate HITL hold type for beyond-merge-state conditions\n   (release/publish, version pin, genuine development block).\n   Dependencies gate merge-readiness, not development.\n6. Per-repo test-gate + reviewer-diff scoping and per-repo conventions\n   (each slice's gates run in that slice's repo worktree under that\n   repo's CLAUDE.md / linters / check commands).\n\nOut of v1 (deferred): mixed auth modes across repos, richer\nmerge-sequencing machinery, and cross-repo atomic merge (impossible on\nGitHub \u2014 v1 ships an ordering hold, not atomicity).",
     "test_plan": "Automated (per slice; `make test` narrows to reachable suites, then\n`make test-all` before phase exit; `make lint` green throughout):\n- Slice 1: shared/egg_contracts/tests \u2014 schemaVersion 1.3\u21921.4\n  migration; absent `Slice.repo` \u21d2 primary repo; legacy singleton\n  `Pipeline.repo` \u21d2 one-element list; JSON round-trip; N=1 back-compat\n  unchanged.\n- Slice 2: orchestrator/tests \u2014 list submission accepted; bare single\n  repo still accepted; mixed-visibility set rejected with actionable\n  error; mixed-auth-mode set rejected; primary-repo defaulting.\n- Slice 3: orchestrator/tests \u2014 agent env exposes the full repo\u2192path\n  map keyed by `owner/repo`; all three collapse sites gone; a ratchet\n  test asserts no `repos[0]` collapse reintroduced (with the\n  len(repos)==1-guarded sdlc_hitl.py:82 explicitly allowed).\n- Slice 4: orchestrator/tests \u2014 slice PR created in `slice.repo`; a\n  repo with \u22651 slice gets a work branch + context PR, a slice-less\n  submitted repo gets neither; sibling-PR cross-reference rendered.\n- Slice 5: orchestrator/tests \u2014 dependent slice PR opens draft;\n  upstream-merge poll auto-marks it ready; beyond-merge-state condition\n  routes to a HITL hold, not auto-release; development is not\n  serialized by the dependency.\n- Slice 6: orchestrator/tests \u2014 test gate and reviewer diff scope to\n  the slice's repo worktree only; per-repo check commands resolved from\n  the slice's repo.\n\nRegression baseline: single-repo (N=1) pipelines exhibit no behavior\nchange; existing suites stay green.",
     "manual_steps": "Pre-merge: none.\n\nPost-merge: the schema migration (schemaVersion 1.3\u21921.4) applies\nlazily on contract load following the four existing precedents \u2014 no\nmanual migration of persisted contracts is required; absent `Slice.repo`\nresolves to the pipeline's primary repo on read. New multi-repo behavior\ntakes effect for pipelines submitted after the orchestrator image is\nrebuilt/redeployed on the normal release cadence. File a follow-up issue\nfor the deferred scope: mixed auth modes across repos and any richer\nfirst-class merge-sequencing machinery beyond the v1 hold.",
-    "context_pr_number": null,
+    "context_pr_number": 3418,
     "deferred_actions": []
   },
   "feedback": null,
