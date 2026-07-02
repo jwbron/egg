@@ -29,6 +29,7 @@ from gateway_client import (
     PushResult,
     _rebase_with_agent_output_autoresolve,
 )
+from gateway_client._push import _compact_path_list
 
 
 def _run_result(returncode=0, stdout="", stderr=""):
@@ -1091,3 +1092,34 @@ class TestPushWorktreeBranchReconcile:
         # statefile delta the orchestrator was holding.
         stash_list = _git(work, "stash", "list").stdout
         assert "autostash" in stash_list, f"autostash entry missing from stash list: {stash_list!r}"
+
+
+class TestCompactPathList:
+    """`_compact_path_list` bounds the conflicting-paths detail segment (#3416)."""
+
+    def test_small_list_shown_verbatim(self):
+        paths = ["src/app.py", "src/models.py"]
+        assert _compact_path_list(paths) == "src/app.py, src/models.py"
+
+    def test_empty_list_is_empty_string(self):
+        assert _compact_path_list([]) == ""
+
+    def test_large_list_is_bounded_with_remainder_count(self):
+        paths = [f"src/module_{i:03d}/very_long_path_component.py" for i in range(200)]
+        out = _compact_path_list(paths)
+        # The joined segment stays within the cap (plus the short suffix)…
+        assert len(out) <= 400 + len(" (+200 more)")
+        # …every remaining path is accounted for in the (+N more) tail…
+        shown = out.split(" (+")[0].split(", ")
+        hidden = int(out.split(" (+")[1].split(" more)")[0])
+        assert len(shown) + hidden == len(paths)
+        assert hidden > 0
+        # …and the shown paths are whole (never truncated mid-path).
+        assert all(p in paths for p in shown)
+
+    def test_single_path_never_summarised_away(self):
+        # A single path longer than the limit is still shown in full — the
+        # cap only gates *additional* paths, so the operator always sees at
+        # least one concrete conflicting path.
+        long_path = "src/" + "a" * 500 + ".py"
+        assert _compact_path_list([long_path]) == long_path

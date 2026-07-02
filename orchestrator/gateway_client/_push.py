@@ -566,7 +566,7 @@ def _rebase_with_agent_output_autoresolve(
             # roll; the decision persists).
             excerpt = _compact_git_output(rebase_result.stderr, rebase_result.stdout)
             detail = (
-                f"conflicts outside .egg-state/agent-outputs/: {', '.join(non_ephemeral)} "
+                f"conflicts outside .egg-state/agent-outputs/: {_compact_path_list(non_ephemeral)} "
                 f"[git {' '.join(rebase_cmd[len(git_base) :])}]"
             )
             if excerpt:
@@ -735,6 +735,37 @@ def _list_unmerged_paths(git_base: list[str]) -> list[str]:
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
+def _compact_path_list(paths: list[str], *, limit: int = 400) -> str:
+    """Join conflicting paths into a bounded, single-line detail segment.
+
+    The joined string feeds ``PushResult.detail`` and, downstream, the
+    divergence-reconcile HITL question.  Conflict path sets are typically
+    tiny, but a pathological rebase could surface many paths and grow the
+    detail well past its useful length before the git-output excerpt is
+    even appended (#3416).  Show as many whole paths as fit within
+    ``limit`` characters and summarise the remainder as ``(+N more)`` so
+    the operator still learns the true count without the string ballooning.
+    """
+    if not paths:
+        return ""
+    shown: list[str] = []
+    used = 0
+    for index, path in enumerate(paths):
+        # Reserve room for the "(+N more)" suffix the remaining paths need.
+        remaining = len(paths) - index
+        suffix_len = len(f" (+{remaining} more)") if remaining else 0
+        addition = len(path) + (2 if shown else 0)  # ", " separator
+        if shown and used + addition + suffix_len > limit:
+            break
+        shown.append(path)
+        used += addition
+    joined = ", ".join(shown)
+    hidden = len(paths) - len(shown)
+    if hidden:
+        joined = f"{joined} (+{hidden} more)"
+    return joined
+
+
 def _compact_git_output(*streams: str | None, limit: int = 400) -> str:
     """Collapse git stdout/stderr into a single-line excerpt for a detail string.
 
@@ -864,6 +895,17 @@ def _divergence_replay_upstream(
     ``None`` (caller keeps the ``base_ref`` upstream) when the merge-base
     is on the main lineage (#1976/#2222 fresh-worktree topology) or
     cannot be determined.
+
+    Assumes the pipeline branch never carries base-branch (``main``)
+    commits above the shared merge-base that are not yet on
+    ``origin/{branch}``: in the normal orchestrator flow ``main`` enters
+    the pipeline branch only via the orchestrator's controlled rebase,
+    which pushes to origin so those commits land at or below the
+    merge-base.  If a future change to the sync flow ever merged ``main``
+    into the worktree locally without pushing it to the pipeline branch,
+    the rc-1 branch below would replay those un-pushed main commits (the
+    old ``base_ref`` upstream excluded them) — reconsider the
+    discriminator before allowing that topology.
     """
     try:
         merge_base = subprocess.run(
