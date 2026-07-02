@@ -32,6 +32,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "390def5009373c9946b844053f469fffb5782531": {
+      "branch": "egg/issue-3393/slice-2",
+      "patch_id": "4143aa954afefe47969477190a84081f21f207c7",
+      "pipeline_id": "issue-3393",
+      "registered_at": "2026-07-02T04:56:46.553428+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "397c615f2d66905c9b084659a7e4631c0f4aed29": {
       "branch": "egg/issue-3393/work",
       "patch_id": "e8075877e9867f4ad1ebcdac0199c4b5863323ec",
