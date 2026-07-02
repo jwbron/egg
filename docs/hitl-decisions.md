@@ -201,6 +201,12 @@ so the two-wave resolve flow is unaffected; an operator driving via
 Already-bridged questions are filtered out of this field so a mirrored `cq-N`
 is not listed twice.
 
+**Consensus-timeout interaction (#3426).** In concurrent phases, an unresolved
+`cq-N` tagged to the running phase also suspends that phase's consensus
+timeout — a reviewer withholding its ACK pending the operator's ruling is
+treated as operator-gated, not a convergence failure. See [Concurrent
+Execution: Timeout Handling](guides/concurrent-execution.md#timeout-handling).
+
 **Deduplication (#3374).** A re-registration of a question already open and
 unresolved *under the same phase* adopts the existing `cq-N` rather than
 minting a duplicate: `register_open_question` and the impasse-escalation

@@ -1414,7 +1414,7 @@ Phase completion in concurrent mode uses a consensus-based approach:
    - The orchestrator polls every 5 seconds and stops containers immediately on consensus
 4. Any agent can object (signal `OBJECTING`) to block completion
    - A HITL decision is created with options: **Override objections**, **Wait for resolution**, **Abort phase**
-5. Timeout (per-phase: refine 30 / plan 60 / implement 90 by default; configurable via `consensus_timeout_minutes_<phase>` or the legacy global `consensus_timeout_minutes`) publishes a non-blocking `OVERSEER_ALERT` (subject `consensus-timeout: <agent_role> [<priority>]`) rather than gating on a HITL decision — see [issue #2264](https://github.com/jwbron/egg/issues/2264)
+5. Timeout (per-phase: refine 30 / plan 60 / implement 90 by default; configurable via `consensus_timeout_minutes_<phase>` or the legacy global `consensus_timeout_minutes`) publishes a non-blocking `OVERSEER_ALERT` (subject `consensus-timeout: <agent_role> [<priority>]`) rather than gating on a new HITL decision — see [issue #2264](https://github.com/jwbron/egg/issues/2264). Exception: if the phase already has an unresolved contract HITL decision (`cq-N`) pending, the timeout is suspended (no alert) until the operator resolves it, then the clock resets — see [Concurrent Execution: Timeout Handling](concurrent-execution.md#timeout-handling) (#3426)
    - The `/sdlc` skill surfaces the alert (Check agent logs / Acknowledge / Cancel pipeline)
    - The orchestrator continues polling for consensus under the post-timeout budget; operators can intervene with `cancel_task`, `restart_phase`, or `provide_input`
 6. The consensus wrapper drives the agent lifecycle as a deterministic event-pump: it invokes the agent one-shot per actionable BRC event (`propose|ack|nack`) and blocks between events on `egg-orch message wait-loop`. If no actionable event arrives within the idle budget (`EGG_BRC_IDLE_BUDGET_MIN`, default 30 min), the wrapper emits an `OVERSEER_ALERT` (anomaly `stuck-phase-transition`) and keeps blocking — it never exits with code 1 on idle alone. The old capped-restart model (`MAX_CONSENSUS_RESTARTS`, recovery system prompt) was deleted (#2908). See [Concurrent Execution: Consensus Wrapper](concurrent-execution.md#consensus-wrapper).
@@ -1544,7 +1544,10 @@ implement 90), the orchestrator publishes an `OVERSEER_ALERT` (subject
 `consensus-timeout: <agent_role> [<priority>]`, matching the SDLC skill's
 `<anomaly_type>: <agent_role> [<priority>]` convention so "Check agent logs" can
 extract the role) rather than gating the pipeline on a `choice` decision
-(see [issue #2264](https://github.com/jwbron/egg/issues/2264)). The SDLC skill surfaces the alert via
+(see [issue #2264](https://github.com/jwbron/egg/issues/2264)) — unless the phase
+already has an unresolved contract HITL decision pending, in which case the
+timeout is suspended until the operator resolves it rather than alerting
+(#3426). The SDLC skill surfaces the alert via
 its existing notification flow (Check agent logs / Acknowledge / Cancel pipeline). Check agent
 states via `egg-orch pipeline status` to identify blocked or stuck agents; intervene with
 `cancel_task` or `restart_phase` if you want to act.
