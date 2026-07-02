@@ -1,5 +1,69 @@
 # Coder BRC memory — issue-3393 (multi-repo pipelines)
 
+## Slice-3 — stop the repos[0] collapse; owner/repo-keyed worktree map
+
+**Proposed commit:** `5601063cb` (branch `egg/issue-3393-slice-3-coder/work`)
+**Tasks:** task-3-1, task-3-2 — both implemented, committed, marked complete.
+
+### Change model (what landed)
+- **task-3-1 (three collapse sites removed + full env map):**
+  - `kubernetes_spawner/_spawn.py`: `primary_repo = next(iter(repos or []), None)`
+    (repos is canonically primary-first; avoids literal `repos[0]`). EGG_REPO_PATH
+    + EGG_PIPELINE_REPO still derive from the primary. NEW: `EGG_PIPELINE_REPOS`
+    env = JSON `{owner/repo: /home/egg/repos/<bare-name>}` built from
+    `repo_volumes` keys, so a per-slice agent can select ITS repo (AC-4). Left
+    unset when `repo_volumes` empty/None.
+  - `commit_authorship_store.py:_resolve_authorship_repo_path`: dropped the
+    `len==1: return repos[0]` + blind `repos[0]` fallback. New order: primary
+    hint via `EGG_PIPELINE_REPO` (match bare name) → `egg` → `next(iter(repos))`.
+    Hint is usually absent in the orchestrator process ⇒ degrades to prior
+    egg/first heuristic (behavior-preserving there).
+  - `routes/pipelines.py:_spawn_overseer_agent`: `overseer_repo =
+    next(iter(pipeline_repos or []), None)` (was `pipeline_repos[0]`).
+- **task-3-2 (owner/repo re-key at source):**
+  - `gateway/gateway.py` `worktree_create` (~7767): key response map by full
+    `repo` slug (was `repo_name` bare). Bare-name callers unaffected (repo ==
+    repo_name). On-disk dir/mount stay bare.
+  - `gateway_client/_models.py` + `_worktree.py`: doc-only (client passthrough).
+
+### Load-bearing consumer fix (why pipelines.py is in BOTH tasks)
+Re-keying broke the pipeline-level worktree path derivation at
+`routes/pipelines.py` (~24620): it matched `repo_short` (bare) against the map
+and rebuilt `WORKTREE_BASE_DIR/worktree_id/<key>`. Fixed: match `pipeline.repo`
+(full slug, now the key) and strip the owner prefix (`.split('/')[-1]`) when
+joining the on-disk path. The spawner reuse helpers
+(`_validate_worktree_for_reuse` / `_clean_reused_worktree` /
+`_find_missing_worktrees`) ALREADY keyed vols by full `ref` and built bare-name
+paths — no change needed. `host_path_mounts` (line ~630) already handles
+owner/repo keys.
+
+### Scope decisions (preempt reviewer questions)
+- **Did NOT touch `pipelines.py:24556` (`pipeline_repos = [pipeline.repo]`).**
+  Not one of the three enumerated collapse sites; not a `repos[0]` token; the
+  plan scoped slice-3 to the three named sites + the re-key. Threading the full
+  repo LIST into pipeline-level worktree CREATION is out of slice-3 scope.
+  Consequence: the exposed map is structurally list-shaped/owner-keyed but today
+  holds the primary until a later slice threads the full set into creation.
+- **Did NOT touch `gateway.py:8584` (`/api/v1/sessions/create`).** Separate
+  endpoint/flow; plan scoped only the `/api/v1/worktree/create` response (~7827).
+  Left bare-name; repo_volumes for the spawner comes from worktree/create, not
+  sessions/create.
+- **Same-short-name container-path collision is pre-existing & out of scope.**
+  Both `ownerA/foo` and `ownerB/foo` still mount to `/home/egg/repos/foo` (host
+  path leaf = bare name). Ruling #6 only mandates distinct MAP KEYS, which we
+  deliver. Distinct container paths would be a deeper change.
+
+### Validation done locally (no venv — deps can't be installed here)
+- `python3 -m py_compile` clean on all 6 changed files; system `ruff check`
+  "All checks passed!".
+- Behavioral sanity (pure logic): primary-pick (`next(iter(...))`) for
+  populated/empty/None; EGG_PIPELINE_REPOS map shape; authorship resolver
+  (primary-hint wins / egg / first / N=1) — all pass.
+- `grep -rn 'repos\[0\]' orchestrator/` shows only comments + the INTENTIONAL
+  `models.py` primary_repo accessor/validator mirror (allowlisted by plan) +
+  the `len==1`-guarded `sandbox/egg_lib/sdlc_hitl.py:82`. No collapse remains.
+- Full pytest deferred to tester (env can't install deps).
+
 ## Slice-2 — list-shaped submission + uniform visibility/auth validation
 
 **Proposed commit:** `390def500` (branch `egg/issue-3393-slice-2-coder/work`)
