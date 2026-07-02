@@ -109,9 +109,8 @@ by providing different prompt scripts while sharing the review infrastructure.
 ### Reviewer Job Naming Convention
 
 **All reviewer workflows must use the `egg-review /` prefix for their job names.** This
-standardized prefix makes reviewer check runs identifiable, so check-waiting logic
-(e.g., the feedback workflow's wait-for-all-reviewers step) can reliably tell reviewer
-jobs apart from CI checks.
+is a naming-consistency convention that keeps reviewer check runs visually identifiable
+in the PR checks list.
 
 Example job definition:
 ```yaml
@@ -124,10 +123,16 @@ jobs:
       # ...
 ```
 
-The feedback workflow identifies reviewer check runs by the nested
-`egg-reviewer-<bot_name>` job name that `reusable-review.yml` produces under this
-prefix. A reviewer workflow that doesn't follow the convention won't be waited on
-before feedback addressing starts, causing duplicate or racing feedback runs.
+Note that downstream automation does **not** key on this caller-side prefix. The
+functional identifier is the nested `egg-reviewer-<bot_name>` job name that
+`reusable-review.yml` emits (its `review` job), which is present regardless of the
+caller's job name. The feedback workflow's wait-for-all-reviewers step, for example,
+matches reviewer check runs with `test("egg-reviewer-")`, so a caller that omits the
+`egg-review /` prefix is still waited on. The lint that enforces the prefix
+(`scripts/check-reviewer-job-names.py`) is therefore advisory — it preserves naming
+consistency rather than guarding a correctness invariant. Its original functional
+consumer, the `egg-review /` filter in the old `wait-for-checks` gate, was removed when
+that gate was dropped.
 
 ## Address Review Feedback
 
