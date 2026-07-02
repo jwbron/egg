@@ -504,7 +504,7 @@ The local orchestrator handles concurrent contract updates through `orchestrator
 
 ```json
 {
-  "schemaVersion": "1.3",
+  "schemaVersion": "1.4",
   "issue": {
     "number": 123,
     "title": "Add feature X",
@@ -579,6 +579,17 @@ The local orchestrator handles concurrent contract updates through `orchestrator
 > `Contract._migrate_schema_version_to_1_3` validator on every load. See
 > [Recovering the task — `task_description`](../reference/sdlc-contract.md#recovering-the-task--task_description)
 > for the full recovery matrix.
+>
+> **Schema 1.4 (#3393)**: The default `schemaVersion` is now `"1.4"`. An
+> optional `repo` field was added to each slice (`owner/name`-shaped),
+> part of the multi-repo pipelines migration. Slice ↔ repo is 1:1; cross-repo
+> work is expressed as multiple dependent slices rather than one slice
+> touching two repos. `null` on a legacy load — the contract layer cannot
+> see the orchestrator `Pipeline`, so the absent⇒primary-repo default is
+> resolved at runtime, not by the migration. The bump is purely additive —
+> pre-1.4 contracts load cleanly and reach `"1.4"` via the migration chain,
+> with any contract at `"1.3"` stamped to `"1.4"` by the `mode="after"`
+> `Contract._migrate_schema_version_to_1_4` validator on every load.
 
 ### Role-Based Field Ownership
 
