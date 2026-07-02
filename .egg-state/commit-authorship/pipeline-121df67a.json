@@ -8,6 +8,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "33ac1979cb3dd04969a8acc82e48a613bdc344e0": {
+      "branch": "egg/pipeline-121df67a/work",
+      "patch_id": "2aff36c1e20d045c647692a2b891e41ef88034b1",
+      "pipeline_id": "pipeline-121df67a",
+      "registered_at": "2026-07-02T23:39:34.325463+00:00",
+      "repo": null,
+      "role": "simplifier"
+    },
     "4e3294ce2534d3e7320295b16fa67a72f50b54cb": {
       "branch": "egg/pipeline-121df67a/work",
       "patch_id": "6b55fa828734f7f6fa7e807527da3284d7b0f8c2",
