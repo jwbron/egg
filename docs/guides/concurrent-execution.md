@@ -835,7 +835,9 @@ If any agent is in the `OBJECTING` readiness state (separate from BRC phase), th
 
 ### Timeout Handling
 
-If consensus is not reached within the resolved per-phase timeout (per-phase override > legacy global > calibrated default — refine 30, plan 60, implement 90; see issue #2263), the orchestrator first checks the **BRC progress gate** before publishing the `OVERSEER_ALERT`. While any of the following have fired within `brc_consensus_progress_gate_seconds` (default 300 s), the orchestrator continues polling rather than escalating immediately:
+If consensus is not reached within the resolved per-phase timeout (per-phase override > legacy global > calibrated default — refine 30, plan 60, implement 90; see issue #2263), the orchestrator first checks the **HITL gate** ([#3426](https://github.com/jwbron/egg/issues/3426)): if an unresolved contract HITL decision (`cq-N`, from `register_open_question` or impasse escalation) is tagged to the running phase, the phase is provably operator-gated — a reviewer withholding its ACK pending a human ruling is the system working as designed, not a convergence failure — so the timeout is suspended entirely (no alert, no failure, polling continues). Once the decision is resolved, the convergence clock resets so the agents folding in the resolution get a full fresh window instead of one that already expired while the human was thinking. Only decisions tagged to the running phase gate — a phase-less or legacy `cq-N` is deliberately skipped, so a stale/legacy decision can never gate the timeout; a genuinely phase-tagged decision, by contrast, suspends it until the operator resolves it (an intentional park-rather-than-fail, surfaced by the overseer's sticky HITL alert). The scan fails open (returns no gating decisions, falling back to pre-#3426 behavior) if the contract can't be loaded.
+
+Only once no such HITL decision gates the phase does the orchestrator check the **BRC progress gate** before publishing the `OVERSEER_ALERT`. While any of the following have fired within `brc_consensus_progress_gate_seconds` (default 300 s), the orchestrator continues polling rather than escalating immediately:
 
 - A `CONSENSUS_PROPOSE` or ACK/NACK on the BRC bus
 - A container heartbeat from any active role in the current phase
@@ -966,6 +968,7 @@ Both are also available as MCP tools (`restart_agent`, `restart_phase`) and CLI 
 | Agent stall (restarts exhausted) | Restart agent, Abort phase, Continue without |
 | Multiple agent stalls (2+ restarts exhausted) | Restart phase, Cancel pipeline |
 | Multiple failures (2+ / 60s) | Retry phase, Cancel pipeline |
+| Consensus timeout while an operator HITL decision is unresolved | *(no new HITL — timeout suspended until the existing decision is resolved, then the clock resets)* |
 | Consensus timeout (critical blockers) | *(no HITL — `OVERSEER_ALERT` `priority=high`; orchestrator continues post-timeout polling)* |
 | Consensus timeout (advisory only) | *(no HITL — proceeds automatically)* |
 | Consensus timeout fires, consensus reached during wait | *(no HITL — recovered automatically via timeout recheck)* |
