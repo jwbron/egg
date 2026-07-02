@@ -10601,6 +10601,24 @@ def _resolve_pipeline_worktree_path(pipeline: Pipeline, fallback: Path) -> Path:
     return fallback
 
 
+def _resolve_slice_gate_repo(slice_obj, pipeline: Pipeline) -> str | None:
+    """The repo every implement-phase gate for *slice_obj* is scoped to (#3393).
+
+    Single source of truth for slice → gate-repo resolution (task-6-1): the
+    test gate, the reviewer diff base, the per-repo check/lint commands, and
+    the slice agent's cwd all key off this one accessor. It is exactly
+    :func:`models.resolve_slice_repo` — the slice's own ``repo`` when set,
+    else the pipeline's primary repo (so a repoless slice, or any slice in an
+    N=1 pipeline, scopes to the single/primary repo). Returns ``None`` only
+    for a genuinely repoless pipeline (test scaffolds with no repo at all).
+    """
+    try:
+        from models import resolve_slice_repo  # type: ignore[no-redef]
+    except ImportError:
+        from ..models import resolve_slice_repo  # type: ignore[no-redef]
+    return resolve_slice_repo(slice_obj, pipeline)
+
+
 def _resolve_slice_worktree_path(
     pipeline: Pipeline, slice_repo: str | None, fallback: Path
 ) -> Path:
@@ -20775,11 +20793,6 @@ def _run_concurrent_phase(
     slice_repos = repos
     slice_base_branch: str | None = None
     if slice_id and len(getattr(pipeline, "repos", None) or []) > 1:
-        try:
-            from models import resolve_slice_repo  # type: ignore[no-redef]
-        except ImportError:
-            from ..models import resolve_slice_repo  # type: ignore[no-redef]
-
         from egg_contracts.loader import load_contract
 
         slice_obj = None
@@ -20800,7 +20813,9 @@ def _run_concurrent_phase(
                 error=str(contract_err),
             )
 
-        resolved = resolve_slice_repo(slice_obj, pipeline) if slice_obj else None
+        # Single gate-repo accessor (shared with the tester's task-6-2
+        # TestSliceGateRepoAccessor): the repo the whole slice team scopes to.
+        resolved = _resolve_slice_gate_repo(slice_obj, pipeline) if slice_obj else None
         if resolved and resolved != pipeline.repo:
             slice_repo = resolved
             slice_repo_path = _resolve_slice_worktree_path(

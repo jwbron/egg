@@ -42,6 +42,17 @@ base-branch into the prompt builder + spawn, not moving a subprocess.
   slice-first ordering sets cwd to the slice's repo worktree. `repo_volumes`
   (full owner/repo map, slice-3) is passed unchanged.
 
+### Converged with tester task-6-2 (commit 3db72777e)
+Tester pinned a required coder-owned accessor via a task-6-1 gap:
+`routes.pipelines._resolve_slice_gate_repo(slice, pipeline) -> str | None`
+== `resolve_slice_repo(slice, pipeline)` (their `TestSliceGateRepoAccessor`
+skips until it exists, then activates). Added it as the single gate-repo
+source of truth and use it inside the scoping block. Their
+`TestPerRepoWorktreeSelection` validates the existing
+`routes.resolve_worktree_path` selects the slice's per-repo subdir — my
+`_resolve_slice_worktree_path` is the functionally-equivalent
+WORKTREE_BASE_DIR/pid/<repo_short> lookup used at the call site.
+
 ### N=1 byte-equivalence
 `len(pipeline.repos) <= 1` ⇒ scoping block skipped ⇒ `slice_repo ==
 pipeline.repo`, `slice_repo_path == worktree_repo_path`, `slice_repos ==
