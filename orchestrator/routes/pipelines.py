@@ -17005,21 +17005,50 @@ def _unresolved_contract_hitl_ids(
     overseer's "wedged on HITL" alert stays sticky and the operator's answer
     releases the gate.
 
+    The gate keys on the *existence* of an operator-facing HITL decision
+    tagged to this phase, not on causal proof that decision is what a
+    reviewer is withholding an ACK for — decisions carry no link to the
+    ACK they block. An unrelated implement-tagged HITL therefore suspends
+    the timeout too; that is the conservative "park rather than fail"
+    direction, self-corrected by the clock reset on release (a genuine
+    stall times out on the fresh window) and by the overseer's other
+    health checks.
+
     Fail-open: any failure (missing worktree, unloadable contract) returns
     ``[]`` so a broken scan degrades to the pre-#3426 timeout behaviour
-    rather than suspending the clock indefinitely.
+    rather than suspending the clock indefinitely. Matching the sibling
+    ``_collect_unresolved_phase_decisions``, the except set is narrowed to
+    the IO/validation failures a real scan can hit and logged at
+    ``warning`` (so a broken scan is observable, not a silent no-op),
+    while programming errors (``AttributeError``/``TypeError``/``NameError``)
+    are left to propagate so they surface during development.
     """
     try:
         import contract_store
         from egg_contracts import load_contract
+        from egg_contracts.loader import (
+            ContractNotFoundError,
+            ContractValidationError,
+        )
+    except ImportError:
+        logger.warning(
+            "Consensus-timeout HITL gate: egg_contracts unavailable, cannot scan",
+            pipeline_id=pipeline_id,
+            exc_info=True,
+        )
+        return []
 
+    try:
         worktree = contract_store.resolve_pipeline_worktree(pipeline_id)
         if worktree is None:
             return []
         identifier = _pipeline_identifier(getattr(pipeline, "issue_number", None), pipeline_id)
         contract = load_contract(identifier, worktree)
-    except Exception:
-        logger.debug(
+    except (OSError, ValueError, ContractNotFoundError, ContractValidationError):
+        # OSError: filesystem failures resolving the worktree / reading the
+        # contract. ValueError: pydantic-V2 validation failures. Contract*:
+        # missing or corrupt contract JSON. All fail open to ``[]``.
+        logger.warning(
             "Consensus-timeout HITL gate contract scan failed",
             pipeline_id=pipeline_id,
             exc_info=True,

@@ -609,6 +609,105 @@ class TestHitlGatedTimeout:
         # the giving-up stop from the timeout branch.
         assert stop_calls == [True]
 
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_timeout_suspended_zero_container_orchestrator_mode(
+        self, MockExecutor, mock_prompt, mock_lock, mock_emit, mock_monotonic, mock_sleep
+    ):
+        """Same gate behaviour under the zero-container path the fix targets.
+
+        The `issue-3393` incident is on-demand/orchestrator spawning (#3164):
+        `spawn_all` returns `[]`, so `active_executions == []`, step 5's
+        "all containers exited" completion path is guarded off, and the
+        phase is driven purely off `check_consensus` + the timeout branch —
+        exactly where the HITL gate sits. This variant reproduces that
+        resident-container-less scenario (contrast the sibling test, which
+        keeps one container to exercise the pod path). The gate must still
+        defer the timeout while `cq-3` is unresolved and reset the clock on
+        release → exit 0, no consensus-timeout alert, no CONSENSUS_TIMEOUT
+        event, one convergence teardown.
+        """
+        from events import EventType
+
+        _calls = [0]
+
+        def _monotonic():
+            _calls[0] += 1
+            if _calls[0] == 1:
+                return 0.0
+            return 1801.0 + _calls[0]
+
+        mock_monotonic.side_effect = _monotonic
+
+        # Zero resident containers — the orchestrator-mode path.
+        executions: list = []
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions)
+
+        state = {"gated_polls_remaining": 2, "complete": False}
+
+        def _fake_hitl_ids(_pid, _pipeline, _phase):
+            if state["gated_polls_remaining"] > 0:
+                state["gated_polls_remaining"] -= 1
+                return ["cq-3"]
+            state["complete"] = True  # operator resolved cq-3
+            return []
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.side_effect = lambda: {
+            "is_complete": state["complete"],
+            "has_objections": False,
+            "has_unresolved_nacks": False,
+            "blocking_agents": [] if state["complete"] else ["coder"],
+        }
+        stop_calls: list = []
+        mock_executor_instance.stop_event_loop.side_effect = lambda: stop_calls.append(
+            state["complete"]
+        )
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        captured_alerts: list = []
+        fake_msg_store = MagicMock()
+        fake_msg_store.add_message.side_effect = lambda msg: captured_alerts.append(msg) or msg
+        msg_store_factory = MagicMock(return_value=fake_msg_store)
+
+        with (
+            patch("routes.pipelines._unresolved_contract_hitl_ids", side_effect=_fake_hitl_ids),
+            patch("routes.pipelines._get_message_store", return_value=msg_store_factory),
+        ):
+            exit_code, logs = _run_concurrent_phase(
+                pipeline_id="issue-999",
+                pipeline=pipeline,
+                phase="implement",
+                spawner=mock_spawner,
+                store=mock_store,
+                **_CALL_ARGS,
+            )
+
+        assert exit_code == 0
+        assert state["gated_polls_remaining"] == 0
+        consensus_alerts = [
+            m
+            for m in captured_alerts
+            if m.message_type == "OVERSEER_ALERT"
+            and m.metadata.get("anomaly_type") == "consensus-timeout"
+        ]
+        assert consensus_alerts == []
+        timeout_events = [
+            c
+            for c in mock_emit.call_args_list
+            if c.args and c.args[0] == EventType.CONSENSUS_TIMEOUT
+        ]
+        assert timeout_events == []
+        assert stop_calls == [True]
+
 
 class TestObjectionHandling:
     """Objections trigger HITL decisions."""
