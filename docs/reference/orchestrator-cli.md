@@ -566,6 +566,8 @@ egg-orch consensus ack coder --files-reviewed-file /tmp/files.txt \
 
 **Exit-2 rejections (#2142):** `consensus propose` (re-propose), `consensus ack`, `consensus nack`, and `consensus confirmed` all return exit 2 with structured rejection details on the orchestrator-side concurrency-control paths. Producers see exit 2 + an `open_nacks_blocked` envelope on a re-propose attempt while ≥2 reviewers have NACKed the current version and the producer hasn't been informed of the full set yet — the response inlines every NACK so the producer can aggregate findings into one re-propose. Reviewers see exit 2 + a `stale_version` envelope when their ACK / NACK targets a superseded proposal — the response inlines the producer's current proposal snapshot so they can re-fetch and re-review without a separate status query. Both rejections are transient: act on the inlined details and retry. See [Concurrent Execution — BRC Protocol Flow](../guides/concurrent-execution.md#brc-protocol-flow) for the underlying race semantics.
 
+**Unchanged-tree rejection (#3395):** `consensus propose` (re-propose) also returns exit 2 + an `unchanged_tree_rejected` envelope (`current_version`, `commit_sha`, `attempts`) when the re-propose's `--commit-sha` equals the current proposal's SHA — zero new commits, so no open NACK could have been addressed. Unlike the transient rejections above, this is not resolved by simply retrying: land new commits before re-proposing, or convince the NACKing reviewer directly that no code change is needed.
+
 **Signal types for consensus:**
 
 | Signal type | Purpose |
