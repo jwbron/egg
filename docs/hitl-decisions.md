@@ -440,7 +440,7 @@ mirroring the autonomous gate-skip posture.
 A draft that quietly **commits** to an operator-grade choice ("we will drop
 the legacy filter") without registering it can't be caught by a regex. That
 half is enforced through consensus: `reviewer_refine` (§7) and
-`reviewer_plan` (§13) carry an explicit obligation to **NACK** a draft that
+`reviewer_plan` (§14) carry an explicit obligation to **NACK** a draft that
 commits to a decision not backed by a registered `cq-N` — and the open-NACK
 barrier already prevents consensus from closing over an open NACK. The rubric
 includes calibration guidance so implementation choices the planner

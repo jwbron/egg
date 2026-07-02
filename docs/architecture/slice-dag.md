@@ -873,7 +873,21 @@ the agents the slice schema and constraints:
      verbatim from the scaffold.
   4. The yaml-block key swap: `slices:` is canonical, `phases:` is
      backward-compat.
-- **Plan reviewer (`reviewer_plan`)** — two prompt sections:
+  5. *Test co-location* (HARD,
+     [#3411](https://github.com/jwbron/egg/issues/3411)): when a slice
+     removes, renames, or rewrites code, the planner enumerates the
+     matching test updates (skip-guard, deletion, rewrite) as tasks in
+     that same slice — never a later one — listing the test files in
+     the tasks' `files:`. Every cumulative slice tip must be
+     independently green or the per-slice green gate
+     ([#3398](https://github.com/jwbron/egg/issues/3398)) blocks the
+     slice PR. The architect's prompt carries the mirror rule (the
+     removing slice's `goal` must cover the test updates). The affected
+     tests are statically discoverable with the selector's
+     `--impacted-tests <file>...` mode (the same import graph
+     `make test` narrowing uses); exit 2 means the closure is
+     unavailable and the planner greps the removed symbols instead.
+- **Plan reviewer (`reviewer_plan`)** — three prompt sections:
   1. *Forest-violation NACK*: when the populator left a "Plan ingestion
      REJECTED" block on `plan_review_feedback` (or a `forest_violation`
      log discriminator is present), the reviewer NACKs the **architect**
@@ -896,6 +910,16 @@ the agents the slice schema and constraints:
      large slice is deliberate (e.g. atomic schema migration) — the
      architect cites the override in the analysis and the reviewer
      ACKs once the rationale is on the record.
+  3. *Test co-location NACK* (hard,
+     [#3411](https://github.com/jwbron/egg/issues/3411)). For each
+     slice whose tasks remove or rename symbols, the reviewer checks
+     that the test files statically referencing those symbols appear in
+     that slice's task `files:` (or an ancestor's). Tests that appear
+     only in a later slice — or nowhere — earn a NACK routed to the
+     **architect** naming the code files, the referencing test files,
+     and the slice each currently sits in. See
+     `_get_plan_review_criteria()` §13 for the rubric and the
+     `--impacted-tests` self-check.
 
 ## Configuration knobs
 
