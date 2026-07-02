@@ -292,6 +292,11 @@ class TestSyncWorktreeWithRemote:
                 "abc1234 commit A",
                 "def5678 commit B",
             )
+            # #3416: the outcome carries the autoresolve's failure
+            # category + detail so the reconcile HITL can name the actual
+            # failure instead of a generic conflict claim.
+            assert outcome.rebase_category == "reconcile_rebase_conflict"
+            assert outcome.rebase_detail == "conflicts outside agent-outputs"
             # 3 (head detect / rev-parse / rev-list-counts) + 2 (rev-list
             # local-only, update-ref) = 5 subprocess calls. Crucially, NO
             # reset call fired.

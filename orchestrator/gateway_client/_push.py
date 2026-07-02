@@ -558,10 +558,21 @@ def _rebase_with_agent_output_autoresolve(
                 stderr=rebase_result.stderr,
             )
             _abort_rebase_best_effort(git_base, pipeline_id, branch)
+            # Name the command and the failing apply in the detail: this
+            # string is the only diagnostic that reaches the operator-facing
+            # divergence-reconcile HITL, and #3416 showed that an unnamed
+            # "conflict outside agent-outputs" claim is unfalsifiable from
+            # the decision text alone.
+            rebase_argv = "git " + " ".join(rebase_cmd[len(git_base) :])
+            output_excerpt = (rebase_result.stderr or rebase_result.stdout or "").strip()[:500]
             return PushResult(
                 ok=False,
                 category="reconcile_rebase_conflict",
-                detail=f"conflicts outside .egg-state/agent-outputs/: {', '.join(non_ephemeral)}",
+                detail=(
+                    f"conflicts outside .egg-state/agent-outputs/: "
+                    f"{', '.join(non_ephemeral)} (cmd: {rebase_argv}; "
+                    f"output: {output_excerpt})"
+                ),
             )
 
         _pkg.logger.warning(
@@ -735,9 +746,11 @@ def _build_rebase_cmd(
       pipeline's base): return the plain ``git rebase origin/{branch}``
       form.  This preserves pre-#1976 behaviour for any call site that
       still doesn't know the base branch.
-    * ``base_branch`` is set and ``origin/{base_branch}`` resolves: return
-      the ``--onto origin/{branch} origin/{base_branch}`` form so only
-      ``origin/{base_branch}..HEAD`` commits are replayed.
+    * ``base_branch`` is set and ``origin/{base_branch}`` resolves: pick
+      the form by topology (see below) — the ``--onto origin/{branch}
+      origin/{base_branch}`` form when the worktree's shared history with
+      ``origin/{branch}`` is confined to the base branch, the plain
+      ``git rebase origin/{branch}`` form otherwise.
     * ``base_branch`` is set but ``origin/{base_branch}`` does NOT resolve
       (the upstream best-effort fetch silently failed earlier, or rev-parse
       timed out): return ``None``.  The caller must surface this as a
@@ -748,6 +761,42 @@ def _build_rebase_cmd(
       upstream main commits that landed since the stale snapshot) on top
       of the stale tip, producing a PR full of duplicate-by-content
       commits with rewritten SHAs.
+
+    **Why the form is topology-dependent (#1976 vs #3416).**  The two
+    forms replay different candidate sets:
+
+    * plain ``git rebase origin/{branch}`` replays
+      ``merge-base(HEAD, origin/{branch})..HEAD`` — exactly the
+      local-only commits when local and origin share branch history, but
+      it also absorbs any upstream base commits HEAD has that the stale
+      ``origin/{branch}`` lacks (the #1976/#2222 duplicate-commit
+      contamination).
+    * ``--onto origin/{branch} origin/{base_branch}`` replays
+      ``origin/{base_branch}..HEAD`` — immune to that contamination, but
+      the set includes **every shared pipeline commit** between the base
+      and HEAD.  Git does not drop those already-on-``origin/{branch}``
+      commits up front (same-SHA ancestors of ``<onto>`` are only
+      deduplicated against ``<upstream>``), so each one is re-cherry-
+      picked onto the origin tip.  Replaying an old commit whose hunks
+      were later rewritten (e.g. the contract-init commit vs. the
+      contract's current state) hits a spurious add/add or content
+      conflict on history that needs no reconciling at all — #3416's
+      false ``divergence_reconcile_unacked`` pause, where the identical
+      manual ``git rebase <origin tip>`` was conflict-free.
+
+    :func:`_shared_history_confined_to_base` picks the safe form: when
+    ``merge-base(HEAD, origin/{branch})`` is an ancestor of
+    ``origin/{base_branch}``, the shared history is all base-branch
+    history, the ``--onto`` candidate set is exactly the local-only
+    commits, and the ``--onto`` form is used (the #1976 topology: a
+    fresh worktree cut from a newer base snapshot than the stale origin
+    tip).  Otherwise local and origin share pipeline commits beyond the
+    base (the routine divergence topology: both sides extend the same
+    pipeline branch), the plain form's merge-base range is exactly the
+    local-only commits, and the plain form is used.  Indeterminate
+    ancestry (merge-base failure/timeout) falls back to the ``--onto``
+    form: its failure mode is a non-destructive reconcile pause, while
+    the plain form's is silent PR contamination.
 
     ``--autostash`` is set on every returned form (#2714): the orchestrator
     writes statefile / agent-output deltas continuously and does not commit
@@ -781,8 +830,78 @@ def _build_rebase_cmd(
     except subprocess.TimeoutExpired:
         verify = None
     if verify and verify.returncode == 0:
-        return [*git_base, "rebase", "--autostash", "--onto", f"origin/{branch}", base_ref]
+        if _shared_history_confined_to_base(git_base, branch, base_ref):
+            return [*git_base, "rebase", "--autostash", "--onto", f"origin/{branch}", base_ref]
+        return [*git_base, "rebase", "--autostash", f"origin/{branch}"]
     return None
+
+
+def _shared_history_confined_to_base(
+    git_base: list[str],
+    branch: str,
+    base_ref: str,
+) -> bool:
+    """Return True when HEAD's shared history with ``origin/{branch}`` is all base-branch history.
+
+    True means ``merge-base(HEAD, origin/{branch})`` is an ancestor of
+    ``base_ref`` — the #1976 topology where the ``--onto`` rebase form is
+    both safe and required.  False means local and origin share pipeline
+    commits beyond the base, where the ``--onto`` form would re-replay
+    that shared history onto the origin tip and manufacture conflicts
+    (#3416) — the caller must use the plain form instead.
+
+    Indeterminate ancestry (merge-base failure, empty output, timeout,
+    or an ``--is-ancestor`` exit code other than 0/1) returns True: the
+    ``--onto`` form's failure mode is a non-destructive reconcile pause,
+    while the plain form's is #2222-style silent PR contamination.
+    """
+    try:
+        mb_result = subprocess.run(
+            [*git_base, "merge-base", "HEAD", f"origin/{branch}"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        mb_result = None
+    merge_base_sha = mb_result.stdout.strip() if mb_result else ""
+    if mb_result is None or mb_result.returncode != 0 or not merge_base_sha:
+        _pkg.logger.warning(
+            "Push reconcile: merge-base(HEAD, origin/{branch}) indeterminate — "
+            "keeping the --onto rebase form",
+            branch=branch,
+            base_ref=base_ref,
+        )
+        return True
+    try:
+        ancestry = subprocess.run(
+            [*git_base, "merge-base", "--is-ancestor", merge_base_sha, base_ref],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        ancestry = None
+    if ancestry is not None and ancestry.returncode == 0:
+        return True
+    if ancestry is not None and ancestry.returncode == 1:
+        _pkg.logger.info(
+            "Push reconcile: local and origin share branch history beyond the "
+            "base — using the plain rebase form (#3416)",
+            branch=branch,
+            base_ref=base_ref,
+            merge_base=merge_base_sha,
+        )
+        return False
+    _pkg.logger.warning(
+        "Push reconcile: merge-base --is-ancestor indeterminate — keeping the --onto rebase form",
+        branch=branch,
+        base_ref=base_ref,
+        merge_base=merge_base_sha,
+    )
+    return True
 
 
 def _abort_rebase_best_effort(

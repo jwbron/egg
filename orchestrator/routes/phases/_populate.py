@@ -178,6 +178,12 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
                 phase=pipeline.current_phase,
                 backup_ref=divergence_backup_ref,
                 local_only_commit_shas=divergence_local_only,
+                rebase_category=(
+                    populate_sync_outcome.rebase_category if populate_sync_outcome else None
+                ),
+                rebase_detail=(
+                    populate_sync_outcome.rebase_detail if populate_sync_outcome else None
+                ),
             )
             return make_error_response(
                 "Worktree diverged from origin during pre-populate sync and "

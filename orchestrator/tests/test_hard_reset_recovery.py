@@ -193,6 +193,39 @@ class TestDivergenceReconcileHitlQuestion:
         ]
         assert len(_DIVERGENCE_RECONCILE_HITL_OPTIONS) == 2
 
+    def test_names_actual_rebase_failure(self):
+        """#3416: the question names the autoresolve's real failure
+        (category + command/paths/output) instead of asserting a generic
+        unnamed conflict the operator can't falsify."""
+        question = _divergence_reconcile_hitl_question(
+            pipeline_id="pipeline-zzz",
+            phase=PipelinePhase.REFINE,
+            backup_ref="refs/egg-backup/sync-recovery/pipeline-zzz/123",
+            local_only_commit_shas=("abc1234 persist statefiles",),
+            rebase_category="reconcile_rebase_conflict",
+            rebase_detail=(
+                "conflicts outside .egg-state/agent-outputs/: "
+                ".egg-state/contracts/pipeline-zzz.json "
+                "(cmd: git rebase --autostash --onto origin/egg/pipeline-zzz origin/main; "
+                "output: error: could not apply 20b4761...)"
+            ),
+        )
+        assert "reconcile_rebase_conflict" in question
+        assert ".egg-state/contracts/pipeline-zzz.json" in question
+        assert "could not apply 20b4761" in question
+
+    def test_missing_rebase_failure_detail_is_explicit(self):
+        """Without failure detail, the question says so and points at the
+        ERROR log — it must NOT fabricate a specific conflict claim."""
+        question = _divergence_reconcile_hitl_question(
+            pipeline_id="pipeline-zzz",
+            phase=PipelinePhase.PLAN,
+            backup_ref=None,
+            local_only_commit_shas=(),
+        )
+        assert "no failure detail captured" in question
+        assert "a conflict outside .egg-state/agent-outputs/" not in question
+
 
 class TestDivergenceReconcileIsAbort:
     """Only an explicit abort resolution fails the pipeline; everything

@@ -7977,12 +7977,19 @@ class WorktreeSyncOutcome(NamedTuple):
     summaries) that are on HEAD but not yet on origin.  Empty when the
     rev-list itself failed; the divergence is still reported, but the
     operator can't be given the exact commit list inline.
+
+    ``rebase_category`` / ``rebase_detail`` carry the failed autoresolve's
+    ``PushResult`` category and detail (command, conflicting paths, output
+    excerpt) when divergence is unreconciled, so the reconcile HITL can
+    name the actual failure instead of a generic conflict claim (#3416).
     """
 
     case: str
     diverged_unreconciled: bool = False
     backup_ref: str | None = None
     local_only_commit_shas: tuple[str, ...] = ()
+    rebase_category: str | None = None
+    rebase_detail: str | None = None
 
 
 def _build_sync_recovery_backup_ref(pipeline_id: str, unix_ts: int) -> str:
@@ -8540,12 +8547,15 @@ def _sync_worktree_with_remote(
             backup_ref=backup_ref if backup_ok else None,
             local_only_commit_count=len(local_only),
             rebase_category=rebase_outcome.category,
+            rebase_detail=rebase_outcome.detail,
         )
         return WorktreeSyncOutcome(
             case="divergence_unreconciled",
             diverged_unreconciled=True,
             backup_ref=backup_ref if backup_ok else None,
             local_only_commit_shas=local_only,
+            rebase_category=rebase_outcome.category,
+            rebase_detail=rebase_outcome.detail,
         )
 
     # Step 4: Reset local branch to remote.
@@ -16412,6 +16422,8 @@ def _divergence_reconcile_hitl_question(
     phase: PipelinePhase | None,
     backup_ref: str | None,
     local_only_commit_shas: tuple[str, ...] | list[str],
+    rebase_category: str | None = None,
+    rebase_detail: str | None = None,
 ) -> str:
     """Build the HITL question for the non-destructive divergence pause (#2979).
 
@@ -16438,10 +16450,20 @@ def _divergence_reconcile_hitl_question(
             "The local-only commit list could not be enumerated; check the "
             "WARN log and the backup ref for the exact set."
         )
+    # Name the actual failure (category + command/paths/output from the
+    # autoresolve's PushResult) instead of asserting a generic conflict:
+    # #3416 showed the unnamed claim was unfalsifiable and misdirected the
+    # operator's investigation.
+    if rebase_category or rebase_detail:
+        failure_block = (
+            f"{rebase_category or 'unknown failure'}: {rebase_detail or 'no detail captured'}"
+        )
+    else:
+        failure_block = "no failure detail captured — see the divergence_rebase_failed ERROR log"
     return (
         f"Pipeline {pipeline_id}: the worktree diverged from origin at the "
         f"{phase_label} boundary and the rebase autoresolve could not "
-        f"reconcile it (a conflict outside .egg-state/agent-outputs/). "
+        f"reconcile it ({failure_block}). "
         f"Nothing was discarded — the worktree is left at the local HEAD "
         f"with the orchestrator's committed work intact, and the pipeline "
         f"is paused (not failed) for a manual reconcile (#2979). "
@@ -16464,6 +16486,8 @@ def _emit_divergence_reconcile_hitl(
     phase: PipelinePhase | None,
     backup_ref: str | None,
     local_only_commit_shas: tuple[str, ...] | list[str],
+    rebase_category: str | None = None,
+    rebase_detail: str | None = None,
 ):
     """Pin pipeline+phase to AWAITING_HUMAN and persist the reconcile HITL (#2979).
 
@@ -16496,6 +16520,8 @@ def _emit_divergence_reconcile_hitl(
                 phase=phase,
                 backup_ref=backup_ref,
                 local_only_commit_shas=tuple(local_only_commit_shas),
+                rebase_category=rebase_category,
+                rebase_detail=rebase_detail,
             ),
             options=list(_DIVERGENCE_RECONCILE_HITL_OPTIONS),
             phase=phase,
@@ -16654,6 +16680,8 @@ def _sync_worktree_reconciling_divergence(
                     phase=phase,
                     backup_ref=outcome.backup_ref,
                     local_only_commit_shas=outcome.local_only_commit_shas,
+                    rebase_category=outcome.rebase_category,
+                    rebase_detail=outcome.rebase_detail,
                 ),
                 options=list(_DIVERGENCE_RECONCILE_HITL_OPTIONS),
                 phase=phase,

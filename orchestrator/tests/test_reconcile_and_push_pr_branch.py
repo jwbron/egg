@@ -374,9 +374,11 @@ class TestPushWorktreeBranchReconcile:
         assert "--autostash" in rebase_cmd
 
     def test_rebase_with_base_branch_uses_onto_form(self, tmp_path):
-        """With ``base_branch`` and ``origin/{base_branch}`` resolvable,
-        the rebase uses ``--onto origin/{branch} origin/{base_branch}`` so
-        only ``origin/{base_branch}..HEAD`` is replayed — commits already
+        """With ``base_branch`` resolvable and the shared history confined
+        to the base branch (merge-base(HEAD, origin/{branch}) is an
+        ancestor of ``origin/{base_branch}``), the rebase uses
+        ``--onto origin/{branch} origin/{base_branch}`` so only
+        ``origin/{base_branch}..HEAD`` is replayed — commits already
         on main are not duplicated onto the pipeline branch (#1976).
         """
         client = _make_client([False, True])
@@ -386,6 +388,8 @@ class TestPushWorktreeBranchReconcile:
                 _run_result(),  # fetch origin {branch}
                 _run_result(),  # fetch origin {base_branch}
                 _run_result(),  # rev-parse --verify origin/{base_branch}
+                _run_result(stdout="abc123\n"),  # merge-base HEAD origin/{branch}
+                _run_result(returncode=0),  # merge-base --is-ancestor (confined to base)
                 _run_result(),  # rebase --onto ...
                 _run_result(),  # diff --diff-filter=U (autostash pop conflict check)
             ],
@@ -398,10 +402,10 @@ class TestPushWorktreeBranchReconcile:
             )
 
         assert ok.ok is True
-        assert mock_run.call_count == 5
+        assert mock_run.call_count == 7
         base_fetch_cmd = mock_run.call_args_list[1].args[0]
         assert "fetch" in base_fetch_cmd and "main" in base_fetch_cmd
-        rebase_cmd = mock_run.call_args_list[3].args[0]
+        rebase_cmd = mock_run.call_args_list[5].args[0]
         # ``--autostash`` (#2714) precedes ``--onto`` so the rebase can run
         # against a dirty worktree; statefile / agent-output writes are
         # routinely uncommitted at sync time.
@@ -412,6 +416,75 @@ class TestPushWorktreeBranchReconcile:
             "origin/egg/issue-42",
             "origin/main",
         ]
+
+    def test_rebase_uses_plain_form_when_shared_history_beyond_base(self, tmp_path):
+        """Regression for #3416 (form selection, mocked).
+
+        When local and ``origin/{branch}`` share pipeline history beyond
+        the base branch (merge-base(HEAD, origin/{branch}) is NOT an
+        ancestor of ``origin/{base_branch}`` — the routine divergence
+        topology), the ``--onto`` form would replay every shared pipeline
+        commit onto the origin tip and manufacture conflicts.  The helper
+        must pick the plain ``git rebase origin/{branch}`` form, which
+        replays exactly the local-only commits.
+        """
+        client = _make_client([False, True])
+        with patch(
+            "gateway_client.subprocess.run",
+            side_effect=[
+                _run_result(),  # fetch origin {branch}
+                _run_result(),  # fetch origin {base_branch}
+                _run_result(),  # rev-parse --verify origin/{base_branch}
+                _run_result(stdout="abc123\n"),  # merge-base HEAD origin/{branch}
+                _run_result(returncode=1),  # merge-base --is-ancestor: NOT confined
+                _run_result(),  # plain rebase
+                _run_result(),  # diff --diff-filter=U (autostash pop conflict check)
+            ],
+        ) as mock_run:
+            ok = client.push_worktree_branch(
+                pipeline_id="issue-3416",
+                repo_path=str(tmp_path),
+                branch="egg/issue-3416",
+                base_branch="main",
+            )
+
+        assert ok.ok is True
+        assert mock_run.call_count == 7
+        rebase_cmd = mock_run.call_args_list[5].args[0]
+        assert "--onto" not in rebase_cmd
+        assert rebase_cmd[-3:] == ["rebase", "--autostash", "origin/egg/issue-3416"]
+
+    def test_rebase_keeps_onto_form_when_ancestry_indeterminate(self, tmp_path):
+        """Indeterminate merge-base ancestry falls back to the ``--onto`` form.
+
+        The ``--onto`` form's worst case is a non-destructive reconcile
+        pause (#2979); the plain form's is #2222-style silent PR
+        contamination.  When the topology probe can't answer, fail toward
+        the pause.
+        """
+        client = _make_client([False, True])
+        with patch(
+            "gateway_client.subprocess.run",
+            side_effect=[
+                _run_result(),  # fetch origin {branch}
+                _run_result(),  # fetch origin {base_branch}
+                _run_result(),  # rev-parse --verify origin/{base_branch}
+                _run_result(returncode=128, stderr="fatal: no merge base"),  # merge-base fails
+                _run_result(),  # rebase --onto ... (is-ancestor probe skipped)
+                _run_result(),  # diff --diff-filter=U (autostash pop conflict check)
+            ],
+        ) as mock_run:
+            ok = client.push_worktree_branch(
+                pipeline_id="issue-3416",
+                repo_path=str(tmp_path),
+                branch="egg/issue-3416",
+                base_branch="main",
+            )
+
+        assert ok.ok is True
+        assert mock_run.call_count == 6
+        rebase_cmd = mock_run.call_args_list[4].args[0]
+        assert "--onto" in rebase_cmd
 
     def test_rebase_does_not_replay_main_commits_when_base_branch_set(self, tmp_path):
         """End-to-end regression for #1976.
@@ -512,6 +585,117 @@ class TestPushWorktreeBranchReconcile:
         # branch (v1 from origin + v2 from local work) — 0 main-commit replays.
         assert len(branch_only_shas) == 2, (
             f"expected 2 branch-only commits, got {len(branch_only_shas)}: {branch_only_shas}"
+        )
+
+    def test_rebase_no_false_conflict_on_shared_pipeline_history(self, tmp_path):
+        """End-to-end regression for #3416.
+
+        Reproduces the ``issue-3393`` false ``divergence_reconcile_unacked``
+        pause with a real git repo:
+
+        - The pipeline branch has shared history beyond main: a
+          contract-init commit that *adds* the contract file, then a
+          commit that rewrites it.
+        - The local worktree is cut from that shared tip and adds one
+          local-only commit touching the contract file.
+        - Origin then advances by one commit touching a **disjoint** path
+          (an agent-outputs artifact) — true divergence, zero file
+          overlap between the local-only and origin-only commits.
+
+        The pre-fix ``--onto origin/{branch} origin/main`` form replayed
+        the whole ``origin/main..HEAD`` range — including the already-on-
+        origin contract-init commit, whose re-application onto the origin
+        tip hit an add/add conflict on the contract path (outside
+        ``.egg-state/agent-outputs/``) and raised a HITL pause, even
+        though the identical manual ``git rebase <origin tip>`` was
+        conflict-free.  With the topology-aware form selection the
+        autoresolve must reconcile this cleanly.
+        """
+        origin = tmp_path / "origin.git"
+        subprocess.run(["git", "init", "--bare", "-b", "main", str(origin)], check=True)
+
+        # Seed main.
+        seed = tmp_path / "seed"
+        seed.mkdir()
+        _git_init(seed, str(origin))
+        (seed / "README.md").write_text("initial\n")
+        _git(seed, "add", "README.md")
+        _git(seed, "commit", "-m", "initial main commit")
+        _git(seed, "push", "origin", "main")
+
+        # Pipeline branch: contract-init (adds the file) + a rewrite of it.
+        _git(seed, "checkout", "-b", "egg/issue-3416")
+        contracts = seed / ".egg-state" / "contracts"
+        contracts.mkdir(parents=True)
+        (contracts / "issue-3416.json").write_text('{"phase": "refine", "v": 1}\n')
+        _git(seed, "add", ".egg-state/contracts/issue-3416.json")
+        _git(seed, "commit", "-m", "Initialize SDLC contract for issue #3416")
+        (contracts / "issue-3416.json").write_text('{"phase": "refine", "v": 2}\n')
+        _git(seed, "add", ".egg-state/contracts/issue-3416.json")
+        _git(seed, "commit", "-m", "state: contract update (shared)")
+        _git(seed, "push", "origin", "egg/issue-3416")
+
+        # Local worktree: cut from the shared tip, one local-only commit
+        # touching the contract file (the operator-resolution write).
+        work = tmp_path / "work"
+        work.mkdir()
+        _git_init(work, str(origin))
+        _git(work, "fetch", "origin")
+        _git(work, "checkout", "-b", "egg/issue-3416-work", "origin/egg/issue-3416")
+        (work / ".egg-state" / "contracts" / "issue-3416.json").write_text(
+            '{"phase": "refine", "v": 3, "resolved": true}\n'
+        )
+        _git(work, "add", ".egg-state/contracts/issue-3416.json")
+        _git(work, "commit", "-m", "Persist agent statefile writes before refine sync")
+
+        # Origin advances by a disjoint-path commit (agent-outputs artifact).
+        _git(seed, "checkout", "egg/issue-3416")
+        outputs = seed / ".egg-state" / "agent-outputs"
+        outputs.mkdir(parents=True)
+        (outputs / "3416-analysis-human.md").write_text("simplifier artifact v3\n")
+        _git(seed, "add", ".egg-state/agent-outputs/3416-analysis-human.md")
+        _git(seed, "commit", "-m", "Restore simplifier artifact")
+        _git(seed, "push", "origin", "egg/issue-3416")
+        _git(work, "fetch", "origin", "egg/issue-3416")
+
+        git_base = [
+            "git",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            f"safe.directory={work}",
+            "-C",
+            str(work),
+        ]
+        result = _rebase_with_agent_output_autoresolve(
+            git_base=git_base,
+            pipeline_id="issue-3416",
+            branch="egg/issue-3416",
+            base_branch="main",
+        )
+        assert result.ok, (
+            f"disjoint divergence must reconcile cleanly (#3416), got: "
+            f"{result.category} {result.detail}"
+        )
+
+        # Origin's tip must be reachable from HEAD and exactly the one
+        # local-only commit replayed on top of it.
+        remote_sha = _git(work, "rev-parse", "origin/egg/issue-3416").stdout.strip()
+        log_shas = _git(work, "log", "--format=%H", "HEAD").stdout.strip().splitlines()
+        assert remote_sha in log_shas, "origin tip missing from local history after rebase"
+        ahead = _git(work, "rev-list", "--count", "origin/egg/issue-3416..HEAD").stdout.strip()
+        assert ahead == "1", f"expected exactly the local-only commit replayed, got {ahead}"
+
+        # No duplicate-by-content replay of the shared contract-init commit.
+        subjects = _git(work, "log", "--format=%s", "HEAD").stdout
+        assert subjects.count("Initialize SDLC contract") == 1, (
+            f"shared history was re-replayed:\n{subjects}"
+        )
+        # And the reconciled tree holds both sides' content.
+        assert (work / ".egg-state" / "agent-outputs" / "3416-analysis-human.md").exists()
+        assert (
+            '"resolved": true'
+            in (work / ".egg-state" / "contracts" / "issue-3416.json").read_text()
         )
 
     def test_rebase_does_not_contaminate_when_base_fetch_silently_failed(self, tmp_path):
