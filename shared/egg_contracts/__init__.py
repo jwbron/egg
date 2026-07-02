@@ -87,7 +87,10 @@ from .audit import (
 from .decisions import (
     CONTRACT_QUESTION_MAX_CHARS,
     CONTRACT_QUESTION_TRUNCATION_SUFFIX,
+    CQ_CITATION_PATTERN,
     CQ_ID_PATTERN,
+    decision_attestation_errors,
+    extract_cq_citations,
     find_duplicate_open_question,
     find_resolved_question,
     next_cq_id,
@@ -151,6 +154,7 @@ from .loader import (
 )
 from .models import (
     AcceptanceCriterion,
+    AddsTaskPayload,
     AgentExecutionModel,
     AgentExecutionStatus,
     AgentRoleType,
@@ -250,6 +254,7 @@ from .validator import (
 __all__ = [
     # Models
     "AcceptanceCriterion",
+    "AddsTaskPayload",
     "AgentExecutionModel",
     "AgentExecutionStatus",
     "AgentRoleType",
@@ -259,6 +264,7 @@ __all__ = [
     "CheckDefinition",
     "CheckResult",
     "CheckStatus",
+    "CQ_CITATION_PATTERN",
     "CQ_ID_PATTERN",
     "Contract",
     "ContractNotFoundError",
@@ -296,8 +302,10 @@ __all__ = [
     "create_transition_entry",
     # Audit
     "create_update_entry",
+    "decision_attestation_errors",
     "delete_contract",
     "export_contract",
+    "extract_cq_citations",
     "format_audit_log",
     "get_contract_path",
     "get_field_owner",

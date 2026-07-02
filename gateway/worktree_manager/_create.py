@@ -121,6 +121,7 @@ def create_worktree(
     gid: int | None = None,
     assigned_branch: str | None = None,
     repo_slug: str | None = None,
+    push_branch: bool = False,
 ) -> WorktreeInfo:
     """
     Create an isolated worktree for a container.
@@ -146,6 +147,20 @@ def create_worktree(
             token for the authenticated base-branch fetch (#3021).
             Defaults to ``repo_name`` when omitted, which makes token
             resolution fall through to bot mode.
+        push_branch: When True, best-effort materialize this repo's
+            pipeline work branch on its OWN remote right after the
+            worktree exists — push the worktree HEAD to
+            ``refs/heads/{assigned_branch or branch_name}`` (#3393
+            slice-7 / cq-4).  Multi-repo pipelines set this so every
+            participating repo has ``egg/<pipeline_id>/work`` on its
+            remote *before* any PR-opening call runs against it
+            (secondary-repo context / slice PRs otherwise soft-fail on
+            a missing head branch — the slice-4 known limit).  The push
+            is non-forced and idempotent: a branch that already exists
+            (non-fast-forward / up-to-date) is treated as already
+            materialized, so this never clobbers the primary repo's
+            contract-init commit.  Single-repo (N=1) callers leave this
+            False, keeping the path byte-identical to pre-#3393.
 
     Returns:
         WorktreeInfo with paths and branch information
@@ -234,6 +249,19 @@ def create_worktree(
                 assigned_branch=assigned_branch,
                 base_branch=base_branch,
                 repo_slug=repo_slug,
+            )
+        # Materialize the pipeline work branch on this repo's remote
+        # (#3393 slice-7): a reused worktree may belong to a secondary
+        # repo whose ``egg/<pipeline_id>/work`` branch is not yet on its
+        # remote.  Best-effort, non-forced, idempotent — see the
+        # ``push_branch`` arg docstring.
+        if push_branch:
+            self._materialize_work_branch_on_remote(
+                worktree_path=worktree_path,
+                branch_name=branch_name,
+                assigned_branch=assigned_branch,
+                repo_slug=repo_slug,
+                container_id=container_id,
             )
         # Return info about existing worktree
         return WorktreeInfo(
@@ -471,6 +499,21 @@ def create_worktree(
         branch=branch_name,
     )
 
+    # Materialize the pipeline work branch on this repo's remote (#3393
+    # slice-7 / cq-4): multi-repo pipelines push every participating
+    # repo's ``egg/<pipeline_id>/work`` branch so secondary-repo context
+    # / slice PRs no longer soft-fail on a missing head branch.
+    # Best-effort, non-forced, idempotent — see the ``push_branch`` arg
+    # docstring.
+    if push_branch:
+        self._materialize_work_branch_on_remote(
+            worktree_path=worktree_path,
+            branch_name=branch_name,
+            assigned_branch=assigned_branch,
+            repo_slug=repo_slug,
+            container_id=container_id,
+        )
+
     return info
 
 
@@ -518,6 +561,101 @@ def _configure_push_upstream(
                 stderr=result.stderr.strip(),
             )
             return
+
+
+def _materialize_work_branch_on_remote(
+    self: WorktreeManager,
+    worktree_path: Path,
+    branch_name: str,
+    assigned_branch: str | None,
+    repo_slug: str,
+    container_id: str,
+) -> None:
+    """Best-effort push this repo's pipeline work branch to its own remote.
+
+    #3393 slice-7 (cq-4): a multi-repo pipeline must have
+    ``egg/<pipeline_id>/work`` on EVERY participating repo's remote
+    before any PR-opening call runs against that repo.  Only the primary
+    repo's work branch is materialized by the orchestrator's existing
+    push paths; secondary repos otherwise have no head branch, so the
+    slice-4 secondary-context / slice-PR openers soft-fail on a missing
+    head (documented slice-4 known limit).  Pushing the freshly-created
+    worktree HEAD to ``refs/heads/{target}`` here closes that gap.
+
+    ``target`` is the assigned branch (the pipeline branch this worktree
+    pushes to, e.g. ``egg/<pipeline_id>/work``) when set, else the
+    per-worktree ``branch_name`` — matching the refspec the sandbox push
+    client would otherwise build.
+
+    Deliberately NON-FORCED and treated as idempotent: if the branch
+    already exists on the remote at an equal-or-newer tip the push is a
+    no-op / non-fast-forward rejection, which we log at ``info`` and
+    swallow — the branch is already materialized, and a force push would
+    risk clobbering the primary repo's contract-init commit.  Any other
+    failure (auth, network, timeout) is logged at ``warning`` and
+    swallowed so worktree creation never fails on a best-effort push.
+    """
+    target = (assigned_branch or branch_name).removeprefix("origin/")
+    refspec = f"HEAD:refs/heads/{target}"
+    try:
+        with self._git_credential_env(repo_slug, best_effort=True) as push_env:
+            result = subprocess.run(
+                git_cmd("push", "origin", refspec),
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+                env=push_env,
+            )
+    except Exception as exc:  # noqa: BLE001 — best-effort materialization
+        logger.warning(
+            "Work-branch materialization push failed (continuing)",
+            container_id=container_id,
+            repo_slug=repo_slug,
+            target=target,
+            error=str(exc),
+        )
+        return
+
+    if result.returncode == 0:
+        logger.info(
+            "Materialized pipeline work branch on remote",
+            container_id=container_id,
+            repo_slug=repo_slug,
+            target=target,
+        )
+        return
+
+    stderr = result.stderr.strip()
+    # A branch already present at an equal/newer tip yields
+    # "up-to-date" or a non-fast-forward rejection — both mean the
+    # branch is already materialized, which is the success condition
+    # here.  Anything else is a real (but non-fatal) push failure.
+    lowered = stderr.lower()
+    already_materialized = (
+        "up-to-date" in lowered
+        or "up to date" in lowered
+        or "non-fast-forward" in lowered
+        or "fetch first" in lowered
+        or "! [rejected]" in lowered
+    )
+    if already_materialized:
+        logger.info(
+            "Pipeline work branch already present on remote (no force push)",
+            container_id=container_id,
+            repo_slug=repo_slug,
+            target=target,
+            stderr=stderr[:200],
+        )
+    else:
+        logger.warning(
+            "Work-branch materialization push rejected (continuing)",
+            container_id=container_id,
+            repo_slug=repo_slug,
+            target=target,
+            stderr=stderr[:200],
+        )
 
 
 @contextlib.contextmanager

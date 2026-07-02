@@ -164,6 +164,18 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
         if getattr(args, "commit_sha", None):
             req["commit_sha"] = args.commit_sha
 
+    # Decision-ledger attestation flags (#3390): refine/plan producers attest
+    # the HITL decisions they registered (or an explicit empty ledger). Layered
+    # into ``req["attestation"]`` so they win over a ``--file`` payload's
+    # attestation (the handler prefers structured ``req`` keys).
+    ledger_attestation: dict[str, Any] = {}
+    if getattr(args, "decisions_registered", None):
+        ledger_attestation["decisions_registered"] = list(args.decisions_registered)
+    if getattr(args, "no_decisions_rationale", None):
+        ledger_attestation["no_decisions_rationale"] = args.no_decisions_rationale
+    if ledger_attestation:
+        req["attestation"] = ledger_attestation
+
     changed_artifacts = getattr(args, "changed_artifacts", None)
     if changed_artifacts:
         req["changed_artifacts"] = list(changed_artifacts)

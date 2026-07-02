@@ -292,6 +292,17 @@ def reopen_producer(self, agent_role: str, reason: str = "") -> dict[str, Any]:
         self._producer_phases[agent_role] = ConsensusPhase.WORKING
         self._confirmed.discard(agent_role)
 
+        # The next propose after a reopen re-converges reviewers on the
+        # (possibly unchanged) deliverable — a reopen is orchestrator-initiated
+        # (task reassignment), not a producer re-proposing the same tree to
+        # dodge a NACK. Clear the tracked current SHA so the unchanged-tree
+        # guard (#3395, mirrored #3415) treats that propose as fresh
+        # (``current_sha == ""`` → guard no-ops), exactly as it exempts the
+        # initial ``version 0 → 1`` propose. The per-version SHA *history*
+        # (``_proposal_commit_sha_history``) is left intact for delta ranges.
+        self._proposal_commit_shas.pop(agent_role, None)
+        self._unchanged_repropose_counts.pop(agent_role, None)
+
         emit_event(
             EventType.CONSENSUS_PRODUCER_REOPENED,
             self.pipeline_id,

@@ -1589,12 +1589,14 @@ see [Rollback posture](../architecture/orchestrator.md#rollback-posture).
 >
 > **What's gated by what:** the composer always runs — the event-pump
 > wrapper is the only consensus-wrapper path. Only the *content* of the
-> memory excerpt (and whether `last_reviewed_commit_sha` is read from the
-> memory file vs. fallen back from `changed_artifacts`) is gated by
-> `EGG_BRC_MEMORY` (default `full`; set `write-only` for the inert-reader
-> fallback). The `_build_brc_preamble` collapse (§10.9.5) runs
-> **unconditionally** for every agent spawn. See §10.9.4 for the full
-> matrix.
+> memory excerpt (and whether the memory-file `last_reviewed_commit_sha`
+> is available as the fallback baseline, vs. falling back further to
+> `changed_artifacts`) is gated by `EGG_BRC_MEMORY` (default `full`; set
+> `write-only` for the inert-reader fallback). The orchestrator-resolved
+> `last_reviewed_commit_sha` on `pending_reviews` (#3395) is not gated by
+> `EGG_BRC_MEMORY` and takes priority whenever present — see §10.9.2.
+> The `_build_brc_preamble` collapse (§10.9.5) runs **unconditionally**
+> for every agent spawn. See §10.9.4 for the full matrix.
 
 #### 10.9.1 What shows up in the per-event prompt
 
@@ -1610,7 +1612,7 @@ assembles the single user prompt the wrapper dispatches at each
 | Top | Task & operator directives (#3123/#3163) | Contract `task_description` read from the worktree contract file (`EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER`); populated for all pipeline types since #3163 (issue anchor + submit description); omitted only when the contract carries no task statement and no issue identity | ≤ 4 KB, truncated with a `mcp__sdlc__show_contract` pointer. |
 | Middle | Per-reviewer NACK block (`reason` + `artifact_refs`) | `orchestrator/peer_consensus.py` `_open_nacks_barrier_response.nacks[]` (prefer the function-name reference over line numbers, which drift) — the same NACK envelope a producer sees in the aggregated-NACK 409 from §10.6 | One block per NACKing reviewer. |
 | Middle | The single expected action | `event_payload.kind` | A few hundred bytes. |
-| Tail | Git-log delta (full, per-producer — see §10.9.2) | `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p` with `last_reviewed_commit_sha` read from the [BRC memory file](../architecture/brc-memory.md) | Scaled by change size; **NOT** counted against the 10 KB envelope. |
+| Tail | Git-log delta (full, per-producer — see §10.9.2) | `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p` with `last_reviewed_commit_sha` preferring the orchestrator-resolved SHA on `pending_reviews` (#3395), falling back to the [BRC memory file](../architecture/brc-memory.md) for legacy payloads / first reviews | Scaled by change size; **NOT** counted against the 10 KB envelope. |
 | Tail | Memory excerpt (inline at tail — see §10.9.3) | `.egg-state/agent-outputs/<role>/brc-memory-<pipeline-id>.md` truncated to 2 KB | ≤ 2 KB after truncation. |
 
 The composer's prose envelope (everything except the git-log delta) is
@@ -1632,6 +1634,18 @@ This is the **same diff command** the PR reviewer uses for re-review
 The contract is: the producer's v2+ delta must be audited **as a
 fresh review against the prior reviewed SHA**, not against the
 orchestrator's signal-level `changed_artifacts` set.
+
+**Baseline priority (#3395):** `{last_reviewed_commit_sha}` prefers the
+orchestrator-resolved SHA the next-action route attaches to
+`pending_reviews` (derived from this reviewer's last *verdicted*
+proposal version via `get_commit_sha_for_version`) over the memory-file
+value in §10.9.3. The memory bullet is agent-self-tracked and can
+silently advance to a proposal SHA the reviewer never actually
+reviewed, collapsing `{sha}..{sha}` to an empty delta and making the
+fix commit unreviewable forever — the permanent-NACK deadlock this
+fixed. The orchestrator-resolved SHA is empty on first review (no
+prior verdict / version-0 pre-proposal ACKs), where the memory-file
+value remains the fallback.
 
 `changed_artifacts` is the orchestrator's notion of "what the
 producer said they changed". The producer's actual `git log` delta
@@ -1668,8 +1682,9 @@ flag.
 The memory writer side of this contract lives in the
 [BRC Memory Artifact](../architecture/brc-memory.md); the composer is
 the **reader** complement that consumes the per-producer
-`last_reviewed_commit_sha` to parameterise the §10.9.2 delta and
-appends the bounded memory prose at the prompt tail.
+`last_reviewed_commit_sha` — orchestrator-resolved value preferred,
+memory-file value as fallback (§10.9.2) — to parameterise the §10.9.2
+delta and appends the bounded memory prose at the prompt tail.
 
 #### 10.9.4 Composer interplay with `EGG_BRC_MEMORY`
 
@@ -1678,9 +1693,9 @@ matrix:
 
 | `EGG_BRC_MEMORY` | Writer (`brc_ack` / `brc_nack`) | Composer (reader) |
 |------------------|---------------------------------|-------------------|
-| `off` | No file written. | `memory_excerpt = ""`; git-log delta falls back to the orchestrator's signal-level `changed_artifacts` as a baseline. This is a **degraded** baseline, not the adversarial re-review path — used only when no per-producer SHA is available. |
-| `write-only` | File written under `.egg-state/agent-outputs/<role>/brc-memory-<pipeline-id>.md`. | `memory_excerpt = ""` even though the file exists. Reads are no-ops, so this mode keeps the reader inert while the writer stays hot — the available fallback/escape hatch. |
-| `full` (**default**) | File written. | Composer reads the file, extracts `last_reviewed_commit_sha` per producer, substitutes it into the §10.9.2 delta command, and appends the (≤ 2 KB) truncated excerpt at the prompt tail. |
+| `off` | No file written. | `memory_excerpt = ""`; git-log delta uses the orchestrator-resolved `last_reviewed_commit_sha` (#3395) if present, else falls back to the orchestrator's signal-level `changed_artifacts` as a baseline. The `changed_artifacts` fallback is **degraded**, not the adversarial re-review path — used only when no per-producer SHA is available at all. |
+| `write-only` | File written under `.egg-state/agent-outputs/<role>/brc-memory-<pipeline-id>.md`. | `memory_excerpt = ""` even though the file exists. Reads of the memory file are no-ops, so this mode keeps the memory reader inert while the writer stays hot — the available fallback/escape hatch. The orchestrator-resolved `last_reviewed_commit_sha` still applies independent of this setting. |
+| `full` (**default**) | File written. | Composer reads the file, extracts `last_reviewed_commit_sha` per producer as the fallback baseline (orchestrator-resolved value still wins when present, §10.9.2), substitutes it into the §10.9.2 delta command, and appends the (≤ 2 KB) truncated excerpt at the prompt tail. |
 
 `full` is the default so production pipelines run the adversarial
 re-review path. Operators that need the inert-reader behaviour can set

@@ -158,6 +158,12 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
         divergence_local_only = (
             list(populate_sync_outcome.local_only_commit_shas) if populate_sync_outcome else []
         )
+        divergence_rebase_category = (
+            populate_sync_outcome.rebase_category if populate_sync_outcome else None
+        )
+        divergence_rebase_detail = (
+            populate_sync_outcome.rebase_detail if populate_sync_outcome else None
+        )
 
         if diverged_unreconciled:
             # Do NOT run the populator against an un-reconciled worktree.
@@ -171,6 +177,8 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
                 pipeline_id=pipeline_id,
                 backup_ref=divergence_backup_ref,
                 local_only_commit_count=len(divergence_local_only),
+                rebase_category=divergence_rebase_category,
+                rebase_detail=divergence_rebase_detail,
             )
             _emit_divergence_reconcile_hitl(
                 pipeline_id,
@@ -178,6 +186,8 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
                 phase=pipeline.current_phase,
                 backup_ref=divergence_backup_ref,
                 local_only_commit_shas=divergence_local_only,
+                rebase_category=divergence_rebase_category,
+                rebase_detail=divergence_rebase_detail,
             )
             return make_error_response(
                 "Worktree diverged from origin during pre-populate sync and "
@@ -190,6 +200,8 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
                     "diverged_unreconciled": True,
                     "backup_ref": divergence_backup_ref,
                     "local_only_commit_shas": divergence_local_only,
+                    "rebase_category": divergence_rebase_category,
+                    "rebase_detail": divergence_rebase_detail,
                 },
             )
 

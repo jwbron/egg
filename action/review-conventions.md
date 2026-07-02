@@ -60,9 +60,10 @@ avoid the extra API call and log noise.
 
 **Never run `make test`** as part of your review. The egg test suite takes
 10-15 minutes and is causing this workflow to time out. CI runs the configured
-check suite on every PR HEAD — trust those results (the `wait-for-checks` step
-in the workflow gates this review on a green status), and NACK if you have
-concerns about coverage or behavior rather than re-running tests yourself.
+check suite on every PR HEAD in parallel with this review — leave test
+execution to CI (its results may still be pending while you review), and NACK
+if you have concerns about coverage or behavior rather than re-running tests
+yourself.
 
 If you need to validate a specific concern about a single function, you may run
 individual targeted tests (`.venv/bin/pytest path/to/test_x.py::TestY::test_z`),

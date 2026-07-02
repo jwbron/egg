@@ -131,8 +131,10 @@ _ALLOWLIST: tuple[tuple[str, str, int], ...] = (
     # comment to drop the literal token would strip the pointer
     # reviewers depend on to navigate the deletion. (#3312 slice-6 moved
     # this comment from event_prompt.py:1429 to the _delta_builder.py
-    # submodule of the routes/event_prompt/ package.)
-    ("_delta_builder.py", "git fetch", 256),
+    # submodule of the routes/event_prompt/ package; #3395's
+    # server-baseline preference in _build_delta_entries shifted it from
+    # line 256 to 268.)
+    ("_delta_builder.py", "git fetch", 268),
 )
 
 

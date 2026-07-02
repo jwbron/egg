@@ -2525,7 +2525,12 @@ class TestPlanProposalValidation:
             self._patched_worktree(),
             self._patched_subprocess(self._PLAN_WITH_MISASSIGNED_TASK),
         ):
-            payload = {"commit_sha": "abc1234"}
+            payload = {
+                "commit_sha": "abc1234",
+                # Explicit-none decision ledger so the #3390 attestation
+                # gate passes and the check under test is reached.
+                "attestation": {"no_decisions_rationale": "test fixture"},
+            }
             with pytest.raises(ValueError, match="role↔files alignment violations"):
                 _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
 
@@ -2538,7 +2543,12 @@ class TestPlanProposalValidation:
             self._patched_worktree(),
             self._patched_subprocess(self._PLAN_WITH_CLEAN_ASSIGNMENTS),
         ):
-            payload = {"commit_sha": "abc1234"}
+            payload = {
+                "commit_sha": "abc1234",
+                # Explicit-none decision ledger so the #3390 attestation
+                # gate passes and the check under test is reached.
+                "attestation": {"no_decisions_rationale": "test fixture"},
+            }
             # Should not raise.
             _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
 
@@ -2555,7 +2565,12 @@ class TestPlanProposalValidation:
             self._patched_worktree(),
             self._patched_subprocess(self._PLAN_WITHOUT_YAML_TASKS),
         ):
-            payload = {"commit_sha": "abc1234"}
+            payload = {
+                "commit_sha": "abc1234",
+                # Explicit-none decision ledger so the #3390 attestation
+                # gate passes and the check under test is reached.
+                "attestation": {"no_decisions_rationale": "test fixture"},
+            }
             with pytest.raises(ValueError, match="does not parse into any tasks"):
                 _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
 
@@ -2573,7 +2588,12 @@ class TestPlanProposalValidation:
             self._patched_worktree(),
             self._patched_subprocess(self._PLAN_WITH_NON_FOREST_DAG),
         ):
-            payload = {"commit_sha": "abc1234"}
+            payload = {
+                "commit_sha": "abc1234",
+                # Explicit-none decision ledger so the #3390 attestation
+                # gate passes and the check under test is reached.
+                "attestation": {"no_decisions_rationale": "test fixture"},
+            }
             with pytest.raises(ValueError, match="the slice DAG is not a forest"):
                 _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
 
@@ -2590,7 +2610,12 @@ class TestPlanProposalValidation:
             self._patched_worktree(),
             self._patched_subprocess(self._PLAN_WITH_OVERLAPPING_SLICES),
         ):
-            payload = {"commit_sha": "abc1234"}
+            payload = {
+                "commit_sha": "abc1234",
+                # Explicit-none decision ledger so the #3390 attestation
+                # gate passes and the check under test is reached.
+                "attestation": {"no_decisions_rationale": "test fixture"},
+            }
             with pytest.raises(ValueError, match="slices touch overlapping files"):
                 _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
 
@@ -2607,7 +2632,12 @@ class TestPlanProposalValidation:
             self._patched_worktree(),
             self._patched_subprocess(self._PLAN_WITH_SERIALIZED_FOREST),
         ):
-            payload = {"commit_sha": "abc1234"}
+            payload = {
+                "commit_sha": "abc1234",
+                # Explicit-none decision ledger so the #3390 attestation
+                # gate passes and the check under test is reached.
+                "attestation": {"no_decisions_rationale": "test fixture"},
+            }
             # Should not raise.
             _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
 
@@ -2623,7 +2653,12 @@ class TestPlanProposalValidation:
             self._patched_worktree(),
             self._patched_subprocess("", returncode=128),
         ):
-            payload = {"commit_sha": "abc1234"}
+            payload = {
+                "commit_sha": "abc1234",
+                # Explicit-none decision ledger so the #3390 attestation
+                # gate passes and the check under test is reached.
+                "attestation": {"no_decisions_rationale": "test fixture"},
+            }
             with pytest.raises(ValueError, match=r"no plan draft found.*-plan\.md"):
                 _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
 
@@ -2636,7 +2671,12 @@ class TestPlanProposalValidation:
             self._patched_worktree(),
             self._patched_subprocess("   \n  \n"),
         ):
-            payload = {"commit_sha": "abc1234"}
+            payload = {
+                "commit_sha": "abc1234",
+                # Explicit-none decision ledger so the #3390 attestation
+                # gate passes and the check under test is reached.
+                "attestation": {"no_decisions_rationale": "test fixture"},
+            }
             with pytest.raises(ValueError, match="no plan draft found"):
                 _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
 
@@ -2656,7 +2696,10 @@ class TestPlanProposalValidation:
         ):
             _validate_plan_proposal(
                 "issue-2527",
-                {"commit_sha": "abc1234"},
+                {
+                    "commit_sha": "abc1234",
+                    "attestation": {"no_decisions_rationale": "test fixture"},
+                },
                 Path("/tmp/repo"),
                 branch_verified=None,
             )
@@ -2683,7 +2726,10 @@ class TestPlanProposalValidation:
         ):
             _validate_plan_proposal(
                 "issue-2527",
-                {"commit_sha": "abc1234"},
+                {
+                    "commit_sha": "abc1234",
+                    "attestation": {"no_decisions_rationale": "test fixture"},
+                },
                 Path("/tmp/repo"),
                 branch_verified=None,
             )
@@ -2704,7 +2750,14 @@ class TestPlanProposalValidation:
             ),
         ):
             # Should not raise — infra failures degrade gracefully.
-            _validate_plan_proposal("issue-2527", {"commit_sha": "abc1234"}, Path("/tmp/repo"))
+            _validate_plan_proposal(
+                "issue-2527",
+                {
+                    "commit_sha": "abc1234",
+                    "attestation": {"no_decisions_rationale": "test fixture"},
+                },
+                Path("/tmp/repo"),
+            )
 
     def test_skips_when_pipeline_lookup_fails(self):
         """State store load failure → graceful skip."""
@@ -2718,7 +2771,12 @@ class TestPlanProposalValidation:
             patch("routes.signals.get_state_store", return_value=mock_store),
             self._patched_worktree(),
         ):
-            payload = {"commit_sha": "abc1234"}
+            payload = {
+                "commit_sha": "abc1234",
+                # Explicit-none decision ledger so the #3390 attestation
+                # gate passes and the check under test is reached.
+                "attestation": {"no_decisions_rationale": "test fixture"},
+            }
             # Should not raise — graceful degradation
             _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
 
@@ -2730,7 +2788,12 @@ class TestPlanProposalValidation:
             self._patched_store(branch=None),
             self._patched_worktree(),
         ):
-            payload = {"commit_sha": "abc1234"}
+            payload = {
+                "commit_sha": "abc1234",
+                # Explicit-none decision ledger so the #3390 attestation
+                # gate passes and the check under test is reached.
+                "attestation": {"no_decisions_rationale": "test fixture"},
+            }
             # Should not raise — branch is required to resolve the worktree commit.
             _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
 
@@ -2788,6 +2851,7 @@ class TestPlanProposalValidation:
                     ),
                     "artifacts": [".egg-state/drafts/2527-plan.md"],
                     "commit_sha": "abc1234",
+                    "attestation": {"no_decisions_rationale": "test fixture"},
                 },
             }
             response, status_code = handle_consensus_propose_signal(
@@ -2844,6 +2908,7 @@ class TestPlanProposalValidation:
                     ),
                     "artifacts": [".egg-state/drafts/2527-plan.md"],
                     "commit_sha": "abc1234",
+                    "attestation": {"no_decisions_rationale": "test fixture"},
                 },
             }
             response, status_code = handle_consensus_propose_signal(
@@ -2958,6 +3023,7 @@ class TestProducerDraftPresentValidation:
                     ),
                     "artifacts": [".egg-state/drafts/3016-analysis.md"],
                     "commit_sha": "abc1234",
+                    "attestation": {"no_decisions_rationale": "test fixture"},
                 },
             }
             response, status_code = handle_consensus_propose_signal(
@@ -3032,6 +3098,7 @@ class TestProducerDraftPresentValidation:
                     ),
                     "artifacts": [".egg-state/agent-outputs/refiner-refine.md"],
                     "commit_sha": "abc1234",
+                    "attestation": {"no_decisions_rationale": "test fixture"},
                 },
             }
             response, status_code = handle_consensus_propose_signal(
@@ -3087,6 +3154,7 @@ class TestProducerDraftPresentValidation:
                     ),
                     "artifacts": [".egg-state/agent-outputs/refiner-refine.md"],
                     "commit_sha": "abc1234",
+                    "attestation": {"no_decisions_rationale": "test fixture"},
                 },
             }
             response, status_code = handle_consensus_propose_signal(
@@ -4041,6 +4109,52 @@ class TestRefineReviewCriteriaKicksBackPlannerQuestions:
         # And it must give the reviewer the positive contrast — what a
         # good refine question looks like.
         assert "fact only the operator knows" in criteria
+
+
+class TestDecisionLedgerPromptSurface:
+    """Prompt-side surface of the registration guarantee (#3390).
+
+    Producers must be told the ledger attestation is mandatory at propose
+    time, and both quality reviewers carry the un-surfaced-decision NACK
+    obligation with its over-NACK calibration.
+    """
+
+    def test_refine_producers_get_ledger_attest_instruction(self):
+        for role in ("refiner",):
+            preamble = _build_brc_preamble(role, "refine")
+            assert "Attest your decision ledger" in preamble, role
+            assert "--decisions-registered" in preamble, role
+            assert "--no-decisions-rationale" in preamble, role
+
+    def test_plan_producers_get_ledger_attest_instruction(self):
+        for role in ("task_planner", "architect", "risk_analyst"):
+            preamble = _build_brc_preamble(role, "plan")
+            assert "Attest your decision ledger" in preamble, role
+
+    def test_simplifier_and_implement_roles_exempt(self):
+        for role, phase in (
+            ("simplifier", "refine"),
+            ("simplifier", "plan"),
+            ("coder", "implement"),
+            ("tester", "implement"),
+            ("documenter", "implement"),
+        ):
+            preamble = _build_brc_preamble(role, phase)
+            assert "Attest your decision ledger" not in preamble, (role, phase)
+
+    def test_refine_reviewer_carries_unsurfaced_decision_obligation(self):
+        criteria = _get_refine_review_criteria()
+        assert "Un-surfaced decisions — NACK" in criteria
+        assert "no_decisions_rationale" in criteria
+        # Calibration guard so the obligation doesn't over-NACK
+        # legitimate implementation choices.
+        assert "do not over-NACK" in criteria
+
+    def test_plan_reviewer_carries_unsurfaced_decision_obligation(self):
+        criteria = _get_plan_review_criteria()
+        assert "Un-surfaced decisions — NACK" in criteria
+        assert "no_decisions_rationale" in criteria
+        assert "do not over-NACK" in criteria
 
 
 class TestPlannerPromptTreatsRefinerSlicingAsAdvisory:

@@ -85,6 +85,9 @@ from ._graph_mutations import (  # noqa: E402,F401
 )
 from ._handlers import (  # noqa: E402,F401
     _COMPLETE_TASK_RESOLUTION_RE,
+    CONSENSUS_TIMEOUT_ABORT_OPTION,
+    CONSENSUS_TIMEOUT_ACCEPT_OPTION,
+    CONSENSUS_TIMEOUT_RETRY_OPTION,
     FIRST_PRINCIPLES_ADOPT_OPTION,
     FIRST_PRINCIPLES_CANCEL_OPTION,
     FIRST_PRINCIPLES_OPTIONS,
@@ -92,10 +95,14 @@ from ._handlers import (  # noqa: E402,F401
     _cancel_pipeline_in_process,
     _handle_conditional_ack_gate,
     _handle_restart_agent,
+    _load_contract_decision,
+    _maybe_add_task_from_resolution,
     _maybe_apply_first_principles_redirect,
     _maybe_complete_task_from_resolution,
+    _maybe_dispatch_consensus_timeout_resolution,
     _normalize_choice_resolution,
     _read_first_principles_redirect,
+    _resolution_selects_option,
 )
 from ._resolve import (  # noqa: E402,F401
     _outstanding_contract_hitl,

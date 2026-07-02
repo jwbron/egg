@@ -81,6 +81,13 @@ class IncompleteConsensusStallCheck:
         self._consecutive_ticks: dict[str, int] = {}
         # Track proposal timestamps to detect new proposals (#1609)
         self._last_known_proposal_ts: dict[str, float] = {}
+        # Post-proposal grace scoping (#3395): the proposal-SHA fingerprint
+        # the grace was last granted for, and the timestamp of that
+        # commit-advancing proposal. An unchanged-tree re-propose refreshes
+        # the raw proposal timestamp but not the fingerprint, so it must
+        # neither reset stall tracking nor re-open the grace window.
+        self._graced_fingerprints: dict[str, tuple[tuple[str, str], ...]] = {}
+        self._graced_proposal_ts: dict[str, float] = {}
 
     def run(self, context: PipelineHealthContext) -> HealthResult:
         """Check for stuck incomplete consensus."""
@@ -111,24 +118,39 @@ class IncompleteConsensusStallCheck:
                     f"({self._grace_seconds}s); check skipped."
                 )
 
-        # Post-proposal grace: give reviewers time after CONSENSUS_PROPOSE (#1609)
+        # Post-proposal grace: give reviewers time after CONSENSUS_PROPOSE
+        # (#1609). Scoped to *commit-advancing* proposals (#3395): the grace
+        # window is keyed to the last proposal that changed the proposal-SHA
+        # fingerprint, so a NACK loop of unchanged-tree re-proposes spaced
+        # under the grace interval can no longer reset stall tracking and
+        # suppress this check forever. A ``None`` fingerprint (tracker
+        # unavailable) conservatively counts as advancing — pre-#3395
+        # behaviour.
         pipeline_id = pipeline.id
         post_proposal_grace = getattr(pipeline.config, "post_proposal_grace_seconds", 300)
         latest_proposal_ts = self._get_latest_proposal_timestamp(pipeline_id)
         if latest_proposal_ts is not None:
             prev_known = self._last_known_proposal_ts.get(pipeline_id, 0.0)
             if latest_proposal_ts > prev_known:
-                # New proposal arrived — reset stall tracking
                 self._last_known_proposal_ts[pipeline_id] = latest_proposal_ts
-                self._reset_tracking(pipeline_id)
+                fingerprint = self._get_proposal_sha_fingerprint(pipeline_id)
+                if fingerprint is None or fingerprint != self._graced_fingerprints.get(pipeline_id):
+                    # New commit-advancing proposal — reset stall tracking
+                    # and (re-)open the grace window.
+                    if fingerprint is not None:
+                        self._graced_fingerprints[pipeline_id] = fingerprint
+                    self._graced_proposal_ts[pipeline_id] = latest_proposal_ts
+                    self._reset_tracking(pipeline_id)
 
-            time_since_proposal = time.time() - latest_proposal_ts
-            if time_since_proposal < post_proposal_grace:
-                return self._healthy(
-                    f"CONSENSUS_PROPOSE received {time_since_proposal:.0f}s ago, "
-                    f"within post-proposal grace period ({post_proposal_grace}s); "
-                    f"check skipped."
-                )
+            graced_ts = self._graced_proposal_ts.get(pipeline_id)
+            if graced_ts is not None:
+                time_since_proposal = time.time() - graced_ts
+                if time_since_proposal < post_proposal_grace:
+                    return self._healthy(
+                        f"CONSENSUS_PROPOSE received {time_since_proposal:.0f}s ago, "
+                        f"within post-proposal grace period ({post_proposal_grace}s); "
+                        f"check skipped."
+                    )
 
         # Evaluate consensus state
         blocking_agents = self._get_blocking_agents(pipeline_id, pipeline)
@@ -289,6 +311,29 @@ class IncompleteConsensusStallCheck:
                 exc_info=True,
             )
 
+        return None
+
+    def _get_proposal_sha_fingerprint(self, pipeline_id: str) -> tuple[tuple[str, str], ...] | None:
+        """Return a hashable snapshot of every producer's proposal SHA, or None.
+
+        Lets the post-proposal grace distinguish a commit-advancing proposal
+        from an unchanged-tree re-propose (#3395): the latter refreshes the
+        proposal timestamp but not this fingerprint. ``None`` (tracker
+        unavailable / query failure) tells the caller to fall back to the
+        pre-#3395 timestamp-only behaviour.
+        """
+        try:
+            from peer_consensus import get_peer_consensus_tracker
+
+            tracker = get_peer_consensus_tracker(pipeline_id)
+            if tracker is not None:
+                return tuple(sorted(tracker.get_all_proposal_commit_shas().items()))
+        except Exception:
+            logger.debug(
+                "Proposal SHA fingerprint query failed",
+                pipeline_id=pipeline_id,
+                exc_info=True,
+            )
         return None
 
     def _has_recent_activity(

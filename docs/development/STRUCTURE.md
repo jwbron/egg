@@ -350,11 +350,12 @@ shared/
 │   ├── redactor.py         # Sensitive data redaction (env vars, secrets, sensitive file paths)
 │   ├── resilience.py       # Resilience utilities for external failure handling (retries, backoff)
 │   ├── roles.py            # Contract-mutation role definitions and field ownership mapping
-│   ├── validator.py        # Contract mutation validator — enforces role permissions on field writes
+│   ├── validator.py        # Contract mutation validator — enforces role permissions on field writes; rejects append-only `decisions[]` index collisions with `error_kind="conflict"` (#3427)
 │   └── tests/              # In-package test suite (complements tests/shared/egg_contracts/)
 │       ├── test_agent_roles.py                  # reviewer_security / reviewer_concurrency role tests (#1965)
 │       ├── test_artifact_spec.py                # Artifact-spec consistency suite (#3077)
 │       ├── test_composite_execution.py          # Composite (phase_id, role) execution tracking tests
+│       ├── test_decisions_append_only.py        # decisions[] append-only guard collision tests (#3427)
 │       ├── test_decisions_carry_forward.py      # find_resolved_question carry-forward tests (#3392)
 │       ├── test_feedback_carry_forward.py       # find_carry_forward_feedback carry-forward tests (#3392)
 │       ├── test_orchestrator.py                 # load_agent_output / save_agent_output identifier-prefixed path tests
