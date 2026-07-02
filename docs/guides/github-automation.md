@@ -60,13 +60,7 @@ and via `workflow_dispatch` with a PR number.
    `workflow_dispatch` forces a review regardless. (`reusable-review.yml` retains its own
    narrower multi-slice context-PR skip for any other caller, but for the egg-reviewer path the
    `on-pull-request.yml` gate supersedes it.)
-2. **Wait for CI checks** — Waits for all non-review checks (e.g., lint, tests) to complete
-   before starting the review. Skips checks matching `egg-review /` (the standard reviewer
-   job prefix), `egg-reviewer-` (nested reviewer jobs), `SDLC Pipeline`, or `SDLC HITL` to
-   avoid self-deadlock. If checks fail, the review is skipped. Workflow dispatch triggers
-   bypass this wait and the already-reviewed check. Times out after 25 minutes with a warning
-   and proceeds anyway.
-3. **Re-review detection** — Searches for an `<!-- egg-automated-review bot=<name> commit=<sha> -->`
+2. **Re-review detection** — Searches for an `<!-- egg-automated-review bot=<name> commit=<sha> -->`
    marker in previous reviews/comments to identify the last reviewed commit. On re-review,
    the agent uses `git log <last-commit>..HEAD --not origin/<base> -p` (preceded by a
    `git fetch origin <base>` nudge) to focus only on PR-side commits pushed since the
@@ -76,13 +70,17 @@ and via `workflow_dispatch` with a PR number.
    This prevents the reviewer from attributing merged-in base-branch work to the PR
    itself (see [#1758](https://github.com/jwbron/egg/issues/1758)). First-cycle reviews
    (no prior marker) still use the full-PR `git diff origin/<base>...HEAD` form.
-4. **Stale review dismissal** — Dismisses previous bot reviews before posting a new one.
-5. **Trusted prompt build** — Checks out `main` (not the PR branch) to run
+3. **Stale review dismissal** — Dismisses previous bot reviews before posting a new one.
+4. **Trusted prompt build** — Checks out `main` (not the PR branch) to run
    `build-review-prompt.sh`, preventing prompt injection from malicious PRs.
-6. **SHA validation** — Verifies the PR HEAD still matches the commit that passed checks,
-   aborting if code was pushed after checks completed but before the review started.
-7. **Agent review** — Checks out the PR branch and runs egg with the review prompt.
+5. **Agent review** — Checks out the PR branch and runs egg with the review prompt.
    The agent reads the diff, examines context, and posts its review via `gh pr review`.
+
+The review deliberately does **not** wait on CI checks: it starts as soon as the
+skip checks pass and runs in parallel with lint/tests. Reviews are commit-anchored
+and re-reviews cover only the diff since the last reviewed commit, so if CI fails
+and a fix is pushed, the fix gets its own incremental re-review — cheaper than
+serializing every review behind a full CI run.
 
 ### Review Decisions
 
@@ -111,8 +109,9 @@ by providing different prompt scripts while sharing the review infrastructure.
 ### Reviewer Job Naming Convention
 
 **All reviewer workflows must use the `egg-review /` prefix for their job names.** This
-standardized prefix ensures check-waiting logic correctly filters out all reviewer
-jobs to prevent self-deadlock.
+standardized prefix makes reviewer check runs identifiable, so check-waiting logic
+(e.g., the feedback workflow's wait-for-all-reviewers step) can reliably tell reviewer
+jobs apart from CI checks.
 
 Example job definition:
 ```yaml
@@ -125,9 +124,10 @@ jobs:
       # ...
 ```
 
-Check-waiting logic filters out `egg-review /` in check run names. If a new reviewer
-workflow doesn't follow this convention, it will cause infinite loops where reviewers
-wait on each other indefinitely.
+The feedback workflow identifies reviewer check runs by the nested
+`egg-reviewer-<bot_name>` job name that `reusable-review.yml` produces under this
+prefix. A reviewer workflow that doesn't follow the convention won't be waited on
+before feedback addressing starts, causing duplicate or racing feedback runs.
 
 ## Address Review Feedback
 
