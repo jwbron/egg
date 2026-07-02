@@ -25,8 +25,12 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 from models import DecisionStatus, HITLDecision, PipelinePhase  # noqa: E402
+from routes.pipelines import _CONSENSUS_TIMEOUT_HITL_CONTEXT  # noqa: E402
 
-CONSENSUS_TIMEOUT_CONTEXT = "consensus_timeout_incomplete"
+# Import the production constant rather than duplicating the literal so the
+# coupling is explicit: if the context discriminator is ever renamed, these
+# tests build decisions with the new value instead of drifting to a stale one.
+CONSENSUS_TIMEOUT_CONTEXT = _CONSENSUS_TIMEOUT_HITL_CONTEXT
 
 
 def _decision(

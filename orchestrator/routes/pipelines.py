@@ -20771,6 +20771,13 @@ def _run_concurrent_phase(
                     blocking_agents=final_consensus.get("blocking_agents", []),
                     nack_count=len(final_consensus.get("unresolved_nacks", []) or []),
                 )
+                # Tag with the consensus-timeout context so "Retry phase"
+                # dispatches through restart_phase on resolve (#3421), matching
+                # the restart semantics `_incomplete_consensus_decision_text`
+                # promises.  This pod-mode container-exit path is unreachable
+                # today (spawn_all returns [] post-#3164, so active_executions
+                # is always empty), but tagging keeps the copy honest if pod
+                # mode is ever revived.
                 _persist_hitl_decision(
                     pipeline_id,
                     pipeline,
@@ -20778,6 +20785,7 @@ def _run_concurrent_phase(
                     question=question,
                     options=["Retry phase", "Accept current state", "Abort phase"],
                     phase=pipeline.current_phase,
+                    context=_CONSENSUS_TIMEOUT_HITL_CONTEXT,
                 )
                 combined_logs += log_suffix
                 return 1, combined_logs
@@ -20836,6 +20844,10 @@ def _run_concurrent_phase(
                     elapsed_seconds=round(elapsed, 1),
                     blocking_agents=final_consensus.get("blocking_agents", []),
                 )
+                # Same as the container-failure path above: tag with the
+                # consensus-timeout context so "Retry phase" dispatches through
+                # restart_phase (#3421) and honors the restart copy.  Also a
+                # dead pod-mode path today; tagging is cheap insurance.
                 _persist_hitl_decision(
                     pipeline_id,
                     pipeline,
@@ -20843,6 +20855,7 @@ def _run_concurrent_phase(
                     question=question,
                     options=["Retry phase", "Accept current state", "Abort phase"],
                     phase=pipeline.current_phase,
+                    context=_CONSENSUS_TIMEOUT_HITL_CONTEXT,
                 )
                 combined_logs += log_suffix
                 return 1, combined_logs
