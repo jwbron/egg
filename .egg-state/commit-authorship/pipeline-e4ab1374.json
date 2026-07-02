@@ -63,6 +63,14 @@
       "registered_at": "2026-07-02T23:25:21.075569+00:00",
       "repo": null,
       "role": "simplifier"
+    },
+    "f8aaf404d669f1f4867a8dc9f3922d5458f61c79": {
+      "branch": "egg/pipeline-e4ab1374/work",
+      "patch_id": "0b1d804821edd07ba86cb171d515a00764e7b0f3",
+      "pipeline_id": "pipeline-e4ab1374",
+      "registered_at": "2026-07-02T23:26:07.916451+00:00",
+      "repo": null,
+      "role": "refiner"
     }
   },
   "version": 2
