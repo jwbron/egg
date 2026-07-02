@@ -11928,7 +11928,7 @@ def _open_secondary_context_prs(
         return opened
 
     base_by_repo = {spec.repo: spec.base_branch for spec in (pipeline.repos or [])}
-    context_title = (
+    secondary_pr_title = (
         contract.pr.title.strip()
         if contract.pr and (contract.pr.title or "").strip()
         else f"{identifier} context"
@@ -11970,7 +11970,7 @@ def _open_secondary_context_prs(
             pr_url = spawner.gateway.create_pr(
                 pipeline_id=pipeline_id,
                 repo=repo,
-                title=context_title,
+                title=secondary_pr_title,
                 body=body,
                 head=work_branch,
                 base=base,
