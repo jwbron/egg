@@ -389,7 +389,7 @@
       "id": "slice-5",
       "name": "Cross-repo merge-sequencing hold (cq-1 two-tier)",
       "goal": "Implement the operator-resolved (HITL cq-1) two-tier merge-sequencing hold.\nTier A (automated): a cross-repo dependent slice is developed in parallel,\nits PR opens as draft, and the orchestrator polls the upstream slice's PR\nmerge state and auto-marks the dependent PR ready once the upstream merges\n\u2014 no HITL for plain merge ordering. Tier B (HITL): a distinct hold type for\nbeyond-merge-state conditions (release/publish of the upstream repo, a\nversion-pin choice, or a genuine cannot-continue development block) is held\nand released by a HITL decision, never programmatic detection. Dependencies\ngate merge-readiness, not development.",
-      "status": "pending",
+      "status": "in_progress",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -467,8 +467,8 @@
         "slice-4"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3393/slice-4",
+      "integration_base_sha": "b2237b2d3618aab747b0a0e108050197da2d5374",
       "commit": null,
       "pr_number": null,
       "pr_url": null,
@@ -559,6 +559,75 @@
       "pr_number": null,
       "pr_url": null,
       "review_feedback": []
+    },
+    {
+      "id": "slice-7",
+      "name": "Secondary-repo worktree + branch materialization (cq-4)",
+      "goal": "Materialize the operator's cq-4 resolution: thread the full repo list into worktree creation and push each participating repo's work/integration branches to its own remote, making coordinated cross-repo PRs (slice-4's routing and per-repo context PRs) function end-to-end. Without this slice the multi-repo feature is structural-only.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "dependencies": [
+        "slice-6"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": [],
+      "tasks": [
+        {
+          "checkpoint_id": null,
+          "commit": null,
+          "delegation_attempts": 0,
+          "escalated": false,
+          "gaps": [],
+          "jira_action": null,
+          "jira_action_status": null,
+          "jira_key": null,
+          "max_cycles": 3,
+          "notes": "",
+          "review_cycles": 0,
+          "status": "pending",
+          "id": "task-7-1",
+          "role": "coder",
+          "description": "Re-materialization of the operator's cq-4 resolution (option 1), previously registered as task-4-4 and lost to a contract clobber on phase restart. Wire secondary-repo worktree + per-repo work/integration branch creation so every repo with >=1 slice has its egg/<id>/work (and integration) branch materialized on its own remote before any PR-opening call for that repo runs. Thread the full pipeline repo list (not just the primary) into worktree creation: the gateway-client call site builds the worktree list from all participating repos (orchestrator/gateway_client/_worktree.py), the spawner passes the full list through (orchestrator/kubernetes_spawner/_spawn.py), and the gateway worktree-create handler materializes a worktree per repo and pushes each repo's egg/<id>/work + integration branch to that repo's remote (gateway/gateway.py, gateway/worktree_manager/_create.py). This makes the slice-4 PR routing and per-repo context-PR opener functional end-to-end. Single-repo (N=1) pipelines must be byte-identical to today.",
+          "acceptance_criteria": "- For a pipeline with N>1 repos, every repo with >=1 slice has egg/<id>/work (and the slice integration branch) created and pushed on its own remote before any PR-opening call for that repo runs.\n- Secondary-repo context PRs and N>1 slice PRs open successfully end-to-end (no missing-head-branch soft-fail).\n- N=1 pipelines: no behavioral change.",
+          "files_affected": [
+            "orchestrator/gateway_client/_worktree.py",
+            "orchestrator/kubernetes_spawner/_spawn.py",
+            "gateway/gateway.py",
+            "gateway/worktree_manager/_create.py"
+          ]
+        },
+        {
+          "checkpoint_id": null,
+          "commit": null,
+          "delegation_attempts": 0,
+          "escalated": false,
+          "gaps": [],
+          "jira_action": null,
+          "jira_action_status": null,
+          "jira_key": null,
+          "max_cycles": 3,
+          "notes": "",
+          "review_cycles": 0,
+          "status": "pending",
+          "id": "task-7-2",
+          "role": "tester",
+          "description": "Tests for task-7-1: exercise the slice-4 PR-routing and context-PR paths against a secondary repo with the new worktree/branch materialization in place \u2014 assert the secondary repo's egg/<id>/work + integration branches exist before PR opening, assert secondary context PRs and cross-repo slice PRs open without missing-head-branch soft-fails, and assert N=1 behavior is unchanged (existing suites stay green).",
+          "acceptance_criteria": "- New tests cover: multi-repo worktree-list creation, per-repo branch push, end-to-end secondary PR opening, and the N=1 no-change guarantee.\n- Full affected suites green via make test.",
+          "files_affected": [
+            "orchestrator/tests/",
+            "gateway/tests/",
+            "tests/"
+          ]
+        }
+      ]
     }
   ],
   "decisions": [
