@@ -49,8 +49,9 @@ The failure-streak park cannot catch a slice wedged on an unresolved operator
 HITL decision (contract ``cq-N``): each spawned pod discovers the block and
 exits cleanly, so nothing fails, the BRC state never moves, the identical
 dedupe key is re-derived, and the loop re-spawns forever (~50 pods observed).
-The supervisor therefore also counts consecutive clean completions per key
-and parks the arm at ``SUPERVISION_NOOP_STREAK_PARK`` (sticky alert once).
+The supervisor therefore also counts clean completions per key (an interleaved
+abort does not reset the count — a crash/no-op-flapping wedged arm should still
+park) and parks the arm at ``SUPERVISION_NOOP_STREAK_PARK`` (sticky alert once).
 Because resolving the ``cq-N`` writes only the contract file — never the
 tracker — the park self-releases on a change in the unresolved
 contract-decision set (``hitl_probe``) and, as a liveness backstop, every
@@ -406,12 +407,24 @@ class JobSupervisor:
         # Set to track keys that have exhausted budget (per #3138).
         self._exhausted: set[str] = set()
         # #3425 successful-no-op park state, per dedupe key. The streak counts
-        # consecutive clean completions of the SAME key: only an invocation
-        # that produced zero BRC progress is re-derived under an identical key,
-        # so a productive success is inert at 1. At
+        # clean completions of the SAME key (an interleaved abort does not reset
+        # it — a crash/no-op-flapping wedged arm should still park): only an
+        # invocation that produced zero BRC progress is re-derived under an
+        # identical key, so a productive success is inert at 1. At
         # ``SUPERVISION_NOOP_STREAK_PARK`` the arm parks (sticky alert once);
         # the park self-releases on a contract-decision fingerprint change or
         # the retry heartbeat — never permanently, unlike ``_exhausted``.
+        #
+        # Asymmetry with ``_streaks`` (intentional, do not "fix" by popping in
+        # ``record_success``): ``record_success`` IS the no-op increment path,
+        # so it cannot pop here the way it pops the failure streak — productive
+        # vs. no-op is indistinguishable at success time (that is the design;
+        # the dedupe-key identity is what separates them). A productive success
+        # therefore leaves a permanent ``{key: 1}`` entry. This is bounded by
+        # the distinct BRC events over a single loop's lifetime (the supervisor
+        # is per-pipeline-loop, torn down with it — not process-global), and
+        # ``retire()`` / ``reconcile()`` prune it on the paths that can, so it
+        # is an accounting asymmetry, not a leak.
         self._noop_streaks: dict[str, int] = {}
         # {dedupe_key: fingerprint-at-park} — the unresolved contract-decision
         # id set observed when the key parked (or on the last probe release).
@@ -680,10 +693,10 @@ class JobSupervisor:
     def noop_parked(self, dedupe_key: str) -> bool:
         """Return True iff the key is parked on a successful-no-op streak (#3425).
 
-        Parked = ``SUPERVISION_NOOP_STREAK_PARK`` consecutive clean
-        completions of the same key with zero BRC progress (the loop
-        re-derived the identical key each time). Unlike #3138 failure
-        exhaustion, the park self-releases — the wedge is typically an
+        Parked = ``SUPERVISION_NOOP_STREAK_PARK`` clean completions of the
+        same key with zero BRC progress (the loop re-derived the identical key
+        each time; an interleaved abort does not reset the count). Unlike #3138
+        failure exhaustion, the park self-releases — the wedge is typically an
         unresolved operator HITL decision (``cq-N``), whose resolution writes
         only the contract file and never the tracker, so waiting for a new
         dedupe key would deadlock the slice after the operator answers:
@@ -708,6 +721,15 @@ class JobSupervisor:
         if current is not None and parked is not None and current != parked:
             self._noop_fingerprint[dedupe_key] = current
             self._noop_last_probe[dedupe_key] = now
+            # Clear the once-per-key alert latch on a *decision-set change*.
+            # The alert names the gating decisions recorded at park time; if the
+            # probe spawn no-ops again on a freshly-gating decision the arm
+            # re-parks, and without this the latch would suppress a new alert,
+            # leaving the operator staring at a stale one naming an
+            # already-resolved cq-N. Re-arming here keeps "one alert per distinct
+            # wedge" rather than "one alert per key lifetime", so the alert text
+            # tracks the decision actually blocking the arm.
+            self._alerted_noop.pop(dedupe_key, None)
             logger.info(
                 "JobSupervisor: contract-decision set changed for parked key=%s "
                 "(was %s, now %s) — releasing the no-op park for a probe spawn",

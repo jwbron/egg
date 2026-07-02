@@ -1910,7 +1910,8 @@ class TestFatalDrivenThroughLoop:
 # ~50 pod spawns against a slice wedged on an unresolved operator HITL
 # ``cq-N``). The #3138 failure-streak park cannot catch it — these
 # invocations *succeed*. The supervisor parks the arm after
-# ``SUPERVISION_NOOP_STREAK_PARK`` consecutive same-key clean completions and
+# ``SUPERVISION_NOOP_STREAK_PARK`` same-key clean completions (an interleaved
+# abort does not reset the count) and
 # self-releases on a contract-decision fingerprint change (the resolution
 # writes only the contract file, never the tracker, so no new dedupe key can
 # arrive) or the retry heartbeat.
@@ -2000,6 +2001,40 @@ class TestNoopParkSupervisor:
         pending.clear()  # operator resolved cq-3
         assert not supervisor.noop_parked("key-n")  # exactly one release
         assert supervisor.noop_parked("key-n")  # fingerprint refreshed → parked again
+
+    def test_realert_on_repark_with_new_gating_decision(self):
+        """A re-park on a *different* gating decision fires a fresh alert.
+
+        (#3425 review) The once-per-key alert latch is re-armed on a
+        contract-decision fingerprint change, so if the probe spawn no-ops
+        again on a freshly-gating cq-N the new alert names it — rather than the
+        latch suppressing all further alerts and leaving the operator staring
+        at one that names an already-resolved decision.
+        """
+        import event_loop
+
+        pending = {"cq-3"}
+        alerts: list[dict] = []
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            hitl_probe=lambda: set(pending),
+            overseer_alert=lambda **kw: alerts.append(kw),
+        )
+        self._park(supervisor, "key-n")
+        assert len(alerts) == 1
+        assert "cq-3" in alerts[0]["detail"]
+
+        # Operator resolves cq-3, but the slice is now wedged on a fresh cq-5.
+        pending.clear()
+        pending.add("cq-5")
+        assert not supervisor.noop_parked("key-n")  # one probe release, latch re-armed
+
+        # The probe no-ops again on cq-5 → the re-park fires an accurate alert.
+        supervisor.record_success("key-n", action="propose", role="coder")
+        assert len(alerts) == 2
+        assert "cq-5" in alerts[1]["detail"]
+        assert "cq-3" not in alerts[1]["detail"]
+        assert supervisor.noop_parked("key-n")
 
     def test_release_on_heartbeat(self):
         import event_loop

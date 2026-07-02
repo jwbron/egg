@@ -1007,12 +1007,25 @@ class ConcurrentPhaseExecutor:
         the resolve fallback (``routes/decisions/_resolve.py``): the live
         contract in the shared pipeline worktree.
 
-        Returns ``None`` (not the empty set) on any read failure so the
-        supervisor treats the fingerprint as unknown and falls back to the
-        retry heartbeat, rather than mistaking an unreadable contract for
-        "nothing pending" and releasing the park on the next successful read.
-        Only called while an arm is actually parked, so this is off the hot
-        spawn path.
+        Returns ``None`` (not the empty set) on any read failure — an
+        unresolvable worktree, an exception, or a probe that itself signalled
+        unknown — so the supervisor treats the fingerprint as unknown and
+        falls back to the retry heartbeat, rather than mistaking an unreadable
+        contract for "nothing pending" and releasing the park on the next
+        successful read. A missing worktree during an *active* park is an
+        anomaly (the shared pipeline worktree exists while agents are being
+        spawned into it), so a transient ``resolve_pipeline_worktree`` → ``None``
+        flap reads as "unknown", not "nothing pending" — otherwise the probed
+        set would go ``{cq-3}`` → ``{}`` and release the park for a wasted probe
+        spawn. ``ContractNotFoundError`` is the one exception: a resolvable
+        worktree with genuinely no contract really means no decisions pending,
+        so that maps to the empty set.
+
+        This is *not* a one-time read: while an arm is parked, the loop calls
+        it on every would-spawn poll tick (~5s) as the fast-release probe, so
+        it re-reads the (small) contract file from disk each tick. It stays off
+        the hot spawn path only in that it runs solely for parked keys, never
+        for healthy ones.
         """
         try:
             import contract_store
@@ -1021,7 +1034,10 @@ class ConcurrentPhaseExecutor:
 
             worktree = contract_store.resolve_pipeline_worktree(self.pipeline.id)
             if worktree is None:
-                return frozenset()
+                # "Unknown", not "nothing pending": a vanished worktree mid-park
+                # is anomalous, so returning None (not the empty set) keeps the
+                # park engaged on the retry heartbeat rather than releasing it.
+                return None
             identifier = _pipeline_identifier(self.pipeline.issue_number, self.pipeline.id)
             try:
                 contract = load_contract(identifier, worktree)

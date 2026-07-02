@@ -1891,10 +1891,15 @@ class TestUnresolvedContractDecisionProbe:
 
         return ConcurrentPhaseExecutor(_make_pipeline(), spawn_fn=MagicMock())
 
-    def test_missing_worktree_is_empty_set(self):
+    def test_missing_worktree_is_none_not_empty(self):
+        # A vanished worktree during an active park is an anomaly, not proof
+        # that nothing is pending: the shared pipeline worktree exists while
+        # agents are being spawned into it. Returning None (unknown) keeps the
+        # park engaged on the retry heartbeat rather than releasing it for a
+        # wasted probe spawn on a transient resolve flap.
         executor = self._executor()
         with patch("contract_store.resolve_pipeline_worktree", return_value=None):
-            assert executor._unresolved_contract_decision_ids() == frozenset()
+            assert executor._unresolved_contract_decision_ids() is None
 
     def test_missing_contract_is_empty_set(self, tmp_path):
         import egg_contracts
