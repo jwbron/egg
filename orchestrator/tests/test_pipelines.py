@@ -497,9 +497,11 @@ class TestLazyPerRepoOpenerHelper:
             Slice(id="slice-2", name="b", repo="jwbron/b"),
         ]
         contract = _make_contract_with_slices(slices)
-        assert list(_repos_with_slices(contract, pipeline)) == _expected_participating_repos(
-            slices, pipeline
-        ) == ["jwbron/a", "jwbron/b"]
+        assert (
+            list(_repos_with_slices(contract, pipeline))
+            == _expected_participating_repos(slices, pipeline)
+            == ["jwbron/a", "jwbron/b"]
+        )
 
     def test_helper_n1_single_repo(self):
         pipeline = Pipeline(id="issue-3393", repo="jwbron/egg", base_branch="main")
@@ -521,8 +523,7 @@ class TestContextPrSiblingCrossReferences:
     @pytest.mark.skipif(
         _compose_context_pr_body is None,
         reason=(
-            "routes.pipelines._compose_context_pr_body import failed: "
-            f"{_COMPOSE_BODY_IMPORT_ERROR}"
+            f"routes.pipelines._compose_context_pr_body import failed: {_COMPOSE_BODY_IMPORT_ERROR}"
         ),
     )
     def test_cross_repo_sibling_is_repo_qualified(self, tmp_path):
