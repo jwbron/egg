@@ -364,6 +364,18 @@ def _unchanged_tree_guard_response(
     ``version 0 → 1`` propose where ``current_sha == ""`` — is never
     caught by the guard. Returns ``None`` (and clears the attempt counter)
     when the tree has advanced.
+
+    Note (#3415): ``reconstruct_tracker_from_messages`` replays every
+    ``CONSENSUS_PROPOSE`` through ``handle_propose``, so reconstruction
+    shares this guard path. A message history that already contained
+    consecutive same-SHA proposes (a pipeline that was itself churning,
+    or a pre-#1473 history whose missing SHAs collapse to the
+    ``RECONSTRUCTED_NO_SHA`` sentinel) will have its later duplicate
+    proposes rejected on replay, so the reconstructed version can land
+    below the pre-restart live state — the de-churned reconstruction is
+    the more correct state, and ``reopen_producer`` (which clears
+    ``_proposal_commit_shas``) still lets a legitimately reopened
+    producer re-propose an unchanged tree on replay.
     """
     incoming_sha = str(payload.get("commit_sha") or "")
     current_sha = self._proposal_commit_shas.get(agent_role, "")
@@ -378,12 +390,12 @@ def _unchanged_tree_guard_response(
             "message": (
                 f"Re-proposal contains zero new commits: commit_sha "
                 f"{incoming_sha} is already the current proposal. "
-                "Land commits addressing the NACK blockers before "
-                "re-proposing. If you believe no code change is "
-                "needed, make that case to the NACKing reviewer(s) "
-                "via send_message so they can re-verdict the current "
-                "version — re-proposing the same tree cannot resolve "
-                "a NACK."
+                "Land new commits before re-proposing. If a reviewer "
+                "NACKed and you believe no code change is needed, make "
+                "that case to them via send_message so they can "
+                "re-verdict the current version — re-proposing the same "
+                "tree cannot advance consensus (it neither resolves a "
+                "NACK nor changes what a withdrawn proposal offered)."
             ),
         }
     self._unchanged_repropose_counts.pop(agent_role, None)
