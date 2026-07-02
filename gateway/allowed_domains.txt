@@ -38,6 +38,23 @@
 # REST calls — a test in gateway/tests/test_allowed_domains.py asserts that
 # no such entry is present.
 
-# Note: PyPI, npm, and other package managers are intentionally NOT included
-# All dependencies must be pre-installed in the Docker image
-# This prevents supply chain attacks and ensures reproducible builds
+# npm registries — allowed for runtime dependency installation.
+#
+# Some repositories have dependency sets that are too large or too dynamic
+# to bake into the sandbox image at build time (e.g. large JS monorepos).
+# For those, agents run lockfile-pinned installs (`pnpm install
+# --frozen-lockfile` / `npm ci`) inside the sandbox, routed through this
+# proxy. Reproducibility comes from the committed lockfile; Squid access
+# logs provide an audit trail of every registry fetch. This mirrors the
+# DNS/domain-allowlist pattern used by hardened CI runners, which permit
+# exactly these registry hosts for dependency installation.
+#
+# npm.pkg.github.com (GitHub Packages) additionally requires
+# caller-supplied auth for reads, and is a registry-only host — it exposes
+# none of the git/PR API surface the gateway polices, so allowing it does
+# not create a policy bypass for GitHub operations.
+#
+# PyPI and other package managers remain intentionally NOT included —
+# Python dependencies must still be pre-installed in the Docker image.
+registry.npmjs.org
+npm.pkg.github.com

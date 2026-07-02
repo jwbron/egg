@@ -75,6 +75,54 @@ def test_atlassian_domains_absent(bad_substr: str):
         )
 
 
+@pytest.mark.parametrize(
+    "domain",
+    [
+        # npm registries for runtime, lockfile-pinned dependency
+        # installation (`pnpm install --frozen-lockfile` / `npm ci`) in
+        # repos whose dependency sets are too large or dynamic to bake
+        # into the sandbox image at build time. Removing either entry
+        # silently breaks in-sandbox installs for such repos, so pin
+        # their presence here.
+        "registry.npmjs.org",
+        "npm.pkg.github.com",
+    ],
+)
+def test_npm_registries_present(domain: str):
+    """The npm registry hosts must stay in the Squid allowlist."""
+    text = ALLOWED_DOMAINS_PATH.read_text()
+    lines = list(_iter_non_comment_lines(text))
+    assert domain in lines, (
+        f"{domain!r} missing from allowed_domains.txt. Runtime npm "
+        "dependency installation (lockfile-pinned installs through the "
+        "Squid proxy) requires this registry host."
+    )
+
+
+@pytest.mark.parametrize(
+    "bad_substr",
+    [
+        # Python installs remain image-bake-only: PyPI must not appear in
+        # the runtime egress allowlist.
+        "pypi.org",
+        "files.pythonhosted.org",
+    ],
+)
+def test_pypi_domains_absent(bad_substr: str):
+    """No non-comment line may reference a PyPI host.
+
+    Unlike npm (allowed for runtime lockfile-pinned installs), Python
+    dependencies must be pre-installed in the sandbox image.
+    """
+    text = ALLOWED_DOMAINS_PATH.read_text()
+    for line in _iter_non_comment_lines(text):
+        assert bad_substr not in line.lower(), (
+            f"{bad_substr!r} found in allowed_domains.txt on line: {line!r}. "
+            "Python package installation is image-bake-only; PyPI hosts "
+            "must not be reachable from the sandbox at runtime."
+        )
+
+
 def test_allowed_domains_has_no_bare_wildcard():
     """A bare ``*`` would defeat the purpose of the allowlist entirely."""
     text = ALLOWED_DOMAINS_PATH.read_text()

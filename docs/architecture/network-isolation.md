@@ -222,9 +222,11 @@ For truly unsupervised operation with `--dangerously-skip-permissions`, infrastr
 │  │  │  ✓ api.github.com             (GitHub API)                      │   │  │
 │  │  │  ✓ github.com                 (git operations)                  │   │  │
 │  │  │  ✓ *.githubusercontent.com   (GitHub raw content)              │   │  │
+│  │  │  ✓ registry.npmjs.org         (npm installs, lockfile-pinned)   │   │  │
+│  │  │  ✓ npm.pkg.github.com         (GitHub Packages npm registry)    │   │  │
 │  │  │                                                                 │   │  │
 │  │  │  BLOCKED (everything else):                                     │   │  │
-│  │  │  ✗ pypi.org, npmjs.com        (no package installs)             │   │  │
+│  │  │  ✗ pypi.org                   (no Python package installs)      │   │  │
 │  │  │  ✗ google.com, bing.com       (no web search)                   │   │  │
 │  │  │  ✗ *.com, *.io, etc           (no arbitrary endpoints)          │   │  │
 │  │  └─────────────────────────────────────────────────────────────────┘   │  │
@@ -326,6 +328,8 @@ The gateway maintains a strict allowlist of permitted domains:
 | `uploads.github.com` | File uploads | Release asset uploads |
 | `avatars.githubusercontent.com` | Avatars | GitHub user images |
 | `user-images.githubusercontent.com` | User content | GitHub user images |
+| `registry.npmjs.org` | Public npm registry | Runtime lockfile-pinned JS dependency installs |
+| `npm.pkg.github.com` | GitHub Packages npm registry | Runtime installs of registry-scoped packages (reads require caller-supplied auth) |
 
 **Allowlist properties:**
 - **Exhaustive** — only listed domains are permitted; all others blocked
@@ -340,7 +344,7 @@ The gateway maintains a strict allowlist of permitted domains:
 
 | Category | Examples | Impact | Mitigation |
 |----------|----------|--------|------------|
-| Package managers | pypi.org, npmjs.com | Cannot install new packages | Pre-install required packages in image |
+| Python package managers | pypi.org | Cannot install Python packages | Pre-install required packages in image |
 | Web search | google.com, bing.com | Cannot search web | Use GitHub search, local docs |
 | Documentation | docs.python.org | Cannot fetch docs | Bundle offline docs in image |
 | Arbitrary APIs | any other endpoint | Cannot exfiltrate data | **This is the security goal** |
@@ -400,7 +404,8 @@ NO_PROXY=localhost,127.0.0.1,gateway,egg-gateway
 | Anthropic SDK | `HTTP_PROXY`/`HTTPS_PROXY` | Uses httpx, respects proxy env vars |
 | git | Routes through gateway API | Git wrapper calls gateway REST API |
 | gh CLI | Routes through gateway API | gh wrapper calls gateway REST API |
-| npm/pip | N/A in lockdown mode | Package managers blocked; deps pre-installed |
+| npm/pnpm | `HTTP_PROXY`/`HTTPS_PROXY` | Registry hosts allowlisted; installs must be lockfile-pinned |
+| pip | N/A in lockdown mode | PyPI blocked; Python deps pre-installed in image |
 
 ### Squid Configuration Approach
 
@@ -480,6 +485,7 @@ For tasks requiring web access (research, package updates), egg can operate in *
 - **Exfiltration via Claude API** — agent could encode data in prompts; addressed by Anthropic's usage logging.
 - **Malicious code in PRs** — same as Phase 1; human review required.
 - **Supply chain via pre-installed packages** — mitigated by pinned versions and image scanning.
+- **Supply chain via runtime npm installs** — `registry.npmjs.org` and `npm.pkg.github.com` are reachable so agents can install JS dependencies in repos too large to pre-bake. Mitigated by committed lockfiles (`pnpm install --frozen-lockfile` / `npm ci` resolve only pinned, integrity-checked artifacts) and Squid access logs auditing every registry fetch. An agent can still fetch an arbitrary published npm package by name; this is accepted because the same code could be vendored into a branch through the git path, and PR review remains the control for what lands.
 
 ### Rate Limiting
 
