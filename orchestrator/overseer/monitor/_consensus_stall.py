@@ -185,6 +185,28 @@ def _get_recent_proposal_age(self) -> float | None:
     return None
 
 
+def _get_proposal_sha_fingerprint(self) -> tuple[tuple[str, str], ...] | None:
+    """Return a hashable snapshot of every producer's proposal SHA, or None.
+
+    The incomplete-consensus grace window (#1609) must only be granted
+    for proposals that actually advance a commit SHA (#3395): an
+    unchanged-tree re-propose refreshes the proposal timestamp but not
+    this fingerprint, so back-to-back empty re-proposes spaced under the
+    grace interval can no longer reset the stall timer forever. ``None``
+    (tracker unavailable / query failure) tells the caller to fall back
+    to the pre-#3395 timestamp-only grace.
+    """
+    try:
+        from peer_consensus import get_peer_consensus_tracker
+
+        tracker = get_peer_consensus_tracker(self.pipeline_id)
+        if tracker is not None:
+            return tuple(sorted(tracker.get_all_proposal_commit_shas().items()))
+    except Exception:
+        logger.debug("Failed to query proposal SHA fingerprint", exc_info=True)
+    return None
+
+
 async def _check_incomplete_consensus_stall(
     self, consensus: dict, pipeline_status_str: str
 ) -> None:
@@ -227,19 +249,40 @@ async def _check_incomplete_consensus_stall(
         self._incomplete_consensus_absolute_start = now
         return
 
-    # Post-proposal grace: reset if a recent proposal arrived (#1609)
+    # Post-proposal grace: reset if a recent proposal arrived (#1609).
+    # Scoped to *commit-advancing* proposals (#3395): the grace clock
+    # starts when the proposal-SHA fingerprint last changed, not at the
+    # latest CONSENSUS_PROPOSE timestamp — an unchanged-tree re-propose
+    # refreshes the timestamp but not the fingerprint, so a NACK loop of
+    # empty re-proposes spaced under the grace interval can no longer
+    # suppress this detector forever. A ``None`` fingerprint (tracker
+    # unavailable) falls back to the pre-#3395 timestamp-only grace.
     post_proposal_grace = getattr(self.config, "post_proposal_grace_seconds", 300)
     proposal_age = self._get_recent_proposal_age()
     if proposal_age is not None and proposal_age < post_proposal_grace:
+        fingerprint = self._get_proposal_sha_fingerprint()
+        if fingerprint is not None and fingerprint != self._incomplete_consensus_graced_fingerprint:
+            self._incomplete_consensus_graced_fingerprint = fingerprint
+            self._incomplete_consensus_graced_at = now
+        within_fingerprint_grace = (
+            self._incomplete_consensus_graced_at is not None
+            and now - self._incomplete_consensus_graced_at < post_proposal_grace
+        )
+        if fingerprint is None or within_fingerprint_grace:
+            logger.debug(
+                "Recent CONSENSUS_PROPOSE (%.0fs ago) — deferring incomplete consensus check",
+                proposal_age,
+            )
+            self._reset_incomplete_consensus_tracking()
+            self._incomplete_consensus_blocking = current_blocking
+            self._incomplete_consensus_first_seen = now
+            self._incomplete_consensus_absolute_start = now  # restart deferral cap
+            return
         logger.debug(
-            "Recent CONSENSUS_PROPOSE (%.0fs ago) — deferring incomplete consensus check",
+            "Recent CONSENSUS_PROPOSE (%.0fs ago) advanced no commit SHA — "
+            "not deferring incomplete consensus check",
             proposal_age,
         )
-        self._reset_incomplete_consensus_tracking()
-        self._incomplete_consensus_blocking = current_blocking
-        self._incomplete_consensus_first_seen = now
-        self._incomplete_consensus_absolute_start = now  # restart deferral cap
-        return
 
     elapsed = now - self._incomplete_consensus_first_seen
     poll_interval = getattr(self.config, "overseer_poll_interval_seconds", 30)

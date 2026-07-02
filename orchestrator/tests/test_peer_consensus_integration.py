@@ -189,7 +189,7 @@ class TestNackAndRePropose:
             {
                 "summary": "Fixed SQL injection",
                 "artifacts": ["src/auth.py"],
-                "commit_sha": "abc1234",
+                "commit_sha": "def5678",
             },
             changed_artifacts=["src/auth.py"],
         )
@@ -726,7 +726,7 @@ class TestScaledReEvaluation:
         # Coder re-proposes — only rev_code needs to re-review
         result = t.handle_re_propose(
             "coder",
-            {"summary": "fixed auth", "artifacts": ["src/auth.py"], "commit_sha": "abc1234"},
+            {"summary": "fixed auth", "artifacts": ["src/auth.py"], "commit_sha": "def5678"},
             changed_artifacts=["src/auth.py"],
         )
         # rev_contract ACKed auth.py, which is the changed artifact,
@@ -791,7 +791,7 @@ class TestScaledReEvaluation:
         )
         t.handle_re_propose(
             "coder",
-            {"summary": "code v2", "artifacts": ["src/auth.py"], "commit_sha": "abc1234"},
+            {"summary": "code v2", "artifacts": ["src/auth.py"], "commit_sha": "def5678"},
             changed_artifacts=["src/auth.py"],
         )
 
@@ -825,7 +825,7 @@ class TestScaledReEvaluation:
         # Coder re-proposes, changing only auth.py
         result = t.handle_re_propose(
             "coder",
-            {"summary": "v2", "artifacts": ["src/auth.py"], "commit_sha": "abc1234"},
+            {"summary": "v2", "artifacts": ["src/auth.py"], "commit_sha": "def5678"},
             changed_artifacts=["src/auth.py"],
         )
 
@@ -858,7 +858,7 @@ class TestScaledReEvaluation:
         # Round 2: fix and re-propose, reviewer ACKs
         t.handle_re_propose(
             "coder",
-            {"summary": "v2 - fixed auth", "artifacts": ["src/auth.py"], "commit_sha": "abc1234"},
+            {"summary": "v2 - fixed auth", "artifacts": ["src/auth.py"], "commit_sha": "def5678"},
             changed_artifacts=["src/auth.py"],
         )
         t.handle_ack("rev_code", "coder", {"artifact_references": ["src/auth.py"]})
@@ -869,7 +869,7 @@ class TestScaledReEvaluation:
             {
                 "summary": "v3 - includes tester changes",
                 "artifacts": ["src/auth.py", "src/db.py"],
-                "commit_sha": "abc1234",
+                "commit_sha": "9876fed",
             },
             changed_artifacts=["src/db.py"],
         )
@@ -973,7 +973,7 @@ class TestScaledReEvaluation:
             {
                 "summary": "Fixed utils",
                 "artifacts": ["src/main.py", "src/utils.py"],
-                "commit_sha": "abc1234",
+                "commit_sha": "def5678",
             },
             changed_artifacts=["src/utils.py"],
         )
@@ -1170,7 +1170,7 @@ class TestWithdrawReProposalDeadlock:
             {
                 "summary": "v2 - added error handling",
                 "artifacts": ["design.md"],
-                "commit_sha": "abc1234",
+                "commit_sha": "def5678",
             },
             changed_artifacts=["design.md"],
         )
@@ -1225,10 +1225,11 @@ class TestWithdrawReProposalDeadlock:
         t.handle_confirmed("reviewer_agent_design")
         t.handle_confirmed("reviewer_refine")
 
-        # Withdraw and re-propose
+        # Withdraw and re-propose with a new commit (unchanged-tree re-proposes
+        # are rejected outright now, #3395/#3415)
         t.handle_withdraw("refiner", "Revised approach needed")
         result = t.handle_propose(
-            "refiner", {"summary": "v3", "artifacts": ["design.md"], "commit_sha": "abc1234"}
+            "refiner", {"summary": "v3", "artifacts": ["design.md"], "commit_sha": "def5678"}
         )
 
         # Both reviewers should be in the stale list
@@ -1262,10 +1263,11 @@ class TestWithdrawReProposalDeadlock:
             {"artifact_references": ["design.md"], "reason": "issues"},
         )
 
-        # Re-propose with changed artifacts
+        # Re-propose with changed artifacts (and a new commit — an
+        # unchanged-tree re-propose is rejected outright, #3395)
         result = t.handle_re_propose(
             "refiner",
-            {"summary": "v2", "artifacts": ["design.md"], "commit_sha": "abc1234"},
+            {"summary": "v2", "artifacts": ["design.md"], "commit_sha": "def5678"},
             changed_artifacts=["design.md"],
         )
 
@@ -1286,10 +1288,11 @@ class TestWithdrawReProposalDeadlock:
         t.handle_confirmed("reviewer_agent_design")
         t.handle_confirmed("reviewer_refine")
 
-        # Withdraw and re-propose
+        # Withdraw and re-propose with a new commit (unchanged-tree re-proposes
+        # are rejected outright now, #3395/#3415)
         t.handle_withdraw("refiner", "Revised approach")
         t.handle_propose(
-            "refiner", {"summary": "v3", "artifacts": ["design.md"], "commit_sha": "abc1234"}
+            "refiner", {"summary": "v3", "artifacts": ["design.md"], "commit_sha": "def5678"}
         )
 
         # Refiner should NOT be able to confirm (not fully ACKed on v3)
@@ -1334,10 +1337,11 @@ class TestWithdrawReProposalDeadlock:
         assert result["status"] == "pending_acks"
         assert "reviewer_refine" not in t._confirmed
 
-        # refiner withdraws and re-proposes v2
+        # refiner withdraws and re-proposes v2 with a new commit addressing the
+        # NACK (unchanged-tree re-proposes are rejected outright, #3395/#3415)
         t.handle_withdraw("refiner", "Addressing NACK feedback")
         result = t.handle_propose(
-            "refiner", {"summary": "v2", "artifacts": ["design.md"], "commit_sha": "abc1234"}
+            "refiner", {"summary": "v2", "artifacts": ["design.md"], "commit_sha": "def5678"}
         )
 
         # reviewer_agent_design was confirmed on v1, now stale on v2
@@ -1538,10 +1542,11 @@ class TestReProposalGuard:
             {"artifact_references": ["src/auth.py"], "reason": "issues found"},
         )
 
-        # Re-proposing after NACK should work (producer phase is WORKING)
+        # Re-proposing after NACK should work when it carries a new
+        # commit (an unchanged-tree re-propose is rejected, #3395)
         result = tracker.handle_re_propose(
             "coder",
-            {"summary": "v2", "artifacts": ["src/auth.py"], "commit_sha": "abc1234"},
+            {"summary": "v2", "artifacts": ["src/auth.py"], "commit_sha": "def5678"},
             changed_artifacts=["src/auth.py"],
         )
         assert result["status"] == "proposed"

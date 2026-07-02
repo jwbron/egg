@@ -25,6 +25,7 @@ from ._memory_io import _parse_per_producer_sha
 from ._payload import (
     _extract_artifacts_for_producer,
     _extract_current_producers,
+    _extract_last_reviewed_sha_for_producer,
     _extract_proposal_sha_for_producer,
 )
 
@@ -164,7 +165,18 @@ def _build_delta_entries(
 
     out: list[dict[str, Any]] = []
     for producer in scoped_producers:
-        sha = per_producer_sha.get(producer, "")
+        # Baseline priority (#3395): the next-action route's
+        # server-resolved ``last_reviewed_commit_sha`` (advances only
+        # when this reviewer's verdict is recorded) wins over the
+        # agent-self-tracked memory bullet, which can silently advance
+        # to a proposal SHA the reviewer never reviewed — making
+        # ``git log {sha}..{sha}`` empty by construction and the fix
+        # commit unreviewable forever (the permanent-NACK deadlock).
+        # Memory remains the fallback for legacy payloads and first
+        # reviews, where the route carries no baseline.
+        sha = _extract_last_reviewed_sha_for_producer(
+            event_payload, producer
+        ) or per_producer_sha.get(producer, "")
         # The producer's proposed commit SHA from pending_reviews
         # (#3076). When present it is BOTH the delta endpoint (the
         # reviewer's own HEAD never contains the producer's commits —

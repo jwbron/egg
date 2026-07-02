@@ -231,6 +231,20 @@ def _has_pending_peer_proposals(
                     # HEAD never contains the producer's commits — that was
                     # the "re-review delta is empty" phantom-NACK.
                     "proposal_commit_sha": str(snapshot.get("commit_sha") or ""),
+                    # Orchestrator-authoritative re-review baseline (#3395):
+                    # the commit this reviewer last VERDICTED for this
+                    # producer (``entry.version`` resolved through the
+                    # per-version commit history). The wrapper's delta
+                    # builder prefers this over the reviewer's self-tracked
+                    # memory bullet, which can silently advance past the fix
+                    # commit and render an empty delta forever. ``""`` on
+                    # first review (no prior verdict / version-0 ACK) —
+                    # those fall back to memory / the degraded artifact list.
+                    "last_reviewed_commit_sha": (
+                        tracker.get_commit_sha_for_version(producer, entry.version)
+                        if entry is not None and entry.version
+                        else ""
+                    ),
                 }
             )
     return bool(pending), pending
