@@ -5,6 +5,7 @@ This module validates mutations against role permissions, ensuring that
 only authorized roles can modify specific fields.
 """
 
+import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -25,7 +26,11 @@ class ValidationResult:
     required_role: str | None = None
 
 
-MutationErrorKind = Literal["authorization", "value"]
+MutationErrorKind = Literal["authorization", "value", "conflict"]
+
+# Whole-entry ``decisions[]`` writes (``decisions.<idx>``, no trailing
+# sub-field) are append-only; see the guard in :func:`apply_mutation`.
+_DECISIONS_ENTRY_PATH_RE = re.compile(r"^decisions\.(\d+)$")
 
 
 @dataclass
@@ -35,7 +40,9 @@ class MutationResult:
     ``error_kind`` discriminates failure causes for the route boundary
     (#2495): ``"authorization"`` is a role-permission rejection (HTTP
     403); ``"value"`` is a malformed path or out-of-domain value (HTTP
-    400/422). ``None`` on success.
+    400/422); ``"conflict"`` is a lost-update collision (a whole-entry
+    write to an existing ``decisions[]`` index, #3427) the caller should
+    retry against a fresh read. ``None`` on success.
     """
 
     success: bool
@@ -147,6 +154,47 @@ def apply_mutation(
             message=validation.message,
             error_kind="authorization",
         )
+
+    # Append-only guard for whole-entry ``decisions[]`` writes (#3427).
+    # Every in-tree writer mints its index as ``len(decisions)`` and
+    # appends; a whole-entry write landing on an existing index means the
+    # caller minted against a stale read (TOCTOU across writers) and would
+    # silently replace another writer's decision — including a *resolved*
+    # one, erasing the operator's answer. Reject so the caller re-reads
+    # and re-mints (the sandbox handler's retry loop treats "already
+    # exists" as retryable). Sub-field writes (``decisions.N.<field>``)
+    # are unaffected.
+    decisions_entry = _DECISIONS_ENTRY_PATH_RE.match(field_path)
+    if decisions_entry:
+        idx = int(decisions_entry.group(1))
+        existing_decisions = contract.decisions or []
+        if idx < len(existing_decisions):
+            existing = existing_decisions[idx]
+            # Read ``id``/``resolved`` through a dict-or-object accessor:
+            # production loads pydantic ``Decision`` objects on the mutate
+            # path, but an in-memory contract built from dict-backed
+            # decisions would make a plain ``getattr`` degrade to
+            # ``None``/absent, dropping the identifying detail from the
+            # rejection message the caller logs.
+            existing_id = (
+                existing.get("id") if isinstance(existing, dict) else getattr(existing, "id", None)
+            )
+            existing_resolved = (
+                existing.get("resolved")
+                if isinstance(existing, dict)
+                else getattr(existing, "resolved", False)
+            )
+            resolved_note = " (resolved)" if existing_resolved else ""
+            return MutationResult(
+                success=False,
+                message=(
+                    f"Decision at index {idx} already exists "
+                    f"(id={existing_id}{resolved_note}); "
+                    f"decisions are append-only — re-read the contract and "
+                    f"mint a fresh index and id (#3427)"
+                ),
+                error_kind="conflict",
+            )
 
     # Get the old value and apply the mutation
     try:

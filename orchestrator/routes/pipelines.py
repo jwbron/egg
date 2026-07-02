@@ -1210,6 +1210,15 @@ def _corrective_open_operator_hitl(
     if not result.success:
         raise RuntimeError(f"failed to open operator HITL decision: {result.message}")
     save_contract(contract, resolved_repo)
+    # NOTE(#3427): like ``route_impasses``, this overseer-corrective writer
+    # lands the ``cq-N`` decision with a bare ``save_contract`` and no
+    # write-time ``persist_contract_statefiles`` — so a HITL opened between
+    # checkpoints shares the same phase-restart volatility window (the
+    # ``git reset --hard origin/<work>`` can revert it). The append-only
+    # guard protects it from id reuse, but not from reversion. Not persisted
+    # here because the corrective seam runs against ``get_repo_path()`` (the
+    # base repo), not a pushable pipeline worktree — wiring a worktree-scoped
+    # persist through the CorrectiveExecutor is the residual follow-up.
     return decision_id
 
 
@@ -9551,6 +9560,78 @@ def _commit_statefiles_to_worktree(
     return True
 
 
+def persist_contract_statefiles(
+    pipeline_id: str,
+    worktree_path: Path,
+    message: str,
+    *,
+    pipeline: Pipeline | None = None,
+) -> bool:
+    """Durably persist a contract decision write: commit + push to the work branch.
+
+    Contract HITL decisions (``cq-N`` registrations and resolutions) are
+    written to the shared pipeline worktree's contract file with no git
+    commit; the file was only serialized to the work branch at slice/phase
+    checkpoints. Both phase-(re)start syncs — the gateway's worktree-reuse
+    reset and ``_sync_worktree_with_remote`` step 4 — run
+    ``git reset --hard origin/<work>``, so any decision write that had not
+    been committed AND pushed by then was silently reverted, letting the
+    bootstrap reconciler re-mint the same ``cq-N`` ids and clobber
+    just-resolved operator decisions (#3427). Committing and pushing at
+    write time makes the reset target already contain the decision.
+
+    Best-effort by design: failures are logged and swallowed — the write is
+    still live on the worktree file and the next checkpoint commit retries.
+    Returns ``True`` only when the state was committed and pushed (or there
+    was nothing new to commit).
+    """
+    try:
+        if pipeline is None:
+            _, pipeline = _resolve_pipeline(pipeline_id, get_repo_path())
+        identifier = _pipeline_identifier(getattr(pipeline, "issue_number", None), pipeline_id)
+        committed = _commit_statefiles_to_worktree(
+            worktree_path,
+            message,
+            identifier,
+            pipeline_id=pipeline_id,
+        )
+        if not committed:
+            return True  # Nothing new on disk — already durable.
+        branch = getattr(pipeline, "branch", None)
+        if not branch:
+            logger.warning(
+                "Contract decision write committed but pipeline has no work "
+                "branch to push to; the commit is local-only and a worktree "
+                "reset may still discard it (#3427)",
+                pipeline_id=pipeline_id,
+            )
+            return False
+        gateway_mode, _ = _compute_gateway_mode(pipeline)
+        _get_spawner().gateway.push_worktree_branch(
+            pipeline_id=pipeline_id,
+            repo_path=str(worktree_path),
+            branch=branch,
+            mode=gateway_mode,
+            base_branch=getattr(pipeline, "base_branch", None),
+        )
+        logger.info(
+            "Contract decision write persisted to work branch (#3427)",
+            pipeline_id=pipeline_id,
+            branch=branch,
+            commit_message=message,
+        )
+        return True
+    except Exception as persist_err:  # noqa: BLE001 — best-effort durability
+        logger.warning(
+            "Failed to durably persist contract decision write; the decision "
+            "is live on the worktree file but will not survive a worktree "
+            "reset until the next checkpoint commit (#3427)",
+            pipeline_id=pipeline_id,
+            error=str(persist_err),
+        )
+        return False
+
+
 def _ensure_statefiles_on_branch(
     worktree_repo_path: Path,
     pipeline: Pipeline,
@@ -10495,6 +10576,10 @@ def _persist_phase_brc_history(
             worktree_path,
             f"Persist statefiles after {phase} phase",
             pipeline_identifier=_pipeline_identifier(pipeline.issue_number, pipeline.id),
+            # Contract files are keyed by pipeline_id, not the issue-number
+            # prefix; without this the restart-time persist skipped the
+            # contract entirely (#1829 gap, observed in #3427).
+            pipeline_id=pipeline.id,
         )
     except subprocess.CalledProcessError as git_err:
         logger.warning(
@@ -11887,12 +11972,18 @@ def _escalate_layer_c_hitl(
     one is added in a follow-up.
     """
     try:
-        from egg_contracts.decisions import next_cq_id
+        from egg_contracts.decisions import (
+            find_duplicate_open_question,
+            find_resolved_question,
+            next_cq_id,
+        )
         from egg_contracts.loader import load_contract, save_contract
         from egg_contracts.models import Decision, DecisionOption, DecisionType
     except ImportError:
         try:
             from orchestrator.egg_contracts.decisions import (  # type: ignore[no-redef]
+                find_duplicate_open_question,
+                find_resolved_question,
                 next_cq_id,
             )
             from orchestrator.egg_contracts.loader import (  # type: ignore[no-redef]
@@ -11915,6 +12006,35 @@ def _escalate_layer_c_hitl(
     try:
         with get_pipeline_state_lock(pipeline_id):
             contract_local = load_contract(pipeline_id, worktree_repo_path)
+            existing_decisions = contract_local.decisions or []
+            decision_phase = current_phase or PipelinePhase.IMPLEMENT
+            # Dedupe/carry-forward — parity with ``register_open_question``
+            # (#3374/#3392). The Layer-C question text is deterministic per
+            # (case, slice, pipeline), so every bootstrap re-run after a
+            # ``restart_phase`` re-derives the identical question. Without
+            # this guard each re-run minted a fresh ``cq-N`` (or, against a
+            # reset-stale contract, re-minted an existing one), making the
+            # operator re-answer questions they had already answered (#3427).
+            duplicate = find_duplicate_open_question(existing_decisions, question, decision_phase)
+            if duplicate is not None:
+                logger.info(
+                    "Layer-C HITL escalation adopted existing open decision (slice-4 TASK-4-4)",
+                    pipeline_id=pipeline_id,
+                    slice_id=slice_id,
+                    decision_id=getattr(duplicate, "id", None),
+                )
+                return
+            carried = find_resolved_question(existing_decisions, question, decision_phase)
+            if carried is not None:
+                logger.info(
+                    "Layer-C HITL escalation skipped: identical question "
+                    "already resolved by the operator (slice-4 TASK-4-4)",
+                    pipeline_id=pipeline_id,
+                    slice_id=slice_id,
+                    decision_id=getattr(carried, "id", None),
+                    resolution=str(getattr(carried, "resolution", None))[:200],
+                )
+                return
             # Use the canonical ``cq-N`` allocator from
             # ``shared/egg_contracts/decisions.py``. Orchestrator-side
             # HITL escalations write to the ``cq-N`` namespace; the
@@ -11934,7 +12054,8 @@ def _escalate_layer_c_hitl(
             # bootstrap which can run before any phase walk, and
             # future slice-DAG topologies may span phases.
             #
-            # The ``or PipelinePhase.IMPLEMENT`` arm is defensive: the
+            # The ``or PipelinePhase.IMPLEMENT`` arm (folded into
+            # ``decision_phase`` above) is defensive: the
             # ``Pipeline.current_phase`` field is non-Optional with a
             # default at the schema layer (``models.py:1032``), so
             # in-tree callers should always populate it. The fallback
@@ -11947,7 +12068,7 @@ def _escalate_layer_c_hitl(
                     id=decision_id,
                     question=question,
                     type=DecisionType.HITL,
-                    phase=current_phase or PipelinePhase.IMPLEMENT,
+                    phase=decision_phase,
                     options=options,
                 )
             )
@@ -11957,6 +12078,13 @@ def _escalate_layer_c_hitl(
             pipeline_id=pipeline_id,
             slice_id=slice_id,
             decision_id=decision_id,
+        )
+        # Durably land the new decision on the work branch so the next
+        # phase-(re)start worktree reset cannot revert it (#3427).
+        persist_contract_statefiles(
+            pipeline_id,
+            worktree_repo_path,
+            f"Persist Layer-C HITL escalation {decision_id} (#3427)",
         )
     except Exception as escalate_err:  # noqa: BLE001
         logger.warning(

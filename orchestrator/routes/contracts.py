@@ -368,10 +368,17 @@ def mutate_contract(identifier: str) -> tuple[Response, int]:
                     "error_kind": result.error_kind,
                 },
             )
-            # 403 only for authorization rejections; value/path errors
-            # are 400 so a client doesn't retry them as if a different
-            # role might succeed (#2495).
-            status_code = 403 if result.error_kind == "authorization" else 400
+            # 403 only for authorization rejections; lost-update
+            # collisions (append-only decisions[] guard, #3427) are 409
+            # so a client re-reads and re-mints; value/path errors are
+            # 400 so a client doesn't retry them as if a different role
+            # might succeed (#2495).
+            if result.error_kind == "authorization":
+                status_code = 403
+            elif result.error_kind == "conflict":
+                status_code = 409
+            else:
+                status_code = 400
             return _error(
                 result.message,
                 status_code=status_code,
@@ -398,12 +405,48 @@ def mutate_contract(identifier: str) -> tuple[Response, int]:
         },
     )
 
+    _persist_decision_mutation(field_path, worktree)
+
     _audit_confirmed_assignee_reassignment(result.contract, field_path, new_value, actor)
 
     return _success(
         "Mutation applied successfully",
         data={"contract": export_contract(result.contract, include_audit_log=False)},
     )
+
+
+def _persist_decision_mutation(field_path: str, worktree: Path) -> None:
+    """Best-effort commit+push after a ``decisions.*`` mutation (#3427).
+
+    Contract HITL decisions written through this RPC (agent
+    ``register_open_question`` etc.) landed only on the worktree file; the
+    phase-(re)start worktree syncs ``git reset --hard`` to origin, so a
+    registration that was not committed+pushed by then was silently
+    reverted — and the next ``cq-N`` mint against the reverted file reused
+    its id, clobbering a live (possibly resolved) decision. Persist at
+    write time so the reset target already contains the decision. Must
+    never fail the mutation response — the write is live on the worktree
+    file regardless.
+    """
+    if field_path != "decisions" and not field_path.startswith("decisions."):
+        return
+    try:
+        pipeline_id, _ = _pipeline_context()
+        if not pipeline_id:
+            return
+        from routes.pipelines import persist_contract_statefiles
+
+        persist_contract_statefiles(
+            pipeline_id,
+            worktree,
+            f"Persist contract decision mutation {field_path} (#3427)",
+        )
+    except Exception:
+        logger.warning(
+            "Failed to persist decisions mutation to work branch",
+            extra={"field_path": field_path},
+            exc_info=True,
+        )
 
 
 _TASK_ROLE_PATH_RE = re.compile(r"^phases\.(\d+)\.tasks\.\d+\.role$")

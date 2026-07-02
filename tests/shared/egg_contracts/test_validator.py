@@ -517,12 +517,17 @@ class TestArrayAppend:
         assert result.contract.decisions[1]["id"] == "decision-2"
 
     def test_overwrite_existing_array_element(self, contract_with_decisions):
-        """Test overwriting an existing array element."""
+        """Whole-entry decisions[] writes are append-only (#3427).
+
+        A whole-entry write landing on an existing index means the caller
+        minted against a stale read and would silently clobber another
+        writer's decision. ``apply_mutation`` must reject it as a conflict.
+        """
         # Add a decision
         decision1 = {"id": "decision-1", "question": "Q1", "resolved": False}
         contract_with_decisions.decisions.append(decision1)
 
-        # Overwrite it (IMPLEMENTER can modify decisions.*)
+        # Attempt to overwrite it — rejected by the append-only guard.
         updated = {"id": "decision-1", "question": "Updated Q1", "resolved": False}
         result = apply_mutation(
             contract=contract_with_decisions,
@@ -532,8 +537,11 @@ class TestArrayAppend:
             new_value=updated,
             reason="Updated decision",
         )
-        assert result.success is True
-        assert result.contract.decisions[0]["question"] == "Updated Q1"
+        assert result.success is False
+        assert result.error_kind == "conflict"
+        assert "append-only" in result.message
+        # Original entry is left untouched.
+        assert contract_with_decisions.decisions[0]["question"] == "Q1"
 
     def test_append_with_gap_fails(self, contract_with_decisions):
         """Test that appending with a gap in indices fails."""

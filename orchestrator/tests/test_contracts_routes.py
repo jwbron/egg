@@ -156,6 +156,88 @@ class TestMutateContract:
         decisions = json.loads(consumer.data)["data"]["decisions"]
         assert any(d["id"] == "decision-1" for d in decisions)
 
+    def test_decisions_mutation_triggers_durable_persist(self, client, fake_worktree):
+        """#3427: a ``decisions.*`` write through the RPC must trigger the
+        durable commit+push helper — otherwise the registration lives only
+        on the worktree file and the phase-(re)start ``git reset --hard``
+        reverts it (letting the next ``cq-N`` mint reuse its id).
+        """
+        pipeline_id, worktree = fake_worktree
+        _seed_contract(worktree, pipeline_id)
+
+        decision = {
+            "id": "cq-1",
+            "question": "Register me durably?",
+            "type": "hitl",
+            "options": [],
+            "resolved": False,
+        }
+        with patch("routes.pipelines.persist_contract_statefiles") as persist_mock:
+            response = self._mutate(
+                client,
+                pipeline_id,
+                role="implementer",
+                body_overrides={"field_path": "decisions.0", "new_value": decision},
+            )
+        assert response.status_code == 200, response.data
+        persist_mock.assert_called_once()
+        args = persist_mock.call_args[0]
+        assert args[0] == pipeline_id
+        assert args[1] == worktree
+
+    def test_non_decision_mutation_does_not_persist(self, client, fake_worktree):
+        pipeline_id, worktree = fake_worktree
+        _seed_contract(worktree, pipeline_id)
+
+        with patch("routes.pipelines.persist_contract_statefiles") as persist_mock:
+            response = self._mutate(client, pipeline_id, role="system")
+        assert response.status_code == 200, response.data
+        persist_mock.assert_not_called()
+
+    def test_stale_index_decision_write_rejected_409(self, client, fake_worktree):
+        """#3427 defect 2: a whole-entry write to an existing
+        ``decisions[]`` index (a client that minted against a stale read)
+        must be rejected 409 — never silently overwrite the entry.
+        """
+        pipeline_id, worktree = fake_worktree
+        _seed_contract(worktree, pipeline_id)
+
+        first = {
+            "id": "cq-1",
+            "question": "First registration",
+            "type": "hitl",
+            "options": [],
+            "resolved": False,
+        }
+        with patch("routes.pipelines.persist_contract_statefiles"):
+            response = self._mutate(
+                client,
+                pipeline_id,
+                role="implementer",
+                body_overrides={"field_path": "decisions.0", "new_value": first},
+            )
+            assert response.status_code == 200, response.data
+
+            # A second writer that also observed len(decisions)==0 races
+            # onto the same index with a DIFFERENT question.
+            second = dict(first, id="cq-1", question="Colliding registration")
+            response = self._mutate(
+                client,
+                pipeline_id,
+                role="implementer",
+                body_overrides={"field_path": "decisions.0", "new_value": second},
+            )
+        assert response.status_code == 409, response.data
+        assert "already exists" in json.loads(response.data)["message"]
+
+        # The first registration must be untouched.
+        consumer = client.get(
+            f"/api/v1/contracts/{pipeline_id}",
+            query_string={"pipeline_id": pipeline_id, "repo": "egg"},
+        )
+        decisions = json.loads(consumer.data)["data"]["decisions"]
+        assert [d["question"] for d in decisions] == ["First registration"]
+
     def test_role_validation_enforced(self, client, fake_worktree):
         pipeline_id, worktree = fake_worktree
         _seed_contract(worktree, pipeline_id)
