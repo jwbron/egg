@@ -16229,20 +16229,27 @@ def _incomplete_consensus_decision_text(
         prefix = "Consensus timed out; "
     else:
         prefix = "All containers exited; "
+    # Retry semantics must match what "Retry phase" actually executes on
+    # resolve — the restart_phase route (#3421 dispatch, #3080 preservation
+    # semantics): fresh worktrees re-fork from the shared work branch tip,
+    # and unpushed per-role commits survive only via best-effort salvage.
+    retry_copy = (
+        "'Retry phase' re-runs the phase from the shared work branch tip "
+        "(work pushed to the shared branch is preserved; unpushed per-role "
+        "commits are salvaged best-effort to egg/recovered/*)."
+    )
     if nacks:
         summary = _format_nack_summary(nacks)
         question = (
             f"{prefix}consensus incomplete with {len(nacks)} unresolved NACK(s): "
-            f"{summary}. Committed work is preserved on the per-role branch — "
-            f"'Retry phase' restarts with artifacts intact. How to proceed?"
+            f"{summary}. {retry_copy} How to proceed?"
         )
         log_suffix = f"\n--- INCOMPLETE CONSENSUS / UNRESOLVED NACKs ({len(nacks)}) ---\n{summary}"
     else:
         agent_list = ", ".join(blocking) if blocking else "unknown"
         question = (
             f"{prefix}consensus incomplete; agents never confirmed: {agent_list}. "
-            f"Committed work is preserved on the per-role branch — "
-            f"'Retry phase' restarts with artifacts intact. How to proceed?"
+            f"{retry_copy} How to proceed?"
         )
         log_suffix = (
             f"\n--- INCOMPLETE CONSENSUS / NO CONFIRMATION ---\nblocking_agents={agent_list}"

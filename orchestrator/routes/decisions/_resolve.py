@@ -174,6 +174,15 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
             pipeline_id, decision_id, dispatch_resolution
         )
 
+        # Consensus-timeout HITL (#3421): "Retry phase" on the
+        # ``consensus_timeout_incomplete`` decision restarts the failed
+        # phase in-process instead of resolving as a silent no-op (the
+        # driver that escalated the decision failed the pipeline and
+        # exited, so nothing else consumes the resolution).
+        executed_action = executed_action or _pkg._maybe_dispatch_consensus_timeout_resolution(
+            pipeline_id, decision, dispatch_resolution
+        )
+
         # #3233: if the orchestrator restarted while this pipeline was parked
         # AWAITING_HUMAN, the in-memory _run_pipeline driver that polls
         # wait_for_decision is gone — this resolution would otherwise be
