@@ -24,6 +24,14 @@
       "repo": null,
       "role": "refiner"
     },
+    "6dd1623ba94532d1361056e32c818a869f24f66d": {
+      "branch": "egg/pipeline-121df67a/work",
+      "patch_id": "09f5929d21a5c8f20a641e17f2051d17320d8982",
+      "pipeline_id": "pipeline-121df67a",
+      "registered_at": "2026-07-02T23:34:55.374308+00:00",
+      "repo": null,
+      "role": "refiner"
+    },
     "8e20f0a6695dda008456c621b61c6cb6a2ce0796": {
       "branch": "egg/pipeline-121df67a/work",
       "patch_id": "4ace4494475f827042f83f2ae670ea257396da44",
