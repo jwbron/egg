@@ -60,7 +60,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [SDLC Pipeline](guides/sdlc-pipeline.md) | Operational guide for the structurally enforced SDLC pipeline |
 | [Agent Teams](guides/agent-teams.md) | Agent team communication and Deliberative Consensus (BRC protocol + evidence-backed deliberation) |
 | [Concurrent Execution](guides/concurrent-execution.md) | Concurrent agent execution: message bus, directed coordination, readiness signaling, consensus protocol |
-| [Testing](guides/testing.md) | Canonical testing guide: `make test` (changeset-aware narrow default), `make test-all` (full suite), `make test-record-good` (manual LKG override), grimp-backed reverse import-graph selection, sidecar LKG, fallback triggers, `--why` introspection, fail-open exit contract |
+| [Testing](guides/testing.md) | Canonical testing guide: `make test` (changeset-aware narrow default), `make test-all` (full suite), `make test-record-good` (manual LKG override), grimp-backed reverse import-graph selection, sidecar LKG, fallback triggers, `--why`/`--impacted-tests` introspection, fail-open exit contract |
 | [Pipeline Health Monitoring](guides/pipeline-health-monitoring.md) | Two-tier health monitoring: orchestrator tripwires + overseer agent |
 | [Anchor Recovery](guides/anchor-recovery.md) | Agent post-compaction state recovery via persistent anchors |
 | [Deployment Diagnostics](guides/deployment-diagnostics.md) | When to use `/deployment-diagnose` vs `/agent-diagnose`, evidence boundaries, and redaction guarantees |
