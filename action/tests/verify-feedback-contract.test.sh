@@ -25,8 +25,8 @@ make_comments() {
   local out_file="$1"
   shift
   local n=$#
-  if (( n == 0 )); then
-    echo "[]" > "$out_file"
+  if ((n == 0)); then
+    echo "[]" >"$out_file"
     return
   fi
   python3 - "$out_file" "$@" <<'PY'
@@ -42,24 +42,24 @@ PY
 make_lookup() {
   local stub_file="$1"
   shift
-  : > "$stub_file"
-  echo "#!/usr/bin/env bash" >> "$stub_file"
-  echo 'case "$1" in' >> "$stub_file"
-  while (( "$#" >= 2 )); do
+  : >"$stub_file"
+  echo "#!/usr/bin/env bash" >>"$stub_file"
+  echo 'case "$1" in' >>"$stub_file"
+  while (("$#" >= 2)); do
     local n="$1"
     local j="$2"
     shift 2
     if [[ -z "$j" ]]; then
-      echo "  ${n}) exit 0 ;;" >> "$stub_file"
+      echo "  ${n}) exit 0 ;;" >>"$stub_file"
     else
-      echo "  ${n}) cat <<'JSON'" >> "$stub_file"
-      cat "$j" >> "$stub_file"
-      echo "JSON" >> "$stub_file"
-      echo "  ;;" >> "$stub_file"
+      echo "  ${n}) cat <<'JSON'" >>"$stub_file"
+      cat "$j" >>"$stub_file"
+      echo "JSON" >>"$stub_file"
+      echo "  ;;" >>"$stub_file"
     fi
   done
-  echo '  *) exit 0 ;;' >> "$stub_file"
-  echo 'esac' >> "$stub_file"
+  echo '  *) exit 0 ;;' >>"$stub_file"
+  echo 'esac' >>"$stub_file"
   chmod +x "$stub_file"
 }
 
@@ -68,13 +68,13 @@ make_lookup() {
 run_verifier() {
   local comments="$1" stub="$2" run_start="$3"
   local violations="${TMP}/violations.txt"
-  : > "$violations"
+  : >"$violations"
   local rc=0
   COMMENTS_JSON_FILE="$comments" \
-  VIOLATIONS_FILE="$violations" \
-  RUN_START="$run_start" \
-  REPO="example/repo" \
-  ISSUE_LOOKUP_SCRIPT="$stub" \
+    VIOLATIONS_FILE="$violations" \
+    RUN_START="$run_start" \
+    REPO="example/repo" \
+    ISSUE_LOOKUP_SCRIPT="$stub" \
     "$SCRIPT" >/dev/null 2>&1 || rc=$?
   echo "$rc"
 }
@@ -104,28 +104,28 @@ assert_violation_contains() {
 }
 
 RUN_START="2026-04-29T12:00:00Z"
-BEFORE="2026-04-29T11:00:00Z"   # 1h before run start — predates threshold
-AFTER="2026-04-29T12:30:00Z"    # 30m after run start
-JUST_BEFORE="2026-04-29T11:59:30Z"  # 30s before run start — within 60s grace
+BEFORE="2026-04-29T11:00:00Z"      # 1h before run start — predates threshold
+AFTER="2026-04-29T12:30:00Z"       # 30m after run start
+JUST_BEFORE="2026-04-29T11:59:30Z" # 30s before run start — within 60s grace
 
 issue_in_run() {
   local f="${TMP}/issue-${1}.json"
-  echo "{\"number\": $1, \"created_at\": \"$AFTER\", \"pull_request\": null}" > "$f"
+  echo "{\"number\": $1, \"created_at\": \"$AFTER\", \"pull_request\": null}" >"$f"
   echo "$f"
 }
 issue_before() {
   local f="${TMP}/issue-${1}.json"
-  echo "{\"number\": $1, \"created_at\": \"$BEFORE\", \"pull_request\": null}" > "$f"
+  echo "{\"number\": $1, \"created_at\": \"$BEFORE\", \"pull_request\": null}" >"$f"
   echo "$f"
 }
 issue_grace() {
   local f="${TMP}/issue-${1}.json"
-  echo "{\"number\": $1, \"created_at\": \"$JUST_BEFORE\", \"pull_request\": null}" > "$f"
+  echo "{\"number\": $1, \"created_at\": \"$JUST_BEFORE\", \"pull_request\": null}" >"$f"
   echo "$f"
 }
 pr_object() {
   local f="${TMP}/pr-${1}.json"
-  echo "{\"number\": $1, \"created_at\": \"$AFTER\", \"pull_request\": {\"url\": \"x\"}}" > "$f"
+  echo "{\"number\": $1, \"created_at\": \"$AFTER\", \"pull_request\": {\"url\": \"x\"}}" >"$f"
   echo "$f"
 }
 
@@ -180,7 +180,7 @@ assert_pass "forbidden phrase inside inline backticks ignored" "$rc" "${TMP}/vio
 
 # === Test 7: deferred-to #NNNN that does not exist is flagged ===
 make_comments "${TMP}/c7.json" "Item: deferred-to #9999"
-make_lookup "${TMP}/stub7.sh"  # empty mapping
+make_lookup "${TMP}/stub7.sh" # empty mapping
 rc=$(run_verifier "${TMP}/c7.json" "${TMP}/stub7.sh" "$RUN_START")
 assert_violation_contains "non-existent issue" "$rc" "${TMP}/violations.txt" "issue does not exist"
 
@@ -213,7 +213,7 @@ rc=$(run_verifier "${TMP}/c11.json" "${TMP}/stub11.sh" "$RUN_START")
 assert_violation_contains "case-insensitive Deferred-To" "$rc" "${TMP}/violations.txt" "predates this run"
 
 # === Test 12: empty comment list is itself a violation ===
-make_comments "${TMP}/c12.json"  # no bodies
+make_comments "${TMP}/c12.json" # no bodies
 make_lookup "${TMP}/stub12.sh"
 rc=$(run_verifier "${TMP}/c12.json" "${TMP}/stub12.sh" "$RUN_START")
 assert_violation_contains "no response posted" "$rc" "${TMP}/violations.txt" "no top-level response comment"
@@ -250,7 +250,7 @@ fi
 
 echo
 echo "Results: ${PASSES} passed, ${FAILURES} failed"
-if (( FAILURES > 0 )); then
+if ((FAILURES > 0)); then
   exit 1
 fi
 exit 0

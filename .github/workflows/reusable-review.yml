@@ -143,7 +143,7 @@ jobs:
           echo "PR HEAD SHA: ${head_sha} (${head_ref} -> ${base_ref}, context-pr=${context_pr})"
 
       # NOTE: This step duplicates marker detection logic from the "Find last bot review
-      # commit for re-review context" step in the review job (lines 306-388). This is
+      # commit for re-review context" step in the review job. This is
       # intentional: the should-run job runs first to avoid spinning up unnecessary jobs,
       # while the review job needs the last review commit for context. If the marker format
       # changes, both locations must be updated in sync.
@@ -253,113 +253,14 @@ jobs:
 
           echo "run=true" >> "$GITHUB_OUTPUT"
 
-  wait-for-checks:
-    name: Wait for CI checks
-    needs: should-run
-    if: needs.should-run.outputs.run == 'true' && inputs.event_name != 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-    outputs:
-      all_passed: ${{ steps.wait.outputs.passed }}
-      commit_sha: ${{ steps.wait.outputs.commit_sha }}
-    steps:
-      - name: Generate bot token
-        id: bot-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-
-      - name: Wait for all non-review checks to complete
-        id: wait
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-        run: |
-          set -euo pipefail
-
-          HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.sha')
-          echo "Waiting for checks on commit: ${HEAD_SHA}"
-          echo "commit_sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
-
-          MAX_WAIT=1500
-          INTERVAL=30
-          start=$(date +%s)
-          no_checks_count=0
-
-          while true; do
-            elapsed=$(( $(date +%s) - start ))
-            if [[ $elapsed -ge $MAX_WAIT ]]; then
-              echo "::warning::Timed out waiting for checks after ${MAX_WAIT}s — proceeding with review"
-              echo "passed=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-
-            # Filter out review bot checks and SDLC pipeline checks to avoid self-deadlock.
-            # Patterns matched (no ^ anchor because GitHub may prefix with workflow name):
-            # - egg-review / matches the standardized prefix for all reviewer caller job names
-            # - egg-reviewer- matches nested reviewer jobs (e.g., "egg-review / Code / egg-reviewer-review")
-            # - SDLC Pipeline matches "egg: SDLC Pipeline / Initialize pipeline", etc.
-            # - SDLC HITL matches "egg: SDLC HITL Decision Handler / Handle HITL decision", etc.
-            # Deduplicate by name: GitHub returns multiple check runs per name when
-            # a workflow re-runs (e.g., superseded PRs, force-pushes). Group by name
-            # and keep only the most recent (last) run for each.
-            checks=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
-              --jq '.check_runs | [.[] | select(
-                (.name | test("egg-review /|egg-reviewer-|SDLC Pipeline|SDLC HITL") | not)
-              )] | group_by(.name) | [.[] | sort_by(.id) | last | {name, status, conclusion}]')
-
-            total=$(echo "$checks" | jq 'length')
-
-            if [[ "$total" -eq 0 ]]; then
-              no_checks_count=$((no_checks_count + 1))
-              if [[ $no_checks_count -ge 20 ]]; then
-                echo "No checks found after ${no_checks_count} polls — proceeding"
-                echo "passed=true" >> "$GITHUB_OUTPUT"
-                exit 0
-              fi
-              echo "No checks yet (poll ${no_checks_count}/20)"
-              sleep "$INTERVAL"
-              continue
-            fi
-            no_checks_count=0
-
-            completed=$(echo "$checks" | jq '[.[] | select(.status == "completed")] | length')
-            failed=$(echo "$checks" | jq '[.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length')
-
-            echo "Checks: ${completed}/${total} completed, ${failed} failed"
-
-            if [[ "$completed" -eq "$total" ]]; then
-              if [[ "$failed" -gt 0 ]]; then
-                echo "::warning::${failed} check(s) failed — skipping review"
-                echo "$checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled") | "  FAILED: \(.name) (\(.conclusion))"'
-                echo "passed=false" >> "$GITHUB_OUTPUT"
-              else
-                echo "All ${total} checks passed"
-                echo "passed=true" >> "$GITHUB_OUTPUT"
-              fi
-              exit 0
-            fi
-
-            pending=$(echo "$checks" | jq -r '[.[] | select(.status != "completed") | .name] | join(", ")')
-            echo "Waiting for: ${pending}"
-            sleep "$INTERVAL"
-          done
-
   review:
     name: egg-reviewer-${{ inputs.bot_name }}
-    needs: [should-run, wait-for-checks]
-    # Run review if:
-    # - should-run says yes, AND
-    # - wait-for-checks was skipped (workflow_dispatch), OR
-    # - wait-for-checks succeeded and all checks passed
-    # Note: If wait-for-checks fails unexpectedly (token error, API rate limit, etc.),
-    # we intentionally block the review to avoid reviewing potentially broken code.
-    if: >-
-      always() &&
-      needs.should-run.outputs.run == 'true' &&
-      needs.wait-for-checks.result != 'failure' &&
-      (needs.wait-for-checks.result == 'skipped' || needs.wait-for-checks.outputs.all_passed == 'true')
+    needs: [should-run]
+    # Review runs as soon as should-run says yes — deliberately NOT gated on CI
+    # checks. Reviews are commit-anchored (the marker records the reviewed SHA)
+    # and re-reviews cover only the diff since the prior review, so if CI later
+    # fails and a fix is pushed, the fix simply gets its own incremental review.
+    if: needs.should-run.outputs.run == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -415,19 +316,9 @@ jobs:
         id: pr-meta
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          VALIDATED_SHA: ${{ needs.wait-for-checks.outputs.commit_sha }}
         run: |
           pr_json=$(gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }})
           current_sha=$(echo "$pr_json" | jq -r '.head.sha')
-
-          # If we have a validated SHA from wait-for-checks, verify the PR still points to it.
-          # This prevents reviewing code that was pushed after checks completed but before
-          # the concurrency group cancelled this run.
-          if [[ -n "$VALIDATED_SHA" && "$current_sha" != "$VALIDATED_SHA" ]]; then
-            echo "::error::PR HEAD has changed since checks completed (expected ${VALIDATED_SHA}, got ${current_sha})"
-            echo "A new workflow run should be triggered for the new commit. Aborting this review."
-            exit 1
-          fi
 
           {
             echo "head-ref=$(echo "$pr_json" | jq -r '.head.ref')"

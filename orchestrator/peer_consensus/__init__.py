@@ -118,6 +118,13 @@ class PeerConsensusTracker:
         # Auto re-propose safety: debounce timestamps and counters
         self._last_auto_repropose_timestamp: dict[str, datetime] = {}
         self._auto_repropose_counts: dict[str, int] = {}
+        # Consecutive explicit re-proposes rejected for carrying the same
+        # commit SHA as the current proposal (#3395). Informational — the
+        # unchanged-tree guard rejects every unchanged-tree attempt on both
+        # the handle_re_propose and handle_propose paths (#3415); the count
+        # is surfaced in the rejection envelope. Reset when a re-propose
+        # with a new SHA lands.
+        self._unchanged_repropose_counts: dict[str, int] = {}
         # Track when producers explicitly propose (via handle_propose, NOT via
         # auto-repropose).  Used by check_auto_repropose to suppress redundant
         # auto-reproposals when a push arrives shortly after an explicit proposal.
@@ -170,6 +177,7 @@ class PeerConsensusTracker:
     handle_confirmed = _confirm.handle_confirmed
     handle_re_propose = _confirm.handle_re_propose
     _open_nacks_barrier_response = _confirm._open_nacks_barrier_response
+    _unchanged_tree_guard_response = _confirm._unchanged_tree_guard_response
     check_auto_repropose = _confirm.check_auto_repropose
     handle_producer_push = _confirm.handle_producer_push
 
@@ -185,6 +193,7 @@ class PeerConsensusTracker:
 
     # _queries
     get_proposal_commit_sha = _queries.get_proposal_commit_sha
+    get_all_proposal_commit_shas = _queries.get_all_proposal_commit_shas
     get_commit_sha_for_version = _queries.get_commit_sha_for_version
     get_pre_merge_conditions = _queries.get_pre_merge_conditions
     get_latest_proposal_timestamp = _queries.get_latest_proposal_timestamp

@@ -201,6 +201,14 @@ so the two-wave resolve flow is unaffected; an operator driving via
 Already-bridged questions are filtered out of this field so a mirrored `cq-N`
 is not listed twice.
 
+**Consensus-timeout suspension (#3426).** While an unresolved `cq-N` is
+tagged to the running phase, the concurrent-mode consensus timeout is
+suspended rather than firing — a reviewer withholding its ACK pending this
+ruling is expected, not a stall. The clock resets once the decision is
+resolved. Only phase-tagged `cq-N` decisions gate — a phase-less or legacy
+decision is skipped, so it can never suspend the timeout indefinitely. See
+[Concurrent Execution: Timeout Handling](guides/concurrent-execution.md#timeout-handling).
+
 **Deduplication (#3374).** A re-registration of a question already open and
 unresolved *under the same phase* adopts the existing `cq-N` rather than
 minting a duplicate: `register_open_question` and the impasse-escalation
@@ -217,6 +225,30 @@ a re-registration carrying a *different* option set adopts the stored options
 and logs a warning (the new options are not merged). The registration is
 idempotent — the response carries `deduped: true` and no second contract
 write occurs.
+
+### Append-Only Guard and Write-Time Durability (#3427)
+
+Contract `decisions[]` entries are append-only: a whole-entry mutation
+(`decisions.<idx>`) targeting an index that already exists is rejected with
+HTTP 409 (`error_kind="conflict"`) instead of silently overwriting the
+existing entry — including a *resolved* one. This closes a TOCTOU window
+where two writers (e.g. a re-run agent and a concurrent Layer-C escalation)
+mint the same index against a stale read and one clobbers the other's
+decision. `register_open_question` treats the 409 as retryable: it re-reads
+the contract and re-mints against the fresh `len(decisions)`.
+
+Decision writes (registration and resolution) are also committed and pushed
+to the pipeline's work branch at write time, not only at phase/slice
+checkpoints. Previously a `cq-N` registered or resolved between checkpoints
+lived only on the shared worktree's file; the `git reset --hard
+origin/<branch>` that runs at phase-(re)start silently reverted it, letting
+the next bootstrap re-mint reuse the same id and clobber an
+already-resolved decision. `persist_contract_statefiles`
+(`orchestrator/routes/pipelines.py`) makes this best-effort commit+push run
+inline with the mutation and resolution routes and with the Layer-C HITL
+escalation path; a failure there is logged and swallowed since the write is
+already live on the worktree file and the next checkpoint commit will pick
+it up.
 
 `provide_input` now falls back to the contract when the id is not found in
 the queue. It writes the resolution fields straight onto the contract
@@ -339,6 +371,84 @@ A fully-autonomous pipeline (`hitl_gates: false` with no `start_phase`, i.e.
 starting at refine) therefore advances through refine/plan without hanging,
 exactly as it did before #3392; for phases outside refine/plan the flag toggles
 the post-phase approval pause as before.
+
+## Registration Guarantee (Decision Ledger)
+
+The converge loop above can only surface decisions that were **registered**;
+before #3390 nothing verified that a phase which should raise decisions
+actually did, so a producer that silently skipped `egg-contract add-decision`
+advanced the pipeline with `decisions: []` — indistinguishable from
+"deliberately none". Two complementary layers close that gap: one
+deterministic, one judgment-based.
+
+### Deterministic: ledger attestation at propose time
+
+Every refine/plan producer (`refiner`, `task_planner`, `architect`,
+`risk_analyst` — the `simplifier`'s companion summary owns no decision
+surface) must attest its **decision ledger** when proposing consensus. The
+proposal `attestation` carries exactly one of:
+
+- `decisions_registered: ["cq-1", …]` — every decision the producer
+  registered this phase, or
+- `no_decisions_rationale: "<why>"` — the **explicit empty ledger**: the
+  phase deliberately raises no operator decisions, recorded as a claim
+  rather than an omission.
+
+CLI: `egg-orch consensus propose --decisions-registered cq-1 cq-2 …` or
+`--no-decisions-rationale "<why>"`. MCP: the `attestation` argument of
+`mcp__brc__propose`.
+
+The orchestrator **hard-rejects** the propose (HTTP 400, tracker untouched)
+when:
+
+- the attestation is missing or malformed (neither field, both fields, or a
+  non-`cq-N` id) — `attestation_schemas.DecisionSurfacingAttestation` and
+  `routes/signals/_validation.py::_validate_decision_attestation`, both built
+  on the shared `egg_contracts.decisions.decision_attestation_errors` shape
+  check;
+- an attested id is not registered on the contract, or is registered for a
+  different phase (cross-check against `contract.decisions`);
+- the draft does not **cite** an attested `cq-N`
+  (`_validate_decision_citations`). The `--format markdown` output of
+  `egg-contract add-decision` embeds the id, so copying it into the draft's
+  Open Questions section satisfies the citation automatically.
+
+A producer therefore cannot reach consensus — and the phase cannot reach its
+gate — without a well-formed ledger claim. "0 decisions at the gate" becomes
+trustworthy as *deliberately none*.
+
+### Gate-side backstop and auditability
+
+At the phase gate, the orchestrator summarizes the ledger on the `phase_gate`
+question so the operator can read it without a `get_contract` round-trip:
+"N decision(s) registered this phase (cq-…), M resolved" or "explicitly none —
+&lt;role&gt; attested: &lt;rationale&gt;" (recovered from the phase's
+`CONSENSUS_PROPOSE` messages).
+
+When the phase reaches the gate with **zero registered decisions and no
+explicit-none attestation** — possible only on paths that bypass consensus
+(force-advance, resume) — the gate does not silently proceed: a dedicated
+backstop HITL is surfaced whose default remedy is a **phase re-run** (the
+converge loop's standard corrective, with a directive telling producers to
+register or explicitly attest), with an operator override to proceed to the
+normal gate. On autonomous pipelines (`hitl_gates: false`) the missing ledger
+is surfaced as a loud `phase.decision_ledger_missing` event but never blocks,
+mirroring the autonomous gate-skip posture.
+
+### Judgment: reviewer obligation against un-surfaced decisions
+
+A draft that quietly **commits** to an operator-grade choice ("we will drop
+the legacy filter") without registering it can't be caught by a regex. That
+half is enforced through consensus: `reviewer_refine` (§7) and
+`reviewer_plan` (§13) carry an explicit obligation to **NACK** a draft that
+commits to a decision not backed by a registered `cq-N` — and the open-NACK
+barrier already prevents consensus from closing over an open NACK. The rubric
+includes calibration guidance so implementation choices the planner
+legitimately owns are not over-NACKed: the bar is answers only the operator
+owns (product intent, scope boundaries, external commitments, user-visible
+behavior). The `first_principles_reviewer` is deliberately **not** the home
+for this obligation — it never NACKs by design (premise/direction concerns
+escalate to the operator as HITL decisions, not NACKs).
 
 ## Detection Mechanism
 
@@ -638,15 +748,71 @@ Note: #3129 also adds a *separate* auto-reopen mechanism that fires when a task 
 does **not** fire after the operator-completion path above, because the completion flips
 the row to `complete` and `incomplete_tasks` then returns nothing to reopen for.
 
+### Executable `adds_task` Option (#3428)
+
+A `register_open_question` option that mandates a contract mutation — "Add a new
+task/slice to wire X as a dependency" — used to be silently inert: agents have no
+task-add verb, so resolving the decision recorded the choice and materialized
+nothing. The reviewer that raised the question kept withholding ACK (correctly —
+the mandated task still didn't exist), the orchestrator kept re-spawning the
+producer at an unchanged contract, and the slice re-deadlocked *after* the human
+answered.
+
+Such options now carry a structured `adds_task` payload, attached at registration
+time:
+
+```json
+{
+  "question": "Slice-4 needs the secondary-repo worktree wired. How should we proceed?",
+  "options": ["Add a task to wire it as a slice-4 dependency", "Defer to a follow-up"],
+  "adds_task": {
+    "option": 1,
+    "slice_id": "slice-4",
+    "description": "Wire secondary-repo worktree + per-repo work/integration branch creation",
+    "acceptance_criteria": "...",
+    "files_affected": ["..."],
+    "role": "coder"
+  }
+}
+```
+
+When the operator resolves the decision by selecting that option (by label, `opt-N`
+id, or positional `option N` / `N` — free-form prose never fires the executor), the
+orchestrator materializes the task via `add_task_as_operator`: an audited
+`Role.HUMAN` mutation that appends the task to the named slice with a
+lock-allocated `task-<P>-<N>` id. The blocked agents see the new task on their next
+contract poll and the reviewer's precondition becomes satisfiable. Both resolve
+paths dispatch this — the pre-bridge contract fallback (`cq-N` resolved directly)
+and the post-gate bridged queue path (the contract decision is recovered via the
+bridge's context fingerprint). Execution failure is surfaced in the resolve
+response's `executed_action` payload and logged as an error, never silent.
+
+The direct REST surface (no live decision required) mirrors the task-completion
+route:
+
+```bash
+curl -X POST http://egg-orchestrator:9849/api/v1/contracts/<pipeline-id>/tasks \
+  -H "Authorization: Bearer $EGG_LIFECYCLE_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"slice_id": "slice-4", "description": "<task>", "reason": "materialize cq-4 opt-1"}'
+```
+
+**Registration guidance for agents:** if an option means "add a task", it MUST carry
+`adds_task` — without the payload the option is unactionable by anyone. Options that
+only gate agent behavior ("proceed with approach A") need no payload; the blocked
+agent reads the resolution and acts. Structural changes beyond a task append (new
+slices, DAG edits) still go through a replan, not a decision option.
+
 ## Related Files
 
 - `orchestrator/mcp_tools.py` — MCP `get_status` tool; enriches all pending decisions with `draft_content`; enriches `phase_gate` decisions additionally with `completed_agents_summary` and `reviewer_feedback`
 - `orchestrator/models.py` — `HITLDecision` model with `decision_type`, `questions`, `phase`, and `content_changed` fields; `content_changed` is set by the orchestrator on re-run phase gates to indicate whether the draft changed since the previous resolved decision (literal string comparison; `None` on first decision, `True`/`False` on subsequent ones). Also contains `OperatorDirective` (a single timestamped operator directive stored on kickback) and `IterationSummary` (BRC verdict snapshot for a kicked-back iteration), both accumulated on `PhaseExecution.operator_directives` / `PhaseExecution.iteration_history`.
 - `orchestrator/decision_queue.py` — Decision queue handling typed decisions
 - `orchestrator/routes/decisions/` — Decision API endpoints (create, list, resolve), the `POST .../feedback/answer` route for contract-scoped feedback (`answer_feedback` MCP tool; #3007), the contract-decision fallback in `resolve_decision` that writes pre-gate `cq-N` resolutions directly to the contract when the id is not in the queue (#3071), the executable task-completion dispatch (`_maybe_complete_task_from_resolution`) that auto-executes `complete_task_as_operator` when the resolution matches "Mark task `<id>` complete" (#3124), orphaned-driver revival on `phase_gate` resolution: when no live `_run_pipeline` driver thread owns an `AWAITING_HUMAN` pipeline (e.g. after an orchestrator restart), the resolve path re-launches the driver via `start_pipeline`'s recovery branch so the resolution self-heals rather than hanging silently; an `OVERSEER_ALERT` is broadcast on the bus when the orphaned park is detected (before the `start_pipeline` re-launch, so it fires even if that re-launch returns non-200 or raises) (#3233), and the first-principles redirect accept-path (`_maybe_apply_first_principles_redirect`, in `_handlers.py` and re-exported through the package barrel `__init__.py`): when the operator resolves a `first_principles_reviewer` refine-phase decision with "Adopt the redirect", this handler rewrites the pipeline seed via `rewrite_task_description_as_operator` and re-runs the refine phase; "Don't build this" cancels the pipeline; "Proceed as-is" is a no-op (#3385)
-- `orchestrator/operator_actions.py` — Operator-grade contract mutations; `complete_task_as_operator` applies task-status mutations as `Role.HUMAN`, bypassing the implementer/reviewer field-ownership restriction (#3124); `rewrite_task_description_as_operator` rewrites `contract.task_description` as `Role.HUMAN` for the first-principles redirect accept-path (#3385)
+- `orchestrator/operator_actions.py` — Operator-grade contract mutations; `complete_task_as_operator` applies task-status mutations as `Role.HUMAN`, bypassing the implementer/reviewer field-ownership restriction (#3124); `rewrite_task_description_as_operator` rewrites `contract.task_description` as `Role.HUMAN` for the first-principles redirect accept-path (#3385); `add_task_as_operator` appends a task to a slice as `Role.HUMAN` for the executable `adds_task` decision option and the direct `POST /api/v1/contracts/<id>/tasks` route (#3428)
 - `orchestrator/mcp_tools.py` — `answer_feedback` MCP tool (`_handle_answer_feedback`) for host-side answering of pre-proposal contract feedback
-- `orchestrator/routes/pipelines.py` — Phase gate resolution with JSON payload parsing
+- `orchestrator/routes/pipelines.py` — Phase gate resolution with JSON payload parsing; `persist_contract_statefiles` commits and pushes a contract decision write to the work branch at write time so a phase-(re)start worktree reset cannot revert it (#3427)
+- `shared/egg_contracts/validator.py` — `apply_mutation`'s append-only guard rejects a whole-entry write to an existing `decisions[]` index with `error_kind="conflict"` (mapped to HTTP 409 in `orchestrator/routes/contracts.py`) rather than overwriting it (#3427)
 - `sandbox/egg_lib/sdlc_hitl.py` — Type-aware terminal HITL handler
 - `skills/sdlc/SKILL.md` — `/sdlc` Claude Code skill defining Phase 4 HITL handling: **two-wave surfacing** (phase_gate alone in Wave 1, deferred `choice`/`feedback` in Wave 2 after approval) and the session-scoped `resolved_questions_map` that handles cross-wave deduplication
 - `sandbox/egg_lib/orch_client.py` — `OrchClient.create_decision()` for typed decisions

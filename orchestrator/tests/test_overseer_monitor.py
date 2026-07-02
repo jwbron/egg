@@ -2193,6 +2193,84 @@ class TestIncompleteConsensusActivityAware:
         monitor._send_message.assert_not_awaited()
         monitor._create_hitl_decision.assert_not_awaited()
 
+    def test_post_proposal_grace_not_regranted_for_unchanged_sha(self):
+        """#3395: an unchanged-tree re-propose refreshes the proposal
+        timestamp but not the SHA fingerprint — it must NOT re-defer the
+        stall check, or a NACK loop of empty re-proposes spaced under the
+        grace interval suppresses this detector forever."""
+        from datetime import UTC, datetime, timedelta
+
+        monitor = self._make_monitor()
+
+        now = time.time()
+        monitor._incomplete_consensus_blocking = frozenset(["tester"])
+        monitor._incomplete_consensus_first_seen = now - 15  # past nudge (10)
+        monitor._incomplete_consensus_absolute_start = now - 15
+        # Grace already granted for this fingerprint, past the 300s window.
+        monitor._incomplete_consensus_graced_fingerprint = (("tester", "e29714a"),)
+        monitor._incomplete_consensus_graced_at = now - 400
+
+        consensus = {"is_complete": False, "blocking_agents": ["tester"]}
+
+        # Empty re-propose 60s ago: fresh timestamp, unchanged SHA.
+        mock_tracker = MagicMock()
+        mock_tracker.get_latest_proposal_timestamp.return_value = datetime.now(UTC) - timedelta(
+            seconds=60
+        )
+        mock_tracker.get_all_proposal_commit_shas.return_value = {"tester": "e29714a"}
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = mock_tracker
+
+        # No recent progress events — nothing else defers the nudge.
+        mock_progress_store = MagicMock()
+        mock_progress_store.get_events.return_value = []
+        mock_ps = MagicMock()
+        mock_ps.get_progress_store.return_value = mock_progress_store
+
+        with patch.dict(
+            "sys.modules",
+            {"peer_consensus": mock_pc, "progress_store": mock_ps},
+        ):
+            _run(monitor._check_incomplete_consensus_stall(consensus, "running"))
+
+        # The stall timer kept accumulating: the nudge fired.
+        monitor._send_message.assert_awaited()
+        assert monitor._incomplete_consensus_nudged is True
+
+    def test_post_proposal_grace_regranted_when_sha_advances(self):
+        """A re-propose that advances the SHA fingerprint re-opens the
+        grace window and resets stall tracking (pre-#3395 behaviour for
+        genuine proposals)."""
+        from datetime import UTC, datetime, timedelta
+
+        monitor = self._make_monitor()
+
+        now = time.time()
+        monitor._incomplete_consensus_blocking = frozenset(["tester"])
+        monitor._incomplete_consensus_first_seen = now - 15
+        monitor._incomplete_consensus_absolute_start = now - 15
+        monitor._incomplete_consensus_graced_fingerprint = (("tester", "e29714a"),)
+        monitor._incomplete_consensus_graced_at = now - 400
+
+        consensus = {"is_complete": False, "blocking_agents": ["tester"]}
+
+        # The fix commit landed: fresh timestamp AND a new SHA.
+        mock_tracker = MagicMock()
+        mock_tracker.get_latest_proposal_timestamp.return_value = datetime.now(UTC) - timedelta(
+            seconds=60
+        )
+        mock_tracker.get_all_proposal_commit_shas.return_value = {"tester": "7bb0dbc"}
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = mock_tracker
+
+        with patch.dict("sys.modules", {"peer_consensus": mock_pc}):
+            _run(monitor._check_incomplete_consensus_stall(consensus, "running"))
+
+        # Deferred: no nudge, fingerprint recorded for the new SHA set.
+        monitor._send_message.assert_not_awaited()
+        assert monitor._incomplete_consensus_graced_fingerprint == (("tester", "7bb0dbc"),)
+        assert monitor._incomplete_consensus_graced_at >= now
+
     def test_hitl_deferral_capped_when_agents_active_too_long(self):
         """HITL escalation fires even if agents are active once deferral cap is exceeded."""
         monitor = self._make_monitor()

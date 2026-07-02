@@ -280,6 +280,11 @@ DEFAULT_SLICE_LOCAL_MAX_CYCLES = 3
 DEFAULT_SLICE_GLOBAL_MAX_CYCLES = 10
 DEFAULT_SLICE_FAILURE_GRACE_SECONDS = 60.0
 DEFAULT_STACKED_PR_RECONCILER_INTERVAL_SECONDS = 30.0
+# Poll-attempt budget for the cross-repo merge-sequencing gate (#3393):
+# a never-merging upstream that exceeds this many reconcile ticks
+# escalates the dependent PR to a HITL hold rather than staying draft
+# forever. Default 240 ticks × 30 s ≈ 2 h.
+DEFAULT_CROSS_REPO_MERGE_GATE_MAX_ATTEMPTS = 240
 
 
 def _coerce_positive_int(env_name: str, default: int) -> int:
@@ -386,6 +391,14 @@ def get_stacked_pr_reconciler_interval_seconds() -> float:
     return _coerce_positive_float(
         "EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS",
         DEFAULT_STACKED_PR_RECONCILER_INTERVAL_SECONDS,
+    )
+
+
+def get_cross_repo_merge_gate_max_attempts() -> int:
+    """Return the cross-repo merge-gate poll-attempt budget (default 240, #3393)."""
+    return _coerce_positive_int(
+        "EGG_ORCH_CROSS_REPO_MERGE_GATE_MAX_ATTEMPTS",
+        DEFAULT_CROSS_REPO_MERGE_GATE_MAX_ATTEMPTS,
     )
 
 

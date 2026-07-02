@@ -172,6 +172,97 @@ def find_resolved_question(
     return _find_equivalent_question(existing, question, phase, resolved=True)
 
 
+# Loose in-prose form of the ``cq-N`` id, for scanning draft text. Unlike
+# :data:`CQ_ID_PATTERN` (full-string match for validating a candidate id)
+# this matches anywhere a draft cites a decision — a bare ``cq-3``, the
+# ``<!-- egg-hitl-decision id=cq-3 -->`` marker emitted by
+# ``egg-contract add-decision --format markdown``, or prose like
+# "(see cq-3)".
+CQ_CITATION_PATTERN = re.compile(r"\bcq-[0-9]+\b")
+
+
+def extract_cq_citations(text: Any) -> set[str]:
+    """Return every ``cq-N`` id cited anywhere in ``text``.
+
+    Used by the decision-ledger citation check (#3390): a draft section
+    that raises or commits to an operator-grade decision must cite the
+    registered ``cq-N`` backing it, and the ``--format markdown`` output
+    of ``egg-contract add-decision`` embeds the id, so a producer that
+    followed the registration flow passes this for free. Non-string
+    input yields the empty set.
+    """
+    if not isinstance(text, str):
+        return set()
+    return set(CQ_CITATION_PATTERN.findall(text))
+
+
+def decision_attestation_errors(
+    decisions_registered: Any,
+    no_decisions_rationale: Any,
+) -> list[str]:
+    """Validate the decision-ledger attestation fields (#3390).
+
+    A refine/plan producer's proposal attestation must carry exactly one
+    of:
+
+    - ``decisions_registered``: a non-empty list of ``cq-N`` ids — every
+      HITL decision the producer registered this phase, or
+    - ``no_decisions_rationale``: a non-empty string recording *why* the
+      phase deliberately raises no operator decisions.
+
+    This is the single source of truth for that shape, shared by the
+    orchestrator's Pydantic attestation model and the propose-time
+    signal validator so the two layers cannot drift. Returns a list of
+    human-readable error strings; empty means valid.
+    """
+    errors: list[str] = []
+
+    ids: list[Any] = []
+    if decisions_registered is None:
+        pass
+    elif isinstance(decisions_registered, list):
+        ids = decisions_registered
+    else:
+        errors.append(
+            "decisions_registered must be a list of cq-N id strings "
+            f"(got {type(decisions_registered).__name__})"
+        )
+        return errors
+
+    rationale = no_decisions_rationale if isinstance(no_decisions_rationale, str) else ""
+    if no_decisions_rationale is not None and not isinstance(no_decisions_rationale, str):
+        errors.append(
+            f"no_decisions_rationale must be a string (got {type(no_decisions_rationale).__name__})"
+        )
+        return errors
+
+    has_ids = bool(ids)
+    has_rationale = bool(rationale.strip())
+    if has_ids and has_rationale:
+        errors.append(
+            "attestation carries both decisions_registered and "
+            "no_decisions_rationale — these are mutually exclusive. If you "
+            "registered decisions, list them and drop the rationale; if the "
+            "phase deliberately raises none, keep only the rationale."
+        )
+    if not has_ids and not has_rationale:
+        errors.append(
+            "attestation must carry either decisions_registered (the cq-N ids "
+            "you registered via `egg-contract add-decision` / "
+            "`mcp__sdlc__register_open_question`) or a non-empty "
+            "no_decisions_rationale explaining why this phase deliberately "
+            "raises no operator decisions."
+        )
+    for raw in ids:
+        if not isinstance(raw, str) or not CQ_ID_PATTERN.match(raw):
+            errors.append(
+                f"decisions_registered entry {raw!r} is not a valid cq-N id "
+                "(expected e.g. 'cq-1' — the id returned by "
+                "`egg-contract add-decision`)"
+            )
+    return errors
+
+
 def next_cq_id(existing: Iterable[Any]) -> str:
     """Return the next ``cq-N`` id, ignoring non-``cq-`` ids in ``existing``.
 

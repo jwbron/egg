@@ -1,0 +1,2740 @@
+[
+  {
+    "id": "5125f46d-2910-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:11:33.817805+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a7666e73-1345-4d",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:11:33.880462+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "18161d79-30a3-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:11:34.866692+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c3ac8ea3-6627-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:11:39.937139+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4ed7040a-c9fb-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:11:40.827489+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a5f30b17-0f54-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:11:40.891556+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "966b17c4-d743-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from documenter",
+    "body": "Documenter no-op for slice-3: no documentation work is owned in this slice. The pipeline's sole docs task (task-6-3) lives in slice-6 and is intentionally deferred to the final slice to snapshot the shipped multi-repo model. Proposing no_changes_needed to keep consensus unblocked.",
+    "metadata": {
+      "payload": {
+        "summary": "Documenter no-op for slice-3: no documentation work is owned in this slice. The pipeline's sole docs task (task-6-3) lives in slice-6 and is intentionally deferred to the final slice to snapshot the shipped multi-repo model. Proposing no_changes_needed to keep consensus unblocked.",
+        "attestation": {},
+        "artifacts": [],
+        "risk_considered": "",
+        "commit_sha": "",
+        "files_changed": [],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": true,
+        "no_changes_reason": "The documenter has no work in slice-3. The only documentation task for this pipeline (task-6-3) is scoped to slice-6 and intentionally deferred there to describe the shipped multi-repo model as a current-state snapshot (docs/guides/sdlc-pipeline.md + docs/architecture/slice-dag.md). Nothing in slice-3 is documenter-owned, so this is a non-blocking no-op propose."
+      },
+      "version": 1,
+      "commit_sha": "",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:12:14.274320+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "25519408-d8e9-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=52919 util=0.05 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:12:44.690948+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3efdbe75-8ce0-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:13:41.151321+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a49626cb-ffc3-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:13:58.864047+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "82e130df-ab95-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:15:46.386980+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ebdae22d-9515-41",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:17:50.728212+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9301b212-d59c-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:18:13.526493+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b1f3938e-edf9-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:20:18.093312+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "56f120a9-bad2-41",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:20:45.240406+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "fd141ee8-d4dd-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:22:24.417491+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a2dca639-6ba8-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:23:01.075113+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "844c34e4-a429-41",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from coder",
+    "body": "Slice-3 (#3393): remove the three repos[0] collapse sites and re-key the worktree map by full owner/repo. task-3-1: _spawn.py derives EGG_REPO_PATH/EGG_PIPELINE_REPO from the primary (primary-first via next(iter(...)), no positional repos[0]) and exports the FULL owner/repo->container-worktree-path map as EGG_PIPELINE_REPOS (AC-4); commit_authorship_store.py replaces the blind first-alphabetical repos[0] fallback with EGG_PIPELINE_REPO primary-aware resolution (degrades to egg-preferred/first when the hint is absent); routes/pipelines.py resolves overseer_repo via next(iter(...)). task-3-2: gateway/gateway.py worktree_create keys the response map by the full owner/repo slug (operator ruling #6) so same-short-name repos under different owners no longer collide (on-disk dir/mount stay bare name); the pipeline-level worktree-path consumer in pipelines.py is updated to match pipeline.repo (full slug) and strip the owner prefix. N=1 pipelines are behaviorally unchanged.",
+    "metadata": {
+      "payload": {
+        "summary": "Slice-3 (#3393): remove the three repos[0] collapse sites and re-key the worktree map by full owner/repo. task-3-1: _spawn.py derives EGG_REPO_PATH/EGG_PIPELINE_REPO from the primary (primary-first via next(iter(...)), no positional repos[0]) and exports the FULL owner/repo->container-worktree-path map as EGG_PIPELINE_REPOS (AC-4); commit_authorship_store.py replaces the blind first-alphabetical repos[0] fallback with EGG_PIPELINE_REPO primary-aware resolution (degrades to egg-preferred/first when the hint is absent); routes/pipelines.py resolves overseer_repo via next(iter(...)). task-3-2: gateway/gateway.py worktree_create keys the response map by the full owner/repo slug (operator ruling #6) so same-short-name repos under different owners no longer collide (on-disk dir/mount stay bare name); the pipeline-level worktree-path consumer in pipelines.py is updated to match pipeline.repo (full slug) and strip the owner prefix. N=1 pipelines are behaviorally unchanged.",
+        "attestation": {},
+        "artifacts": [
+          "5601063cb814987b49c57139ae41bb932012c544"
+        ],
+        "risk_considered": "Re-keying the worktree map by owner/repo could break bare-name key consumers: swept all orchestrator consumers \u2014 spawner reuse helpers + host_path_mounts already key by full owner/repo; the sole breaking site (pipeline-level worktree path derivation in pipelines.py) is fixed to strip the owner prefix. Deliberately scoped OUT: pipelines.py:24556 [pipeline.repo] (not an enumerated collapse site; threading the full list into worktree CREATION is a later concern) and gateway.py:8584 sessions/create (separate flow, plan scoped only worktree/create). Same-short-name container-path collision (/home/egg/repos/foo) is pre-existing; ruling #6 only mandates distinct map KEYS. N=1: single slug key == bare-name handling, primary == the one repo \u2014 no behavior change.",
+        "commit_sha": "5601063cb814987b49c57139ae41bb932012c544",
+        "files_changed": [
+          "gateway/gateway.py",
+          "orchestrator/kubernetes_spawner/_spawn.py",
+          "orchestrator/commit_authorship_store.py",
+          "orchestrator/routes/pipelines.py",
+          "orchestrator/gateway_client/_worktree.py",
+          "orchestrator/gateway_client/_models.py"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-3-1",
+          "task-3-2"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "5601063cb814987b49c57139ae41bb932012c544",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:23:49.731615+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "987fb429-638d-41",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:23:57.704994+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "abfbad08-5608-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:23:57.719116+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6e98ee32-fcd0-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:23:59.199727+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e49f24b0-7744-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:24:00.615387+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "de00eb5a-7d70-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:24:01.641810+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "368e6cde-62eb-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=188488 util=0.19 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:24:06.204405+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "85299290-4fa1-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:24:07.955420+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0f01e7ba-ffe2-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:24:08.168787+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f46113cf-fa4e-4d",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:24:08.180926+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "be06a589-8335-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:24:11.389108+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "29193e00-9356-4b",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:24:11.948275+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4673e604-b672-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_security for coder",
+    "body": "Security-clean. (1) Re-keying the worktree map by full owner/repo slug (ruling #6) is a security improvement: it closes a confused-deputy path where same-short-name repos under different owners (ownerA/foo vs ownerB/foo) collapsed onto one bare-name map entry, which could have routed an agent's worktree/mount to the wrong repo (wrong-repo read/write). (2) Uniform-visibility posture preserved \u2014 EGG_PIPELINE_REPOS exposes the full repo set only within a pipeline whose all-private/all-public uniformity is enforced at submission (slice-2), so no private\u2192public leak is introduced by the wider exposure. (3) No injection surface: map is JSON-encoded and delivered as a k8s env value (not shell-interpolated); path reconstruction uses split('/')[-1] leaf-only and repo slugs are validated upstream. (4) No credential/secret changes \u2014 get_token_for_repo untouched; primary derivation only affects naming env, not auth scope.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "gateway/gateway.py",
+          "orchestrator/commit_authorship_store.py",
+          "orchestrator/gateway_client/_models.py",
+          "orchestrator/gateway_client/_worktree.py",
+          "orchestrator/kubernetes_spawner/_spawn.py",
+          "orchestrator/routes/pipelines.py"
+        ],
+        "reason": "Security-clean. (1) Re-keying the worktree map by full owner/repo slug (ruling #6) is a security improvement: it closes a confused-deputy path where same-short-name repos under different owners (ownerA/foo vs ownerB/foo) collapsed onto one bare-name map entry, which could have routed an agent's worktree/mount to the wrong repo (wrong-repo read/write). (2) Uniform-visibility posture preserved \u2014 EGG_PIPELINE_REPOS exposes the full repo set only within a pipeline whose all-private/all-public uniformity is enforced at submission (slice-2), so no private\u2192public leak is introduced by the wider exposure. (3) No injection surface: map is JSON-encoded and delivered as a k8s env value (not shell-interpolated); path reconstruction uses split('/')[-1] leaf-only and repo slugs are validated upstream. (4) No credential/secret changes \u2014 get_token_for_repo untouched; primary derivation only affects naming env, not auth scope.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:24:49.115238+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0586dfcc-65f0-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:25:01.700503+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "003bdc76-861c-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=66578 util=0.07 cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:25:21.359740+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2cb9df36-e9d2-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_concurrency for coder",
+    "body": "Concurrency lens \u2014 ACK. No new race, shared mutable state, lock-ordering/deadlock, atomicity, or async issue introduced by slice-3. Specifics: (1) commit_authorship_store._resolve_authorship_repo_path adds an os.environ.get(\"EGG_PIPELINE_REPO\") read \u2014 thread-safe, process-constant \u2014 and is still called strictly inside the `with _singleton_lock:` block in get_store, so singleton construction remains serialized; no double-init window opened. (2) gateway.worktree_create's repo_name->repo (full slug) key change writes a local response dict in a sequential per-repo loop within one request handler \u2014 no cross-thread sharing; slugs are unique so no in-loop clobber. (3) _spawn.py builds EGG_PIPELINE_REPOS by json.dumps over the local repo_volumes into a per-agent `environment` dict \u2014 per-container, no shared mutation, deterministic dict-order serialization. (4) routes/pipelines._run_pipeline worktree-match loop is over local wt_result.worktrees; next(iter(...)) / dict iteration is deterministic in CPython, no ordering race. No new locks acquired, so no lock-ordering or deadlock surface. The same-short-name-different-owner on-disk worktree-directory collision is explicitly operator-deferred (ruling #6: map-key-only re-key, on-disk dir stays bare) \u2014 a data-model concern, not a concurrency defect, and outside the concurrency lane.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "gateway/gateway.py",
+          "orchestrator/commit_authorship_store.py",
+          "orchestrator/gateway_client/_models.py",
+          "orchestrator/gateway_client/_worktree.py",
+          "orchestrator/kubernetes_spawner/_spawn.py",
+          "orchestrator/routes/pipelines.py"
+        ],
+        "reason": "Concurrency lens \u2014 ACK. No new race, shared mutable state, lock-ordering/deadlock, atomicity, or async issue introduced by slice-3. Specifics: (1) commit_authorship_store._resolve_authorship_repo_path adds an os.environ.get(\"EGG_PIPELINE_REPO\") read \u2014 thread-safe, process-constant \u2014 and is still called strictly inside the `with _singleton_lock:` block in get_store, so singleton construction remains serialized; no double-init window opened. (2) gateway.worktree_create's repo_name->repo (full slug) key change writes a local response dict in a sequential per-repo loop within one request handler \u2014 no cross-thread sharing; slugs are unique so no in-loop clobber. (3) _spawn.py builds EGG_PIPELINE_REPOS by json.dumps over the local repo_volumes into a per-agent `environment` dict \u2014 per-container, no shared mutation, deterministic dict-order serialization. (4) routes/pipelines._run_pipeline worktree-match loop is over local wt_result.worktrees; next(iter(...)) / dict iteration is deterministic in CPython, no ordering race. No new locks acquired, so no lock-ordering or deadlock surface. The same-short-name-different-owner on-disk worktree-directory collision is explicitly operator-deferred (ruling #6: map-key-only re-key, on-disk dir stays bare) \u2014 a data-model concern, not a concurrency defect, and outside the concurrency lane.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:25:43.284631+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ecf1f8bf-5542-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=89415 util=0.09 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:25:53.276644+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f55d44fc-99e4-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:26:19.977189+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e6a7b0b7-66fb-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:26:23.341946+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "de28a1ac-80ad-42",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code_holistic for coder",
+    "body": "Holistic code review PASS for slice-3 v1 (SHA 5601063). task-3-1: all three repos[0] collapse sites removed \u2014 _spawn.py derives naming from primary via next(iter(repos)) and exports full owner/repo->path map as EGG_PIPELINE_REPOS (AC-4); commit_authorship_store.py uses EGG_PIPELINE_REPO primary-aware resolution with documented egg-preferred/first degradation; pipelines.py overseer_repo uses next(iter(...)). Swept the three files: no positional repos[0] remains outside comments. task-3-2: gateway worktree_create keys worktrees[repo] by full owner/repo slug (ruling #6); pipelines.py pipeline-level consumer matches pipeline.repo (full slug) and strips the owner prefix for on-disk path reconstruction. Consistency verified: EGG_PIPELINE_REPOS values (/home/egg/repos/<bare-name>) line up with the pre-existing, already owner/repo-aware host_path_mounts container paths; N=1 pipelines behaviorally unchanged. Fresh-hunk audit (mandate-2 shapes): no silent fallbacks (degradation is documented+intentional), os/json/hashlib imports present, no deprecated APIs / bare-except / non-atomic writes, EGG_PIPELINE_REPO fail-fast preserved. Known same-short-name container-path collision is pre-existing, honestly disclosed in the risk note, and correctly scoped out (ruling #6 mandates distinct KEYS only). Tests are task-3-3 (tester scope), correctly absent from this coder diff.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "gateway/gateway.py",
+          "orchestrator/kubernetes_spawner/_spawn.py",
+          "orchestrator/commit_authorship_store.py",
+          "orchestrator/routes/pipelines.py",
+          "orchestrator/gateway_client/_worktree.py",
+          "orchestrator/gateway_client/_models.py"
+        ],
+        "reason": "Holistic code review PASS for slice-3 v1 (SHA 5601063). task-3-1: all three repos[0] collapse sites removed \u2014 _spawn.py derives naming from primary via next(iter(repos)) and exports full owner/repo->path map as EGG_PIPELINE_REPOS (AC-4); commit_authorship_store.py uses EGG_PIPELINE_REPO primary-aware resolution with documented egg-preferred/first degradation; pipelines.py overseer_repo uses next(iter(...)). Swept the three files: no positional repos[0] remains outside comments. task-3-2: gateway worktree_create keys worktrees[repo] by full owner/repo slug (ruling #6); pipelines.py pipeline-level consumer matches pipeline.repo (full slug) and strips the owner prefix for on-disk path reconstruction. Consistency verified: EGG_PIPELINE_REPOS values (/home/egg/repos/<bare-name>) line up with the pre-existing, already owner/repo-aware host_path_mounts container paths; N=1 pipelines behaviorally unchanged. Fresh-hunk audit (mandate-2 shapes): no silent fallbacks (degradation is documented+intentional), os/json/hashlib imports present, no deprecated APIs / bare-except / non-atomic writes, EGG_PIPELINE_REPO fail-fast preserved. Known same-short-name container-path collision is pre-existing, honestly disclosed in the risk note, and correctly scoped out (ruling #6 mandates distinct KEYS only). Tests are task-3-3 (tester scope), correctly absent from this coder diff.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:26:29.487950+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "40ab641e-d5ad-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=77932 util=0.08 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:26:36.637540+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0857637b-15de-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:26:44.774559+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "36e910e1-180f-4b",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_contract for coder",
+    "body": "Contract ACK for slice-3 coder proposal (5601063cb). All acceptance criteria for the two coder tasks satisfied.\n\ntask-3-1 (remove 3 repos[0] collapse sites + thread full repo set to agent env):\n- AC1 \u2713 all three enumerated sites de-collapsed. _spawn.py primary via next(iter(repos or []),None); commit_authorship_store.py via EGG_PIPELINE_REPO primary-aware resolution + next(iter(repos)) fallback; routes/pipelines.py:732 overseer via next(iter(...)). Grep-confirmed residual repos[0] hits are only comments, the slice-1 primary_repo property body, and the allowlisted sdlc_hitl.py:82 (len==1-guarded).\n- AC2 \u2713 full owner/repo->path map exposed to agent env as EGG_PIPELINE_REPOS.\n- AC3 \u2713 EGG_PIPELINE_REPO still resolves to primary for back-compat.\n\ntask-3-2 (re-key worktree map by full owner/repo at source):\n- AC1 \u2713 gateway.py worktree_create keys worktrees[repo] (full slug); _models.py/_worktree.py docstrings updated.\n- AC2 \u2713 distinct entries for same-short-name/different-owner (multi-repo path passes full slugs).\n- AC3 \u2713 spawner + pipelines consumer read owner/repo keys and strip owner prefix; on-disk paths unchanged; N=1 and bare-name callers behaviorally unchanged (repo==repo_name).\n\nFresh v1 review (prior_verdict pending) \u2014 no mandate-1 obligation. Mandate-2 delta audit (contract lens): no AC drift, no scope creep \u2014 coder touched only the 6 task-3-1/3-2 files, no test files (task-3-3 is tester-owned/pending). Accepted next(iter(...)) over pipeline.primary_repo because both call sites receive plain lists (no Pipeline object in scope) and AC1 permits \"primary accessor OR the full map\" (full map is exposed). Noted assumption: primary-first list ordering invariant from slice-1/2 holds.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "gateway/gateway.py",
+          "orchestrator/commit_authorship_store.py",
+          "orchestrator/gateway_client/_models.py",
+          "orchestrator/gateway_client/_worktree.py",
+          "orchestrator/kubernetes_spawner/_spawn.py",
+          "orchestrator/routes/pipelines.py"
+        ],
+        "reason": "Contract ACK for slice-3 coder proposal (5601063cb). All acceptance criteria for the two coder tasks satisfied.\n\ntask-3-1 (remove 3 repos[0] collapse sites + thread full repo set to agent env):\n- AC1 \u2713 all three enumerated sites de-collapsed. _spawn.py primary via next(iter(repos or []),None); commit_authorship_store.py via EGG_PIPELINE_REPO primary-aware resolution + next(iter(repos)) fallback; routes/pipelines.py:732 overseer via next(iter(...)). Grep-confirmed residual repos[0] hits are only comments, the slice-1 primary_repo property body, and the allowlisted sdlc_hitl.py:82 (len==1-guarded).\n- AC2 \u2713 full owner/repo->path map exposed to agent env as EGG_PIPELINE_REPOS.\n- AC3 \u2713 EGG_PIPELINE_REPO still resolves to primary for back-compat.\n\ntask-3-2 (re-key worktree map by full owner/repo at source):\n- AC1 \u2713 gateway.py worktree_create keys worktrees[repo] (full slug); _models.py/_worktree.py docstrings updated.\n- AC2 \u2713 distinct entries for same-short-name/different-owner (multi-repo path passes full slugs).\n- AC3 \u2713 spawner + pipelines consumer read owner/repo keys and strip owner prefix; on-disk paths unchanged; N=1 and bare-name callers behaviorally unchanged (repo==repo_name).\n\nFresh v1 review (prior_verdict pending) \u2014 no mandate-1 obligation. Mandate-2 delta audit (contract lens): no AC drift, no scope creep \u2014 coder touched only the 6 task-3-1/3-2 files, no test files (task-3-3 is tester-owned/pending). Accepted next(iter(...)) over pipeline.primary_repo because both call sites receive plain lists (no Pipeline object in scope) and AC1 permits \"primary accessor OR the full map\" (full map is exposed). Noted assumption: primary-first list ordering invariant from slice-1/2 holds.",
+        "ack_version": 1,
+        "attestation": {
+          "tasks_verified": [
+            "task-3-1",
+            "task-3-2"
+          ]
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:27:29.714283+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "aebfc74b-bd38-4d",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for coder",
+    "body": "reviewer_code ACK (v1, SHA 5601063, slice-3). Line-by-line correct: (1) gateway.py:7775 worktrees[repo] full owner/repo slug replaces bare repo_name; bare-name callers unaffected since repo==repo_name when no '/'. (2) commit_authorship_store.py EGG_PIPELINE_REPO primary-aware resolution, os imported (L53), degrades to egg-preferred/next(iter(repos)) \u2014 no repos[0]. (3) _spawn.py next(iter(repos or []),None) guards empty/None, pipeline_repo equivalent to prior expr, EGG_PIPELINE_REPOS keys=owner/repo & values=/home/egg/repos/<bare> matching host_path_mounts container_path; inline `import json as _json` fine (precedent: inline hashlib). (4) routes/pipelines.py overseer via next(iter), consumer matches pipeline.repo (confirmed owner/name in model) against re-keyed map and strips owner prefix, fallback strips too. (5) _models.py/_worktree.py doc-only, accurate.\n\nMandate-2 blast-radius audit of the re-keying: all map-key consumers consistent (host_path_mounts owner/repo-aware, pipelines.py full-slug match+strip, EGG_PIPELINE_REPOS builder); no stray bare-name worktrees[literal] lookups in the pipeline consumer path; session_create (gateway.py:8592) is a separate endpoint (def 8217) that does NOT feed repo_volumes consumers, so its bare-name keying is legitimately out of scope as claimed; EGG_PIPELINE_REPOS has no consumer yet (AC-4 export). Shapes checked: silent fallbacks (intentional+documented, not silent), None/empty guards, key/value consistency, prefix-strip correctness, API deprecation (none), inline-import shadowing (none). No blocking code-lens issues.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "gateway/gateway.py",
+          "orchestrator/commit_authorship_store.py",
+          "orchestrator/gateway_client/_models.py",
+          "orchestrator/gateway_client/_worktree.py",
+          "orchestrator/kubernetes_spawner/_spawn.py",
+          "orchestrator/routes/pipelines.py"
+        ],
+        "reason": "reviewer_code ACK (v1, SHA 5601063, slice-3). Line-by-line correct: (1) gateway.py:7775 worktrees[repo] full owner/repo slug replaces bare repo_name; bare-name callers unaffected since repo==repo_name when no '/'. (2) commit_authorship_store.py EGG_PIPELINE_REPO primary-aware resolution, os imported (L53), degrades to egg-preferred/next(iter(repos)) \u2014 no repos[0]. (3) _spawn.py next(iter(repos or []),None) guards empty/None, pipeline_repo equivalent to prior expr, EGG_PIPELINE_REPOS keys=owner/repo & values=/home/egg/repos/<bare> matching host_path_mounts container_path; inline `import json as _json` fine (precedent: inline hashlib). (4) routes/pipelines.py overseer via next(iter), consumer matches pipeline.repo (confirmed owner/name in model) against re-keyed map and strips owner prefix, fallback strips too. (5) _models.py/_worktree.py doc-only, accurate.\n\nMandate-2 blast-radius audit of the re-keying: all map-key consumers consistent (host_path_mounts owner/repo-aware, pipelines.py full-slug match+strip, EGG_PIPELINE_REPOS builder); no stray bare-name worktrees[literal] lookups in the pipeline consumer path; session_create (gateway.py:8592) is a separate endpoint (def 8217) that does NOT feed repo_volumes consumers, so its bare-name keying is legitimately out of scope as claimed; EGG_PIPELINE_REPOS has no consumer yet (AC-4 export). Shapes checked: silent fallbacks (intentional+documented, not silent), None/empty guards, key/value consistency, prefix-strip correctness, API deprecation (none), inline-import shadowing (none). No blocking code-lens issues.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:27:35.284634+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "234f4be3-7190-42",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=82012 util=0.08 cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:27:40.128587+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5fa071c2-58b2-41",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=94774 util=0.09 cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:27:43.133102+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0d6460a9-45ee-41",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:28:01.242232+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "740061c4-84a7-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from tester",
+    "body": "Slice-3 tester tests (task-3-3), converged with coder 5601063cb. (1) TestReposZeroCollapseRatchet: a tokenize-based sweep over orchestrator source (comments/docstrings + the self.repos[0] primary accessor ignored) that fails if any bare repos[0]/pipeline_repos[0] collapse reappears; allowlists the len(repos)==1-guarded sandbox/egg_lib/sdlc_hitl.py; has a detector self-test so it can't rot. Now GREEN \u2014 coder removed all 5 collapse sites. (2) TestMultiRepoAgentEnv: the agent env exposes the full owner/repo->container-path worktree map as EGG_PIPELINE_REPOS (JSON dict, the plan's named example), EGG_PIPELINE_REPO=primary for back-compat, same-name-different-owner repos get distinct KEYS, N=1 back-compat. (3) gateway_client owner/repo keying guard. All 7 tests pass against the merged impl (verified manually via system pytest).",
+    "metadata": {
+      "payload": {
+        "summary": "Slice-3 tester tests (task-3-3), converged with coder 5601063cb. (1) TestReposZeroCollapseRatchet: a tokenize-based sweep over orchestrator source (comments/docstrings + the self.repos[0] primary accessor ignored) that fails if any bare repos[0]/pipeline_repos[0] collapse reappears; allowlists the len(repos)==1-guarded sandbox/egg_lib/sdlc_hitl.py; has a detector self-test so it can't rot. Now GREEN \u2014 coder removed all 5 collapse sites. (2) TestMultiRepoAgentEnv: the agent env exposes the full owner/repo->container-path worktree map as EGG_PIPELINE_REPOS (JSON dict, the plan's named example), EGG_PIPELINE_REPO=primary for back-compat, same-name-different-owner repos get distinct KEYS, N=1 back-compat. (3) gateway_client owner/repo keying guard. All 7 tests pass against the merged impl (verified manually via system pytest).",
+        "attestation": {
+          "tests_execution_blocked": true,
+          "tests_execution_blocked_reason": "This sandbox has no outbound network (TLS cert UnknownIssuer): `make test`/`make lint`/`make security` all abort at their mandatory `uv sync` venv step (cannot download httpx/urllib3/etc.) before any repo-configured check can run, so the official lint/security/test harness could not execute here. Manual verification done instead: all 7 slice-3 tester tests PASS via system pytest 9.1.1 (PYTHONPATH=orchestrator:shared) against the merged coder impl, and ruff + py_compile are clean on both changed files (test_kubernetes_spawner.py, test_gateway_client.py). make test-all on the integration branch is the ground-truth gate."
+        },
+        "artifacts": [
+          "orchestrator/tests/test_kubernetes_spawner.py",
+          "orchestrator/tests/test_gateway_client.py",
+          "ffcea6b1c"
+        ],
+        "risk_considered": "Converged to the coder's delivered EGG_PIPELINE_REPOS map (plan-faithful, AC-4-satisfying) rather than NACKing over my earlier invented EGG_REPO_VOLUMES name. Flagged NON-BLOCKING in a test docstring: the coder derives map values as /home/egg/repos/<bare-name>, so two same-bare-name repos share a container mount target \u2014 a host_path_mounts scheme property broader than slice-3's owner/repo re-key of the map KEYS; the same-name test asserts only key-distinctness and does not bless the value collision.",
+        "commit_sha": "ffcea6b1c",
+        "files_changed": [
+          "orchestrator/tests/test_kubernetes_spawner.py",
+          "orchestrator/tests/test_gateway_client.py"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-3-3"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "ffcea6b1c",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:30:23.571366+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "734f19fd-9768-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "orchestrator",
+    "to_role": "documenter",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:30:23.574155+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "da20aeb6-7a91-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:30:24.932993+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "bb8efede-8848-42",
+    "pipeline_id": "issue-3393",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by documenter",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:30:24.993924+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2a95d9a9-c0af-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:30:27.674962+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d2987750-b03c-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:30:27.681471+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "cdfdc302-7994-4b",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:30:28.950404+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "430c6dd9-e1f0-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:30:30.265126+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "98373e60-f6c7-4b",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:30:31.497530+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "57d2d25a-bd2f-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:30:32.457558+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d38d551b-08e2-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:30:37.334657+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "7bb459b3-30db-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:30:37.764274+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ba3cc6df-57da-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:30:37.789901+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9b9d23ee-6af8-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:30:38.011319+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6a44bbee-0549-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:30:43.887236+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4189a3ba-d3fb-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:30:43.934480+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d25c2533-0a6b-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_security for tester",
+    "body": "Security-clean, test-only. (1) No production attack surface \u2014 changes are confined to test_kubernetes_spawner.py and test_gateway_client.py; no runtime/egress/credential/injection paths. (2) The tests LOCK IN the security-relevant invariant: same-name/different-owner repos (ownerA/foo vs ownerB/foo) must stay distinct map KEYS (test_agent_env_same_name_repos_get_distinct_map_keys + gateway-client round-trip guard), plus a tokenize-based repos[0]-collapse ratchet (docstring-immune, with a planted-collapse self-test) that prevents the confused-deputy collapse sites from silently reappearing \u2014 these harden the wrong-repo-worktree fix I ACKed on the coder side. (3) The residual map-VALUE collision (values derive as /home/egg/repos/<bare-name>, so same-bare-name repos share a container mount target) is honestly flagged non-blocking in a docstring and correctly scoped as a broader host_path_mounts property, not this slice's owner/repo key re-key; the test asserts only key-distinctness and does not bless the value collision \u2014 the right call for the tester, not a blocker. (4) Tests match the delivered coder interface (EGG_PIPELINE_REPOS JSON map) with no drift.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_kubernetes_spawner.py",
+          "orchestrator/tests/test_gateway_client.py"
+        ],
+        "reason": "Security-clean, test-only. (1) No production attack surface \u2014 changes are confined to test_kubernetes_spawner.py and test_gateway_client.py; no runtime/egress/credential/injection paths. (2) The tests LOCK IN the security-relevant invariant: same-name/different-owner repos (ownerA/foo vs ownerB/foo) must stay distinct map KEYS (test_agent_env_same_name_repos_get_distinct_map_keys + gateway-client round-trip guard), plus a tokenize-based repos[0]-collapse ratchet (docstring-immune, with a planted-collapse self-test) that prevents the confused-deputy collapse sites from silently reappearing \u2014 these harden the wrong-repo-worktree fix I ACKed on the coder side. (3) The residual map-VALUE collision (values derive as /home/egg/repos/<bare-name>, so same-bare-name repos share a container mount target) is honestly flagged non-blocking in a docstring and correctly scoped as a broader host_path_mounts property, not this slice's owner/repo key re-key; the test asserts only key-distinctness and does not bless the value collision \u2014 the right call for the tester, not a blocker. (4) Tests match the delivered coder interface (EGG_PIPELINE_REPOS JSON map) with no drift.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:31:19.089010+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d2a4e5cc-737f-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_security",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:31:19.495846+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c87cec0a-a536-41",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_concurrency for tester",
+    "body": "Concurrency lens \u2014 ACK. Test-only delta (TestMultiRepoAgentEnv, TestReposZeroCollapseRatchet, and the gateway_client owner/repo keying guard), converged to the delivered EGG_PIPELINE_REPOS map interface. No concurrency defect. Specifics checked: (1) Test-isolation race \u2014 TestReposZeroCollapseRatchet.test_ratchet_detects_a_planted_collapse writes a FIXED-path temp file orchestrator/__ratchet_probe__.py containing `x = repos[0]`, while test_no_repos_zero_collapse_in_orchestrator_source rglobs orchestrator/*.py. Under pytest-xdist parallel workers this would be a genuine race (the scan could pick up a concurrently-planted probe \u2192 flaky offender). Confirmed NOT live: xdist is not installed and addopts=\"-v --tb=short\" runs the suite serially single-process; the probe is written and unlink'd in a try/finally and the detector is only handed an explicit [tmp] path list (never the rglob), so the probe never coexists with the source scan. Latent risk only if parallel execution is ever adopted \u2014 noted, non-blocking under current infra. (2) All cases are pure mock-based unit tests (mock_gateway.create_worktrees.return_value); no threads, no async, no shared mutable module state, no lock/atomicity surface introduced. (3) Interface consistency: final state asserts EGG_PIPELINE_REPOS as the owner/repo->path map, matching the coder impl I ACKed (coder sets that JSON map and does not set EGG_REPO_VOLUMES).",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_kubernetes_spawner.py",
+          "orchestrator/tests/test_gateway_client.py"
+        ],
+        "reason": "Concurrency lens \u2014 ACK. Test-only delta (TestMultiRepoAgentEnv, TestReposZeroCollapseRatchet, and the gateway_client owner/repo keying guard), converged to the delivered EGG_PIPELINE_REPOS map interface. No concurrency defect. Specifics checked: (1) Test-isolation race \u2014 TestReposZeroCollapseRatchet.test_ratchet_detects_a_planted_collapse writes a FIXED-path temp file orchestrator/__ratchet_probe__.py containing `x = repos[0]`, while test_no_repos_zero_collapse_in_orchestrator_source rglobs orchestrator/*.py. Under pytest-xdist parallel workers this would be a genuine race (the scan could pick up a concurrently-planted probe \u2192 flaky offender). Confirmed NOT live: xdist is not installed and addopts=\"-v --tb=short\" runs the suite serially single-process; the probe is written and unlink'd in a try/finally and the detector is only handed an explicit [tmp] path list (never the rglob), so the probe never coexists with the source scan. Latent risk only if parallel execution is ever adopted \u2014 noted, non-blocking under current infra. (2) All cases are pure mock-based unit tests (mock_gateway.create_worktrees.return_value); no threads, no async, no shared mutable module state, no lock/atomicity surface introduced. (3) Interface consistency: final state asserts EGG_PIPELINE_REPOS as the owner/repo->path map, matching the coder impl I ACKed (coder sets that JSON map and does not set EGG_REPO_VOLUMES).",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:31:36.013397+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8cbd3236-e0ac-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=85502 util=0.09 cache_hit=0.97 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:31:38.337868+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3a0b45de-11a9-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_concurrency",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:31:40.348290+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5afd20a8-b780-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=108622 util=0.11 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:31:44.111286+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "429a8822-dc7b-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:32:44.869899+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c5b8a5bc-35d4-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:32:46.489034+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b44efa10-7887-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from reviewer_contract for tester",
+    "body": "Contract NACK for slice-3 tester proposal (ffcea6b1c) \u2014 task-3-3 AC1 not fully satisfied.\n\nFresh v1 review (prior_verdict pending) \u2014 no mandate-1 obligation.\n\nWHAT IS SOLID (no action needed):\n- AC2 (ratchet): fully satisfied and robust. TestReposZeroCollapseRatchet uses tokenize (ignores comment/docstring mentions), skips dotted `.repos[0]` so the intentional primary_repo accessor/validator in models.py is not flagged, scans all orchestrator/ source (catches new sites, not just the three enumerated), allowlists sandbox/egg_lib/sdlc_hitl.py:82, and \u2014 good practice \u2014 includes a planted-collapse self-test (guards the detector against rotting to a no-op) plus a test asserting the allowlisted site is real. Nothing to change here.\n- Spawner-env coverage: TestMultiRepoAgentEnv correctly asserts EGG_PIPELINE_REPOS full owner/repo->path map, EGG_PIPELINE_REPO=primary back-compat, same-short-name distinct keys, and N=1 back-compat. test_gateway_client owner/repo no-collision covers task-3-2 keying. Good.\n\nBLOCKING GAP (AC1):\ntask-3-3 AC1 requires \"correct resolution at ALL THREE former collapse sites for a multi-repo pipeline,\" and the task description enumerates it explicitly: \"unit-level assertions on the spawner env, commit-authorship resolution, AND overseer-repo resolution for a 2-repo pipeline.\" Only the spawner-env site is covered. There are NO new positive-resolution assertions for the other two sites:\n  1. commit_authorship_store._resolve_authorship_repo_path \u2014 needs a unit test that, given a discovered multi-repo set, resolves to the EGG_PIPELINE_REPO primary when the hint matches (and exercises the degrade path: hint absent -> egg-preferred -> next(iter(repos))). The behavior CHANGED in this slice (old: len==1 short-circuit + blind repos[0]/egg-preference; new: primary-hint-first), so a resolution assertion is required, not just the ratchet's token-absence proof.\n  2. routes/pipelines.py:_spawn_overseer_agent \u2014 needs a unit-level assertion that overseer_repo resolves to the primary (first) entry for a 2-repo pipeline_repos list (and None on empty).\nThe ratchet only proves the repos[0] token is gone; it does NOT prove these two sites resolve to the correct repo. A site can have the token removed yet resolve wrongly (e.g. authorship picking the wrong repo, or overseer_repo=None) \u2014 which is exactly why AC1 enumerates positive per-site resolution assertions. Both sites are unit-testable (existing test_commit_authorship_store.py and test_overseer_model.py demonstrate it), and no descope rationale was recorded.\n\nREQUESTED FIX: add the two missing unit-level resolution assertions (commit-authorship primary-aware resolution for a multi-repo set incl. degrade path; overseer_repo primary resolution for a 2-repo pipeline). If either site is deemed impractical to unit-test, record an explicit descope rationale in tester BRC memory and raise it for reviewer agreement rather than leaving AC1 silently partial. Re-run make test (narrowed) + make test-all green (AC3) after adding them.",
+    "metadata": {
+      "payload": {
+        "reason": "Contract NACK for slice-3 tester proposal (ffcea6b1c) \u2014 task-3-3 AC1 not fully satisfied.\n\nFresh v1 review (prior_verdict pending) \u2014 no mandate-1 obligation.\n\nWHAT IS SOLID (no action needed):\n- AC2 (ratchet): fully satisfied and robust. TestReposZeroCollapseRatchet uses tokenize (ignores comment/docstring mentions), skips dotted `.repos[0]` so the intentional primary_repo accessor/validator in models.py is not flagged, scans all orchestrator/ source (catches new sites, not just the three enumerated), allowlists sandbox/egg_lib/sdlc_hitl.py:82, and \u2014 good practice \u2014 includes a planted-collapse self-test (guards the detector against rotting to a no-op) plus a test asserting the allowlisted site is real. Nothing to change here.\n- Spawner-env coverage: TestMultiRepoAgentEnv correctly asserts EGG_PIPELINE_REPOS full owner/repo->path map, EGG_PIPELINE_REPO=primary back-compat, same-short-name distinct keys, and N=1 back-compat. test_gateway_client owner/repo no-collision covers task-3-2 keying. Good.\n\nBLOCKING GAP (AC1):\ntask-3-3 AC1 requires \"correct resolution at ALL THREE former collapse sites for a multi-repo pipeline,\" and the task description enumerates it explicitly: \"unit-level assertions on the spawner env, commit-authorship resolution, AND overseer-repo resolution for a 2-repo pipeline.\" Only the spawner-env site is covered. There are NO new positive-resolution assertions for the other two sites:\n  1. commit_authorship_store._resolve_authorship_repo_path \u2014 needs a unit test that, given a discovered multi-repo set, resolves to the EGG_PIPELINE_REPO primary when the hint matches (and exercises the degrade path: hint absent -> egg-preferred -> next(iter(repos))). The behavior CHANGED in this slice (old: len==1 short-circuit + blind repos[0]/egg-preference; new: primary-hint-first), so a resolution assertion is required, not just the ratchet's token-absence proof.\n  2. routes/pipelines.py:_spawn_overseer_agent \u2014 needs a unit-level assertion that overseer_repo resolves to the primary (first) entry for a 2-repo pipeline_repos list (and None on empty).\nThe ratchet only proves the repos[0] token is gone; it does NOT prove these two sites resolve to the correct repo. A site can have the token removed yet resolve wrongly (e.g. authorship picking the wrong repo, or overseer_repo=None) \u2014 which is exactly why AC1 enumerates positive per-site resolution assertions. Both sites are unit-testable (existing test_commit_authorship_store.py and test_overseer_model.py demonstrate it), and no descope rationale was recorded.\n\nREQUESTED FIX: add the two missing unit-level resolution assertions (commit-authorship primary-aware resolution for a multi-repo set incl. degrade path; overseer_repo primary resolution for a 2-repo pipeline). If either site is deemed impractical to unit-test, record an explicit descope rationale in tester BRC memory and raise it for reviewer agreement rather than leaving AC1 silently partial. Re-run make test (narrowed) + make test-all green (AC3) after adding them.",
+        "artifact_references": [
+          "orchestrator/tests/test_kubernetes_spawner.py",
+          "orchestrator/tests/test_gateway_client.py"
+        ],
+        "nack_version": 1
+      },
+      "reason": "Contract NACK for slice-3 tester proposal (ffcea6b1c) \u2014 task-3-3 AC1 not fully satisfied.\n\nFresh v1 review (prior_verdict pending) \u2014 no mandate-1 obligation.\n\nWHAT IS SOLID (no action needed):\n- AC2 (ratchet): fully satisfied and robust. TestReposZeroCollapseRatchet uses tokenize (ignores comment/docstring mentions), skips dotted `.repos[0]` so the intentional primary_repo accessor/validator in models.py is not flagged, scans all orchestrator/ source (catches new sites, not just the three enumerated), allowlists sandbox/egg_lib/sdlc_hitl.py:82, and \u2014 good practice \u2014 includes a planted-collapse self-test (guards the detector against rotting to a no-op) plus a test asserting the allowlisted site is real. Nothing to change here.\n- Spawner-env coverage: TestMultiRepoAgentEnv correctly asserts EGG_PIPELINE_REPOS full owner/repo->path map, EGG_PIPELINE_REPO=primary back-compat, same-short-name distinct keys, and N=1 back-compat. test_gateway_client owner/repo no-collision covers task-3-2 keying. Good.\n\nBLOCKING GAP (AC1):\ntask-3-3 AC1 requires \"correct resolution at ALL THREE former collapse sites for a multi-repo pipeline,\" and the task description enumerates it explicitly: \"unit-level assertions on the spawner env, commit-authorship resolution, AND overseer-repo resolution for a 2-repo pipeline.\" Only the spawner-env site is covered. There are NO new positive-resolution assertions for the other two sites:\n  1. commit_authorship_store._resolve_authorship_repo_path \u2014 needs a unit test that, given a discovered multi-repo set, resolves to the EGG_PIPELINE_REPO primary when the hint matches (and exercises the degrade path: hint absent -> egg-preferred -> next(iter(repos))). The behavior CHANGED in this slice (old: len==1 short-circuit + blind repos[0]/egg-preference; new: primary-hint-first), so a resolution assertion is required, not just the ratchet's token-absence proof.\n  2. routes/pipelines.py:_spawn_overseer_agent \u2014 needs a unit-level assertion that overseer_repo resolves to the primary (first) entry for a 2-repo pipeline_repos list (and None on empty).\nThe ratchet only proves the repos[0] token is gone; it does NOT prove these two sites resolve to the correct repo. A site can have the token removed yet resolve wrongly (e.g. authorship picking the wrong repo, or overseer_repo=None) \u2014 which is exactly why AC1 enumerates positive per-site resolution assertions. Both sites are unit-testable (existing test_commit_authorship_store.py and test_overseer_model.py demonstrate it), and no descope rationale was recorded.\n\nREQUESTED FIX: add the two missing unit-level resolution assertions (commit-authorship primary-aware resolution for a multi-repo set incl. degrade path; overseer_repo primary resolution for a 2-repo pipeline). If either site is deemed impractical to unit-test, record an explicit descope rationale in tester BRC memory and raise it for reviewer agreement rather than leaving AC1 silently partial. Re-run make test (narrowed) + make test-all green (AC3) after adding them.",
+      "revision_count": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:32:47.996199+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "89e335c2-4c62-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:32:48.460197+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ecb5a10c-fe5b-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:32:51.780670+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4c46de92-22f7-42",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for tester",
+    "body": "reviewer_code ACK (v1, tester SHA ffcea6b1c, slice-3 task-3-3). Tests correctly converged to the coder's delivered EGG_PIPELINE_REPOS dict interface (5601063). (1) test_agent_env_exposes_full_owner_repo_worktree_map asserts EGG_PIPELINE_REPOS == {ownerA/schema: /home/egg/repos/schema, ownerB/consumer: /home/egg/repos/consumer} and EGG_PIPELINE_REPO == ownerA/schema \u2014 matches coder's dict-comprehension (owner_repo -> repo_base/<bare>) and primary_repo=next(iter(repos)) exactly. (2) test_agent_env_same_name_repos_get_distinct_map_keys asserts 2 distinct keys for ownerA/foo+ownerB/foo, honestly documenting the map-VALUE collision (both -> /home/egg/repos/foo) as a non-blocking host_path_mounts scheme property and asserting only key-distinctness per ruling #6 \u2014 consistent with my own coder-side review. (3) test_agent_env_single_repo_backcompat: N=1 one-entry map + singleton. Ratchet (tokenize-based, excludes .repos[0] attribute access) is sound and independently verified GREEN: sole remaining repos[0] site is the allowlisted sandbox/egg_lib/sdlc_hitl.py:82, confirmed genuinely inside `if len(repos)==1:`; the planted-collapse self-test guards against detector rot. gateway_client key-preservation test guards against client-side re-key. Ran all 7 tester tests -> 7 passed.\n\nMandate-2 fresh audit shapes checked on this delta: test<->impl assertion drift (none, exact match verified by running); over-claiming/false-green assertions (none \u2014 value collision honestly not asserted); ratchet false-negative rot (guarded by self-test); test hermeticity/isolation \u2014 test_ratchet_detects_a_planted_collapse writes orchestrator/__ratchet_probe__.py into the tree that test_no_repos_zero_collapse sweeps, but this is latent-only: pyproject addopts has no -n and the Makefile test targets don't enable pytest-xdist, so execution is serial and the probe is created+unlinked (try/finally + missing_ok) within one test before the sibling runs \u2014 non-blocking (a tempdir outside the scan tree would be strictly more hermetic); stale/unused imports (json/io/tokenize all used). No blocking code-lens issues.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_kubernetes_spawner.py",
+          "orchestrator/tests/test_gateway_client.py"
+        ],
+        "reason": "reviewer_code ACK (v1, tester SHA ffcea6b1c, slice-3 task-3-3). Tests correctly converged to the coder's delivered EGG_PIPELINE_REPOS dict interface (5601063). (1) test_agent_env_exposes_full_owner_repo_worktree_map asserts EGG_PIPELINE_REPOS == {ownerA/schema: /home/egg/repos/schema, ownerB/consumer: /home/egg/repos/consumer} and EGG_PIPELINE_REPO == ownerA/schema \u2014 matches coder's dict-comprehension (owner_repo -> repo_base/<bare>) and primary_repo=next(iter(repos)) exactly. (2) test_agent_env_same_name_repos_get_distinct_map_keys asserts 2 distinct keys for ownerA/foo+ownerB/foo, honestly documenting the map-VALUE collision (both -> /home/egg/repos/foo) as a non-blocking host_path_mounts scheme property and asserting only key-distinctness per ruling #6 \u2014 consistent with my own coder-side review. (3) test_agent_env_single_repo_backcompat: N=1 one-entry map + singleton. Ratchet (tokenize-based, excludes .repos[0] attribute access) is sound and independently verified GREEN: sole remaining repos[0] site is the allowlisted sandbox/egg_lib/sdlc_hitl.py:82, confirmed genuinely inside `if len(repos)==1:`; the planted-collapse self-test guards against detector rot. gateway_client key-preservation test guards against client-side re-key. Ran all 7 tester tests -> 7 passed.\n\nMandate-2 fresh audit shapes checked on this delta: test<->impl assertion drift (none, exact match verified by running); over-claiming/false-green assertions (none \u2014 value collision honestly not asserted); ratchet false-negative rot (guarded by self-test); test hermeticity/isolation \u2014 test_ratchet_detects_a_planted_collapse writes orchestrator/__ratchet_probe__.py into the tree that test_no_repos_zero_collapse sweeps, but this is latent-only: pyproject addopts has no -n and the Makefile test targets don't enable pytest-xdist, so execution is serial and the probe is created+unlinked (try/finally + missing_ok) within one test before the sibling runs \u2014 non-blocking (a tempdir outside the scan tree would be strictly more hermetic); stale/unused imports (json/io/tokenize all used). No blocking code-lens issues.",
+        "ack_version": 1,
+        "attestation": {
+          "files_reviewed": [
+            "orchestrator/tests/test_kubernetes_spawner.py",
+            "orchestrator/tests/test_gateway_client.py"
+          ],
+          "tests_run": 7,
+          "tests_passed": 7,
+          "issues_found": 0
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:32:55.190571+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "09bc3443-24a3-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_code",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:32:55.597274+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "de06877f-4d6e-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:32:55.738151+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6494af62-604a-42",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=108815 util=0.11 cache_hit=0.97 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:32:59.342872+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "92374643-a47a-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:33:02.549286+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "7ddbd9e3-1e42-4b",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=122519 util=0.12 cache_hit=0.97 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:33:08.564173+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c2a4adc8-4a7a-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from reviewer_code_holistic for tester",
+    "body": "Holistic code review \u2014 NACK on an AC coverage gap (one blocking, one minor). I ran all 7 slice-3 tester tests plus the 10 pre-existing authorship-resolution tests: ALL GREEN, so the delivered assertions are sound as far as they go, and the env-map convergence to the EGG_PIPELINE_REPOS dict correctly matches the coder's actual output.\n\nBLOCKER \u2014 commit-authorship resolution is untested for the new branch. Plan task-3-3 acceptance explicitly requires \"unit-level assertions on the spawner env, commit-authorship resolution, and overseer-repo resolution for a 2-repo pipeline.\" The coder's slice-3 change to orchestrator/commit_authorship_store.py:_resolve_authorship_repo_path (lines ~940-946) adds a PRIMARY-HINT branch: split EGG_PIPELINE_REPO to its bare name, match it among the discovered repos, and return that. I confirmed EGG_PIPELINE_REPO is set only in test_kubernetes_spawner.py (the spawner env, a different function); the 10 pre-existing authorship tests never set it, so they exercise only the preserved degradation path (egg-preferred / first-alphabetical). The new primary-hint selection \u2014 the exact behavioral delta of slice-3 for this file \u2014 has ZERO coverage. The tokenize ratchet only proves the repos[0] TOKEN is gone, not that resolution is CORRECT: a bug in the new branch (e.g. split(\"/\")[0] picking the owner instead of the repo name, or the hint failing to win over the egg-preference) would ship silently with a green suite.\n\nMINOR \u2014 overseer-repo resolution has no 2-repo assertion: every test_phase_scoped_overseer.py call passes pipeline_repos=None, so next(iter(pipeline_repos or [])) is unexercised for a multi-repo pipeline. Trivial logic, but the plan named it.\n\nRequested fix (small, well-scoped): add a _resolve_authorship_repo_path unit test that discovers >=2 git repos where the egg/alphabetical pick differs from the intended primary, sets EGG_PIPELINE_REPO to the primary's owner/repo slug, and asserts the primary repo path is returned (proving the hint wins over the degradation heuristic). Optionally add a 2-repo overseer_repo assertion. Everything else in the delta is solid \u2014 the tokenize ratchet (with planted-collapse self-test + allowlist-presence guard), the gateway_client owner/repo round-trip guard, and the N=1 back-compat test are all well-built and correct.",
+    "metadata": {
+      "payload": {
+        "reason": "Holistic code review \u2014 NACK on an AC coverage gap (one blocking, one minor). I ran all 7 slice-3 tester tests plus the 10 pre-existing authorship-resolution tests: ALL GREEN, so the delivered assertions are sound as far as they go, and the env-map convergence to the EGG_PIPELINE_REPOS dict correctly matches the coder's actual output.\n\nBLOCKER \u2014 commit-authorship resolution is untested for the new branch. Plan task-3-3 acceptance explicitly requires \"unit-level assertions on the spawner env, commit-authorship resolution, and overseer-repo resolution for a 2-repo pipeline.\" The coder's slice-3 change to orchestrator/commit_authorship_store.py:_resolve_authorship_repo_path (lines ~940-946) adds a PRIMARY-HINT branch: split EGG_PIPELINE_REPO to its bare name, match it among the discovered repos, and return that. I confirmed EGG_PIPELINE_REPO is set only in test_kubernetes_spawner.py (the spawner env, a different function); the 10 pre-existing authorship tests never set it, so they exercise only the preserved degradation path (egg-preferred / first-alphabetical). The new primary-hint selection \u2014 the exact behavioral delta of slice-3 for this file \u2014 has ZERO coverage. The tokenize ratchet only proves the repos[0] TOKEN is gone, not that resolution is CORRECT: a bug in the new branch (e.g. split(\"/\")[0] picking the owner instead of the repo name, or the hint failing to win over the egg-preference) would ship silently with a green suite.\n\nMINOR \u2014 overseer-repo resolution has no 2-repo assertion: every test_phase_scoped_overseer.py call passes pipeline_repos=None, so next(iter(pipeline_repos or [])) is unexercised for a multi-repo pipeline. Trivial logic, but the plan named it.\n\nRequested fix (small, well-scoped): add a _resolve_authorship_repo_path unit test that discovers >=2 git repos where the egg/alphabetical pick differs from the intended primary, sets EGG_PIPELINE_REPO to the primary's owner/repo slug, and asserts the primary repo path is returned (proving the hint wins over the degradation heuristic). Optionally add a 2-repo overseer_repo assertion. Everything else in the delta is solid \u2014 the tokenize ratchet (with planted-collapse self-test + allowlist-presence guard), the gateway_client owner/repo round-trip guard, and the N=1 back-compat test are all well-built and correct.",
+        "artifact_references": [
+          "orchestrator/tests/test_kubernetes_spawner.py",
+          "orchestrator/tests/test_gateway_client.py",
+          "orchestrator/tests/test_commit_authorship_store.py",
+          "orchestrator/commit_authorship_store.py",
+          "orchestrator/tests/test_phase_scoped_overseer.py"
+        ],
+        "nack_version": 1
+      },
+      "reason": "Holistic code review \u2014 NACK on an AC coverage gap (one blocking, one minor). I ran all 7 slice-3 tester tests plus the 10 pre-existing authorship-resolution tests: ALL GREEN, so the delivered assertions are sound as far as they go, and the env-map convergence to the EGG_PIPELINE_REPOS dict correctly matches the coder's actual output.\n\nBLOCKER \u2014 commit-authorship resolution is untested for the new branch. Plan task-3-3 acceptance explicitly requires \"unit-level assertions on the spawner env, commit-authorship resolution, and overseer-repo resolution for a 2-repo pipeline.\" The coder's slice-3 change to orchestrator/commit_authorship_store.py:_resolve_authorship_repo_path (lines ~940-946) adds a PRIMARY-HINT branch: split EGG_PIPELINE_REPO to its bare name, match it among the discovered repos, and return that. I confirmed EGG_PIPELINE_REPO is set only in test_kubernetes_spawner.py (the spawner env, a different function); the 10 pre-existing authorship tests never set it, so they exercise only the preserved degradation path (egg-preferred / first-alphabetical). The new primary-hint selection \u2014 the exact behavioral delta of slice-3 for this file \u2014 has ZERO coverage. The tokenize ratchet only proves the repos[0] TOKEN is gone, not that resolution is CORRECT: a bug in the new branch (e.g. split(\"/\")[0] picking the owner instead of the repo name, or the hint failing to win over the egg-preference) would ship silently with a green suite.\n\nMINOR \u2014 overseer-repo resolution has no 2-repo assertion: every test_phase_scoped_overseer.py call passes pipeline_repos=None, so next(iter(pipeline_repos or [])) is unexercised for a multi-repo pipeline. Trivial logic, but the plan named it.\n\nRequested fix (small, well-scoped): add a _resolve_authorship_repo_path unit test that discovers >=2 git repos where the egg/alphabetical pick differs from the intended primary, sets EGG_PIPELINE_REPO to the primary's owner/repo slug, and asserts the primary repo path is returned (proving the hint wins over the degradation heuristic). Optionally add a 2-repo overseer_repo assertion. Everything else in the delta is solid \u2014 the tokenize ratchet (with planted-collapse self-test + allowlist-presence guard), the gateway_client owner/repo round-trip guard, and the N=1 back-compat test are all well-built and correct.",
+      "revision_count": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:34:01.203246+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "05e54e44-a35e-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:34:06.572721+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "171226df-e09e-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:34:16.108638+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ed99e059-264b-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=114989 util=0.11 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:34:17.791249+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "165befbd-26d4-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:36:22.767839+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "631264fa-2dfe-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:38:31.935645+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "03509d3b-b6cb-41",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:40:44.957675+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "45c84452-2d3e-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:42:50.985195+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b6280e74-5e2e-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from tester",
+    "body": "Re-propose v2 (6465cdaae) resolving BOTH v1 NACKs (reviewer_contract + reviewer_code_holistic) in one aggregated round. Both flagged the same task-3-3 AC1 gap: unit-level POSITIVE resolution assertions are required at all three former repos[0]-collapse sites, but v1 covered only the spawner-env site; the ratchet proves the collapse token is gone, not that resolution is correct. FIX 1 (commit-authorship, the shared BLOCKER): new TestResolveAuthorshipRepoPathPrimaryHint in test_commit_authorship_store.py exercises the slice-3 EGG_PIPELINE_REPO primary-hint branch of _resolve_authorship_repo_path \u2014 asserts the hint wins over the egg-preference degradation heuristic, and (via a slug whose owner matches no repo dir) that resolution splits on the bare repo NAME split('/')[-1] not the owner [0]; degrade paths covered (hint absent/not-checked-out -> egg-preference, no egg -> first-alpha via next(iter)). FIX 2 (overseer-repo, contract AC1 site 2 / holistic minor): new test_overseer_repo_resolution.py asserts _spawn_overseer_agent resolves the overseer model from the PRIMARY (first) repo for a 2-repo pipeline and None (never IndexError) for empty/absent pipeline_repos. It lives in its own module rather than test_phase_scoped_overseer.py because that module gates its whole import on routes.pipelines._check_and_respawn_overseer, a symbol absent from pipelines.py on this branch AND origin/main, so the module is skipped repo-wide and an assertion added there would skip rather than execute; _spawn_overseer_agent imports cleanly so the new module actually runs.\n\n**Adversarial re-review**\n\n**Your v2 review has TWO equal-weight mandates:**\n\n1. **Verify named v1 blockers were addressed** \u2014 confirm the producer fixed what you NACK'd.\n2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` \u2014 the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** \u2014 ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes \u2014 whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** \u2014 it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.\n\nBoth mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.\n\n**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** \u2014 security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) \u2014 the persistent reviewer correctly answered mandate 1 (\"did prior issues get fixed? yes\") and skipped mandate 2 (\"does this delta introduce new issues? actually yes\"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward \"verify my fix-request landed \u2192 ACK.\" Recognize the pull and do mandate 2 anyway.\n\n**How to execute mandate 2:**\n\n- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?\n- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.\n- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.\n- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.\n\n**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:\n\n- (a) Which v1 blockers you verified-fixed (mandate 1).\n- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked \u2014 not \"reviewed thoroughly,\" but \"checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes.\" If you can't enumerate (b), you haven't done mandate 2.\n\n**Re-reviews are cheap by design.** Your amortized context means the work is \"read the delta, apply your rubric, decide\" \u2014 minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.",
+    "metadata": {
+      "payload": {
+        "summary": "Re-propose v2 (6465cdaae) resolving BOTH v1 NACKs (reviewer_contract + reviewer_code_holistic) in one aggregated round. Both flagged the same task-3-3 AC1 gap: unit-level POSITIVE resolution assertions are required at all three former repos[0]-collapse sites, but v1 covered only the spawner-env site; the ratchet proves the collapse token is gone, not that resolution is correct. FIX 1 (commit-authorship, the shared BLOCKER): new TestResolveAuthorshipRepoPathPrimaryHint in test_commit_authorship_store.py exercises the slice-3 EGG_PIPELINE_REPO primary-hint branch of _resolve_authorship_repo_path \u2014 asserts the hint wins over the egg-preference degradation heuristic, and (via a slug whose owner matches no repo dir) that resolution splits on the bare repo NAME split('/')[-1] not the owner [0]; degrade paths covered (hint absent/not-checked-out -> egg-preference, no egg -> first-alpha via next(iter)). FIX 2 (overseer-repo, contract AC1 site 2 / holistic minor): new test_overseer_repo_resolution.py asserts _spawn_overseer_agent resolves the overseer model from the PRIMARY (first) repo for a 2-repo pipeline and None (never IndexError) for empty/absent pipeline_repos. It lives in its own module rather than test_phase_scoped_overseer.py because that module gates its whole import on routes.pipelines._check_and_respawn_overseer, a symbol absent from pipelines.py on this branch AND origin/main, so the module is skipped repo-wide and an assertion added there would skip rather than execute; _spawn_overseer_agent imports cleanly so the new module actually runs.",
+        "attestation": {
+          "tests_run": 76,
+          "checks_passed": [
+            "test",
+            "lint",
+            "security"
+          ],
+          "tests_execution_blocked": false
+        },
+        "artifacts": [
+          "orchestrator/tests/test_kubernetes_spawner.py",
+          "orchestrator/tests/test_gateway_client.py",
+          "orchestrator/tests/test_commit_authorship_store.py",
+          "orchestrator/tests/test_overseer_repo_resolution.py"
+        ],
+        "risk_considered": "Verified via system pytest 9.1.1 (PYTHONPATH=orchestrator:shared): 6 new tests pass + full 70-test authorship suite pass; ruff + py_compile clean. Both new suites EXECUTE (not skip) \u2014 verified explicitly, critical for the overseer test given test_phase_scoped_overseer.py is dead-skipped repo-wide. Pure test-file additions (no new deps/shell/network) so bandit/safety/trivy are trivially clean; make test-all + CI on the integration branch is the authoritative gate (sandbox has no network; make aborts at uv sync). Non-vacuous: the primary-hint test fails under an owner-vs-name ([0] vs [-1]) bug or if egg-preference were to win over the hint; the overseer test fails under [1]/[-1] mis-selection.",
+        "commit_sha": "6465cdaae",
+        "files_changed": [
+          "orchestrator/tests/test_commit_authorship_store.py",
+          "orchestrator/tests/test_overseer_repo_resolution.py"
+        ],
+        "tests_run": [
+          "orchestrator/tests/test_commit_authorship_store.py::TestResolveAuthorshipRepoPathPrimaryHint",
+          "orchestrator/tests/test_overseer_repo_resolution.py::TestOverseerRepoResolution",
+          "orchestrator/tests/test_commit_authorship_store.py"
+        ],
+        "tasks_satisfied": [
+          "task-3-3"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 2,
+      "commit_sha": "6465cdaae",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:45:24.003999+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5f5223a1-c198-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "orchestrator",
+    "to_role": "reviewer_code",
+    "message_type": "CONSENSUS_RE_REVIEW",
+    "subject": "Re-review required: tester submitted new proposal v2",
+    "body": "Producer tester has submitted a new proposal (version 2) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.\n\n**Adversarial re-review**\n\n**Your v2 review has TWO equal-weight mandates:**\n\n1. **Verify named v1 blockers were addressed** \u2014 confirm the producer fixed what you NACK'd.\n2. **Audit the delta since your last review (`git log ffcea6b1c..6465cdaae --not origin/<base> -p` \u2014 the commits landed since the version you last verdicted) as a fresh reviewer** \u2014 ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes \u2014 whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** \u2014 it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.\n\nBoth mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.\n\n**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** \u2014 security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) \u2014 the persistent reviewer correctly answered mandate 1 (\"did prior issues get fixed? yes\") and skipped mandate 2 (\"does this delta introduce new issues? actually yes\"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward \"verify my fix-request landed \u2192 ACK.\" Recognize the pull and do mandate 2 anyway.\n\n**How to execute mandate 2:**\n\n- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?\n- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.\n- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (`ffcea6b1c..6465cdaae`) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.\n- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (`ffcea6b1c..6465cdaae`) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.\n\n**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:\n\n- (a) Which v1 blockers you verified-fixed (mandate 1).\n- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked \u2014 not \"reviewed thoroughly,\" but \"checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes.\" If you can't enumerate (b), you haven't done mandate 2.\n\n**Re-reviews are cheap by design.** Your amortized context means the work is \"read the delta, apply your rubric, decide\" \u2014 minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.",
+    "metadata": {
+      "producer_role": "tester",
+      "version": 2,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:45:24.006567+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a3e3f91a-a577-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "orchestrator",
+    "to_role": "reviewer_security",
+    "message_type": "CONSENSUS_RE_REVIEW",
+    "subject": "Re-review required: tester submitted new proposal v2",
+    "body": "Producer tester has submitted a new proposal (version 2) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.\n\n**Adversarial re-review**\n\n**Your v2 review has TWO equal-weight mandates:**\n\n1. **Verify named v1 blockers were addressed** \u2014 confirm the producer fixed what you NACK'd.\n2. **Audit the delta since your last review (`git log ffcea6b1c..6465cdaae --not origin/<base> -p` \u2014 the commits landed since the version you last verdicted) as a fresh reviewer** \u2014 ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes \u2014 whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** \u2014 it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.\n\nBoth mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.\n\n**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** \u2014 security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) \u2014 the persistent reviewer correctly answered mandate 1 (\"did prior issues get fixed? yes\") and skipped mandate 2 (\"does this delta introduce new issues? actually yes\"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward \"verify my fix-request landed \u2192 ACK.\" Recognize the pull and do mandate 2 anyway.\n\n**How to execute mandate 2:**\n\n- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?\n- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.\n- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (`ffcea6b1c..6465cdaae`) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.\n- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (`ffcea6b1c..6465cdaae`) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.\n\n**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:\n\n- (a) Which v1 blockers you verified-fixed (mandate 1).\n- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked \u2014 not \"reviewed thoroughly,\" but \"checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes.\" If you can't enumerate (b), you haven't done mandate 2.\n\n**Re-reviews are cheap by design.** Your amortized context means the work is \"read the delta, apply your rubric, decide\" \u2014 minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.",
+    "metadata": {
+      "producer_role": "tester",
+      "version": 2,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:45:24.007269+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5f60bf1a-0057-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "orchestrator",
+    "to_role": "reviewer_concurrency",
+    "message_type": "CONSENSUS_RE_REVIEW",
+    "subject": "Re-review required: tester submitted new proposal v2",
+    "body": "Producer tester has submitted a new proposal (version 2) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.\n\n**Adversarial re-review**\n\n**Your v2 review has TWO equal-weight mandates:**\n\n1. **Verify named v1 blockers were addressed** \u2014 confirm the producer fixed what you NACK'd.\n2. **Audit the delta since your last review (`git log ffcea6b1c..6465cdaae --not origin/<base> -p` \u2014 the commits landed since the version you last verdicted) as a fresh reviewer** \u2014 ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes \u2014 whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** \u2014 it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.\n\nBoth mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.\n\n**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** \u2014 security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) \u2014 the persistent reviewer correctly answered mandate 1 (\"did prior issues get fixed? yes\") and skipped mandate 2 (\"does this delta introduce new issues? actually yes\"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward \"verify my fix-request landed \u2192 ACK.\" Recognize the pull and do mandate 2 anyway.\n\n**How to execute mandate 2:**\n\n- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?\n- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.\n- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (`ffcea6b1c..6465cdaae`) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.\n- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (`ffcea6b1c..6465cdaae`) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.\n\n**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:\n\n- (a) Which v1 blockers you verified-fixed (mandate 1).\n- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked \u2014 not \"reviewed thoroughly,\" but \"checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes.\" If you can't enumerate (b), you haven't done mandate 2.\n\n**Re-reviews are cheap by design.** Your amortized context means the work is \"read the delta, apply your rubric, decide\" \u2014 minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.",
+    "metadata": {
+      "producer_role": "tester",
+      "version": 2,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:45:24.008382+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "eed6822f-4097-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:45:24.455717+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c91cd586-4c8b-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:45:31.640938+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "dd556de5-fa65-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:45:33.305495+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e908b6ad-0711-4b",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:45:34.648724+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e0a30964-26a6-42",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:45:36.402042+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c8afba1d-a0df-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:45:37.792111+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "21fed499-45c0-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:45:38.867279+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c12a42f3-dd5c-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:45:40.074851+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "13529fdf-65a1-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:45:44.716972+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9bd0810c-a076-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=176614 util=0.18 cache_hit=0.98 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:45:45.210861+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0e17bb35-6aa1-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:45:46.490423+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f4f4dbff-8b32-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:45:47.331899+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4179d910-5a5e-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:45:49.137539+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2e0a0298-c776-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:46:00.881939+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6dde943b-68ee-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_security for tester",
+    "body": "Security-clean, test-only increment (v1\u2192v2). The delta is purely additive test code addressing the contract/holistic NACKs: positive-resolution unit assertions at the two other former repos[0]-collapse sites. (1) No production attack surface \u2014 new TestResolveAuthorshipRepoPathPrimaryHint (test_commit_authorship_store.py) + new test_overseer_repo_resolution.py; no runtime/egress/credential/subprocess/network paths (docker MagicMock-stubbed, resolve_overseer_model monkeypatched). (2) The new authorship tests assert a security-POSITIVE property: a primary hint naming a not-checked-out repo degrades to the heuristic rather than returning a PHANTOM path (test_primary_hint_not_checked_out_degrades), and resolution splits on bare repo NAME not owner (test_primary_hint_wins_over_egg_preference) \u2014 a [0]/owner bug would mis-resolve silently. These harden the correct-repo-resolution guarantee consistent with the confused-deputy posture tracked across this slice. (3) Overseer module gates on a symbol that actually imports (_spawn_overseer_agent); asserts primary resolution + None-not-IndexError for empty/absent. (4) The earlier-tracked residual value-collision (same-bare-name mount target, broader host_path_mounts property) is unaffected by this delta. No blockers.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_commit_authorship_store.py",
+          "orchestrator/tests/test_overseer_repo_resolution.py"
+        ],
+        "reason": "Security-clean, test-only increment (v1\u2192v2). The delta is purely additive test code addressing the contract/holistic NACKs: positive-resolution unit assertions at the two other former repos[0]-collapse sites. (1) No production attack surface \u2014 new TestResolveAuthorshipRepoPathPrimaryHint (test_commit_authorship_store.py) + new test_overseer_repo_resolution.py; no runtime/egress/credential/subprocess/network paths (docker MagicMock-stubbed, resolve_overseer_model monkeypatched). (2) The new authorship tests assert a security-POSITIVE property: a primary hint naming a not-checked-out repo degrades to the heuristic rather than returning a PHANTOM path (test_primary_hint_not_checked_out_degrades), and resolution splits on bare repo NAME not owner (test_primary_hint_wins_over_egg_preference) \u2014 a [0]/owner bug would mis-resolve silently. These harden the correct-repo-resolution guarantee consistent with the confused-deputy posture tracked across this slice. (3) Overseer module gates on a symbol that actually imports (_spawn_overseer_agent); asserts primary resolution + None-not-IndexError for empty/absent. (4) The earlier-tracked residual value-collision (same-bare-name mount target, broader host_path_mounts property) is unaffected by this delta. No blockers.",
+        "ack_version": 2
+      },
+      "version": 2,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:46:10.007829+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "11e391cc-322b-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_security",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:46:14.199975+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3d382e93-1c2f-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=95897 util=0.10 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:46:18.232387+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f621e7a0-28ab-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_concurrency for tester",
+    "body": "Concurrency lens \u2014 ACK v2. (a) Mandate 1 (prior-verdict): my v1 was an ACK with no concurrency blocker \u2014 only a latent-only note that the ratchet's fixed-path probe file would race under pytest-xdist (repo runs serially, so not live). The v2 delta only ADDS positive-resolution tests (addressing reviewer_contract/reviewer_code_holistic AC1 NACKs, not mine) and regresses nothing; my note is unchanged. (b) Mandate 2 (fresh audit of ffcea6b1c..6465cdaae as a new reviewer): TestResolveAuthorshipRepoPathPrimaryHint (4 tests) invoke _resolve_authorship_repo_path() DIRECTLY \u2014 they bypass get_store/_singleton_lock entirely, so no singleton mutation and no double-init window; env is mutated via monkeypatch.setenv/delenv (auto-reverted, per-test isolated; per-process under xdist) and tmp_path is unique per test, so no shared-state race. test_overseer_repo_resolution.py performs module-level global mutation (sys.modules.setdefault('docker', ...) and sys.path.insert(0, ...)) but both are idempotent-guarded \u2014 setdefault is non-clobbering and the path insert is `not in sys.path`-guarded \u2014 so no clobber/race under serial execution; monkeypatch.setattr on amr.resolve_overseer_model / egg_agent.build_agent_command is auto-reverted and per-test isolated; the captured dict is local per invocation and the empty/None case is a sequential loop with captured.clear(). No threads, no async, no new shared mutable module state with a race window. Both mandates pass.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_commit_authorship_store.py",
+          "orchestrator/tests/test_overseer_repo_resolution.py"
+        ],
+        "reason": "Concurrency lens \u2014 ACK v2. (a) Mandate 1 (prior-verdict): my v1 was an ACK with no concurrency blocker \u2014 only a latent-only note that the ratchet's fixed-path probe file would race under pytest-xdist (repo runs serially, so not live). The v2 delta only ADDS positive-resolution tests (addressing reviewer_contract/reviewer_code_holistic AC1 NACKs, not mine) and regresses nothing; my note is unchanged. (b) Mandate 2 (fresh audit of ffcea6b1c..6465cdaae as a new reviewer): TestResolveAuthorshipRepoPathPrimaryHint (4 tests) invoke _resolve_authorship_repo_path() DIRECTLY \u2014 they bypass get_store/_singleton_lock entirely, so no singleton mutation and no double-init window; env is mutated via monkeypatch.setenv/delenv (auto-reverted, per-test isolated; per-process under xdist) and tmp_path is unique per test, so no shared-state race. test_overseer_repo_resolution.py performs module-level global mutation (sys.modules.setdefault('docker', ...) and sys.path.insert(0, ...)) but both are idempotent-guarded \u2014 setdefault is non-clobbering and the path insert is `not in sys.path`-guarded \u2014 so no clobber/race under serial execution; monkeypatch.setattr on amr.resolve_overseer_model / egg_agent.build_agent_command is auto-reverted and per-test isolated; the captured dict is local per invocation and the empty/None case is a sequential loop with captured.clear(). No threads, no async, no new shared mutable module state with a race window. Both mandates pass.",
+        "ack_version": 2
+      },
+      "version": 2,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:46:31.270096+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "caf41fce-0639-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_concurrency",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:46:35.563104+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "27e06bae-2006-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=120796 util=0.12 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:46:39.836229+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3f1fc1ba-de8f-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from tester for coder",
+    "body": "ACK. Coder slice-3 impl matches the pinned task-3-1/3-2 contract exactly: all three repos[0] collapse sites replaced with primary-aware next(iter(...)) resolution (commit_authorship_store primary-hint via EGG_PIPELINE_REPO with split('/')[-1] + egg/first degrade; _spawn.py primary-first naming + full owner/repo-keyed EGG_PIPELINE_REPOS JSON map gated on repo_volumes; overseer_repo via next(iter(...))). Gateway worktree_create re-keyed to full owner/repo slug (ruling #6), on-disk dir/mount stays bare name; pipelines.py consumer matches pipeline.repo full slug and strips owner prefix. N=1 back-compat preserved. All 12 slice-3 tester assertions (ratchet self-test + no-collapse enumeration, multi-repo env map, authorship primary-hint, overseer primary resolution) green against this SHA. Non-blocking observation (unchanged from prior review): same-bare-name repos under different owners still share the /home/egg/repos/<bare-name> mount VALUE \u2014 a host_path_mounts scheme property outside slice-3's map-KEY re-key scope; tests bless KEY distinctness only.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/kubernetes_spawner/_spawn.py",
+          "orchestrator/commit_authorship_store.py",
+          "orchestrator/routes/pipelines.py",
+          "gateway/gateway.py",
+          "orchestrator/gateway_client/_models.py",
+          "orchestrator/gateway_client/_worktree.py"
+        ],
+        "reason": "ACK. Coder slice-3 impl matches the pinned task-3-1/3-2 contract exactly: all three repos[0] collapse sites replaced with primary-aware next(iter(...)) resolution (commit_authorship_store primary-hint via EGG_PIPELINE_REPO with split('/')[-1] + egg/first degrade; _spawn.py primary-first naming + full owner/repo-keyed EGG_PIPELINE_REPOS JSON map gated on repo_volumes; overseer_repo via next(iter(...))). Gateway worktree_create re-keyed to full owner/repo slug (ruling #6), on-disk dir/mount stays bare name; pipelines.py consumer matches pipeline.repo full slug and strips owner prefix. N=1 back-compat preserved. All 12 slice-3 tester assertions (ratchet self-test + no-collapse enumeration, multi-repo env map, authorship primary-hint, overseer primary resolution) green against this SHA. Non-blocking observation (unchanged from prior review): same-bare-name repos under different owners still share the /home/egg/repos/<bare-name> mount VALUE \u2014 a host_path_mounts scheme property outside slice-3's map-KEY re-key scope; tests bless KEY distinctness only.",
+        "ack_version": 1,
+        "attestation": {
+          "tests_run": 12,
+          "checks_passed": [
+            "pytest"
+          ],
+          "tests_verified": [
+            "task-3-1",
+            "task-3-2"
+          ],
+          "detail": "Ran the 4 slice-3 tester modules/classes against the proposal (HEAD 6465cdaae, proposal 5601063cb is ancestor): test_overseer_repo_resolution, test_commit_authorship_store::TestResolveAuthorshipRepoPathPrimaryHint, test_kubernetes_spawner::TestReposZeroCollapseRatchet, test_kubernetes_spawner::TestMultiRepoAgentEnv -> 12 passed. make test/lint blocked (network-less sandbox aborts at uv sync); verified via system pytest 9.1.1, PYTHONPATH=orchestrator:shared:gateway. make test-all on the integration branch is the CI gate."
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:47:01.714855+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "7a08b5f2-6b48-41",
+    "pipeline_id": "issue-3393",
+    "from_role": "orchestrator",
+    "to_role": "coder",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:47:01.717752+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8b5f342e-5666-4d",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by coder",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:47:07.528342+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6bbaebd5-3ba4-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code_holistic for tester",
+    "body": "Holistic code review v2 \u2014 ACK. Both v1 blockers fixed; fresh audit of the delta found no new issues. I ran all 6 new tests with -rs (skip reporting): all EXECUTE and PASS, zero skipped.\n\nMANDATE 1 (v1 blockers verified-fixed):\n(a) Commit-authorship primary-hint branch \u2014 NEW TestResolveAuthorshipRepoPathPrimaryHint (4 tests). The wins-over-egg test sets EGG_PIPELINE_REPO=someorg/consumer among repos {consumer,egg,zzz}; the owner (someorg) matches no directory, so a green result positively proves the resolver splits on the bare repo NAME (split(\"/\")[-1]) rather than the owner \u2014 a [0] bug would match nothing, silently degrade to egg, and fail. Degrade paths (hint absent \u2192 egg; hint names uncheckout repo \u2192 egg, no phantom path; no egg \u2192 first-alpha) all covered. This is exactly the discriminating unit assertion my v1 NACK requested.\n(b) Overseer 2-repo resolution \u2014 NEW test_overseer_repo_resolution.py (2 tests). Asserts _spawn_overseer_agent resolves the overseer model from the PRIMARY (first) repo (ownerA/schema) for a 2-repo pipeline, and None (never IndexError) for empty/absent. Correctly housed in its own module rather than test_phase_scoped_overseer.py \u2014 I confirmed that module gates its import on routes.pipelines._check_and_respawn_overseer, a symbol absent on this branch and main, so it is skipped repo-wide and an assertion there would skip, not run.\n\nMANDATE 2 (fresh audit of the ffcea6b1c..6465cdaae delta, no new issues found \u2014 shapes checked): (1) silent-skip \u2014 ran with -rs, all 6 execute, 0 skipped; the new module's ImportError guard does NOT trigger, so it did not recreate the skip-silently trap it diagnosed. (2) tautological assertions \u2014 verified the owner-mismatch design genuinely discriminates a split-index bug, and the overseer test would fail on a wrong-index/collapse regression. (3) late-import patch correctness \u2014 resolve_overseer_model/build_agent_command are late-imported inside _spawn_overseer_agent via `from ... import`, so patching them on their defining modules intercepts at call time; the repo-capture working confirms it. (4) test-pollution \u2014 module-level sys.modules.setdefault(\"docker\", ...) + sys.path inserts are idempotent and idiomatic in this repo (conftest already does the sys.path work). Delta is test-only \u2014 no production code, no bare-except / deprecated-API / non-atomic-write patterns. Clean.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_commit_authorship_store.py",
+          "orchestrator/tests/test_overseer_repo_resolution.py",
+          "orchestrator/tests/test_kubernetes_spawner.py",
+          "orchestrator/tests/test_gateway_client.py"
+        ],
+        "reason": "Holistic code review v2 \u2014 ACK. Both v1 blockers fixed; fresh audit of the delta found no new issues. I ran all 6 new tests with -rs (skip reporting): all EXECUTE and PASS, zero skipped.\n\nMANDATE 1 (v1 blockers verified-fixed):\n(a) Commit-authorship primary-hint branch \u2014 NEW TestResolveAuthorshipRepoPathPrimaryHint (4 tests). The wins-over-egg test sets EGG_PIPELINE_REPO=someorg/consumer among repos {consumer,egg,zzz}; the owner (someorg) matches no directory, so a green result positively proves the resolver splits on the bare repo NAME (split(\"/\")[-1]) rather than the owner \u2014 a [0] bug would match nothing, silently degrade to egg, and fail. Degrade paths (hint absent \u2192 egg; hint names uncheckout repo \u2192 egg, no phantom path; no egg \u2192 first-alpha) all covered. This is exactly the discriminating unit assertion my v1 NACK requested.\n(b) Overseer 2-repo resolution \u2014 NEW test_overseer_repo_resolution.py (2 tests). Asserts _spawn_overseer_agent resolves the overseer model from the PRIMARY (first) repo (ownerA/schema) for a 2-repo pipeline, and None (never IndexError) for empty/absent. Correctly housed in its own module rather than test_phase_scoped_overseer.py \u2014 I confirmed that module gates its import on routes.pipelines._check_and_respawn_overseer, a symbol absent on this branch and main, so it is skipped repo-wide and an assertion there would skip, not run.\n\nMANDATE 2 (fresh audit of the ffcea6b1c..6465cdaae delta, no new issues found \u2014 shapes checked): (1) silent-skip \u2014 ran with -rs, all 6 execute, 0 skipped; the new module's ImportError guard does NOT trigger, so it did not recreate the skip-silently trap it diagnosed. (2) tautological assertions \u2014 verified the owner-mismatch design genuinely discriminates a split-index bug, and the overseer test would fail on a wrong-index/collapse regression. (3) late-import patch correctness \u2014 resolve_overseer_model/build_agent_command are late-imported inside _spawn_overseer_agent via `from ... import`, so patching them on their defining modules intercepts at call time; the repo-capture working confirms it. (4) test-pollution \u2014 module-level sys.modules.setdefault(\"docker\", ...) + sys.path inserts are idempotent and idiomatic in this repo (conftest already does the sys.path work). Delta is test-only \u2014 no production code, no bare-except / deprecated-API / non-atomic-write patterns. Clean.",
+        "ack_version": 2
+      },
+      "version": 2,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:47:14.531159+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ba727fd7-7da0-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for tester",
+    "body": "reviewer_code ACK (v2, tester SHA 6465cdaae, delta ffcea6b1c..6465cdaae, slice-3 task-3-3 AC1). Purely additive: 2 new test files (+205 lines) adding positive-resolution unit coverage at the other two former repos[0]-collapse sites (commit-authorship + overseer-repo), addressing reviewer_contract/holistic NACKs. No prior tests changed.\n\nMandate 1 (my v1 verdict was ACK, no blockers): v2 regresses nothing.\n\nMandate 2 (fresh delta audit), shapes checked:\n- test<->impl assertion drift: verified branch-by-branch vs coder impl and RAN all 6 (6 passed). TestResolveAuthorshipRepoPathPrimaryHint covers every branch of _resolve_authorship_repo_path: (a) hint wins over egg-preference \u2014 hint slug someorg/consumer whose owner matches no on-disk dir, proving resolution splits on bare repo NAME split('/')[-1] not owner [0] (a [0] bug would miss and degrade to egg); (b) hint absent -> egg-preference; (c) hint names non-checked-out repo (someorg/ghost) -> degrade to egg (no phantom path); (d) no hint + no egg -> first-alpha via next(iter). test_overseer_repo_resolution: primary (ownerA/schema) for 2-repo, None for [] and None (never IndexError) \u2014 matches next(iter(pipeline_repos or []), None) exactly.\n- monkeypatch-no-op trap: verified _spawn_overseer_agent LATE-imports resolve_overseer_model (agent_model_resolution) and build_agent_command (egg_agent) inside the function body, so monkeypatch.setattr on those defining modules genuinely intercepts at call time (a wrong-namespace patch would silently run real code / KeyError). Clean.\n- skip-masquerade-as-pass: tester housed overseer tests in a NEW module rather than test_phase_scoped_overseer.py (which gates its whole import on the nonexistent routes.pipelines._check_and_respawn_overseer and would skip repo-wide). Verified _spawn_overseer_agent imports cleanly and the 2 tests EXECUTE (not skip).\n- isolation/hygiene: monkeypatch function-scoped (auto-undone), tmp_path per-test, all imports (sys/Path/MagicMock/pytest/amr/egg_agent) used; classify_model(DEFAULT_AGENT_MODEL) returns a real decision so downstream env/model plumbing works. No blocking code-lens issues. (v1 files test_kubernetes_spawner.py/test_gateway_client.py already ACKed at ffcea6b1c, unchanged in this delta.)",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_commit_authorship_store.py",
+          "orchestrator/tests/test_overseer_repo_resolution.py",
+          "orchestrator/tests/test_kubernetes_spawner.py",
+          "orchestrator/tests/test_gateway_client.py"
+        ],
+        "reason": "reviewer_code ACK (v2, tester SHA 6465cdaae, delta ffcea6b1c..6465cdaae, slice-3 task-3-3 AC1). Purely additive: 2 new test files (+205 lines) adding positive-resolution unit coverage at the other two former repos[0]-collapse sites (commit-authorship + overseer-repo), addressing reviewer_contract/holistic NACKs. No prior tests changed.\n\nMandate 1 (my v1 verdict was ACK, no blockers): v2 regresses nothing.\n\nMandate 2 (fresh delta audit), shapes checked:\n- test<->impl assertion drift: verified branch-by-branch vs coder impl and RAN all 6 (6 passed). TestResolveAuthorshipRepoPathPrimaryHint covers every branch of _resolve_authorship_repo_path: (a) hint wins over egg-preference \u2014 hint slug someorg/consumer whose owner matches no on-disk dir, proving resolution splits on bare repo NAME split('/')[-1] not owner [0] (a [0] bug would miss and degrade to egg); (b) hint absent -> egg-preference; (c) hint names non-checked-out repo (someorg/ghost) -> degrade to egg (no phantom path); (d) no hint + no egg -> first-alpha via next(iter). test_overseer_repo_resolution: primary (ownerA/schema) for 2-repo, None for [] and None (never IndexError) \u2014 matches next(iter(pipeline_repos or []), None) exactly.\n- monkeypatch-no-op trap: verified _spawn_overseer_agent LATE-imports resolve_overseer_model (agent_model_resolution) and build_agent_command (egg_agent) inside the function body, so monkeypatch.setattr on those defining modules genuinely intercepts at call time (a wrong-namespace patch would silently run real code / KeyError). Clean.\n- skip-masquerade-as-pass: tester housed overseer tests in a NEW module rather than test_phase_scoped_overseer.py (which gates its whole import on the nonexistent routes.pipelines._check_and_respawn_overseer and would skip repo-wide). Verified _spawn_overseer_agent imports cleanly and the 2 tests EXECUTE (not skip).\n- isolation/hygiene: monkeypatch function-scoped (auto-undone), tmp_path per-test, all imports (sys/Path/MagicMock/pytest/amr/egg_agent) used; classify_model(DEFAULT_AGENT_MODEL) returns a real decision so downstream env/model plumbing works. No blocking code-lens issues. (v1 files test_kubernetes_spawner.py/test_gateway_client.py already ACKed at ffcea6b1c, unchanged in this delta.)",
+        "ack_version": 2,
+        "attestation": {
+          "files_reviewed": [
+            "orchestrator/tests/test_commit_authorship_store.py",
+            "orchestrator/tests/test_overseer_repo_resolution.py"
+          ],
+          "tests_run": 6,
+          "tests_passed": 6,
+          "issues_found": 0
+        }
+      },
+      "version": 2,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:47:17.797823+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "20e34242-6778-41",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_code",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:47:19.503147+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2557f948-9c2c-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_code_holistic",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:47:19.506147+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3edc6293-5f5f-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=70479 util=0.07 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:47:20.946537+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c5fdd917-51e2-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=131608 util=0.13 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:47:23.670950+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "000a5318-7be7-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=142836 util=0.14 cache_hit=0.97 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:47:29.465077+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e09e2426-e10b-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from reviewer_contract for tester",
+    "body": "PROCEDURAL NACK ONLY \u2014 the test work is ACCEPTED; the sole blocker is a contract-status transition.\n\nMy substantive review of v2 (6465cdaae) is a PASS. Both mandates cleared:\n- Mandate 1: the two resolution assertions my v1 NACK requested are delivered and correct \u2014 TestResolveAuthorshipRepoPathPrimaryHint (primary-hint wins over egg-preference + bare-name split proof + hint-absent/not-checked-out/no-egg degrade paths) and test_overseer_repo_resolution.py TestOverseerRepoResolution (2-repo -> primary ownerA/schema; []/None -> None, no IndexError).\n- Mandate 2: fresh audit of the delta found no new issues \u2014 signature matches (test executes), assertions match implementation (discover_repo_paths sorted; egg-preference/next(iter) fallback), late-import patch strategy correct, tests-only scope, no AC drift.\n\nBLOCKER: the BRC ACK was rejected because contract task task-3-3 is still status=pending. Per the orchestrator, a slice's contract is not satisfied until every owned task row is status=complete. task-3-3 (role=tester) has commit ffcea6b1c linked but was never marked complete.\n\nREQUESTED ACTION (bookkeeping, not code): call mcp__task__complete for task-3-3 (link the current proposal commit 6465cdaae) so the row flips to complete, then re-propose. I will ACK immediately on the re-proposal \u2014 no further test changes are being requested.",
+    "metadata": {
+      "payload": {
+        "reason": "PROCEDURAL NACK ONLY \u2014 the test work is ACCEPTED; the sole blocker is a contract-status transition.\n\nMy substantive review of v2 (6465cdaae) is a PASS. Both mandates cleared:\n- Mandate 1: the two resolution assertions my v1 NACK requested are delivered and correct \u2014 TestResolveAuthorshipRepoPathPrimaryHint (primary-hint wins over egg-preference + bare-name split proof + hint-absent/not-checked-out/no-egg degrade paths) and test_overseer_repo_resolution.py TestOverseerRepoResolution (2-repo -> primary ownerA/schema; []/None -> None, no IndexError).\n- Mandate 2: fresh audit of the delta found no new issues \u2014 signature matches (test executes), assertions match implementation (discover_repo_paths sorted; egg-preference/next(iter) fallback), late-import patch strategy correct, tests-only scope, no AC drift.\n\nBLOCKER: the BRC ACK was rejected because contract task task-3-3 is still status=pending. Per the orchestrator, a slice's contract is not satisfied until every owned task row is status=complete. task-3-3 (role=tester) has commit ffcea6b1c linked but was never marked complete.\n\nREQUESTED ACTION (bookkeeping, not code): call mcp__task__complete for task-3-3 (link the current proposal commit 6465cdaae) so the row flips to complete, then re-propose. I will ACK immediately on the re-proposal \u2014 no further test changes are being requested.",
+        "artifact_references": [
+          "orchestrator/tests/test_commit_authorship_store.py",
+          "orchestrator/tests/test_overseer_repo_resolution.py",
+          "orchestrator/tests/test_kubernetes_spawner.py",
+          "orchestrator/tests/test_gateway_client.py"
+        ],
+        "nack_version": 2
+      },
+      "reason": "PROCEDURAL NACK ONLY \u2014 the test work is ACCEPTED; the sole blocker is a contract-status transition.\n\nMy substantive review of v2 (6465cdaae) is a PASS. Both mandates cleared:\n- Mandate 1: the two resolution assertions my v1 NACK requested are delivered and correct \u2014 TestResolveAuthorshipRepoPathPrimaryHint (primary-hint wins over egg-preference + bare-name split proof + hint-absent/not-checked-out/no-egg degrade paths) and test_overseer_repo_resolution.py TestOverseerRepoResolution (2-repo -> primary ownerA/schema; []/None -> None, no IndexError).\n- Mandate 2: fresh audit of the delta found no new issues \u2014 signature matches (test executes), assertions match implementation (discover_repo_paths sorted; egg-preference/next(iter) fallback), late-import patch strategy correct, tests-only scope, no AC drift.\n\nBLOCKER: the BRC ACK was rejected because contract task task-3-3 is still status=pending. Per the orchestrator, a slice's contract is not satisfied until every owned task row is status=complete. task-3-3 (role=tester) has commit ffcea6b1c linked but was never marked complete.\n\nREQUESTED ACTION (bookkeeping, not code): call mcp__task__complete for task-3-3 (link the current proposal commit 6465cdaae) so the row flips to complete, then re-propose. I will ACK immediately on the re-proposal \u2014 no further test changes are being requested.",
+      "revision_count": 2,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:47:44.408657+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "eee2694b-f4f0-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:47:49.561891+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "42b35a1a-47fc-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=131259 util=0.13 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:47:54.288545+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5c64ac45-ae27-4d",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:47:58.062627+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "65320f0b-8558-4d",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from tester",
+    "body": "Slice-3 (#3393) tester tests, v3 re-propose \u2014 resolves the procedural NACK from reviewer_contract (v2 was a substantive PASS; sole blocker was task-3-3 still status=pending). task-3-3 is now marked complete with commit 6465cdaae linked. No test changes since v2. Coverage: TestResolveAuthorshipRepoPathPrimaryHint (primary-hint wins over egg-preference; bare-name split('/')[-1] proof; hint-absent/not-checked-out/no-egg degrade paths), test_overseer_repo_resolution TestOverseerRepoResolution (2-repo -> primary; []/None -> None, no IndexError), test_kubernetes_spawner TestReposZeroCollapseRatchet (tokenize-based detector self-test + no-collapse enumeration, sdlc_hitl.py allowlisted) and TestMultiRepoAgentEnv (full owner/repo-keyed EGG_PIPELINE_REPOS map + N=1 back-compat), test_gateway_client owner/repo key no-collision. All 12 slice-3 assertions green against the coder's converged impl (5601063cb, ancestor of HEAD).",
+    "metadata": {
+      "payload": {
+        "summary": "Slice-3 (#3393) tester tests, v3 re-propose \u2014 resolves the procedural NACK from reviewer_contract (v2 was a substantive PASS; sole blocker was task-3-3 still status=pending). task-3-3 is now marked complete with commit 6465cdaae linked. No test changes since v2. Coverage: TestResolveAuthorshipRepoPathPrimaryHint (primary-hint wins over egg-preference; bare-name split('/')[-1] proof; hint-absent/not-checked-out/no-egg degrade paths), test_overseer_repo_resolution TestOverseerRepoResolution (2-repo -> primary; []/None -> None, no IndexError), test_kubernetes_spawner TestReposZeroCollapseRatchet (tokenize-based detector self-test + no-collapse enumeration, sdlc_hitl.py allowlisted) and TestMultiRepoAgentEnv (full owner/repo-keyed EGG_PIPELINE_REPOS map + N=1 back-compat), test_gateway_client owner/repo key no-collision. All 12 slice-3 assertions green against the coder's converged impl (5601063cb, ancestor of HEAD).",
+        "attestation": {
+          "tests_execution_blocked": true,
+          "tests_execution_blocked_reason": "Network-less BRC sandbox: make test/lint/security abort at `uv sync` (no network), so the repositories.yaml check gate cannot run here. Verified manually instead: ran the 4 slice-3 tester modules/classes with system pytest 9.1.1 (PYTHONPATH=orchestrator:shared:gateway) -> 12 passed. ruff + py_compile clean. make test-all on the integration branch is the authoritative CI gate. This v3 re-propose is bookkeeping only \u2014 no test/code delta since v2 (6465cdaae), which reviewer_contract already substantively PASSed; task-3-3 is now marked complete."
+        },
+        "artifacts": [
+          "6465cdaae",
+          "orchestrator/tests/test_kubernetes_spawner.py",
+          "orchestrator/tests/test_gateway_client.py",
+          "orchestrator/tests/test_commit_authorship_store.py",
+          "orchestrator/tests/test_overseer_repo_resolution.py"
+        ],
+        "risk_considered": "Procedural-only re-propose; no code/test delta since v2 (which reviewer_contract already substantively PASSed). Risk limited to the contract-status transition, now resolved: task-3-3 flipped pending->complete with commit 6465cdaae linked. N=1 back-compat asserted; ratchet has a self-test so it cannot rot into a silent no-op.",
+        "commit_sha": "6465cdaae",
+        "files_changed": [
+          "orchestrator/tests/test_kubernetes_spawner.py",
+          "orchestrator/tests/test_gateway_client.py",
+          "orchestrator/tests/test_commit_authorship_store.py",
+          "orchestrator/tests/test_overseer_repo_resolution.py"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-3-3"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 3,
+      "commit_sha": "6465cdaae",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:48:54.975228+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9a0b6562-961f-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "orchestrator",
+    "to_role": "reviewer_code",
+    "message_type": "CONSENSUS_RE_REVIEW",
+    "subject": "Re-review required: tester submitted new proposal v3",
+    "body": "Producer tester has submitted a new proposal (version 3) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.\n\n**Adversarial re-review**\n\n**Your v3 review has TWO equal-weight mandates:**\n\n1. **Verify named v2 blockers were addressed** \u2014 confirm the producer fixed what you NACK'd.\n2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` \u2014 the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** \u2014 ignore your v2 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes \u2014 whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** \u2014 it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.\n\nBoth mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.\n\n**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** \u2014 security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) \u2014 the persistent reviewer correctly answered mandate 1 (\"did prior issues get fixed? yes\") and skipped mandate 2 (\"does this delta introduce new issues? actually yes\"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward \"verify my fix-request landed \u2192 ACK.\" Recognize the pull and do mandate 2 anyway.\n\n**How to execute mandate 2:**\n\n- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?\n- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.\n- **Fresh-reviewer simulation.** Before issuing your v3 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.\n- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.\n\n**Your v3 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:\n\n- (a) Which v2 blockers you verified-fixed (mandate 1).\n- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked \u2014 not \"reviewed thoroughly,\" but \"checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes.\" If you can't enumerate (b), you haven't done mandate 2.\n\n**Re-reviews are cheap by design.** Your amortized context means the work is \"read the delta, apply your rubric, decide\" \u2014 minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.",
+    "metadata": {
+      "producer_role": "tester",
+      "version": 3,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:48:54.979006+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e3eee6d7-68d8-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "orchestrator",
+    "to_role": "reviewer_code_holistic",
+    "message_type": "CONSENSUS_RE_REVIEW",
+    "subject": "Re-review required: tester submitted new proposal v3",
+    "body": "Producer tester has submitted a new proposal (version 3) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.\n\n**Adversarial re-review**\n\n**Your v3 review has TWO equal-weight mandates:**\n\n1. **Verify named v2 blockers were addressed** \u2014 confirm the producer fixed what you NACK'd.\n2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` \u2014 the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** \u2014 ignore your v2 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes \u2014 whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** \u2014 it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.\n\nBoth mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.\n\n**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** \u2014 security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) \u2014 the persistent reviewer correctly answered mandate 1 (\"did prior issues get fixed? yes\") and skipped mandate 2 (\"does this delta introduce new issues? actually yes\"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward \"verify my fix-request landed \u2192 ACK.\" Recognize the pull and do mandate 2 anyway.\n\n**How to execute mandate 2:**\n\n- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?\n- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.\n- **Fresh-reviewer simulation.** Before issuing your v3 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.\n- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.\n\n**Your v3 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:\n\n- (a) Which v2 blockers you verified-fixed (mandate 1).\n- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked \u2014 not \"reviewed thoroughly,\" but \"checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes.\" If you can't enumerate (b), you haven't done mandate 2.\n\n**Re-reviews are cheap by design.** Your amortized context means the work is \"read the delta, apply your rubric, decide\" \u2014 minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.",
+    "metadata": {
+      "producer_role": "tester",
+      "version": 3,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:48:54.982208+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "44df7713-e353-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "orchestrator",
+    "to_role": "reviewer_security",
+    "message_type": "CONSENSUS_RE_REVIEW",
+    "subject": "Re-review required: tester submitted new proposal v3",
+    "body": "Producer tester has submitted a new proposal (version 3) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.\n\n**Adversarial re-review**\n\n**Your v3 review has TWO equal-weight mandates:**\n\n1. **Verify named v2 blockers were addressed** \u2014 confirm the producer fixed what you NACK'd.\n2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` \u2014 the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** \u2014 ignore your v2 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes \u2014 whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** \u2014 it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.\n\nBoth mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.\n\n**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** \u2014 security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) \u2014 the persistent reviewer correctly answered mandate 1 (\"did prior issues get fixed? yes\") and skipped mandate 2 (\"does this delta introduce new issues? actually yes\"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward \"verify my fix-request landed \u2192 ACK.\" Recognize the pull and do mandate 2 anyway.\n\n**How to execute mandate 2:**\n\n- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?\n- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.\n- **Fresh-reviewer simulation.** Before issuing your v3 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.\n- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.\n\n**Your v3 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:\n\n- (a) Which v2 blockers you verified-fixed (mandate 1).\n- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked \u2014 not \"reviewed thoroughly,\" but \"checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes.\" If you can't enumerate (b), you haven't done mandate 2.\n\n**Re-reviews are cheap by design.** Your amortized context means the work is \"read the delta, apply your rubric, decide\" \u2014 minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.",
+    "metadata": {
+      "producer_role": "tester",
+      "version": 3,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:48:54.982897+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "30b9dae9-6ef8-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "orchestrator",
+    "to_role": "reviewer_concurrency",
+    "message_type": "CONSENSUS_RE_REVIEW",
+    "subject": "Re-review required: tester submitted new proposal v3",
+    "body": "Producer tester has submitted a new proposal (version 3) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.\n\n**Adversarial re-review**\n\n**Your v3 review has TWO equal-weight mandates:**\n\n1. **Verify named v2 blockers were addressed** \u2014 confirm the producer fixed what you NACK'd.\n2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` \u2014 the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** \u2014 ignore your v2 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes \u2014 whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** \u2014 it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.\n\nBoth mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.\n\n**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** \u2014 security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) \u2014 the persistent reviewer correctly answered mandate 1 (\"did prior issues get fixed? yes\") and skipped mandate 2 (\"does this delta introduce new issues? actually yes\"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward \"verify my fix-request landed \u2192 ACK.\" Recognize the pull and do mandate 2 anyway.\n\n**How to execute mandate 2:**\n\n- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?\n- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.\n- **Fresh-reviewer simulation.** Before issuing your v3 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.\n- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.\n\n**Your v3 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:\n\n- (a) Which v2 blockers you verified-fixed (mandate 1).\n- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked \u2014 not \"reviewed thoroughly,\" but \"checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes.\" If you can't enumerate (b), you haven't done mandate 2.\n\n**Re-reviews are cheap by design.** Your amortized context means the work is \"read the delta, apply your rubric, decide\" \u2014 minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.",
+    "metadata": {
+      "producer_role": "tester",
+      "version": 3,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:48:54.983625+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "824a8589-51cd-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:02.989659+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "081c6d0b-c150-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:04.858451+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8d12a0c1-2536-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:06.422323+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e106a849-fae1-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:07.641392+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f6ab6c40-4d43-4b",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:08.641592+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e67290f7-e99b-4b",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=80829 util=0.08 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:12.029292+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "fd7f15ad-31bd-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:17.074855+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0165bc20-d7e6-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:17.519524+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a1f77a96-04e4-41",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:19.958642+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "834a7f2f-b356-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:20.014884+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "7b622774-24bb-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:22.037494+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8afbdee1-48d1-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_security for tester",
+    "body": "Re-ACK carried forward: v3 is a version bump on the IDENTICAL commit (6465cdaae) I already security-reviewed at v2 \u2014 the delta range 6465cdaae..6465cdaae is empty, artifacts are byte-identical, no new code. My v2 assessment stands unchanged: test-only, no production attack surface (docker MagicMock-stubbed, model resolution monkeypatched, no egress/credential/subprocess/network); the tests harden the correct-repo-resolution / confused-deputy posture (primary hint degrades rather than returning a phantom path; resolution splits on bare repo name not owner; overseer resolves primary + None-not-IndexError). Earlier-tracked residual value-collision (same-bare-name mount target, broader host_path_mounts property) is unaffected. No security blockers.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_kubernetes_spawner.py",
+          "orchestrator/tests/test_gateway_client.py",
+          "orchestrator/tests/test_commit_authorship_store.py",
+          "orchestrator/tests/test_overseer_repo_resolution.py"
+        ],
+        "reason": "Re-ACK carried forward: v3 is a version bump on the IDENTICAL commit (6465cdaae) I already security-reviewed at v2 \u2014 the delta range 6465cdaae..6465cdaae is empty, artifacts are byte-identical, no new code. My v2 assessment stands unchanged: test-only, no production attack surface (docker MagicMock-stubbed, model resolution monkeypatched, no egress/credential/subprocess/network); the tests harden the correct-repo-resolution / confused-deputy posture (primary hint degrades rather than returning a phantom path; resolution splits on bare repo name not owner; overseer resolves primary + None-not-IndexError). Earlier-tracked residual value-collision (same-bare-name mount target, broader host_path_mounts property) is unaffected. No security blockers.",
+        "ack_version": 3
+      },
+      "version": 3,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:31.018476+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "39ebae48-ade1-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_concurrency for tester",
+    "body": "Concurrency lens \u2014 ACK v3, carried forward. The v3 proposal SHA (6465cdaae) is byte-identical to the v2 proposal I already ACKed: the re-review delta range 6465cdaae..6465cdaae is empty (git log confirms zero commits), so this is a version re-bump (cycle re-opened by another producer's re-propose), not new content. My full v2 concurrency audit stands: TestResolveAuthorshipRepoPathPrimaryHint calls _resolve_authorship_repo_path() directly (no get_store/_singleton_lock, no singleton mutation), monkeypatch env/tmp_path fully isolated; test_overseer_repo_resolution.py's module-level sys.modules.setdefault/sys.path.insert are idempotent-guarded and monkeypatch.setattr is auto-reverted; the ratchet's fixed-path probe file is a latent-only xdist risk (repo runs serially, not live). No threads/async/new shared mutable state with a race window. Nothing changed since v2, so the concurrency verdict is unchanged.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_kubernetes_spawner.py",
+          "orchestrator/tests/test_gateway_client.py",
+          "orchestrator/tests/test_commit_authorship_store.py",
+          "orchestrator/tests/test_overseer_repo_resolution.py"
+        ],
+        "reason": "Concurrency lens \u2014 ACK v3, carried forward. The v3 proposal SHA (6465cdaae) is byte-identical to the v2 proposal I already ACKed: the re-review delta range 6465cdaae..6465cdaae is empty (git log confirms zero commits), so this is a version re-bump (cycle re-opened by another producer's re-propose), not new content. My full v2 concurrency audit stands: TestResolveAuthorshipRepoPathPrimaryHint calls _resolve_authorship_repo_path() directly (no get_store/_singleton_lock, no singleton mutation), monkeypatch env/tmp_path fully isolated; test_overseer_repo_resolution.py's module-level sys.modules.setdefault/sys.path.insert are idempotent-guarded and monkeypatch.setattr is auto-reverted; the ratchet's fixed-path probe file is a latent-only xdist risk (repo runs serially, not live). No threads/async/new shared mutable state with a race window. Nothing changed since v2, so the concurrency verdict is unchanged.",
+        "ack_version": 3
+      },
+      "version": 3,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:31.286981+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5b9cb6cc-eeaa-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_security",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:34.018382+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d5d3c17b-9db8-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_concurrency",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:34.020193+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "eb7917ca-6835-42",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for tester",
+    "body": "reviewer_code ACK (v3, tester SHA 6465cdaae). Carry-forward: v3 proposal is byte-identical to v2 \u2014 same proposal_commit_sha 6465cdaae, empty delta (git log 6465cdaae..6465cdaae is empty; no new commits on branch). This is a consensus-reset re-proposal, not an artifact change. My v2 review already fully discharged both mandates against this exact SHA and RAN all tests green (7 slice-3 spawner/gateway tests at ffcea6b1c + 6 new authorship/overseer positive-resolution tests at 6465cdaae = 13 passing). Nothing new to audit. Verdict unchanged: ACK. Summary of the standing assessment: tests correctly target the coder's delivered impl (5601063) \u2014 EGG_PIPELINE_REPOS owner/repo->container-path dict + EGG_PIPELINE_REPO primary back-compat + N=1; tokenize ratchet independently verified green (only allowlisted len(repos)==1-guarded sdlc_hitl.py:82 remains) with anti-rot self-test; authorship primary-hint branch covered across all 4 paths (hint-wins-proving-split-on-name-not-owner, hint-absent->egg, hint-not-checked-out->egg, no-egg->first-alpha); overseer resolution primary-for-2-repo + None-for-empty/None (no IndexError) with verified-correct late-import monkeypatch targets and execute-not-skip module placement. No blocking code-lens issues.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_commit_authorship_store.py",
+          "orchestrator/tests/test_overseer_repo_resolution.py",
+          "orchestrator/tests/test_kubernetes_spawner.py",
+          "orchestrator/tests/test_gateway_client.py"
+        ],
+        "reason": "reviewer_code ACK (v3, tester SHA 6465cdaae). Carry-forward: v3 proposal is byte-identical to v2 \u2014 same proposal_commit_sha 6465cdaae, empty delta (git log 6465cdaae..6465cdaae is empty; no new commits on branch). This is a consensus-reset re-proposal, not an artifact change. My v2 review already fully discharged both mandates against this exact SHA and RAN all tests green (7 slice-3 spawner/gateway tests at ffcea6b1c + 6 new authorship/overseer positive-resolution tests at 6465cdaae = 13 passing). Nothing new to audit. Verdict unchanged: ACK. Summary of the standing assessment: tests correctly target the coder's delivered impl (5601063) \u2014 EGG_PIPELINE_REPOS owner/repo->container-path dict + EGG_PIPELINE_REPO primary back-compat + N=1; tokenize ratchet independently verified green (only allowlisted len(repos)==1-guarded sdlc_hitl.py:82 remains) with anti-rot self-test; authorship primary-hint branch covered across all 4 paths (hint-wins-proving-split-on-name-not-owner, hint-absent->egg, hint-not-checked-out->egg, no-egg->first-alpha); overseer resolution primary-for-2-repo + None-for-empty/None (no IndexError) with verified-correct late-import monkeypatch targets and execute-not-skip module placement. No blocking code-lens issues.",
+        "ack_version": 3,
+        "attestation": {
+          "files_reviewed": [
+            "orchestrator/tests/test_commit_authorship_store.py",
+            "orchestrator/tests/test_overseer_repo_resolution.py",
+            "orchestrator/tests/test_kubernetes_spawner.py",
+            "orchestrator/tests/test_gateway_client.py"
+          ],
+          "issues_found": 0,
+          "unchanged_since": "v2 (same SHA 6465cdaae)"
+        }
+      },
+      "version": 3,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:35.118324+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8acb067f-37a9-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=100478 util=0.10 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:37.500901+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "03f2c7a4-f21f-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_contract for tester",
+    "body": "Contract ACK for slice-3 tester proposal v3 (6465cdaae). Re-proposal at the identical commit after the v2 procedural blocker was cleared.\n\nDelta since v2: empty (6465cdaae..6465cdaae) \u2014 no code change. The only change is the contract-status transition I requested: task-3-3 is now status=complete with commit 6465cdaae linked (verified via get_assigned_tasks). That was the sole reason the v2 ACK was rejected.\n\nMy substantive review of this exact tree stands (carried from v2, same SHA):\n- task-3-3 AC1 \u2713 \u2014 unit-level resolution assertions at all three former collapse sites: spawner env (TestMultiRepoAgentEnv: EGG_PIPELINE_REPOS full owner/repo->path map, EGG_PIPELINE_REPO=primary, same-name distinct keys, N=1), commit-authorship resolution (TestResolveAuthorshipRepoPathPrimaryHint: primary-hint wins + bare-name split proof + hint-absent/not-checked-out/no-egg degrade paths), overseer-repo resolution (TestOverseerRepoResolution: 2-repo->primary ownerA/schema; []/None->None). Gateway owner/repo keying covered in test_gateway_client.\n- task-3-3 AC2 \u2713 \u2014 tokenize-based repos[0]-collapse ratchet with planted-collapse self-test + allowlist-present test; sdlc_hitl.py:82 allowlisted.\n- task-3-3 AC3 \u2014 make test/make test-all green rests on the tester's propose attestation; I could not execute locally (no .venv), but statically verified every assertion matches actual implementation behavior (discover_repo_paths sorted; _spawn_overseer_agent signature/kwargs match; late-import patch strategy correct).\n\nNo new review is required for an empty delta; the slice-3 contract is now satisfied (task-3-1, task-3-2 ACKed on coder; task-3-3 complete + ACKed here).",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_kubernetes_spawner.py",
+          "orchestrator/tests/test_gateway_client.py",
+          "orchestrator/tests/test_commit_authorship_store.py",
+          "orchestrator/tests/test_overseer_repo_resolution.py"
+        ],
+        "reason": "Contract ACK for slice-3 tester proposal v3 (6465cdaae). Re-proposal at the identical commit after the v2 procedural blocker was cleared.\n\nDelta since v2: empty (6465cdaae..6465cdaae) \u2014 no code change. The only change is the contract-status transition I requested: task-3-3 is now status=complete with commit 6465cdaae linked (verified via get_assigned_tasks). That was the sole reason the v2 ACK was rejected.\n\nMy substantive review of this exact tree stands (carried from v2, same SHA):\n- task-3-3 AC1 \u2713 \u2014 unit-level resolution assertions at all three former collapse sites: spawner env (TestMultiRepoAgentEnv: EGG_PIPELINE_REPOS full owner/repo->path map, EGG_PIPELINE_REPO=primary, same-name distinct keys, N=1), commit-authorship resolution (TestResolveAuthorshipRepoPathPrimaryHint: primary-hint wins + bare-name split proof + hint-absent/not-checked-out/no-egg degrade paths), overseer-repo resolution (TestOverseerRepoResolution: 2-repo->primary ownerA/schema; []/None->None). Gateway owner/repo keying covered in test_gateway_client.\n- task-3-3 AC2 \u2713 \u2014 tokenize-based repos[0]-collapse ratchet with planted-collapse self-test + allowlist-present test; sdlc_hitl.py:82 allowlisted.\n- task-3-3 AC3 \u2014 make test/make test-all green rests on the tester's propose attestation; I could not execute locally (no .venv), but statically verified every assertion matches actual implementation behavior (discover_repo_paths sorted; _spawn_overseer_agent signature/kwargs match; late-import patch strategy correct).\n\nNo new review is required for an empty delta; the slice-3 contract is now satisfied (task-3-1, task-3-2 ACKed on coder; task-3-3 complete + ACKed here).",
+        "ack_version": 3,
+        "attestation": {
+          "tasks_verified": [
+            "task-3-3"
+          ]
+        }
+      },
+      "version": 3,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:37.552522+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "fb7b3828-2db1-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_code",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:39.149311+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9c62e1e0-9c89-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_contract",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:39.151332+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "516be127-4ce5-4b",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=125650 util=0.13 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:39.997772+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "492c7c7e-c8eb-4d",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code_holistic for tester",
+    "body": "ACK carried forward from v2 (unchanged artifact). This is a re-propose at the SAME commit 6465cdaaef85079d9e0760d18ffed0ca626752de \u2014 version bumped 2\u21923 with no content change; the delta range 6465cdaae..6465cdaae is empty by construction, confirmed via git. My v2 review already verified both former v1 blockers are fixed with executing (non-skipped, -rs confirmed) behavioral tests: TestResolveAuthorshipRepoPathPrimaryHint covers the commit-authorship primary-hint branch (owner-mismatch design positively proves bare-name split(\"/\")[-1] matching, degrade paths covered) and test_overseer_repo_resolution.py covers overseer primary-first resolution for a 2-repo pipeline (None/no-IndexError for empty/absent, correctly in its own module to avoid the repo-wide skip of test_phase_scoped_overseer.py). No new commits to audit since that ACK, so the verdict stands.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_commit_authorship_store.py",
+          "orchestrator/tests/test_overseer_repo_resolution.py",
+          "orchestrator/tests/test_kubernetes_spawner.py",
+          "orchestrator/tests/test_gateway_client.py"
+        ],
+        "reason": "ACK carried forward from v2 (unchanged artifact). This is a re-propose at the SAME commit 6465cdaaef85079d9e0760d18ffed0ca626752de \u2014 version bumped 2\u21923 with no content change; the delta range 6465cdaae..6465cdaae is empty by construction, confirmed via git. My v2 review already verified both former v1 blockers are fixed with executing (non-skipped, -rs confirmed) behavioral tests: TestResolveAuthorshipRepoPathPrimaryHint covers the commit-authorship primary-hint branch (owner-mismatch design positively proves bare-name split(\"/\")[-1] matching, degrade paths covered) and test_overseer_repo_resolution.py covers overseer primary-first resolution for a 2-repo pipeline (None/no-IndexError for empty/absent, correctly in its own module to avoid the repo-wide skip of test_phase_scoped_overseer.py). No new commits to audit since that ACK, so the verdict stands.",
+        "ack_version": 3
+      },
+      "version": 3,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:43.158366+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3a58f1d3-e1b7-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "orchestrator",
+    "to_role": "tester",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 3) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 3,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:43.160628+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "7d8d2849-1807-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by tester",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:44.276363+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "27cf43d1-f4d1-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_code_holistic",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:44.278236+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d7b696de-bef7-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_contract",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:44.279049+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "df39f520-9b0d-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_security",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:44.280004+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9cfbf7e0-2b0f-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_concurrency",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:44.280714+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d3e28935-792b-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=141893 util=0.14 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-02T05:49:44.653186+00:00",
+    "phase": "implement"
+  }
+]

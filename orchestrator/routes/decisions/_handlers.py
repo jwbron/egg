@@ -313,6 +313,345 @@ def _maybe_complete_task_from_resolution(
 
 
 # ---------------------------------------------------------------------------
+# Consensus-timeout HITL executable retry (#3421)
+# ---------------------------------------------------------------------------
+#
+# The incomplete-consensus HITL (``_persist_hitl_decision`` in
+# ``routes/pipelines.py``) is written to pipeline state moments before the
+# driver marks the pipeline FAILED and exits — nothing ever waits on it, so
+# resolving it was record-only: "Retry phase" was a silent no-op.  The #3233
+# revive doesn't cover it either (it is gated on ``phase_gate`` decisions and
+# AWAITING_HUMAN status; this decision is a ``choice`` on a ``failed``
+# pipeline).  Dispatch is keyed on the decision's context discriminator —
+# ``_CONSENSUS_TIMEOUT_HITL_CONTEXT`` in ``routes/pipelines.py`` — not the
+# prose question text, mirroring the ``failed_role:`` pattern.
+CONSENSUS_TIMEOUT_RETRY_OPTION = "Retry phase"
+CONSENSUS_TIMEOUT_ACCEPT_OPTION = "Accept current state"
+CONSENSUS_TIMEOUT_ABORT_OPTION = "Abort phase"
+
+
+def _maybe_dispatch_consensus_timeout_resolution(
+    pipeline_id: str,
+    decision: Any,
+    resolution_label: str | None,
+) -> dict[str, Any] | None:
+    """Execute a consensus-timeout HITL resolution (#3421).
+
+    Keys on the decision's ``consensus_timeout_incomplete`` context:
+
+    - **Retry phase** → call the ``restart_phase`` route in-process (the
+      documented manual workaround), which tears down the failed phase,
+      flips the pipeline back to RUNNING, and spawns a fresh driver.
+      ``restart_phase`` is lifecycle-secret guarded, but so is the
+      resolve-decision route invoking this hook, so the in-request call
+      passes the guard — same precedent as the #3233 revive reusing
+      ``start_pipeline``.
+    - **Abort phase** → no action: the driver already failed the pipeline
+      when it escalated this decision, so the state matches the intent.
+      The payload says so instead of resolving silently.
+    - **Accept current state** → not automated (force-advancing past a
+      non-converged phase is an operator judgment); the payload names the
+      manual follow-up instead of resolving silently.
+
+    Returns the executed-action payload merged into the resolve response,
+    or ``None`` when the decision is not a consensus-timeout HITL (or the
+    resolution is a free-form reply).  Failure is logged AND surfaced in
+    the payload — the decision is already resolved by the time dispatch
+    runs, so a silent failure would recreate the gap this hook closes.
+    """
+    # Lazy import — single source of truth for the context string;
+    # routes.pipelines is too heavy to bind at module import time.
+    from routes.pipelines import _CONSENSUS_TIMEOUT_HITL_CONTEXT
+
+    if getattr(decision, "context", "") != _CONSENSUS_TIMEOUT_HITL_CONTEXT:
+        return None
+
+    label = (resolution_label or "").strip()
+
+    if label == CONSENSUS_TIMEOUT_ABORT_OPTION:
+        return {
+            "action": "consensus_timeout_abort",
+            "success": True,
+            "note": (
+                "No action taken: the phase was already marked failed when "
+                "this decision was escalated, which is the aborted state."
+            ),
+        }
+
+    if label == CONSENSUS_TIMEOUT_ACCEPT_OPTION:
+        return {
+            "action": "consensus_timeout_accept",
+            "success": True,
+            "note": (
+                "Recorded only — accepting a non-converged phase is not "
+                "automated. Use advance_phase to move past the failed phase, "
+                "or restart_phase to re-run it."
+            ),
+        }
+
+    if label != CONSENSUS_TIMEOUT_RETRY_OPTION:
+        return None
+
+    phase = getattr(decision, "phase", None)
+    phase_val = getattr(phase, "value", phase)
+    if not phase_val:
+        # Older decisions may lack a pinned phase; restart the pipeline's
+        # current phase (restart_phase rejects anything else anyway).
+        try:
+            store, _ = _pkg.get_state_store_for_pipeline(pipeline_id)
+            pipeline = store.load_pipeline(pipeline_id)
+            phase_val = pipeline.current_phase.value
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Consensus-timeout retry: could not determine phase to restart",
+                pipeline_id=pipeline_id,
+                decision_id=getattr(decision, "id", "?"),
+                error=str(exc),
+                exc_info=True,
+            )
+            return {
+                "action": "restart_phase",
+                "success": False,
+                "error": f"could not determine phase to restart: {exc}",
+            }
+
+    try:
+        from routes.pipelines import restart_phase
+
+        resp, status_code = restart_phase(pipeline_id, phase_val)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "Consensus-timeout 'Retry phase' resolution raised; phase not restarted",
+            pipeline_id=pipeline_id,
+            decision_id=getattr(decision, "id", "?"),
+            phase=phase_val,
+            error=str(exc),
+            exc_info=True,
+        )
+        return {
+            "action": "restart_phase",
+            "phase": phase_val,
+            "success": False,
+            "error": str(exc),
+        }
+
+    if status_code != 200:
+        try:
+            payload = resp.get_json(silent=True) or {}
+            error = payload.get("message") or f"restart_phase returned HTTP {status_code}"
+        except Exception:  # noqa: BLE001
+            error = f"restart_phase returned HTTP {status_code}"
+        logger.error(
+            "Consensus-timeout 'Retry phase' resolution could not restart the phase",
+            pipeline_id=pipeline_id,
+            decision_id=getattr(decision, "id", "?"),
+            phase=phase_val,
+            status_code=status_code,
+            error=error,
+        )
+        return {
+            "action": "restart_phase",
+            "phase": phase_val,
+            "success": False,
+            "error": error,
+        }
+
+    logger.info(
+        "Consensus-timeout 'Retry phase' resolution restarted the phase",
+        pipeline_id=pipeline_id,
+        decision_id=getattr(decision, "id", "?"),
+        phase=phase_val,
+    )
+    return {"action": "restart_phase", "phase": phase_val, "success": True}
+
+
+# ---------------------------------------------------------------------------
+# Executable adds_task option (#3428)
+# ---------------------------------------------------------------------------
+#
+# ``register_open_question`` lets agents pose options that mandate a contract
+# mutation ("Add a new task/slice to wire X as a dependency"), but no agent
+# has a task-add verb — resolving such a decision used to record the choice
+# and materialize nothing, so the reviewer that raised the question kept
+# withholding ACK and the slice re-deadlocked *after* the human answered.
+# Options that mandate the mutation now carry a structured ``adds_task``
+# payload (``egg_contracts.models.AddsTaskPayload``, attached at registration
+# time); when the operator resolves the decision by selecting that option,
+# the hook below executes the mutation via
+# ``operator_actions.add_task_as_operator`` — same audited executor family
+# as the ``Mark task <id> complete`` option (#3124).
+
+# Bridge context fingerprint — must stay in sync with the composer in
+# ``_queue_and_await_contract_decisions`` (routes/pipelines.py) and the
+# post-gate guard in ``_resolve_contract_decision``.
+_BRIDGED_CQ_CONTEXT_RE = re.compile(r"^Open contract question (cq-[0-9]+),")
+
+
+def _resolution_selects_option(option: Any, resolution: str) -> bool:
+    """True when ``resolution`` unambiguously selects ``option``.
+
+    Operators resolve ``choice`` decisions with heterogeneous strings: the
+    bare option label (the SDLC HITL CLI envelope is unwrapped upstream by
+    ``_normalize_choice_resolution``), the option id (``opt-1``), or a
+    positional reference (``option 1`` / ``1``). All are unambiguous
+    identifiers of a single option; anything else (free-form prose) does not
+    select — an audited contract mutation must never fire on a fuzzy match.
+    """
+    normalized = (resolution or "").strip().casefold()
+    if not normalized:
+        return False
+    label = (getattr(option, "label", "") or "").strip().casefold()
+    if label and normalized == label:
+        return True
+    option_id = (getattr(option, "id", "") or "").strip().casefold()
+    if not option_id:
+        return False
+    if normalized == option_id:
+        return True
+    positional = re.match(r"^(?:opt(?:ion)?[\s-]*)?([0-9]+)$", normalized)
+    return bool(positional) and option_id == f"opt-{positional.group(1)}"
+
+
+def _load_contract_decision(pipeline_id: str, decision_id: str) -> Any | None:
+    """Load the contract decision ``decision_id`` (``cq-N``) for ``pipeline_id``.
+
+    Best-effort: returns ``None`` (and logs) when the worktree/contract can't
+    be loaded or no decision matches. Used by resolution-dispatch hooks on the
+    bridged queue path, where the pipeline ``HITLDecision`` carries only bare
+    option labels and the structured payload must be recovered from the
+    contract.
+    """
+    import contract_store
+
+    try:
+        from egg_contracts import load_contract
+        from routes.pipelines import _pipeline_identifier
+
+        store, _ = _pkg.get_state_store_for_pipeline(pipeline_id)
+        pipeline = store.load_pipeline(pipeline_id)
+        worktree = contract_store.resolve_pipeline_worktree(pipeline_id)
+        if worktree is None:
+            return None
+        identifier = _pipeline_identifier(getattr(pipeline, "issue_number", None), pipeline_id)
+        contract = load_contract(identifier, worktree)
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Could not load contract to recover decision for resolution dispatch",
+            pipeline_id=pipeline_id,
+            decision_id=decision_id,
+            exc_info=True,
+        )
+        return None
+
+    return next(
+        (d for d in (getattr(contract, "decisions", None) or []) if d.id == decision_id),
+        None,
+    )
+
+
+def _maybe_add_task_from_resolution(
+    pipeline_id: str,
+    decision: Any,
+    resolution: str | None,
+) -> dict[str, Any] | None:
+    """Execute an ``adds_task``-carrying option resolution (#3428).
+
+    ``decision`` is either the contract ``Decision`` (the pre-bridge
+    ``_resolve_contract_decision`` path — its ``options`` carry the
+    structured payload directly) or the pipeline ``HITLDecision`` (the
+    bridged queue path — options are bare labels, so the contract decision
+    is recovered via the bridge's context fingerprint).
+
+    Returns the executed-action payload (merged into the resolve response so
+    the operator sees the materialization happened), or ``None`` when the
+    resolution does not select an ``adds_task`` option. Execution failure is
+    logged AND surfaced in the returned payload — the decision is already
+    marked resolved by the time dispatch runs, so a silent failure here would
+    recreate the records-a-choice-but-executes-nothing gap this hook closes.
+    """
+    if not resolution:
+        return None
+
+    options = list(getattr(decision, "options", None) or [])
+    decision_id = getattr(decision, "id", "?")
+    if not any(getattr(o, "adds_task", None) for o in options):
+        # Bridged queue path (or a decision with no structured payload):
+        # recover the contract decision named in the bridge context. Bail
+        # early when the context carries no fingerprint — that covers every
+        # ordinary queue decision without a contract round-trip.
+        context = getattr(decision, "context", "") or ""
+        match = _BRIDGED_CQ_CONTEXT_RE.match(context)
+        if not match:
+            return None
+        contract_decision = _load_contract_decision(pipeline_id, match.group(1))
+        if contract_decision is None:
+            return None
+        options = list(contract_decision.options or [])
+        if not any(getattr(o, "adds_task", None) for o in options):
+            return None
+
+    selected = next((o for o in options if _resolution_selects_option(o, resolution)), None)
+    payload = getattr(selected, "adds_task", None) if selected is not None else None
+    if payload is None:
+        return None
+
+    from operator_actions import OperatorActionError, add_task_as_operator
+
+    try:
+        result = add_task_as_operator(
+            pipeline_id,
+            payload.slice_id,
+            payload.description,
+            acceptance_criteria=payload.acceptance_criteria,
+            files_affected=list(payload.files_affected or []),
+            role=payload.role,
+            reason=(
+                f"HITL decision {decision_id} resolved with adds_task option "
+                f"{getattr(selected, 'id', '?')}"
+            ),
+            actor=f"operator:decision:{decision_id}",
+        )
+    except OperatorActionError as exc:
+        logger.error(
+            "adds_task resolution failed; mandated task was NOT materialized",
+            pipeline_id=pipeline_id,
+            decision_id=decision_id,
+            slice_id=payload.slice_id,
+            error=exc.message,
+        )
+        return {
+            "action": "add_task",
+            "slice_id": payload.slice_id,
+            "success": False,
+            "error": exc.message,
+        }
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.error(
+            "adds_task resolution raised unexpectedly",
+            pipeline_id=pipeline_id,
+            decision_id=decision_id,
+            slice_id=payload.slice_id,
+            error=str(exc),
+            exc_info=True,
+        )
+        return {
+            "action": "add_task",
+            "slice_id": payload.slice_id,
+            "success": False,
+            "error": str(exc),
+        }
+
+    logger.info(
+        "Executed adds_task materialization from decision resolution",
+        pipeline_id=pipeline_id,
+        decision_id=decision_id,
+        task_id=result.get("task_id"),
+        slice_id=result.get("slice_id"),
+    )
+    return {"action": "add_task", "success": True, **result}
+
+
+# ---------------------------------------------------------------------------
 # First-principles redirect accept-path
 # ---------------------------------------------------------------------------
 #

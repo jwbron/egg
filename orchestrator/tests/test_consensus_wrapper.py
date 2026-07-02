@@ -325,6 +325,187 @@ class TestSyncToProposals:
         assert "unresolvable" in result.stderr
 
 
+class TestRestorePrebuiltDeps:
+    """Agent-path prebuilt-toolchain restore (#3413, step 1).
+
+    k8s agent pods override the image ENTRYPOINT (this wrapper IS the pod
+    command), so ``sandbox.entrypoint._worktrees.restore_prebuilt_deps``
+    never runs for them and repo checks resolve to globally-installed
+    image tools instead of the repo's pinned ``build_commands`` toolchain
+    (``/opt/prebuilt-deps/<owner--repo>/``, e.g. its ``.venv``). The
+    wrapper now performs the restore itself — copy-if-missing, symlink-
+    preserving, fail-soft — mirroring the entrypoint and the #3412
+    green-gate runner. Requires a relocatable persisted venv (PR #3412's
+    ``make sandbox-deps``) in the image for the restored entry points to
+    work; the restore mechanics here are snapshot-agnostic.
+    """
+
+    def _script(self) -> str:
+        return build_consensus_wrapped_command("Prompt")[2]
+
+    def test_template_defines_restore_prebuilt_deps(self):
+        assert "restore_prebuilt_deps() {" in self._script()
+
+    def test_restore_runs_after_stale_check_before_any_arm(self):
+        """Ordering invariant: a stale event must exit WITHOUT paying the
+        copy, and every non-stale arm (review sync + agent invocation)
+        must see the restored toolchain."""
+        script = self._script()
+        stale_exit = script.index("Injected event is stale")
+        # The bare call in the one-shot handler (the definition is
+        # `restore_prebuilt_deps() {`; the call is the bare name on its
+        # own line).
+        restore_call = script.index("\nrestore_prebuilt_deps\n")
+        sync_call = script.index('sync_to_proposals "$ONE_SHOT_PAYLOAD"')
+        invoke_call = script.index('invoke_agent_for_event "$ONE_SHOT_ACTION" "$ONE_SHOT_PAYLOAD"')
+        assert stale_exit < restore_call < sync_call < invoke_call
+
+    def test_restore_is_fail_soft(self):
+        """The agent invocation must never be blocked on the restore: the
+        function returns 0 on every path (a missing toolchain surfaces at
+        check time instead)."""
+        script = self._script()
+        fn_body = script.split("restore_prebuilt_deps() {", 1)[1].split("\n}\n", 1)[0]
+        assert "fail-soft" in fn_body
+        assert fn_body.rstrip().endswith("return 0")
+
+    def test_restore_skips_system_dirs_and_matches_by_suffix(self):
+        """Pin the two snapshot-selection rules shared with the
+        entrypoint/runner restores: the legacy ``__egg_system_dirs__``
+        entry is never restored into a repo, and matching is by the
+        ``--<repo-basename>`` suffix of the snapshot dir name."""
+        script = self._script()
+        assert "__egg_system_dirs__" in script
+        assert 'entry.endswith("--" + name)' in script
+
+    def _extract_restore_harness(self, script: str, repo: str, base: str) -> str:
+        """Build a runnable bash harness: cw_log + restore_prebuilt_deps."""
+        import re
+
+        cw_match = re.search(r"cw_log\(\) \{.*?\n\}", script, flags=re.DOTALL)
+        assert cw_match is not None
+        restore_match = re.search(r"restore_prebuilt_deps\(\) \{.*?\n\}", script, flags=re.DOTALL)
+        assert restore_match is not None
+        return (
+            "#!/bin/bash\nset -uo pipefail\n"
+            f"EGG_REPO_PATH={shlex.quote(repo)}\n"
+            f"export EGG_PREBUILT_DEPS_BASE={shlex.quote(base)}\n"
+            + cw_match.group(0)
+            + "\n"
+            + restore_match.group(0)
+            + "\nrestore_prebuilt_deps"
+            + '\necho "RESTORE_RC=$?"\n'
+        )
+
+    def test_behavioral_restores_snapshot_copy_if_missing(self, tmp_path):
+        """End-to-end: the matching snapshot is copied into the repo
+        (symlinks preserved), files already present in the worktree are
+        NOT clobbered, and ``__egg_system_dirs__`` is skipped."""
+        base = tmp_path / "prebuilt"
+        (base / "acme--widget" / ".venv" / "bin").mkdir(parents=True)
+        (base / "acme--widget" / ".venv" / "bin" / "pytest").write_text("tool-v1\n")
+        (base / "acme--widget" / ".venv" / "bin" / "py.test").symlink_to("pytest")
+        (base / "acme--widget" / "keep.txt").write_text("from-snapshot\n")
+        (base / "__egg_system_dirs__" / "usr").mkdir(parents=True)
+        repo = tmp_path / "repos" / "widget"
+        repo.mkdir(parents=True)
+        (repo / "keep.txt").write_text("from-worktree\n")
+
+        harness = self._extract_restore_harness(self._script(), str(repo), str(base))
+        result = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, timeout=30)
+        assert "RESTORE_RC=0" in result.stdout, f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        assert "restored acme--widget" in result.stderr
+        assert (repo / ".venv" / "bin" / "pytest").read_text() == "tool-v1\n"
+        assert os.readlink(repo / ".venv" / "bin" / "py.test") == "pytest"
+        # Copy-if-missing: the worktree's copy wins over the snapshot's.
+        assert (repo / "keep.txt").read_text() == "from-worktree\n"
+        # The legacy system-dirs entry never lands in a repo worktree.
+        assert not (repo / "usr").exists()
+
+    def test_behavioral_idempotent_across_one_shot_pods(self, tmp_path):
+        """A second run over an already-restored worktree is a no-op —
+        the one-shot model re-runs this restore in every pod sharing the
+        role worktree."""
+        base = tmp_path / "prebuilt"
+        (base / "acme--widget" / ".venv").mkdir(parents=True)
+        (base / "acme--widget" / ".venv" / "cfg").write_text("v1\n")
+        repo = tmp_path / "widget"
+        repo.mkdir()
+
+        harness = self._extract_restore_harness(self._script(), str(repo), str(base))
+        for _ in range(2):
+            result = subprocess.run(
+                ["bash", "-c", harness], capture_output=True, text=True, timeout=30
+            )
+            assert "RESTORE_RC=0" in result.stdout
+        assert (repo / ".venv" / "cfg").read_text() == "v1\n"
+
+    def test_behavioral_no_snapshot_logs_and_continues(self, tmp_path):
+        """No matching snapshot: log it (loud in pod logs) and exit 0."""
+        base = tmp_path / "prebuilt"
+        (base / "acme--other").mkdir(parents=True)
+        repo = tmp_path / "widget"
+        repo.mkdir()
+
+        harness = self._extract_restore_harness(self._script(), str(repo), str(base))
+        result = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, timeout=30)
+        assert "RESTORE_RC=0" in result.stdout
+        assert "no prebuilt snapshot for widget" in result.stderr
+
+    def test_behavioral_missing_base_is_fail_soft(self, tmp_path):
+        """No /opt/prebuilt-deps at all (older image): skip, exit 0."""
+        repo = tmp_path / "widget"
+        repo.mkdir()
+        harness = self._extract_restore_harness(
+            self._script(), str(repo), str(tmp_path / "nonexistent")
+        )
+        result = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, timeout=30)
+        assert "RESTORE_RC=0" in result.stdout
+        assert "skipped" in result.stderr
+
+    def test_behavioral_unreadable_file_degrades_per_file_and_keeps_rc0(self, tmp_path):
+        """Per-file degradation (re-review #2 of commit 7d52eca): a single
+        unreadable (mode 0o000) source file must degrade to a per-file
+        ``warn: failed to restore`` line while its siblings still restore
+        and the overall outcome stays ``restored`` (rc 0) — NOT the whole
+        restore flipping to ``restore failed`` via ``copytree``'s collected
+        ``shutil.Error``. This pins the exact behavior the
+        ``try/except OSError`` in ``copy_if_missing`` introduced."""
+        import pytest
+
+        if os.geteuid() == 0:
+            pytest.skip("root bypasses mode 0o000 read permission")
+
+        base = tmp_path / "prebuilt"
+        (base / "acme--widget" / ".venv" / "bin").mkdir(parents=True)
+        good = base / "acme--widget" / ".venv" / "bin" / "pytest"
+        good.write_text("tool-v1\n")
+        bad = base / "acme--widget" / ".venv" / "bin" / "secret"
+        bad.write_text("unreadable\n")
+        bad.chmod(0o000)
+        repo = tmp_path / "widget"
+        repo.mkdir()
+
+        harness = self._extract_restore_harness(self._script(), str(repo), str(base))
+        try:
+            result = subprocess.run(
+                ["bash", "-c", harness], capture_output=True, text=True, timeout=30
+            )
+        finally:
+            # Restore mode so tmp_path cleanup can remove the file.
+            bad.chmod(0o644)
+
+        # rc stays 0 and the outcome is "restored", not "restore failed".
+        assert "RESTORE_RC=0" in result.stdout, f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        assert "restored acme--widget" in result.stderr
+        assert "restore failed" not in result.stderr
+        # The lone unreadable file degraded to a per-file warning...
+        assert "warn: failed to restore" in result.stderr
+        # ...while its sibling still restored intact.
+        assert (repo / ".venv" / "bin" / "pytest").read_text() == "tool-v1\n"
+        assert not (repo / ".venv" / "bin" / "secret").exists()
+
+
 class TestSyncOutcomesAndBanner:
     """R1 non-silent sync banner (#3077 slice-1 TASK-1-3).
 
