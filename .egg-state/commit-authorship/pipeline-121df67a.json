@@ -1,0 +1,13 @@
+{
+  "entries": {
+    "8e20f0a6695dda008456c621b61c6cb6a2ce0796": {
+      "branch": "egg/pipeline-121df67a/work",
+      "patch_id": "4ace4494475f827042f83f2ae670ea257396da44",
+      "pipeline_id": "pipeline-121df67a",
+      "registered_at": "2026-07-02T23:24:13.905994+00:00",
+      "repo": null,
+      "role": "simplifier"
+    }
+  },
+  "version": 2
+}
