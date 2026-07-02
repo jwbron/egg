@@ -6847,6 +6847,77 @@ class TestPlanPhaseArchitectOwnsComposition:
         assert "#2809" in prep
 
 
+class TestPlanPhaseTestColocation:
+    """Issue #3411 — tests covering removed code must ride in the
+    removing slice. Upstream cure for the #3398 green-gate blocks: on
+    the #3280 stack, slice-3 removed spawner symbols while the tests
+    exercising them were only touched in slice-5, leaving a 46-failure
+    window on the intermediate cumulative tips. Every plan-phase
+    surface (architect, concurrent task_planner, sequential planner,
+    reviewer_plan rubric) must carry the co-location rule and point at
+    the deterministic `--impacted-tests` discovery mode."""
+
+    @staticmethod
+    def _prompt(role: str, issue_number: int = 871) -> str:
+        return _build_agent_prompt(
+            role_value=role,
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=issue_number,
+            concurrent=True,
+        )
+
+    def test_architect_prompt_carries_colocation_rule(self):
+        prompt = self._prompt("architect")
+        assert "Test co-location (HARD — #3411)" in prompt
+        # The rule must bind test obsolescence to the removing slice...
+        assert "SAME slice" in prompt
+        # ...anchor on the green gate that blocks violations...
+        assert "#3398" in prompt
+        # ...and name the deterministic discovery command.
+        assert "--impacted-tests" in prompt
+
+    def test_task_planner_prompt_carries_colocation_rule(self):
+        prompt = self._prompt("task_planner")
+        assert "Test co-location (HARD — #3411)" in prompt
+        # The planner-side rule is about task enumeration: test updates
+        # become tasks IN the removing slice, with test files listed.
+        assert "IN THAT SLICE" in prompt
+        assert "#3398" in prompt
+        assert "--impacted-tests" in prompt
+
+    def test_sequential_planner_prompt_carries_colocation_rule(self):
+        # The non-concurrent planner path (mirrored #2137 block) must
+        # stay aligned with the concurrent path.
+        prompt = _build_phase_prompt(
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=871,
+        )
+        assert "Test co-location rule (HARD — #3411)" in prompt
+        assert "#3398" in prompt
+        assert "--impacted-tests" in prompt
+
+    def test_plan_review_criteria_has_test_colocation_section(self):
+        criteria = _get_plan_review_criteria()
+        # New §13 rubric, parallel to §12's file-overlap framing.
+        assert "### 13." in criteria
+        assert "Test Co-location" in criteria
+        assert "#3411" in criteria
+        # Scoped to the §13 section so unrelated mentions elsewhere
+        # can't mask deletion (same pattern as the §11 test above).
+        section = criteria[criteria.index("### 13.") :]
+        # NACK routes to the architect (slice shape is architect-owned).
+        assert "NACK the **architect**" in section
+        # The deterministic self-check and its exit-2 caveat.
+        assert "--impacted-tests" in section
+        assert "exit 2" in section.lower()
+
+
 class TestRefinerOrientationSurfacesPrimitives:
     """Issue #2594 — refiner phase-orientation should ask the refiner to
     surface runtime-primitive assumptions at the phase_gate so the

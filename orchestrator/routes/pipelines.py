@@ -6001,6 +6001,35 @@ def _get_plan_review_criteria() -> str:
         '`python3 -c "from egg_contracts.plan_parser import parse_plan_file, '
         "validate_slice_file_overlap as v; r = parse_plan_file('<plan-path>'); "
         "print('\\n'.join(v(r.to_contract_slices())))\"`.\n\n"
+        "### 13. Test Co-location (hard NACK — see #3411)\n"
+        "Complements §12 on the test dimension. When a slice removes, "
+        "renames, or rewrites code, the tests exercising that code must be "
+        "updated, removed, or skip-guarded **in the same slice** — never in "
+        "a later one. Every cumulative slice tip must be independently "
+        "green: the per-slice green gate (#3398) executes the repo's "
+        "checks at the slice tip before opening the PR and blocks while "
+        "any check is red, so a plan that parks test obsolescence in a "
+        "later slice guarantees gate blocks and repair-loop churn on "
+        "slices whose only sin is plan topology (the #3280 stack shipped "
+        "a 46-failure window across slices 3–4 exactly this way: slice-3 "
+        "removed ``spawn_overseer_*`` from the spawner, the tests "
+        "exercising them were only touched in slice-5).\n"
+        "For each slice whose tasks remove or rename symbols, check: do "
+        "the test files that statically reference those symbols appear in "
+        "that slice's task ``files:`` (or a ``dependencies`` ancestor's)? "
+        "If they appear only in a LATER slice — or nowhere — NACK the "
+        "**architect** (slice shape is architect-owned, #2809), naming "
+        "the code files, the referencing test files, and the slice each "
+        "currently sits in, so the re-propose moves the test updates into "
+        "the removing slice.\n"
+        "Belt-and-suspenders self-check (repos shipping the changeset-"
+        "aware selector; this repo does): `python3 "
+        "scripts/select_tests/__main__.py --impacted-tests <file>...` "
+        "prints every test file that transitively imports the named files "
+        "— the same import graph `make test` narrowing uses. Exit 2 means "
+        "the closure could not be computed: fall back to grepping the "
+        "removed symbols in the test trees, and never read empty output "
+        "on exit 2 as 'no impacted tests'.\n\n"
         + _human_companion_review_criteria(
             companion="`*-plan-human.md`",
             parent="the implementation plan",
@@ -13351,6 +13380,22 @@ def _build_phase_prompt(
                 "slice that removes a file must depend on every slice that "
                 "modifies it. Slices with disjoint file sets stay parallel.",
                 "",
+                "**Test co-location rule (HARD — #3411)**: a slice that "
+                "removes, renames, or rewrites code carries the matching "
+                "test updates (skip-guards, deletions, rewrites) in the SAME "
+                "slice — never a later one — with the test files listed in "
+                "that slice's task ``files:``. Each cumulative slice tip "
+                "must be independently green: the per-slice green gate "
+                "(#3398) runs the repo's checks at the slice tip before the "
+                "PR opens and blocks while any check is red, so deferring "
+                "test obsolescence to a later slice guarantees a blocked "
+                "slice. Discover the tests that statically reach the "
+                "changed files with the changeset-aware selector where the "
+                "repo ships it (this repo: ``python3 "
+                "scripts/select_tests/__main__.py --impacted-tests "
+                "<file>...``; exit 2 = closure unavailable — fall back to "
+                "grepping the removed symbols in the test trees).",
+                "",
                 "Worked example: if ``slice-3`` would naturally have "
                 "parents ``[slice-1, slice-2]``, instead emit:",
                 "",
@@ -15604,6 +15649,27 @@ def _build_agent_prompt(
                 "hard-rejects this. A slice that deletes or retires a file "
                 "must depend on every slice that modifies it. Keep slices with "
                 "disjoint file sets parallel so they still run concurrently.",
+                "- **Test co-location (HARD — #3411).** A slice that removes, "
+                "renames, or rewrites code must carry the matching updates to "
+                "the tests exercising that code — skip-guards, deletions, "
+                "rewrites — in the SAME slice, never a later one. Every "
+                "cumulative slice tip must be independently green: the "
+                "per-slice green gate (#3398) runs the repo's checks at each "
+                "slice tip and blocks the PR while any check is red, so a "
+                "plan that parks test obsolescence in a later slice "
+                "guarantees a blocked slice and repair-loop churn on slices "
+                "whose only sin is plan topology. In repos that ship the "
+                "changeset-aware selector (this repo's "
+                "``scripts/select_tests``), the affected tests are "
+                "statically discoverable with the same import graph ``make "
+                "test`` narrowing uses: ``python3 "
+                "scripts/select_tests/__main__.py --impacted-tests "
+                "<file>...`` prints every test file that transitively "
+                "imports the named files (exit 2 = closure unavailable — "
+                "fall back to grepping the removed symbols in the test "
+                "trees). Write the removing slice's ``goal`` so it "
+                "explicitly includes those test updates; ``task_planner`` "
+                "enumerates them as tasks in that slice.",
                 "- **Sub-slicing.** When one slice would be too coarse, "
                 "subdivide it. Right-size slices for a single BRC cycle: "
                 "avoid bundling distinct file-category groups (e.g. "
@@ -15699,6 +15765,21 @@ def _build_agent_prompt(
                 "prose so the reviewers pick it up). **Do NOT silently re-shape "
                 "slices.** Re-propose against the architect's revised scaffold "
                 "once it lands.",
+                "",
+                "**Test co-location (HARD — #3411).** When a slice removes, "
+                "renames, or rewrites code, enumerate the matching test "
+                "updates (skip-guard, deletion, rewrite) as tasks IN THAT "
+                "SLICE — never in a later slice — and list the test files in "
+                "those tasks' ``files:``. Every cumulative slice tip must be "
+                "independently green: the per-slice green gate (#3398) "
+                "blocks a slice PR while any repo check is red at its tip, "
+                "so a test that still imports a symbol removed two slices "
+                "earlier blocks the whole stack. Discover the affected "
+                "tests with the same import graph ``make test`` narrowing "
+                "uses, where the repo ships it (this repo: ``python3 "
+                "scripts/select_tests/__main__.py --impacted-tests "
+                "<file>...``; exit 2 = closure unavailable — fall back to "
+                "grepping the removed symbols in the test trees).",
                 "",
                 "Steps:",
                 f"1. Read the architecture analysis AND the slice scaffold at `{architect_slices_path}`",

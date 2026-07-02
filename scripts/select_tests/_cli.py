@@ -303,6 +303,63 @@ def explain_why(test_path: str, repo_root: Path | None = None) -> int:
     return 0
 
 
+def impacted_tests(paths: list[str], repo_root: Path | None = None) -> int:
+    """Implement `--impacted-tests <file>...` (#3411).
+
+    Prints the repo-relative test files statically reachable — reverse
+    imports, barrel-transparent — from the named source files: the same
+    closure `make test` narrowing selects from a diff, but seeded from
+    an explicit file list instead of `git diff`.  Plan-phase test
+    co-location lens: a slice that removes or reshapes the named files
+    must carry the updates to every printed test file in the SAME
+    slice, or the per-slice green gate (#3398) blocks its PR on a red
+    cumulative tip.
+
+    Exit codes: 0 = closure computed (stdout may legitimately be empty
+    — no test reaches the named files); 2 = closure could NOT be
+    computed (graph build failed, or no argument resolved to a graph
+    module).  Callers MUST treat exit 2 as "discovery unavailable" and
+    fall back to grepping the removed symbols — never read the empty
+    stdout as "no impacted tests".  This mode is advisory tooling, so
+    it deliberately does NOT share the default mode's fail-open
+    widen-to-full-suite posture: emitting every test root here would
+    read as "everything is impacted".
+    """
+    root = repo_root if repo_root is not None else _git_repo_root()
+
+    try:
+        bundle = build_graph(root)
+    except Exception as e:  # noqa: BLE001 — degrade to "cannot compute"
+        _log(f"select-tests: --impacted-tests: graph build failed: {e}")
+        return 2
+
+    module_path_pairs: list[tuple[str, str]] = []
+    for path in paths:
+        module = path_to_module(path)
+        if module is None:
+            _log(f"select-tests: --impacted-tests: cannot resolve path to module: {path}")
+            continue
+        if module not in bundle.all_modules:
+            _log(f"select-tests: --impacted-tests: {module} is not a node in the graph")
+            continue
+        module_path_pairs.append((module, path))
+
+    if not module_path_pairs:
+        _log("select-tests: --impacted-tests: no argument resolved to a graph module")
+        return 2
+
+    try:
+        closure = reverse_closure(bundle, module_path_pairs)
+        test_files = map_modules_to_test_files(bundle, closure, root)
+    except Exception as e:  # noqa: BLE001 — degrade to "cannot compute"
+        _log(f"select-tests: --impacted-tests: closure walk failed: {e}")
+        return 2
+
+    for test_file in test_files:
+        print(test_file)
+    return 0
+
+
 # ----------------------------------------------------------------------
 # Main entry — orchestrates the narrow / fallback flow (TASK-2-1..2-4b)
 # ----------------------------------------------------------------------
@@ -631,6 +688,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Print the import chain from any changed module to the named test.  Always exits 0.",
     )
     parser.add_argument(
+        "--impacted-tests",
+        metavar="FILE",
+        nargs="+",
+        help="Print the test files statically reachable (reverse imports) "
+        "from the named source files — the plan-phase test co-location "
+        "lens (#3411).  Exits 2 when the closure cannot be computed; "
+        "fall back to grepping the removed symbols.",
+    )
+    parser.add_argument(
         "--record-good",
         action="store_true",
         help="Atomically write the LKG sidecar.  Validates the sha and "
@@ -689,6 +755,9 @@ def _main_inner(argv: list[str] | None = None) -> int:
 
     if args.full_suite:
         return emit_full_suite()
+
+    if args.impacted_tests:
+        return impacted_tests(args.impacted_tests, repo_root=repo_root)
 
     if args.why is not None:
         return explain_why(args.why, repo_root=repo_root)
@@ -771,6 +840,13 @@ def main(argv: list[str] | None = None) -> int:
     except BaseException:
         # noqa: BLE001 — the WHOLE point is "catch anything".
         traceback.print_exc()
+        # `--impacted-tests` (#3411) is the one advisory query mode where
+        # widening is actively wrong: emitting every test root would read
+        # as "everything is impacted".  Honour its exit-2 "closure
+        # unavailable" contract instead of the full-suite fallback.
+        if "--impacted-tests" in (sys.argv[1:] if argv is None else argv):
+            _log("select-tests: --impacted-tests: internal error; closure unavailable")
+            return 2
         emit_full_suite("select-tests: full suite (trigger=selector exception)")
         return 0
 
@@ -788,6 +864,7 @@ __all__ = (
     "emit_full_suite",
     "evaluate_fallback_triggers",
     "explain_why",
+    "impacted_tests",
     "main",
     "patch_selection_record",
     "write_selection_record",
