@@ -38,6 +38,18 @@ Mechanics mirror the two established precedents:
   failed). The caller records the slice failure, which routes through
   the existing cascade + ``OVERSEER_ALERT`` machinery.
 
+  The fail-open guarantee only covers infrastructure failures the
+  *orchestrator* observes before/around check execution. Once the runner
+  is executing the checks, an infrastructure fault *inside* that
+  execution — a transient gateway hiccup on a git call, a mid-run
+  session-token expiry, an OOM-killed test worker, disk pressure —
+  exits the check non-zero and surfaces as ``ok:false``, i.e. a
+  definitive red that ``on`` mode blocks on. This is inherent to
+  shelling out to checks (CI has the same property); the staged
+  ``off → log → on`` rollout de-risks it, but ``on`` mode does not
+  distinguish an infra-induced red inside a check from a genuine
+  check failure.
+
 Rollout is staged via ``EGG_SLICE_GREEN_GATE``: ``off`` (default) →
 ``log`` (run checks, log the verdict loudly, never block — the soak mode
 while #3301 contract-single-writer is still landing, since a stale
@@ -98,6 +110,17 @@ _DEFAULT_SKIP_CHECKS = "security"
 # wedging the slice close.
 GREEN_GATE_TIMEOUT_ENV_VAR = "EGG_SLICE_GREEN_GATE_TIMEOUT_SECONDS"
 _DEFAULT_TIMEOUT_SECONDS = 1800
+
+# Extra wall-clock the orchestrator's wait loop allows on top of the
+# in-pod check budget, to absorb pod scheduling + image-pull latency.
+# The wait clock starts at Job submit, before the pod is scheduled/pulled
+# — so on a cold node a long image pull would otherwise eat into the
+# check budget and trip a spurious fail-open timeout even when the checks
+# would have passed. The pod's own ``activeDeadlineSeconds`` (which the
+# kubelet counts from pod *start*, i.e. after scheduling) still caps the
+# actual check duration, so a genuinely hung check is killed by the pod
+# deadline rather than lingering for the full grace-padded wait.
+_POD_SCHEDULING_GRACE_SECONDS = 120
 
 # Per-check output tail retained in the verdict (runner side) and the
 # smaller slice carried into the failure string routed to the cascade /
@@ -279,7 +302,10 @@ def _gate_timeout_seconds() -> int:
     raw = os.environ.get(GREEN_GATE_TIMEOUT_ENV_VAR, "")
     try:
         value = int(raw)
-    except TypeError, ValueError:
+    except ValueError:
+        # ``raw`` is always a ``str`` (``os.environ.get(..., "")``), so
+        # ``int()`` can only raise ``ValueError`` here — ``TypeError`` is
+        # unreachable.
         return _DEFAULT_TIMEOUT_SECONDS
     return value if value > 0 else _DEFAULT_TIMEOUT_SECONDS
 
@@ -716,7 +742,12 @@ def run_slice_green_gate(
             mode=mode,
         )
 
-        pod = _wait_for_runner_pod(spawner.k8s, namespace, gate_id, timeout=timeout)
+        pod = _wait_for_runner_pod(
+            spawner.k8s,
+            namespace,
+            gate_id,
+            timeout=timeout + _POD_SCHEDULING_GRACE_SECONDS,
+        )
         if pod is None:
             logger.warning(
                 "Green gate skipped: runner pod did not reach a terminal state (#3398)",
@@ -724,6 +755,7 @@ def run_slice_green_gate(
                 slice_id=slice_id,
                 gate_id=gate_id,
                 timeout_seconds=timeout,
+                wait_budget_seconds=timeout + _POD_SCHEDULING_GRACE_SECONDS,
             )
             return None
 
