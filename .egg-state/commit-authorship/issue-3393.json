@@ -351,6 +351,14 @@
       "registered_at": "2026-07-02T00:14:52.831844+00:00",
       "repo": null,
       "role": "simplifier"
+    },
+    "ffcea6b1c58e214040c3e75da424e40f1bf14d2b": {
+      "branch": "egg/issue-3393/slice-3",
+      "patch_id": "47063bed7ab343070c3855da187b1501ee8e3ff5",
+      "pipeline_id": "issue-3393",
+      "registered_at": "2026-07-02T05:28:21.784496+00:00",
+      "repo": null,
+      "role": "tester"
     }
   },
   "version": 2
