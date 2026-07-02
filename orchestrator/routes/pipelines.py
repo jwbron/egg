@@ -10601,6 +10601,29 @@ def _resolve_pipeline_worktree_path(pipeline: Pipeline, fallback: Path) -> Path:
     return fallback
 
 
+def _resolve_slice_worktree_path(
+    pipeline: Pipeline, slice_repo: str | None, fallback: Path
+) -> Path:
+    """Resolve the on-disk worktree path for a slice's repo (#3393 task-6-1).
+
+    A multi-repo pipeline materialises one worktree per participating repo
+    under ``WORKTREE_BASE_DIR / pipeline.id / <repo_short>`` — the same
+    owner/repo-keyed layout as :func:`_resolve_pipeline_worktree_path`, one
+    directory per repo. Given a slice's resolved repo (``owner/name``), this
+    returns that repo's worktree when it exists on disk, else *fallback*
+    (the pipeline-primary worktree). For an N=1 pipeline the slice's repo IS
+    the primary, so ``slice_repo`` matches ``pipeline.repo`` and the answer
+    is byte-identical to the pipeline-primary worktree — callers therefore
+    only reach here for a genuine secondary-repo slice.
+    """
+    repo_short = slice_repo.split("/")[-1] if slice_repo else None
+    if repo_short:
+        candidate = WORKTREE_BASE_DIR / pipeline.id / repo_short
+        if candidate.exists():
+            return candidate
+    return fallback
+
+
 def _persist_phase_brc_history(
     pipeline: Pipeline,
     store: StateStore,
@@ -20729,11 +20752,87 @@ def _run_concurrent_phase(
     ]
     filtered_graph = ReviewGraph(filtered_edges)
 
-    # Resolve base branch for diff commands in agent prompts.
-    _resolved_base_branch = pipeline.base_branch
+    # Scope the per-slice team to the slice's repo (#3393 task-6-1).
+    #
+    # Every slice maps to exactly one repo (slice ↔ repo, 1:1). For a
+    # multi-repo pipeline the slice's work, worktree, test gate, reviewer
+    # diff and PR all live in ITS repo — not necessarily the pipeline
+    # primary. We resolve the slice's repo via ``resolve_slice_repo`` and
+    # thread the slice-scoped repo / worktree / base-branch into the agent
+    # prompts (which drive ``get_repo_checks`` for the tester's configured
+    # checks, the file-boundary patterns, and the reviewer's
+    # ``git diff origin/<base>...HEAD``) and the spawn (via ``base_branch``
+    # → ``EGG_BASE_BRANCH`` and a slice-primary-first ``repos`` ordering so
+    # the spawner sets the agent cwd / ``EGG_REPO_PATH`` to the slice's
+    # repo worktree).
+    #
+    # N=1 stays byte-identical: a single-repo pipeline has one RepoSpec, so
+    # the block below is skipped entirely (``len(pipeline.repos) <= 1``),
+    # leaving ``slice_repo == pipeline.repo``, ``worktree_repo_path``, and
+    # the pipeline base branch exactly as before — no extra contract read.
+    slice_repo = pipeline.repo
+    slice_repo_path = worktree_repo_path
+    slice_repos = repos
+    slice_base_branch: str | None = None
+    if slice_id and len(getattr(pipeline, "repos", None) or []) > 1:
+        try:
+            from models import resolve_slice_repo  # type: ignore[no-redef]
+        except ImportError:
+            from ..models import resolve_slice_repo  # type: ignore[no-redef]
+
+        from egg_contracts.loader import load_contract
+
+        slice_obj = None
+        try:
+            _contract = load_contract(pipeline_id, worktree_repo_path)
+            slice_obj = next(
+                (s for s in _contract.slices if s.id == slice_id), None
+            )
+        except Exception as contract_err:  # noqa: BLE001
+            # Best-effort: a contract load/parse failure degrades to the
+            # pipeline-primary repo (today's behaviour), it does not block
+            # the spawn. The slice still runs, just against the primary.
+            logger.warning(
+                "Slice-repo scoping: contract load failed; using pipeline "
+                "primary repo (#3393)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                error=str(contract_err),
+            )
+
+        resolved = resolve_slice_repo(slice_obj, pipeline) if slice_obj else None
+        if resolved and resolved != pipeline.repo:
+            slice_repo = resolved
+            slice_repo_path = _resolve_slice_worktree_path(
+                pipeline, resolved, worktree_repo_path
+            )
+            # Per-repo base branch from the pipeline's RepoSpec list.
+            for spec in pipeline.repos or []:
+                if getattr(spec, "repo", None) == resolved:
+                    slice_base_branch = getattr(spec, "base_branch", None)
+                    break
+            # Order the slice's repo first so the spawner treats it as the
+            # effective repo for this per-slice team (cwd / EGG_REPO_PATH).
+            # ``repo_volumes`` already carries every repo owner/repo-keyed
+            # (slice-3), so only the ordering changes here.
+            slice_repos = [resolved, *[r for r in repos if r != resolved]]
+            logger.info(
+                "Slice scoped to secondary repo (#3393 task-6-1)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                slice_repo=slice_repo,
+                slice_worktree=str(slice_repo_path),
+            )
+
+    # Resolve base branch for diff commands in agent prompts. Prefer the
+    # slice repo's own base (its RepoSpec.base_branch) over the pipeline
+    # singleton, then fall back to auto-detecting the default branch in the
+    # slice's worktree (#3393 task-6-1). For N=1 this is the pipeline base /
+    # pipeline worktree exactly as before.
+    _resolved_base_branch = slice_base_branch or pipeline.base_branch
     if not _resolved_base_branch:
         try:
-            _resolved_base_branch = get_default_branch(worktree_repo_path)
+            _resolved_base_branch = get_default_branch(slice_repo_path)
         except Exception:
             _resolved_base_branch = None
 
@@ -20752,10 +20851,15 @@ def _run_concurrent_phase(
             pipeline_mode=pipeline_mode,
             prompt=pipeline.prompt,
             issue_number=pipeline.issue_number,
-            repo=pipeline.repo,
+            # Slice-scoped repo / worktree (#3393 task-6-1): drives the
+            # tester's ``get_repo_checks`` (per-repo configured checks),
+            # the role file-boundary patterns, and the reviewer diff base —
+            # all resolve from the slice's repo, not the pipeline primary.
+            # N=1 ⇒ these equal ``pipeline.repo`` / ``worktree_repo_path``.
+            repo=slice_repo,
             branch=pipeline.branch,
             base_branch=_resolved_base_branch,
-            repo_path=str(worktree_repo_path),
+            repo_path=str(slice_repo_path),
             concurrent=True,
             review_feedback=review_feedback,
             network_mode=gateway_mode,
@@ -20770,7 +20874,11 @@ def _run_concurrent_phase(
         issue_number=pipeline.issue_number,
         repo_volumes=repo_volumes,
         mode=gateway_mode,
-        repos=repos,
+        # Slice's repo first (#3393 task-6-1): the spawner derives the agent
+        # cwd / EGG_REPO_PATH from the primary (first) repo, so ordering the
+        # slice's repo first sets the working directory to that repo's
+        # worktree. N=1 / primary-repo slices leave ``repos`` unchanged.
+        repos=slice_repos,
         phase=phase_str,
         sandbox_env=sandbox_env,
         certs_volume=certs_volume,

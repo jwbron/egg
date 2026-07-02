@@ -1,5 +1,78 @@
 # Coder BRC memory — issue-3393 (multi-repo pipelines)
 
+## Slice-6 — per-repo test-gate + reviewer-diff scoping + per-repo conventions
+
+**Branch:** `egg/issue-3393-slice-6-coder/work`
+**Task:** task-6-1 — implemented. **File:** `orchestrator/routes/pipelines.py` only.
+
+### Change model (what landed)
+All wiring is in `_run_concurrent_phase` (the per-slice team spawn driver,
+receives `slice_id`, `pipeline`, `worktree_repo_path`, `repos`,
+`repo_volumes`). The implement-phase test gate and reviewer diff both run
+INSIDE the agent containers (tester's configured checks; reviewers'
+`git diff origin/<base>...HEAD`) — there is NO orchestrator-side
+`make test`/`make lint` subprocess in pipelines.py (grep confirmed: only
+prompt/doc strings). So scoping = threading the slice's repo / worktree /
+base-branch into the prompt builder + spawn, not moving a subprocess.
+
+- **New helper `_resolve_slice_worktree_path(pipeline, slice_repo, fallback)`**
+  (beside `_resolve_pipeline_worktree_path`): returns
+  `WORKTREE_BASE_DIR/pipeline.id/<slice_repo bare>` if it exists, else
+  fallback (pipeline-primary worktree). Mirrors the existing per-repo
+  worktree layout (slice-3 owner/repo keying).
+- **Slice-repo scoping block** in `_run_concurrent_phase`, GATED on
+  `slice_id and len(pipeline.repos) > 1` (so N=1 skips it entirely — no
+  extra contract read, byte-identical): loads the contract, finds the
+  slice, `resolved = resolve_slice_repo(slice_obj, pipeline)`. Only when
+  `resolved != pipeline.repo` does it diverge — sets `slice_repo`,
+  `slice_repo_path` (via the new helper), `slice_base_branch` (from the
+  matching `RepoSpec.base_branch`), and `slice_repos = [resolved, *others]`.
+  Contract-load failure soft-degrades to the primary (logged, non-blocking).
+- **Base-branch resolution** now prefers `slice_base_branch or
+  pipeline.base_branch`, then auto-detects in `slice_repo_path`.
+- **`_build_agent_prompt`** now gets `repo=slice_repo`,
+  `repo_path=str(slice_repo_path)` (was `pipeline.repo` /
+  `worktree_repo_path`). This is the lever for AC "check/lint from the
+  slice repo's conventions": `get_repo_checks(repo)` (tester prompt
+  ~15963) + file-boundary `get_agent_pattern_for_repo(repo)` both key off
+  `repo`; the reviewer diff base flows via `base_branch`.
+- **`create_concurrent_spawn_fn`** now gets `repos=slice_repos`. Verified
+  `_spawn.py:460` derives `primary_repo = next(iter(repos))` →
+  `repo_path`/`EGG_REPO_PATH` (agent cwd) from the first repo, so
+  slice-first ordering sets cwd to the slice's repo worktree. `repo_volumes`
+  (full owner/repo map, slice-3) is passed unchanged.
+
+### N=1 byte-equivalence
+`len(pipeline.repos) <= 1` ⇒ scoping block skipped ⇒ `slice_repo ==
+pipeline.repo`, `slice_repo_path == worktree_repo_path`, `slice_repos ==
+repos`, `slice_base_branch == None` ⇒ base resolution + prompt + spawn
+identical to pre-change. The legacy slice-1 validator synthesises a
+one-element `repos` for any legacy pipeline, so the guard holds.
+
+### Documented boundary (preempt reviewer questions)
+- **cwd via repos-reorder, not a new spawner param:** task-6-1 files=only
+  pipelines.py, and `_spawn.py` already derives cwd from `repos[0]`;
+  reordering is the minimal, in-scope lever. For a secondary-repo slice
+  `EGG_PIPELINE_REPO` becomes the slice repo — correct under slice↔repo 1:1
+  (authorship + naming should follow the slice's repo). `EGG_PIPELINE_REPOS`
+  (full map) still exported from `repo_volumes`, unchanged.
+- **`_build_slice_diff_summary` (PR-body "What's in this PR") NOT rescoped:**
+  it's PR rendering (best-effort, soft-fails), not the reviewer's audit
+  diff or the test gate, and its parent/integration branches are already
+  per-slice. Left on the pipeline worktree; multi-repo PR-body diff is
+  gated on task-7-1 (secondary worktrees) anyway.
+- **Runtime multi-repo end-to-end depends on task-7-1** (secondary-repo
+  worktree/branch materialisation → populates `repo_volumes` with the
+  secondary + creates the on-disk worktree the helper resolves). This slice
+  is structurally complete + forward-compatible: once task-7-1 lands, a
+  secondary slice's team spawns in its own repo worktree with NO further
+  change here.
+
+### Validation (no venv — deps cert-blocked, same as slices 2/3/4)
+- `py_compile` clean; `ruff check` "All checks passed!" on pipelines.py.
+- Full pytest deferred to the tester (task-6-2/6-3): env can't `pip install`
+  (charset-normalizer fetch fails on UnknownIssuer cert).
+
 ## Slice-4 — slice-PR routing to slice.repo + lazy per-repo context PR
 
 **Branch:** `egg/issue-3393-slice-4-coder/work` (base = slice-3 tip aa567fa67)
