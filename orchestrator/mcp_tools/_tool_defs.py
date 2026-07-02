@@ -26,11 +26,43 @@ PIPELINE_TOOLS = [
                 },
                 "repo": {
                     "type": "string",
-                    "description": "Repository to work on, in owner/name format (e.g. 'myorg/myrepo')",
+                    "description": "Repository to work on, in owner/name format (e.g. 'myorg/myrepo'). Single-repo shorthand; for a multi-repo pipeline (#3393) pass 'repos' instead. Exactly one of 'repo' or 'repos' is required.",
                 },
                 "base_branch": {
                     "type": "string",
-                    "description": "Base branch for PR creation (optional). Defaults to the repo's default branch if not specified.",
+                    "description": "Base branch for PR creation (optional). Defaults to the repo's default branch if not specified. Applies to the single 'repo'; per-repo base branches are given inside 'repos' entries.",
+                },
+                "repos": {
+                    "type": "array",
+                    "description": (
+                        "Multi-repo pipeline repo set (#3393). A list of repositories the "
+                        "pipeline coordinates PRs across, each with its own optional "
+                        "base_branch. Arbitrary length — no two-repo special case. The "
+                        "first entry (or the one flagged primary) is the primary repo used "
+                        "for pipeline/branch naming and as the default for slices that do "
+                        "not name a repo. All repos in a run must be uniformly private or "
+                        "uniformly public, and share a single auth mode (submission is "
+                        "rejected otherwise). Mutually exclusive with the single 'repo'; "
+                        "pass one or the other."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "repo": {
+                                "type": "string",
+                                "description": "Repository in owner/name format (e.g. 'myorg/myrepo').",
+                            },
+                            "base_branch": {
+                                "type": "string",
+                                "description": "Base branch PRs in this repo target (optional; defaults to the repo's default branch).",
+                            },
+                            "primary": {
+                                "type": "boolean",
+                                "description": "Mark this repo as the pipeline primary (naming/defaulting). At most one entry may set this; defaults to the first entry.",
+                            },
+                        },
+                        "required": ["repo"],
+                    },
                 },
                 "config": {
                     "type": "object",
@@ -81,7 +113,7 @@ PIPELINE_TOOLS = [
                     "prefix when reading artifacts. Only used with source_branch.",
                 },
             },
-            "required": ["description", "repo"],
+            "required": ["description"],
         },
     },
     {

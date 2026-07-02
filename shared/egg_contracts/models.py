@@ -435,6 +435,22 @@ class Slice(EggContractBaseModel):
             "to re-derive the repo to build a link."
         ),
     )
+    repo: str | None = Field(
+        default=None,
+        description=(
+            "The single repository this slice operates in, ``owner/name``-shaped "
+            "(#3393). Slice ↔ repo is 1:1 — exactly one repo per slice; the "
+            "slice's work, worktree, branch, review diff, test scope, and PR all "
+            "live in this one repo. Cross-repo work is expressed as multiple "
+            "slices with dependencies, never a single slice touching two repos. "
+            "``None`` ⇒ resolved to the pipeline's primary repo at RUNTIME (see "
+            "``resolve_slice_repo`` in orchestrator/models.py), NOT filled in by "
+            "the model: the ``Contract`` layer has no repo field and cannot see "
+            "the orchestrator ``Pipeline``, so the absent⇒primary default and the "
+            "pipeline repo LIST are both orchestrator concerns, not the contract. "
+            "Added in schema ``1.4``."
+        ),
+    )
     review_feedback: list[ReviewFeedback] = Field(
         default_factory=list, description="Feedback from reviewer"
     )
@@ -888,7 +904,7 @@ class Contract(EggContractBaseModel):
     """The complete SDLC contract."""
 
     schemaVersion: str = Field(  # noqa: N815
-        default="1.3",
+        default="1.4",
         pattern=r"^[0-9]+\.[0-9]+$",
         description=(
             "Schema version. Bumped to ``1.1`` in #2548 to track the "
@@ -897,17 +913,21 @@ class Contract(EggContractBaseModel):
             "``pr.context_title`` / ``pr.context_description`` were "
             "hard-removed in favour of opening the context PR on the work "
             "branch directly, then to ``1.3`` in #3033 to track the "
-            "addition of the optional ``task_description`` field. Pre-1.3 "
+            "addition of the optional ``task_description`` field, then to "
+            "``1.4`` in #3393 to track the addition of the optional "
+            "``Slice.repo`` field (multi-repo pipelines). Pre-1.3 "
             "contracts on disk load transparently — the wrap-mode migrator "
             "strips the removed ``pr.context_*`` keys before pydantic "
             "constructs ``PRMetadata`` and the after-mode stamps promote "
-            "the version — and are promoted to ``1.3`` whenever they are "
+            "the version — and are promoted to ``1.4`` whenever they are "
             "loaded into the model; the new value is then persisted on the "
             "next save. See ``_migrate_schema_version_to_1_1`` (the "
             "additive 1.0 → 1.1 stamp), ``_migrate_schema_version_to_1_2`` "
-            "(the wrap-mode field strip + 1.1 → 1.2 bump), and "
+            "(the wrap-mode field strip + 1.1 → 1.2 bump), "
             "``_migrate_schema_version_to_1_3`` (the additive 1.2 → 1.3 "
-            "stamp)."
+            "stamp), and ``_migrate_schema_version_to_1_4`` (the additive "
+            "1.3 → 1.4 stamp — ``Slice.repo`` stays ``None`` on a legacy "
+            "load, resolved to primary at runtime, never by the migration)."
         ),
     )
     issue: IssueInfo | None = Field(default=None, description="Issue metadata")
@@ -1115,6 +1135,38 @@ class Contract(EggContractBaseModel):
         """
         if self.schemaVersion == "1.2":
             self.schemaVersion = "1.3"
+        return self
+
+    @model_validator(mode="after")
+    def _migrate_schema_version_to_1_4(self) -> Contract:
+        """Promote ``1.3`` contracts to schema ``1.4`` (#3393).
+
+        The ``1.3`` → ``1.4`` bump is purely additive — it documents the
+        arrival of the optional ``Slice.repo`` field, which defaults to
+        ``None``. Pre-1.4 JSON loads cleanly without the field; we just
+        stamp the new version so downstream tooling (audit, status
+        renderers) sees a consistent value.
+
+        Mirrors ``_migrate_schema_version_to_1_3``: ``mode="after"`` so the
+        bump happens at every load (including in-memory
+        ``Contract.model_validate(...)``), guarded on the exact prior
+        version so it is idempotent and so an unrelated future bump (e.g.
+        a hypothetical ``2.0``) is never silently downgraded. The additive
+        after-stamps compose: a ``1.0`` payload runs through the wrap-mode
+        ``_migrate_schema_version_to_1_2`` (1.1 → 1.2), then the ``1.3``
+        stamp (1.2 → 1.3), then this stamp lifts ``1.3`` → ``1.4`` in the
+        same load.
+
+        CRITICAL (risk_analyst R1 / architect aeb3528): this migration is a
+        PURE stamp — it does NOT populate ``Slice.repo`` and does NOT
+        reference any pipeline/primary repo. The ``Contract`` model has no
+        repo field and cannot see the orchestrator ``Pipeline``, so
+        ``Slice.repo`` stays ``None`` on a legacy load; the absent⇒primary
+        default is resolved at RUNTIME by ``resolve_slice_repo`` in the
+        orchestrator layer, never here.
+        """
+        if self.schemaVersion == "1.3":
+            self.schemaVersion = "1.4"
         return self
 
     @model_validator(mode="wrap")

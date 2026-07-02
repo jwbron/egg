@@ -338,9 +338,12 @@ class TestContract:
         # the load-time migration that strips them from legacy on-disk
         # payloads), then 1.2 -> 1.3 in #3033 (added the optional
         # ``task_description`` field that persists the full free-text
-        # submit prompt). The canonical pin lives on
-        # ``test_pr_metadata.py::test_default_schemaversion_is_1_3``.
-        assert contract.schemaVersion == "1.3"
+        # submit prompt), then 1.3 -> 1.4 in #3393 (added the optional
+        # ``Slice.repo`` field for multi-repo pipelines — a pure additive
+        # after-stamp that leaves ``Slice.repo`` None on legacy load). The
+        # canonical pin lives on
+        # ``test_pr_metadata.py::test_default_schemaversion_is_1_4``.
+        assert contract.schemaVersion == "1.4"
         assert contract.issue.number == 133
         assert contract.current_phase == PipelinePhase.REFINE
         assert contract.phases == []

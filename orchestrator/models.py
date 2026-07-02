@@ -12,7 +12,7 @@ from enum import StrEnum
 from typing import Any, Literal, NamedTuple
 
 from agent_model_resolution import OVERSEER_TIER_MODELS
-from egg_contracts.models import PipelinePhase
+from egg_contracts.models import PipelinePhase, Slice
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from slice_id_validation import SLICE_ID_PATTERN
 
@@ -1117,6 +1117,32 @@ class PipelineConfig(BaseModel):
         return v
 
 
+class RepoSpec(BaseModel):
+    """One repository a pipeline operates in (#3393, multi-repo pipelines).
+
+    A pipeline carries a *list* of these on ``Pipeline.repos`` — one entry
+    per repository the run coordinates PRs across. Each repo pins its own
+    ``base_branch`` (PRs in that repo are opened against it), so the repo
+    set is genuinely list-shaped: there is no primary+secondary shape baked
+    into the data model, and nothing may assume ``len(repos)`` ∈ {1, 2}.
+
+    The ``repo`` is ``owner/name``-shaped — the full slug, not the bare
+    short name — so two repos with the same short name under different
+    owners stay distinct downstream (the worktree map is re-keyed by the
+    full slug in slice 3).
+    """
+
+    repo: str = Field(..., description="Repository in owner/name format")
+    base_branch: str | None = Field(
+        default=None,
+        description=(
+            "Base branch PRs in this repo are opened against. When None, "
+            "auto-detected from the repo's default branch (mirrors the "
+            "legacy ``Pipeline.base_branch`` semantics)."
+        ),
+    )
+
+
 class Pipeline(BaseModel):
     """Complete state of an SDLC pipeline execution.
 
@@ -1133,6 +1159,23 @@ class Pipeline(BaseModel):
     base_branch: str | None = Field(
         default=None,
         description="Base branch for PR creation. When None, auto-detected from repo's default branch.",
+    )
+    repos: list[RepoSpec] = Field(
+        default_factory=list,
+        description=(
+            "The full list of repositories this pipeline coordinates PRs "
+            "across (#3393, multi-repo pipelines). List-shaped end to end — "
+            "an arbitrary number of repos, each with its own ``base_branch``; "
+            "no two-repo special case and no primary+secondary shape is baked "
+            "in. The legacy singleton ``repo``/``base_branch`` scalars above "
+            "are kept in sync by ``_sync_repos_and_legacy_singleton``: a "
+            "pipeline persisted before this field existed synthesizes "
+            "``repos=[RepoSpec(repo, base_branch)]`` from the singleton on "
+            "load, and ``repos[0]`` is mirrored back onto the scalars so "
+            "legacy readers keep working until slice 3 rewires them. Use the "
+            "``primary_repo`` property (not ``repos[0]``) for naming/"
+            "defaulting; use ``resolve_slice_repo`` to resolve a slice's repo."
+        ),
     )
     prompt: str | None = Field(default=None, description="User prompt for prompt-driven pipelines")
     status: PipelineStatus = Field(
@@ -1365,6 +1408,80 @@ class Pipeline(BaseModel):
                 self.updated_at = datetime.now(UTC)
                 return decision
         return None
+
+    @model_validator(mode="after")
+    def _sync_repos_and_legacy_singleton(self) -> Pipeline:
+        """Keep ``repos`` and the legacy ``repo``/``base_branch`` in sync (#3393).
+
+        Back-compat bridge for the multi-repo migration. Runs at every load
+        (``mode="after"``) and is idempotent:
+
+        * **Synthesize (legacy → list):** when ``repos`` is empty but the
+          legacy singleton ``repo`` is set — a pipeline persisted before the
+          ``repos`` field existed — synthesize
+          ``repos=[RepoSpec(repo=self.repo, base_branch=self.base_branch)]``
+          so list-shaped consumers see the repo.
+        * **Mirror (list → legacy):** when ``repos`` is non-empty, mirror
+          ``repos[0]`` back onto the legacy ``repo``/``base_branch`` scalars
+          so legacy readers (and the three ``repos[0]`` collapse sites that
+          slice 3 has not yet rewired) keep working.
+
+        No behavioural change for N=1 pipelines: a single-repo pipeline's
+        singleton and its one-element ``repos`` list agree after this runs.
+        A repo-less pipeline (local mode, ``repo is None``) is left untouched
+        — ``repos`` stays empty and the scalars stay ``None``.
+
+        The absent-``Slice.repo``⇒primary default is NOT resolved here; that
+        lives in ``resolve_slice_repo`` (a slice needs the pipeline as a
+        second input, which only the orchestrator layer has).
+        """
+        if not self.repos:
+            if self.repo is not None:
+                self.repos = [RepoSpec(repo=self.repo, base_branch=self.base_branch)]
+        else:
+            primary = self.repos[0]
+            self.repo = primary.repo
+            self.base_branch = primary.base_branch
+        return self
+
+    @property
+    def primary_repo(self) -> str | None:
+        """The pipeline's primary repo — ``repos[0].repo`` (#3393).
+
+        The INTENTIONAL named-primary accessor for naming and defaulting.
+        Explicitly NOT one of the three ``repos[0]`` collapse sites removed
+        in slice 3: those collapse the agent-facing repo *set* to a single
+        repo, discarding the others; this exposes a named primary while the
+        full ``repos`` list stays available to every other consumer.
+
+        Returns ``None`` only for a repo-less pipeline (local mode with no
+        ``repo`` and no ``repos``) — the ``_sync_repos_and_legacy_singleton``
+        validator guarantees a singleton-only pipeline has a populated
+        ``repos`` by the time this is read, so the ``self.repo`` fallback is
+        just belt-and-braces for a pre-validation read.
+        """
+        if self.repos:
+            return self.repos[0].repo
+        return self.repo
+
+
+def resolve_slice_repo(slice: Slice, pipeline: Pipeline) -> str | None:
+    """Resolve the repository a slice operates in (#3393, multi-repo pipelines).
+
+    This is the RUNTIME home of the absent-``Slice.repo``⇒primary default —
+    the contract migration deliberately leaves ``Slice.repo`` as ``None`` on a
+    legacy load because the ``Contract`` model has no repo field and cannot see
+    the orchestrator ``Pipeline`` (risk_analyst R1 / architect aeb3528). This
+    resolver takes the pipeline as a second input, so it is the correct layer
+    to apply the default:
+
+    * an explicit ``slice.repo`` (``owner/name``) wins, else
+    * fall back to ``pipeline.primary_repo``.
+
+    For an N=1 pipeline every slice's ``repo`` is ``None`` and this returns the
+    single repo — behaviourally identical to the pre-multi-repo world.
+    """
+    return slice.repo if slice.repo else pipeline.primary_repo
 
 
 class PipelineEvent(BaseModel):

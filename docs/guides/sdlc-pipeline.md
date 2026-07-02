@@ -425,6 +425,64 @@ The terminal "PR phase" as a separate pipeline stage was **deleted** in [#2777](
 
 This structural enforcement prevents incidents where agents push code during planning or manually create PRs before implementation is complete.
 
+## Multi-Repo Pipelines
+
+A pipeline can coordinate PRs across an **arbitrary number of repositories** in
+a single run. The submission surface, pipeline state, agent environment, and PR
+coordination are all list-shaped end to end — there is no two-repo special case
+and no "primary + one secondary" shape baked into the data model.
+
+### List-shaped submission
+
+Both submission entry points accept a **list** of repositories, each pinning its
+own base branch:
+
+- **MCP `submit_task`** accepts either a single `repo` + `base_branch`
+  (back-compat) or a list of `{repo, base_branch}` entries.
+- **`POST /api/v1/pipelines`** threads the full list through pipeline
+  construction into `Pipeline.repos: list[RepoSpec]` (each `RepoSpec` carries a
+  `repo` in `owner/name` form and its own optional `base_branch`; when a
+  `base_branch` is `None` it is auto-detected from that repo's default branch).
+
+A bare single-repo submission is trivially a one-element list, so single-repo
+(N=1) pipelines behave exactly as before. Nothing downstream may assume
+`len(repos)` ∈ {1, 2}.
+
+### Primary repo
+
+One repo in the list is the **primary** — the first entry unless another is
+explicitly flagged. The primary is used for pipeline naming and as the
+slice-default repo (a slice that does not name its own repo resolves to the
+primary). Code reads the primary through the `Pipeline.primary_repo` property
+(not `repos[0]`), and resolves a slice's effective repo through
+`resolve_slice_repo(slice, pipeline)` — which returns `slice.repo` when set,
+else `pipeline.primary_repo`.
+
+### Uniform visibility and uniform auth
+
+Private mode is a **pipeline-wide posture** (context filtering, egress rules,
+what may be referenced where), so every repo in a single run must be uniformly
+private or uniformly public — a mixed set would let content from a private repo
+flow through shared plan/contract/PR surfaces into a public one. The submission
+path validates two uniformity rules and rejects a non-uniform set with an
+actionable, repo-naming error:
+
+- **Uniform visibility** — all repos private or all public, checked via
+  `gateway/repo_visibility.py:get_repo_visibility(owner, repo)`. Indeterminate
+  visibility fails closed (the run is rejected rather than assumed public).
+- **Uniform auth mode** — a single auth mode across the run, checked via the
+  per-repo `get_auth_mode(repo)` credential lookup.
+
+Same-name repos under **different owners** are *not* rejected — the collision is
+resolved by keying the repo→worktree map on the full `owner/repo` slug (see the
+[Slice-DAG architecture doc](../architecture/slice-dag.md#per-slice-repo-multi-repo-pipelines)).
+Different runs can, of course, be on different sides of the public/private line.
+
+For the slice-level model — the `Slice.repo` 1:1 rule, per-repo work branch and
+context PR, cross-repo ordering through slice dependencies, the two-tier
+merge-sequencing hold, and per-repo gate/diff/convention scoping — see
+[Per-slice repo (multi-repo pipelines)](../architecture/slice-dag.md#per-slice-repo-multi-repo-pipelines).
+
 ## Contract System
 
 ### Directory Structure
@@ -1414,7 +1472,7 @@ Phase completion in concurrent mode uses a consensus-based approach:
    - The orchestrator polls every 5 seconds and stops containers immediately on consensus
 4. Any agent can object (signal `OBJECTING`) to block completion
    - A HITL decision is created with options: **Override objections**, **Wait for resolution**, **Abort phase**
-5. Timeout (per-phase: refine 30 / plan 60 / implement 90 by default; configurable via `consensus_timeout_minutes_<phase>` or the legacy global `consensus_timeout_minutes`) publishes a non-blocking `OVERSEER_ALERT` (subject `consensus-timeout: <agent_role> [<priority>]`) rather than gating on a new HITL decision — see [issue #2264](https://github.com/jwbron/egg/issues/2264). Exception: if the phase already has an unresolved contract HITL decision (`cq-N`) pending, the timeout is suspended (no alert) until the operator resolves it, then the clock resets — see [Concurrent Execution: Timeout Handling](concurrent-execution.md#timeout-handling) (#3426)
+5. Timeout (per-phase: refine 30 / plan 60 / implement 90 by default; configurable via `consensus_timeout_minutes_<phase>` or the legacy global `consensus_timeout_minutes`) first checks whether the phase is already operator-gated on an unresolved contract HITL decision (`cq-N`); if so, the timeout is suspended entirely — no alert — until the decision resolves, and the clock then resets ([#3426](https://github.com/jwbron/egg/issues/3426)). Otherwise it publishes a non-blocking `OVERSEER_ALERT` (subject `consensus-timeout: <agent_role> [<priority>]`) rather than creating a new HITL decision — see [issue #2264](https://github.com/jwbron/egg/issues/2264)
    - The `/sdlc` skill surfaces the alert (Check agent logs / Acknowledge / Cancel pipeline)
    - The orchestrator continues polling for consensus under the post-timeout budget; operators can intervene with `cancel_task`, `restart_phase`, or `provide_input`
 6. The consensus wrapper drives the agent lifecycle as a deterministic event-pump: it invokes the agent one-shot per actionable BRC event (`propose|ack|nack`) and blocks between events on `egg-orch message wait-loop`. If no actionable event arrives within the idle budget (`EGG_BRC_IDLE_BUDGET_MIN`, default 30 min), the wrapper emits an `OVERSEER_ALERT` (anomaly `stuck-phase-transition`) and keeps blocking — it never exits with code 1 on idle alone. The old capped-restart model (`MAX_CONSENSUS_RESTARTS`, recovery system prompt) was deleted (#2908). See [Concurrent Execution: Consensus Wrapper](concurrent-execution.md#consensus-wrapper).

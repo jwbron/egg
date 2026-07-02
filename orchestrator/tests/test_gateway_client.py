@@ -784,6 +784,36 @@ class TestWorktreeManagement:
         assert "repo2" in result.worktrees
         assert "egg-test-pipeline-coder" in result.worktrees["repo1"]
 
+    def test_create_worktrees_preserves_owner_repo_keys_no_collision(self, gateway_client):
+        """The worktree map is keyed by full ``owner/repo`` (#3393 slice-3).
+
+        Operator ruling #6: the map must key by full ``owner/repo`` so two repos
+        with the same short name under different owners (``ownerA/foo`` vs
+        ``ownerB/foo``) get distinct entries instead of colliding on the bare
+        name. The client faithfully round-trips whatever keys the gateway
+        returns, so a same-name-different-owner pair yields two distinct entries
+        with their paths preserved — regression guard against a client-side
+        re-key back to the bare short name.
+        """
+        owner_repo_map = {
+            "ownerA/foo": "/wt/issue-3393/ownerA-foo",
+            "ownerB/foo": "/wt/issue-3393/ownerB-foo",
+        }
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            mock_request.return_value = {
+                "success": True,
+                "data": {"worktrees": dict(owner_repo_map), "errors": []},
+            }
+            result = gateway_client.create_worktrees(
+                container_id="issue-3393-coder",
+                repos=["ownerA/foo", "ownerB/foo"],
+            )
+
+        # Both same-short-name repos survive as distinct owner/repo keys.
+        assert set(result.worktrees.keys()) == {"ownerA/foo", "ownerB/foo"}
+        assert len(result.worktrees) == 2
+        assert result.worktrees == owner_repo_map
+
     def test_create_worktrees_without_auth(self, mock_gateway_server):
         """Test that worktree creation without launcher secret fails."""
         client = GatewayClient(

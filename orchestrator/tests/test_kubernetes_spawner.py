@@ -8,9 +8,12 @@ pipeline cleanup, and error handling.
 from __future__ import annotations
 
 import hashlib
+import io
+import json
 import shutil
 import statistics
 import subprocess
+import tokenize
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -3345,3 +3348,245 @@ class TestOverseerSpawnNormalization:
             f"{monitor} must be deleted — the on-demand overseer monitors via MCP/tools, "
             "not a trust-and-run baked-in script (#2270 §1.5)"
         )
+
+
+# ---------------------------------------------------------------------------
+# Multi-repo agent environment (#3393 slice-3, task-3-3)
+# ---------------------------------------------------------------------------
+
+
+class TestMultiRepoAgentEnv:
+    """The agent environment exposes the FULL owner/repo-keyed worktree map.
+
+    #3393 slice-3 removes the ``repos[0]`` collapse in the spawner: instead of
+    deriving a single repo from ``repos[0]``, the spawner exposes the whole
+    ``owner/repo -> container worktree path`` map as ``EGG_PIPELINE_REPOS``
+    (JSON) so a per-slice agent can select ITS slice's repo worktree rather
+    than being collapsed onto the primary. ``EGG_PIPELINE_REPO`` stays
+    populated with the primary (first) repo for back-compat.
+
+    The map is keyed by FULL ``owner/repo`` (operator ruling #6) so two repos
+    with the same short name under different owners (``ownerA/foo`` vs
+    ``ownerB/foo``) get distinct KEYS instead of collapsing to one bare-name
+    entry.
+    """
+
+    def test_agent_env_exposes_full_owner_repo_worktree_map(self, spawner, mock_gateway):
+        """A multi-repo spawn exposes every repo's worktree, keyed by owner/repo.
+
+        The canonical motivating pattern (a schema repo + its consumer repo)
+        must surface BOTH repos in ``EGG_PIPELINE_REPOS`` — the full owner/repo
+        -> container-path map — while ``EGG_PIPELINE_REPO`` resolves to the
+        primary (first) repo for back-compat. Distinct bare names here so both
+        keys and paths are unambiguous (the same-bare-name key case is covered
+        separately below).
+        """
+        mock_gateway.create_worktrees.return_value = _FakeWorktreeResult(
+            worktrees={
+                "ownerA/schema": "/home/egg/.egg-worktrees/pipe-multi/ownerA-schema",
+                "ownerB/consumer": "/home/egg/.egg-worktrees/pipe-multi/ownerB-consumer",
+            }
+        )
+
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-multi",
+            agent_role=AgentRole.CODER,
+            repos=["ownerA/schema", "ownerB/consumer"],
+        )
+        env = result.environment
+
+        # Full owner/repo-keyed map: an entry per repo, keyed by full owner/repo,
+        # valued by the container worktree path.
+        repo_map = json.loads(env["EGG_PIPELINE_REPOS"])
+        assert repo_map == {
+            "ownerA/schema": "/home/egg/repos/schema",
+            "ownerB/consumer": "/home/egg/repos/consumer",
+        }
+
+        # Back-compat: the singleton still resolves to the primary (first) repo.
+        assert env["EGG_PIPELINE_REPO"] == "ownerA/schema"
+
+    def test_agent_env_same_name_repos_get_distinct_map_keys(self, spawner, mock_gateway):
+        """Same short name under different owners → distinct owner/repo KEYS.
+
+        Operator ruling #6: the worktree map is re-keyed by full ``owner/repo``
+        so ``ownerA/foo`` and ``ownerB/foo`` do NOT collapse to a single
+        bare-name (``foo``) entry — the map has two distinct keys.
+
+        NOTE (non-blocking, flagged to reviewers/coder): the map *values* are
+        currently derived as ``/home/egg/repos/<bare-name>``, so two
+        same-bare-name repos share the same container mount target. That is a
+        property of the container mount-path scheme (``host_path_mounts``),
+        broader than this slice's owner/repo re-key of the map KEYS; this test
+        deliberately asserts only key-distinctness and does not bless the
+        value collision.
+        """
+        mock_gateway.create_worktrees.return_value = _FakeWorktreeResult(
+            worktrees={
+                "ownerA/foo": "/home/egg/.egg-worktrees/pipe-multi/ownerA-foo",
+                "ownerB/foo": "/home/egg/.egg-worktrees/pipe-multi/ownerB-foo",
+            }
+        )
+
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-multi",
+            agent_role=AgentRole.CODER,
+            repos=["ownerA/foo", "ownerB/foo"],
+        )
+        repo_map = json.loads(result.environment["EGG_PIPELINE_REPOS"])
+
+        assert set(repo_map.keys()) == {"ownerA/foo", "ownerB/foo"}
+        assert len(repo_map) == 2, "same-short-name repos must not collapse to one key"
+
+    def test_agent_env_single_repo_backcompat(self, spawner, mock_gateway):
+        """N=1 pipelines still expose a one-entry map and the singleton env var.
+
+        The map-shaped env exposure must be behaviour-identical for the
+        single-repo case: a one-element ``EGG_PIPELINE_REPOS`` map plus
+        ``EGG_PIPELINE_REPO`` pointing at that repo.
+        """
+        mock_gateway.create_worktrees.return_value = _FakeWorktreeResult(
+            worktrees={"owner/solo": "/home/egg/.egg-worktrees/pipe-solo/owner-solo"}
+        )
+
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-solo",
+            agent_role=AgentRole.TESTER,
+            repos=["owner/solo"],
+        )
+        env = result.environment
+
+        assert json.loads(env["EGG_PIPELINE_REPOS"]) == {"owner/solo": "/home/egg/repos/solo"}
+        assert env["EGG_PIPELINE_REPO"] == "owner/solo"
+
+
+# ---------------------------------------------------------------------------
+# repos[0]-collapse ratchet (#3393 slice-3, task-3-3)
+# ---------------------------------------------------------------------------
+
+
+def _bare_repos_index_zero_sites(paths):
+    """Return ``(relpath, lineno, source_line)`` for every bare ``repos[0]`` /
+    ``pipeline_repos[0]`` *code* token in ``paths``.
+
+    Uses ``tokenize`` (not a text grep) so comments and docstrings that mention
+    ``repos[0]`` are ignored — only executable tokens count. A leading ``.``
+    is excluded so the intentional primary accessor (``self.repos[0]`` /
+    ``pipeline.repos[0]``, i.e. the ``primary_repo`` property internals) is NOT
+    flagged; only the *collapse* shape — indexing a bare local ``repos`` /
+    ``pipeline_repos`` list — is caught.
+    """
+    hits = []
+    for path in paths:
+        if not path.exists():
+            continue
+        try:
+            tokens = list(tokenize.tokenize(io.BytesIO(path.read_bytes()).readline))
+        except (SyntaxError, tokenize.TokenError):
+            continue
+        for i, tok in enumerate(tokens):
+            if tok.type != tokenize.NAME or tok.string not in ("repos", "pipeline_repos"):
+                continue
+            prev = tokens[i - 1] if i > 0 else None
+            if prev is not None and prev.type == tokenize.OP and prev.string == ".":
+                # ``self.repos[0]`` / ``pipeline.repos[0]`` — the primary
+                # accessor, not a collapse.
+                continue
+            nxt = tokens[i + 1 : i + 4]
+            if (
+                len(nxt) >= 3
+                and nxt[0].string == "["
+                and nxt[1].string == "0"
+                and nxt[2].string == "]"
+            ):
+                hits.append((path, tok.start[0], tok.line.strip()))
+    return hits
+
+
+class TestReposZeroCollapseRatchet:
+    """Regression ratchet: no ``repos[0]`` collapse in orchestrator source.
+
+    #3393 slice-3 removes the three enumerated collapse sites
+    (``kubernetes_spawner/_spawn.py``, ``commit_authorship_store.py``,
+    ``routes/pipelines.py``) that assumed a single repo by indexing
+    ``repos[0]``. This test fails if any of them reappears — or if a NEW
+    un-enumerated collapse site is introduced anywhere in the orchestrator
+    package.
+
+    The one intentionally-allowlisted site is
+    ``sandbox/egg_lib/sdlc_hitl.py`` where ``repos[0]`` is guarded by an
+    explicit ``len(repos) == 1`` check and is therefore NOT a collapse.
+    """
+
+    # Paths (repo-relative) permitted to contain a bare ``repos[0]`` token.
+    _ALLOWLIST = {"sandbox/egg_lib/sdlc_hitl.py"}
+
+    def _repo_root(self):
+        return Path(__file__).resolve().parents[2]
+
+    def _scanned_paths(self):
+        root = self._repo_root()
+        orchestrator = root / "orchestrator"
+        paths = [
+            p
+            for p in orchestrator.rglob("*.py")
+            # Test modules legitimately reference ``repos[0]`` (and this very
+            # ratchet's fixtures do too) — scan only orchestrator *source*.
+            if not str(p.relative_to(root)).startswith("orchestrator/tests/")
+        ]
+        # Explicitly include the allowlisted guarded site so the allowlist is
+        # meaningful (task-3-3): if the guard is ever removed and the site
+        # multiplies, we still see it in the sweep.
+        paths.append(root / "sandbox" / "egg_lib" / "sdlc_hitl.py")
+        return paths
+
+    def test_no_repos_zero_collapse_in_orchestrator_source(self):
+        root = self._repo_root()
+        hits = _bare_repos_index_zero_sites(self._scanned_paths())
+        offenders = [
+            (str(path.relative_to(root)), lineno, line)
+            for (path, lineno, line) in hits
+            if str(path.relative_to(root)) not in self._ALLOWLIST
+        ]
+        assert not offenders, (
+            "`repos[0]` collapse reintroduced (indexing a bare repo list assumes "
+            "a single repo — use `pipeline.primary_repo` or the full owner/repo "
+            "map instead). Offending sites:\n"
+            + "\n".join(f"  {p}:{n}  {ln}" for (p, n, ln) in offenders)
+        )
+
+    def test_ratchet_detects_a_planted_collapse(self):
+        """The detector itself works — a bare ``repos[0]`` in a code token is
+        found, while ``self.repos[0]`` and a docstring mention are not.
+
+        Guards against the ratchet silently rotting into a no-op (e.g. a
+        tokenizer change) and passing even when a real collapse exists.
+        """
+        planted = (
+            "def f(repos):\n"
+            '    """Docstring mentioning repos[0] must be ignored."""\n'
+            "    x = repos[0]\n"  # <- the only real collapse
+            "    y = self.repos[0]\n"  # <- primary accessor, ignored
+            "    return x, y\n"
+        )
+        tmp = self._repo_root() / "orchestrator" / "__ratchet_probe__.py"
+        try:
+            tmp.write_bytes(planted.encode("utf-8"))
+            hits = _bare_repos_index_zero_sites([tmp])
+        finally:
+            tmp.unlink(missing_ok=True)
+        assert len(hits) == 1, hits
+        assert hits[0][2] == "x = repos[0]"
+
+    def test_allowlisted_guarded_site_is_present_and_exempt(self):
+        """The guarded ``sdlc_hitl.py`` site exists and is exempt.
+
+        Documents WHY the allowlist entry exists: the site is real (so the
+        allowlist isn't dead) but is guarded by ``len(repos) == 1`` and is
+        therefore not a single-repo collapse.
+        """
+        root = self._repo_root()
+        sdlc_hitl = root / "sandbox" / "egg_lib" / "sdlc_hitl.py"
+        hits = _bare_repos_index_zero_sites([sdlc_hitl])
+        assert hits, "expected the guarded repos[0] site in sdlc_hitl.py"
+        assert "sandbox/egg_lib/sdlc_hitl.py" in self._ALLOWLIST

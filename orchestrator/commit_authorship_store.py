@@ -926,11 +926,30 @@ def _resolve_authorship_repo_path() -> Path:
         return env_path / override
 
     repos: list[Path] = discover_repo_paths(env_path)
-    if len(repos) == 0:
+    if not repos:
         return env_path
-    if len(repos) == 1:
-        return repos[0]
-    return next((r for r in repos if r.name == "egg"), repos[0])
+
+    # Prefer the pipeline's PRIMARY repo when it is checked out among the
+    # discovered repos (#3393 slice-3). ``EGG_PIPELINE_REPO`` carries the
+    # primary ``owner/repo`` the spawner derived from ``Pipeline.repos``
+    # (primary-first); match on the bare repo name (the on-disk directory).
+    # This replaces the old blind first-alphabetical fallback, which
+    # implicitly assumed a single/primary repo. When the hint is absent
+    # (e.g. the orchestrator process) the behaviour degrades to the prior
+    # ``egg``-preferred / first-alphabetical heuristic below.
+    primary_slug = os.environ.get("EGG_PIPELINE_REPO", "").strip()
+    if primary_slug:
+        primary_name = primary_slug.split("/")[-1]
+        primary_match = next((r for r in repos if r.name == primary_name), None)
+        if primary_match is not None:
+            return primary_match
+
+    # No usable primary hint: prefer the ``egg`` repo (the orchestrator's own
+    # repo, where pipeline state conventionally lives), else the first repo
+    # (``discover_repo_paths`` returns them alphabetically) for a
+    # deterministic pick. ``next(iter(...))`` yields that first entry without
+    # a positional ``repos[0]`` collapse.
+    return next((r for r in repos if r.name == "egg"), next(iter(repos)))
 
 
 def get_store(state_store: StateStore | None = None) -> CommitAuthorshipStore:
