@@ -17044,7 +17044,7 @@ def _unresolved_contract_hitl_ids(
             return []
         identifier = _pipeline_identifier(getattr(pipeline, "issue_number", None), pipeline_id)
         contract = load_contract(identifier, worktree)
-    except (OSError, ValueError, ContractNotFoundError, ContractValidationError):
+    except OSError, ValueError, ContractNotFoundError, ContractValidationError:
         # OSError: filesystem failures resolving the worktree / reading the
         # contract. ValueError: pydantic-V2 validation failures. Contract*:
         # missing or corrupt contract JSON. All fail open to ``[]``.
