@@ -263,6 +263,52 @@ class TestWorktreeCreateEndpoint:
         data = json.loads(response.data)
         assert "repos" in data["message"].lower()
 
+    @patch("gateway.get_worktree_manager")
+    def test_push_branch_forwarded_to_create_worktree(
+        self, mock_manager, client, launcher_auth_headers
+    ):
+        """push_branch from the request body reaches create_worktree (#3393 slice-7).
+
+        Executable-seam guard for the ``gateway route → create_worktree(push_branch=…)``
+        link: a multi-repo pipeline sends ``push_branch: true`` so the gateway
+        materializes each participating repo's ``egg/<pipeline_id>/work`` branch
+        on its own remote before any PR-opening call runs against it.
+        """
+        wt = mock_manager.return_value
+        wt.resolve_default_branch.return_value = "origin/main"
+        info = MagicMock()
+        info.worktree_path = "/wt/egg-123/repo"
+        info.branch = "egg/egg-123/work"
+        wt.create_worktree.return_value = info
+
+        response = client.post(
+            "/api/v1/worktree/create",
+            headers=launcher_auth_headers,
+            json={"container_id": "egg-123", "repos": ["owner/repo"], "push_branch": True},
+        )
+
+        assert response.status_code == 200
+        assert wt.create_worktree.call_args.kwargs["push_branch"] is True
+
+    @patch("gateway.get_worktree_manager")
+    def test_push_branch_defaults_false(self, mock_manager, client, launcher_auth_headers):
+        """Omitting push_branch keeps create_worktree's push_branch False (N=1 path)."""
+        wt = mock_manager.return_value
+        wt.resolve_default_branch.return_value = "origin/main"
+        info = MagicMock()
+        info.worktree_path = "/wt/egg-123/repo"
+        info.branch = "egg/egg-123/work"
+        wt.create_worktree.return_value = info
+
+        response = client.post(
+            "/api/v1/worktree/create",
+            headers=launcher_auth_headers,
+            json={"container_id": "egg-123", "repos": ["owner/repo"]},
+        )
+
+        assert response.status_code == 200
+        assert wt.create_worktree.call_args.kwargs["push_branch"] is False
+
 
 class TestWorktreeDeleteEndpoint:
     """Tests for /api/v1/worktree/delete endpoint.

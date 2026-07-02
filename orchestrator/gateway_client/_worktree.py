@@ -18,6 +18,7 @@ def create_worktrees(
     gid: int | None = None,
     base_branch: str | None = None,
     assigned_branch: str | None = None,
+    push_branches: bool = False,
     timeout: int = 120,
 ) -> WorktreeResult:
     """Create isolated worktrees for a container.
@@ -28,7 +29,10 @@ def create_worktrees(
 
     Args:
         container_id: Container identifier (e.g., 'egg-local-abc123-coder')
-        repos: List of repository names (or owner/repo format)
+        repos: List of repository names (or owner/repo format).  For a
+            multi-repo pipeline this is the FULL participating repo set
+            (primary-first), so every repo owning ≥1 slice gets a
+            worktree — the list-shaped threading #3393 slice-7 relies on.
         uid: User ID for worktree ownership
         gid: Group ID for worktree ownership
         base_branch: Branch to base worktrees on. When None, the gateway
@@ -38,6 +42,19 @@ def create_worktrees(
             ``branch.<local>.merge`` so a naive ``git push`` from the
             worktree resolves to a refspec targeting this branch
             instead of the per-worktree local branch name.  See #1809.
+        push_branches: When True, ask the gateway to materialize each
+            repo's pipeline work branch on its OWN remote right after the
+            worktree exists (push the worktree HEAD to
+            ``refs/heads/{assigned_branch or work-branch}``).  #3393
+            slice-7 / cq-4: a multi-repo pipeline sets this so every
+            participating repo has ``egg/<pipeline_id>/work`` on its
+            remote BEFORE any PR-opening call runs against it — otherwise
+            the slice-4 secondary-context / slice-PR openers soft-fail on
+            a missing head branch.  The gateway push is non-forced and
+            idempotent (an already-present branch is a no-op), so it never
+            clobbers the primary repo's contract-init commit.  Single-repo
+            (N=1) callers leave this False, keeping the path
+            byte-identical to pre-#3393.
         timeout: Request timeout in seconds. Defaults to 120s because
             concurrent pipeline starts may queue behind per-repo locks
             in the gateway.
@@ -63,6 +80,8 @@ def create_worktrees(
         request_data["base_branch"] = base_branch
     if assigned_branch is not None:
         request_data["assigned_branch"] = assigned_branch
+    if push_branches:
+        request_data["push_branch"] = True
     if uid is not None:
         request_data["uid"] = uid
     if gid is not None:

@@ -102,7 +102,10 @@ for img in "${IMAGES[@]}"; do
     bare_img_alt="${bare_img_alt:+${bare_img_alt}|}${img}"
   fi
 done
-IMAGE_RE="$(IFS='|'; echo "${IMAGES[*]}")"
+IMAGE_RE="$(
+  IFS='|'
+  echo "${IMAGES[*]}"
+)"
 if [ -n "$REGISTRY" ]; then
   PREFIX_ALT_RE="${REGISTRY_PREFIX_RE}|${LEGACY_PREFIX_RE}"
 else
@@ -225,8 +228,8 @@ else
 fi
 # Regex via ENVIRON, not -v, for the same escape-processing reason as the
 # containerd awk above.
-mapfile -t docker_stale < <(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null |
-  KEEP_TAG="$KEEP_TAG" DOCKER_REF_RE="$DOCKER_REF_RE" awk '
+mapfile -t docker_stale < <(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+  | KEEP_TAG="$KEEP_TAG" DOCKER_REF_RE="$DOCKER_REF_RE" awk '
     $0 ~ ENVIRON["DOCKER_REF_RE"] {
       tag = $0; sub(/.*:/, "", tag)
       if (tag != ENVIRON["KEEP_TAG"] && tag != "latest" && tag != "<none>") print
@@ -259,8 +262,8 @@ docker builder prune -f --keep-storage="${EGG_BUILDKIT_CACHE_CAP:-40GB}" >/dev/n
 # only when unallocated space is critically low (the next redeploy would
 # likely wedge); otherwise just point at `make btrfs-reclaim`.
 if [ "$(stat -f --format=%T / 2>/dev/null)" = "btrfs" ]; then
-  unalloc_bytes="$(sudo btrfs filesystem usage -b / 2>/dev/null |
-    awk '/Device unallocated:/ { print $3 }')"
+  unalloc_bytes="$(sudo btrfs filesystem usage -b / 2>/dev/null \
+    | awk '/Device unallocated:/ { print $3 }')"
   if [ -n "${unalloc_bytes:-}" ]; then
     unalloc_gib=$((unalloc_bytes / 1073741824))
     if [ "$unalloc_gib" -lt 4 ]; then
@@ -295,15 +298,15 @@ ACCEPT="${ACCEPT}, application/vnd.oci.image.index.v1+json"
 # and under set -e + pipefail a failing $(manifest_digest ...) inside an
 # assignment would abort the whole reap mid-flight.
 manifest_digest() {
-  curl -fsSI -H "Accept: ${ACCEPT}" "${API}/$1/manifests/$2" 2>/dev/null |
-    awk 'tolower($1) == "docker-content-digest:" { gsub("\r", "", $2); print $2 }' || true
+  curl -fsSI -H "Accept: ${ACCEPT}" "${API}/$1/manifests/$2" 2>/dev/null \
+    | awk 'tolower($1) == "docker-content-digest:" { gsub("\r", "", $2); print $2 }' || true
 }
 
 reg_removed=0
 for img in "${REGISTRY_SUBSET[@]}"; do
   tags_json="$(curl -fsS "${API}/${img}/tags/list" 2>/dev/null)" || continue
-  mapfile -t tags < <(printf '%s' "$tags_json" |
-    python3 -c 'import json, sys
+  mapfile -t tags < <(printf '%s' "$tags_json" \
+    | python3 -c 'import json, sys
 for t in json.load(sys.stdin).get("tags") or []:
     print(t)' 2>/dev/null || true)
 
@@ -344,5 +347,5 @@ fi
 # re-uploads, and the subsequent containerd pull dies with
 # "short read: ... unexpected EOF". Observed live on the first #3101
 # deploy. The restart takes ~1s; a pod pull racing it just retries.
-docker restart egg-registry >/dev/null 2>&1 ||
-  echo "==> registry reap: restart of egg-registry failed -- run 'docker restart egg-registry' before the next push." >&2
+docker restart egg-registry >/dev/null 2>&1 \
+  || echo "==> registry reap: restart of egg-registry failed -- run 'docker restart egg-registry' before the next push." >&2
