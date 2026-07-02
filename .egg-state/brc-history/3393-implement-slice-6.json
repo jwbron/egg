@@ -1,0 +1,1475 @@
+[
+  {
+    "id": "c175a84e-8064-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:33:13.315982+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ea4810bc-83e4-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:33:13.327523+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "27697764-8377-4d",
+    "pipeline_id": "issue-3393",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:33:14.340676+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9bc04f98-098f-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:33:19.846799+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "cee975b0-ba6f-41",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:33:21.810990+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "49f90c8d-2be5-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:33:22.417679+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "bfacfcf8-5e10-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:35:30.185494+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "51369776-e23f-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:35:35.964271+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "fc842ce0-e5d1-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:35:39.101490+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3d2a4331-115a-4d",
+    "pipeline_id": "issue-3393",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from documenter",
+    "body": "Documented the shipped multi-repo pipeline model across the two current-state docs (task-6-3). docs/guides/sdlc-pipeline.md gains a \"Multi-Repo Pipelines\" section: list-shaped submission via submit_task / POST /api/v1/pipelines with per-repo base_branch (RepoSpec), the primary-repo concept (Pipeline.primary_repo, resolve_slice_repo), and the uniform-visibility + uniform-auth submission-time rules (get_repo_visibility fail-closed, get_auth_mode; same-name-different-owner allowed). docs/architecture/slice-dag.md gains a Slice.repo row in the New Slice fields table plus a \"Per-slice repo (multi-repo pipelines)\" section covering: the 1:1 slice\u2194repo rule + runtime resolver + schemaVersion 1.4 additive stamp; owner/repo-keyed worktree map (EGG_PIPELINE_REPOS); lazy per-repo work branch + context PR; per-slice PR routing with sibling cross-references; cross-repo ordering via slice dependencies (B\u2192A cross-repo iff resolve_slice_repo differs); the two-tier cq-1 merge-sequencing hold (Tier A automated draft\u2192ready on mergedAt not head-SHA, mark_pr_ready, CLOSED-unmerged + bounded-timeout HITL terminals; Tier B beyond-merge-state HITL opt-in); and per-repo test-gate/reviewer-diff/convention scoping. Current-state snapshot, no slice-number or pipeline-process narration; bidirectional cross-links between the two docs.",
+    "metadata": {
+      "payload": {
+        "summary": "Documented the shipped multi-repo pipeline model across the two current-state docs (task-6-3). docs/guides/sdlc-pipeline.md gains a \"Multi-Repo Pipelines\" section: list-shaped submission via submit_task / POST /api/v1/pipelines with per-repo base_branch (RepoSpec), the primary-repo concept (Pipeline.primary_repo, resolve_slice_repo), and the uniform-visibility + uniform-auth submission-time rules (get_repo_visibility fail-closed, get_auth_mode; same-name-different-owner allowed). docs/architecture/slice-dag.md gains a Slice.repo row in the New Slice fields table plus a \"Per-slice repo (multi-repo pipelines)\" section covering: the 1:1 slice\u2194repo rule + runtime resolver + schemaVersion 1.4 additive stamp; owner/repo-keyed worktree map (EGG_PIPELINE_REPOS); lazy per-repo work branch + context PR; per-slice PR routing with sibling cross-references; cross-repo ordering via slice dependencies (B\u2192A cross-repo iff resolve_slice_repo differs); the two-tier cq-1 merge-sequencing hold (Tier A automated draft\u2192ready on mergedAt not head-SHA, mark_pr_ready, CLOSED-unmerged + bounded-timeout HITL terminals; Tier B beyond-merge-state HITL opt-in); and per-repo test-gate/reviewer-diff/convention scoping. Current-state snapshot, no slice-number or pipeline-process narration; bidirectional cross-links between the two docs.",
+        "attestation": {},
+        "artifacts": [
+          "docs/guides/sdlc-pipeline.md",
+          "docs/architecture/slice-dag.md"
+        ],
+        "risk_considered": "Docs-only change (documenter file boundary: docs/ + **/*.md). No code/behavior change. Verified every documented symbol against the landed implementation (Slice.repo + schemaVersion 1.4 in shared/egg_contracts/models.py; RepoSpec/Pipeline.repos/primary_repo/resolve_slice_repo in orchestrator/models.py; EGG_PIPELINE_REPOS in kubernetes_spawner/_spawn.py; mark_pr_ready in gateway_client/_pr.py; cross_repo_merge_gate.py two-tier hold). Anchors verified consistent across both docs.",
+        "commit_sha": "6afc6dfb75b3581d056cf128068e3dbf1fe19846",
+        "files_changed": [
+          "docs/guides/sdlc-pipeline.md",
+          "docs/architecture/slice-dag.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-6-3"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "6afc6dfb75b3581d056cf128068e3dbf1fe19846",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:36:40.871413+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c609056b-8ef4-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:36:49.197953+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "737acca0-73ac-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:36:49.668745+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "48575b44-0ba9-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=135475 util=0.14 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:36:55.190603+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "bbd8e37f-62ed-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:36:58.205757+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ec23e71f-8c65-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:36:58.722634+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "46b6eeec-6ea1-4d",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:37:42.693803+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "da7dfca4-bbff-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:37:49.128733+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a5fe14a2-d55c-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "documenter",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for documenter",
+    "body": "Verified every concrete anchor in the docs diff against live code \u2014 all accurate and non-misleading. resolve_slice_repo (models.py:1484 returns slice.repo or pipeline.primary_repo), Pipeline.repos:list[RepoSpec] + primary_repo property, Slice.repo optional field with schema 1.4 additive _migrate_schema_version_to_1_4, cross_repo_merge_gate.py (draft-PR Tier-A hold; merge detection via mergedAt/merged NOT head-SHA per _is_merged; CLOSED-not-merged + attempt-bound HITL terminals), mark_pr_ready gateway verb, create_slice_pr repo-parameterized, gateway/repo_visibility.py:get_repo_visibility, and EGG_PIPELINE_REPOS owner/repo-keyed worktree map with naming env falling back to primary. Cross-file doc anchors resolve. No blocking issues.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "docs/guides/sdlc-pipeline.md",
+          "docs/architecture/slice-dag.md"
+        ],
+        "reason": "Verified every concrete anchor in the docs diff against live code \u2014 all accurate and non-misleading. resolve_slice_repo (models.py:1484 returns slice.repo or pipeline.primary_repo), Pipeline.repos:list[RepoSpec] + primary_repo property, Slice.repo optional field with schema 1.4 additive _migrate_schema_version_to_1_4, cross_repo_merge_gate.py (draft-PR Tier-A hold; merge detection via mergedAt/merged NOT head-SHA per _is_merged; CLOSED-not-merged + attempt-bound HITL terminals), mark_pr_ready gateway verb, create_slice_pr repo-parameterized, gateway/repo_visibility.py:get_repo_visibility, and EGG_PIPELINE_REPOS owner/repo-keyed worktree map with naming env falling back to primary. Cross-file doc anchors resolve. No blocking issues.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:37:57.646633+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3f67c7c0-eed1-42",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=66003 util=0.07 cache_hit=0.96 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:38:06.146246+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "38c2ced7-c301-4d",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "documenter",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_contract for documenter",
+    "body": "ACK task-6-3 (docs snapshot of shipped multi-repo model). Both acceptance criteria met: (1) sdlc-pipeline.md documents list-shaped submission (MCP submit_task + POST /api/v1/pipelines, per-repo base_branch), the uniform-visibility + uniform-auth rules, and the primary-repo concept; (2) slice-dag.md documents Slice.repo (1:1 rule), per-repo work-branch/context-PR, cross-repo ordering via slice dependencies, the two-tier merge-sequencing hold, and per-repo gate/diff/convention scoping \u2014 as a current-state snapshot. Verified every code claim resolves to shipped symbols (resolve_slice_repo, Pipeline.primary_repo, RepoSpec/Pipeline.repos, _migrate_schema_version_to_1_4\u2192schemaVersion 1.4, EGG_PIPELINE_REPOS + back-compat EGG_PIPELINE_REPO/EGG_REPO_PATH, cross_repo_merge_gate.py/mark_pr_ready, create_slice_pr, _assert_repo_set_uniform + get_repo_visibility/get_auth_mode). New sections contain no prohibited slice-N/task-N narration (only standard #3393 issue cites). Snapshot is faithful.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "docs/guides/sdlc-pipeline.md",
+          "docs/architecture/slice-dag.md"
+        ],
+        "reason": "ACK task-6-3 (docs snapshot of shipped multi-repo model). Both acceptance criteria met: (1) sdlc-pipeline.md documents list-shaped submission (MCP submit_task + POST /api/v1/pipelines, per-repo base_branch), the uniform-visibility + uniform-auth rules, and the primary-repo concept; (2) slice-dag.md documents Slice.repo (1:1 rule), per-repo work-branch/context-PR, cross-repo ordering via slice dependencies, the two-tier merge-sequencing hold, and per-repo gate/diff/convention scoping \u2014 as a current-state snapshot. Verified every code claim resolves to shipped symbols (resolve_slice_repo, Pipeline.primary_repo, RepoSpec/Pipeline.repos, _migrate_schema_version_to_1_4\u2192schemaVersion 1.4, EGG_PIPELINE_REPOS + back-compat EGG_PIPELINE_REPO/EGG_REPO_PATH, cross_repo_merge_gate.py/mark_pr_ready, create_slice_pr, _assert_repo_set_uniform + get_repo_visibility/get_auth_mode). New sections contain no prohibited slice-N/task-N narration (only standard #3393 issue cites). Snapshot is faithful.",
+        "ack_version": 1,
+        "attestation": {
+          "tasks_verified": [
+            "task-6-3"
+          ],
+          "snapshot_accuracy": "verified against shipped code (resolve_slice_repo, primary_repo, RepoSpec, schemaVersion 1.4 additive after-stamp, EGG_PIPELINE_REPOS + back-compat env, cross_repo_merge_gate/mark_pr_ready, create_slice_pr, uniform visibility+auth validation)",
+          "no_slice_task_narration": true
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:38:47.125620+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a5679d28-302d-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=72801 util=0.07 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:38:56.376867+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "cc8e41bf-aa24-42",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:39:55.031636+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a92fc394-1da9-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:39:56.200189+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d2371efd-ba54-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:42:42.076235+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ba41bf1b-d32a-42",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:42:42.059931+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "82c40eaf-75df-41",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:55:37.174061+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a33b3eb3-3ae9-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:55:44.090828+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d4346bbb-df3a-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from coder",
+    "body": "Slice-6 task-6-1: scope the implement-phase test gate, reviewer diff, per-repo check/lint commands, and agent cwd to the slice's repo (slice \u2194 repo 1:1). All wiring lands in `_run_concurrent_phase` (per-slice team spawn driver) in orchestrator/routes/pipelines.py. There is NO orchestrator-side `make test`/`make lint` subprocess (grep-confirmed) \u2014 the test gate is the tester agent's configured checks and the reviewer diff is the reviewers' in-worktree `git diff origin/<base>...HEAD`; both are scoped by threading the slice's repo/worktree/base into the prompt builder + spawn. Changes: (1) `_resolve_slice_gate_repo(slice, pipeline)` \u2014 the single gate-repo source of truth (== resolve_slice_repo), matching the tester's pinned task-6-2 TestSliceGateRepoAccessor; (2) `_resolve_slice_worktree_path` helper (WORKTREE_BASE_DIR/pipeline.id/<repo_short>, mirrors slice-3 owner/repo layout); (3) a scoping block gated on `slice_id and len(pipeline.repos) > 1` that loads the contract, resolves the slice's repo via the accessor, and \u2014 only when it differs from the primary \u2014 sets slice_repo, slice_repo_path, per-repo base (from the matching RepoSpec), and reorders `repos` slice-first; (4) `_build_agent_prompt` gets repo=slice_repo + repo_path=slice_repo_path (drives get_repo_checks for per-repo commands, file-boundary patterns, reviewer diff base); (5) `create_concurrent_spawn_fn` gets repos=slice_repos \u2014 `_spawn.py:460` derives cwd/EGG_REPO_PATH from next(iter(repos)), so slice-first ordering sets the agent cwd to the slice's repo worktree. N=1 (egg) is byte-identical: block skipped for \u22641-repo pipelines, no extra contract read. Contract-load failure soft-degrades to primary. Merged tester task-6-2 tests (3db72777e) + documenter docs (6afc6dfb7).",
+    "metadata": {
+      "payload": {
+        "summary": "Slice-6 task-6-1: scope the implement-phase test gate, reviewer diff, per-repo check/lint commands, and agent cwd to the slice's repo (slice \u2194 repo 1:1). All wiring lands in `_run_concurrent_phase` (per-slice team spawn driver) in orchestrator/routes/pipelines.py. There is NO orchestrator-side `make test`/`make lint` subprocess (grep-confirmed) \u2014 the test gate is the tester agent's configured checks and the reviewer diff is the reviewers' in-worktree `git diff origin/<base>...HEAD`; both are scoped by threading the slice's repo/worktree/base into the prompt builder + spawn. Changes: (1) `_resolve_slice_gate_repo(slice, pipeline)` \u2014 the single gate-repo source of truth (== resolve_slice_repo), matching the tester's pinned task-6-2 TestSliceGateRepoAccessor; (2) `_resolve_slice_worktree_path` helper (WORKTREE_BASE_DIR/pipeline.id/<repo_short>, mirrors slice-3 owner/repo layout); (3) a scoping block gated on `slice_id and len(pipeline.repos) > 1` that loads the contract, resolves the slice's repo via the accessor, and \u2014 only when it differs from the primary \u2014 sets slice_repo, slice_repo_path, per-repo base (from the matching RepoSpec), and reorders `repos` slice-first; (4) `_build_agent_prompt` gets repo=slice_repo + repo_path=slice_repo_path (drives get_repo_checks for per-repo commands, file-boundary patterns, reviewer diff base); (5) `create_concurrent_spawn_fn` gets repos=slice_repos \u2014 `_spawn.py:460` derives cwd/EGG_REPO_PATH from next(iter(repos)), so slice-first ordering sets the agent cwd to the slice's repo worktree. N=1 (egg) is byte-identical: block skipped for \u22641-repo pipelines, no extra contract read. Contract-load failure soft-degrades to primary. Merged tester task-6-2 tests (3db72777e) + documenter docs (6afc6dfb7).",
+        "attestation": {},
+        "artifacts": [
+          "orchestrator/routes/pipelines.py"
+        ],
+        "risk_considered": "N=1 byte-equivalence guaranteed by the `len(pipeline.repos) > 1` guard (the only runnable case today; secondary-repo worktree materialisation is task-7-1, still pending). Reordering `repos` makes the slice's repo primary for a secondary slice, so EGG_PIPELINE_REPO becomes the slice repo \u2014 correct under slice\u2194repo 1:1 (authorship/naming follow the slice's repo); EGG_PIPELINE_REPOS full owner/repo map is unchanged. Multi-repo end-to-end depends on task-7-1 populating repo_volumes with secondaries + creating the on-disk worktree; this slice is structurally complete and forward-compatible. Boundary: `_build_slice_diff_summary` (PR-body rendering, best-effort) intentionally not rescoped \u2014 it is not the reviewer audit diff or test gate.",
+        "commit_sha": "996d3cb1b",
+        "files_changed": [
+          "orchestrator/routes/pipelines.py",
+          ".egg-state/agent-outputs/coder/brc-memory-issue-3393.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-6-1"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "996d3cb1b",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:58:01.130340+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4812a307-d8c6-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:58:01.745422+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c6266913-42a3-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:58:08.808989+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "71c91f42-7e99-4b",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:58:10.312000+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "22297563-de3a-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:58:11.660361+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "1651d55c-1d1a-4b",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:58:12.940456+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a8aa2d18-bb29-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:58:14.000751+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a4143ff4-be00-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:58:16.037264+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "86729858-f670-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=177977 util=0.18 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:58:16.083194+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "561972ca-ac57-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:58:19.700439+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5a23f9eb-e507-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:58:21.578690+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8abd0cff-5370-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:58:22.297960+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "36780167-109f-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:58:26.730007+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d3701e0d-e715-41",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:58:28.667615+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "32e78b93-1937-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_security for coder",
+    "body": "Security-neutral. The slice-6 change scopes a slice's gate-repo/worktree/cwd to its own repo without introducing any credential, egress, or visibility surface: gateway/network mode (private-vs-public posture) is threaded through unchanged, repo_volumes stays owner/repo-keyed with per-repo token resolution untouched, and the slice_repos reordering only selects the agent cwd (EGG_REPO_PATH), not credential scope \u2014 so no cross-repo private\u2192public content flow. Worktree path resolution is bounded (split(\"/\")[-1] + exists() guard + safe fallback) and repo slugs come from validated submission RepoSpecs, not agent input, so no path-traversal vector. Contract-load failure degrades fail-safe to the pipeline primary. The _resolve_slice_gate_repo extraction is a behavior-preserving delegation to resolve_slice_repo. No security concerns.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/routes/pipelines.py"
+        ],
+        "reason": "Security-neutral. The slice-6 change scopes a slice's gate-repo/worktree/cwd to its own repo without introducing any credential, egress, or visibility surface: gateway/network mode (private-vs-public posture) is threaded through unchanged, repo_volumes stays owner/repo-keyed with per-repo token resolution untouched, and the slice_repos reordering only selects the agent cwd (EGG_REPO_PATH), not credential scope \u2014 so no cross-repo private\u2192public content flow. Worktree path resolution is bounded (split(\"/\")[-1] + exists() guard + safe fallback) and repo slugs come from validated submission RepoSpecs, not agent input, so no path-traversal vector. Contract-load failure degrades fail-safe to the pipeline primary. The _resolve_slice_gate_repo extraction is a behavior-preserving delegation to resolve_slice_repo. No security concerns.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:59:03.085845+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "966ec29f-754c-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code_holistic for coder",
+    "body": "Slice-6 coder v1 ACK. The new routes-layer accessor _resolve_slice_gate_repo(slice, pipeline) is a clean single-source-of-truth wrapper over models.resolve_slice_repo, matching the tester's pinned TestSliceGateRepoAccessor interface exactly (secondary\u2192slice repo, repoless\u2192primary, N=1\u2192single repo; both tests pass at convergence). The inline resolve_slice_repo import was correctly removed from _run_concurrent_phase with no dangling reference \u2014 the only call site there now uses the accessor. Behavior is byte-identical for N=1 (gated on len(pipeline.repos) > 1) and pure delegation for multi-repo, so no new behavior beyond the already-reviewed slice-repo scoping. No correctness, architecture, or consistency concerns.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/routes/pipelines.py",
+          "orchestrator/tests/test_pipelines.py"
+        ],
+        "reason": "Slice-6 coder v1 ACK. The new routes-layer accessor _resolve_slice_gate_repo(slice, pipeline) is a clean single-source-of-truth wrapper over models.resolve_slice_repo, matching the tester's pinned TestSliceGateRepoAccessor interface exactly (secondary\u2192slice repo, repoless\u2192primary, N=1\u2192single repo; both tests pass at convergence). The inline resolve_slice_repo import was correctly removed from _run_concurrent_phase with no dangling reference \u2014 the only call site there now uses the accessor. Behavior is byte-identical for N=1 (gated on len(pipeline.repos) > 1) and pure delegation for multi-repo, so no new behavior beyond the already-reviewed slice-repo scoping. No correctness, architecture, or consistency concerns.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:59:28.304371+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d0dc3d70-cef6-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=63224 util=0.06 cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:59:32.229816+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b4441b09-ce07-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=88982 util=0.09 cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:59:35.536086+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6eb0af16-b6ab-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from tester",
+    "body": "slice-6 (task-6-2): per-repo test-gate + reviewer-diff + check-command scoping tests \u2014 CONVERGED with coder. Added a section to orchestrator/tests/test_pipelines.py (commit 3db72777e, already integrated into the slice branch) following the slices-2/4/5 two-layer idiom. Always-green model-level rule tests pin that every implement-phase gate scopes to the slice's OWN repo (resolve_slice_repo), not the primary: TestPerRepoTestGateScoping (gate repo = slice repo; repoless\u2192primary; per-slice; egg-in-multi-repo baseline; N=1), TestPerRepoReviewerDiffBase (diff base = slice repo's RepoSpec.base_branch, differs from primary for cross-repo; repoless\u2192primary; N=1 unchanged), TestPerRepoCheckCommandResolution (check/lint commands keyed by slice repo; egg baseline; N=1). REAL test TestPerRepoWorktreeSelection exercises routes.resolve_worktree_path (monkeypatched _WORKTREE_BASE_DIR + tmp_path): the slice's repo path resolves to that repo's own per-repo worktree subdir, not the primary's. TestSliceGateRepoAccessor targets the coder seam routes.pipelines._resolve_slice_gate_repo \u2014 handed to the coder via task-6-1 gap-1 and now LANDED (coder commit 996d3cb1b), so this class has ACTIVATED and passes against the real accessor (asserts it == resolve_slice_repo for secondary/repoless/N=1). Post-convergence verification on the integrated branch tip: pytest orchestrator/tests/test_pipelines.py -k 'PerRepo or SliceGateRepo' = 23 passed, 0 skipped; full module 56 passed earlier; ruff check + format clean.",
+    "metadata": {
+      "payload": {
+        "summary": "slice-6 (task-6-2): per-repo test-gate + reviewer-diff + check-command scoping tests \u2014 CONVERGED with coder. Added a section to orchestrator/tests/test_pipelines.py (commit 3db72777e, already integrated into the slice branch) following the slices-2/4/5 two-layer idiom. Always-green model-level rule tests pin that every implement-phase gate scopes to the slice's OWN repo (resolve_slice_repo), not the primary: TestPerRepoTestGateScoping (gate repo = slice repo; repoless\u2192primary; per-slice; egg-in-multi-repo baseline; N=1), TestPerRepoReviewerDiffBase (diff base = slice repo's RepoSpec.base_branch, differs from primary for cross-repo; repoless\u2192primary; N=1 unchanged), TestPerRepoCheckCommandResolution (check/lint commands keyed by slice repo; egg baseline; N=1). REAL test TestPerRepoWorktreeSelection exercises routes.resolve_worktree_path (monkeypatched _WORKTREE_BASE_DIR + tmp_path): the slice's repo path resolves to that repo's own per-repo worktree subdir, not the primary's. TestSliceGateRepoAccessor targets the coder seam routes.pipelines._resolve_slice_gate_repo \u2014 handed to the coder via task-6-1 gap-1 and now LANDED (coder commit 996d3cb1b), so this class has ACTIVATED and passes against the real accessor (asserts it == resolve_slice_repo for secondary/repoless/N=1). Post-convergence verification on the integrated branch tip: pytest orchestrator/tests/test_pipelines.py -k 'PerRepo or SliceGateRepo' = 23 passed, 0 skipped; full module 56 passed earlier; ruff check + format clean.",
+        "attestation": {
+          "tests_execution_blocked": true,
+          "tests_execution_blocked_reason": "Full configured repo check suite (lint, security, test) cannot execute in this tester sandbox: PyPI egress is blocked (invalid peer certificate / UnknownIssuer via the squid proxy) so `make deps`/`sync-venv` cannot build .venv, and every `make lint`/`make test`/`make security` target depends on sync-venv-if-uv; security tooling (bandit, safety, trivy) and yamllint are also absent system-wide so the `security` check cannot run here at all. What I DID run directly with the system interpreter against the CONVERGED branch tip (996d3cb1b, coder + tester integrated) and which passed (reviewer detail, not a strict-mode checks_passed claim): `pytest orchestrator/tests/test_pipelines.py -k 'PerRepo or SliceGateRepo'` -> 23 passed / 0 skipped (the coder's _resolve_slice_gate_repo landed so TestSliceGateRepoAccessor activated and passes); full-module `pytest orchestrator/tests/test_pipelines.py` -> 56 passed / 4 skipped (pre-existing slice-2/4 guards) before convergence; `ruff check` + `ruff format --check` clean. The narrowed `make test` / full `make test-all` + `make security` remain the convergence-time gate in the CI/gateway environment."
+        },
+        "artifacts": [
+          "orchestrator/tests/test_pipelines.py",
+          "3db72777e"
+        ],
+        "risk_considered": "Converged with the coder: task-6-1 (gate scoping 4553fd012 + _resolve_slice_gate_repo accessor 996d3cb1b) is now integrated on the slice branch alongside my tests, so the previously skip-guarded TestSliceGateRepoAccessor is active and green \u2014 no dangling permanently-skipped test. Always-green rule tests pin the invariants against the slice-1 model API + shipped resolve_worktree_path resolver independent of coder internals. Commit already on origin (ancestor of tip) so push=false. Sandbox cannot build .venv (blocked egress) so make lint/security/test are unrunnable here \u2014 attested tests_execution_blocked with direct pytest+ruff results documented; make test-all/security is the convergence gate. Scope kept strictly to task-6-2 AC \u2014 not entangled with the slice-4/7 cq-4 secondary-repo worktree-materialization HITL.",
+        "commit_sha": "3db72777e",
+        "files_changed": [
+          "orchestrator/tests/test_pipelines.py"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-6-2"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "3db72777e",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:59:37.082390+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6e3afe2f-b386-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "orchestrator",
+    "to_role": "documenter",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:59:37.083704+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ad98d253-3b6d-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by documenter",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:59:41.084732+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "74069485-e828-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:59:43.905238+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8572e64c-3489-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:59:44.154983+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b86b258f-a8e9-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:59:45.331287+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "dcf2eb59-8d86-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for coder",
+    "body": "Verified the coder's slice-6 change to orchestrator/routes/pipelines.py against live code. (1) `_resolve_slice_gate_repo(slice, pipeline) -> str|None` wraps models.resolve_slice_repo and matches the tester's pinned TestSliceGateRepoAccessor interface exactly (secondary\u2192own repo, repoless\u2192primary, N=1\u2192singleton); py_compile clean. (2) The `_run_concurrent_phase` slice-scoping block is correctly gated (`slice_id and len(pipeline.repos) > 1`); contract load is best-effort and degrades to the pipeline primary on failure without blocking the spawn; `_resolve_slice_worktree_path` returns the per-repo worktree if it exists else fallback; per-repo base_branch is pulled from the matching RepoSpec; slice-repo-first `repos` ordering drives the spawner cwd/EGG_REPO_PATH; repo/repo_path are threaded to both the prompt builder and the spawn. (3) Correctness invariant confirmed: `_sync_repos_and_legacy_singleton` keeps `pipeline.repo == repos[0].repo == primary_repo`, so the `resolved != pipeline.repo` guard makes a repoless (primary) slice stay on the primary worktree and only a genuine secondary-repo slice divert \u2014 no false-divert bug. N=1 path is byte-identical (block skipped). No blocking issues.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/routes/pipelines.py"
+        ],
+        "reason": "Verified the coder's slice-6 change to orchestrator/routes/pipelines.py against live code. (1) `_resolve_slice_gate_repo(slice, pipeline) -> str|None` wraps models.resolve_slice_repo and matches the tester's pinned TestSliceGateRepoAccessor interface exactly (secondary\u2192own repo, repoless\u2192primary, N=1\u2192singleton); py_compile clean. (2) The `_run_concurrent_phase` slice-scoping block is correctly gated (`slice_id and len(pipeline.repos) > 1`); contract load is best-effort and degrades to the pipeline primary on failure without blocking the spawn; `_resolve_slice_worktree_path` returns the per-repo worktree if it exists else fallback; per-repo base_branch is pulled from the matching RepoSpec; slice-repo-first `repos` ordering drives the spawner cwd/EGG_REPO_PATH; repo/repo_path are threaded to both the prompt builder and the spawn. (3) Correctness invariant confirmed: `_sync_repos_and_legacy_singleton` keeps `pipeline.repo == repos[0].repo == primary_repo`, so the `resolved != pipeline.repo` guard makes a repoless (primary) slice stay on the primary worktree and only a genuine secondary-repo slice divert \u2014 no false-divert bug. N=1 path is byte-identical (block skipped). No blocking issues.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:59:45.391461+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "394ff6bd-d343-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:59:46.970106+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "cd7cfbc5-c7be-4b",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:59:49.331720+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b9b620ae-8a23-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_concurrency for coder",
+    "body": "Concurrency-clean. Slice-6 task-6-1/6-2 scopes test-gate/reviewer-diff/cwd/base-branch to slice.repo. (1) New vars (slice_repo, slice_repo_path, slice_repos, slice_base_branch) are all function-local to _run_concurrent_phase \u2014 no new shared mutable state; slice_repos is a freshly-built list, not a mutation of shared `repos`; repo_volumes threaded through read-only. (2) load_contract is read-only with a try/except that degrades to the primary repo \u2014 safe fallback, no write race. (3) _resolve_slice_worktree_path reuses the SAME per-repo keying as the pre-existing _resolve_pipeline_worktree_path; .exists() is a benign read, worst-case race falls back to the primary worktree. (4) N=1 gated (len(pipeline.repos) > 1) \u21d2 single-repo byte-identical, zero new concurrency surface. (5) _resolve_slice_gate_repo is a pure delegate \u2014 no concurrency concern. Non-blocking/out-of-scope: same-repo concurrent slices sharing one repo worktree is a pre-existing DAG-scheduler property (already true for the primary repo), not introduced here.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/routes/pipelines.py"
+        ],
+        "reason": "Concurrency-clean. Slice-6 task-6-1/6-2 scopes test-gate/reviewer-diff/cwd/base-branch to slice.repo. (1) New vars (slice_repo, slice_repo_path, slice_repos, slice_base_branch) are all function-local to _run_concurrent_phase \u2014 no new shared mutable state; slice_repos is a freshly-built list, not a mutation of shared `repos`; repo_volumes threaded through read-only. (2) load_contract is read-only with a try/except that degrades to the primary repo \u2014 safe fallback, no write race. (3) _resolve_slice_worktree_path reuses the SAME per-repo keying as the pre-existing _resolve_pipeline_worktree_path; .exists() is a benign read, worst-case race falls back to the primary worktree. (4) N=1 gated (len(pipeline.repos) > 1) \u21d2 single-repo byte-identical, zero new concurrency surface. (5) _resolve_slice_gate_repo is a pure delegate \u2014 no concurrency concern. Non-blocking/out-of-scope: same-repo concurrent slices sharing one repo worktree is a pre-existing DAG-scheduler property (already true for the primary repo), not introduced here.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:59:49.410372+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "944e4616-1be5-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T18:59:57.989548+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d2c2e549-be9c-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:00:15.583363+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5cc12a4f-eb93-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:00:17.920033+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "651abf0a-55c5-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_contract for coder",
+    "body": "ACK task-6-1 (scope test-gate/reviewer-diff/cwd/conventions to slice.repo). All three acceptance criteria met: (1) test gate + reviewer diff scoped to the slice's repo \u2014 repo=slice_repo, repo_path=slice_repo_path, base branch resolved from the slice's RepoSpec.base_branch (fallback pipeline base \u2192 get_default_branch in the slice worktree); (2) agent cwd + per-repo conventions \u2014 repos=[resolved,*rest] orders the slice's repo first, and I verified kubernetes_spawner/_spawn.py derives EGG_REPO_PATH/cwd from next(iter(repos)), so cwd points at the slice's worktree, while repo=slice_repo drives get_repo_checks and file-boundary patterns from that repo; (3) N=1 baseline unchanged \u2014 the whole block is gated on len(pipeline.repos)>1 and resolved!=pipeline.repo, so single-repo/egg slices are byte-identical. _resolve_slice_gate_repo is a thin wrapper over models.resolve_slice_repo (single source of truth, converges with the tester's TestSliceGateRepoAccessor). Scope confined to orchestrator/routes/pipelines.py (matches task-6-1 files_affected); py_compile clean. Non-blocking note: a secondary repo with RepoSpec.base_branch=None falls back to the primary base rather than auto-detecting the secondary default, but slice-2 auto-detects base at submission so RepoSpec.base_branch should already be populated.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/routes/pipelines.py"
+        ],
+        "reason": "ACK task-6-1 (scope test-gate/reviewer-diff/cwd/conventions to slice.repo). All three acceptance criteria met: (1) test gate + reviewer diff scoped to the slice's repo \u2014 repo=slice_repo, repo_path=slice_repo_path, base branch resolved from the slice's RepoSpec.base_branch (fallback pipeline base \u2192 get_default_branch in the slice worktree); (2) agent cwd + per-repo conventions \u2014 repos=[resolved,*rest] orders the slice's repo first, and I verified kubernetes_spawner/_spawn.py derives EGG_REPO_PATH/cwd from next(iter(repos)), so cwd points at the slice's worktree, while repo=slice_repo drives get_repo_checks and file-boundary patterns from that repo; (3) N=1 baseline unchanged \u2014 the whole block is gated on len(pipeline.repos)>1 and resolved!=pipeline.repo, so single-repo/egg slices are byte-identical. _resolve_slice_gate_repo is a thin wrapper over models.resolve_slice_repo (single source of truth, converges with the tester's TestSliceGateRepoAccessor). Scope confined to orchestrator/routes/pipelines.py (matches task-6-1 files_affected); py_compile clean. Non-blocking note: a secondary repo with RepoSpec.base_branch=None falls back to the primary base rather than auto-detecting the secondary default, but slice-2 auto-detects base at submission so RepoSpec.base_branch should already be populated.",
+        "ack_version": 1,
+        "attestation": {
+          "tasks_verified": [
+            "task-6-1"
+          ],
+          "compiles": true,
+          "scope_confined": true,
+          "n1_baseline_unchanged": true
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:00:17.960842+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "28594ce8-12d2-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "orchestrator",
+    "to_role": "coder",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:00:17.962090+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "47550371-d0aa-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:00:18.418743+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "046bf195-24cc-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:00:20.049953+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0c8b542a-6729-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:00:22.314594+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "cd665b79-5561-40",
+    "pipeline_id": "issue-3393",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by coder",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:00:23.226702+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e293c4ef-2f6a-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_security for tester",
+    "body": "Security-neutral (test-only). No security surface: pure model-level rule assertions + skip-guarded integration tests, no credential handling, network/egress, subprocess exec, or hardcoded secrets; standard tmp_path/monkeypatch fixtures. If anything it reinforces the multi-repo isolation posture \u2014 the tests pin that each slice's test gate, reviewer diff base, and check/lint commands scope to the slice's OWN repo (resolve_slice_repo), never cross-wired to the pipeline primary, which is exactly the property that prevents a secondary-repo slice from being validated against the wrong repo. Skip-guards degrade cleanly until the coder seam converges. No security concerns.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_pipelines.py"
+        ],
+        "reason": "Security-neutral (test-only). No security surface: pure model-level rule assertions + skip-guarded integration tests, no credential handling, network/egress, subprocess exec, or hardcoded secrets; standard tmp_path/monkeypatch fixtures. If anything it reinforces the multi-repo isolation posture \u2014 the tests pin that each slice's test gate, reviewer diff base, and check/lint commands scope to the slice's OWN repo (resolve_slice_repo), never cross-wired to the pipeline primary, which is exactly the property that prevents a secondary-repo slice from being validated against the wrong repo. Skip-guards degrade cleanly until the coder seam converges. No security concerns.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:00:42.926570+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "7ac1f11e-7eb0-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:00:43.361579+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c71503f2-a7f3-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_security",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:00:45.442775+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2d5a701c-61f5-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:00:52.891589+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a9a45d3d-af3a-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=77607 util=0.08 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:00:52.983425+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2e01b1b6-c4ca-4f",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_concurrency for tester",
+    "body": "Concurrency-clean (test-only). Slice-6 task-6-2 adds per-repo gate/diff/convention scoping tests. (1) All added tests are synchronous unit/rule tests \u2014 no threads, no async, no concurrent.futures, no shared mutable state across tests; zero concurrency surface introduced. (2) monkeypatch.setattr(_routes_pkg, '_WORKTREE_BASE_DIR', tmp_path) mutates a module global but pytest runs sequentially and monkeypatch auto-reverts per test \u2014 no cross-test race; each test uses isolated tmp_path fixtures so no filesystem contention. (3) Positively, the tests pin the per-slice worktree/gate scoping invariant I ACKed on the coder side: TestPerRepoWorktreeSelection asserts the resolver selects the slice's own per-repo subdir (not the primary's), and TestSliceGateRepoAccessor cross-checks _resolve_slice_gate_repo == resolve_slice_repo. Skip-guards on coder-owned seams (_resolve_slice_gate_repo, cross_repo_merge_gate) are correct convergence hygiene. Nothing in the concurrency domain to block on.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_pipelines.py"
+        ],
+        "reason": "Concurrency-clean (test-only). Slice-6 task-6-2 adds per-repo gate/diff/convention scoping tests. (1) All added tests are synchronous unit/rule tests \u2014 no threads, no async, no concurrent.futures, no shared mutable state across tests; zero concurrency surface introduced. (2) monkeypatch.setattr(_routes_pkg, '_WORKTREE_BASE_DIR', tmp_path) mutates a module global but pytest runs sequentially and monkeypatch auto-reverts per test \u2014 no cross-test race; each test uses isolated tmp_path fixtures so no filesystem contention. (3) Positively, the tests pin the per-slice worktree/gate scoping invariant I ACKed on the coder side: TestPerRepoWorktreeSelection asserts the resolver selects the slice's own per-repo subdir (not the primary's), and TestSliceGateRepoAccessor cross-checks _resolve_slice_gate_repo == resolve_slice_repo. Skip-guards on coder-owned seams (_resolve_slice_gate_repo, cross_repo_merge_gate) are correct convergence hygiene. Nothing in the concurrency domain to block on.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:01:14.196159+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "786839bd-7fc0-43",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_concurrency",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:01:15.524234+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "956c28bc-4aef-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from tester for coder",
+    "body": "Verified coder proposal 996d3cb1b (slice-6 task-6-1). The new routes.pipelines._resolve_slice_gate_repo(slice, pipeline) accessor is exactly the seam my task-6-2 gap pinned: it delegates to models.resolve_slice_repo, so gate/diff/cwd all key off the slice's own repo (primary-fallback for a repoless slice, single-repo for N=1). Ran the slice-6 tester suite against this SHA: 16/16 pass, including the now-activated TestSliceGateRepoAccessor (test_accessor_matches_rule_for_multi_repo, test_accessor_n1_single_repo) which converges at exactly this commit. N=1 byte-equivalence assertions (gate/diff-base/checks) remain green. Call-site refactor in _run_concurrent_phase preserves the len(pipeline.repos)>1 guard.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/routes/pipelines.py",
+          "orchestrator/tests/test_pipelines.py"
+        ],
+        "reason": "Verified coder proposal 996d3cb1b (slice-6 task-6-1). The new routes.pipelines._resolve_slice_gate_repo(slice, pipeline) accessor is exactly the seam my task-6-2 gap pinned: it delegates to models.resolve_slice_repo, so gate/diff/cwd all key off the slice's own repo (primary-fallback for a repoless slice, single-repo for N=1). Ran the slice-6 tester suite against this SHA: 16/16 pass, including the now-activated TestSliceGateRepoAccessor (test_accessor_matches_rule_for_multi_repo, test_accessor_n1_single_repo) which converges at exactly this commit. N=1 byte-equivalence assertions (gate/diff-base/checks) remain green. Call-site refactor in _run_concurrent_phase preserves the len(pipeline.repos)>1 guard.",
+        "ack_version": 1,
+        "attestation": {
+          "tasks_verified": [
+            "task-6-2"
+          ],
+          "tests_run": 16,
+          "checks_passed": [
+            "test"
+          ]
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:01:16.686859+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0f9ef7aa-95ee-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code_holistic for tester",
+    "body": "Slice-6 tester v1 ACK. The per-repo gate/diff/convention scoping suite (task-6-2) follows the established two-layer shape: always-green rule tests (_expected_gate_repo / _expected_diff_base / _resolve_checks_for_slice) are thin mirrors over the real shipped model API (resolve_slice_repo, primary_repo, RepoSpec.base_branch) \u2014 so TestPerRepoTestGateScoping / TestPerRepoReviewerDiffBase / TestPerRepoCheckCommandResolution pin the slice\u2192repo invariant against production code, not tautologies. The diff-base logic agrees with the coder's slice_base_branch resolution in _run_concurrent_phase. Real integration coverage via TestPerRepoWorktreeSelection (routes.resolve_worktree_path per-repo subdir) and TestSliceGateRepoAccessor (coder accessor == rule); both activate at convergence and pass live. All 16 slice-6 tests green. Skip guards are principled (explicit reasons, activate at convergence \u2014 no false-green). Latent non-blocking gap: no direct end-to-end test that _run_concurrent_phase threads the accessor result into the spawn kwarg \u2014 inherent to the heavy Flask/docker surface, adequately compensated by the accessor + worktree-resolver units. No correctness or false-green concerns.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_pipelines.py"
+        ],
+        "reason": "Slice-6 tester v1 ACK. The per-repo gate/diff/convention scoping suite (task-6-2) follows the established two-layer shape: always-green rule tests (_expected_gate_repo / _expected_diff_base / _resolve_checks_for_slice) are thin mirrors over the real shipped model API (resolve_slice_repo, primary_repo, RepoSpec.base_branch) \u2014 so TestPerRepoTestGateScoping / TestPerRepoReviewerDiffBase / TestPerRepoCheckCommandResolution pin the slice\u2192repo invariant against production code, not tautologies. The diff-base logic agrees with the coder's slice_base_branch resolution in _run_concurrent_phase. Real integration coverage via TestPerRepoWorktreeSelection (routes.resolve_worktree_path per-repo subdir) and TestSliceGateRepoAccessor (coder accessor == rule); both activate at convergence and pass live. All 16 slice-6 tests green. Skip guards are principled (explicit reasons, activate at convergence \u2014 no false-green). Latent non-blocking gap: no direct end-to-end test that _run_concurrent_phase threads the accessor result into the spawn kwarg \u2014 inherent to the heavy Flask/docker surface, adequately compensated by the accessor + worktree-resolver units. No correctness or false-green concerns.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:01:21.405244+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "eefce2f3-7aab-48",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=85579 util=0.09 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:01:23.412986+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f0754cd4-e3d3-45",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=68016 util=0.07 cache_hit=0.98 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:01:25.026349+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e1f15a85-2b04-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_code_holistic",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:01:25.575566+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a0d41c2b-4e6b-4e",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=105743 util=0.11 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:01:26.538792+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8fe28656-4074-49",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for tester",
+    "body": "Reviewed the tester's slice-6 (task-6-2) tests in orchestrator/tests/test_pipelines.py and RAN them: all 16 slice-6 tests PASS, none skipped \u2014 both Flask-surface classes (TestPerRepoWorktreeSelection, TestSliceGateRepoAccessor) activated, confirming convergence with the coder's landed _resolve_slice_gate_repo. Verified the spec-mirror helpers are faithful to the coder's real logic: _expected_gate_repo == resolve_slice_repo; _expected_diff_base iterates pipeline.repos for the matching RepoSpec.base_branch with a pipeline.base_branch fallback (matches _run_concurrent_phase); _resolve_checks_for_slice keys checks by the resolved repo. Real seams confirmed present: routes.resolve_worktree_path(pipeline_id, repo_path) at routes/__init__.py:246 (basename-keyed), the monkeypatch target _routes_pkg._WORKTREE_BASE_DIR at __init__.py:243, and _Path imported at line 432. TestSliceGateRepoAccessor cross-checks the coder's accessor against the expected rule. Skip guards are appropriate and N=1/egg baselines are pinned throughout. No blocking issues.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_pipelines.py"
+        ],
+        "reason": "Reviewed the tester's slice-6 (task-6-2) tests in orchestrator/tests/test_pipelines.py and RAN them: all 16 slice-6 tests PASS, none skipped \u2014 both Flask-surface classes (TestPerRepoWorktreeSelection, TestSliceGateRepoAccessor) activated, confirming convergence with the coder's landed _resolve_slice_gate_repo. Verified the spec-mirror helpers are faithful to the coder's real logic: _expected_gate_repo == resolve_slice_repo; _expected_diff_base iterates pipeline.repos for the matching RepoSpec.base_branch with a pipeline.base_branch fallback (matches _run_concurrent_phase); _resolve_checks_for_slice keys checks by the resolved repo. Real seams confirmed present: routes.resolve_worktree_path(pipeline_id, repo_path) at routes/__init__.py:246 (basename-keyed), the monkeypatch target _routes_pkg._WORKTREE_BASE_DIR at __init__.py:243, and _Path imported at line 432. TestSliceGateRepoAccessor cross-checks the coder's accessor against the expected rule. Skip guards are appropriate and N=1/egg baselines are pinned throughout. No blocking issues.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:01:58.523013+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "24e471d3-92af-44",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_code",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:02:02.661389+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "fa1fa3f5-536d-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=119606 util=0.12 cache_hit=0.97 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:02:05.108124+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "cde084fa-634c-4c",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_contract for tester",
+    "body": "ACK task-6-2 (slice-6 per-repo gate/diff/convention tests). All three AC assertions are covered: per-repo test-gate scoping (TestPerRepoTestGateScoping, plus TestPerRepoWorktreeSelection binding the real routes.resolve_worktree_path and TestSliceGateRepoAccessor binding the coder's routes.pipelines._resolve_slice_gate_repo), per-repo reviewer-diff base (TestPerRepoReviewerDiffBase), and per-repo check-command resolution (TestPerRepoCheckCommandResolution); each class carries an egg-repo / N=1 baseline. Green requirement met: full test_pipelines.py runs 58 passed / 2 skipped, the slice-6 subset runs 16 passed / 0 skipped (both coder seams \u2014 _resolve_slice_gate_repo @ pipelines.py:10604 and resolve_worktree_path @ routes/__init__.py:246 \u2014 are already integrated, so the integration tests are live coverage rather than silent skips), and ruff is clean. The two-layer always-green-rule + skip-guarded-integration shape matches the accepted slices-2/4/5 convention.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_pipelines.py"
+        ],
+        "reason": "ACK task-6-2 (slice-6 per-repo gate/diff/convention tests). All three AC assertions are covered: per-repo test-gate scoping (TestPerRepoTestGateScoping, plus TestPerRepoWorktreeSelection binding the real routes.resolve_worktree_path and TestSliceGateRepoAccessor binding the coder's routes.pipelines._resolve_slice_gate_repo), per-repo reviewer-diff base (TestPerRepoReviewerDiffBase), and per-repo check-command resolution (TestPerRepoCheckCommandResolution); each class carries an egg-repo / N=1 baseline. Green requirement met: full test_pipelines.py runs 58 passed / 2 skipped, the slice-6 subset runs 16 passed / 0 skipped (both coder seams \u2014 _resolve_slice_gate_repo @ pipelines.py:10604 and resolve_worktree_path @ routes/__init__.py:246 \u2014 are already integrated, so the integration tests are live coverage rather than silent skips), and ruff is clean. The two-layer always-green-rule + skip-guarded-integration shape matches the accepted slices-2/4/5 convention.",
+        "ack_version": 1,
+        "attestation": {
+          "tasks_verified": [
+            "task-6-2"
+          ],
+          "tests_result": "58 passed / 2 skipped (full test_pipelines.py); slice-6 subset 16 passed / 0 skipped; ruff clean",
+          "coder_seams_integrated": true
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:02:27.144643+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9b430758-f749-4b",
+    "pipeline_id": "issue-3393",
+    "from_role": "orchestrator",
+    "to_role": "tester",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:02:27.146100+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2eb702b2-d360-46",
+    "pipeline_id": "issue-3393",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by tester",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:02:27.812126+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "7e3a14ff-6a85-47",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_contract",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:02:27.813954+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5ab3b45e-eb67-4a",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_security",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:02:27.815663+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "73c2f11d-b148-41",
+    "pipeline_id": "issue-3393",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_concurrency",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-02T19:02:27.816572+00:00",
+    "phase": "implement"
+  }
+]
