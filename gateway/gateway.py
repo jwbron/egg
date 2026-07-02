@@ -7763,8 +7763,16 @@ def worktree_create() -> tuple[Response, int] | Response:
                 assigned_branch=assigned_branch,
                 repo_slug=repo,
             )
-            # Translate container path to host path for egg launcher mount sources
-            worktrees[repo_name] = translate_to_host_path(str(info.worktree_path))
+            # Translate container path to host path for egg launcher mount sources.
+            # Key by the full ``owner/repo`` slug (#3393 slice-3, operator
+            # ruling #6) so two repos with the same short name under different
+            # owners (``ownerA/foo`` vs ``ownerB/foo``) no longer collide on a
+            # single map entry. When the caller passed a bare repo name (no
+            # ``/``), ``repo`` equals ``repo_name`` so bare-name callers are
+            # unaffected. The on-disk worktree directory (and the container
+            # mount target) stays the bare ``repo_name`` — only the map KEY
+            # carries the owner prefix.
+            worktrees[repo] = translate_to_host_path(str(info.worktree_path))
         except (ValueError, RuntimeError) as e:
             # Capture full traceback so operators can diagnose without
             # re-instrumenting the gateway.  See #2186.
