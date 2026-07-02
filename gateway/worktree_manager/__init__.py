@@ -107,6 +107,7 @@ class WorktreeManager:
     resolve_default_branch = _create.resolve_default_branch
     create_worktree = _create.create_worktree
     _configure_push_upstream = _create._configure_push_upstream
+    _materialize_work_branch_on_remote = _create._materialize_work_branch_on_remote
     _git_credential_env = _create._git_credential_env
     _resolve_assigned_fork_point = _create._resolve_assigned_fork_point
     _reset_reused_worktree_to_safe_ref = _create._reset_reused_worktree_to_safe_ref

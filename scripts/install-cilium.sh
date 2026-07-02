@@ -139,9 +139,18 @@ if [ "$SKIP_INSTALL" -eq 0 ]; then
   # Detect arch
   ARCH=$(uname -m)
   case "$ARCH" in
-    aarch64 | arm64) CLI_ARCH="arm64"; CLI_SHA256="$CILIUM_CLI_SHA256_ARM64" ;;
-    x86_64 | amd64)  CLI_ARCH="amd64"; CLI_SHA256="$CILIUM_CLI_SHA256_AMD64" ;;
-    *) error "Unsupported architecture: $ARCH"; exit 1 ;;
+    aarch64 | arm64)
+      CLI_ARCH="arm64"
+      CLI_SHA256="$CILIUM_CLI_SHA256_ARM64"
+      ;;
+    x86_64 | amd64)
+      CLI_ARCH="amd64"
+      CLI_SHA256="$CILIUM_CLI_SHA256_AMD64"
+      ;;
+    *)
+      error "Unsupported architecture: $ARCH"
+      exit 1
+      ;;
   esac
 
   log "Installing Cilium ${CILIUM_VERSION} via cilium-cli ${CILIUM_CLI_VERSION} (${CLI_ARCH})..."
@@ -215,10 +224,10 @@ log "Verifying cilium-config matches expected conservative datapath..."
 verify_failed=0
 chaining_mode_failed=0
 for kv in \
-    'kube-proxy-replacement:false' \
-    'enable-bpf-masquerade:false' \
-    'enable-host-legacy-routing:true' \
-    'cni-chaining-mode:portmap'; do
+  'kube-proxy-replacement:false' \
+  'enable-bpf-masquerade:false' \
+  'enable-host-legacy-routing:true' \
+  'cni-chaining-mode:portmap'; do
   key="${kv%%:*}"
   want="${kv##*:}"
   # kubectl jsonpath returns the value directly (empty string if the key
