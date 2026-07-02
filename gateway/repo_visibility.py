@@ -469,16 +469,35 @@ def validate_visibility_uniformity(repos: list[str]) -> None:
     and raises ``ValueError`` — naming the offending repos grouped by posture —
     when the set spans the private/public boundary. ``internal`` shares the
     private posture. A single repo (or fewer than two after de-duplication) is
-    trivially uniform. An indeterminate lookup (``None``) is excluded from the
-    vote rather than blocking the run.
+    trivially uniform and short-circuits before any lookup.
+
+    FAILS CLOSED (reviewer_security v1): for a multi-repo set, a repo whose
+    visibility cannot be resolved to a known ``public|private|internal`` bucket
+    (``None`` from a network error / gateway exception / missing repo, or an
+    unrecognized label) raises ``ValueError`` rather than being silently
+    dropped from the vote — otherwise a genuinely-mixed private+public set could
+    be admitted whenever one secondary momentarily fails to resolve, defeating
+    the leak-prevention boundary. N=1 never reaches the lookup.
     """
+    unique = list(dict.fromkeys(repos))
+    if len(unique) <= 1:
+        return
     posture: dict[str, list[str]] = {}
-    for slug in dict.fromkeys(repos):
+    for slug in unique:
         owner, _, name = slug.partition("/")
         visibility = get_repo_visibility(owner, name)
-        if visibility is None:
-            continue
-        bucket = "private" if visibility in ("private", "internal") else "public"
+        if visibility in ("private", "internal"):
+            bucket = "private"
+        elif visibility == "public":
+            bucket = "public"
+        else:
+            raise ValueError(
+                f"Could not determine repository visibility for {slug!r}; cannot "
+                "verify a uniform private/public posture across the pipeline's repos "
+                "(a run must be uniformly private or uniformly public so private-repo "
+                "content cannot leak through shared plan/contract/PR surfaces). "
+                "Resubmit once the repo's visibility is resolvable."
+            )
         posture.setdefault(bucket, []).append(slug)
     if len(posture) > 1:
         groups = "; ".join(

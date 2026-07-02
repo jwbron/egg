@@ -2162,23 +2162,46 @@ def _assert_repo_set_uniform(repos: list[str]) -> str | None:
     except ValueError as exc:
         return str(exc)
     except Exception as exc:  # pragma: no cover - defensive (config read failure)
-        logger.warning("Auth-mode uniformity check failed; proceeding", error=str(exc))
+        # Fail CLOSED for consistency with the visibility boundary below
+        # (reviewer_security v1): a config-read failure means we cannot prove a
+        # uniform auth mode, so we must not admit the set. repo_config is a
+        # local, bundled read — this path is genuinely exceptional, not a
+        # transient network hiccup.
+        logger.warning("Auth-mode uniformity check errored; failing closed", error=str(exc))
+        return (
+            "Could not determine the auth mode for the pipeline's repos, so a "
+            "uniform bot/user auth mode cannot be verified. Resubmit once repo "
+            "configuration is resolvable."
+        )
 
     # Visibility uniformity — resolved via the gateway (the orchestrator's only
-    # visibility source). Fail-open on an indeterminate per-repo lookup rather
-    # than blocking a legitimate submission on a transient gateway hiccup; the
-    # downstream per-repo private-mode gate still applies.
+    # visibility source). FAIL CLOSED on an indeterminate lookup (reviewer_security
+    # v1): for a multi-repo set (we only reach here when len(unique) > 1) a repo
+    # whose visibility cannot be resolved to a known bucket means the uniform
+    # private/public posture cannot be PROVEN — and this is a confidentiality
+    # boundary (a mixed set that slips through would let private-repo content
+    # flow through shared plan/contract/PR surfaces into a public repo, with no
+    # downstream re-check: _compute_gateway_mode derives the network mode from
+    # the PRIMARY repo only). N=1 short-circuits above, so the common case pays
+    # nothing. This mirrors gateway.repo_visibility.validate_visibility_uniformity;
+    # keep the two in step. Unrecognized (non-None) labels are treated as
+    # indeterminate too — only the known {public|private|internal} contract admits.
     gw = get_gateway_client()
     posture: dict[str, list[str]] = {}
     for repo in unique:
         vis = gw.get_repo_visibility(repo)
-        if vis is None:
-            logger.warning(
-                "Repo visibility indeterminate; excluded from uniformity vote",
-                repo=repo,
+        if vis in ("private", "internal"):
+            bucket = "private"
+        elif vis == "public":
+            bucket = "public"
+        else:
+            return (
+                f"Could not determine repository visibility for {repo!r}; cannot "
+                "verify a uniform private/public posture across the pipeline's "
+                "repos (a run must be uniformly private or uniformly public so "
+                "private-repo content cannot leak through shared plan/contract/PR "
+                "surfaces). Resubmit once the repo's visibility is resolvable."
             )
-            continue
-        bucket = "private" if vis in ("private", "internal") else "public"
         posture.setdefault(bucket, []).append(repo)
     if len(posture) > 1:
         groups = "; ".join(f"{b}: {', '.join(sorted(rs))}" for b, rs in sorted(posture.items()))

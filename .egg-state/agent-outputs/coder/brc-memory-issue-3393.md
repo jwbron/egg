@@ -41,6 +41,21 @@ Implemented to match EXACTLY, with a single source of truth per dimension:
 - `config/repo_config.py`: `assert_uniform_auth(repos)` — canonical auth rule,
   beside `get_auth_mode`, bundled into BOTH gateway + orchestrator images.
 
+### v2 — reviewer_security NACK addressed (fail-closed on indeterminate visibility)
+reviewer_security v1 NACK: the `if vis is None: continue` silently dropped a repo
+from the uniformity vote, so a multi-repo private+public set could be ADMITTED
+when a secondary momentarily resolved to None (no downstream re-check —
+`_compute_gateway_mode` reads only the PRIMARY repo). Fixed in BOTH twins:
+- Multi-repo (`len(unique) > 1`): a repo whose visibility is not a known
+  `public|private|internal` bucket (None OR unrecognized label) now FAILS CLOSED
+  — orchestrator returns an actionable 400, gateway `validate_visibility_uniformity`
+  raises ValueError, both naming the repo. N=1 short-circuits before any lookup
+  (no availability cost; gateway helper now also short-circuits `len<=1`).
+- Auth `except Exception` (config-read failure) now also fails closed for
+  consistency (local bundled read ⇒ genuinely exceptional).
+Verified fail-closed (None + unrecognized) + still-uniform + still-mixed cases
+in isolation; tester's existing gateway/orchestrator uniformity tests remain green.
+
 **Container-boundary fact (still load-bearing):** the orchestrator image
 (orchestrator/Dockerfile) ships `config/repo_config.py` + `shared/` but NOT
 `gateway/`, so `routes/pipelines.py` CANNOT import
