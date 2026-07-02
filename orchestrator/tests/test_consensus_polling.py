@@ -430,6 +430,186 @@ class TestConsensusTimeout:
         )
 
 
+class TestUnresolvedContractHitlIds:
+    """_unresolved_contract_hitl_ids — the #3426 consensus-timeout HITL gate scan."""
+
+    @staticmethod
+    def _decision(decision_id, *, resolved=False, dtype=None, phase="implement"):
+        from egg_contracts.models import Decision, DecisionType, PipelinePhase
+
+        return Decision(
+            id=decision_id,
+            question="Scope question?",
+            type=dtype if dtype is not None else DecisionType.HITL,
+            phase=PipelinePhase(phase) if phase is not None else None,
+            resolved=resolved,
+        )
+
+    def _scan(self, decisions):
+        from routes.pipelines import _unresolved_contract_hitl_ids
+
+        contract = MagicMock()
+        contract.decisions = decisions
+        pipeline = _make_concurrent_pipeline()
+        with (
+            patch("contract_store.resolve_pipeline_worktree", return_value=Path("/tmp/wt")),
+            patch("egg_contracts.load_contract", return_value=contract),
+        ):
+            return _unresolved_contract_hitl_ids("issue-999", pipeline, "implement")
+
+    def test_returns_unresolved_hitl_for_running_phase(self):
+        ids = self._scan([self._decision("cq-3")])
+        assert ids == ["cq-3"]
+
+    def test_skips_resolved_other_phase_phaseless_and_non_hitl(self):
+        from egg_contracts.models import DecisionType
+
+        ids = self._scan(
+            [
+                self._decision("cq-1", resolved=True),
+                self._decision("cq-2", phase="plan"),
+                self._decision("cq-4", phase=None),
+                self._decision("cq-5", dtype=DecisionType.AUTO),
+                self._decision("cq-6"),
+            ]
+        )
+        assert ids == ["cq-6"]
+
+    def test_missing_worktree_fails_open(self):
+        from routes.pipelines import _unresolved_contract_hitl_ids
+
+        pipeline = _make_concurrent_pipeline()
+        with patch("contract_store.resolve_pipeline_worktree", return_value=None):
+            assert _unresolved_contract_hitl_ids("issue-999", pipeline, "implement") == []
+
+    def test_contract_load_failure_fails_open(self):
+        from routes.pipelines import _unresolved_contract_hitl_ids
+
+        pipeline = _make_concurrent_pipeline()
+        with (
+            patch("contract_store.resolve_pipeline_worktree", return_value=Path("/tmp/wt")),
+            patch("egg_contracts.load_contract", side_effect=OSError("boom")),
+        ):
+            assert _unresolved_contract_hitl_ids("issue-999", pipeline, "implement") == []
+
+
+class TestHitlGatedTimeout:
+    """#3426: the consensus timeout is suspended while operator-gated.
+
+    An unresolved contract HITL decision (``cq-N``) gating the running
+    phase means the slice is waiting on a human, not stalled — the
+    timeout branch must keep polling instead of alerting/failing, and
+    the convergence clock resets once the operator answers.
+    """
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_timeout_suspended_until_hitl_resolved_then_converges(
+        self, MockExecutor, mock_prompt, mock_lock, mock_emit, mock_monotonic, mock_sleep
+    ):
+        """Operator-gated timeout defers; post-resolution the phase succeeds.
+
+        Sequence: consensus stays incomplete past the 30-min timeout while
+        ``cq-3`` is unresolved (two gated iterations), the operator then
+        resolves it (gate releases, clock resets), and consensus completes
+        on the fresh window → exit 0, no consensus-timeout OVERSEER_ALERT,
+        no CONSENSUS_TIMEOUT event, and the BRC event loop is never stopped.
+        """
+        from events import EventType
+
+        # Small per-call increments after an initial jump past the 1800s
+        # timeout: the post-release clock reset must land elapsed back
+        # under the timeout instead of re-expiring immediately.
+        _calls = [0]
+
+        def _monotonic():
+            _calls[0] += 1
+            if _calls[0] == 1:
+                return 0.0
+            return 1801.0 + _calls[0]
+
+        mock_monotonic.side_effect = _monotonic
+
+        executions = [_make_execution(AgentRole.CODER, "coder-1")]
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions)
+
+        # Shared state: consensus completes only after the HITL gate
+        # releases, regardless of how many times each hook is polled.
+        state = {"gated_polls_remaining": 2, "complete": False}
+
+        def _fake_hitl_ids(_pid, _pipeline, _phase):
+            if state["gated_polls_remaining"] > 0:
+                state["gated_polls_remaining"] -= 1
+                return ["cq-3"]
+            state["complete"] = True  # operator resolved cq-3
+            return []
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.side_effect = lambda: {
+            "is_complete": state["complete"],
+            "has_objections": False,
+            "has_unresolved_nacks": False,
+            "blocking_agents": [] if state["complete"] else ["coder"],
+        }
+        # Record consensus completeness at each stop_event_loop call: the
+        # giving-up stop in the timeout branch would record False, the
+        # legitimate convergence teardown records True.
+        stop_calls: list = []
+        mock_executor_instance.stop_event_loop.side_effect = lambda: stop_calls.append(
+            state["complete"]
+        )
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        captured_alerts: list = []
+        fake_msg_store = MagicMock()
+        fake_msg_store.add_message.side_effect = lambda msg: captured_alerts.append(msg) or msg
+        msg_store_factory = MagicMock(return_value=fake_msg_store)
+
+        with (
+            patch("routes.pipelines._unresolved_contract_hitl_ids", side_effect=_fake_hitl_ids),
+            patch("routes.pipelines._get_message_store", return_value=msg_store_factory),
+        ):
+            exit_code, logs = _run_concurrent_phase(
+                pipeline_id="issue-999",
+                pipeline=pipeline,
+                phase="implement",
+                spawner=mock_spawner,
+                store=mock_store,
+                **_CALL_ARGS,
+            )
+
+        assert exit_code == 0
+        # The gate consumed both gated polls before releasing.
+        assert state["gated_polls_remaining"] == 0
+        # Operator-gated waiting is not a convergence failure: no
+        # consensus-timeout alert, no CONSENSUS_TIMEOUT event, and the
+        # event loop kept running for the post-resolution window.
+        consensus_alerts = [
+            m
+            for m in captured_alerts
+            if m.message_type == "OVERSEER_ALERT"
+            and m.metadata.get("anomaly_type") == "consensus-timeout"
+        ]
+        assert consensus_alerts == []
+        timeout_events = [
+            c
+            for c in mock_emit.call_args_list
+            if c.args and c.args[0] == EventType.CONSENSUS_TIMEOUT
+        ]
+        assert timeout_events == []
+        # Exactly one event-loop stop — the convergence teardown, never
+        # the giving-up stop from the timeout branch.
+        assert stop_calls == [True]
+
+
 class TestObjectionHandling:
     """Objections trigger HITL decisions."""
 
