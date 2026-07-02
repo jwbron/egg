@@ -778,11 +778,16 @@ gateway to materialize each repo's work branch on its own remote right after
 the worktree is created (`create_worktrees(..., push_branches=True)`, wired
 through the gateway's `_materialize_work_branch_on_remote`, #3393 slice-7):
 the fresh worktree HEAD is pushed to
-`refs/heads/{assigned_branch or work-branch}`. The push is best-effort,
-non-forced, and idempotent — an already-materialized branch is a no-op — so a
-secondary repo's context/slice PR always has a head branch to open against
-instead of soft-failing on a missing one. Single-repo pipelines pass
-`push_branches=False` and stay byte-identical to the pre-#3393 path.
+`refs/heads/{assigned_branch or work-branch}`. The push runs for every repo in
+the list — including the primary, where it's a no-op the orchestrator's
+existing push path already covered. It is best-effort, non-forced, and
+idempotent: a branch already present on the remote — even one whose tip has
+diverged — is treated as already materialized (a non-fast-forward rejection is
+swallowed rather than force-pushed, so the primary's contract-init commit is
+never clobbered). This guarantees a secondary repo's context/slice PR always
+has a head branch to open against instead of soft-failing on a missing one.
+Single-repo pipelines pass `push_branches=False` and stay byte-identical to
+the pre-#3393 path.
 
 ### Per-slice PR routing
 
