@@ -616,6 +616,30 @@
       "resolved_at": "2026-07-02T00:03:25.139551Z",
       "debounce_until": null,
       "redirect_seed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "[Phase gate: plan] The plan phase has completed. Please review the plan and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "approve",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-02T00:26:21.788283Z",
+      "debounce_until": null,
+      "redirect_seed": null
     }
   ],
   "workflow_owner": null,
