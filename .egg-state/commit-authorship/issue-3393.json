@@ -192,6 +192,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "d1becb0e9660bfb477237ce078a6ae435b298439": {
+      "branch": "egg/issue-3393/slice-1",
+      "patch_id": "091837a4622f60d647515257c43febd9adf9930e",
+      "pipeline_id": "issue-3393",
+      "registered_at": "2026-07-02T04:28:12.025689+00:00",
+      "repo": null,
+      "role": "tester"
+    },
     "d779b0c8ceda750c042c0bba3f925097eff015e8": {
       "branch": "egg/issue-3393/slice-1",
       "patch_id": "648bce5c45f0e50397349006e95a2010ec54c37f",
