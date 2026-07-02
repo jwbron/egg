@@ -72,6 +72,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "8b446b35253242588ba580405241ad804c962a9f": {
+      "branch": "egg/pipeline-e4ab1374/work",
+      "patch_id": "8b1432a7c13db2882bef4fe063f28da5a69f5c75",
+      "pipeline_id": "pipeline-e4ab1374",
+      "registered_at": "2026-07-02T23:39:07.029885+00:00",
+      "repo": null,
+      "role": "simplifier"
+    },
     "af7bdc9401c413a12e89f392616991da5e340311": {
       "branch": "egg/pipeline-e4ab1374/work",
       "patch_id": "ee7f7243013d3dfd1f8fc5c6643767c08e4201b6",
