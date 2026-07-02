@@ -31,7 +31,7 @@ set -euo pipefail
 : "${RUN_START:?required}"
 : "${VIOLATIONS_FILE:?required}"
 
-: > "$VIOLATIONS_FILE"
+: >"$VIOLATIONS_FILE"
 
 run_start_epoch=$(date -u -d "$RUN_START" +%s)
 threshold_epoch=$((run_start_epoch - 60))
@@ -44,11 +44,11 @@ forbidden_specific+='|follow[- ]?up later)'
 
 forbidden_broad='(will file|will track|will open an issue)'
 
-count=$(jq 'length' < "$COMMENTS_JSON_FILE")
+count=$(jq 'length' <"$COMMENTS_JSON_FILE")
 echo "Scanning ${count} response comment(s)"
 
 if [[ "$count" -eq 0 ]]; then
-  echo "no top-level response comment posted by the agent" >> "$VIOLATIONS_FILE"
+  echo "no top-level response comment posted by the agent" >>"$VIOLATIONS_FILE"
 fi
 
 lookup_issue() {
@@ -84,20 +84,20 @@ while IFS= read -r b64body; do
 
   if [[ -n "$specific_matches" || -n "$broad_matches" ]]; then
     matches=$(printf '%s,%s' "$specific_matches" "$broad_matches" \
-              | sed 's/^,//; s/,$//; s/,,/,/g')
-    echo "forbidden phrase(s): ${matches}" >> "$VIOLATIONS_FILE"
+      | sed 's/^,//; s/,$//; s/,,/,/g')
+    echo "forbidden phrase(s): ${matches}" >>"$VIOLATIONS_FILE"
   fi
 
   while IFS= read -r issue_num; do
     [[ -z "$issue_num" ]] && continue
     issue_json=$(lookup_issue "$issue_num")
     if [[ -z "$issue_json" ]]; then
-      echo "deferred-to #${issue_num}: issue does not exist" >> "$VIOLATIONS_FILE"
+      echo "deferred-to #${issue_num}: issue does not exist" >>"$VIOLATIONS_FILE"
       continue
     fi
     is_pr=$(echo "$issue_json" | jq -r '.pull_request != null' 2>/dev/null || echo "false")
     if [[ "$is_pr" == "true" ]]; then
-      echo "deferred-to #${issue_num}: refers to a PR, not an issue" >> "$VIOLATIONS_FILE"
+      echo "deferred-to #${issue_num}: refers to a PR, not an issue" >>"$VIOLATIONS_FILE"
       continue
     fi
     created=$(echo "$issue_json" | jq -r '.created_at' 2>/dev/null || true)
@@ -105,16 +105,16 @@ while IFS= read -r b64body; do
       continue
     fi
     created_epoch=$(date -u -d "$created" +%s 2>/dev/null || echo 0)
-    if (( created_epoch < threshold_epoch )); then
+    if ((created_epoch < threshold_epoch)); then
       msg="deferred-to #${issue_num}: issue created at ${created}"
       msg+=" predates this run (started ${RUN_START}); re-deferring to a"
       msg+=" prior-round issue is not allowed — create a fresh follow-up"
       msg+=" or fix in-PR"
-      echo "$msg" >> "$VIOLATIONS_FILE"
+      echo "$msg" >>"$VIOLATIONS_FILE"
     fi
   done < <(echo "$scan_text" | grep -ioE 'deferred-to #[0-9]+' \
-            | grep -oE '[0-9]+' | sort -u)
-done < <(jq -r '.[].body | @base64' < "$COMMENTS_JSON_FILE")
+    | grep -oE '[0-9]+' | sort -u)
+done < <(jq -r '.[].body | @base64' <"$COMMENTS_JSON_FILE")
 
 if [[ -s "$VIOLATIONS_FILE" ]]; then
   exit 1
