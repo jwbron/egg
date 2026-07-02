@@ -176,8 +176,18 @@ sync-venv-if-uv:
 # `uv sync` fails when the hatchling build backend tries to package the
 # project. Dev tools (ruff, pytest, mypy, etc.) install fine without the
 # project itself. Issue #2087.
+#
+# The venv is created --relocatable because this .venv is persisted to
+# /opt/prebuilt-deps at image build (build context /tmp/repo-deps/<repo>/)
+# and restored into a different path (the pod's mounted worktree) at
+# runtime. A default uv venv writes absolute shebangs into console
+# scripts (pytest, mypy, ...), which dangle after the move; relocatable
+# venvs use self-resolving `#!/bin/sh` trampolines instead. uv records
+# `relocatable = true` in pyvenv.cfg, so the subsequent `uv sync` into
+# the venv keeps installing relocatable entry points. See #3398.
 sandbox-deps:
-	@echo "==> Syncing dev dependencies (no project install)..."
+	@echo "==> Syncing dev dependencies (no project install, relocatable venv)..."
+	@uv venv --relocatable
 	@uv sync --extra dev --no-install-project
 
 # Install all linting tools

@@ -369,6 +369,7 @@ try:
         PipelineMode,
         PipelinePhase,
         PipelineStatus,
+        RepoSpec,
         ReviewVerdict,
     )
     from ..slice_id_validation import SLICE_ID_PATTERN, extract_slice_id
@@ -428,6 +429,7 @@ except ImportError:
         PipelineMode,
         PipelinePhase,
         PipelineStatus,
+        RepoSpec,
         ReviewVerdict,
     )
     from slice_id_validation import SLICE_ID_PATTERN, extract_slice_id  # type: ignore
@@ -729,7 +731,11 @@ def _spawn_overseer_agent(
     except ImportError:
         from models import AgentRole  # type: ignore[no-redef]
 
-    overseer_repo = pipeline_repos[0] if pipeline_repos else None
+    # The overseer resolves its model from the pipeline's PRIMARY repo.
+    # ``pipeline_repos`` is canonically primary-first (#3393 slices 1-2), so
+    # take the first (primary) entry via ``next(iter(...))`` rather than a
+    # positional ``[0]`` collapse (#3393 slice-3).
+    overseer_repo = next(iter(pipeline_repos or []), None)
     try:
         overseer_decision = resolve_overseer_model(
             "adversarial",
@@ -1210,6 +1216,15 @@ def _corrective_open_operator_hitl(
     if not result.success:
         raise RuntimeError(f"failed to open operator HITL decision: {result.message}")
     save_contract(contract, resolved_repo)
+    # NOTE(#3427): like ``route_impasses``, this overseer-corrective writer
+    # lands the ``cq-N`` decision with a bare ``save_contract`` and no
+    # write-time ``persist_contract_statefiles`` — so a HITL opened between
+    # checkpoints shares the same phase-restart volatility window (the
+    # ``git reset --hard origin/<work>`` can revert it). The append-only
+    # guard protects it from id reuse, but not from reversion. Not persisted
+    # here because the corrective seam runs against ``get_repo_path()`` (the
+    # base repo), not a pushable pipeline worktree — wiring a worktree-scoped
+    # persist through the CorrectiveExecutor is the residual follow-up.
     return decision_id
 
 
@@ -2068,6 +2083,149 @@ def get_pipeline(pipeline_id: str) -> tuple[Response, int]:
         )
 
 
+def _normalize_submission_repos(
+    repos_arg: Any,
+) -> tuple[str | None, list[dict[str, str | None]], str | None, str | None]:
+    """Validate + normalize a multi-repo submission list (#3393).
+
+    Accepts the ``repos`` payload from ``POST /api/v1/pipelines`` — a list of
+    ``{repo, base_branch?, primary?}`` entries (a bare ``"owner/name"`` string
+    is tolerated as ``{repo: ...}``). Returns
+    ``(error, entries, primary_repo, primary_base_branch)``:
+
+    * ``error`` — a human-readable message when validation fails (the other
+      fields are meaningless in that case), else ``None``.
+    * ``entries`` — normalized ``{"repo", "base_branch"}`` dicts, reordered so
+      the primary is ``entries[0]`` (the ``Pipeline`` validator mirrors
+      ``repos[0]`` onto the legacy singleton and ``primary_repo``).
+
+    Per-entry repo/base_branch formats are validated with the same regexes the
+    single-repo path uses. Same-name repos under different owners are NOT
+    rejected here — they are distinct full ``owner/name`` slugs (operator
+    ruling #6; the owner/repo re-key lands in slice 3).
+    """
+    if not isinstance(repos_arg, list) or not repos_arg:
+        return ("repos must be a non-empty list of {repo, base_branch} entries", [], None, None)
+    entries: list[dict[str, str | None]] = []
+    primary_index = 0
+    seen_primary = False
+    for idx, raw in enumerate(repos_arg):
+        entry = {"repo": raw} if isinstance(raw, str) else raw
+        if not isinstance(entry, dict) or not entry.get("repo"):
+            return (f"repos[{idx}] must be an object with a 'repo' field", [], None, None)
+        repo_val = entry["repo"]
+        if not re.match(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$", repo_val):
+            return (
+                f"Invalid repo format in repos[{idx}]: {repo_val!r} (expected owner/name)",
+                [],
+                None,
+                None,
+            )
+        base_val = entry.get("base_branch")
+        if base_val is not None and (
+            not re.match(r"^[a-zA-Z0-9_./-]+$", base_val) or ".." in base_val
+        ):
+            return (f"Invalid base_branch in repos[{idx}]: {base_val!r}", [], None, None)
+        entries.append({"repo": repo_val, "base_branch": base_val})
+        if entry.get("primary"):
+            if seen_primary:
+                return ("At most one repos entry may set 'primary'", [], None, None)
+            seen_primary = True
+            primary_index = idx
+    # Reorder so the primary is first: the Pipeline model mirrors repos[0]
+    # onto the legacy repo/base_branch singleton and exposes it as
+    # ``primary_repo``.
+    if primary_index != 0:
+        entries.insert(0, entries.pop(primary_index))
+    primary = entries[0]
+    return (None, entries, primary["repo"], primary["base_branch"])
+
+
+def _assert_repo_set_uniform(repos: list[str]) -> str | None:
+    """Reject mixed-visibility / mixed-auth repo sets at submission (#3393, task-2-2).
+
+    A pipeline-wide private-mode posture (context filtering, egress rules)
+    requires every repo in one run to be uniformly private or uniformly public,
+    and — for v1 — to share a single auth mode. Returns an actionable,
+    repo-naming error string when the set diverges on either dimension, or
+    ``None`` when it is uniform. A single repo (after de-duplication) is
+    trivially uniform and short-circuits before any lookup, so N=1 pipelines
+    pay no cost and make no gateway round-trip.
+
+    Runtime note (container boundary): the orchestrator image bundles
+    ``config/repo_config.py`` but NOT ``gateway/``, so the per-repo lookups are
+    reached the way the orchestrator already reaches them — auth via
+    ``repo_config.assert_uniform_auth`` (imported directly, the same callable the
+    gateway's ``validate_auth_mode_uniformity`` delegates to) and visibility via
+    ``GatewayClient.get_repo_visibility`` over HTTP (the gateway holds the
+    tokens; mirrors ``_compute_gateway_mode``). ``internal`` counts as private.
+    The visibility comparison below is the HTTP-boundary twin of
+    ``gateway.repo_visibility.validate_visibility_uniformity`` (which the
+    orchestrator cannot import); keep the two in step.
+    """
+    unique = list(dict.fromkeys(repos))
+    if len(unique) <= 1:
+        return None
+
+    # Auth-mode uniformity — repo_config is bundled into the orchestrator image.
+    try:
+        from repo_config import assert_uniform_auth
+
+        assert_uniform_auth(unique)
+    except ValueError as exc:
+        return str(exc)
+    except Exception as exc:  # pragma: no cover - defensive (config read failure)
+        # Fail CLOSED for consistency with the visibility boundary below
+        # (reviewer_security v1): a config-read failure means we cannot prove a
+        # uniform auth mode, so we must not admit the set. repo_config is a
+        # local, bundled read — this path is genuinely exceptional, not a
+        # transient network hiccup.
+        logger.warning("Auth-mode uniformity check errored; failing closed", error=str(exc))
+        return (
+            "Could not determine the auth mode for the pipeline's repos, so a "
+            "uniform bot/user auth mode cannot be verified. Resubmit once repo "
+            "configuration is resolvable."
+        )
+
+    # Visibility uniformity — resolved via the gateway (the orchestrator's only
+    # visibility source). FAIL CLOSED on an indeterminate lookup (reviewer_security
+    # v1): for a multi-repo set (we only reach here when len(unique) > 1) a repo
+    # whose visibility cannot be resolved to a known bucket means the uniform
+    # private/public posture cannot be PROVEN — and this is a confidentiality
+    # boundary (a mixed set that slips through would let private-repo content
+    # flow through shared plan/contract/PR surfaces into a public repo, with no
+    # downstream re-check: _compute_gateway_mode derives the network mode from
+    # the PRIMARY repo only). N=1 short-circuits above, so the common case pays
+    # nothing. This mirrors gateway.repo_visibility.validate_visibility_uniformity;
+    # keep the two in step. Unrecognized (non-None) labels are treated as
+    # indeterminate too — only the known {public|private|internal} contract admits.
+    gw = get_gateway_client()
+    posture: dict[str, list[str]] = {}
+    for repo in unique:
+        vis = gw.get_repo_visibility(repo)
+        if vis in ("private", "internal"):
+            bucket = "private"
+        elif vis == "public":
+            bucket = "public"
+        else:
+            return (
+                f"Could not determine repository visibility for {repo!r}; cannot "
+                "verify a uniform private/public posture across the pipeline's "
+                "repos (a run must be uniformly private or uniformly public so "
+                "private-repo content cannot leak through shared plan/contract/PR "
+                "surfaces). Resubmit once the repo's visibility is resolvable."
+            )
+        posture.setdefault(bucket, []).append(repo)
+    if len(posture) > 1:
+        groups = "; ".join(f"{b}: {', '.join(sorted(rs))}" for b, rs in sorted(posture.items()))
+        return (
+            "Mixed repository visibility across the pipeline's repos is not allowed "
+            "(a run must be uniformly private or uniformly public, so private-repo "
+            f"content cannot leak through shared plan/PR surfaces). Diverging repos — {groups}."
+        )
+    return None
+
+
 @pipelines_bp.route("", methods=["POST"])
 @require_lifecycle_secret
 def create_pipeline() -> tuple[Response, int]:
@@ -2108,6 +2266,35 @@ def create_pipeline() -> tuple[Response, int]:
     branch = data.get("branch")
     base_branch = data.get("base_branch")
     prompt = data.get("prompt")
+
+    # #3393 (multi-repo): a submission may carry a ``repos`` list instead of
+    # (or in addition to) the single ``repo``. Normalize it up front and derive
+    # the primary onto the legacy ``repo``/``base_branch`` scalars so the
+    # single-repo plumbing below (naming, base-branch detection, branch checks)
+    # keeps working and a direct HTTP submission — one that bypasses the
+    # submit_task MCP tool that would otherwise mirror the primary — is
+    # supported. ``repos_entries`` is None for a single-repo submission.
+    repos_entries: list[dict[str, str | None]] | None = None
+    repos_arg = data.get("repos")
+    if repos_arg is not None:
+        _repos_err, repos_entries, _primary_repo, _primary_base = _normalize_submission_repos(
+            repos_arg
+        )
+        if _repos_err:
+            return make_error_response(
+                _repos_err, status_code=400, details={"reason": "invalid_repos"}
+            )
+        if repo and _primary_repo and repo != _primary_repo:
+            return make_error_response(
+                f"Conflicting repo {repo!r} and repos primary {_primary_repo!r}; "
+                "pass one or the other.",
+                status_code=400,
+                details={"reason": "repo_repos_conflict"},
+            )
+        if not repo:
+            repo = _primary_repo
+        if not base_branch:
+            base_branch = _primary_base
     mode = data.get("mode", "issue")
     analysis = data.get("analysis")
     plan = data.get("plan")
@@ -2468,6 +2655,35 @@ def create_pipeline() -> tuple[Response, int]:
                     },
                 )
 
+    # #3393 (multi-repo): enforce uniform visibility + auth across the run's
+    # repos before creating the pipeline. Single-repo submissions are trivially
+    # uniform and short-circuit without a gateway round-trip. Runs after the
+    # gateway-ready gate above so the visibility lookup can reach the gateway.
+    _uniform_repos = [e["repo"] for e in repos_entries] if repos_entries else ([repo] if repo else [])
+    _uniformity_err = _assert_repo_set_uniform([r for r in _uniform_repos if r])
+    if _uniformity_err:
+        return make_error_response(
+            _uniformity_err,
+            status_code=400,
+            details={"reason": "non_uniform_repo_set"},
+        )
+
+    # Assemble the full list-shaped repo set persisted onto the Pipeline. The
+    # primary (entries[0]) carries the resolved ``base_branch`` (detected above
+    # when absent); secondary repos keep their submitted base_branch (None ⇒
+    # auto-detected downstream). For a single-repo submission we leave
+    # ``repos_specs`` as None and let the Pipeline validator synthesize a
+    # one-element list from the legacy singleton (N=1 back-compat).
+    repos_specs: list[RepoSpec] | None = None
+    if repos_entries is not None:
+        repos_specs = [
+            RepoSpec(
+                repo=entry["repo"],
+                base_branch=(base_branch if idx == 0 else entry["base_branch"]),
+            )
+            for idx, entry in enumerate(repos_entries)
+        ]
+
     try:
         store = get_state_store(repo_path)
         pipeline = store.create_pipeline(
@@ -2475,6 +2691,7 @@ def create_pipeline() -> tuple[Response, int]:
             repo=repo,
             branch=branch,
             base_branch=base_branch,
+            repos=repos_specs,
             config=config,
             prompt=prompt,
             network_mode=network_mode,
@@ -5609,16 +5826,35 @@ def _get_refine_review_criteria() -> str:
         "- Is there a clear recommended approach?\n"
         "- Is the recommendation justified with specific reasons?\n"
         "- Does the recommendation align with the analysis findings?\n\n"
-        "### 7. HITL Decision Registration\n"
-        "- Run `egg-contract show` and verify that contract decisions or feedback "
-        "items exist for every open question in the analysis.\n"
-        "- If open questions appear as prose text without corresponding "
-        "`<!-- egg-hitl-decision ... -->` or `<!-- egg-hitl-feedback ... -->` "
-        "markers (generated by `egg-contract`), flag as `needs_revision` — "
-        "the agent must re-run `egg-contract add-decision` or "
-        "`egg-contract add-feedback` for each question.\n"
-        "- If there are zero open questions, verify that the requirements are "
-        "genuinely unambiguous and no assumptions were made silently.\n\n"
+        "### 7. HITL Decision Registration & Un-surfaced Decisions (#3390)\n"
+        "- Run `egg-contract show` and verify a contract decision or feedback "
+        "item exists for every open question in the analysis, and that each "
+        "decision-bearing section cites its `cq-N` (the `--format markdown` "
+        "output of `egg-contract add-decision` embeds it). Open questions as "
+        "bare prose with no registered `cq-N` ⇒ **NACK** — the producer must "
+        "register each via `egg-contract add-decision` / "
+        "`egg-contract add-feedback` and re-propose. (Deterministic "
+        "propose-time checks already validate the producer's *attested* ids; "
+        "your job is the judgment half the validators cannot do.)\n"
+        "- **Un-surfaced decisions — NACK.** Read the draft for choices it "
+        "quietly *commits to* that should be the operator's call — e.g. "
+        '"we will drop the legacy filter", a scope narrowing/widening, a '
+        "user-visible behavior change, abandoning a stated requirement — "
+        "with no registered `cq-N` backing the choice. Consensus must not "
+        "close on a draft that bakes in a human-grade decision outside the "
+        "HITL channel: the producer either registers the decision (the gate "
+        "then surfaces it) or rewrites the draft to remove the unilateral "
+        "commitment.\n"
+        "- **Calibration — do not over-NACK.** An implementation choice the "
+        "planner can make from the analysis (API shape, migration approach, "
+        "fallback design, detector shape) is NOT a human-grade decision; do "
+        "not force registration of those. The bar is the same as §5: answers "
+        "only the operator owns (product intent, scope boundaries, external "
+        "commitments, user-visible behavior).\n"
+        "- If the ledger is deliberately empty (the producer attested "
+        "`no_decisions_rationale`), verify the rationale holds: requirements "
+        "genuinely unambiguous, no assumptions made silently. NACK if you "
+        "find a hidden operator-grade choice.\n\n"
         + _human_companion_review_criteria(
             companion="`*-analysis-human.md`",
             parent="the refine analysis",
@@ -6030,6 +6266,30 @@ def _get_plan_review_criteria() -> str:
         "the closure could not be computed: fall back to grepping the "
         "removed symbols in the test trees, and never read empty output "
         "on exit 2 as 'no impacted tests'.\n\n"
+        "### 14. HITL Decision Registration & Un-surfaced Decisions (#3390)\n"
+        "- Run `egg-contract show` and check the plan-phase decision ledger: "
+        "every plan-phase open question must be a registered contract "
+        "decision (`cq-N`), and the plan draft must cite the id where the "
+        "question is raised. A plan-grade question living only in prose ⇒ "
+        "**NACK** the producer that owns it (task_planner for the plan "
+        "draft, architect for slice-shape questions, risk_analyst for "
+        "risk-acceptance questions).\n"
+        "- **Un-surfaced decisions — NACK.** A plan that silently commits to "
+        "a choice only the operator owns — dropping a requirement, changing "
+        "user-visible behavior, accepting a risk the operator never saw, "
+        "de-scoping acceptance criteria — without a registered `cq-N` bakes "
+        "a human-grade decision into the pipeline outside the HITL channel. "
+        "NACK: the producer registers the decision or removes the "
+        "unilateral commitment.\n"
+        "- **Calibration — do not over-NACK.** Design calls the plan phase "
+        "legitimately owns (task decomposition, API shape, migration "
+        "approach, slice ordering within the architect's constraints) are "
+        "NOT operator decisions — do not force registration of those. The "
+        "bar is answers only the operator owns (product intent, scope "
+        "boundaries, external commitments, user-visible behavior).\n"
+        "- A deliberately empty ledger arrives as a producer's "
+        "`no_decisions_rationale` attestation — verify it holds; NACK if "
+        "the plan hides an operator-grade choice.\n\n"
         + _human_companion_review_criteria(
             companion="`*-plan-human.md`",
             parent="the implementation plan",
@@ -8006,12 +8266,21 @@ class WorktreeSyncOutcome(NamedTuple):
     summaries) that are on HEAD but not yet on origin.  Empty when the
     rev-list itself failed; the divergence is still reported, but the
     operator can't be given the exact commit list inline.
+
+    ``rebase_category`` / ``rebase_detail`` carry the failing rebase's
+    ``PushResult.category`` / ``detail`` (conflicting paths, the rebase
+    argv, and a git-output excerpt) when ``diverged_unreconciled`` is
+    True.  They exist so the reconcile HITL can show the operator *what*
+    failed instead of an unfalsifiable generic claim (#3416) — the log
+    lines carry the same data but roll; the decision persists.
     """
 
     case: str
     diverged_unreconciled: bool = False
     backup_ref: str | None = None
     local_only_commit_shas: tuple[str, ...] = ()
+    rebase_category: str | None = None
+    rebase_detail: str | None = None
 
 
 def _build_sync_recovery_backup_ref(pipeline_id: str, unix_ts: int) -> str:
@@ -8575,6 +8844,8 @@ def _sync_worktree_with_remote(
             diverged_unreconciled=True,
             backup_ref=backup_ref if backup_ok else None,
             local_only_commit_shas=local_only,
+            rebase_category=rebase_outcome.category,
+            rebase_detail=rebase_outcome.detail,
         )
 
     # Step 4: Reset local branch to remote.
@@ -9526,6 +9797,78 @@ def _commit_statefiles_to_worktree(
     return True
 
 
+def persist_contract_statefiles(
+    pipeline_id: str,
+    worktree_path: Path,
+    message: str,
+    *,
+    pipeline: Pipeline | None = None,
+) -> bool:
+    """Durably persist a contract decision write: commit + push to the work branch.
+
+    Contract HITL decisions (``cq-N`` registrations and resolutions) are
+    written to the shared pipeline worktree's contract file with no git
+    commit; the file was only serialized to the work branch at slice/phase
+    checkpoints. Both phase-(re)start syncs — the gateway's worktree-reuse
+    reset and ``_sync_worktree_with_remote`` step 4 — run
+    ``git reset --hard origin/<work>``, so any decision write that had not
+    been committed AND pushed by then was silently reverted, letting the
+    bootstrap reconciler re-mint the same ``cq-N`` ids and clobber
+    just-resolved operator decisions (#3427). Committing and pushing at
+    write time makes the reset target already contain the decision.
+
+    Best-effort by design: failures are logged and swallowed — the write is
+    still live on the worktree file and the next checkpoint commit retries.
+    Returns ``True`` only when the state was committed and pushed (or there
+    was nothing new to commit).
+    """
+    try:
+        if pipeline is None:
+            _, pipeline = _resolve_pipeline(pipeline_id, get_repo_path())
+        identifier = _pipeline_identifier(getattr(pipeline, "issue_number", None), pipeline_id)
+        committed = _commit_statefiles_to_worktree(
+            worktree_path,
+            message,
+            identifier,
+            pipeline_id=pipeline_id,
+        )
+        if not committed:
+            return True  # Nothing new on disk — already durable.
+        branch = getattr(pipeline, "branch", None)
+        if not branch:
+            logger.warning(
+                "Contract decision write committed but pipeline has no work "
+                "branch to push to; the commit is local-only and a worktree "
+                "reset may still discard it (#3427)",
+                pipeline_id=pipeline_id,
+            )
+            return False
+        gateway_mode, _ = _compute_gateway_mode(pipeline)
+        _get_spawner().gateway.push_worktree_branch(
+            pipeline_id=pipeline_id,
+            repo_path=str(worktree_path),
+            branch=branch,
+            mode=gateway_mode,
+            base_branch=getattr(pipeline, "base_branch", None),
+        )
+        logger.info(
+            "Contract decision write persisted to work branch (#3427)",
+            pipeline_id=pipeline_id,
+            branch=branch,
+            commit_message=message,
+        )
+        return True
+    except Exception as persist_err:  # noqa: BLE001 — best-effort durability
+        logger.warning(
+            "Failed to durably persist contract decision write; the decision "
+            "is live on the worktree file but will not survive a worktree "
+            "reset until the next checkpoint commit (#3427)",
+            pipeline_id=pipeline_id,
+            error=str(persist_err),
+        )
+        return False
+
+
 def _ensure_statefiles_on_branch(
     worktree_repo_path: Path,
     pipeline: Pipeline,
@@ -10422,6 +10765,47 @@ def _resolve_pipeline_worktree_path(pipeline: Pipeline, fallback: Path) -> Path:
     return fallback
 
 
+def _resolve_slice_gate_repo(slice_obj, pipeline: Pipeline) -> str | None:
+    """The repo every implement-phase gate for *slice_obj* is scoped to (#3393).
+
+    Single source of truth for slice → gate-repo resolution (task-6-1): the
+    test gate, the reviewer diff base, the per-repo check/lint commands, and
+    the slice agent's cwd all key off this one accessor. It is exactly
+    :func:`models.resolve_slice_repo` — the slice's own ``repo`` when set,
+    else the pipeline's primary repo (so a repoless slice, or any slice in an
+    N=1 pipeline, scopes to the single/primary repo). Returns ``None`` only
+    for a genuinely repoless pipeline (test scaffolds with no repo at all).
+    """
+    try:
+        from models import resolve_slice_repo  # type: ignore[no-redef]
+    except ImportError:
+        from ..models import resolve_slice_repo  # type: ignore[no-redef]
+    return resolve_slice_repo(slice_obj, pipeline)
+
+
+def _resolve_slice_worktree_path(
+    pipeline: Pipeline, slice_repo: str | None, fallback: Path
+) -> Path:
+    """Resolve the on-disk worktree path for a slice's repo (#3393 task-6-1).
+
+    A multi-repo pipeline materialises one worktree per participating repo
+    under ``WORKTREE_BASE_DIR / pipeline.id / <repo_short>`` — the same
+    owner/repo-keyed layout as :func:`_resolve_pipeline_worktree_path`, one
+    directory per repo. Given a slice's resolved repo (``owner/name``), this
+    returns that repo's worktree when it exists on disk, else *fallback*
+    (the pipeline-primary worktree). For an N=1 pipeline the slice's repo IS
+    the primary, so ``slice_repo`` matches ``pipeline.repo`` and the answer
+    is byte-identical to the pipeline-primary worktree — callers therefore
+    only reach here for a genuine secondary-repo slice.
+    """
+    repo_short = slice_repo.split("/")[-1] if slice_repo else None
+    if repo_short:
+        candidate = WORKTREE_BASE_DIR / pipeline.id / repo_short
+        if candidate.exists():
+            return candidate
+    return fallback
+
+
 def _persist_phase_brc_history(
     pipeline: Pipeline,
     store: StateStore,
@@ -10470,6 +10854,10 @@ def _persist_phase_brc_history(
             worktree_path,
             f"Persist statefiles after {phase} phase",
             pipeline_identifier=_pipeline_identifier(pipeline.issue_number, pipeline.id),
+            # Contract files are keyed by pipeline_id, not the issue-number
+            # prefix; without this the restart-time persist skipped the
+            # contract entirely (#1829 gap, observed in #3427).
+            pipeline_id=pipeline.id,
         )
     except subprocess.CalledProcessError as git_err:
         logger.warning(
@@ -10668,6 +11056,8 @@ def _compose_context_pr_body(
     pipeline,
     worktree_repo_path: Path,
     identifier: int | str,
+    context_repo: str | None = None,
+    sibling_context_prs: list[dict[str, Any]] | None = None,
 ) -> str:
     """Compose the context-PR body from contract + pipeline state (#3115).
 
@@ -10728,6 +11118,20 @@ def _compose_context_pr_body(
         body_lines.append(f"- Issue: #{pipeline.issue_number}")
         has_meaningful_content = True
 
+    # #3393 slice-4 / task-4-2: the repo this context PR lives in. A
+    # slice PR in this same repo cross-links as a bare ``#N`` autolink;
+    # a slice PR in a DIFFERENT repo of the pipeline must be qualified
+    # as ``owner/repo#N`` (a bare ``#N`` would resolve against the wrong
+    # repo). Defaults to the pipeline primary — the repo the up-front
+    # opener composes the primary context PR for. For an N=1 pipeline
+    # every slice resolves to the primary, so every link stays bare and
+    # the body is byte-identical to the single-repo shape.
+    this_context_repo = context_repo or getattr(pipeline, "primary_repo", None) or pipeline.repo
+    try:
+        from models import resolve_slice_repo  # type: ignore[no-redef]
+    except ImportError:
+        from ..models import resolve_slice_repo  # type: ignore[no-redef]
+
     slices = list(contract.slices or [])
     if slices:
         body_lines.append(f"- Slices ({len(slices)}):")
@@ -10741,10 +11145,17 @@ def _compose_context_pr_body(
             line = f"  {number}. {name} (`{s.id}`)"
             # Cross-link the stack (#3122): once the slice's PR is open
             # its number is persisted on the contract and the run loop
-            # re-composes this body, so the entry gains a link. Bare
-            # ``#N`` autolinks within the repo the context PR lives in.
+            # re-composes this body, so the entry gains a link.
             if getattr(s, "pr_number", None):
-                line += f" — #{s.pr_number}"
+                s_repo = resolve_slice_repo(s, pipeline)
+                if s_repo and this_context_repo and s_repo != this_context_repo:
+                    # Cross-repo sibling — repo-qualify so GitHub resolves
+                    # the autolink to the right repo (#3393 slice-4).
+                    line += f" — {s_repo}#{s.pr_number}"
+                else:
+                    # Same-repo (or repo unknown): bare ``#N`` autolinks
+                    # within the repo this context PR lives in.
+                    line += f" — #{s.pr_number}"
             body_lines.append(line)
         has_meaningful_content = True
 
@@ -10777,6 +11188,35 @@ def _compose_context_pr_body(
 
     if has_meaningful_content:
         sections.append("\n".join(["## Pipeline context", "", *body_lines]))
+
+    # #3393 slice-4 / task-4-2: cross-reference the pipeline's context
+    # PRs in OTHER repos. Rendered only for a multi-repo pipeline (the
+    # opener passes ``sibling_context_prs`` when it coordinates >1
+    # repo); an N=1 pipeline passes ``None`` and this section is
+    # omitted, keeping the body byte-identical to the single-repo shape.
+    coord_lines: list[str] = []
+    for ref in sibling_context_prs or []:
+        ref_repo = (ref.get("repo") or "").strip()
+        ref_number = ref.get("number")
+        if not ref_repo or not isinstance(ref_number, int) or isinstance(ref_number, bool):
+            continue
+        if ref_number < 1:
+            continue
+        # ``owner/repo#N`` autolinks cross-repo (a bare ``#N`` would
+        # resolve against the repo this body lives in).
+        coord_lines.append(f"- {ref_repo}#{ref_number}")
+    if coord_lines:
+        sections.append(
+            "\n".join(
+                [
+                    "## Coordinated repos",
+                    "",
+                    "This pipeline coordinates PRs across multiple repos (#3393):",
+                    "",
+                    *coord_lines,
+                ]
+            )
+        )
     return "\n\n".join(sections)
 
 
@@ -11241,6 +11681,16 @@ def _open_context_pr_at_implement_start(
             head=pipeline.branch,
             base=effective_base,
         )
+        _maybe_open_secondary_context_prs(
+            pipeline_id,
+            pipeline=pipeline,
+            primary_pr_number=existing_pr_number,
+            work_branch=pipeline.branch,
+            worktree_repo_path=worktree_repo_path,
+            identifier=identifier,
+            gateway_mode=gateway_mode,
+            spawner=spawner,
+        )
         return existing_pr_number
 
     # Step 4: open a new context PR. Read title/description from the
@@ -11343,7 +11793,283 @@ def _open_context_pr_at_implement_start(
         base=effective_base,
         url=pr_url,
     )
+    _maybe_open_secondary_context_prs(
+        pipeline_id,
+        pipeline=pipeline,
+        primary_pr_number=new_pr_number,
+        work_branch=pipeline.branch,
+        worktree_repo_path=worktree_repo_path,
+        identifier=identifier,
+        gateway_mode=gateway_mode,
+        spawner=spawner,
+    )
     return new_pr_number
+
+
+def _repos_with_slices(contract, pipeline) -> list[str]:
+    """Repos that own ≥1 slice — the lazy-per-repo participation set (#3393, slice-4).
+
+    A repo *participates* (gets its own ``egg/<id>/work`` branch + context
+    PR) iff at least one slice resolves to it via
+    :func:`models.resolve_slice_repo`. The result is ordered by
+    ``pipeline.repos`` and de-duplicated; a submitted repo that ends up
+    owning no slices is excluded (operator ruling #1). For an N=1 pipeline
+    this returns the single repo. This is the invariant the context-PR
+    opener's per-repo iteration honours (task-4-2).
+    """
+    try:
+        from models import resolve_slice_repo  # type: ignore[no-redef]
+    except ImportError:
+        from ..models import resolve_slice_repo  # type: ignore[no-redef]
+
+    slices = getattr(contract, "slices", None) or []
+    owning = {resolve_slice_repo(s, pipeline) for s in slices}
+    return [spec.repo for spec in (pipeline.repos or []) if spec.repo in owning]
+
+
+def _maybe_open_secondary_context_prs(
+    pipeline_id: str,
+    *,
+    pipeline: Any,
+    primary_pr_number: int,
+    work_branch: str | None,
+    worktree_repo_path: Path,
+    identifier: int | str,
+    gateway_mode: str,
+    spawner: Any,
+) -> None:
+    """Guarded, never-raising entry to the lazy per-repo context opener (#3393).
+
+    No-op unless the pipeline coordinates more than one repo, so the N=1
+    single-repo path in :func:`_open_context_pr_at_implement_start`
+    performs zero extra work (no contract load, no gateway calls) and is
+    byte-for-byte unchanged. Requires a resolvable primary repo + work
+    branch; both are guaranteed set on the multi-repo remote path that
+    reaches here (the opener already returned for local-mode pipelines).
+    """
+    if len(getattr(pipeline, "repos", None) or []) <= 1:
+        return
+    primary_repo = pipeline.primary_repo
+    if not primary_repo or not work_branch:
+        return
+    try:
+        _open_secondary_context_prs(
+            pipeline_id,
+            pipeline=pipeline,
+            primary_repo=primary_repo,
+            primary_pr_number=primary_pr_number,
+            work_branch=work_branch,
+            worktree_repo_path=worktree_repo_path,
+            identifier=identifier,
+            gateway_mode=gateway_mode,
+            spawner=spawner,
+        )
+    except Exception as sec_err:  # noqa: BLE001
+        logger.warning(
+            "Lazy per-repo context PRs raised (continuing — primary context "
+            "PR unaffected) (#3393)",
+            pipeline_id=pipeline_id,
+            error=str(sec_err),
+        )
+
+
+def _open_secondary_context_prs(
+    pipeline_id: str,
+    *,
+    pipeline: Any,
+    primary_repo: str,
+    primary_pr_number: int,
+    work_branch: str,
+    worktree_repo_path: Path,
+    identifier: int | str,
+    gateway_mode: str,
+    spawner: Any,
+) -> dict[str, int]:
+    """Open the lazy per-repo context PRs for a multi-repo pipeline (#3393, slice-4 / task-4-2).
+
+    :func:`_open_context_pr_at_implement_start` opens the PRIMARY repo's
+    context PR (``egg/<id>/work → base``) exactly as it always has. This
+    helper adds the *other* repos: it iterates the set of repos that own
+    ≥1 slice (via ``resolve_slice_repo`` over the contract's slices),
+    drops the primary, and for each remaining repo opens that repo's own
+    ``egg/<id>/work`` context PR (same branch naming, per repo). A
+    submitted repo with NO slices is skipped — lazy-per-repo, operator
+    ruling #1. Every opened context PR (primary + secondaries) then has
+    its body refreshed to cross-reference the sibling context PRs in the
+    other repos (``## Coordinated repos``).
+
+    It is only invoked when ``len(pipeline.repos) > 1``; for an N=1
+    pipeline the caller never reaches here, so the single-repo path is
+    byte-for-byte unchanged.
+
+    Prerequisite / current limit (honest scope note): opening a context
+    PR in a secondary repo requires that repo's ``egg/<id>/work`` branch
+    to exist on its remote, which in turn needs a secondary-repo worktree
+    to push it. Threading the full repo set into worktree CREATION was
+    explicitly deferred by slice-3 (the worktree map is owner/repo-keyed
+    and list-shaped, but only the primary repo is materialised today), so
+    until that later wiring lands the secondary ``create_pr`` will
+    typically fail on a missing head branch. This helper therefore:
+
+    * uses the launcher-auth ``lookup_open_pr`` idempotency primitive
+      (which works per-repo with no worktree) to ADOPT an already-open
+      secondary context PR, and
+    * ATTEMPTS ``create_pr`` otherwise, soft-failing (log, continue) so a
+      missing secondary branch never strands the pipeline.
+
+    The iteration + cross-referencing structure is therefore complete and
+    forward-compatible: once secondary-repo worktree/branch creation is
+    wired, secondary context PRs open with no further change here.
+
+    Every failure is caught and logged; the helper never raises. Returns
+    the ``{repo: pr_number}`` map of context PRs known after the pass
+    (always including the primary), for logging / tests.
+    """
+    opened: dict[str, int] = {primary_repo: primary_pr_number}
+
+    try:
+        from egg_contracts.loader import load_contract
+    except ImportError:
+        logger.warning(
+            "Secondary context PRs: egg_contracts.loader unavailable (skipping) (#3393)",
+            pipeline_id=pipeline_id,
+        )
+        return opened
+
+    try:
+        contract = load_contract(identifier, worktree_repo_path)
+    except Exception as load_err:  # noqa: BLE001
+        logger.warning(
+            "Secondary context PRs: contract load failed (skipping) (#3393)",
+            pipeline_id=pipeline_id,
+            error=str(load_err),
+        )
+        return opened
+
+    # Repos owning ≥1 slice (ordered by ``pipeline.repos``), minus the
+    # primary — the lazy-per-repo participation set (task-4-2).
+    secondary_repos = [r for r in _repos_with_slices(contract, pipeline) if r != primary_repo]
+
+    if not secondary_repos:
+        # Multi-repo pipeline whose slices all resolve to the primary
+        # (e.g. no slice pinned a secondary repo). Nothing lazy to open.
+        return opened
+
+    base_by_repo = {spec.repo: spec.base_branch for spec in (pipeline.repos or [])}
+    context_title = (
+        contract.pr.title.strip()
+        if contract.pr and (contract.pr.title or "").strip()
+        else f"{identifier} context"
+    )
+
+    for repo in secondary_repos:
+        # ``base_branch=None`` ⇒ the repo's default branch. Without a
+        # secondary worktree we cannot run ``_detect_default_branch``
+        # here, so fall back to ``main`` (the create call resolves the
+        # real default server-side when base is omitted anyway).
+        base = base_by_repo.get(repo) or "main"
+        try:
+            existing = spawner.gateway.lookup_open_pr(
+                pipeline_id=pipeline_id,
+                repo=repo,
+                head=work_branch,
+                base=base,
+            )
+            if existing is not None:
+                opened[repo] = existing
+                logger.info(
+                    "Secondary context PR: adopted existing PR (#3393)",
+                    pipeline_id=pipeline_id,
+                    repo=repo,
+                    pr_number=existing,
+                )
+                continue
+
+            body = _compose_context_pr_body(
+                contract=contract,
+                pipeline=pipeline,
+                worktree_repo_path=worktree_repo_path,
+                identifier=identifier,
+                context_repo=repo,
+                sibling_context_prs=[
+                    {"repo": r, "number": n} for r, n in opened.items() if r != repo
+                ],
+            )
+            pr_url = spawner.gateway.create_pr(
+                pipeline_id=pipeline_id,
+                repo=repo,
+                title=context_title,
+                body=body,
+                head=work_branch,
+                base=base,
+                issue_number=pipeline.issue_number,
+                mode=gateway_mode,  # type: ignore[arg-type]
+            )
+            match = re.search(r"/pull/(\d+)(?:[/?#]|$)", pr_url or "")
+            if match:
+                opened[repo] = int(match.group(1))
+                logger.info(
+                    "Secondary context PR: opened new PR (#3393)",
+                    pipeline_id=pipeline_id,
+                    repo=repo,
+                    pr_number=opened[repo],
+                    head=work_branch,
+                    base=base,
+                )
+            else:
+                logger.warning(
+                    "Secondary context PR: create returned no parseable URL (#3393)",
+                    pipeline_id=pipeline_id,
+                    repo=repo,
+                    url=pr_url,
+                )
+        except Exception as sec_err:  # noqa: BLE001
+            # Best-effort: a missing secondary ``egg/<id>/work`` branch
+            # (the deferred-worktree limit above) surfaces here as a
+            # gateway create failure. Log + continue so the primary
+            # context PR + slice stack are unaffected.
+            logger.warning(
+                "Secondary context PR deferred (continuing) — secondary-repo "
+                "work branch likely absent until secondary worktree creation "
+                "is wired (#3393)",
+                pipeline_id=pipeline_id,
+                repo=repo,
+                error=str(sec_err),
+            )
+
+    # Cross-reference pass: refresh every opened context PR body so each
+    # links the sibling context PRs in the other repos. Best-effort and
+    # cosmetic — a failed refresh never affects the slice stack.
+    if len(opened) > 1:
+        for repo, number in opened.items():
+            try:
+                body = _compose_context_pr_body(
+                    contract=contract,
+                    pipeline=pipeline,
+                    worktree_repo_path=worktree_repo_path,
+                    identifier=identifier,
+                    context_repo=repo,
+                    sibling_context_prs=[
+                        {"repo": r, "number": n} for r, n in opened.items() if r != repo
+                    ],
+                )
+                spawner.gateway.update_pr_body(
+                    pipeline_id=pipeline_id,
+                    repo=repo,
+                    pr_number=number,
+                    body=body,
+                    issue_number=pipeline.issue_number,
+                    mode=gateway_mode,  # type: ignore[arg-type]
+                )
+            except Exception as refresh_err:  # noqa: BLE001
+                logger.warning(
+                    "Coordinated-repos cross-reference refresh failed (continuing) (#3393)",
+                    pipeline_id=pipeline_id,
+                    repo=repo,
+                    error=str(refresh_err),
+                )
+
+    return opened
 
 
 def _is_slice_dag_mode(contract) -> bool:
@@ -11862,12 +12588,18 @@ def _escalate_layer_c_hitl(
     one is added in a follow-up.
     """
     try:
-        from egg_contracts.decisions import next_cq_id
+        from egg_contracts.decisions import (
+            find_duplicate_open_question,
+            find_resolved_question,
+            next_cq_id,
+        )
         from egg_contracts.loader import load_contract, save_contract
         from egg_contracts.models import Decision, DecisionOption, DecisionType
     except ImportError:
         try:
             from orchestrator.egg_contracts.decisions import (  # type: ignore[no-redef]
+                find_duplicate_open_question,
+                find_resolved_question,
                 next_cq_id,
             )
             from orchestrator.egg_contracts.loader import (  # type: ignore[no-redef]
@@ -11890,6 +12622,35 @@ def _escalate_layer_c_hitl(
     try:
         with get_pipeline_state_lock(pipeline_id):
             contract_local = load_contract(pipeline_id, worktree_repo_path)
+            existing_decisions = contract_local.decisions or []
+            decision_phase = current_phase or PipelinePhase.IMPLEMENT
+            # Dedupe/carry-forward — parity with ``register_open_question``
+            # (#3374/#3392). The Layer-C question text is deterministic per
+            # (case, slice, pipeline), so every bootstrap re-run after a
+            # ``restart_phase`` re-derives the identical question. Without
+            # this guard each re-run minted a fresh ``cq-N`` (or, against a
+            # reset-stale contract, re-minted an existing one), making the
+            # operator re-answer questions they had already answered (#3427).
+            duplicate = find_duplicate_open_question(existing_decisions, question, decision_phase)
+            if duplicate is not None:
+                logger.info(
+                    "Layer-C HITL escalation adopted existing open decision (slice-4 TASK-4-4)",
+                    pipeline_id=pipeline_id,
+                    slice_id=slice_id,
+                    decision_id=getattr(duplicate, "id", None),
+                )
+                return
+            carried = find_resolved_question(existing_decisions, question, decision_phase)
+            if carried is not None:
+                logger.info(
+                    "Layer-C HITL escalation skipped: identical question "
+                    "already resolved by the operator (slice-4 TASK-4-4)",
+                    pipeline_id=pipeline_id,
+                    slice_id=slice_id,
+                    decision_id=getattr(carried, "id", None),
+                    resolution=str(getattr(carried, "resolution", None))[:200],
+                )
+                return
             # Use the canonical ``cq-N`` allocator from
             # ``shared/egg_contracts/decisions.py``. Orchestrator-side
             # HITL escalations write to the ``cq-N`` namespace; the
@@ -11909,7 +12670,8 @@ def _escalate_layer_c_hitl(
             # bootstrap which can run before any phase walk, and
             # future slice-DAG topologies may span phases.
             #
-            # The ``or PipelinePhase.IMPLEMENT`` arm is defensive: the
+            # The ``or PipelinePhase.IMPLEMENT`` arm (folded into
+            # ``decision_phase`` above) is defensive: the
             # ``Pipeline.current_phase`` field is non-Optional with a
             # default at the schema layer (``models.py:1032``), so
             # in-tree callers should always populate it. The fallback
@@ -11922,7 +12684,7 @@ def _escalate_layer_c_hitl(
                     id=decision_id,
                     question=question,
                     type=DecisionType.HITL,
-                    phase=current_phase or PipelinePhase.IMPLEMENT,
+                    phase=decision_phase,
                     options=options,
                 )
             )
@@ -11932,6 +12694,13 @@ def _escalate_layer_c_hitl(
             pipeline_id=pipeline_id,
             slice_id=slice_id,
             decision_id=decision_id,
+        )
+        # Durably land the new decision on the work branch so the next
+        # phase-(re)start worktree reset cannot revert it (#3427).
+        persist_contract_statefiles(
+            pipeline_id,
+            worktree_repo_path,
+            f"Persist Layer-C HITL escalation {decision_id} (#3427)",
         )
     except Exception as escalate_err:  # noqa: BLE001
         logger.warning(
@@ -12000,6 +12769,219 @@ def _escalate_blocked_slice_to_hitl(
             f"{reason}. How should the orchestrator proceed?"
         ),
     )
+
+
+# --- #3393 slice-5: cross-repo merge-sequencing HITL holds -------------------
+# Stable discriminator prefix on the cross-repo-hold Decision question so
+# (a) the poll can idempotently detect an already-registered hold for a
+# gate across reconciler ticks / orchestrator restarts, and (b) a future
+# dispatch handler in ``routes/decisions.py`` can route on the literal
+# substring without a separate context field on the contract Decision.
+_CROSS_REPO_HOLD_MARKER_PREFIX = "[#3393 cross-repo-hold"
+
+
+def _cross_repo_hold_marker(slice_id: str) -> str:
+    """Return the stable per-gate discriminator embedded in the hold question."""
+    return f"{_CROSS_REPO_HOLD_MARKER_PREFIX} slice={slice_id}]"
+
+
+_CROSS_REPO_HOLD_REASON_TEXT = {
+    "closed_unmerged": (
+        "the upstream cross-repo PR was CLOSED without merging, so the "
+        "automated merge-state hold cannot auto-ready this slice's PR"
+    ),
+    "timeout": (
+        "the upstream cross-repo PR did not merge within the poll bound, so "
+        "the automated merge-state hold timed out rather than leaving this "
+        "slice's PR draft indefinitely"
+    ),
+    "beyond_merge_state": (
+        "the plan declared this cross-repo dependency a beyond-merge-state "
+        "condition (release/publish, version-pin, or cannot-continue block), "
+        "which is released by human decision, never automated detection"
+    ),
+}
+
+
+# The two operator-selectable options on a cross-repo hold Decision. The
+# RELEASE option readies the PR; the KEEP option leaves it draft for manual
+# handling. Kept as constants so the registration (options list) and the
+# resolution reader agree on one shape.
+_CROSS_REPO_HOLD_RELEASE_OPTION_ID = "opt-release"
+_CROSS_REPO_HOLD_RELEASE_OPTION_LABEL = "Release the hold and mark the PR ready"
+_CROSS_REPO_HOLD_KEEP_OPTION_ID = "opt-keep"
+_CROSS_REPO_HOLD_KEEP_OPTION_LABEL = "Keep the PR held for manual handling"
+
+
+def _cross_repo_hold_resolution(contract: Any, slice_id: str) -> str | None:
+    """Return the human's verdict on the cross-repo hold Decision for a slice.
+
+    Scans the (freshly-loaded) contract for the Decision carrying this gate's
+    :func:`_cross_repo_hold_marker` and, when it is resolved, maps the
+    operator's SELECTED option to a gate verdict:
+
+    * :data:`cross_repo_merge_gate.RELEASE` — the release option was chosen
+      (mark the PR ready), else
+    * :data:`cross_repo_merge_gate.KEEP` — the keep-held option was chosen, OR
+      the resolution is present but unrecognized (fail-safe: an ambiguous
+      resolution must NOT auto-ready — cq-1 "human owns the release").
+
+    Returns ``None`` when the Decision is absent or not yet resolved (keep
+    waiting). The stored ``Decision.resolution`` may be the option label, the
+    option id, or a ``{"action":"select","selected":<label>}`` envelope (the
+    SDLC HITL CLI shape), so we unwrap the envelope and match on both id and a
+    distinctive keyword. This is the release path that honours the operator's
+    choice rather than readying on the bare resolved-boolean
+    (reviewer_code_holistic v1 NACK).
+    """
+    try:
+        from cross_repo_merge_gate import KEEP, RELEASE
+    except ImportError:
+        from ..cross_repo_merge_gate import KEEP, RELEASE  # type: ignore[no-redef]
+
+    marker = _cross_repo_hold_marker(slice_id)
+    decision = None
+    for d in getattr(contract, "decisions", None) or []:
+        if marker in (getattr(d, "question", "") or ""):
+            decision = d
+            break
+    if decision is None or not getattr(decision, "resolved", False):
+        return None
+
+    raw = getattr(decision, "resolution", None) or ""
+    # Unwrap the ``{"action":"select","selected":<label>}`` envelope the SDLC
+    # HITL CLI sends (mirrors routes.decisions._normalize_choice_resolution),
+    # tolerating a bare string / non-JSON resolution unchanged.
+    selected = raw
+    try:
+        import json as _json
+
+        payload = _json.loads(raw)
+        if isinstance(payload, dict) and payload.get("action") == "select":
+            sel = payload.get("selected")
+            if isinstance(sel, str):
+                selected = sel
+    except (ValueError, TypeError):
+        pass
+
+    text = selected.strip().lower()
+    if (
+        _CROSS_REPO_HOLD_RELEASE_OPTION_ID in text
+        or _CROSS_REPO_HOLD_RELEASE_OPTION_LABEL.lower() in text
+        or "release" in text
+    ):
+        return RELEASE
+    # Any other resolved value (the keep option, or an unrecognized string)
+    # keeps the PR held — never ready on an ambiguous selection.
+    return KEEP
+
+
+def _register_cross_repo_hold(
+    *,
+    pipeline_id: str,
+    slice_id: str,
+    repo: str,
+    pr_number: int,
+    reason: str,
+    worktree_repo_path: Path,
+    current_phase: PipelinePhase | None,
+) -> bool:
+    """Ensure a cross-repo merge-sequencing HITL hold exists on the contract.
+
+    Idempotent: if a Decision carrying this gate's marker already exists
+    (pending OR resolved), no new Decision is created. Returns ``True``
+    when a hold now exists for the gate (freshly registered or already
+    present), ``False`` only when registration could not be persisted —
+    the poll uses the return to decide whether the gate has been handed
+    off to the HITL release path. Modelled on :func:`_escalate_layer_c_hitl`
+    (loads the live contract from the per-pipeline worktree, allocates a
+    ``cq-N`` id, appends an unresolved HITL Decision, saves). The hold
+    surfaces on ``/status`` via the existing pending-decision collector.
+    """
+    try:
+        from egg_contracts.decisions import next_cq_id
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Decision, DecisionOption, DecisionType
+    except ImportError:
+        try:
+            from orchestrator.egg_contracts.decisions import (  # type: ignore[no-redef]
+                next_cq_id,
+            )
+            from orchestrator.egg_contracts.loader import (  # type: ignore[no-redef]
+                load_contract,
+                save_contract,
+            )
+            from orchestrator.egg_contracts.models import (  # type: ignore[no-redef]
+                Decision,
+                DecisionOption,
+                DecisionType,
+            )
+        except ImportError:
+            logger.warning(
+                "Cross-repo hold skipped: egg_contracts not importable (#3393)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+            )
+            return False
+
+    marker = _cross_repo_hold_marker(slice_id)
+    reason_text = _CROSS_REPO_HOLD_REASON_TEXT.get(reason, reason)
+    try:
+        with get_pipeline_state_lock(pipeline_id):
+            contract_local = load_contract(pipeline_id, worktree_repo_path)
+            # Idempotent: a hold Decision for this gate already exists.
+            for d in contract_local.decisions or []:
+                if marker in (getattr(d, "question", "") or ""):
+                    return True
+            decision_id = next_cq_id(contract_local.decisions)
+            question = (
+                f"{marker} Slice {slice_id} of pipeline {pipeline_id} opened PR "
+                f"{repo}#{pr_number} as a draft behind a cross-repo dependency, "
+                f"but {reason_text}. Choose how the orchestrator should proceed: "
+                f"selecting '{_CROSS_REPO_HOLD_RELEASE_OPTION_LABEL}' marks the PR "
+                f"ready; selecting '{_CROSS_REPO_HOLD_KEEP_OPTION_LABEL}' leaves it "
+                f"draft for you to handle manually."
+            )
+            options = [
+                DecisionOption(
+                    id=_CROSS_REPO_HOLD_RELEASE_OPTION_ID,
+                    label=_CROSS_REPO_HOLD_RELEASE_OPTION_LABEL,
+                ),
+                DecisionOption(
+                    id=_CROSS_REPO_HOLD_KEEP_OPTION_ID,
+                    label=_CROSS_REPO_HOLD_KEEP_OPTION_LABEL,
+                ),
+            ]
+            contract_local.decisions.append(
+                Decision(
+                    id=decision_id,
+                    question=question,
+                    type=DecisionType.HITL,
+                    phase=current_phase or PipelinePhase.IMPLEMENT,
+                    options=options,
+                )
+            )
+            save_contract(contract_local, worktree_repo_path)
+        logger.info(
+            "Registered cross-repo merge-sequencing HITL hold (#3393)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            repo=repo,
+            pr_number=pr_number,
+            reason=reason,
+            decision_id=decision_id,
+        )
+        return True
+    except Exception as hold_err:  # noqa: BLE001
+        logger.warning(
+            "Cross-repo hold registration failed (#3393); PR stays draft, "
+            "poll will retry next tick",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            reason=reason,
+            error=str(hold_err),
+        )
+        return False
 
 
 def _check_slice_evidence_reachability(
@@ -13221,6 +14203,20 @@ def _build_phase_prompt(
                 "- Transcribe this `## How to Populate Open Questions` section "
                 "into your analysis document — it is meta-guidance, not template "
                 "content\n",
+                "**Attest your decision ledger when proposing (#3390).** Your "
+                "consensus propose is REJECTED unless its attestation carries "
+                "the ledger: `--decisions-registered cq-1 cq-2 ...` (every id "
+                "you registered this phase) or "
+                '`--no-decisions-rationale "<why>"` when you deliberately '
+                "registered none. Attested ids must exist on the contract for "
+                "this phase, and the draft must cite each one — the "
+                "`--format markdown` output you copied above embeds the id, so "
+                "the registration flow satisfies the citation automatically. "
+                "If your only open questions went into an `add-feedback` "
+                "request (no `cq-N` decisions), attest the rationale form and "
+                "name the feedback request in it. This is what lets the "
+                "operator trust that an empty gate means *deliberately no "
+                "decisions*, not *forgot to register*.\n",
                 "",
             ]
         )
@@ -13940,6 +14936,34 @@ def _build_brc_preamble(
             "built, what was tested, and which contract tasks it satisfies. "
             "Boilerplate like 'looks good' or 'approved' will be rejected."
         )
+        if phase in ("refine", "plan") and role_value in (
+            # Keep in lockstep with ``_DECISION_ATTESTING_ROLES`` in
+            # ``routes/signals/_validation.py`` — the enforcement side of
+            # this prose (#3390).
+            "refiner",
+            "task_planner",
+            "architect",
+            "risk_analyst",
+        ):
+            propose_line += (
+                "\n\n"
+                "   **Attest your decision ledger (#3390 — MANDATORY).** The "
+                "orchestrator REJECTS your propose unless its attestation "
+                "carries your HITL decision ledger. Pass "
+                "`--decisions-registered cq-1 cq-2 ...` listing every decision "
+                "you registered this phase (via `egg-contract add-decision` / "
+                "`mcp__sdlc__register_open_question`), or "
+                '`--no-decisions-rationale "<why>"` when the phase '
+                "deliberately raises none — an explicit empty ledger, never an "
+                "omission. (Via MCP: the `attestation` arg of "
+                "`mcp__brc__propose`, fields `decisions_registered` / "
+                "`no_decisions_rationale`.) Attested ids are cross-checked "
+                "against the contract, and your draft must cite each attested "
+                "`cq-N` (copying the `--format markdown` output into the "
+                "draft satisfies this). A decision your draft commits to "
+                "without a registered `cq-N` is a reviewer NACK — register "
+                "it or remove the unilateral commitment."
+            )
         if phase == "implement":
             propose_line += (
                 "\n\n"
@@ -16310,20 +17334,27 @@ def _incomplete_consensus_decision_text(
         prefix = "Consensus timed out; "
     else:
         prefix = "All containers exited; "
+    # Retry semantics must match what "Retry phase" actually executes on
+    # resolve — the restart_phase route (#3421 dispatch, #3080 preservation
+    # semantics): fresh worktrees re-fork from the shared work branch tip,
+    # and unpushed per-role commits survive only via best-effort salvage.
+    retry_copy = (
+        "'Retry phase' re-runs the phase from the shared work branch tip "
+        "(work pushed to the shared branch is preserved; unpushed per-role "
+        "commits are salvaged best-effort to egg/recovered/*)."
+    )
     if nacks:
         summary = _format_nack_summary(nacks)
         question = (
             f"{prefix}consensus incomplete with {len(nacks)} unresolved NACK(s): "
-            f"{summary}. Committed work is preserved on the per-role branch — "
-            f"'Retry phase' restarts with artifacts intact. How to proceed?"
+            f"{summary}. {retry_copy} How to proceed?"
         )
         log_suffix = f"\n--- INCOMPLETE CONSENSUS / UNRESOLVED NACKs ({len(nacks)}) ---\n{summary}"
     else:
         agent_list = ", ".join(blocking) if blocking else "unknown"
         question = (
             f"{prefix}consensus incomplete; agents never confirmed: {agent_list}. "
-            f"Committed work is preserved on the per-role branch — "
-            f"'Retry phase' restarts with artifacts intact. How to proceed?"
+            f"{retry_copy} How to proceed?"
         )
         log_suffix = (
             f"\n--- INCOMPLETE CONSENSUS / NO CONFIRMATION ---\nblocking_agents={agent_list}"
@@ -16493,6 +17524,8 @@ def _divergence_reconcile_hitl_question(
     phase: PipelinePhase | None,
     backup_ref: str | None,
     local_only_commit_shas: tuple[str, ...] | list[str],
+    rebase_category: str | None = None,
+    rebase_detail: str | None = None,
 ) -> str:
     """Build the HITL question for the non-destructive divergence pause (#2979).
 
@@ -16503,8 +17536,22 @@ def _divergence_reconcile_hitl_question(
     FAILED).  The operator reconciles the orchestrator-side worktree
     manually, then either resumes (the sync re-runs and the phase's
     post-processing continues from where it paused) or aborts.
+
+    ``rebase_category`` / ``rebase_detail`` name the actual autoresolve
+    failure (conflicting paths, rebase argv, git output excerpt) so the
+    operator can judge the pause from the decision alone (#3416).
     """
     phase_label = phase.value if phase is not None else "current phase"
+    if rebase_category or rebase_detail:
+        failure_label = rebase_category or "unknown failure"
+        failure_line = (
+            f"({failure_label}: {rebase_detail})" if rebase_detail else f"({failure_label})"
+        )
+    else:
+        failure_line = (
+            "(failure detail unavailable — see the divergence_rebase_failed "
+            "log line for the rebase output)"
+        )
     backup_line = (
         f"A backup ref pins the current tip: {backup_ref} (inspect with `git log {backup_ref}`)."
         if backup_ref
@@ -16522,7 +17569,7 @@ def _divergence_reconcile_hitl_question(
     return (
         f"Pipeline {pipeline_id}: the worktree diverged from origin at the "
         f"{phase_label} boundary and the rebase autoresolve could not "
-        f"reconcile it (a conflict outside .egg-state/agent-outputs/). "
+        f"reconcile it {failure_line}. "
         f"Nothing was discarded — the worktree is left at the local HEAD "
         f"with the orchestrator's committed work intact, and the pipeline "
         f"is paused (not failed) for a manual reconcile (#2979). "
@@ -16545,6 +17592,8 @@ def _emit_divergence_reconcile_hitl(
     phase: PipelinePhase | None,
     backup_ref: str | None,
     local_only_commit_shas: tuple[str, ...] | list[str],
+    rebase_category: str | None = None,
+    rebase_detail: str | None = None,
 ):
     """Pin pipeline+phase to AWAITING_HUMAN and persist the reconcile HITL (#2979).
 
@@ -16577,6 +17626,8 @@ def _emit_divergence_reconcile_hitl(
                 phase=phase,
                 backup_ref=backup_ref,
                 local_only_commit_shas=tuple(local_only_commit_shas),
+                rebase_category=rebase_category,
+                rebase_detail=rebase_detail,
             ),
             options=list(_DIVERGENCE_RECONCILE_HITL_OPTIONS),
             phase=phase,
@@ -16735,6 +17786,8 @@ def _sync_worktree_reconciling_divergence(
                     phase=phase,
                     backup_ref=outcome.backup_ref,
                     local_only_commit_shas=outcome.local_only_commit_shas,
+                    rebase_category=outcome.rebase_category,
+                    rebase_detail=outcome.rebase_detail,
                 ),
                 options=list(_DIVERGENCE_RECONCILE_HITL_OPTIONS),
                 phase=phase,
@@ -16756,6 +17809,8 @@ def _sync_worktree_reconciling_divergence(
             phase=phase_label,
             backup_ref=outcome.backup_ref,
             local_only_commit_count=len(outcome.local_only_commit_shas),
+            rebase_category=outcome.rebase_category,
+            rebase_detail=outcome.rebase_detail,
             pause_attempt=pauses,
         )
 
@@ -17060,6 +18115,95 @@ def _latest_active_role_heartbeat(active_role_names: list[str]) -> datetime | No
             exc_info=True,
         )
         return None
+
+
+def _unresolved_contract_hitl_ids(
+    pipeline_id: str,
+    pipeline: Pipeline,
+    phase_str: str,
+) -> list[str]:
+    """Return ids of unresolved contract HITL (``cq-N``) decisions gating ``phase_str``.
+
+    Feeds the consensus-timeout HITL gate (#3426): while an agent-registered
+    contract question (``register_open_question`` / impasse escalation) for
+    the running phase awaits an operator answer, the slice is *operator-gated*
+    — a reviewer correctly withholding its ACK pending the ruling is not a
+    convergence failure, so the consensus-timeout clock must not expire the
+    phase. Scoped to decisions whose ``phase`` matches the running phase;
+    phase-less decisions are skipped, mirroring
+    ``_collect_unresolved_phase_decisions`` (we cannot prove they gate this
+    phase, and an eternally-unanswered legacy entry must not suspend the
+    timeout forever).
+
+    Contract decisions have no slice tag, so during a sliced implement phase
+    any unresolved implement-tagged question suspends every slice's timeout.
+    That errs toward parking rather than failing — acceptable, since the
+    overseer's "wedged on HITL" alert stays sticky and the operator's answer
+    releases the gate.
+
+    The gate keys on the *existence* of an operator-facing HITL decision
+    tagged to this phase, not on causal proof that decision is what a
+    reviewer is withholding an ACK for — decisions carry no link to the
+    ACK they block. An unrelated implement-tagged HITL therefore suspends
+    the timeout too; that is the conservative "park rather than fail"
+    direction, self-corrected by the clock reset on release (a genuine
+    stall times out on the fresh window) and by the overseer's other
+    health checks.
+
+    Fail-open: any failure (missing worktree, unloadable contract) returns
+    ``[]`` so a broken scan degrades to the pre-#3426 timeout behaviour
+    rather than suspending the clock indefinitely. Matching the sibling
+    ``_collect_unresolved_phase_decisions``, the except set is narrowed to
+    the IO/validation failures a real scan can hit and logged at
+    ``warning`` (so a broken scan is observable, not a silent no-op),
+    while programming errors (``AttributeError``/``TypeError``/``NameError``)
+    are left to propagate so they surface during development.
+    """
+    try:
+        import contract_store
+        from egg_contracts import load_contract
+        from egg_contracts.loader import (
+            ContractNotFoundError,
+            ContractValidationError,
+        )
+    except ImportError:
+        logger.warning(
+            "Consensus-timeout HITL gate: egg_contracts unavailable, cannot scan",
+            pipeline_id=pipeline_id,
+            exc_info=True,
+        )
+        return []
+
+    try:
+        worktree = contract_store.resolve_pipeline_worktree(pipeline_id)
+        if worktree is None:
+            return []
+        identifier = _pipeline_identifier(getattr(pipeline, "issue_number", None), pipeline_id)
+        contract = load_contract(identifier, worktree)
+    except OSError, ValueError, ContractNotFoundError, ContractValidationError:
+        # OSError: filesystem failures resolving the worktree / reading the
+        # contract. ValueError: identifier / path-resolution failures from
+        # ``_pipeline_identifier`` (``load_contract`` wraps pydantic-V2
+        # validation errors as ContractValidationError, so a raw ValueError
+        # here does not come from schema validation). Contract*: missing or
+        # corrupt contract JSON. All fail open to ``[]``.
+        logger.warning(
+            "Consensus-timeout HITL gate contract scan failed",
+            pipeline_id=pipeline_id,
+            exc_info=True,
+        )
+        return []
+
+    ids: list[str] = []
+    for d in contract.decisions or []:
+        if d.resolved:
+            continue
+        if getattr(d.type, "value", d.type) != "hitl":
+            continue
+        if getattr(d.phase, "value", d.phase) != phase_str:
+            continue
+        ids.append(d.id)
+    return ids
 
 
 def _publish_consensus_timeout_alert(
@@ -17764,6 +18908,24 @@ def _start_stacked_pr_reconciler(
         from orchestrator.stacked_pr_reconciler import reconcile_once
     except ImportError:
         from stacked_pr_reconciler import reconcile_once  # type: ignore[no-redef]
+    # #3393 slice-5: the cross-repo merge-sequencing gate rides the SAME
+    # reconciler cadence (no new scheduler subsystem). Imported here (not
+    # top-level) to keep this helper's import surface minimal, mirroring
+    # the ``reconcile_once`` import above.
+    try:
+        import orchestrator.cross_repo_merge_gate as cross_repo_merge_gate
+    except ImportError:
+        import cross_repo_merge_gate  # type: ignore[no-redef]
+    try:
+        from orchestrator.env_config import get_cross_repo_merge_gate_max_attempts
+    except ImportError:
+        from env_config import (  # type: ignore[no-redef]
+            get_cross_repo_merge_gate_max_attempts,
+        )
+    try:
+        from orchestrator.models import resolve_slice_repo
+    except ImportError:
+        from models import resolve_slice_repo  # type: ignore[no-redef]
 
     if interval_seconds is None:
         try:
@@ -17780,6 +18942,52 @@ def _start_stacked_pr_reconciler(
     # implement loop already owns.
     repo_path_str = str(worktree_repo_path) if worktree_repo_path is not None else ""
     pr_repo = repo or str(getattr(pipeline, "repo", "") or "")
+
+    # #3393 slice-5: only multi-repo pipelines can have cross-repo
+    # dependency edges, so the merge gate is a strict no-op for N=1 —
+    # skip it entirely rather than burning a contract scan per tick.
+    _gate_enabled = len(getattr(pipeline, "repos", None) or []) > 1
+    # Per-run gate bookkeeping (attempts / hold-registered / resolved),
+    # keyed by dependent slice id; persists across reconciler ticks.
+    _gate_state: dict[str, Any] = {}
+    try:
+        _gate_max_attempts = int(get_cross_repo_merge_gate_max_attempts())
+    except Exception:  # noqa: BLE001
+        _gate_max_attempts = cross_repo_merge_gate.DEFAULT_MAX_POLL_ATTEMPTS
+    _gate_current_phase = getattr(pipeline, "current_phase", None)
+
+    def _poll_cross_repo_merge_gate(contract: Any) -> None:
+        # Drive one cross-repo merge-sequencing pass on the reconciler
+        # cadence (#3393 slice-5, task-5-1 / task-5-2). Reads upstream PR
+        # merge-state and auto-readies a dependent draft PR on merge
+        # (Tier A); registers a HITL hold on the closed-unmerged / timeout
+        # terminals and for plan-declared beyond-merge-state edges (Tier
+        # B). All gateway/contract effects are funnelled through the
+        # injected callables so the gate logic stays pure + unit-tested.
+        if not _gate_enabled:
+            return
+        cross_repo_merge_gate.poll_once(
+            contract,
+            resolve_repo=lambda s: resolve_slice_repo(s, pipeline),
+            get_merge_state=lambda repo_slug, pr_num: gateway.get_pr_merge_state(
+                pipeline_id, repo_slug, pr_number=pr_num
+            ),
+            mark_ready=lambda repo_slug, pr_num: bool(
+                gateway.mark_pr_ready(pipeline_id, repo_slug, pr_number=pr_num)
+            ),
+            register_hold=lambda gate, reason: _register_cross_repo_hold(
+                pipeline_id=pipeline_id,
+                slice_id=gate.slice_id,
+                repo=gate.repo,
+                pr_number=gate.pr_number,
+                reason=reason,
+                worktree_repo_path=worktree_repo_path,
+                current_phase=_gate_current_phase,
+            ),
+            hold_resolution=lambda gate: _cross_repo_hold_resolution(contract, gate.slice_id),
+            state=_gate_state,
+            max_attempts=_gate_max_attempts,
+        )
 
     def _list_open_prs() -> list[dict[str, Any]]:
         # Lists open PRs in ``pr_repo`` so ``find_orphaned_child_prs``
@@ -17873,6 +19081,18 @@ def _start_stacked_pr_reconciler(
                     list_extant_branches=_list_extant_branches,
                     rebase_onto=_rebase_onto,
                 )
+                # #3393 slice-5: drive the cross-repo merge-sequencing
+                # gate on the same tick + same freshly-loaded contract.
+                # No-op for N=1 pipelines. Wrapped in its own try so a
+                # gate failure never disrupts stacked-PR reconciliation.
+                try:
+                    _poll_cross_repo_merge_gate(contract)
+                except Exception as gate_exc:  # noqa: BLE001
+                    logger.debug(
+                        "cross_repo_merge_gate tick raised — continuing",
+                        pipeline_id=pipeline_id,
+                        error=str(gate_exc),
+                    )
             except Exception as exc:  # noqa: BLE001
                 logger.debug(
                     "stacked_pr_reconciler tick raised — continuing",
@@ -19048,6 +20268,35 @@ def _run_implement_phase_slices(
                         scheduler.record_failure(slice_id)
                         return 1, evidence_failure
 
+                # #3398 — per-slice green gate: execute the repo's
+                # configured checks (repositories.yaml, via
+                # get_repo_checks) against the integration-branch tip
+                # in a sandboxed one-shot runner, and refuse to open
+                # the slice PR while any check is red. Closes the
+                # trust-vs-verify gap in the propose-time
+                # checks_passed self-report. Same posture as the
+                # evidence gate above: fail-open on infra errors,
+                # fail-closed only on a definitive red verdict;
+                # EGG_SLICE_GREEN_GATE is the operator switch
+                # (off during rollout / log / on).
+                if pipeline.repo:
+                    try:
+                        import slice_green_gate as _green_gate
+                    except ImportError:
+                        from .. import slice_green_gate as _green_gate  # type: ignore[no-redef]
+
+                    green_gate_failure = _green_gate.run_slice_green_gate(
+                        pipeline_id,
+                        spawner,
+                        slice_id,
+                        integration_branch,
+                        pipeline.repo,
+                        gateway_mode=gateway_mode,  # type: ignore[arg-type]
+                    )
+                    if green_gate_failure is not None:
+                        scheduler.record_failure(slice_id)
+                        return 1, green_gate_failure
+
                 # Snapshot the slice's PR data from the same loaded
                 # contract — no second lock acquire, no second file
                 # read.
@@ -19099,7 +20348,92 @@ def _run_implement_phase_slices(
                                     if path and path not in seen_paths:
                                         seen_paths.add(path)
                                         slice_files_affected_list.append(path)
+                            # #3393 slice-4 / task-4-1: route this slice's
+                            # PR to its OWN repo (``resolve_slice_repo`` →
+                            # ``slice.repo`` else the pipeline primary) and
+                            # gather CROSS-repo coordination references for
+                            # the PR body. Same-repo relationships are left
+                            # to ``## Stack``, so for an N=1 pipeline
+                            # ``slice_repo`` is the single repo and both
+                            # ref sets are empty — behaviour is unchanged.
+                            try:
+                                from models import (  # type: ignore[no-redef]
+                                    resolve_slice_repo,
+                                )
+                            except ImportError:
+                                from ..models import (  # type: ignore[no-redef]
+                                    resolve_slice_repo,
+                                )
+                            slice_repo = resolve_slice_repo(slice_obj, pipeline) or pipeline.repo
+                            sibling_pr_refs: list[dict[str, Any]] = []
+                            for other in contract_post.slices:
+                                if other.id == slice_id:
+                                    continue
+                                other_repo = (
+                                    resolve_slice_repo(other, pipeline) or pipeline.repo
+                                )
+                                if other_repo and other_repo != slice_repo and other.pr_number:
+                                    sibling_pr_refs.append(
+                                        {"repo": other_repo, "number": other.pr_number}
+                                    )
+                            # Dependent-slice upstream PR — surfaced only
+                            # when the upstream slice is in a DIFFERENT repo
+                            # (a same-repo parent is the stack base already
+                            # rendered by ``## Stack``).
+                            upstream_pr_ref: dict[str, Any] | None = None
+                            upstream_ids = slice_obj.dependencies or []
+                            if upstream_ids:
+                                upstream = next(
+                                    (
+                                        s
+                                        for s in contract_post.slices
+                                        if s.id == upstream_ids[0]
+                                    ),
+                                    None,
+                                )
+                                if upstream is not None and upstream.pr_number:
+                                    upstream_repo = (
+                                        resolve_slice_repo(upstream, pipeline)
+                                        or pipeline.repo
+                                    )
+                                    if upstream_repo and upstream_repo != slice_repo:
+                                        upstream_pr_ref = {
+                                            "repo": upstream_repo,
+                                            "number": upstream.pr_number,
+                                        }
+                            # #3393 slice-5 / task-5-1: a slice with a
+                            # CROSS-repo dependency opens its PR as a DRAFT
+                            # — cross-repo edges can't stack, so the
+                            # dependent slice is developed in parallel and
+                            # only its PR *ready* transition waits on the
+                            # merge gate (auto draft→ready when the upstream
+                            # merges, else a HITL hold). A dep is cross-repo
+                            # iff the upstream slice resolves to a DIFFERENT
+                            # repo; same-repo-only deps and N=1 pipelines
+                            # stay non-draft (behaviour unchanged). Checks
+                            # ALL deps so any cross-repo upstream holds it.
+                            cross_repo_draft = False
+                            for _dep_id in slice_obj.dependencies or []:
+                                _dep = next(
+                                    (s for s in contract_post.slices if s.id == _dep_id),
+                                    None,
+                                )
+                                if _dep is None:
+                                    continue
+                                _dep_repo = resolve_slice_repo(_dep, pipeline) or pipeline.repo
+                                if _dep_repo and _dep_repo != slice_repo:
+                                    cross_repo_draft = True
+                                    break
                             slice_pr_data = {
+                                # #3393 slice-4: the repo this slice's PR is
+                                # opened in + its cross-repo coordination
+                                # references (empty for N=1).
+                                "slice_repo": slice_repo,
+                                # #3393 slice-5: open draft when this slice
+                                # has a cross-repo dependency (see above).
+                                "cross_repo_draft": cross_repo_draft,
+                                "sibling_pr_refs": sibling_pr_refs,
+                                "upstream_pr_ref": upstream_pr_ref,
                                 "slice_name": slice_obj.name or slice_id,
                                 # Planner's reviewer-facing summary —
                                 # rendered as the slice PR body's lead
@@ -19215,7 +20549,10 @@ def _run_implement_phase_slices(
                     try:
                         slice_pr_url = spawner.gateway.create_slice_pr(
                             pipeline_id=pipeline_id,
-                            repo=pipeline.repo,
+                            # #3393 slice-4 / task-4-1: route to the slice's
+                            # own repo (falls back to the pipeline primary
+                            # when ``slice.repo`` is absent — the N=1 case).
+                            repo=slice_pr_data["slice_repo"] or pipeline.repo,
                             slice_id=slice_id,
                             slice_name=slice_pr_data["slice_name"],
                             slice_tasks=slice_pr_data["slice_tasks"],
@@ -19224,6 +20561,11 @@ def _run_implement_phase_slices(
                             issue_number=issue_number,
                             agent_role="orchestrator",
                             mode=gateway_mode,  # type: ignore[arg-type]
+                            # #3393 slice-5 / task-5-1: draft when this
+                            # slice has a cross-repo dependency; the merge
+                            # gate marks it ready on upstream merge (or a
+                            # HITL hold releases it). False for N=1.
+                            draft=slice_pr_data["cross_repo_draft"],
                             program_title=slice_pr_data["program_title"],
                             program_description=slice_pr_data["program_description"],
                             program_test_plan=slice_pr_data["program_test_plan"],
@@ -19235,6 +20577,8 @@ def _run_implement_phase_slices(
                             slice_goal=slice_pr_data["slice_goal"],
                             diffstat=diffstat,
                             commit_subjects=commit_subjects,
+                            sibling_pr_refs=slice_pr_data["sibling_pr_refs"],
+                            upstream_pr_ref=slice_pr_data["upstream_pr_ref"],
                         )
                     except Exception as pr_err:  # noqa: BLE001
                         # Single `gateway.create_slice_pr` HTTP call.
@@ -19880,11 +21224,84 @@ def _run_concurrent_phase(
     ]
     filtered_graph = ReviewGraph(filtered_edges)
 
-    # Resolve base branch for diff commands in agent prompts.
-    _resolved_base_branch = pipeline.base_branch
+    # Scope the per-slice team to the slice's repo (#3393 task-6-1).
+    #
+    # Every slice maps to exactly one repo (slice ↔ repo, 1:1). For a
+    # multi-repo pipeline the slice's work, worktree, test gate, reviewer
+    # diff and PR all live in ITS repo — not necessarily the pipeline
+    # primary. We resolve the slice's repo via ``resolve_slice_repo`` and
+    # thread the slice-scoped repo / worktree / base-branch into the agent
+    # prompts (which drive ``get_repo_checks`` for the tester's configured
+    # checks, the file-boundary patterns, and the reviewer's
+    # ``git diff origin/<base>...HEAD``) and the spawn (via ``base_branch``
+    # → ``EGG_BASE_BRANCH`` and a slice-primary-first ``repos`` ordering so
+    # the spawner sets the agent cwd / ``EGG_REPO_PATH`` to the slice's
+    # repo worktree).
+    #
+    # N=1 stays byte-identical: a single-repo pipeline has one RepoSpec, so
+    # the block below is skipped entirely (``len(pipeline.repos) <= 1``),
+    # leaving ``slice_repo == pipeline.repo``, ``worktree_repo_path``, and
+    # the pipeline base branch exactly as before — no extra contract read.
+    slice_repo = pipeline.repo
+    slice_repo_path = worktree_repo_path
+    slice_repos = repos
+    slice_base_branch: str | None = None
+    if slice_id and len(getattr(pipeline, "repos", None) or []) > 1:
+        from egg_contracts.loader import load_contract
+
+        slice_obj = None
+        try:
+            _contract = load_contract(pipeline_id, worktree_repo_path)
+            slice_obj = next(
+                (s for s in _contract.slices if s.id == slice_id), None
+            )
+        except Exception as contract_err:  # noqa: BLE001
+            # Best-effort: a contract load/parse failure degrades to the
+            # pipeline-primary repo (today's behaviour), it does not block
+            # the spawn. The slice still runs, just against the primary.
+            logger.warning(
+                "Slice-repo scoping: contract load failed; using pipeline "
+                "primary repo (#3393)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                error=str(contract_err),
+            )
+
+        # Single gate-repo accessor (shared with the tester's task-6-2
+        # TestSliceGateRepoAccessor): the repo the whole slice team scopes to.
+        resolved = _resolve_slice_gate_repo(slice_obj, pipeline) if slice_obj else None
+        if resolved and resolved != pipeline.repo:
+            slice_repo = resolved
+            slice_repo_path = _resolve_slice_worktree_path(
+                pipeline, resolved, worktree_repo_path
+            )
+            # Per-repo base branch from the pipeline's RepoSpec list.
+            for spec in pipeline.repos or []:
+                if getattr(spec, "repo", None) == resolved:
+                    slice_base_branch = getattr(spec, "base_branch", None)
+                    break
+            # Order the slice's repo first so the spawner treats it as the
+            # effective repo for this per-slice team (cwd / EGG_REPO_PATH).
+            # ``repo_volumes`` already carries every repo owner/repo-keyed
+            # (slice-3), so only the ordering changes here.
+            slice_repos = [resolved, *[r for r in repos if r != resolved]]
+            logger.info(
+                "Slice scoped to secondary repo (#3393 task-6-1)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                slice_repo=slice_repo,
+                slice_worktree=str(slice_repo_path),
+            )
+
+    # Resolve base branch for diff commands in agent prompts. Prefer the
+    # slice repo's own base (its RepoSpec.base_branch) over the pipeline
+    # singleton, then fall back to auto-detecting the default branch in the
+    # slice's worktree (#3393 task-6-1). For N=1 this is the pipeline base /
+    # pipeline worktree exactly as before.
+    _resolved_base_branch = slice_base_branch or pipeline.base_branch
     if not _resolved_base_branch:
         try:
-            _resolved_base_branch = get_default_branch(worktree_repo_path)
+            _resolved_base_branch = get_default_branch(slice_repo_path)
         except Exception:
             _resolved_base_branch = None
 
@@ -19903,10 +21320,15 @@ def _run_concurrent_phase(
             pipeline_mode=pipeline_mode,
             prompt=pipeline.prompt,
             issue_number=pipeline.issue_number,
-            repo=pipeline.repo,
+            # Slice-scoped repo / worktree (#3393 task-6-1): drives the
+            # tester's ``get_repo_checks`` (per-repo configured checks),
+            # the role file-boundary patterns, and the reviewer diff base —
+            # all resolve from the slice's repo, not the pipeline primary.
+            # N=1 ⇒ these equal ``pipeline.repo`` / ``worktree_repo_path``.
+            repo=slice_repo,
             branch=pipeline.branch,
             base_branch=_resolved_base_branch,
-            repo_path=str(worktree_repo_path),
+            repo_path=str(slice_repo_path),
             concurrent=True,
             review_feedback=review_feedback,
             network_mode=gateway_mode,
@@ -19921,7 +21343,11 @@ def _run_concurrent_phase(
         issue_number=pipeline.issue_number,
         repo_volumes=repo_volumes,
         mode=gateway_mode,
-        repos=repos,
+        # Slice's repo first (#3393 task-6-1): the spawner derives the agent
+        # cwd / EGG_REPO_PATH from the primary (first) repo, so ordering the
+        # slice's repo first sets the working directory to that repo's
+        # worktree. N=1 / primary-repo slices leave ``repos`` unchanged.
+        repos=slice_repos,
         phase=phase_str,
         sandbox_env=sandbox_env,
         certs_volume=certs_volume,
@@ -20412,6 +21838,10 @@ def _run_concurrent_phase(
     # ``consensus_timeout``.
     _progress_gate_deferring = False
 
+    # #3426 HITL-gate state: same log-once discipline for the
+    # operator-gated suspension of the consensus timeout.
+    _hitl_gate_deferring = False
+
     while True:
         elapsed = time.monotonic() - start_time
 
@@ -20765,6 +22195,16 @@ def _run_concurrent_phase(
                             nack_count=len(nack_details),
                             nack_summary=nack_summary,
                         )
+                        # Tag with the consensus-timeout context so "Retry
+                        # phase" dispatches through restart_phase on resolve
+                        # (#3421), for symmetry with the incomplete-consensus
+                        # sites below.  This question is hand-built and does not
+                        # promise restart copy, but restart_phase is the correct
+                        # "Retry phase" action regardless.  Like its siblings
+                        # this pod-mode path is unreachable today (spawn_all
+                        # returns [] post-#3164, so active_executions is always
+                        # empty); tagging keeps the dispatch honest if pod mode
+                        # is ever revived.
                         _persist_hitl_decision(
                             pipeline_id,
                             pipeline,
@@ -20775,6 +22215,7 @@ def _run_concurrent_phase(
                             ),
                             options=["Retry phase", "Accept current state", "Abort phase"],
                             phase=pipeline.current_phase,
+                            context=_CONSENSUS_TIMEOUT_HITL_CONTEXT,
                         )
                         combined_logs += (
                             f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
@@ -20845,6 +22286,13 @@ def _run_concurrent_phase(
                     blocking_agents=final_consensus.get("blocking_agents", []),
                     nack_count=len(final_consensus.get("unresolved_nacks", []) or []),
                 )
+                # Tag with the consensus-timeout context so "Retry phase"
+                # dispatches through restart_phase on resolve (#3421), matching
+                # the restart semantics `_incomplete_consensus_decision_text`
+                # promises.  This pod-mode container-exit path is unreachable
+                # today (spawn_all returns [] post-#3164, so active_executions
+                # is always empty), but tagging keeps the copy honest if pod
+                # mode is ever revived.
                 _persist_hitl_decision(
                     pipeline_id,
                     pipeline,
@@ -20852,6 +22300,7 @@ def _run_concurrent_phase(
                     question=question,
                     options=["Retry phase", "Accept current state", "Abort phase"],
                     phase=pipeline.current_phase,
+                    context=_CONSENSUS_TIMEOUT_HITL_CONTEXT,
                 )
                 combined_logs += log_suffix
                 return 1, combined_logs
@@ -20869,6 +22318,11 @@ def _run_concurrent_phase(
                     nack_count=len(nack_details),
                     nack_summary=nack_summary,
                 )
+                # Same as the unresolved-NACK site above: tag with the
+                # consensus-timeout context so "Retry phase" dispatches through
+                # restart_phase (#3421) for symmetry.  Hand-built question, no
+                # restart copy, but restart_phase is the right action here too.
+                # Dead pod-mode path today; tagging is cheap insurance.
                 _persist_hitl_decision(
                     pipeline_id,
                     pipeline,
@@ -20879,6 +22333,7 @@ def _run_concurrent_phase(
                     ),
                     options=["Retry phase", "Accept current state", "Abort phase"],
                     phase=pipeline.current_phase,
+                    context=_CONSENSUS_TIMEOUT_HITL_CONTEXT,
                 )
                 combined_logs += f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
                 return 1, combined_logs
@@ -20910,6 +22365,10 @@ def _run_concurrent_phase(
                     elapsed_seconds=round(elapsed, 1),
                     blocking_agents=final_consensus.get("blocking_agents", []),
                 )
+                # Same as the container-failure path above: tag with the
+                # consensus-timeout context so "Retry phase" dispatches through
+                # restart_phase (#3421) and honors the restart copy.  Also a
+                # dead pod-mode path today; tagging is cheap insurance.
                 _persist_hitl_decision(
                     pipeline_id,
                     pipeline,
@@ -20917,6 +22376,7 @@ def _run_concurrent_phase(
                     question=question,
                     options=["Retry phase", "Accept current state", "Abort phase"],
                     phase=pipeline.current_phase,
+                    context=_CONSENSUS_TIMEOUT_HITL_CONTEXT,
                 )
                 combined_logs += log_suffix
                 return 1, combined_logs
@@ -20941,6 +22401,40 @@ def _run_concurrent_phase(
 
         # 6. Consensus timeout
         if elapsed >= consensus_timeout:
+            # #3426 HITL gate: while an unresolved operator HITL decision
+            # (contract ``cq-N``) gates the running phase, the slice is
+            # provably operator-gated — a reviewer withholding its ACK
+            # pending a human ruling is the system working as designed, not
+            # a convergence failure. Suspend the timeout (keep polling, no
+            # alert, no failure) until the operator answers. On release,
+            # reset the convergence clock so the agents folding in the
+            # resolution get a full fresh window instead of a clock that
+            # already expired while the human was thinking.
+            _hitl_ids = _unresolved_contract_hitl_ids(pipeline_id, pipeline, phase_str)
+            if _hitl_ids:
+                if not _hitl_gate_deferring:
+                    logger.info(
+                        "Consensus timeout suspended — phase is operator-gated "
+                        "on unresolved HITL decision(s)",
+                        pipeline_id=pipeline_id,
+                        slice_id=slice_id,
+                        elapsed_seconds=round(elapsed, 1),
+                        decision_ids=_hitl_ids,
+                    )
+                    _hitl_gate_deferring = True
+                time.sleep(poll_interval)
+                continue
+            if _hitl_gate_deferring:
+                _hitl_gate_deferring = False
+                start_time = time.monotonic()
+                logger.info(
+                    "Consensus timeout clock reset — operator HITL decision(s) resolved",
+                    pipeline_id=pipeline_id,
+                    slice_id=slice_id,
+                    suspended_after_seconds=round(elapsed, 1),
+                )
+                continue
+
             # #2243 progress gate: keep polling instead of publishing
             # the consensus-timeout alert while producer/reviewer
             # activity is still live on the BRC bus or in container
@@ -21204,6 +22698,18 @@ def _run_concurrent_phase(
                             nack_count=len(nack_details),
                             nack_summary=nack_summary,
                         )
+                        # Tag with the consensus-timeout context so "Retry
+                        # phase" dispatches through restart_phase on resolve
+                        # (#3421), for symmetry with the incomplete-consensus
+                        # sites above.  This question is hand-built and does not
+                        # promise restart copy, but restart_phase is the correct
+                        # "Retry phase" action regardless.  Like its siblings
+                        # this pod-mode path is unreachable today: has_failures[0]
+                        # is only set in _record_container_exit, called solely for
+                        # active_executions / remaining members, which are always
+                        # empty in orchestrator mode (spawn_all returns []
+                        # post-#3164).  Tagging keeps the dispatch honest if pod
+                        # mode is ever revived.
                         _persist_hitl_decision(
                             pipeline_id,
                             pipeline,
@@ -21214,6 +22720,7 @@ def _run_concurrent_phase(
                             ),
                             options=["Retry phase", "Accept current state", "Abort phase"],
                             phase=pipeline.current_phase,
+                            context=_CONSENSUS_TIMEOUT_HITL_CONTEXT,
                         )
                         combined_logs += (
                             f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
@@ -23239,6 +24746,130 @@ def _sync_pipeline_decisions_to_contract(
         )
 
 
+# Decision-ledger backstop options (#3390). Bare labels matched
+# case-insensitively on the resolution, mirroring the phase_gate's
+# keyword handling.
+_LEDGER_BACKSTOP_RERUN_OPTION = "Re-run phase to register decisions"
+_LEDGER_BACKSTOP_PROCEED_OPTION = "Proceed without a decision ledger"
+
+
+def _find_explicit_none_attestation(
+    pipeline_id: str,
+    phase_value: str,
+) -> tuple[str, str] | None:
+    """Find a producer's explicit-none decision-ledger attestation (#3390).
+
+    Scans the phase's ``CONSENSUS_PROPOSE`` messages (newest first) for a
+    proposal whose attestation carries a non-empty
+    ``no_decisions_rationale`` — the durable record that a producer
+    *deliberately* registered no decisions this phase (propose-time
+    validation guarantees the field was well-formed when accepted).
+    Returns ``(role, rationale)`` or ``None``; message-store outages
+    degrade to ``None`` (the caller fails closed into the backstop HITL,
+    which the operator can resolve either way — never a silent pass).
+    """
+    try:
+        from message_store import MessageType, get_message_store
+
+        messages = get_message_store().get_messages(pipeline_id, limit=500)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Decision-ledger attestation scan failed (treating as not found)",
+            pipeline_id=pipeline_id,
+            phase=phase_value,
+            error=str(exc),
+        )
+        return None
+
+    for message in reversed(messages):
+        if message.message_type != MessageType.CONSENSUS_PROPOSE:
+            continue
+        if message.phase is not None and message.phase != phase_value:
+            continue
+        payload = (message.metadata or {}).get("payload")
+        if not isinstance(payload, dict):
+            continue
+        attestation = payload.get("attestation")
+        if not isinstance(attestation, dict):
+            continue
+        rationale = attestation.get("no_decisions_rationale")
+        if isinstance(rationale, str) and rationale.strip():
+            return message.from_role, rationale.strip()
+    return None
+
+
+def _collect_decision_ledger_status(
+    worktree_repo_path: Path,
+    pipeline_id: str,
+    pipeline_identifier: int | str,
+    phase: PipelinePhase,
+) -> tuple[str, bool]:
+    """Summarize the phase's decision ledger for the gate surface (#3390).
+
+    Returns ``(note, missing)``:
+
+    - ``note`` — an operator-visible one-liner appended to the phase_gate
+      question so "N registered" vs "explicitly none" vs "MISSING" is
+      readable at the gate without a ``get_contract`` round-trip.
+    - ``missing`` — True only when the phase registered zero decisions
+      AND no producer attested an explicit empty ledger. With propose-time
+      enforcement in place this means the gate was reached on a path that
+      bypassed consensus (force-advance, resume) or the producer's claim
+      was lost — the caller surfaces a dedicated backstop HITL rather
+      than silently advancing.
+    """
+    phase_value = phase.value
+    registered_ids: list[str] = []
+    try:
+        from egg_contracts.loader import load_contract
+
+        contract = load_contract(pipeline_identifier, worktree_repo_path)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Decision-ledger status: contract not loadable",
+            pipeline_id=pipeline_id,
+            phase=phase_value,
+            error=str(exc),
+        )
+        contract = None
+
+    if contract is not None:
+        for d in contract.decisions:
+            d_type = getattr(d.type, "value", d.type)
+            if d_type != "hitl":
+                continue
+            d_phase = getattr(d.phase, "value", d.phase) if d.phase is not None else None
+            if d_phase is None or d_phase == phase_value:
+                registered_ids.append(d.id)
+
+    if registered_ids:
+        resolved = 0
+        for d in contract.decisions:
+            if d.id in registered_ids and d.resolved:
+                resolved += 1
+        return (
+            f"Decision ledger: {len(registered_ids)} decision(s) registered this "
+            f"phase ({', '.join(registered_ids)}), {resolved} resolved.",
+            False,
+        )
+
+    explicit_none = _find_explicit_none_attestation(pipeline_id, phase_value)
+    if explicit_none is not None:
+        role, rationale = explicit_none
+        return (
+            f"Decision ledger: explicitly none — {role} attested: {rationale}",
+            False,
+        )
+
+    return (
+        "⚠️ Decision ledger MISSING: this phase registered no HITL decisions "
+        "and no producer attested an explicit empty ledger (#3390). "
+        "“0 decisions” here cannot be distinguished from “failed "
+        "to register”.",
+        True,
+    )
+
+
 def _queue_and_await_contract_decisions(
     dq: Any,
     worktree_repo_path: Path,
@@ -24490,27 +26121,35 @@ def _run_pipeline(
                         wt_backoff *= 2
 
                 if wt_result and wt_result.success and wt_result.worktrees:
-                    # Gateway returns worktrees keyed by repo name only (e.g., "egg"),
-                    # stripping the owner prefix from "owner/repo" format. This matches
-                    # the container mount target at /home/egg/repos/<name>.
+                    # Gateway returns worktrees keyed by the full ``owner/repo``
+                    # slug (#3393 slice-3, operator ruling #6). The on-disk
+                    # worktree directory (and the container mount target) is
+                    # still the bare repo name at /home/egg/repos/<name>, so
+                    # the path reconstruction below strips the owner prefix
+                    # from each key.
                     repo_volumes = wt_result.worktrees
 
                     # Derive the orchestrator-accessible worktree path.
                     # Reviewer containers write verdict/draft/check files into
                     # the worktree, so the orchestrator must read from there.
-                    # Match against pipeline.repo explicitly to avoid picking
-                    # the wrong repo in multi-repo pipelines.
-                    repo_short = pipeline.repo.split("/")[-1] if pipeline.repo else None
+                    # Match against pipeline.repo (full owner/repo slug, which
+                    # is now the map key) explicitly to avoid picking the wrong
+                    # repo in multi-repo pipelines.
                     matched = False
-                    if repo_short and repo_short in wt_result.worktrees:
+                    if pipeline.repo and pipeline.repo in wt_result.worktrees:
+                        repo_short = pipeline.repo.split("/")[-1]
                         candidate = WORKTREE_BASE_DIR / worktree_id / repo_short
                         if candidate.exists():
                             worktree_repo_path = candidate
                             matched = True
                     if not matched:
-                        # Fallback: take the first existing worktree path
-                        for name in wt_result.worktrees:
-                            candidate = WORKTREE_BASE_DIR / worktree_id / name
+                        # Fallback: take the first existing worktree path.
+                        # Keys are ``owner/repo``; the on-disk dir is the bare
+                        # leaf, so strip the owner prefix before joining.
+                        for owner_repo in wt_result.worktrees:
+                            candidate = (
+                                WORKTREE_BASE_DIR / worktree_id / owner_repo.split("/")[-1]
+                            )
                             if candidate.exists():
                                 worktree_repo_path = candidate
                                 break
@@ -26382,7 +28021,169 @@ def _run_pipeline(
                     pipeline_id=pipeline_id,
                     phase=current_phase.value,
                 )
+                # Decision-ledger visibility on the autonomous path (#3390):
+                # no human is present to resolve a backstop HITL, so mirror
+                # the gate-skip posture — surface a missing ledger loudly
+                # (event + warning) but never block.
+                try:
+                    _ledger_note, _ledger_missing = _collect_decision_ledger_status(
+                        worktree_repo_path,
+                        pipeline_id,
+                        _pipeline_identifier(pipeline.issue_number, pipeline_id),
+                        current_phase,
+                    )
+                    if _ledger_missing:
+                        logger.warning(
+                            "Decision ledger missing at autonomous gate skip (#3390)",
+                            pipeline_id=pipeline_id,
+                            phase=current_phase.value,
+                        )
+                        report_pipeline_status(
+                            pipeline,
+                            event_type="phase.decision_ledger_missing",
+                            message=(
+                                f"{current_phase.value} phase advanced autonomously "
+                                f"with no decision ledger — {_ledger_note}"
+                            ),
+                        )
+                except Exception as ledger_err:  # noqa: BLE001
+                    logger.warning(
+                        "Decision-ledger check raised on autonomous path (continuing)",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        error=str(ledger_err),
+                    )
             elif current_phase.value in _HITL_GATE_PHASES:
+                # --- Decision-ledger backstop (#3390) ---
+                # Propose-time validation guarantees every refine/plan
+                # producer attested its ledger, so reaching this gate with
+                # zero registered decisions AND no explicit-none attestation
+                # means a path bypassed consensus (force-advance, resume) or
+                # the claim was lost. Never silently advance past that:
+                # surface a dedicated HITL whose default remedy is a phase
+                # re-run (the converge loop's standard corrective), with an
+                # explicit operator override to proceed.
+                _ledger_note = ""
+                _ledger_missing = False
+                try:
+                    _ledger_note, _ledger_missing = _collect_decision_ledger_status(
+                        worktree_repo_path,
+                        pipeline_id,
+                        _pipeline_identifier(pipeline.issue_number, pipeline_id),
+                        current_phase,
+                    )
+                except Exception as ledger_err:  # noqa: BLE001
+                    # Never let a helper bug strand the pipeline — the
+                    # propose-time hard gate remains the primary enforcement.
+                    logger.warning(
+                        "Decision-ledger status check raised (continuing)",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        error=str(ledger_err),
+                    )
+
+                if _ledger_missing:
+                    dq = get_decision_queue(pipeline_id, repo_path)
+                    _backstop = dq.queue_decision(
+                        question=(
+                            f"The {current_phase.value} phase reached its gate "
+                            f"without a decision ledger (#3390). {_ledger_note}\n\n"
+                            f"Re-running the phase lets its agents register the "
+                            f"decisions the drafts should have surfaced (or attest "
+                            f"an explicit empty ledger); proceeding accepts the "
+                            f"unverified ledger and presents the normal phase gate."
+                        ),
+                        context=_ledger_note,
+                        options=[
+                            _LEDGER_BACKSTOP_RERUN_OPTION,
+                            _LEDGER_BACKSTOP_PROCEED_OPTION,
+                        ],
+                        decision_type="choice",
+                        phase=current_phase,
+                    )
+                    with get_pipeline_state_lock(pipeline_id):
+                        pipeline = store.load_pipeline(pipeline_id)
+                        pipeline.status = PipelineStatus.AWAITING_HUMAN
+                        phase_execution = pipeline.get_phase_execution(current_phase)
+                        phase_execution.status = PipelineStatus.AWAITING_HUMAN
+                        store.save_pipeline(pipeline)
+                    report_pipeline_status(
+                        pipeline,
+                        event_type="decision.created",
+                        message=(
+                            f"Decision ledger missing for {current_phase.value} "
+                            f"phase — awaiting operator direction"
+                        ),
+                    )
+                    _emit_pipeline_event(pipeline, "decision.created")
+
+                    _backstop_resolved = dq.wait_for_decision(_backstop.id)
+                    _backstop_resolution = str(
+                        getattr(_backstop_resolved, "resolution", None) or ""
+                    ).strip()
+                    _proceed = (
+                        _backstop_resolved.status != DecisionStatus.RESOLVED
+                        or "proceed" in _backstop_resolution.lower()
+                    )
+                    if not _proceed:
+                        # Default remedy: re-run the phase so producers can
+                        # register (or explicitly attest) the ledger. Any
+                        # free-text resolution rides along as the directive.
+                        _rerun_directive = (
+                            f"The {current_phase.value} phase reached its gate "
+                            f"without a decision ledger: no HITL decisions were "
+                            f"registered and no producer attested an explicit "
+                            f"empty ledger (#3390). Review your draft for "
+                            f"operator-grade choices; register each via "
+                            f"`egg-contract add-decision` and cite its cq-N in "
+                            f"the draft, or attest `no_decisions_rationale` when "
+                            f"proposing if the phase genuinely raises none."
+                        )
+                        if _backstop_resolution.lower() != (_LEDGER_BACKSTOP_RERUN_OPTION.lower()):
+                            _rerun_directive += f"\n\nOperator note: {_backstop_resolution}"
+                        logger.info(
+                            "Decision-ledger backstop: re-running phase (#3390)",
+                            pipeline_id=pipeline_id,
+                            phase=current_phase.value,
+                        )
+                        with get_pipeline_state_lock(pipeline_id):
+                            pipeline = store.load_pipeline(pipeline_id)
+                            pipeline.status = PipelineStatus.RUNNING
+                            phase_execution = pipeline.get_phase_execution(current_phase)
+                            phase_execution.status = PipelineStatus.RUNNING
+                            phase_execution.completed_at = None
+                            phase_execution.hitl_review_cycles += 1
+                            _alert_threshold = pipeline.config.max_hitl_review_cycles
+                            if phase_execution.hitl_review_cycles >= _alert_threshold:
+                                _broadcast_hitl_nonconvergence_alert(
+                                    pipeline_id,
+                                    pipeline,
+                                    current_phase,
+                                    phase_execution.hitl_review_cycles,
+                                    _alert_threshold,
+                                )
+                            _perform_hitl_phase_rerun(
+                                store=store,
+                                spawner=spawner,
+                                pipeline=pipeline,
+                                phase_execution=phase_execution,
+                                pipeline_id=pipeline_id,
+                                current_phase=current_phase,
+                                feedback_text=_rerun_directive,
+                                event_message=(
+                                    f"Re-running {current_phase.value}: decision "
+                                    f"ledger missing (#3390)"
+                                ),
+                            )
+                        continue  # Re-enter outer loop → re-run phase
+                    logger.warning(
+                        "Decision-ledger backstop: operator chose to proceed "
+                        "without a ledger (#3390)",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        resolution=_backstop_resolution[:200],
+                    )
+
                 # Check for an existing pending phase_gate decision for this
                 # phase.  A prior agent-exit event may
                 # have already created one — creating a duplicate confuses the
@@ -26441,6 +28242,11 @@ def _run_pipeline(
                         f"Please review the {phase_label} and approve to continue, "
                         f"or provide feedback to request changes."
                     )
+                    # Auditability (#3390): make "N registered" vs "explicitly
+                    # none" vs "MISSING (operator overrode)" readable at the
+                    # gate without a get_contract round-trip.
+                    if _ledger_note:
+                        question += f"\n\n{_ledger_note}"
 
                     # Lead the gate comment with the simplifier's human-focused
                     # companion (simplified, jargon-free) when present, and link

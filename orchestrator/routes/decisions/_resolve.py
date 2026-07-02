@@ -174,6 +174,22 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
             pipeline_id, decision_id, dispatch_resolution
         )
 
+        # Consensus-timeout HITL (#3421): "Retry phase" on the
+        # ``consensus_timeout_incomplete`` decision restarts the failed
+        # phase in-process instead of resolving as a silent no-op (the
+        # driver that escalated the decision failed the pipeline and
+        # exited, so nothing else consumes the resolution).
+        executed_action = executed_action or _pkg._maybe_dispatch_consensus_timeout_resolution(
+            pipeline_id, decision, dispatch_resolution
+        )
+
+        # Executable adds_task option (#3428): an option registered with a
+        # structured contract mutation ("add a task/slice") materializes it
+        # on resolve instead of recording an inert choice.
+        executed_action = executed_action or _pkg._maybe_add_task_from_resolution(
+            pipeline_id, decision, dispatch_resolution
+        )
+
         # #3233: if the orchestrator restarted while this pipeline was parked
         # AWAITING_HUMAN, the in-memory _run_pipeline driver that polls
         # wait_for_decision is gone — this resolution would otherwise be
@@ -481,6 +497,29 @@ def _resolve_contract_decision(
         source=getattr(request, "egg_source", "unknown"),
     )
 
+    # Durably land the resolution on the work branch (#3427): the contract
+    # file write above is uncommitted, and the phase-(re)start worktree
+    # syncs ``git reset --hard`` to origin — an operator resolution that
+    # was not committed+pushed by then was silently reverted, forcing the
+    # operator to re-answer. Best-effort: the helper logs and swallows
+    # failures.
+    try:
+        from routes.pipelines import persist_contract_statefiles
+
+        persist_contract_statefiles(
+            pipeline_id,
+            worktree,
+            f"Persist HITL resolution {decision_id} (#3427)",
+            pipeline=pipeline,
+        )
+    except Exception:
+        logger.warning(
+            "Failed to persist contract decision resolution to work branch",
+            pipeline_id=pipeline_id,
+            decision_id=decision_id,
+            exc_info=True,
+        )
+
     try:
         _pkg.emit_event(
             EventType.DECISION_RESOLVED,
@@ -514,6 +553,15 @@ def _resolve_contract_decision(
     # pre-bridge also executes instead of only recording the choice.
     executed_action = first_principles_action or _pkg._maybe_complete_task_from_resolution(
         pipeline_id, decision_id, normalized_resolution
+    )
+
+    # Executable adds_task option (#3428) — same dispatch as the queue
+    # path. This is the PRIMARY trigger: adds_task questions are typically
+    # registered mid-implement by a blocked producer/reviewer pair, so the
+    # operator resolves them here (pre-bridge) and the mandated task must
+    # materialize before the next contract poll.
+    executed_action = executed_action or _pkg._maybe_add_task_from_resolution(
+        pipeline_id, decision, normalized_resolution
     )
 
     return make_success_response(

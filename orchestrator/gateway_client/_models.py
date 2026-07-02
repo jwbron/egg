@@ -25,7 +25,10 @@ class WorktreeResult:
     """Result of a worktree create/delete operation."""
 
     success: bool
-    worktrees: dict[str, str]  # repo_name -> host_path (create) or repo_name -> status (delete)
+    # create: full ``owner/repo`` slug -> host_path (#3393 slice-3, operator
+    # ruling #6 — re-keyed from bare name so same-short-name repos under
+    # different owners don't collide). delete: repo_name -> status.
+    worktrees: dict[str, str]
     errors: list[str]
 
 

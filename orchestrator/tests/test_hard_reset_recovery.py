@@ -186,6 +186,43 @@ class TestDivergenceReconcileHitlQuestion:
         assert "Backup ref write failed" in question
         assert "could not be enumerated" in question
 
+    def test_names_actual_rebase_failure(self):
+        """#3416: the decision names the failing rebase's category and
+        detail (conflicting paths, rebase argv, git output) instead of a
+        generic unfalsifiable conflict claim."""
+        question = _divergence_reconcile_hitl_question(
+            pipeline_id="pipeline-zzz",
+            phase=PipelinePhase.REFINE,
+            backup_ref="refs/egg-backup/sync-recovery/pipeline-zzz/123",
+            local_only_commit_shas=("abc1234 statefile write",),
+            rebase_category="reconcile_rebase_conflict",
+            rebase_detail=(
+                "conflicts outside .egg-state/agent-outputs/: "
+                ".egg-state/contracts/pipeline-zzz.json "
+                "[git rebase --autostash --onto origin/egg/pipeline-zzz/work origin/main]: "
+                "error: could not apply 20b4761... Initialize SDLC contract"
+            ),
+        )
+        assert "reconcile_rebase_conflict" in question
+        assert ".egg-state/contracts/pipeline-zzz.json" in question
+        assert "could not apply 20b4761" in question
+        # The generic pre-#3416 claim must be gone.
+        assert "(a conflict outside .egg-state/agent-outputs/)" not in question
+
+    def test_failure_detail_unavailable_fallback(self):
+        """Without category/detail the decision says the detail is
+        unavailable and points at the log line, rather than asserting a
+        specific conflict shape it cannot know."""
+        question = _divergence_reconcile_hitl_question(
+            pipeline_id="pipeline-zzz",
+            phase=PipelinePhase.PLAN,
+            backup_ref=None,
+            local_only_commit_shas=(),
+        )
+        assert "failure detail unavailable" in question
+        assert "divergence_rebase_failed" in question
+        assert "(a conflict outside .egg-state/agent-outputs/)" not in question
+
     def test_options_are_two_distinct_strings(self):
         assert _DIVERGENCE_RECONCILE_HITL_OPTIONS == [
             _DIVERGENCE_RECONCILE_RESUME,

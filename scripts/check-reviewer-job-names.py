@@ -3,9 +3,14 @@
 Lint check: Ensure reviewer workflows use the standard job naming convention.
 
 All workflows that use reusable-review.yml must have job names prefixed with
-"egg-review /" to ensure check-waiting logic correctly excludes them.
+"egg-review /" so reviewer check runs are identifiable by name.
 
-This prevents infinite loops where reviewers wait for each other indefinitely.
+This is a naming-consistency convention, not a correctness guard: downstream
+automation (e.g. on-review-feedback.yml's wait-for-all-reviewers step) keys on
+the nested "egg-reviewer-<bot>" job name that reusable-review.yml emits, which
+is present regardless of the caller's prefix. The prefix's original functional
+consumer, the "egg-review /" filter in the old wait-for-checks gate, is gone,
+so this lint is now advisory.
 
 Usage:
     python3 scripts/check-reviewer-job-names.py
@@ -90,16 +95,17 @@ def main(repo_root: Path | None = None) -> int:
         print("ERROR: Found reviewer jobs without required naming prefix!\n")
         print("=" * 70)
         print("All jobs using reusable-review.yml must have names starting with")
-        print(f"'{REQUIRED_PREFIX}' to prevent self-deadlock in check-waiting logic.")
+        print(f"'{REQUIRED_PREFIX}' so reviewer check runs are identifiable by name.")
         print("=" * 70)
         print()
         for v in all_violations:
             print(v)
             print()
         print("Why this matters:")
-        print("  Check-waiting logic filters out checks matching 'egg-review /'")
-        print("  to prevent reviewers from waiting on each other indefinitely.")
-        print("  Without this prefix, a new reviewer will cause infinite loops.")
+        print("  A naming-consistency convention that keeps reviewer check")
+        print("  runs identifiable in the PR checks list. This is advisory:")
+        print("  downstream automation keys on the nested 'egg-reviewer-<bot>'")
+        print("  job name from reusable-review.yml, not this caller-side prefix.")
         print()
         return 1
     else:

@@ -34,6 +34,43 @@ _REGISTER_SCHEMA: dict[str, Any] = {
                 "the orchestrator can read it back without a worktree file."
             ),
         },
+        "adds_task": {
+            "type": "object",
+            "description": (
+                "Structured contract mutation one of the options mandates "
+                "(#3428). REQUIRED when an option means 'add a task/slice': "
+                "no agent has a task-add verb, so without this payload the "
+                "resolution records a choice and materializes nothing — the "
+                "blocked slice re-deadlocks. When the operator selects the "
+                "referenced option, the orchestrator appends the described "
+                "task to slice_id as an audited operator action."
+            ),
+            "properties": {
+                "option": {
+                    "type": "integer",
+                    "description": "1-based index into 'options' of the option that mandates the task",
+                },
+                "slice_id": {
+                    "type": "string",
+                    "description": "Slice the new task is appended to (e.g. 'slice-4')",
+                },
+                "description": {"type": "string", "description": "New task description"},
+                "acceptance_criteria": {
+                    "type": "string",
+                    "description": "Acceptance criteria for the new task",
+                },
+                "files_affected": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Files the new task is expected to touch",
+                },
+                "role": {
+                    "type": "string",
+                    "description": "Producer role for the task (defaults to coder)",
+                },
+            },
+            "required": ["option", "slice_id", "description"],
+        },
         "issue": {"type": "integer", "description": "Optional issue-number override"},
         "pipeline_id": {
             "type": "string",

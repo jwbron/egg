@@ -111,6 +111,36 @@ def _extract_proposal_sha_for_producer(event_payload: Any, producer: str) -> str
     them. Do not unify — tightening the writer breaks the sentinel
     round-trip; loosening this reader re-opens the shell-injection gap.
     """
+    return _extract_pending_review_sha(event_payload, producer, "proposal_commit_sha")
+
+
+def _extract_last_reviewed_sha_for_producer(event_payload: Any, producer: str) -> str:
+    """Pull the server-resolved re-review baseline for the named producer.
+
+    Reads ``pending_reviews[i].last_reviewed_commit_sha`` — the
+    orchestrator-authoritative baseline the next-action route resolves
+    from this reviewer's last *verdicted* proposal version
+    (``entry.version`` → ``get_commit_sha_for_version``, #3395). Unlike
+    the agent-self-tracked memory bullet, this value advances only when
+    a verdict is recorded, so it can never sit past a commit the
+    reviewer has not actually reviewed. Returns ``""`` for legacy
+    payloads and first reviews (no prior verdict / version-0
+    pre-proposal ACKs), in which case the delta builder falls back to
+    the memory-parsed baseline.
+    """
+    return _extract_pending_review_sha(event_payload, producer, "last_reviewed_commit_sha")
+
+
+def _extract_pending_review_sha(event_payload: Any, producer: str, key: str) -> str:
+    """Pull a hex commit SHA from the producer's ``pending_reviews`` entry.
+
+    Shared reader for the SHA-bearing enrichment keys the next-action
+    route attaches per pending review. The value is sanitised to a
+    strict 7-64 char hex token before callers embed it in rendered
+    shell commands (see ``_extract_proposal_sha_for_producer`` for why
+    this reader is deliberately stricter than the writer-side
+    validator).
+    """
     if not isinstance(event_payload, dict) or not isinstance(producer, str):
         return ""
     producer = producer.strip()
@@ -125,7 +155,7 @@ def _extract_proposal_sha_for_producer(event_payload: Any, producer: str) -> str
         entry_producer = entry.get("producer") or entry.get("producer_role")
         if not isinstance(entry_producer, str) or entry_producer.strip() != producer:
             continue
-        raw = entry.get("proposal_commit_sha")
+        raw = entry.get(key)
         if isinstance(raw, str):
             candidate = raw.strip()
             if re.fullmatch(r"[0-9a-fA-F]{7,64}", candidate):

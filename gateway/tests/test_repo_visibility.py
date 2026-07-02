@@ -519,3 +519,153 @@ class TestVisibilityRetry:
         assert result is None
         assert mock_get.call_count == 1
         mock_sleep.assert_not_called()
+
+
+# --- Slice-2 (#3393) uniform visibility / auth-mode validation ---------------
+#
+# multi-repo pipelines require every repo in one run to share a single
+# visibility posture (all private/internal or all public) and a single auth
+# mode (all bot or all user) — private mode is a pipeline-wide posture, so a
+# mixed set would leak content across the private/public boundary. These
+# helpers resolve each repo's visibility (``get_repo_visibility``) and auth mode
+# (``config.repo_config.get_auth_mode``) and REJECT a mixed set with an
+# actionable ``ValueError`` that NAMES the offending repos. A same-name /
+# different-owner set is NOT rejected — uniformity is a property of the
+# visibility/auth *bucket*, not the bare name (operator ruling #6). A single
+# repo (N=1) is trivially uniform.
+#
+# The helpers are added by the slice-2 *coder* (a parallel BRC producer). Until
+# that lands in this tester worktree the import below fails and this whole
+# section skips with an explicit reason — it activates automatically at
+# convergence, when the coder and tester branches merge. The exact interface
+# the tester expects is handed to the coder via the task-2-3 contract gap so
+# the two halves converge on the same shape:
+#
+#   validate_visibility_uniformity(repos: list[str]) -> None
+#   validate_auth_mode_uniformity(repos: list[str]) -> None
+#       * ``repos`` are ``owner/name`` slugs.
+#       * no-op when the set is uniform or has < 2 repos.
+#       * raise ValueError naming the offending repos + their buckets on a
+#         mixed set. ``internal`` shares the private posture.
+
+import pytest
+
+try:
+    from repo_visibility import (  # type: ignore[attr-defined]
+        validate_auth_mode_uniformity,
+        validate_visibility_uniformity,
+    )
+
+    _UNIFORMITY_AVAILABLE = True
+    _UNIFORMITY_IMPORT_ERR: str | None = None
+except Exception as _exc:  # noqa: BLE001
+    _UNIFORMITY_AVAILABLE = False
+    _UNIFORMITY_IMPORT_ERR = repr(_exc)
+
+
+_skip_uniformity = pytest.mark.skipif(
+    not _UNIFORMITY_AVAILABLE,
+    reason=(
+        "slice-2 coder uniformity helpers (validate_visibility_uniformity / "
+        "validate_auth_mode_uniformity) not yet integrated into the tester "
+        "worktree (parallel producer); activates at convergence. import error: "
+        f"{_UNIFORMITY_IMPORT_ERR}"
+    ),
+)
+
+
+def _patch_visibility(monkeypatch, mapping):
+    """Route visibility resolution to an ``{'owner/repo': visibility}`` map.
+
+    Patches both the module-level convenience function and the checker
+    accessor, so the helper resolves correctly whichever seam it calls through.
+    """
+
+    def _fake(owner, repo, **_):
+        return mapping[f"{owner}/{repo}"]
+
+    monkeypatch.setattr("repo_visibility.get_repo_visibility", _fake, raising=False)
+
+    checker = MagicMock()
+    checker.get_visibility.side_effect = lambda owner, repo, **_: mapping[f"{owner}/{repo}"]
+    checker.is_private.side_effect = lambda owner, repo, **_: mapping[f"{owner}/{repo}"] in (
+        "private",
+        "internal",
+    )
+    monkeypatch.setattr("repo_visibility.get_visibility_checker", lambda: checker, raising=False)
+
+
+def _patch_auth_mode(monkeypatch, mapping):
+    """Route auth-mode resolution to a ``{'owner/repo': mode}`` map."""
+
+    def _fake(repo, **_):
+        return mapping[repo]
+
+    for target in ("repo_visibility.get_auth_mode", "repo_config.get_auth_mode"):
+        monkeypatch.setattr(target, _fake, raising=False)
+
+
+@_skip_uniformity
+class TestVisibilityUniformity:
+    """Uniform-visibility submission validation (AC-2)."""
+
+    def test_uniform_private_accepted(self, monkeypatch):
+        _patch_visibility(monkeypatch, {"jwbron/a": "private", "jwbron/b": "private"})
+        validate_visibility_uniformity(["jwbron/a", "jwbron/b"])  # no raise
+
+    def test_uniform_public_accepted(self, monkeypatch):
+        _patch_visibility(monkeypatch, {"jwbron/a": "public", "jwbron/b": "public"})
+        validate_visibility_uniformity(["jwbron/a", "jwbron/b"])  # no raise
+
+    def test_mixed_visibility_rejected_names_offenders(self, monkeypatch):
+        _patch_visibility(monkeypatch, {"jwbron/priv": "private", "jwbron/pub": "public"})
+        with pytest.raises(ValueError) as excinfo:
+            validate_visibility_uniformity(["jwbron/priv", "jwbron/pub"])
+        msg = str(excinfo.value)
+        # The error is actionable: it names the repos across the split.
+        assert "jwbron/priv" in msg
+        assert "jwbron/pub" in msg
+
+    def test_internal_shares_private_posture(self, monkeypatch):
+        # internal is on the private side of the boundary; internal+private is
+        # uniform and must NOT be rejected.
+        _patch_visibility(monkeypatch, {"jwbron/a": "internal", "jwbron/b": "private"})
+        validate_visibility_uniformity(["jwbron/a", "jwbron/b"])  # no raise
+
+    def test_same_name_different_owner_not_rejected(self, monkeypatch):
+        # ruling #6: identity is the owner/name slug, not the bare name — a
+        # same-name set with a uniform bucket is accepted.
+        _patch_visibility(monkeypatch, {"ownerA/foo": "private", "ownerB/foo": "private"})
+        validate_visibility_uniformity(["ownerA/foo", "ownerB/foo"])  # no raise
+
+    def test_single_repo_is_trivially_uniform(self, monkeypatch):
+        _patch_visibility(monkeypatch, {"jwbron/only": "public"})
+        validate_visibility_uniformity(["jwbron/only"])  # no raise
+
+
+@_skip_uniformity
+class TestAuthModeUniformity:
+    """Uniform-auth-mode submission validation (AC-2)."""
+
+    def test_uniform_bot_accepted(self, monkeypatch):
+        _patch_auth_mode(monkeypatch, {"jwbron/a": "bot", "jwbron/b": "bot"})
+        validate_auth_mode_uniformity(["jwbron/a", "jwbron/b"])  # no raise
+
+    def test_uniform_user_accepted(self, monkeypatch):
+        _patch_auth_mode(monkeypatch, {"jwbron/a": "user", "jwbron/b": "user"})
+        validate_auth_mode_uniformity(["jwbron/a", "jwbron/b"])  # no raise
+
+    def test_mixed_auth_rejected_names_offenders(self, monkeypatch):
+        _patch_auth_mode(monkeypatch, {"jwbron/bot": "bot", "jwbron/user": "user"})
+        with pytest.raises(ValueError) as excinfo:
+            validate_auth_mode_uniformity(["jwbron/bot", "jwbron/user"])
+        msg = str(excinfo.value)
+        assert "jwbron/user" in msg
+
+    def test_same_name_different_owner_not_rejected(self, monkeypatch):
+        _patch_auth_mode(monkeypatch, {"ownerA/foo": "bot", "ownerB/foo": "bot"})
+        validate_auth_mode_uniformity(["ownerA/foo", "ownerB/foo"])  # no raise
+
+    def test_single_repo_is_trivially_uniform(self, monkeypatch):
+        _patch_auth_mode(monkeypatch, {"jwbron/only": "user"})
+        validate_auth_mode_uniformity(["jwbron/only"])  # no raise

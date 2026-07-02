@@ -148,6 +148,13 @@ class OverseerMonitor:
         self._incomplete_consensus_hitl_created = False
         # Track the absolute start time for activity deferral cap (#1609)
         self._incomplete_consensus_absolute_start: float | None = None
+        # Post-proposal grace scoping (#3395): the proposal-SHA fingerprint
+        # the grace window was last granted for, and when it changed. NOT
+        # cleared by _reset_incomplete_consensus_tracking — the grace path
+        # itself resets that state, and clearing the fingerprint there
+        # would re-grant grace to unchanged-tree re-proposes.
+        self._incomplete_consensus_graced_fingerprint: tuple[tuple[str, str], ...] | None = None
+        self._incomplete_consensus_graced_at: float | None = None
 
         # Re-run anomaly deduplication (decision IDs already flagged)
         self._rerun_anomaly_reported: set[str] = set()
@@ -243,6 +250,7 @@ class OverseerMonitor:
     _check_post_consensus_stall = _consensus_stall._check_post_consensus_stall
     _blocking_agents_are_active = _consensus_stall._blocking_agents_are_active
     _get_recent_proposal_age = _consensus_stall._get_recent_proposal_age
+    _get_proposal_sha_fingerprint = _consensus_stall._get_proposal_sha_fingerprint
     _check_incomplete_consensus_stall = _consensus_stall._check_incomplete_consensus_stall
     _reset_incomplete_consensus_tracking = _consensus_stall._reset_incomplete_consensus_tracking
 
