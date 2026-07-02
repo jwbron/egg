@@ -463,6 +463,48 @@ class TestRestorePrebuiltDeps:
         assert "RESTORE_RC=0" in result.stdout
         assert "skipped" in result.stderr
 
+    def test_behavioral_unreadable_file_degrades_per_file_and_keeps_rc0(self, tmp_path):
+        """Per-file degradation (re-review #2 of commit 7d52eca): a single
+        unreadable (mode 0o000) source file must degrade to a per-file
+        ``warn: failed to restore`` line while its siblings still restore
+        and the overall outcome stays ``restored`` (rc 0) — NOT the whole
+        restore flipping to ``restore failed`` via ``copytree``'s collected
+        ``shutil.Error``. This pins the exact behavior the
+        ``try/except OSError`` in ``copy_if_missing`` introduced."""
+        import pytest
+
+        if os.geteuid() == 0:
+            pytest.skip("root bypasses mode 0o000 read permission")
+
+        base = tmp_path / "prebuilt"
+        (base / "acme--widget" / ".venv" / "bin").mkdir(parents=True)
+        good = base / "acme--widget" / ".venv" / "bin" / "pytest"
+        good.write_text("tool-v1\n")
+        bad = base / "acme--widget" / ".venv" / "bin" / "secret"
+        bad.write_text("unreadable\n")
+        bad.chmod(0o000)
+        repo = tmp_path / "widget"
+        repo.mkdir()
+
+        harness = self._extract_restore_harness(self._script(), str(repo), str(base))
+        try:
+            result = subprocess.run(
+                ["bash", "-c", harness], capture_output=True, text=True, timeout=30
+            )
+        finally:
+            # Restore mode so tmp_path cleanup can remove the file.
+            bad.chmod(0o644)
+
+        # rc stays 0 and the outcome is "restored", not "restore failed".
+        assert "RESTORE_RC=0" in result.stdout, f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        assert "restored acme--widget" in result.stderr
+        assert "restore failed" not in result.stderr
+        # The lone unreadable file degraded to a per-file warning...
+        assert "warn: failed to restore" in result.stderr
+        # ...while its sibling still restored intact.
+        assert (repo / ".venv" / "bin" / "pytest").read_text() == "tool-v1\n"
+        assert not (repo / ".venv" / "bin" / "secret").exists()
+
 
 class TestSyncOutcomesAndBanner:
     """R1 non-silent sync banner (#3077 slice-1 TASK-1-3).
