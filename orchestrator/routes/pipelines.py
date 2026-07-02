@@ -21160,6 +21160,18 @@ def _run_concurrent_phase(
                             nack_count=len(nack_details),
                             nack_summary=nack_summary,
                         )
+                        # Tag with the consensus-timeout context so "Retry
+                        # phase" dispatches through restart_phase on resolve
+                        # (#3421), for symmetry with the incomplete-consensus
+                        # sites above.  This question is hand-built and does not
+                        # promise restart copy, but restart_phase is the correct
+                        # "Retry phase" action regardless.  Like its siblings
+                        # this pod-mode path is unreachable today: has_failures[0]
+                        # is only set in _record_container_exit, called solely for
+                        # active_executions / remaining members, which are always
+                        # empty in orchestrator mode (spawn_all returns []
+                        # post-#3164).  Tagging keeps the dispatch honest if pod
+                        # mode is ever revived.
                         _persist_hitl_decision(
                             pipeline_id,
                             pipeline,
@@ -21170,6 +21182,7 @@ def _run_concurrent_phase(
                             ),
                             options=["Retry phase", "Accept current state", "Abort phase"],
                             phase=pipeline.current_phase,
+                            context=_CONSENSUS_TIMEOUT_HITL_CONTEXT,
                         )
                         combined_logs += (
                             f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
