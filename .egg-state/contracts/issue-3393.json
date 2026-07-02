@@ -303,7 +303,7 @@
       "id": "slice-4",
       "name": "Slice-PR routing to slice.repo + lazy per-repo work branch & context PR",
       "goal": "Route each slice's PR to `slice.repo` and give every participating repo its\nown work branch + context PR (lazy-per-repo, operator ruling #1). Repos with\n\u22651 slice get an `egg/<id>/work` branch and a context PR; submitted repos\nwith no slices get neither. Slice-PR and context-PR descriptions\ncross-reference sibling PRs in the pipeline.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -312,8 +312,8 @@
         {
           "id": "task-4-1",
           "description": "Route slice-PR creation to the slice's repo. `create_slice_pr`\n(orchestrator/gateway_client/_pr.py:139-164) is already\nrepo-parameterized; change the caller(s) in\norchestrator/routes/pipelines.py to pass `slice.repo` (falling back to\nthe pipeline primary when a slice's repo is absent, per the slice-1\nmigration default) instead of the pipeline singleton. Render sibling\ncross-references into the slice-PR body: list the other pipeline PRs\n(repo + number) and, for a dependent slice, note the upstream slice's\nPR it is ordered behind.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "2817f96b4",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Each slice's PR is opened in `slice.repo`; absent \u21d2 primary.\n- The slice-PR body cross-references sibling pipeline PRs (repo +\n  number) and names the upstream PR for dependent slices.\n- No behavioral change for N=1 (single repo) pipelines.",
@@ -334,8 +334,8 @@
         {
           "id": "task-4-2",
           "description": "Make the context-PR opener lazy-per-repo. In\norchestrator/routes/pipelines.py\n`_open_context_pr_at_implement_start` (~11001-11250), which today opens\none context PR on `egg/<id>/work \u2192 main` in the single repo: iterate\nthe set of repos that own \u22651 slice, and for each open its own\n`egg/<id>/work` branch (same naming, per repo) and its own context PR;\nskip submitted repos with no slices. A single-slice repo still gets the\nstandard context PR (uniformity beats special-casing). Cross-reference\nsibling context PRs in each body. Keep the N=1 path byte-equivalent to\ntoday.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "2817f96b4",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Every repo with \u22651 slice gets its own `egg/<id>/work` branch and\n  context PR; a slice-less submitted repo gets neither.\n- A single-slice repo gets the standard context PR.\n- Context-PR bodies cross-reference sibling context PRs.\n- N=1 behavior is unchanged.",
@@ -355,8 +355,8 @@
         {
           "id": "task-4-3",
           "description": "Add tests in orchestrator/tests: a slice's PR is created in\n`slice.repo` (and falls back to primary when absent); the slice-PR and\ncontext-PR bodies render sibling cross-references; the lazy-per-repo\nrule holds (repo with \u22651 slice \u21d2 work branch + context PR; slice-less\nrepo \u21d2 neither; single-slice repo \u21d2 standard context PR); N=1 opens\nexactly one work branch + context PR as today.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "52ed962fc",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Tests assert slice-PR repo routing (+ primary fallback), sibling\n  cross-references, and the lazy-per-repo work-branch/context-PR rule.\n- N=1 regression asserted (one work branch + one context PR).\n- `make test` (narrowed) and `make test-all` green.",
@@ -378,11 +378,11 @@
         "slice-3"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3393/slice-3",
+      "integration_base_sha": "aa567fa67323fe87d625ed9bab89f8dfddc78b7f",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3429,
+      "pr_url": "https://github.com/jwbron/egg/pull/3429",
       "review_feedback": []
     },
     {
@@ -671,6 +671,35 @@
     {
       "id": "cq-2",
       "question": "[#2777 slice-4 TASK-4-4 case 5] Slice slice-1 of pipeline issue-3393 has an impossible status enum value or state combination (e.g. status not in PENDING/IN_PROGRESS/COMPLETE/BLOCKED, or PENDING with commits on the integration branch). Bootstrap reconciliation cannot classify the slice safely. How should the orchestrator proceed?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Mark slice complete and continue",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Restart slice from scratch",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Cancel pipeline for manual investigation",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null,
+      "redirect_seed": null
+    },
+    {
+      "id": "cq-3",
+      "question": "[#2777 slice-4 TASK-4-4 case 5] Slice slice-4 of pipeline issue-3393 has an impossible status enum value or state combination (e.g. status not in PENDING/IN_PROGRESS/COMPLETE/BLOCKED, or PENDING with commits on the integration branch). Bootstrap reconciliation cannot classify the slice safely. How should the orchestrator proceed?",
       "type": "hitl",
       "phase": "implement",
       "options": [
@@ -1136,6 +1165,72 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-3-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T17:52:07.551921Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.2.commit",
+      "old_value": null,
+      "new_value": "52ed962fc",
+      "reason": "Linked commit 52ed962 to task-4-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T17:52:07.583920Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T17:57:18.035316Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.commit",
+      "old_value": null,
+      "new_value": "2817f96b4",
+      "reason": "Linked commit 2817f96 to task-4-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T17:57:18.063102Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T17:57:18.650042Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.commit",
+      "old_value": null,
+      "new_value": "2817f96b4",
+      "reason": "Linked commit 2817f96 to task-4-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T17:57:18.664936Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-2 as complete",
       "checkpoint_id": null
     }
   ],
