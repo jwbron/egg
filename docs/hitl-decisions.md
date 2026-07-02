@@ -340,6 +340,84 @@ starting at refine) therefore advances through refine/plan without hanging,
 exactly as it did before #3392; for phases outside refine/plan the flag toggles
 the post-phase approval pause as before.
 
+## Registration Guarantee (Decision Ledger)
+
+The converge loop above can only surface decisions that were **registered**;
+before #3390 nothing verified that a phase which should raise decisions
+actually did, so a producer that silently skipped `egg-contract add-decision`
+advanced the pipeline with `decisions: []` — indistinguishable from
+"deliberately none". Two complementary layers close that gap: one
+deterministic, one judgment-based.
+
+### Deterministic: ledger attestation at propose time
+
+Every refine/plan producer (`refiner`, `task_planner`, `architect`,
+`risk_analyst` — the `simplifier`'s companion summary owns no decision
+surface) must attest its **decision ledger** when proposing consensus. The
+proposal `attestation` carries exactly one of:
+
+- `decisions_registered: ["cq-1", …]` — every decision the producer
+  registered this phase, or
+- `no_decisions_rationale: "<why>"` — the **explicit empty ledger**: the
+  phase deliberately raises no operator decisions, recorded as a claim
+  rather than an omission.
+
+CLI: `egg-orch consensus propose --decisions-registered cq-1 cq-2 …` or
+`--no-decisions-rationale "<why>"`. MCP: the `attestation` argument of
+`mcp__brc__propose`.
+
+The orchestrator **hard-rejects** the propose (HTTP 400, tracker untouched)
+when:
+
+- the attestation is missing or malformed (neither field, both fields, or a
+  non-`cq-N` id) — `attestation_schemas.DecisionSurfacingAttestation` and
+  `routes/signals/_validation.py::_validate_decision_attestation`, both built
+  on the shared `egg_contracts.decisions.decision_attestation_errors` shape
+  check;
+- an attested id is not registered on the contract, or is registered for a
+  different phase (cross-check against `contract.decisions`);
+- the draft does not **cite** an attested `cq-N`
+  (`_validate_decision_citations`). The `--format markdown` output of
+  `egg-contract add-decision` embeds the id, so copying it into the draft's
+  Open Questions section satisfies the citation automatically.
+
+A producer therefore cannot reach consensus — and the phase cannot reach its
+gate — without a well-formed ledger claim. "0 decisions at the gate" becomes
+trustworthy as *deliberately none*.
+
+### Gate-side backstop and auditability
+
+At the phase gate, the orchestrator summarizes the ledger on the `phase_gate`
+question so the operator can read it without a `get_contract` round-trip:
+"N decision(s) registered this phase (cq-…), M resolved" or "explicitly none —
+&lt;role&gt; attested: &lt;rationale&gt;" (recovered from the phase's
+`CONSENSUS_PROPOSE` messages).
+
+When the phase reaches the gate with **zero registered decisions and no
+explicit-none attestation** — possible only on paths that bypass consensus
+(force-advance, resume) — the gate does not silently proceed: a dedicated
+backstop HITL is surfaced whose default remedy is a **phase re-run** (the
+converge loop's standard corrective, with a directive telling producers to
+register or explicitly attest), with an operator override to proceed to the
+normal gate. On autonomous pipelines (`hitl_gates: false`) the missing ledger
+is surfaced as a loud `phase.decision_ledger_missing` event but never blocks,
+mirroring the autonomous gate-skip posture.
+
+### Judgment: reviewer obligation against un-surfaced decisions
+
+A draft that quietly **commits** to an operator-grade choice ("we will drop
+the legacy filter") without registering it can't be caught by a regex. That
+half is enforced through consensus: `reviewer_refine` (§7) and
+`reviewer_plan` (§13) carry an explicit obligation to **NACK** a draft that
+commits to a decision not backed by a registered `cq-N` — and the open-NACK
+barrier already prevents consensus from closing over an open NACK. The rubric
+includes calibration guidance so implementation choices the planner
+legitimately owns are not over-NACKed: the bar is answers only the operator
+owns (product intent, scope boundaries, external commitments, user-visible
+behavior). The `first_principles_reviewer` is deliberately **not** the home
+for this obligation — it never NACKs by design (premise/direction concerns
+escalate to the operator as HITL decisions, not NACKs).
+
 ## Detection Mechanism
 
 The orchestrator's decision queue (`orchestrator/decision_queue.py`) monitors for changes. It checks:
