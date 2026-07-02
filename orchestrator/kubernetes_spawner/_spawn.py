@@ -239,6 +239,20 @@ def spawn_agent_job(
                     # "recover" from that rejection with ``git reset --hard``,
                     # destroying their own committed work (#1809).
                     assigned_branch=branch,
+                    # #3393 slice-7 (cq-4): for a MULTI-REPO pipeline, the
+                    # slice-scoped ``repos`` list carries every participating
+                    # repo (slice-first, then the rest — slice-6 wiring), so
+                    # asking the gateway to materialize each repo's
+                    # ``egg/<pipeline_id>/work`` branch here pushes that branch
+                    # onto EVERY participating remote before the slice-4
+                    # secondary-context / slice-PR openers run against it —
+                    # closing the slice-4 missing-head-branch soft-fail.  The
+                    # gateway push is non-forced + idempotent (never clobbers
+                    # the primary's contract-init commit).  Gated strictly on
+                    # ``len(repos) > 1`` so single-repo (N=1) spawns pass
+                    # ``push_branches=False`` and stay byte-identical to
+                    # pre-#3393.
+                    push_branches=bool(repos) and len(repos) > 1,
                 )
             except Exception as e:  # noqa: BLE001 — classify below
                 duration_ms = int((time.monotonic() - attempt_started) * 1000)
