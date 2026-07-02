@@ -199,6 +199,14 @@
       "registered_at": "2026-07-02T00:13:02.710308+00:00",
       "repo": null,
       "role": "architect"
+    },
+    "fef4aa6722942aae5327a6561192dc7d8d69e498": {
+      "branch": "egg/issue-3393/work",
+      "patch_id": "967886e5e48fa6c7cd53a59b15155b21e6ae1957",
+      "pipeline_id": "issue-3393",
+      "registered_at": "2026-07-02T00:14:52.831844+00:00",
+      "repo": null,
+      "role": "simplifier"
     }
   },
   "version": 2
