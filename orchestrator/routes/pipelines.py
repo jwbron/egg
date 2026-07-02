@@ -17400,7 +17400,7 @@ def _persist_hitl_decision(
     ``context`` is set on the persisted decision before save so dispatch
     handlers in :mod:`routes.decisions` can route on a stable string
     discriminator rather than the prose-y ``question`` text (see the
-    ``failed_role:`` / ``hard_reset_recovery:`` patterns).
+    ``failed_role:`` pattern).
 
     Returns the created decision, or None if persistence failed (logged;
     callers should not raise — losing an HITL decision is bad but losing
