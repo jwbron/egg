@@ -721,15 +721,24 @@ class JobSupervisor:
         if current is not None and parked is not None and current != parked:
             self._noop_fingerprint[dedupe_key] = current
             self._noop_last_probe[dedupe_key] = now
-            # Clear the once-per-key alert latch on a *decision-set change*.
-            # The alert names the gating decisions recorded at park time; if the
-            # probe spawn no-ops again on a freshly-gating decision the arm
-            # re-parks, and without this the latch would suppress a new alert,
-            # leaving the operator staring at a stale one naming an
-            # already-resolved cq-N. Re-arming here keeps "one alert per distinct
-            # wedge" rather than "one alert per key lifetime", so the alert text
-            # tracks the decision actually blocking the arm.
-            self._alerted_noop.pop(dedupe_key, None)
+            # Re-arm the once-per-key alert latch only when a decision is *still*
+            # gating (``current`` non-empty). The alert names the decisions
+            # recorded at park time; if the probe spawn no-ops again on a
+            # freshly-gating ``cq-N`` the arm re-parks, and without re-arming the
+            # latch would suppress a new alert, leaving the operator staring at a
+            # stale one naming an already-resolved cq-N. This keeps "one alert
+            # per distinct wedge" rather than "one alert per key lifetime".
+            #
+            # But an *empty* new set means the wedge cleared (the operator
+            # resolved the last gating decision), so the released probe will
+            # proceed and make real progress. Re-arming here would let the next
+            # ``record_success`` — which cannot distinguish a productive
+            # completion from a repeat no-op (any rc=0 exit maps to SUCCESS) —
+            # fire a spurious high-priority alert on the common happy path,
+            # falsely claiming zero BRC progress with no visible gating decision.
+            # So only re-arm when a decision remains.
+            if current:
+                self._alerted_noop.pop(dedupe_key, None)
             logger.info(
                 "JobSupervisor: contract-decision set changed for parked key=%s "
                 "(was %s, now %s) — releasing the no-op park for a probe spawn",

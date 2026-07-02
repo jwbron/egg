@@ -2036,6 +2036,39 @@ class TestNoopParkSupervisor:
         assert "cq-3" not in alerts[1]["detail"]
         assert supervisor.noop_parked("key-n")
 
+    def test_no_realert_when_wedge_cleared_and_probe_progresses(self):
+        """The happy path must not re-alert (#3434 review).
+
+        When the operator resolves the *last* gating decision the unresolved
+        set goes ``{cq-3} -> {}``. The released probe then proceeds and makes
+        real BRC progress, exiting cleanly. Because ``record_success`` cannot
+        distinguish a productive completion from a repeat no-op (any rc=0 exit
+        maps to SUCCESS), re-arming the alert latch on an *empty* new set would
+        fire a spurious high-priority alert claiming zero BRC progress. The
+        latch must stay set across a ``{cq-N} -> {}`` transition.
+        """
+        import event_loop
+
+        pending = {"cq-3"}
+        alerts: list[dict] = []
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            hitl_probe=lambda: set(pending),
+            overseer_alert=lambda **kw: alerts.append(kw),
+        )
+        self._park(supervisor, "key-n")
+        assert len(alerts) == 1
+        assert "cq-3" in alerts[0]["detail"]
+
+        # Operator resolves the last gating decision — the wedge is cleared.
+        pending.clear()
+        assert not supervisor.noop_parked("key-n")  # one probe release, latch NOT re-armed
+
+        # The probe proceeds and makes progress; its clean exit drives
+        # record_success. No fresh alert must fire on this happy path.
+        supervisor.record_success("key-n", action="propose", role="coder")
+        assert len(alerts) == 1
+
     def test_release_on_heartbeat(self):
         import event_loop
         import supervision_policy
