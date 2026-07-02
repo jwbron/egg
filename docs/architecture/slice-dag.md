@@ -474,7 +474,13 @@ shape:
        fresh slice from an interrupted one), creates the integration
        branch via the gateway, calls
        `_run_concurrent_phase(slice_id=...)` to spawn the slice's
-       agent team, awaits BRC consensus, and on consensus reach calls
+       agent team, awaits BRC consensus, and on consensus reach — after
+       the evidence-reachability gate (#3125) and the per-slice green
+       gate (`slice_green_gate.run_slice_green_gate`, #3398, which
+       spawns a sandboxed one-shot check-runner Job to execute the
+       repo's configured checks at the integration-branch tip and
+       blocks PR-open on a red verdict; staged rollout via
+       `EGG_SLICE_GREEN_GATE`, fail-open on infra errors) — calls
        `GatewayClient.create_slice_pr` with `base` resolved from the
        slice's DAG parent (root → pipeline branch; child → parent's
        integration branch). On failure the worker calls
@@ -923,9 +929,10 @@ the agents the slice schema and constraints:
 
 ## Configuration knobs
 
-All slice/scheduler knobs live in `orchestrator/env_config.py` and
+Most slice/scheduler knobs live in `orchestrator/env_config.py` and
 return typed values (positive int / positive float) with logged fallbacks
-on parse failure.
+on parse failure. The green-gate knobs below are read directly via
+`os.environ.get` in `orchestrator/slice_green_gate.py`.
 
 | Env var | Type | Default | Controls |
 |---------|------|---------|----------|
@@ -935,6 +942,9 @@ on parse failure.
 | `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES` | int | 10 | Pipeline-wide summed slice-cycle cap. *Currently inert — see local cycles row.* |
 | `EGG_ORCH_SLICE_FAILURE_GRACE_SECONDS` | float | 60.0 | Grace window before a failure cascade marks the downstream subtree `BLOCKED_ON_FAILED_DEPENDENCY`. |
 | `EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS` | float | 30.0 | Reconciler polling cadence for orphaned child PRs. |
+| `EGG_SLICE_GREEN_GATE` | str | `off` | Per-slice green gate rollout switch (#3398): `off` skips the gate entirely; `log` runs the repo's configured checks at the slice tip and logs a red verdict without blocking; `on` blocks slice PR-open on a red verdict. Case-insensitive, with aliases — `on` also accepts `1`/`true`/`yes`, and `log` also accepts `log-only`/`log_only`. Unknown values resolve to `off`. |
+| `EGG_SLICE_GREEN_GATE_SKIP_CHECKS` | str (comma-separated) | `security` | Configured check *names* (from `repositories.yaml` `checks`) the gate skips. |
+| `EGG_SLICE_GREEN_GATE_TIMEOUT_SECONDS` | int | 1800 | Wall-clock budget for the check-runner pod (spawn-to-terminal); a hung suite degrades to fail-open rather than wedging the slice close. |
 
 ### Per-pipeline vs. global slice caps
 
