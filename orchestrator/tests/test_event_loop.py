@@ -936,6 +936,22 @@ class TestSupervisionPolicyConstants:
             == supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT
         )
 
+    def test_noop_park_constants_exist_and_reexported(self):
+        """#3425 no-op park constants live in supervision_policy and re-export."""
+        import event_loop
+        import supervision_policy
+
+        assert supervision_policy.SUPERVISION_NOOP_STREAK_PARK == 3
+        assert supervision_policy.SUPERVISION_NOOP_PARK_RETRY_SECONDS == 1800
+        assert (
+            event_loop.SUPERVISION_NOOP_STREAK_PARK
+            == supervision_policy.SUPERVISION_NOOP_STREAK_PARK
+        )
+        assert (
+            event_loop.SUPERVISION_NOOP_PARK_RETRY_SECONDS
+            == supervision_policy.SUPERVISION_NOOP_PARK_RETRY_SECONDS
+        )
+
     # #3164 retired ``test_wrapper_template_renders_supervision_policy_values``:
     # the failure-streak backoff/escalation machinery was deleted from the
     # in-pod wrapper template (the orchestrator event loop's ``JobSupervisor``
@@ -1884,3 +1900,246 @@ class TestFatalDrivenThroughLoop:
         loop.poll_once(["coder"])
         loop.poll_once(["coder"])
         assert len(spawner.calls) == spawn_count
+
+
+# ---------------------------------------------------------------------------
+# Successful-no-op park (#3425).
+#
+# A one-shot invocation that exits cleanly WITHOUT changing BRC state is
+# re-derived under an identical dedupe key and re-spawned forever (observed:
+# ~50 pod spawns against a slice wedged on an unresolved operator HITL
+# ``cq-N``). The #3138 failure-streak park cannot catch it — these
+# invocations *succeed*. The supervisor parks the arm after
+# ``SUPERVISION_NOOP_STREAK_PARK`` consecutive same-key clean completions and
+# self-releases on a contract-decision fingerprint change (the resolution
+# writes only the contract file, never the tracker, so no new dedupe key can
+# arrive) or the retry heartbeat.
+# ---------------------------------------------------------------------------
+
+
+class TestNoopParkSupervisor:
+    """``JobSupervisor`` no-op park primitive in isolation."""
+
+    def _park(self, supervisor, key="key-noop", action="propose", role="coder"):
+        import supervision_policy
+
+        for _ in range(supervision_policy.SUPERVISION_NOOP_STREAK_PARK):
+            supervisor.record_success(key, action=action, role=role)
+
+    def test_not_parked_below_threshold(self):
+        import event_loop
+        import supervision_policy
+
+        supervisor = event_loop.JobSupervisor(clock=_ManualClock())
+        for _ in range(supervision_policy.SUPERVISION_NOOP_STREAK_PARK - 1):
+            supervisor.record_success("key-n", action="propose", role="coder")
+        assert not supervisor.noop_parked("key-n")
+
+    def test_parks_at_threshold(self):
+        import event_loop
+
+        supervisor = event_loop.JobSupervisor(clock=_ManualClock())
+        self._park(supervisor, "key-n")
+        assert supervisor.noop_parked("key-n")
+        # The park is NOT the #3138 failure exhaustion.
+        assert not supervisor.is_exhausted("key-n")
+
+    def test_productive_success_never_parks(self):
+        """A success that moved BRC state gets a new key next time — each
+        distinct key dies at streak 1 and none of them park."""
+        import event_loop
+
+        supervisor = event_loop.JobSupervisor(clock=_ManualClock())
+        for key in ("key-a", "key-b", "key-c", "key-d"):
+            supervisor.record_success(key, action="propose", role="coder")
+            assert not supervisor.noop_parked(key)
+
+    def test_alert_fires_once_with_named_anomaly(self):
+        import event_loop
+
+        alerts: list[dict] = []
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            overseer_alert=lambda **kw: alerts.append(kw),
+            hitl_probe=lambda: {"cq-3"},
+        )
+        self._park(supervisor, "key-n", action="propose", role="coder")
+        assert len(alerts) == 1
+        assert alerts[0]["anomaly"] == "agent-invocation-noop-streak"
+        assert "cq-3" in alerts[0]["detail"]
+        # Further no-op successes never re-emit (sticky latch).
+        supervisor.record_success("key-n", action="propose", role="coder")
+        supervisor.record_success("key-n", action="propose", role="coder")
+        assert len(alerts) == 1
+
+    def test_park_never_engages_agent_failed(self):
+        """The wedge is operator-bound and already alerted; creating another
+        HITL decision via AGENT_FAILED would be noise."""
+        import event_loop
+
+        failures: list[dict] = []
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            agent_failed=lambda **kw: failures.append(kw),
+        )
+        self._park(supervisor, "key-n")
+        assert failures == []
+
+    def test_release_on_fingerprint_change(self):
+        """Resolving the gating cq-N changes the probed set → one probe spawn."""
+        import event_loop
+
+        pending = {"cq-3"}
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            hitl_probe=lambda: set(pending),
+        )
+        self._park(supervisor, "key-n")
+        assert supervisor.noop_parked("key-n")
+
+        pending.clear()  # operator resolved cq-3
+        assert not supervisor.noop_parked("key-n")  # exactly one release
+        assert supervisor.noop_parked("key-n")  # fingerprint refreshed → parked again
+
+    def test_release_on_heartbeat(self):
+        import event_loop
+        import supervision_policy
+
+        clock = _ManualClock()
+        supervisor = event_loop.JobSupervisor(clock=clock)
+        self._park(supervisor, "key-n")
+        assert supervisor.noop_parked("key-n")
+
+        clock.advance(supervision_policy.SUPERVISION_NOOP_PARK_RETRY_SECONDS + 1)
+        assert not supervisor.noop_parked("key-n")  # heartbeat probe spawn
+        assert supervisor.noop_parked("key-n")  # anchor refreshed → parked again
+
+    def test_probe_failure_falls_back_to_heartbeat(self):
+        import event_loop
+        import supervision_policy
+
+        def _broken_probe():
+            raise RuntimeError("contract unreadable")
+
+        clock = _ManualClock()
+        supervisor = event_loop.JobSupervisor(clock=clock, hitl_probe=_broken_probe)
+        self._park(supervisor, "key-n")
+        assert supervisor.noop_parked("key-n")
+        clock.advance(supervision_policy.SUPERVISION_NOOP_PARK_RETRY_SECONDS + 1)
+        assert not supervisor.noop_parked("key-n")
+
+    def test_retire_clears_noop_state(self):
+        import event_loop
+
+        supervisor = event_loop.JobSupervisor(clock=_ManualClock())
+        self._park(supervisor, "key-n")
+        assert supervisor.noop_parked("key-n")
+        supervisor.retire("key-n")
+        assert not supervisor.noop_parked("key-n")
+
+    def test_reconcile_clears_noop_state(self):
+        import event_loop
+
+        supervisor = event_loop.JobSupervisor(clock=_ManualClock())
+        self._park(supervisor, "key-n")
+        supervisor.reconcile(["key-n"])
+        assert not supervisor.noop_parked("key-n")
+
+    def test_success_still_resets_failure_state(self):
+        """The #3138 semantics of record_success are unchanged by the counter."""
+        import event_loop
+
+        supervisor = event_loop.JobSupervisor(clock=_ManualClock())
+        for _ in range(10):
+            supervisor.record_abort("key-n", "propose", "coder")
+        assert supervisor.is_exhausted("key-n")
+        supervisor.record_success("key-n", action="propose", role="coder")
+        assert not supervisor.is_exhausted("key-n")
+        assert supervisor.backoff_seconds("key-n") == 0
+
+
+class TestNoopParkThroughLoop:
+    """#3425 driven through ``poll_once`` — the production wiring."""
+
+    def _wedged_loop(self, monkeypatch, *, hitl_probe=None, alerts=None):
+        """A loop whose scripted coder propose always completes as a clean
+        no-op: the view reports SUCCESS and the derived event never changes,
+        so every completion re-derives the identical dedupe key."""
+        import event_loop
+
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "x")})
+        spawner = _RecordingSpawner()
+        clock = _ManualClock()
+        supervisor = event_loop.JobSupervisor(
+            clock=clock,
+            overseer_alert=(lambda **kw: alerts.append(kw)) if alerts is not None else None,
+            hitl_probe=hitl_probe,
+        )
+        view = _FakeJobStatusView()
+        loop = _make_supervised_loop(spawner, clock=clock, supervisor=supervisor, status_view=view)
+        key = _propose_key(loop)
+        view.set(key, event_loop.JOB_OUTCOME_SUCCESS)
+        return loop, spawner, clock, supervisor, key
+
+    def _drive_to_park(self, loop, spawner):
+        """Poll until the arm parks; returns the number of pods burned."""
+        import supervision_policy
+
+        # Each poll observes the prior spawn's SUCCESS and immediately
+        # re-derives + respawns the same key, until the park engages.
+        for _ in range(supervision_policy.SUPERVISION_NOOP_STREAK_PARK + 3):
+            loop.poll_once(["coder"])
+        return len(spawner.calls)
+
+    def test_park_bounds_the_spawn_burn(self, monkeypatch):
+        import supervision_policy
+
+        loop, spawner, clock, supervisor, key = self._wedged_loop(monkeypatch)
+        burned = self._drive_to_park(loop, spawner)
+        assert burned == supervision_policy.SUPERVISION_NOOP_STREAK_PARK
+
+        # Many more polls: still no new spawns — the arm is parked.
+        for _ in range(10):
+            loop.poll_once(["coder"])
+        assert len(spawner.calls) == burned
+
+    def test_alert_fires_once_through_loop(self, monkeypatch):
+        alerts: list[dict] = []
+        loop, spawner, clock, supervisor, key = self._wedged_loop(monkeypatch, alerts=alerts)
+        self._drive_to_park(loop, spawner)
+        for _ in range(5):
+            loop.poll_once(["coder"])
+        noop_alerts = [a for a in alerts if a["anomaly"] == "agent-invocation-noop-streak"]
+        assert len(noop_alerts) == 1
+
+    def test_decision_resolution_releases_one_probe_spawn(self, monkeypatch):
+        """The operator resolves the gating cq-N → the parked arm probes once."""
+        pending = {"cq-3"}
+        loop, spawner, clock, supervisor, key = self._wedged_loop(
+            monkeypatch, hitl_probe=lambda: set(pending)
+        )
+        burned = self._drive_to_park(loop, spawner)
+
+        pending.clear()  # cq-3 resolved (contract write — tracker unchanged)
+        loop.poll_once(["coder"])
+        assert len(spawner.calls) == burned + 1  # exactly one probe spawn
+
+        # The probe no-ops again → the arm re-parks under the new fingerprint.
+        for _ in range(5):
+            loop.poll_once(["coder"])
+        assert len(spawner.calls) == burned + 1
+
+    def test_heartbeat_releases_one_probe_spawn(self, monkeypatch):
+        import supervision_policy
+
+        loop, spawner, clock, supervisor, key = self._wedged_loop(monkeypatch)
+        burned = self._drive_to_park(loop, spawner)
+
+        clock.advance(supervision_policy.SUPERVISION_NOOP_PARK_RETRY_SECONDS + 1)
+        loop.poll_once(["coder"])
+        assert len(spawner.calls) == burned + 1
+
+        # Within the next heartbeat window the arm stays parked.
+        for _ in range(5):
+            loop.poll_once(["coder"])
+        assert len(spawner.calls) == burned + 1

@@ -25,3 +25,21 @@ SUPERVISION_FAILURE_STREAK_WARN = 5
 # Sticky alert (anomaly ``agent-invocation-fail-streak``) when the
 # per-dupe-key streak reaches this threshold.
 SUPERVISION_FAILURE_STREAK_ALERT = 10
+
+# ---------------------------------------------------------------------------
+# Successful-no-op park (#3425)
+# ---------------------------------------------------------------------------
+# A one-shot invocation that exits cleanly WITHOUT changing BRC state is a
+# "successful no-op": the loop re-derives the identical dedupe key next poll
+# and would re-spawn indefinitely (observed as ~50 pod spawns against a slice
+# wedged on an unresolved operator HITL decision). After this many consecutive
+# clean completions of the SAME dedupe key the arm is parked. A productive
+# success changes BRC state — its key is never re-derived — so it can never
+# accumulate a streak past 1.
+SUPERVISION_NOOP_STREAK_PARK = 3
+
+# While parked, a probe spawn is still allowed this often. This is the
+# liveness backstop for a wedge whose unblock the orchestrator cannot observe
+# through the contract-decision fingerprint; it bounds the burn to ~2 pods/h
+# instead of deadlocking the arm.
+SUPERVISION_NOOP_PARK_RETRY_SECONDS = 1800

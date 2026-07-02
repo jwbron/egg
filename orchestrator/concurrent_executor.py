@@ -520,6 +520,7 @@ class ConcurrentPhaseExecutor:
             overseer_alert=self._emit_supervision_alert,
             agent_failed=self._handle_propose_arm_exhaustion,
             on_exhausted=self._teardown_exhausted_session,
+            hitl_probe=self._unresolved_contract_decision_ids,
         )
 
         # #3064 slice-5: convergence-stall notifier re-uses the same
@@ -994,6 +995,46 @@ class ConcurrentPhaseExecutor:
                 anomaly=anomaly,
                 error=str(exc),
             )
+
+    def _unresolved_contract_decision_ids(self) -> frozenset[str] | None:
+        """Return ids of unresolved contract-resident decisions (#3425).
+
+        Wired as the :class:`JobSupervisor`'s ``hitl_probe``: the fingerprint
+        whose change releases a successful-no-op park. Resolving a contract
+        HITL (``cq-N``) writes only the contract file — never the BRC tracker
+        — so a parked arm cannot see the unblock through its dedupe key; this
+        probe is how the resolution reaches the event loop. Read path mirrors
+        the resolve fallback (``routes/decisions/_resolve.py``): the live
+        contract in the shared pipeline worktree.
+
+        Returns ``None`` (not the empty set) on any read failure so the
+        supervisor treats the fingerprint as unknown and falls back to the
+        retry heartbeat, rather than mistaking an unreadable contract for
+        "nothing pending" and releasing the park on the next successful read.
+        Only called while an arm is actually parked, so this is off the hot
+        spawn path.
+        """
+        try:
+            import contract_store
+            from egg_contracts import ContractNotFoundError, load_contract
+            from routes.pipelines import _pipeline_identifier
+
+            worktree = contract_store.resolve_pipeline_worktree(self.pipeline.id)
+            if worktree is None:
+                return frozenset()
+            identifier = _pipeline_identifier(self.pipeline.issue_number, self.pipeline.id)
+            try:
+                contract = load_contract(identifier, worktree)
+            except ContractNotFoundError:
+                return frozenset()
+            return frozenset(d.id for d in contract.decisions if not d.resolved)
+        except Exception:  # noqa: BLE001 — probing is best-effort
+            logger.warning(
+                "Failed to probe contract decisions for no-op park fingerprint",
+                pipeline_id=self.pipeline.id,
+                exc_info=True,
+            )
+            return None
 
     def _handle_propose_arm_exhaustion(
         self, *, role: str, action: str, dedupe_key: str, streak: int, fatal: bool = False

@@ -1875,3 +1875,83 @@ class TestProposeArmExhaustionMessage:
         # Unchanged behaviour for ordinary streak exhaustion.
         assert "exhausted after 10 consecutive" in error
         assert "credential" not in error.lower()
+
+
+class TestUnresolvedContractDecisionProbe:
+    """#3425: the JobSupervisor ``hitl_probe`` the executor wires in.
+
+    The fingerprint whose change releases a successful-no-op park. Failure
+    semantics matter: an unreadable contract must yield ``None`` (unknown),
+    never the empty set — the supervisor would otherwise mistake a transient
+    read failure for "nothing pending" and release the park spuriously.
+    """
+
+    def _executor(self):
+        from concurrent_executor import ConcurrentPhaseExecutor
+
+        return ConcurrentPhaseExecutor(_make_pipeline(), spawn_fn=MagicMock())
+
+    def test_missing_worktree_is_empty_set(self):
+        executor = self._executor()
+        with patch("contract_store.resolve_pipeline_worktree", return_value=None):
+            assert executor._unresolved_contract_decision_ids() == frozenset()
+
+    def test_missing_contract_is_empty_set(self, tmp_path):
+        import egg_contracts
+
+        executor = self._executor()
+        with (
+            patch("contract_store.resolve_pipeline_worktree", return_value=tmp_path),
+            patch.object(
+                egg_contracts,
+                "load_contract",
+                side_effect=egg_contracts.ContractNotFoundError("issue-999", tmp_path),
+            ),
+        ):
+            assert executor._unresolved_contract_decision_ids() == frozenset()
+
+    def test_returns_unresolved_decision_ids(self, tmp_path):
+        import egg_contracts
+
+        executor = self._executor()
+        contract = MagicMock()
+        contract.decisions = [
+            MagicMock(id="cq-1", resolved=True),
+            MagicMock(id="cq-3", resolved=False),
+        ]
+        with (
+            patch("contract_store.resolve_pipeline_worktree", return_value=tmp_path),
+            patch.object(egg_contracts, "load_contract", return_value=contract),
+        ):
+            assert executor._unresolved_contract_decision_ids() == frozenset({"cq-3"})
+
+    def test_read_failure_is_none_not_empty(self, tmp_path):
+        import egg_contracts
+
+        executor = self._executor()
+        with (
+            patch("contract_store.resolve_pipeline_worktree", return_value=tmp_path),
+            patch.object(egg_contracts, "load_contract", side_effect=OSError("disk")),
+        ):
+            assert executor._unresolved_contract_decision_ids() is None
+
+    def test_wired_as_the_supervisor_hitl_probe(self):
+        """_start_event_loop hands the probe to the JobSupervisor."""
+        import event_loop as event_loop_mod
+
+        executor = self._executor()
+        captured: dict = {}
+        real_supervisor = event_loop_mod.JobSupervisor
+
+        def _capturing_supervisor(**kwargs):
+            captured.update(kwargs)
+            return real_supervisor(**kwargs)
+
+        with (
+            patch.object(event_loop_mod, "JobSupervisor", _capturing_supervisor),
+            patch.object(event_loop_mod.OrchestratorEventLoop, "start", lambda self: None),
+        ):
+            from egg_orchestrator.types import AgentRole
+
+            executor._start_event_loop([AgentRole.CODER], tracker=MagicMock())
+        assert captured.get("hitl_probe") == executor._unresolved_contract_decision_ids
