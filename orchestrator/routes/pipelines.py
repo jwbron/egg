@@ -17253,20 +17253,27 @@ def _incomplete_consensus_decision_text(
         prefix = "Consensus timed out; "
     else:
         prefix = "All containers exited; "
+    # Retry semantics must match what "Retry phase" actually executes on
+    # resolve — the restart_phase route (#3421 dispatch, #3080 preservation
+    # semantics): fresh worktrees re-fork from the shared work branch tip,
+    # and unpushed per-role commits survive only via best-effort salvage.
+    retry_copy = (
+        "'Retry phase' re-runs the phase from the shared work branch tip "
+        "(work pushed to the shared branch is preserved; unpushed per-role "
+        "commits are salvaged best-effort to egg/recovered/*)."
+    )
     if nacks:
         summary = _format_nack_summary(nacks)
         question = (
             f"{prefix}consensus incomplete with {len(nacks)} unresolved NACK(s): "
-            f"{summary}. Committed work is preserved on the per-role branch — "
-            f"'Retry phase' restarts with artifacts intact. How to proceed?"
+            f"{summary}. {retry_copy} How to proceed?"
         )
         log_suffix = f"\n--- INCOMPLETE CONSENSUS / UNRESOLVED NACKs ({len(nacks)}) ---\n{summary}"
     else:
         agent_list = ", ".join(blocking) if blocking else "unknown"
         question = (
             f"{prefix}consensus incomplete; agents never confirmed: {agent_list}. "
-            f"Committed work is preserved on the per-role branch — "
-            f"'Retry phase' restarts with artifacts intact. How to proceed?"
+            f"{retry_copy} How to proceed?"
         )
         log_suffix = (
             f"\n--- INCOMPLETE CONSENSUS / NO CONFIRMATION ---\nblocking_agents={agent_list}"
@@ -22107,6 +22114,16 @@ def _run_concurrent_phase(
                             nack_count=len(nack_details),
                             nack_summary=nack_summary,
                         )
+                        # Tag with the consensus-timeout context so "Retry
+                        # phase" dispatches through restart_phase on resolve
+                        # (#3421), for symmetry with the incomplete-consensus
+                        # sites below.  This question is hand-built and does not
+                        # promise restart copy, but restart_phase is the correct
+                        # "Retry phase" action regardless.  Like its siblings
+                        # this pod-mode path is unreachable today (spawn_all
+                        # returns [] post-#3164, so active_executions is always
+                        # empty); tagging keeps the dispatch honest if pod mode
+                        # is ever revived.
                         _persist_hitl_decision(
                             pipeline_id,
                             pipeline,
@@ -22117,6 +22134,7 @@ def _run_concurrent_phase(
                             ),
                             options=["Retry phase", "Accept current state", "Abort phase"],
                             phase=pipeline.current_phase,
+                            context=_CONSENSUS_TIMEOUT_HITL_CONTEXT,
                         )
                         combined_logs += (
                             f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
@@ -22187,6 +22205,13 @@ def _run_concurrent_phase(
                     blocking_agents=final_consensus.get("blocking_agents", []),
                     nack_count=len(final_consensus.get("unresolved_nacks", []) or []),
                 )
+                # Tag with the consensus-timeout context so "Retry phase"
+                # dispatches through restart_phase on resolve (#3421), matching
+                # the restart semantics `_incomplete_consensus_decision_text`
+                # promises.  This pod-mode container-exit path is unreachable
+                # today (spawn_all returns [] post-#3164, so active_executions
+                # is always empty), but tagging keeps the copy honest if pod
+                # mode is ever revived.
                 _persist_hitl_decision(
                     pipeline_id,
                     pipeline,
@@ -22194,6 +22219,7 @@ def _run_concurrent_phase(
                     question=question,
                     options=["Retry phase", "Accept current state", "Abort phase"],
                     phase=pipeline.current_phase,
+                    context=_CONSENSUS_TIMEOUT_HITL_CONTEXT,
                 )
                 combined_logs += log_suffix
                 return 1, combined_logs
@@ -22211,6 +22237,11 @@ def _run_concurrent_phase(
                     nack_count=len(nack_details),
                     nack_summary=nack_summary,
                 )
+                # Same as the unresolved-NACK site above: tag with the
+                # consensus-timeout context so "Retry phase" dispatches through
+                # restart_phase (#3421) for symmetry.  Hand-built question, no
+                # restart copy, but restart_phase is the right action here too.
+                # Dead pod-mode path today; tagging is cheap insurance.
                 _persist_hitl_decision(
                     pipeline_id,
                     pipeline,
@@ -22221,6 +22252,7 @@ def _run_concurrent_phase(
                     ),
                     options=["Retry phase", "Accept current state", "Abort phase"],
                     phase=pipeline.current_phase,
+                    context=_CONSENSUS_TIMEOUT_HITL_CONTEXT,
                 )
                 combined_logs += f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
                 return 1, combined_logs
@@ -22252,6 +22284,10 @@ def _run_concurrent_phase(
                     elapsed_seconds=round(elapsed, 1),
                     blocking_agents=final_consensus.get("blocking_agents", []),
                 )
+                # Same as the container-failure path above: tag with the
+                # consensus-timeout context so "Retry phase" dispatches through
+                # restart_phase (#3421) and honors the restart copy.  Also a
+                # dead pod-mode path today; tagging is cheap insurance.
                 _persist_hitl_decision(
                     pipeline_id,
                     pipeline,
@@ -22259,6 +22295,7 @@ def _run_concurrent_phase(
                     question=question,
                     options=["Retry phase", "Accept current state", "Abort phase"],
                     phase=pipeline.current_phase,
+                    context=_CONSENSUS_TIMEOUT_HITL_CONTEXT,
                 )
                 combined_logs += log_suffix
                 return 1, combined_logs
@@ -22580,6 +22617,18 @@ def _run_concurrent_phase(
                             nack_count=len(nack_details),
                             nack_summary=nack_summary,
                         )
+                        # Tag with the consensus-timeout context so "Retry
+                        # phase" dispatches through restart_phase on resolve
+                        # (#3421), for symmetry with the incomplete-consensus
+                        # sites above.  This question is hand-built and does not
+                        # promise restart copy, but restart_phase is the correct
+                        # "Retry phase" action regardless.  Like its siblings
+                        # this pod-mode path is unreachable today: has_failures[0]
+                        # is only set in _record_container_exit, called solely for
+                        # active_executions / remaining members, which are always
+                        # empty in orchestrator mode (spawn_all returns []
+                        # post-#3164).  Tagging keeps the dispatch honest if pod
+                        # mode is ever revived.
                         _persist_hitl_decision(
                             pipeline_id,
                             pipeline,
@@ -22590,6 +22639,7 @@ def _run_concurrent_phase(
                             ),
                             options=["Retry phase", "Accept current state", "Abort phase"],
                             phase=pipeline.current_phase,
+                            context=_CONSENSUS_TIMEOUT_HITL_CONTEXT,
                         )
                         combined_logs += (
                             f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
