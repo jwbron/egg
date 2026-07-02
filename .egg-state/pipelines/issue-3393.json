@@ -268,10 +268,27 @@
       "resolution": "approve",
       "phase": "refine",
       "content_changed": true
+    },
+    {
+      "id": "decision-6",
+      "question": "The plan phase has completed. Please review the plan and approve to continue, or provide feedback to request changes.",
+      "context": "# The plan in plain terms — issue #3393\n\n**Six steps, done in a fixed order, that teach the pipeline system to work\nacross several GitHub repositories at once — opening one pull request per\nunit of work, each in the right repo, in the right order.**\n\nOne orientation note: all six steps change the pipeline system itself (the\negg repo). This project *builds* the multi-repo capability; it doesn't span\nrepos itself.\n\n## Why a fixed order instead of parallel work\n\nFive of the six steps edit the same very large source file, and steps 1 and 3\ntouch another shared file. Work that touches the same file in parallel\ncollides when the pieces are merged back together, so the steps form one\nstraight line — each builds on the previous. The order is also\nvalue-ordered: the data-format foundation lands first, because everything\nelse reads it.\n\n## The six steps\n\n1. **Teach the saved plan format about repos.** Every unit of work (\"slice\")\n   gets a `repo` field — exactly one repo each — and a pipeline now carries a\n   *list* of repos, each with its own starting branch. The saved format's\n   version number is bumped, and old saved plans upgrade automatically when\n   loaded (a slice without a repo is assigned the pipeline's primary repo).\n   This kind of upgrade has been done four times before in this codebase.\n   Single-repo pipelines are unaffected.\n\n2. **Accept a list of repos at submission, with the two safety checks.**\n   Submitting a pipeline now takes any number of repos (each with its own\n   starting branch); submitting a single repo the old way still works. The\n   submission is rejected — with an error naming the offending repos — if\n   the repos mix private and public, or mix sign-in methods. Two repos that\n   happen to share a name are fine (step 3 fixes the underlying ambiguity),\n   per the operator's ruling. The first repo in the list is the \"primary\"\n   one (used for naming and as the default), unless the submitter explicitly\n   marks another.\n\n3. **Stop ignoring every repo after the first.** Three places in the code\n   quietly kept only the first repo of the list; all three now use the\n   proper \"primary\" concept or the full list. Agents now receive the full\n   map of repo → checked-out folder, keyed by the repo's full\n   owner-plus-name (the operator-ruled fix for the name-collision trap). A\n   watchdog test fails the build if anyone reintroduces the old\n   first-repo-only shortcut.\n\n4. **Open each PR in its own repo.** A slice's PR is created in that slice's\n   repo. Every repo that has at least one slice also gets its own working\n   branch and umbrella PR — same conventions as today's single repo; repos\n   submitted but left without work get neither. All the PRs in a pipeline\n   reference each other so reviewers can see the whole picture.\n\n5. **The ordering hold, exactly as the operator decided.** When one slice\n   depends on a slice in a *different* repo, its PR opens as a **draft**, and\n   the system watches the upstream PR: the moment it merges, the draft is\n   automatically flipped to ready — no human needed for plain merge\n   ordering. Anything beyond merge order — waiting for a release of the\n   upstream repo, choosing a version to pin, or work that genuinely cannot\n   proceed — is a separate kind of hold that only a human decision releases.\n   Importantly, the dependency never delays the *work* itself, only when the\n   PR can merge.\n\n6. **Test and review each slice inside its own repo.** The test gate runs in\n   the slice's repo checkout only; the review diff compares against that\n   repo's own base branch; and the agent works under that repo's own house\n   rules (instructions file, linters, check commands) — egg's own commands\n   apply only to egg slices. The documentation is updated to describe the\n   new model.\n\n## How it's verified\n\nEach step ships with its own tests (format upgrades, submission checks, the\nwatchdog, PR routing, both hold types, per-repo scoping), and the full test\nsuite plus linting must stay green throughout. The standing regression\nguarantee: **a single-repo pipeline behaves exactly as it does today.**\n\n## After it lands\n\nNothing manual is needed. Old saved plans upgrade themselves the first time\nthey're loaded, and the new behavior applies to pipelines submitted after the\nnormal release rollout. The consciously deferred items — mixing sign-in\nmethods across repos, and fancier ordering machinery than the v1 hold — get\nfiled as a follow-up issue.\n\n\n[View the full detailed plan draft](https://github.com/jwbron/egg/blob/egg/issue-3393/work/.egg-state/drafts/3393-plan.md)",
+      "options": [
+        "approve",
+        "request changes"
+      ],
+      "decision_type": "phase_gate",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-07-02T00:25:16.666515Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "plan",
+      "content_changed": null
     }
   ],
   "created_at": "2026-07-01T23:25:33.719087Z",
-  "updated_at": "2026-07-02T00:25:11.927884Z",
+  "updated_at": "2026-07-02T00:25:16.676496Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -284,7 +301,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-07-02T00:03:30.058104Z",
-  "version": 41,
+  "version": 42,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
