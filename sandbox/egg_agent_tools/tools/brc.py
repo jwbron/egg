@@ -62,7 +62,15 @@ _PROPOSE_SCHEMA: dict[str, Any] = {
                 "pre-flight (#2338) so a misconfigured payload fails "
                 "locally with an actionable error rather than as a 400 "
                 "from the orchestrator. If you have no work in this slice "
-                "at all, use `no_changes_needed` (below) instead."
+                "at all, use `no_changes_needed` (below) instead. "
+                "Refine/plan producers (refiner, task_planner, architect, "
+                "risk_analyst) must attest their HITL decision ledger "
+                "(#3390): include `decisions_registered` (every cq-N id "
+                "you registered this phase via `egg-contract add-decision` "
+                "/ `mcp__sdlc__register_open_question`) or "
+                "`no_decisions_rationale` (why this phase deliberately "
+                "raises none) — the orchestrator rejects the propose "
+                "without one of them."
             ),
         },
         "no_changes_needed": {

@@ -231,6 +231,10 @@ def handle_re_propose(
         if barrier is not None:
             return barrier
 
+        unchanged = self._unchanged_tree_guard_response(agent_role, payload)
+        if unchanged is not None:
+            return unchanged
+
         # First, do scoped re-evaluation
         if changed_artifacts:
             invalidated = self.matrix.invalidate_overlapping_acks(agent_role, changed_artifacts)
@@ -333,6 +337,69 @@ def _open_nacks_barrier_response(self, producer: str) -> dict[str, Any] | None:
             f"finding from every NACKing reviewer in your next re-propose."
         ),
     }
+
+
+def _unchanged_tree_guard_response(
+    self,
+    agent_role: str,
+    payload: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Return a structured rejection if a re-propose carries no new commits.
+
+    Caller MUST hold ``self._lock``.
+
+    Unchanged-tree guard (#3395): a re-propose whose commit SHA equals the
+    current proposal's SHA carries zero new commits, so the NACK blockers
+    cannot have been addressed — it would only bump the version, re-invoke
+    every reviewer, and refresh the overseer's post-proposal grace window
+    (the v3-v12 ten-cycle loop). ``check_auto_repropose`` already
+    short-circuits the push-triggered path on an unchanged SHA; this bounds
+    both explicit paths.
+
+    Mirrored into ``handle_propose`` as well as ``handle_re_propose``
+    (#3415): a re-propose without ``--changed-artifacts`` routes to
+    ``handle_propose``, so guarding only ``handle_re_propose`` left the
+    exact single-reviewer incident scenario unguarded. Both SHAs must be
+    non-empty so a no-op ↔ real proposal transition — and the initial
+    ``version 0 → 1`` propose where ``current_sha == ""`` — is never
+    caught by the guard. Returns ``None`` (and clears the attempt counter)
+    when the tree has advanced.
+
+    Note (#3415): ``reconstruct_tracker_from_messages`` replays every
+    ``CONSENSUS_PROPOSE`` through ``handle_propose``, so reconstruction
+    shares this guard path. A message history that already contained
+    consecutive same-SHA proposes (a pipeline that was itself churning,
+    or a pre-#1473 history whose missing SHAs collapse to the
+    ``RECONSTRUCTED_NO_SHA`` sentinel) will have its later duplicate
+    proposes rejected on replay, so the reconstructed version can land
+    below the pre-restart live state — the de-churned reconstruction is
+    the more correct state, and ``reopen_producer`` (which clears
+    ``_proposal_commit_shas``) still lets a legitimately reopened
+    producer re-propose an unchanged tree on replay.
+    """
+    incoming_sha = str(payload.get("commit_sha") or "")
+    current_sha = self._proposal_commit_shas.get(agent_role, "")
+    if incoming_sha and current_sha and incoming_sha == current_sha:
+        attempts = self._unchanged_repropose_counts.get(agent_role, 0) + 1
+        self._unchanged_repropose_counts[agent_role] = attempts
+        return {
+            "status": "unchanged_tree_rejected",
+            "current_version": self.matrix.get_proposal_version(agent_role),
+            "commit_sha": current_sha,
+            "attempts": attempts,
+            "message": (
+                f"Re-proposal contains zero new commits: commit_sha "
+                f"{incoming_sha} is already the current proposal. "
+                "Land new commits before re-proposing. If a reviewer "
+                "NACKed and you believe no code change is needed, make "
+                "that case to them via send_message so they can "
+                "re-verdict the current version — re-proposing the same "
+                "tree cannot advance consensus (it neither resolves a "
+                "NACK nor changes what a withdrawn proposal offered)."
+            ),
+        }
+    self._unchanged_repropose_counts.pop(agent_role, None)
+    return None
 
 
 def check_auto_repropose(

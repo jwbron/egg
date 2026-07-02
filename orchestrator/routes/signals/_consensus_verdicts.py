@@ -665,6 +665,27 @@ def handle_consensus_propose_signal(
                 details=result,
             )
 
+        # Unchanged-tree rejection (#3395): the re_propose carried the same
+        # commit SHA as the current proposal — zero new commits, so the
+        # NACK blockers cannot have been addressed. Reject without bumping
+        # the version, re-invoking reviewers, or emitting a
+        # CONSENSUS_PROPOSE (which would refresh the overseer's
+        # post-proposal grace window and mask the stall).
+        if isinstance(result, dict) and result.get("status") == "unchanged_tree_rejected":
+            _pkg.logger.warning(
+                "re_propose rejected: unchanged tree",
+                pipeline_id=pipeline_id,
+                role=agent_role,
+                version=result.get("current_version"),
+                commit_sha=result.get("commit_sha"),
+                attempts=result.get("attempts"),
+            )
+            return make_error_response(
+                result.get("message", "Re-propose rejected: no new commits"),
+                status_code=409,
+                details=result,
+            )
+
         # Write consensus message to message bus.
         # Tag every CONSENSUS_* message with slice_id metadata when the
         # producer is slice-scoped so the implement-phase BRC writer

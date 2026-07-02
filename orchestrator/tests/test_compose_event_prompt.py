@@ -794,6 +794,100 @@ def test_build_delta_entries_prefers_real_sha_over_fallback() -> None:
 
 
 # ---------------------------------------------------------------------------
+# #3395: the re-review baseline must prefer the payload's server-resolved
+# ``last_reviewed_commit_sha`` (advances only when this reviewer's verdict
+# is recorded) over the agent-self-tracked memory bullet, which can
+# silently advance to the new proposal SHA before the range containing it
+# was reviewed — making ``git log {sha}..{sha}`` empty by construction and
+# the fix commit unreviewable forever (the permanent-NACK deadlock).
+# ---------------------------------------------------------------------------
+
+
+def test_build_delta_entries_prefers_server_baseline_over_poisoned_memory() -> None:
+    """Memory says the reviewer already reviewed the NEW proposal SHA
+    (the observed deadlock state); the server-resolved baseline says the
+    last verdict was on the parent. The delta must run from the server
+    baseline to the proposal SHA — the range that contains the fix."""
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from orchestrator.routes.event_prompt import _build_delta_entries
+
+    poisoned_memory = (
+        "## Per-producer assessment\n\n"
+        "### tester\n\n"
+        "- producer: tester\n"
+        "- last_reviewed_commit_sha: 7bb0dbc\n"  # advanced PAST the fix commit
+        "- prior_verdict: NACK\n"
+        "- prior_nack_reasons: vacuous-pass guards\n"
+        "- prior_conditional_obligation: -\n"
+        "- summary_of_assessment: blocked.\n"
+    )
+    with patch("orchestrator.routes.event_prompt._run_git_log", return_value="(diff)") as mock_log:
+        entries = _build_delta_entries(
+            action="nack",
+            role="reviewer_code",
+            base_branch="main",
+            repo_path=Path("/tmp"),
+            memory_text=poisoned_memory,
+            event_payload={
+                "pending_reviews": [
+                    {
+                        "producer": "tester",
+                        "proposal_commit_sha": "7bb0dbc",
+                        "last_reviewed_commit_sha": "e29714a",
+                    }
+                ]
+            },
+        )
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["last_reviewed_commit_sha"] == "e29714a", (
+        f"server-resolved baseline must beat the poisoned memory bullet — entry={entry!r}"
+    )
+    mock_log.assert_called_once_with("e29714a", "main", Path("/tmp"), end_ref="7bb0dbc")
+
+
+def test_build_delta_entries_falls_back_to_memory_sha_without_server_baseline() -> None:
+    """Legacy payloads (no ``last_reviewed_commit_sha`` enrichment) keep the
+    pre-#3395 memory-parsed baseline."""
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from orchestrator.routes.event_prompt import _build_delta_entries
+
+    memory_text = (
+        "## Per-producer assessment\n\n"
+        "### tester\n\n"
+        "- producer: tester\n"
+        "- last_reviewed_commit_sha: 0123abc\n"
+        "- prior_verdict: NACK\n"
+        "- prior_nack_reasons: missing tests\n"
+        "- prior_conditional_obligation: -\n"
+        "- summary_of_assessment: needs revision.\n"
+    )
+    with patch("orchestrator.routes.event_prompt._run_git_log", return_value="(diff)") as mock_log:
+        entries = _build_delta_entries(
+            action="nack",
+            role="reviewer_code",
+            base_branch="main",
+            repo_path=Path("/tmp"),
+            memory_text=memory_text,
+            event_payload={
+                "pending_reviews": [
+                    {
+                        "producer": "tester",
+                        "proposal_commit_sha": "7bb0dbc",
+                    }
+                ]
+            },
+        )
+    assert len(entries) == 1
+    assert entries[0]["last_reviewed_commit_sha"] == "0123abc"
+    mock_log.assert_called_once_with("0123abc", "main", Path("/tmp"), end_ref="7bb0dbc")
+
+
+# ---------------------------------------------------------------------------
 # #3076: the re-review delta must end at the producer's PROPOSAL SHA, not
 # the reviewer's own HEAD (which never contains the producer's commits —
 # per-role worktrees), and the first-review fallback must render concrete

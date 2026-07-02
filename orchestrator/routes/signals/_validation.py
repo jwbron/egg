@@ -357,6 +357,235 @@ def _artifact_human_label(spec_name: str) -> str:
     return _ARTIFACT_HUMAN_LABEL.get(spec_name, spec_name)
 
 
+# Producers that own a decision-ledger attestation (#3390): every refine/plan
+# producer except the simplifier, whose human-focused companion summarizes the
+# upstream draft and owns no decision surface. Kept in lockstep with the
+# refine/plan producer rows in ``egg_contracts.artifact_spec`` — a future
+# decision-bearing producer must be added here AND to
+# ``PRODUCER_ATTESTATION_MODELS`` in ``orchestrator/attestation_schemas.py``.
+_DECISION_ATTESTING_PHASES = frozenset({"refine", "plan"})
+_DECISION_ATTESTING_ROLES = frozenset({"refiner", "task_planner", "architect", "risk_analyst"})
+
+# Draft-owning producers whose attested ``cq-N`` ids must be cited in the
+# draft itself (the ``--format markdown`` output of ``egg-contract
+# add-decision`` embeds the id, so the registration flow passes this for
+# free). The architect / risk_analyst structured outputs (JSON/YAML) have no
+# prose decision surface, so they get the ledger cross-check only.
+_DECISION_CITATION_SPECS = frozenset({"analysis-draft", "plan-draft"})
+
+
+def _extract_attested_decision_fields(payload: dict[str, Any]) -> tuple[Any, Any]:
+    """Pull the raw decision-ledger fields off a proposal payload.
+
+    Returns ``(decisions_registered, no_decisions_rationale)`` exactly as
+    supplied (unvalidated — shape validation is
+    :func:`egg_contracts.decisions.decision_attestation_errors`'s job).
+    A missing or non-dict ``attestation`` yields ``(None, None)``.
+    """
+    attestation = payload.get("attestation")
+    if not isinstance(attestation, dict):
+        return None, None
+    return attestation.get("decisions_registered"), attestation.get("no_decisions_rationale")
+
+
+def _validate_decision_attestation_shape(
+    payload: dict[str, Any],
+    *,
+    agent_role: str,
+    phase: str,
+) -> None:
+    """Enforce the decision-ledger attestation *shape* at propose time (#3390).
+
+    The proposal ``attestation`` must carry exactly one of
+    ``decisions_registered`` (non-empty list of ``cq-N`` ids) or
+    ``no_decisions_rationale`` (non-empty string; the explicit empty
+    ledger). Shared with the Pydantic model via
+    ``decision_attestation_errors`` so the layers cannot drift.
+
+    This half needs neither contract nor commit access — only the
+    payload — so ``_validate_producer_artifacts`` runs it *ahead* of its
+    branch-verification early return. That guarantees the ledger claim is
+    hard-failed for every refine/plan producer even under a degraded
+    fetch (non-shared object store) where the contract cross-check in
+    :func:`_validate_decision_attestation` would be skipped.
+    """
+    if phase not in _DECISION_ATTESTING_PHASES or agent_role not in _DECISION_ATTESTING_ROLES:
+        return
+
+    registered, rationale = _extract_attested_decision_fields(payload)
+
+    try:
+        from egg_contracts.decisions import decision_attestation_errors
+    except ImportError:
+        return
+
+    errors = decision_attestation_errors(registered, rationale)
+    if errors:
+        raise ValueError(
+            f"{agent_role} proposal rejected: decision-ledger attestation "
+            f"missing or malformed ({' '.join(errors)}) — every {phase} "
+            f"producer must attest its HITL decision ledger when proposing "
+            f"(#3390). Include "
+            f'`attestation={{"decisions_registered": ["cq-1", ...]}}` listing '
+            f"every decision you registered this phase, or "
+            f'`attestation={{"no_decisions_rationale": "<why none>"}}` when '
+            f"the phase deliberately raises none. Register decisions first "
+            f"via `egg-contract add-decision` / "
+            f"`mcp__sdlc__register_open_question`, then re-propose."
+        )
+
+
+def _validate_decision_attestation(
+    pipeline_id: str,
+    payload: dict[str, Any],
+    *,
+    agent_role: str,
+    phase: str,
+    worktree_path: Path,
+    identifier: str | int,
+) -> None:
+    """Require a well-formed decision-ledger attestation at propose time (#3390).
+
+    The two-wave bridge and the converge-before-advance loop (#3392) can
+    only surface decisions that were *registered*; nothing verifies that a
+    phase which should raise decisions actually did, so a producer that
+    silently skips ``egg-contract add-decision`` advances the pipeline
+    with an empty ledger the operator cannot distinguish from
+    "deliberately none". This validator makes the ledger claim mandatory
+    and hard-fails the propose when it is missing, malformed, or refers
+    to decisions that were never registered:
+
+    1. **Shape** — delegated to :func:`_validate_decision_attestation_shape`.
+       ``_validate_producer_artifacts`` also runs that helper *ahead* of
+       its branch-verification early return, so the shape claim is
+       enforced even on the degraded-fetch path that reaches consensus
+       without the cross-check below. It is re-run here so a direct call
+       (or the plan back-compat wrapper) still enforces it.
+    2. **Cross-check** — every attested id must exist on the contract as
+       a HITL decision registered for the *current phase*. A hallucinated
+       or phase-misfiled id is rejected with the actionable fix. Only
+       ``hitl``-type decisions are recognised, matching the gate-side
+       counter in ``_collect_decision_ledger_status`` so the two views
+       cannot diverge into a spurious ``MISSING`` backstop.
+
+    Graceful degradation mirrors ``_validate_producer_artifacts``: when
+    the contract cannot be loaded (orchestrator-side glitch, not a
+    producer fault) the cross-check is skipped with a warning — but the
+    shape requirement is enforced by the hoisted shape check, so the
+    ledger claim itself is never skipped.
+    """
+    _validate_decision_attestation_shape(payload, agent_role=agent_role, phase=phase)
+
+    if phase not in _DECISION_ATTESTING_PHASES or agent_role not in _DECISION_ATTESTING_ROLES:
+        return
+
+    registered, _rationale = _extract_attested_decision_fields(payload)
+
+    attested_ids = list(registered or [])
+    if not attested_ids:
+        return
+
+    try:
+        contract = _pkg.load_contract(identifier, worktree_path)
+    except Exception as exc:
+        _pkg.logger.warning(
+            "decision-ledger cross-check skipped: contract not loadable (non-blocking)",
+            pipeline_id=pipeline_id,
+            role=agent_role,
+            phase=phase,
+            error=str(exc),
+        )
+        return
+
+    # Recognise only ``hitl``-type decisions, matching the gate-side
+    # counter in ``_collect_decision_ledger_status`` (#3390). If the two
+    # views disagreed — cross-check accepting an ``AUTO``-type id the gate
+    # never counts — an attested non-HITL id would pass propose yet still
+    # trip a spurious ``MISSING`` backstop at the gate.
+    by_id: dict[str, Any] = {}
+    for d in contract.decisions:
+        d_id = getattr(d, "id", None)
+        if not isinstance(d_id, str):
+            continue
+        d_type = getattr(d, "type", None)
+        d_type = getattr(d_type, "value", d_type)
+        if d_type != "hitl":
+            continue
+        by_id[d_id] = d
+
+    for attested in attested_ids:
+        decision = by_id.get(attested)
+        if decision is None:
+            raise ValueError(
+                f"{agent_role} proposal rejected: attested decision "
+                f"`{attested}` is not registered on the contract. The "
+                f"ledger attestation must list ids returned by "
+                f"`egg-contract add-decision` — register the decision "
+                f"first, then re-propose with the real id."
+            )
+        d_phase = getattr(decision, "phase", None)
+        d_phase = getattr(d_phase, "value", d_phase)
+        if d_phase is not None and d_phase != phase:
+            raise ValueError(
+                f"{agent_role} proposal rejected: attested decision "
+                f"`{attested}` is registered for the '{d_phase}' phase, "
+                f"not the current '{phase}' phase. Attest only decisions "
+                f"you registered for this phase (re-register with "
+                f"`--phase {phase}` if the question genuinely belongs "
+                f"here)."
+            )
+
+
+def _validate_decision_citations(
+    pipeline_id: str,
+    payload: dict[str, Any],
+    *,
+    agent_role: str,
+    phase: str,
+    draft_text: str,
+    draft_rel: str,
+) -> None:
+    """Require the draft to cite every attested ``cq-N`` id (#3390).
+
+    A decision that is registered but invisible in the draft is easy for
+    the operator (and the BRC reviewers) to miss — the ``--format
+    markdown`` output of ``egg-contract add-decision`` embeds the id, so
+    a producer that copies it into the draft's Open Questions section
+    passes this for free. Only well-formed ``cq-N`` entries are checked;
+    a malformed attestation is ``_validate_decision_attestation``'s job
+    (which raises the canonical shape error).
+    """
+    if phase not in _DECISION_ATTESTING_PHASES or agent_role not in _DECISION_ATTESTING_ROLES:
+        return
+
+    registered, _rationale = _extract_attested_decision_fields(payload)
+    if not isinstance(registered, list) or not registered:
+        return
+
+    try:
+        from egg_contracts.decisions import CQ_ID_PATTERN, extract_cq_citations
+    except ImportError:
+        return
+
+    attested = [i for i in registered if isinstance(i, str) and CQ_ID_PATTERN.match(i)]
+    if not attested:
+        return
+
+    cited = extract_cq_citations(draft_text)
+    missing = [i for i in attested if i not in cited]
+    if missing:
+        raise ValueError(
+            f"{agent_role} proposal rejected: attested decision(s) "
+            f"{', '.join(f'`{i}`' for i in missing)} are not cited anywhere "
+            f"in `{draft_rel}` at the proposed commit. Copy the "
+            f"`egg-contract add-decision --format markdown` output for each "
+            f"decision into the draft's Open Questions section (it embeds "
+            f"the id), commit and push, then re-propose — a registered "
+            f"decision the draft never mentions is invisible to the "
+            f"operator and the reviewers (#3390)."
+        )
+
+
 def _validate_producer_artifacts(
     pipeline_id: str,
     payload: dict[str, Any],
@@ -486,6 +715,14 @@ def _validate_producer_artifacts(
     if worktree_path is None:
         worktree_path = _pkg.resolve_worktree_path(pipeline_id, repo_path)
 
+    # Decision-ledger shape enforcement (#3390) runs BEFORE the
+    # branch-verification early return below: the shape check needs no
+    # contract/commit access, so hoisting it guarantees a refine/plan
+    # producer cannot reach consensus with a missing or malformed ledger
+    # attestation even on the degraded-fetch path (non-shared object
+    # store) that skips the presence loop and the contract cross-check.
+    _pkg._validate_decision_attestation_shape(payload, agent_role=agent_role, phase=phase)
+
     # Orchestrator-side commit verification was inconclusive — a non-zero
     # ``git show`` below could be "commit not in local object cache" rather
     # than "path absent at commit". But that ambiguity only exists when the
@@ -520,6 +757,19 @@ def _validate_producer_artifacts(
             return
 
     identifier = _pipeline_identifier(pipeline_state.issue_number, pipeline_id)
+
+    # Decision-ledger attestation (#3390): every refine/plan producer must
+    # attest the HITL decisions it registered (or explicitly attest none) and
+    # the attested ids must exist on the contract for this phase. Runs before
+    # the presence loop so the shape error — the most actionable fix — leads.
+    _pkg._validate_decision_attestation(
+        pipeline_id,
+        payload,
+        agent_role=agent_role,
+        phase=phase,
+        worktree_path=worktree_path,
+        identifier=identifier,
+    )
 
     for spec in specs:
         artifact_rel = spec.resolve_path(identifier)
@@ -561,6 +811,18 @@ def _validate_producer_artifacts(
                     plan_text=result.stdout,
                     plan_rel=artifact_rel,
                     pipeline_state=pipeline_state,
+                )
+            # Decision-citation check (#3390): the draft must cite every
+            # attested ``cq-N`` so a registered decision is visible where
+            # the operator and reviewers read it.
+            if spec.name in _DECISION_CITATION_SPECS:
+                _pkg._validate_decision_citations(
+                    pipeline_id,
+                    payload,
+                    agent_role=agent_role,
+                    phase=phase,
+                    draft_text=result.stdout,
+                    draft_rel=artifact_rel,
                 )
             continue
 
