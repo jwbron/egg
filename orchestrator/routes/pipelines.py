@@ -369,6 +369,7 @@ try:
         PipelineMode,
         PipelinePhase,
         PipelineStatus,
+        RepoSpec,
         ReviewVerdict,
     )
     from ..slice_id_validation import SLICE_ID_PATTERN, extract_slice_id
@@ -428,6 +429,7 @@ except ImportError:
         PipelineMode,
         PipelinePhase,
         PipelineStatus,
+        RepoSpec,
         ReviewVerdict,
     )
     from slice_id_validation import SLICE_ID_PATTERN, extract_slice_id  # type: ignore
@@ -2077,6 +2079,149 @@ def get_pipeline(pipeline_id: str) -> tuple[Response, int]:
         )
 
 
+def _normalize_submission_repos(
+    repos_arg: Any,
+) -> tuple[str | None, list[dict[str, str | None]], str | None, str | None]:
+    """Validate + normalize a multi-repo submission list (#3393).
+
+    Accepts the ``repos`` payload from ``POST /api/v1/pipelines`` — a list of
+    ``{repo, base_branch?, primary?}`` entries (a bare ``"owner/name"`` string
+    is tolerated as ``{repo: ...}``). Returns
+    ``(error, entries, primary_repo, primary_base_branch)``:
+
+    * ``error`` — a human-readable message when validation fails (the other
+      fields are meaningless in that case), else ``None``.
+    * ``entries`` — normalized ``{"repo", "base_branch"}`` dicts, reordered so
+      the primary is ``entries[0]`` (the ``Pipeline`` validator mirrors
+      ``repos[0]`` onto the legacy singleton and ``primary_repo``).
+
+    Per-entry repo/base_branch formats are validated with the same regexes the
+    single-repo path uses. Same-name repos under different owners are NOT
+    rejected here — they are distinct full ``owner/name`` slugs (operator
+    ruling #6; the owner/repo re-key lands in slice 3).
+    """
+    if not isinstance(repos_arg, list) or not repos_arg:
+        return ("repos must be a non-empty list of {repo, base_branch} entries", [], None, None)
+    entries: list[dict[str, str | None]] = []
+    primary_index = 0
+    seen_primary = False
+    for idx, raw in enumerate(repos_arg):
+        entry = {"repo": raw} if isinstance(raw, str) else raw
+        if not isinstance(entry, dict) or not entry.get("repo"):
+            return (f"repos[{idx}] must be an object with a 'repo' field", [], None, None)
+        repo_val = entry["repo"]
+        if not re.match(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$", repo_val):
+            return (
+                f"Invalid repo format in repos[{idx}]: {repo_val!r} (expected owner/name)",
+                [],
+                None,
+                None,
+            )
+        base_val = entry.get("base_branch")
+        if base_val is not None and (
+            not re.match(r"^[a-zA-Z0-9_./-]+$", base_val) or ".." in base_val
+        ):
+            return (f"Invalid base_branch in repos[{idx}]: {base_val!r}", [], None, None)
+        entries.append({"repo": repo_val, "base_branch": base_val})
+        if entry.get("primary"):
+            if seen_primary:
+                return ("At most one repos entry may set 'primary'", [], None, None)
+            seen_primary = True
+            primary_index = idx
+    # Reorder so the primary is first: the Pipeline model mirrors repos[0]
+    # onto the legacy repo/base_branch singleton and exposes it as
+    # ``primary_repo``.
+    if primary_index != 0:
+        entries.insert(0, entries.pop(primary_index))
+    primary = entries[0]
+    return (None, entries, primary["repo"], primary["base_branch"])
+
+
+def _assert_repo_set_uniform(repos: list[str]) -> str | None:
+    """Reject mixed-visibility / mixed-auth repo sets at submission (#3393, task-2-2).
+
+    A pipeline-wide private-mode posture (context filtering, egress rules)
+    requires every repo in one run to be uniformly private or uniformly public,
+    and — for v1 — to share a single auth mode. Returns an actionable,
+    repo-naming error string when the set diverges on either dimension, or
+    ``None`` when it is uniform. A single repo (after de-duplication) is
+    trivially uniform and short-circuits before any lookup, so N=1 pipelines
+    pay no cost and make no gateway round-trip.
+
+    Runtime note (container boundary): the orchestrator image bundles
+    ``config/repo_config.py`` but NOT ``gateway/``, so the per-repo lookups are
+    reached the way the orchestrator already reaches them — auth via
+    ``repo_config.assert_uniform_auth`` (imported directly, the same callable the
+    gateway's ``validate_auth_mode_uniformity`` delegates to) and visibility via
+    ``GatewayClient.get_repo_visibility`` over HTTP (the gateway holds the
+    tokens; mirrors ``_compute_gateway_mode``). ``internal`` counts as private.
+    The visibility comparison below is the HTTP-boundary twin of
+    ``gateway.repo_visibility.validate_visibility_uniformity`` (which the
+    orchestrator cannot import); keep the two in step.
+    """
+    unique = list(dict.fromkeys(repos))
+    if len(unique) <= 1:
+        return None
+
+    # Auth-mode uniformity — repo_config is bundled into the orchestrator image.
+    try:
+        from repo_config import assert_uniform_auth
+
+        assert_uniform_auth(unique)
+    except ValueError as exc:
+        return str(exc)
+    except Exception as exc:  # pragma: no cover - defensive (config read failure)
+        # Fail CLOSED for consistency with the visibility boundary below
+        # (reviewer_security v1): a config-read failure means we cannot prove a
+        # uniform auth mode, so we must not admit the set. repo_config is a
+        # local, bundled read — this path is genuinely exceptional, not a
+        # transient network hiccup.
+        logger.warning("Auth-mode uniformity check errored; failing closed", error=str(exc))
+        return (
+            "Could not determine the auth mode for the pipeline's repos, so a "
+            "uniform bot/user auth mode cannot be verified. Resubmit once repo "
+            "configuration is resolvable."
+        )
+
+    # Visibility uniformity — resolved via the gateway (the orchestrator's only
+    # visibility source). FAIL CLOSED on an indeterminate lookup (reviewer_security
+    # v1): for a multi-repo set (we only reach here when len(unique) > 1) a repo
+    # whose visibility cannot be resolved to a known bucket means the uniform
+    # private/public posture cannot be PROVEN — and this is a confidentiality
+    # boundary (a mixed set that slips through would let private-repo content
+    # flow through shared plan/contract/PR surfaces into a public repo, with no
+    # downstream re-check: _compute_gateway_mode derives the network mode from
+    # the PRIMARY repo only). N=1 short-circuits above, so the common case pays
+    # nothing. This mirrors gateway.repo_visibility.validate_visibility_uniformity;
+    # keep the two in step. Unrecognized (non-None) labels are treated as
+    # indeterminate too — only the known {public|private|internal} contract admits.
+    gw = get_gateway_client()
+    posture: dict[str, list[str]] = {}
+    for repo in unique:
+        vis = gw.get_repo_visibility(repo)
+        if vis in ("private", "internal"):
+            bucket = "private"
+        elif vis == "public":
+            bucket = "public"
+        else:
+            return (
+                f"Could not determine repository visibility for {repo!r}; cannot "
+                "verify a uniform private/public posture across the pipeline's "
+                "repos (a run must be uniformly private or uniformly public so "
+                "private-repo content cannot leak through shared plan/contract/PR "
+                "surfaces). Resubmit once the repo's visibility is resolvable."
+            )
+        posture.setdefault(bucket, []).append(repo)
+    if len(posture) > 1:
+        groups = "; ".join(f"{b}: {', '.join(sorted(rs))}" for b, rs in sorted(posture.items()))
+        return (
+            "Mixed repository visibility across the pipeline's repos is not allowed "
+            "(a run must be uniformly private or uniformly public, so private-repo "
+            f"content cannot leak through shared plan/PR surfaces). Diverging repos — {groups}."
+        )
+    return None
+
+
 @pipelines_bp.route("", methods=["POST"])
 @require_lifecycle_secret
 def create_pipeline() -> tuple[Response, int]:
@@ -2117,6 +2262,35 @@ def create_pipeline() -> tuple[Response, int]:
     branch = data.get("branch")
     base_branch = data.get("base_branch")
     prompt = data.get("prompt")
+
+    # #3393 (multi-repo): a submission may carry a ``repos`` list instead of
+    # (or in addition to) the single ``repo``. Normalize it up front and derive
+    # the primary onto the legacy ``repo``/``base_branch`` scalars so the
+    # single-repo plumbing below (naming, base-branch detection, branch checks)
+    # keeps working and a direct HTTP submission — one that bypasses the
+    # submit_task MCP tool that would otherwise mirror the primary — is
+    # supported. ``repos_entries`` is None for a single-repo submission.
+    repos_entries: list[dict[str, str | None]] | None = None
+    repos_arg = data.get("repos")
+    if repos_arg is not None:
+        _repos_err, repos_entries, _primary_repo, _primary_base = _normalize_submission_repos(
+            repos_arg
+        )
+        if _repos_err:
+            return make_error_response(
+                _repos_err, status_code=400, details={"reason": "invalid_repos"}
+            )
+        if repo and _primary_repo and repo != _primary_repo:
+            return make_error_response(
+                f"Conflicting repo {repo!r} and repos primary {_primary_repo!r}; "
+                "pass one or the other.",
+                status_code=400,
+                details={"reason": "repo_repos_conflict"},
+            )
+        if not repo:
+            repo = _primary_repo
+        if not base_branch:
+            base_branch = _primary_base
     mode = data.get("mode", "issue")
     analysis = data.get("analysis")
     plan = data.get("plan")
@@ -2477,6 +2651,35 @@ def create_pipeline() -> tuple[Response, int]:
                     },
                 )
 
+    # #3393 (multi-repo): enforce uniform visibility + auth across the run's
+    # repos before creating the pipeline. Single-repo submissions are trivially
+    # uniform and short-circuit without a gateway round-trip. Runs after the
+    # gateway-ready gate above so the visibility lookup can reach the gateway.
+    _uniform_repos = [e["repo"] for e in repos_entries] if repos_entries else ([repo] if repo else [])
+    _uniformity_err = _assert_repo_set_uniform([r for r in _uniform_repos if r])
+    if _uniformity_err:
+        return make_error_response(
+            _uniformity_err,
+            status_code=400,
+            details={"reason": "non_uniform_repo_set"},
+        )
+
+    # Assemble the full list-shaped repo set persisted onto the Pipeline. The
+    # primary (entries[0]) carries the resolved ``base_branch`` (detected above
+    # when absent); secondary repos keep their submitted base_branch (None ⇒
+    # auto-detected downstream). For a single-repo submission we leave
+    # ``repos_specs`` as None and let the Pipeline validator synthesize a
+    # one-element list from the legacy singleton (N=1 back-compat).
+    repos_specs: list[RepoSpec] | None = None
+    if repos_entries is not None:
+        repos_specs = [
+            RepoSpec(
+                repo=entry["repo"],
+                base_branch=(base_branch if idx == 0 else entry["base_branch"]),
+            )
+            for idx, entry in enumerate(repos_entries)
+        ]
+
     try:
         store = get_state_store(repo_path)
         pipeline = store.create_pipeline(
@@ -2484,6 +2687,7 @@ def create_pipeline() -> tuple[Response, int]:
             repo=repo,
             branch=branch,
             base_branch=base_branch,
+            repos=repos_specs,
             config=config,
             prompt=prompt,
             network_mode=network_mode,
