@@ -313,6 +313,159 @@ def _maybe_complete_task_from_resolution(
 
 
 # ---------------------------------------------------------------------------
+# Consensus-timeout HITL executable retry (#3421)
+# ---------------------------------------------------------------------------
+#
+# The incomplete-consensus HITL (``_persist_hitl_decision`` in
+# ``routes/pipelines.py``) is written to pipeline state moments before the
+# driver marks the pipeline FAILED and exits — nothing ever waits on it, so
+# resolving it was record-only: "Retry phase" was a silent no-op.  The #3233
+# revive doesn't cover it either (it is gated on ``phase_gate`` decisions and
+# AWAITING_HUMAN status; this decision is a ``choice`` on a ``failed``
+# pipeline).  Dispatch is keyed on the decision's context discriminator —
+# ``_CONSENSUS_TIMEOUT_HITL_CONTEXT`` in ``routes/pipelines.py`` — not the
+# prose question text, mirroring the ``failed_role:`` pattern.
+CONSENSUS_TIMEOUT_RETRY_OPTION = "Retry phase"
+CONSENSUS_TIMEOUT_ACCEPT_OPTION = "Accept current state"
+CONSENSUS_TIMEOUT_ABORT_OPTION = "Abort phase"
+
+
+def _maybe_dispatch_consensus_timeout_resolution(
+    pipeline_id: str,
+    decision: Any,
+    resolution_label: str | None,
+) -> dict[str, Any] | None:
+    """Execute a consensus-timeout HITL resolution (#3421).
+
+    Keys on the decision's ``consensus_timeout_incomplete`` context:
+
+    - **Retry phase** → call the ``restart_phase`` route in-process (the
+      documented manual workaround), which tears down the failed phase,
+      flips the pipeline back to RUNNING, and spawns a fresh driver.
+      ``restart_phase`` is lifecycle-secret guarded, but so is the
+      resolve-decision route invoking this hook, so the in-request call
+      passes the guard — same precedent as the #3233 revive reusing
+      ``start_pipeline``.
+    - **Abort phase** → no action: the driver already failed the pipeline
+      when it escalated this decision, so the state matches the intent.
+      The payload says so instead of resolving silently.
+    - **Accept current state** → not automated (force-advancing past a
+      non-converged phase is an operator judgment); the payload names the
+      manual follow-up instead of resolving silently.
+
+    Returns the executed-action payload merged into the resolve response,
+    or ``None`` when the decision is not a consensus-timeout HITL (or the
+    resolution is a free-form reply).  Failure is logged AND surfaced in
+    the payload — the decision is already resolved by the time dispatch
+    runs, so a silent failure would recreate the gap this hook closes.
+    """
+    # Lazy import — single source of truth for the context string;
+    # routes.pipelines is too heavy to bind at module import time.
+    from routes.pipelines import _CONSENSUS_TIMEOUT_HITL_CONTEXT
+
+    if getattr(decision, "context", "") != _CONSENSUS_TIMEOUT_HITL_CONTEXT:
+        return None
+
+    label = (resolution_label or "").strip()
+
+    if label == CONSENSUS_TIMEOUT_ABORT_OPTION:
+        return {
+            "action": "consensus_timeout_abort",
+            "success": True,
+            "note": (
+                "No action taken: the phase was already marked failed when "
+                "this decision was escalated, which is the aborted state."
+            ),
+        }
+
+    if label == CONSENSUS_TIMEOUT_ACCEPT_OPTION:
+        return {
+            "action": "consensus_timeout_accept",
+            "success": True,
+            "note": (
+                "Recorded only — accepting a non-converged phase is not "
+                "automated. Use advance_phase to move past the failed phase, "
+                "or restart_phase to re-run it."
+            ),
+        }
+
+    if label != CONSENSUS_TIMEOUT_RETRY_OPTION:
+        return None
+
+    phase = getattr(decision, "phase", None)
+    phase_val = getattr(phase, "value", phase)
+    if not phase_val:
+        # Older decisions may lack a pinned phase; restart the pipeline's
+        # current phase (restart_phase rejects anything else anyway).
+        try:
+            store, _ = _pkg.get_state_store_for_pipeline(pipeline_id)
+            pipeline = store.load_pipeline(pipeline_id)
+            phase_val = pipeline.current_phase.value
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Consensus-timeout retry: could not determine phase to restart",
+                pipeline_id=pipeline_id,
+                decision_id=getattr(decision, "id", "?"),
+                error=str(exc),
+                exc_info=True,
+            )
+            return {
+                "action": "restart_phase",
+                "success": False,
+                "error": f"could not determine phase to restart: {exc}",
+            }
+
+    try:
+        from routes.pipelines import restart_phase
+
+        resp, status_code = restart_phase(pipeline_id, phase_val)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "Consensus-timeout 'Retry phase' resolution raised; phase not restarted",
+            pipeline_id=pipeline_id,
+            decision_id=getattr(decision, "id", "?"),
+            phase=phase_val,
+            error=str(exc),
+            exc_info=True,
+        )
+        return {
+            "action": "restart_phase",
+            "phase": phase_val,
+            "success": False,
+            "error": str(exc),
+        }
+
+    if status_code != 200:
+        try:
+            payload = resp.get_json(silent=True) or {}
+            error = payload.get("message") or f"restart_phase returned HTTP {status_code}"
+        except Exception:  # noqa: BLE001
+            error = f"restart_phase returned HTTP {status_code}"
+        logger.error(
+            "Consensus-timeout 'Retry phase' resolution could not restart the phase",
+            pipeline_id=pipeline_id,
+            decision_id=getattr(decision, "id", "?"),
+            phase=phase_val,
+            status_code=status_code,
+            error=error,
+        )
+        return {
+            "action": "restart_phase",
+            "phase": phase_val,
+            "success": False,
+            "error": error,
+        }
+
+    logger.info(
+        "Consensus-timeout 'Retry phase' resolution restarted the phase",
+        pipeline_id=pipeline_id,
+        decision_id=getattr(decision, "id", "?"),
+        phase=phase_val,
+    )
+    return {"action": "restart_phase", "phase": phase_val, "success": True}
+
+
+# ---------------------------------------------------------------------------
 # Executable adds_task option (#3428)
 # ---------------------------------------------------------------------------
 #

@@ -879,6 +879,53 @@ class TestWorktreeManagement:
         sent = mock_request.call_args.kwargs["data"]
         assert "assigned_branch" not in sent
 
+    def test_create_worktrees_forwards_push_branches(self, gateway_client):
+        """push_branches=True reaches the wire payload as ``push_branch``.
+
+        Executable-seam guard for #3393 slice-7 / cq-4: a multi-repo pipeline
+        sets ``push_branches=True`` so the gateway materializes each
+        participating repo's ``egg/<pipeline_id>/work`` branch on its own
+        remote before any PR-opening call. Without this the orchestrator→
+        gateway threading was only exercised at the invariant / mocked-opener
+        level (``grep push_branch`` over the test tree returned nothing).
+        """
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            mock_request.return_value = {
+                "success": True,
+                "data": {"worktrees": {"repo1": "/tmp/wt"}, "errors": []},
+            }
+            gateway_client.create_worktrees(
+                container_id="issue-3393-coder",
+                repos=["owner/repo1", "owner/repo2"],
+                assigned_branch="egg/issue-3393/work",
+                push_branches=True,
+            )
+
+        assert mock_request.call_count == 1
+        sent = mock_request.call_args.kwargs["data"]
+        assert sent["push_branch"] is True
+
+    def test_create_worktrees_omits_push_branch_by_default(self, gateway_client):
+        """N=1 (default) callers leave ``push_branch`` out of the payload.
+
+        The single-repo path must stay byte-identical to pre-#3393: with
+        ``push_branches`` defaulting to False the key is absent, so the gateway
+        never runs the best-effort materialization push for single-repo
+        pipelines.
+        """
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            mock_request.return_value = {
+                "success": True,
+                "data": {"worktrees": {"repo1": "/tmp/wt"}, "errors": []},
+            }
+            gateway_client.create_worktrees(
+                container_id="test",
+                repos=["owner/repo1"],
+            )
+
+        sent = mock_request.call_args.kwargs["data"]
+        assert "push_branch" not in sent
+
     def test_delete_worktrees(self, gateway_client, mock_gateway_server):
         """Test deleting worktrees for a container."""
         result = gateway_client.delete_worktrees(

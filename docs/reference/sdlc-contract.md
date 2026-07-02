@@ -40,6 +40,8 @@ egg-contract add-decision \
 
 The `--phase` flag (optional) scopes the decision to a specific pipeline phase (`refine`, `plan`, `implement`, `pr`). Defaults to the contract's `current_phase`. Phase-scoped decisions block `complete_phase` until resolved — the endpoint returns 409 if any decisions for the current phase remain open.
 
+Decisions are append-only: a write targeting an already-populated index is rejected with 409 rather than overwritten, and agent tooling (`register_open_question`) retries against a freshly re-read index. See [HITL Decisions § Append-Only Guard and Write-Time Durability](../hitl-decisions.md#append-only-guard-and-write-time-durability-3427).
+
 Use for: architecture choices, go/no-go decisions, implementation strategy.
 
 ### Feedback (Open-Ended)
