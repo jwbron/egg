@@ -5,6 +5,7 @@ Tests for orchestrator models.
 from datetime import UTC, datetime
 
 import pytest
+from egg_contracts.models import Slice
 from models import (
     PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN,
     AgentExecution,
@@ -20,7 +21,9 @@ from models import (
     PipelineConfig,
     PipelinePhase,
     PipelineStatus,
+    RepoSpec,
     resolve_consensus_timeout_minutes,
+    resolve_slice_repo,
 )
 
 
@@ -1206,3 +1209,155 @@ class TestPipelinePhase:
         assert PipelinePhase.APPLY == "apply"
         # StrEnum: value-equal to string for serialisation symmetry.
         assert PipelinePhase("apply") == PipelinePhase.APPLY
+
+
+# ---------------------------------------------------------------------------
+# Multi-repo pipelines (#3393, slice-1) — orchestrator layer.
+#
+# The ORCHESTRATOR half of the two-layer repo-dimension design: RepoSpec,
+# Pipeline.repos (+ the legacy-singleton sync validator), the primary_repo
+# accessor, and the runtime resolve_slice_repo default. The CONTRACT half
+# (Slice.repo + the schema 1.4 migration) is covered in
+# shared/egg_contracts/tests/test_models.py.
+# ---------------------------------------------------------------------------
+
+
+class TestRepoSpec:
+    """``RepoSpec`` carries an owner/name repo + an optional base branch."""
+
+    def test_repo_required(self):
+        spec = RepoSpec(repo="jwbron/egg")
+        assert spec.repo == "jwbron/egg"
+
+    def test_base_branch_defaults_to_none(self):
+        spec = RepoSpec(repo="jwbron/egg")
+        assert spec.base_branch is None
+
+    def test_base_branch_can_be_set(self):
+        spec = RepoSpec(repo="jwbron/egg", base_branch="main")
+        assert spec.base_branch == "main"
+
+
+class TestPipelineReposSynthesisAndMirror:
+    """``_sync_repos_and_legacy_singleton`` bridges the legacy scalar ⇄ list (AC-e)."""
+
+    def test_legacy_singleton_synthesizes_one_element_repos(self):
+        # A pipeline persisted before the ``repos`` field existed: only the
+        # legacy ``repo``/``base_branch`` singleton is set. The validator
+        # synthesizes a one-element list from it.
+        pipeline = Pipeline(id="issue-3393", repo="jwbron/egg", base_branch="main")
+        assert len(pipeline.repos) == 1
+        assert pipeline.repos[0].repo == "jwbron/egg"
+        assert pipeline.repos[0].base_branch == "main"
+
+    def test_explicit_repos_mirror_back_onto_legacy_singleton(self):
+        # When ``repos`` is provided, repos[0] is mirrored back onto the
+        # legacy scalars so the not-yet-rewired (slice-3) readers keep working.
+        pipeline = Pipeline(
+            id="issue-3393",
+            repos=[
+                RepoSpec(repo="jwbron/egg", base_branch="main"),
+                RepoSpec(repo="jwbron/other", base_branch="develop"),
+            ],
+        )
+        assert pipeline.repo == "jwbron/egg"
+        assert pipeline.base_branch == "main"
+        # The full list is preserved — nothing collapses to a single repo.
+        assert [r.repo for r in pipeline.repos] == ["jwbron/egg", "jwbron/other"]
+
+    def test_repo_less_pipeline_left_untouched(self):
+        # Local-mode pipeline (no repo, no repos): stays empty, scalars None.
+        pipeline = Pipeline(id="local-run")
+        assert pipeline.repos == []
+        assert pipeline.repo is None
+        assert pipeline.base_branch is None
+
+    def test_synthesis_is_idempotent_on_reload(self):
+        pipeline = Pipeline(id="issue-3393", repo="jwbron/egg", base_branch="main")
+        reloaded = Pipeline.model_validate(pipeline.model_dump())
+        assert len(reloaded.repos) == 1
+        assert reloaded.repos[0].repo == "jwbron/egg"
+        assert reloaded.repo == "jwbron/egg"
+        assert reloaded.base_branch == "main"
+
+    def test_arbitrary_repo_count_supported(self):
+        # No two-repo special case: an arbitrary-length list round-trips.
+        specs = [RepoSpec(repo=f"jwbron/r{i}", base_branch="main") for i in range(5)]
+        pipeline = Pipeline(id="issue-3393", repos=specs)
+        assert [r.repo for r in pipeline.repos] == [f"jwbron/r{i}" for i in range(5)]
+
+
+class TestPrimaryRepo:
+    """``primary_repo`` is the intentional named-primary accessor (AC-f)."""
+
+    def test_primary_repo_is_repos_zero(self):
+        pipeline = Pipeline(
+            id="issue-3393",
+            repos=[
+                RepoSpec(repo="jwbron/egg", base_branch="main"),
+                RepoSpec(repo="jwbron/other", base_branch="develop"),
+            ],
+        )
+        assert pipeline.primary_repo == pipeline.repos[0].repo == "jwbron/egg"
+
+    def test_primary_repo_from_legacy_singleton(self):
+        pipeline = Pipeline(id="issue-3393", repo="jwbron/egg")
+        assert pipeline.primary_repo == "jwbron/egg"
+
+    def test_primary_repo_none_for_repo_less_pipeline(self):
+        pipeline = Pipeline(id="local-run")
+        assert pipeline.primary_repo is None
+
+
+class TestResolveSliceRepo:
+    """``resolve_slice_repo`` applies the absent-Slice.repo⇒primary default (AC-d)."""
+
+    def test_explicit_slice_repo_wins(self):
+        pipeline = Pipeline(
+            id="issue-3393",
+            repos=[
+                RepoSpec(repo="jwbron/egg", base_branch="main"),
+                RepoSpec(repo="jwbron/other", base_branch="develop"),
+            ],
+        )
+        slice_ = Slice(id="slice-1", name="in the secondary repo", repo="jwbron/other")
+        assert resolve_slice_repo(slice_, pipeline) == "jwbron/other"
+
+    def test_absent_slice_repo_falls_back_to_primary(self):
+        pipeline = Pipeline(
+            id="issue-3393",
+            repos=[
+                RepoSpec(repo="jwbron/egg", base_branch="main"),
+                RepoSpec(repo="jwbron/other", base_branch="develop"),
+            ],
+        )
+        slice_ = Slice(id="slice-1", name="no explicit repo")
+        assert slice_.repo is None
+        assert resolve_slice_repo(slice_, pipeline) == "jwbron/egg"
+
+    def test_absent_slice_repo_with_repo_less_pipeline_is_none(self):
+        pipeline = Pipeline(id="local-run")
+        slice_ = Slice(id="slice-1", name="no repo anywhere")
+        assert resolve_slice_repo(slice_, pipeline) is None
+
+
+class TestN1BackCompat:
+    """N=1 pipelines behave identically to the pre-multi-repo world (AC-g)."""
+
+    def test_single_repo_pipeline_resolves_to_that_repo(self):
+        pipeline = Pipeline(id="issue-3393", repo="jwbron/egg", base_branch="main")
+        # One synthesized repo, primary is it, and every (repo-less) slice
+        # resolves to the single repo — no behavioural change.
+        assert len(pipeline.repos) == 1
+        assert pipeline.primary_repo == "jwbron/egg"
+        slice_ = Slice(id="slice-1", name="the only slice")
+        assert resolve_slice_repo(slice_, pipeline) == "jwbron/egg"
+
+    def test_single_repo_pipeline_round_trips_unchanged(self):
+        pipeline = Pipeline(id="issue-3393", repo="jwbron/egg", base_branch="main")
+        dumped = pipeline.model_dump()
+        reloaded = Pipeline.model_validate(dumped)
+        assert reloaded.repo == "jwbron/egg"
+        assert reloaded.base_branch == "main"
+        assert len(reloaded.repos) == 1
+        assert reloaded.primary_repo == "jwbron/egg"
