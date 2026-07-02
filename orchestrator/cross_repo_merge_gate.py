@@ -66,6 +66,16 @@ DEFAULT_MAX_POLL_ATTEMPTS = 240
 HoldKind = Literal["auto", "hitl"]
 HoldReason = Literal["closed_unmerged", "timeout", "beyond_merge_state"]
 
+# Upstream-state → dependent-PR-action verdicts. Shared vocabulary with the
+# task-5-3 tester reference logic so the converged classifier agrees on one
+# shape: a merged upstream readies the dependent PR (Tier-A auto), a
+# closed-unmerged upstream escalates to a HITL hold, an open upstream keeps
+# waiting (the bounded-timeout terminal is applied by ``poll_once`` which
+# tracks attempts across ticks — the single-state classifier is bound-less).
+MARK_READY = "mark_ready"
+HITL_HOLD = "hitl_hold"
+WAIT = "wait"
+
 
 @dataclass(frozen=True)
 class CrossRepoUpstream:
@@ -205,15 +215,45 @@ def find_cross_repo_gates(
 
 
 def _is_merged(state: dict[str, Any] | None) -> bool:
-    """Merged iff ``mergedAt``/``merged_at`` is set OR state == MERGED.
+    """Merged iff a merge timestamp / ``merged`` bool is set OR state == MERGED.
 
-    Keys off merge-state, never head-SHA equality (#3393 task-5-1 pin a).
+    Keys off merge-state, never head-SHA equality (#3393 task-5-1 pin a):
+    a squash/rebase merge yields a merge-commit SHA that differs from the PR
+    head, so a SHA comparison would miss the merge. Accepts both the gateway
+    read shape (``merged_at``) and the raw ``gh`` shapes (``mergedAt`` /
+    ``merged`` boolean) so the same predicate serves the live poll and the
+    public ``classify_upstream_merge`` seam.
     """
     if not state:
         return False
     if state.get("merged_at") or state.get("mergedAt"):
         return True
+    if state.get("merged") is True:
+        return True
     return str(state.get("state") or "").strip().upper() == "MERGED"
+
+
+def classify_upstream_merge(pr_state: dict[str, Any] | None) -> str:
+    """Classify one upstream PR's observed state → dependent-PR action.
+
+    The single-state (bound-less) core of the Tier-A merge poll, exposed as a
+    public seam so the merged/closed classification is testable in isolation
+    and shared with the task-5-3 tester reference logic:
+
+    * merged (``mergedAt`` / ``merged`` / ``state == MERGED``) → :data:`MARK_READY`
+    * closed-not-merged → :data:`HITL_HOLD` (Tier-A failure terminal)
+    * still open / unknown → :data:`WAIT`
+
+    The never-merging **timeout** terminal is NOT expressible from a single
+    state read (it needs the cross-tick attempt count), so it lives in
+    :func:`poll_once` — this classifier only distinguishes merged vs
+    closed-unmerged vs still-waiting.
+    """
+    if _is_merged(pr_state):
+        return MARK_READY
+    if _is_closed_unmerged(pr_state):
+        return HITL_HOLD
+    return WAIT
 
 
 def _is_closed_unmerged(state: dict[str, Any] | None) -> bool:

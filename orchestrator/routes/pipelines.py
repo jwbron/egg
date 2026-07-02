@@ -18439,10 +18439,10 @@ def _start_stacked_pr_reconciler(
             contract,
             resolve_repo=lambda s: resolve_slice_repo(s, pipeline),
             get_merge_state=lambda repo_slug, pr_num: gateway.get_pr_merge_state(
-                pipeline_id, repo_slug, pr_num
+                pipeline_id, repo_slug, pr_number=pr_num
             ),
             mark_ready=lambda repo_slug, pr_num: bool(
-                gateway.mark_pr_ready(pipeline_id, repo_slug, pr_num)
+                gateway.mark_pr_ready(pipeline_id, repo_slug, pr_number=pr_num)
             ),
             register_hold=lambda gate, reason: _register_cross_repo_hold(
                 pipeline_id=pipeline_id,

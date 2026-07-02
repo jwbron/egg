@@ -676,6 +676,7 @@ def get_pr_merge_state(
     self,
     pipeline_id: str,
     repo: str,
+    *,
     pr_number: int,
 ) -> dict[str, Any] | None:
     """Read an upstream PR's merge state via the control-plane route (#3393).
@@ -727,6 +728,7 @@ def mark_pr_ready(
     self,
     pipeline_id: str,
     repo: str,
+    *,
     pr_number: int,
 ) -> bool:
     """Transition a draft PR to ready via the control-plane route (#3393).
