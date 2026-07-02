@@ -1,5 +1,76 @@
 # Coder BRC memory — issue-3393 (multi-repo pipelines)
 
+## Slice-4 — slice-PR routing to slice.repo + lazy per-repo context PR
+
+**Branch:** `egg/issue-3393-slice-4-coder/work` (base = slice-3 tip aa567fa67)
+**Tasks:** task-4-1, task-4-2 — implemented in this slice.
+**Files:** `orchestrator/gateway_client/_pr.py`, `orchestrator/routes/pipelines.py`.
+
+### task-4-1 (slice-PR → slice.repo + cross-repo refs)
+- `_pr.py`: `create_slice_pr` gains `sibling_pr_refs` + `upstream_pr_ref`
+  params; new module-level `_format_pr_ref` (renders `owner/repo#N`,
+  drops malformed/`<1`/bool) + `_append_related_prs_section` (emits
+  `## Related PRs` only when non-empty). Section placed after
+  `## This slice`, before `## Stack`.
+- `pipelines.py` slice caller (~19229): compute
+  `slice_repo = resolve_slice_repo(slice_obj, pipeline) or pipeline.repo`
+  (local import of `resolve_slice_repo` from `models`); build
+  `sibling_pr_refs` = OTHER slices whose resolved repo != slice_repo AND
+  have `pr_number` (CROSS-repo only); `upstream_pr_ref` = first-dependency
+  slice's PR only when cross-repo. Stored in `slice_pr_data`; the
+  `create_slice_pr` call now passes `repo=slice_pr_data["slice_repo"] or
+  pipeline.repo` + the two ref sets.
+- **N=1 byte-equivalent:** slice_repo == primary == pipeline.repo; all
+  refs are cross-repo-only ⇒ empty ⇒ section omitted ⇒ body unchanged.
+  Same-repo stacking stays in `## Stack`.
+
+### task-4-2 (lazy per-repo context PR)
+- **Tester-pinned interfaces (converged with task-4-3, commit 52ed962fc):**
+  (1) module-level `_repos_with_slices(contract, pipeline) -> list[str]`
+  = participating repos owning ≥1 slice, ordered by `pipeline.repos`,
+  deduped, slice-less excluded (matches tester's `_expected_
+  participating_repos`). (2) `_compose_context_pr_body` renders each
+  slice's PR link REPO-QUALIFIED (`owner/repo#N`) when the slice's
+  resolved repo != the context PR's repo, bare `#N` when same-repo — new
+  `context_repo` param (default = primary). Tester test
+  `test_cross_repo_sibling_is_repo_qualified` asserts `jwbron/consumer#200`
+  present + `#100` bare.
+- `_compose_context_pr_body` also keeps optional `sibling_context_prs`
+  (default None ⇒ N=1 unchanged); renders `## Coordinated repos`
+  (`owner/repo#N`) only when provided (context-PR↔context-PR refs).
+- New `_maybe_open_secondary_context_prs` (guard: `len(pipeline.repos)>1`,
+  never raises) → `_open_secondary_context_prs`. Called at BOTH return
+  sites of `_open_context_pr_at_implement_start` (idempotent hit + fresh
+  create). Helper: loads contract, computes repos-with-≥1-slice via
+  `resolve_slice_repo`, drops primary, and per secondary repo
+  lookup-or-create a `egg/<id>/work` context PR (per-repo base from
+  `RepoSpec.base_branch` else `main`), then cross-refs all bodies
+  (primary + secondaries) via `update_pr_body`. Slice-less submitted
+  repos skipped.
+- **N=1 byte-equivalent:** guard `<=1` (N=1 repos has exactly 1) ⇒ helper
+  never invoked ⇒ zero extra work; primary opener path untouched.
+
+### KNOWN LIMIT (documented in code + proposal) — secondary-worktree dep
+Opening a secondary context PR (and routing an N>1 slice PR) needs that
+repo's `egg/<id>/work`/integration branch to exist on its remote, which
+needs a SECONDARY-repo worktree to push. Slice-3 explicitly deferred
+threading the full repo set into worktree CREATION (only the primary is
+materialised today). So at runtime secondary `create_pr` typically fails
+on a missing head branch — helper SOFT-FAILS (log + continue) and ADOPTS
+an already-open secondary PR via launcher-auth `lookup_open_pr` (works
+per-repo, no worktree). Iteration + cross-ref structure is complete and
+forward-compatible: once secondary worktree/branch creation is wired
+(a later slice), secondary context PRs open with NO further change here.
+This is the honest slice-4 boundary — reviewer_contract: the acceptance
+"every repo with ≥1 slice gets a work branch + context PR" is delivered
+STRUCTURALLY; runtime completion is gated on the deferred worktree wiring.
+
+### Validation (no venv — cert-blocked, same as slices 2/3)
+- `py_compile` + system `ruff check` clean on both files.
+- Pure-logic sanity: `_format_pr_ref`/`_append_related_prs_section`
+  (N=1 empty, dedup, malformed-drop, upstream+siblings) + coordinated-
+  repos renderer all pass. Full pytest deferred to tester (task-4-3).
+
 ## Slice-3 — stop the repos[0] collapse; owner/repo-keyed worktree map
 
 **Proposed commit:** `5601063cb` (branch `egg/issue-3393-slice-3-coder/work`)
