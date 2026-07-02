@@ -19052,6 +19052,35 @@ def _run_implement_phase_slices(
                         scheduler.record_failure(slice_id)
                         return 1, evidence_failure
 
+                # #3398 — per-slice green gate: execute the repo's
+                # configured checks (repositories.yaml, via
+                # get_repo_checks) against the integration-branch tip
+                # in a sandboxed one-shot runner, and refuse to open
+                # the slice PR while any check is red. Closes the
+                # trust-vs-verify gap in the propose-time
+                # checks_passed self-report. Same posture as the
+                # evidence gate above: fail-open on infra errors,
+                # fail-closed only on a definitive red verdict;
+                # EGG_SLICE_GREEN_GATE is the operator switch
+                # (off during rollout / log / on).
+                if pipeline.repo:
+                    try:
+                        import slice_green_gate as _green_gate
+                    except ImportError:
+                        from .. import slice_green_gate as _green_gate  # type: ignore[no-redef]
+
+                    green_gate_failure = _green_gate.run_slice_green_gate(
+                        pipeline_id,
+                        spawner,
+                        slice_id,
+                        integration_branch,
+                        pipeline.repo,
+                        gateway_mode=gateway_mode,  # type: ignore[arg-type]
+                    )
+                    if green_gate_failure is not None:
+                        scheduler.record_failure(slice_id)
+                        return 1, green_gate_failure
+
                 # Snapshot the slice's PR data from the same loaded
                 # contract — no second lock acquire, no second file
                 # read.
