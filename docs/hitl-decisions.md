@@ -838,9 +838,12 @@ Resolving the decision now dispatches on its label:
 keys the dispatch on the decision's `context` field
 (`_CONSENSUS_TIMEOUT_HITL_CONTEXT = "consensus_timeout_incomplete"` in
 `routes/pipelines.py`), not the prose question text — mirroring the
-context-keyed `failed_role:` / `hard_reset_recovery:` discriminators in the
-same file (note the sibling `_maybe_complete_task_from_resolution` (#3124)
-keys on a regex over the *resolution label* instead, not `context`).
+context-keyed `failed_role:` discriminator (set in
+`orchestrator/concurrent_executor.py`, consumed in
+`routes/decisions/_resolve.py` / `routes/signals/_consensus_confirm.py`),
+matching the code comment at `_handlers.py` (note the sibling
+`_maybe_complete_task_from_resolution` (#3124) keys on a regex over the
+*resolution label* instead, not `context`).
 Dispatch failure (e.g. `restart_phase`
 raising, or returning non-200) is logged and surfaced in `executed_action`
 rather than swallowed, since the decision is already resolved by the time
