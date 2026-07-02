@@ -554,9 +554,10 @@ class TestNoSurvivingReadSites:
         "shared/egg_contracts/models.py",
         # This file — the assertion strings reference the deleted names.
         "tests/shared/egg_contracts/test_pr_metadata.py",
-        # The model migration test constructs a legacy pre-1.2 payload with
-        # the removed keys and asserts they are stripped on load — its
-        # purpose is to verify the removal, not to read the fields.
+        # The models unit-test suite: ``test_wrap_mode_strips_pr_context_
+        # fields_on_pre_1_2_load`` feeds the three legacy keys into a pre-1.2
+        # payload precisely to assert the migration shim strips them. Its
+        # purpose is to verify the removal, so it is allow-listed.
         "shared/egg_contracts/tests/test_models.py",
         # The doc-terminology regression test asserts the docs do NOT
         # mention the deleted fields (regression-by-grep).

@@ -474,7 +474,13 @@ shape:
        fresh slice from an interrupted one), creates the integration
        branch via the gateway, calls
        `_run_concurrent_phase(slice_id=...)` to spawn the slice's
-       agent team, awaits BRC consensus, and on consensus reach calls
+       agent team, awaits BRC consensus, and on consensus reach — after
+       the evidence-reachability gate (#3125) and the per-slice green
+       gate (`slice_green_gate.run_slice_green_gate`, #3398, which
+       spawns a sandboxed one-shot check-runner Job to execute the
+       repo's configured checks at the integration-branch tip and
+       blocks PR-open on a red verdict; staged rollout via
+       `EGG_SLICE_GREEN_GATE`, fail-open on infra errors) — calls
        `GatewayClient.create_slice_pr` with `base` resolved from the
        slice's DAG parent (root → pipeline branch; child → parent's
        integration branch). On failure the worker calls
@@ -773,6 +779,22 @@ with no slices gets neither. A single-repo pipeline gets exactly one work branch
 and one context PR, byte-equivalent to the pre-multi-repo path. Context-PR
 bodies cross-reference their sibling context PRs in the pipeline.
 
+For a multi-repo pipeline (`len(repos) > 1`), `kubernetes_spawner` asks the
+gateway to materialize each repo's work branch on its own remote right after
+the worktree is created (`create_worktrees(..., push_branches=True)`, wired
+through the gateway's `_materialize_work_branch_on_remote`, #3393 slice-7):
+the fresh worktree HEAD is pushed to
+`refs/heads/{assigned_branch or work-branch}`. The push runs for every repo in
+the list — including the primary, where it's a no-op the orchestrator's
+existing push path already covered. It is best-effort, non-forced, and
+idempotent: a branch already present on the remote — even one whose tip has
+diverged — is treated as already materialized (a non-fast-forward rejection is
+swallowed rather than force-pushed, so the primary's contract-init commit is
+never clobbered). This guarantees a secondary repo's context/slice PR always
+has a head branch to open against instead of soft-failing on a missing one.
+Single-repo pipelines pass `push_branches=False` and stay byte-identical to
+the pre-#3393 path.
+
 ### Per-slice PR routing
 
 `GatewayClient.create_slice_pr` is repo-parameterized; the run loop passes each
@@ -882,7 +904,21 @@ the agents the slice schema and constraints:
      verbatim from the scaffold.
   4. The yaml-block key swap: `slices:` is canonical, `phases:` is
      backward-compat.
-- **Plan reviewer (`reviewer_plan`)** — two prompt sections:
+  5. *Test co-location* (HARD,
+     [#3411](https://github.com/jwbron/egg/issues/3411)): when a slice
+     removes, renames, or rewrites code, the planner enumerates the
+     matching test updates (skip-guard, deletion, rewrite) as tasks in
+     that same slice — never a later one — listing the test files in
+     the tasks' `files:`. Every cumulative slice tip must be
+     independently green or the per-slice green gate
+     ([#3398](https://github.com/jwbron/egg/issues/3398)) blocks the
+     slice PR. The architect's prompt carries the mirror rule (the
+     removing slice's `goal` must cover the test updates). The affected
+     tests are statically discoverable with the selector's
+     `--impacted-tests <file>...` mode (the same import graph
+     `make test` narrowing uses); exit 2 means the closure is
+     unavailable and the planner greps the removed symbols instead.
+- **Plan reviewer (`reviewer_plan`)** — three prompt sections:
   1. *Forest-violation NACK*: when the populator left a "Plan ingestion
      REJECTED" block on `plan_review_feedback` (or a `forest_violation`
      log discriminator is present), the reviewer NACKs the **architect**
@@ -905,12 +941,23 @@ the agents the slice schema and constraints:
      large slice is deliberate (e.g. atomic schema migration) — the
      architect cites the override in the analysis and the reviewer
      ACKs once the rationale is on the record.
+  3. *Test co-location NACK* (hard,
+     [#3411](https://github.com/jwbron/egg/issues/3411)). For each
+     slice whose tasks remove or rename symbols, the reviewer checks
+     that the test files statically referencing those symbols appear in
+     that slice's task `files:` (or an ancestor's). Tests that appear
+     only in a later slice — or nowhere — earn a NACK routed to the
+     **architect** naming the code files, the referencing test files,
+     and the slice each currently sits in. See
+     `_get_plan_review_criteria()` §13 for the rubric and the
+     `--impacted-tests` self-check.
 
 ## Configuration knobs
 
-All slice/scheduler knobs live in `orchestrator/env_config.py` and
+Most slice/scheduler knobs live in `orchestrator/env_config.py` and
 return typed values (positive int / positive float) with logged fallbacks
-on parse failure.
+on parse failure. The green-gate knobs below are read directly via
+`os.environ.get` in `orchestrator/slice_green_gate.py`.
 
 | Env var | Type | Default | Controls |
 |---------|------|---------|----------|
@@ -921,6 +968,9 @@ on parse failure.
 | `EGG_ORCH_SLICE_FAILURE_GRACE_SECONDS` | float | 60.0 | Grace window before a failure cascade marks the downstream subtree `BLOCKED_ON_FAILED_DEPENDENCY`. |
 | `EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS` | float | 30.0 | Reconciler polling cadence for orphaned child PRs. |
 | `EGG_ORCH_CROSS_REPO_MERGE_GATE_MAX_ATTEMPTS` | int | 240 | Poll-attempt budget for the cross-repo merge-sequencing gate (#3393) before a never-merging upstream escalates to a HITL hold; ~2h at the default reconciler cadence. See [Cross-repo merge-sequencing hold](#cross-repo-merge-sequencing-hold-two-tier). |
+| `EGG_SLICE_GREEN_GATE` | str | `off` | Per-slice green gate rollout switch (#3398): `off` skips the gate entirely; `log` runs the repo's configured checks at the slice tip and logs a red verdict without blocking; `on` blocks slice PR-open on a red verdict. Case-insensitive, with aliases — `on` also accepts `1`/`true`/`yes`, and `log` also accepts `log-only`/`log_only`. Unknown values resolve to `off`. |
+| `EGG_SLICE_GREEN_GATE_SKIP_CHECKS` | str (comma-separated) | `security` | Configured check *names* (from `repositories.yaml` `checks`) the gate skips. |
+| `EGG_SLICE_GREEN_GATE_TIMEOUT_SECONDS` | int | 1800 | Wall-clock budget for the check-runner pod (spawn-to-terminal); a hung suite degrades to fail-open rather than wedging the slice close. |
 
 ### Per-pipeline vs. global slice caps
 

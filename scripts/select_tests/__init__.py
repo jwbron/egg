@@ -102,6 +102,7 @@ from . import _cli, _constants, _graph, _io  # noqa: F401 — re-export targets
 
 # Selection records, fallback evaluator, --why, CLI surface.
 from ._cli import (
+    _argv_requests_impacted_tests,
     _build_arg_parser,
     _fnmatch,
     _format_chain,
@@ -114,6 +115,7 @@ from ._cli import (
     emit_full_suite,
     evaluate_fallback_triggers,
     explain_why,
+    impacted_tests,
     main,
     patch_selection_record,
     write_selection_record,
@@ -260,6 +262,7 @@ __all__ = (
     "reverse_closure",
     "reverse_closure_with_depth",
     # CLI helpers (public + private)
+    "_argv_requests_impacted_tests",
     "_build_arg_parser",
     "_fnmatch",
     "_format_chain",
@@ -272,6 +275,7 @@ __all__ = (
     "emit_full_suite",
     "evaluate_fallback_triggers",
     "explain_why",
+    "impacted_tests",
     "main",
     "patch_selection_record",
     "write_selection_record",

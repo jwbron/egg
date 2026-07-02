@@ -43,6 +43,20 @@ applies backoff (streak*backoff capped), emits OVERSEER_ALERT on persistent
 streaks, and resets on success. The wrapper template imports the constants
 from the same source (``supervision_policy.py``).
 
+**#3425: successful-no-op park**
+
+The failure-streak park cannot catch a slice wedged on an unresolved operator
+HITL decision (contract ``cq-N``): each spawned pod discovers the block and
+exits cleanly, so nothing fails, the BRC state never moves, the identical
+dedupe key is re-derived, and the loop re-spawns forever (~50 pods observed).
+The supervisor therefore also counts clean completions per key (an interleaved
+abort does not reset the count — a crash/no-op-flapping wedged arm should still
+park) and parks the arm at ``SUPERVISION_NOOP_STREAK_PARK`` (sticky alert once).
+Because resolving the ``cq-N`` writes only the contract file — never the
+tracker — the park self-releases on a change in the unresolved
+contract-decision set (``hitl_probe``) and, as a liveness backstop, every
+``SUPERVISION_NOOP_PARK_RETRY_SECONDS``.
+
 **Slice-5 (#3064): convergence-stall detection (re-homed idle-budget)**
 
 In orchestrator mode the in-pod ``check_idle_budget`` no longer runs.
@@ -87,6 +101,8 @@ SUPERVISION_BACKOFF_FACTOR = _supervision_policy.SUPERVISION_BACKOFF_FACTOR
 SUPERVISION_BACKOFF_CAP_SECONDS = _supervision_policy.SUPERVISION_BACKOFF_CAP_SECONDS
 SUPERVISION_FAILURE_STREAK_WARN = _supervision_policy.SUPERVISION_FAILURE_STREAK_WARN
 SUPERVISION_FAILURE_STREAK_ALERT = _supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT
+SUPERVISION_NOOP_STREAK_PARK = _supervision_policy.SUPERVISION_NOOP_STREAK_PARK
+SUPERVISION_NOOP_PARK_RETRY_SECONDS = _supervision_policy.SUPERVISION_NOOP_PARK_RETRY_SECONDS
 
 # Verb partitioning — the single source of truth for the verb→lifecycle
 # mapping the loop enforces. ``confirm``/``complete`` run orchestrator-side
@@ -97,7 +113,12 @@ AGENT_FREE_ACTIONS: frozenset[str] = frozenset({"confirm", "complete"})
 # Job-outcome classification the loop feeds the supervisor (slice-3, #3138).
 # A ``job_status_view`` maps a one-shot Job's termination onto one of these:
 #   * ``running``    — still in flight (or status unreadable); leave it.
-#   * ``success``    — clean rc=0 agent completion; reset the streak.
+#   * ``success``    — clean rc=0 agent completion; reset the failure streak.
+#                      Also counts toward the #3425 successful-no-op streak:
+#                      a clean exit that produced zero BRC progress re-derives
+#                      the identical dedupe key, and after
+#                      ``SUPERVISION_NOOP_STREAK_PARK`` such completions the
+#                      arm parks instead of re-spawning forever.
 #   * ``legitimate`` — a non-abnormal BRC outcome (stale-event exit 0, a cast
 #                      NACK vote); an explicit non-trigger — streak untouched.
 #                      RESERVED for a future richer observer: the current k8s
@@ -348,10 +369,19 @@ class JobSupervisor:
         overseer_alert: Callable[..., Any] | None = None,
         agent_failed: Callable[..., Any] | None = None,
         on_exhausted: Callable[..., Any] | None = None,
+        hitl_probe: Callable[[], Iterable[str] | None] | None = None,
     ) -> None:
         self.clock = clock
         self._overseer_alert = overseer_alert
         self._agent_failed = agent_failed
+        # #3425: best-effort probe returning the ids of unresolved
+        # contract-resident decisions (``cq-N``). Resolving such a decision
+        # writes only the contract file — never the BRC tracker — so a parked
+        # arm cannot observe the unblock through its dedupe key; a change in
+        # this set is what releases a successful-no-op park. ``None`` from the
+        # probe (or no probe wired) means "unknown": the park then releases
+        # only via the retry heartbeat.
+        self._hitl_probe = hitl_probe
         # #3064 slice-4: fired once when a dedupe key crosses into the
         # exhausted set (the ``_exhausted`` transition). The orchestrator
         # wires this to tear down the role's reused gateway session — an
@@ -376,22 +406,102 @@ class JobSupervisor:
         self._alerted_10: dict[str, bool] = {}
         # Set to track keys that have exhausted budget (per #3138).
         self._exhausted: set[str] = set()
+        # #3425 successful-no-op park state, per dedupe key. The streak counts
+        # clean completions of the SAME key (an interleaved abort does not reset
+        # it — a crash/no-op-flapping wedged arm should still park): only an
+        # invocation that produced zero BRC progress is re-derived under an
+        # identical key, so a productive success is inert at 1. At
+        # ``SUPERVISION_NOOP_STREAK_PARK`` the arm parks (sticky alert once);
+        # the park self-releases on a contract-decision fingerprint change or
+        # the retry heartbeat — never permanently, unlike ``_exhausted``.
+        #
+        # Asymmetry with ``_streaks`` (intentional, do not "fix" by popping in
+        # ``record_success``): ``record_success`` IS the no-op increment path,
+        # so it cannot pop here the way it pops the failure streak — productive
+        # vs. no-op is indistinguishable at success time (that is the design;
+        # the dedupe-key identity is what separates them). A productive success
+        # therefore leaves a permanent ``{key: 1}`` entry. This is bounded by
+        # the distinct BRC events over a single loop's lifetime (the supervisor
+        # is per-pipeline-loop, torn down with it — not process-global), and
+        # ``retire()`` / ``reconcile()`` prune it on the paths that can, so it
+        # is an accounting asymmetry, not a leak.
+        self._noop_streaks: dict[str, int] = {}
+        # {dedupe_key: fingerprint-at-park} — the unresolved contract-decision
+        # id set observed when the key parked (or on the last probe release).
+        self._noop_fingerprint: dict[str, frozenset[str] | None] = {}
+        # {dedupe_key: clock() of the last allowed park-probe spawn} — anchors
+        # the retry heartbeat.
+        self._noop_last_probe: dict[str, float] = {}
+        # Once-per-key sticky latch for the no-op park alert.
+        self._alerted_noop: dict[str, bool] = {}
 
     # ------------------------------------------------------------------
     #  Public API (used by the orchestrator loop)
     # ------------------------------------------------------------------
 
-    def record_success(self, dedupe_key: str) -> None:
-        """Reset the streak and latches for a given dedupe key.
+    def record_success(self, dedupe_key: str, *, action: str = "", role: str = "") -> None:
+        """Reset the failure streak and latches for a given dedupe key.
 
         Called when a finished Job with ``dedupe_key`` returns success
         (rc=0, agent completed the event cleanly).
+
+        #3425: a clean exit is not necessarily progress. A success that moved
+        the BRC state is never re-derived under the same key, so its no-op
+        counter dies at 1; a successful *no-op* (the agent ran, discovered it
+        was blocked — typically on an unresolved operator HITL ``cq-N`` — and
+        exited without a bus message) is re-spawned under an identical key and
+        climbs the counter. At ``SUPERVISION_NOOP_STREAK_PARK`` the arm parks
+        and a sticky alert fires once (see :meth:`noop_parked` for the
+        release conditions). The #3138 failure-streak park cannot catch this
+        case — these invocations *succeed*.
         """
         self._streaks.pop(dedupe_key, None)
         self._alerted_warn.pop(dedupe_key, None)
         self._alerted_10.pop(dedupe_key, None)
         self._exhausted.discard(dedupe_key)
-        logger.debug("JobSupervisor: success for key=%s — streak reset", dedupe_key)
+        streak = self._noop_streaks.get(dedupe_key, 0) + 1
+        self._noop_streaks[dedupe_key] = streak
+        logger.debug(
+            "JobSupervisor: success for key=%s — failure streak reset (clean completions=%d)",
+            dedupe_key,
+            streak,
+        )
+        if streak >= SUPERVISION_NOOP_STREAK_PARK and not self._alerted_noop.get(dedupe_key, False):
+            self._alerted_noop[dedupe_key] = True
+            fingerprint = self._probe_hitl_fingerprint()
+            self._noop_fingerprint[dedupe_key] = fingerprint
+            self._noop_last_probe[dedupe_key] = self.clock()
+            logger.warning(
+                "JobSupervisor: %d consecutive successful no-op invocations for key=%s "
+                "(action=%s, role=%s) — parking the arm; spawning at an unchanged BRC "
+                "state cannot resolve an operator-bound wedge",
+                streak,
+                dedupe_key,
+                action,
+                role,
+            )
+            self._emit_noop_alert(dedupe_key, streak, action, role, fingerprint)
+
+    def retire(self, dedupe_key: str) -> None:
+        """Forget ALL supervision state for a key that will never be re-derived.
+
+        The "this key is done" primitive for superseded same-role siblings
+        (#3337): the event's tracker state is stale, so its streaks, latches,
+        exhaustion, and no-op park state must not linger for the process
+        lifetime. Distinct from :meth:`record_success`, which counts the
+        completion toward the #3425 no-op streak.
+        """
+        self._streaks.pop(dedupe_key, None)
+        self._last_abort_time.pop(dedupe_key, None)
+        self._last_action.pop(dedupe_key, None)
+        self._alerted_warn.pop(dedupe_key, None)
+        self._alerted_10.pop(dedupe_key, None)
+        self._exhausted.discard(dedupe_key)
+        self._noop_streaks.pop(dedupe_key, None)
+        self._noop_fingerprint.pop(dedupe_key, None)
+        self._noop_last_probe.pop(dedupe_key, None)
+        self._alerted_noop.pop(dedupe_key, None)
+        logger.debug("JobSupervisor: retired key=%s — all supervision state dropped", dedupe_key)
 
     def record_legitimate_outcome(self, dedupe_key: str, outcome: str) -> None:
         """Called when a Job finishes with a legitimate BRC outcome.
@@ -580,6 +690,95 @@ class JobSupervisor:
         """Return True if the given dedupe-key has exhausted its retry budget."""
         return dedupe_key in self._exhausted
 
+    def noop_parked(self, dedupe_key: str) -> bool:
+        """Return True iff the key is parked on a successful-no-op streak (#3425).
+
+        Parked = ``SUPERVISION_NOOP_STREAK_PARK`` clean completions of the
+        same key with zero BRC progress (the loop re-derived the identical key
+        each time; an interleaved abort does not reset the count). Unlike #3138
+        failure exhaustion, the park self-releases — the wedge is typically an
+        unresolved operator HITL decision (``cq-N``), whose resolution writes
+        only the contract file and never the tracker, so waiting for a new
+        dedupe key would deadlock the slice after the operator answers:
+
+        * immediately, when the unresolved contract-decision set differs from
+          the one recorded at park time (e.g. the gating ``cq-N`` was
+          resolved) — detected via ``hitl_probe``;
+        * every ``SUPERVISION_NOOP_PARK_RETRY_SECONDS`` as a liveness
+          backstop (also the only release when no probe is wired or it
+          fails).
+
+        Each release allows exactly one probe spawn: the fingerprint /
+        heartbeat anchor is refreshed, and if the pod no-ops again the streak
+        keeps the key parked. Called only on the loop's would-spawn path, so
+        the probe never runs for healthy keys.
+        """
+        if self._noop_streaks.get(dedupe_key, 0) < SUPERVISION_NOOP_STREAK_PARK:
+            return False
+        now = self.clock()
+        current = self._probe_hitl_fingerprint()
+        parked = self._noop_fingerprint.get(dedupe_key)
+        if current is not None and parked is not None and current != parked:
+            self._noop_fingerprint[dedupe_key] = current
+            self._noop_last_probe[dedupe_key] = now
+            # Re-arm the once-per-key alert latch only when a decision is *still*
+            # gating (``current`` non-empty). The alert names the decisions
+            # recorded at park time; if the probe spawn no-ops again on a
+            # freshly-gating ``cq-N`` the arm re-parks, and without re-arming the
+            # latch would suppress a new alert, leaving the operator staring at a
+            # stale one naming an already-resolved cq-N. This keeps "one alert
+            # per distinct wedge" rather than "one alert per key lifetime".
+            #
+            # But an *empty* new set means the wedge cleared (the operator
+            # resolved the last gating decision), so the released probe will
+            # proceed and make real progress. Re-arming here would let the next
+            # ``record_success`` — which cannot distinguish a productive
+            # completion from a repeat no-op (any rc=0 exit maps to SUCCESS) —
+            # fire a spurious high-priority alert on the common happy path,
+            # falsely claiming zero BRC progress with no visible gating decision.
+            # So only re-arm when a decision remains.
+            if current:
+                self._alerted_noop.pop(dedupe_key, None)
+            logger.info(
+                "JobSupervisor: contract-decision set changed for parked key=%s "
+                "(was %s, now %s) — releasing the no-op park for a probe spawn",
+                dedupe_key,
+                sorted(parked),
+                sorted(current),
+            )
+            return False
+        last = self._noop_last_probe.get(dedupe_key)
+        if last is None or (now - last) >= SUPERVISION_NOOP_PARK_RETRY_SECONDS:
+            self._noop_last_probe[dedupe_key] = now
+            logger.info(
+                "JobSupervisor: no-op park retry heartbeat elapsed for key=%s "
+                "— allowing a probe spawn",
+                dedupe_key,
+            )
+            return False
+        return True
+
+    def _probe_hitl_fingerprint(self) -> frozenset[str] | None:
+        """Snapshot the unresolved contract-decision id set (best-effort).
+
+        ``None`` means "unknown" (no probe wired, probe failed, or the probe
+        itself signalled unknown) — the caller must then never treat the
+        fingerprint as comparable, falling back to the retry heartbeat.
+        """
+        if self._hitl_probe is None:
+            return None
+        try:
+            result = self._hitl_probe()
+        except Exception as exc:  # noqa: BLE001 — probing is best-effort
+            logger.warning(
+                "JobSupervisor: hitl probe failed — treating fingerprint as unknown: %s",
+                exc,
+            )
+            return None
+        if result is None:
+            return None
+        return frozenset(result)
+
     def reconcile(self, live_dedupe_keys: Iterable[str]) -> None:
         """When restarting, reconcile from live Job labels.
 
@@ -599,6 +798,10 @@ class JobSupervisor:
         self._alerted_warn.clear()
         self._alerted_10.clear()
         self._exhausted.clear()
+        self._noop_streaks.clear()
+        self._noop_fingerprint.clear()
+        self._noop_last_probe.clear()
+        self._alerted_noop.clear()
         # Re-initialise live-key set if the caller provides it.
         # We only need to know which keys exist, not the full history.
         for key in live_dedupe_keys:
@@ -632,6 +835,55 @@ class JobSupervisor:
                     f"Threshold: streak >= {SUPERVISION_FAILURE_STREAK_ALERT}."
                 ),
             )
+
+    def _emit_noop_alert(
+        self,
+        dedupe_key: str,
+        streak: int,
+        action: str,
+        role: str,
+        fingerprint: frozenset[str] | None,
+    ) -> None:
+        """Emit a named, once-per-key alert for a successful-no-op park (#3425).
+
+        Distinct from :meth:`_emit_alert`'s ``agent-invocation-fail-streak``:
+        these invocations *succeed* — the slice is wedged on something a
+        respawn cannot resolve (typically an unresolved operator HITL
+        ``cq-N``), so the message points the operator at the pending decision
+        rather than at agent health.
+        """
+        if self._overseer_alert is None:
+            return
+        if fingerprint:
+            gating = (
+                f" Unresolved contract HITL decision(s) likely gating it: "
+                f"{', '.join(sorted(fingerprint))} — check get_status "
+                f"pending_contract_decisions and resolve via provide_input."
+            )
+        else:
+            gating = (
+                " No unresolved contract decision was visible at park time; "
+                "check the slice's BRC transcript for what the agent is "
+                "blocked on."
+            )
+        self._overseer_alert(
+            anomaly="agent-invocation-noop-streak",
+            priority="high",
+            summary=(
+                f"agent invocations completing with zero BRC progress "
+                f"(action={action}, streak={streak})"
+            ),
+            detail=(
+                f"Event-pump for role={role} has had {streak} consecutive one-shot "
+                f"invocations on action={action} that exited cleanly WITHOUT any "
+                f"BRC-bus progress (dedupe key {dedupe_key} re-derived unchanged "
+                f"each time). The arm is parked: no further pods spawn for this key "
+                f"until the unresolved contract-decision set changes (e.g. the "
+                f"gating cq-N is resolved) or the BRC state moves; a probe spawn is "
+                f"retried every {SUPERVISION_NOOP_PARK_RETRY_SECONDS}s as a "
+                f"backstop.{gating}"
+            ),
+        )
 
     def _emit_fatal_alert(self, dedupe_key: str, action: str, role: str) -> None:
         """Emit a named, actionable alert for an auth-fatal exhaustion (#3373).
@@ -798,7 +1050,7 @@ class OrchestratorEventLoop:
                 continue
             action, role = self._key_meta.get(key, ("", ""))
             if outcome == JOB_OUTCOME_SUCCESS:
-                self.supervisor.record_success(key)
+                self.supervisor.record_success(key, action=action, role=role)
                 self._live_keys.discard(key)
                 self._key_meta.pop(key, None)
             elif outcome == JOB_OUTCOME_LEGITIMATE:
@@ -979,6 +1231,22 @@ class OrchestratorEventLoop:
             )
             return EventDecision(role=role, action=action, dedupe_key=key, spawned=False)
 
+        # #3425: park after repeated successful no-ops. A clean exit that
+        # produced zero BRC progress re-derives this identical key next poll;
+        # after SUPERVISION_NOOP_STREAK_PARK such completions the slice is
+        # wedged on something a respawn cannot resolve (typically an
+        # unresolved operator HITL cq-N). The supervisor self-releases the
+        # park on a contract-decision change or the retry heartbeat.
+        if self.supervisor.noop_parked(key):
+            logger.debug(
+                "event-loop: spawn parked after successful no-op streak",
+                pipeline_id=self.pipeline_id,
+                role=role,
+                action=action,
+                dedupe_key=key,
+            )
+            return EventDecision(role=role, action=action, dedupe_key=key, spawned=False)
+
         # #3337: serialize same-role producers. We are about to spawn a *fresh*
         # event for ``role``; any other live key for this same role belongs to
         # an older event working a now-stale tracker state, and its pod shares
@@ -1085,9 +1353,11 @@ class OrchestratorEventLoop:
             # The superseded event will never be re-derived (its tracker state
             # is stale), so retire its supervision state — otherwise a leftover
             # streak/exhaustion latch for the dead key lingers for the process
-            # lifetime. ``record_success`` is the existing "this key is done,
-            # forget it" primitive (clears streak + latches + exhaustion).
-            self.supervisor.record_success(k)
+            # lifetime. ``retire`` is the "this key is done, forget it"
+            # primitive (clears streaks + latches + exhaustion + no-op park);
+            # ``record_success`` would instead count toward the #3425 no-op
+            # streak.
+            self.supervisor.retire(k)
             logger.info(
                 "event-loop: reaped superseded same-role sibling",
                 event_type="event_loop_supersede_reap",
