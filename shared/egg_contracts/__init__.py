@@ -154,6 +154,7 @@ from .loader import (
 )
 from .models import (
     AcceptanceCriterion,
+    AddsTaskPayload,
     AgentExecutionModel,
     AgentExecutionStatus,
     AgentRoleType,
@@ -253,6 +254,7 @@ from .validator import (
 __all__ = [
     # Models
     "AcceptanceCriterion",
+    "AddsTaskPayload",
     "AgentExecutionModel",
     "AgentExecutionStatus",
     "AgentRoleType",
