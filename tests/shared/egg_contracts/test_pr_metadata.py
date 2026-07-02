@@ -554,6 +554,9 @@ class TestNoSurvivingReadSites:
         "shared/egg_contracts/models.py",
         # This file — the assertion strings reference the deleted names.
         "tests/shared/egg_contracts/test_pr_metadata.py",
+        # The in-package migration test asserts the removed pr.context_*
+        # keys are stripped on load (it names them only to check absence).
+        "shared/egg_contracts/tests/test_models.py",
         # The doc-terminology regression test asserts the docs do NOT
         # mention the deleted fields (regression-by-grep).
         "tests/docs/test_context_pr_doc_terminology.py",
