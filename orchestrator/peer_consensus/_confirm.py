@@ -231,37 +231,9 @@ def handle_re_propose(
         if barrier is not None:
             return barrier
 
-        # Unchanged-tree guard (#3395): a re-propose whose commit SHA
-        # equals the current proposal's SHA carries zero new commits, so
-        # the NACK blockers cannot have been addressed — it would only
-        # bump the version, re-invoke every reviewer, and refresh the
-        # overseer's post-proposal grace window (the v3-v12 ten-cycle
-        # loop). ``check_auto_repropose`` already short-circuits the
-        # push-triggered path on an unchanged SHA; this bounds the
-        # explicit path. Both SHAs must be non-empty so a no-op ↔ real
-        # proposal transition is never caught by the guard.
-        incoming_sha = str(payload.get("commit_sha") or "")
-        current_sha = self._proposal_commit_shas.get(agent_role, "")
-        if incoming_sha and current_sha and incoming_sha == current_sha:
-            attempts = self._unchanged_repropose_counts.get(agent_role, 0) + 1
-            self._unchanged_repropose_counts[agent_role] = attempts
-            return {
-                "status": "unchanged_tree_rejected",
-                "current_version": self.matrix.get_proposal_version(agent_role),
-                "commit_sha": current_sha,
-                "attempts": attempts,
-                "message": (
-                    f"Re-proposal contains zero new commits: commit_sha "
-                    f"{incoming_sha} is already the current proposal. "
-                    "Land commits addressing the NACK blockers before "
-                    "re-proposing. If you believe no code change is "
-                    "needed, make that case to the NACKing reviewer(s) "
-                    "via send_message so they can re-verdict the current "
-                    "version — re-proposing the same tree cannot resolve "
-                    "a NACK."
-                ),
-            }
-        self._unchanged_repropose_counts.pop(agent_role, None)
+        unchanged = self._unchanged_tree_guard_response(agent_role, payload)
+        if unchanged is not None:
+            return unchanged
 
         # First, do scoped re-evaluation
         if changed_artifacts:
@@ -365,6 +337,57 @@ def _open_nacks_barrier_response(self, producer: str) -> dict[str, Any] | None:
             f"finding from every NACKing reviewer in your next re-propose."
         ),
     }
+
+
+def _unchanged_tree_guard_response(
+    self,
+    agent_role: str,
+    payload: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Return a structured rejection if a re-propose carries no new commits.
+
+    Caller MUST hold ``self._lock``.
+
+    Unchanged-tree guard (#3395): a re-propose whose commit SHA equals the
+    current proposal's SHA carries zero new commits, so the NACK blockers
+    cannot have been addressed — it would only bump the version, re-invoke
+    every reviewer, and refresh the overseer's post-proposal grace window
+    (the v3-v12 ten-cycle loop). ``check_auto_repropose`` already
+    short-circuits the push-triggered path on an unchanged SHA; this bounds
+    both explicit paths.
+
+    Mirrored into ``handle_propose`` as well as ``handle_re_propose``
+    (#3415): a re-propose without ``--changed-artifacts`` routes to
+    ``handle_propose``, so guarding only ``handle_re_propose`` left the
+    exact single-reviewer incident scenario unguarded. Both SHAs must be
+    non-empty so a no-op ↔ real proposal transition — and the initial
+    ``version 0 → 1`` propose where ``current_sha == ""`` — is never
+    caught by the guard. Returns ``None`` (and clears the attempt counter)
+    when the tree has advanced.
+    """
+    incoming_sha = str(payload.get("commit_sha") or "")
+    current_sha = self._proposal_commit_shas.get(agent_role, "")
+    if incoming_sha and current_sha and incoming_sha == current_sha:
+        attempts = self._unchanged_repropose_counts.get(agent_role, 0) + 1
+        self._unchanged_repropose_counts[agent_role] = attempts
+        return {
+            "status": "unchanged_tree_rejected",
+            "current_version": self.matrix.get_proposal_version(agent_role),
+            "commit_sha": current_sha,
+            "attempts": attempts,
+            "message": (
+                f"Re-proposal contains zero new commits: commit_sha "
+                f"{incoming_sha} is already the current proposal. "
+                "Land commits addressing the NACK blockers before "
+                "re-proposing. If you believe no code change is "
+                "needed, make that case to the NACKing reviewer(s) "
+                "via send_message so they can re-verdict the current "
+                "version — re-proposing the same tree cannot resolve "
+                "a NACK."
+            ),
+        }
+    self._unchanged_repropose_counts.pop(agent_role, None)
+    return None
 
 
 def check_auto_repropose(

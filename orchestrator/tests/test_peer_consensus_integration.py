@@ -1169,10 +1169,11 @@ class TestWithdrawReProposalDeadlock:
         t.handle_confirmed("reviewer_agent_design")
         t.handle_confirmed("reviewer_refine")
 
-        # Withdraw and re-propose
+        # Withdraw and re-propose with a new commit (unchanged-tree re-proposes
+        # are rejected outright now, #3395/#3415)
         t.handle_withdraw("refiner", "Revised approach needed")
         result = t.handle_propose(
-            "refiner", {"summary": "v3", "artifacts": ["design.md"], "commit_sha": "abc1234"}
+            "refiner", {"summary": "v3", "artifacts": ["design.md"], "commit_sha": "def5678"}
         )
 
         # Both reviewers should be in the stale list
@@ -1231,10 +1232,11 @@ class TestWithdrawReProposalDeadlock:
         t.handle_confirmed("reviewer_agent_design")
         t.handle_confirmed("reviewer_refine")
 
-        # Withdraw and re-propose
+        # Withdraw and re-propose with a new commit (unchanged-tree re-proposes
+        # are rejected outright now, #3395/#3415)
         t.handle_withdraw("refiner", "Revised approach")
         t.handle_propose(
-            "refiner", {"summary": "v3", "artifacts": ["design.md"], "commit_sha": "abc1234"}
+            "refiner", {"summary": "v3", "artifacts": ["design.md"], "commit_sha": "def5678"}
         )
 
         # Refiner should NOT be able to confirm (not fully ACKed on v3)
@@ -1279,10 +1281,11 @@ class TestWithdrawReProposalDeadlock:
         assert result["status"] == "pending_acks"
         assert "reviewer_refine" not in t._confirmed
 
-        # refiner withdraws and re-proposes v2
+        # refiner withdraws and re-proposes v2 with a new commit addressing the
+        # NACK (unchanged-tree re-proposes are rejected outright, #3395/#3415)
         t.handle_withdraw("refiner", "Addressing NACK feedback")
         result = t.handle_propose(
-            "refiner", {"summary": "v2", "artifacts": ["design.md"], "commit_sha": "abc1234"}
+            "refiner", {"summary": "v2", "artifacts": ["design.md"], "commit_sha": "def5678"}
         )
 
         # reviewer_agent_design was confirmed on v1, now stale on v2

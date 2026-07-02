@@ -120,9 +120,10 @@ class PeerConsensusTracker:
         self._auto_repropose_counts: dict[str, int] = {}
         # Consecutive explicit re-proposes rejected for carrying the same
         # commit SHA as the current proposal (#3395). Informational — the
-        # guard in handle_re_propose rejects every unchanged-tree attempt;
-        # the count is surfaced in the rejection envelope. Reset when a
-        # re-propose with a new SHA lands.
+        # unchanged-tree guard rejects every unchanged-tree attempt on both
+        # the handle_re_propose and handle_propose paths (#3415); the count
+        # is surfaced in the rejection envelope. Reset when a re-propose
+        # with a new SHA lands.
         self._unchanged_repropose_counts: dict[str, int] = {}
         # Track when producers explicitly propose (via handle_propose, NOT via
         # auto-repropose).  Used by check_auto_repropose to suppress redundant
@@ -176,6 +177,7 @@ class PeerConsensusTracker:
     handle_confirmed = _confirm.handle_confirmed
     handle_re_propose = _confirm.handle_re_propose
     _open_nacks_barrier_response = _confirm._open_nacks_barrier_response
+    _unchanged_tree_guard_response = _confirm._unchanged_tree_guard_response
     check_auto_repropose = _confirm.check_auto_repropose
     handle_producer_push = _confirm.handle_producer_push
 
