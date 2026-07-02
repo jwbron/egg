@@ -334,19 +334,36 @@ def impacted_tests(paths: list[str], repo_root: Path | None = None) -> int:
         return 2
 
     module_path_pairs: list[tuple[str, str]] = []
+    skipped: list[str] = []
     for path in paths:
         module = path_to_module(path)
         if module is None:
             _log(f"select-tests: --impacted-tests: cannot resolve path to module: {path}")
+            skipped.append(path)
             continue
         if module not in bundle.all_modules:
             _log(f"select-tests: --impacted-tests: {module} is not a node in the graph")
+            skipped.append(path)
             continue
         module_path_pairs.append((module, path))
 
     if not module_path_pairs:
         _log("select-tests: --impacted-tests: no argument resolved to a graph module")
         return 2
+
+    # Partial resolution — some paths resolved, some did not.  The
+    # closure below covers only the resolvable subset, so exit 0 alone
+    # would read as a complete answer.  Emit a loud summary so the
+    # partial nature is not silent (reviewer non-blocking #2): the
+    # closure is still useful, but a caller trusting the exit code
+    # should know it may be incomplete and re-check the skipped paths.
+    if skipped:
+        _log(
+            "select-tests: --impacted-tests: WARNING partial resolution — "
+            f"{len(skipped)} of {len(paths)} path(s) did not resolve to a "
+            f"graph module ({', '.join(skipped)}); the closure below covers "
+            "only the resolvable subset and may be incomplete"
+        )
 
     try:
         closure = reverse_closure(bundle, module_path_pairs)
@@ -798,6 +815,34 @@ def _strip_pythonpath_from_sys_path() -> None:
                 sys.path.remove(candidate)
 
 
+def _argv_requests_impacted_tests(argv: list[str] | None) -> bool:
+    """True when ``argv`` selects ``--impacted-tests`` mode.
+
+    Tolerant of the ``--impacted-tests=FILE`` single-value form and of
+    argparse's unambiguous prefix abbreviations (``--impacted``,
+    ``--impacted-test``, …).  ``--impacted-tests`` is the only option
+    beginning with ``--i``, so any ``--i…`` token that is a prefix of
+    the canonical flag selects the mode; a token like ``--include`` is
+    NOT a prefix of ``--impacted-tests`` and correctly does not match.
+
+    The fail-open wrapper uses this to honour the mode's exit-2
+    "closure unavailable" contract instead of widening to the full
+    suite.  A bare ``"--impacted-tests" in argv`` test missed the
+    ``=`` form and abbreviations, so an exception escaping
+    ``_main_inner`` under those invocations would wrongly fall open —
+    exactly the "everything is impacted" mis-read the branch exists to
+    prevent.
+    """
+    tokens = sys.argv[1:] if argv is None else argv
+    canonical = "--impacted-tests"
+    for token in tokens:
+        # Strip an inline ``=value`` (``--impacted-tests=foo.py``).
+        flag = token.split("=", 1)[0]
+        if flag.startswith("--i") and canonical.startswith(flag):
+            return True
+    return False
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point with the **fail-open** wrapper.
 
@@ -844,7 +889,7 @@ def main(argv: list[str] | None = None) -> int:
         # widening is actively wrong: emitting every test root would read
         # as "everything is impacted".  Honour its exit-2 "closure
         # unavailable" contract instead of the full-suite fallback.
-        if "--impacted-tests" in (sys.argv[1:] if argv is None else argv):
+        if _argv_requests_impacted_tests(argv):
             _log("select-tests: --impacted-tests: internal error; closure unavailable")
             return 2
         emit_full_suite("select-tests: full suite (trigger=selector exception)")
@@ -852,6 +897,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 __all__ = (
+    "_argv_requests_impacted_tests",
     "_build_arg_parser",
     "_fnmatch",
     "_format_chain",

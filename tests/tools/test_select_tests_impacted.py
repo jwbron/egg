@@ -156,6 +156,43 @@ def test_partially_resolvable_args_still_compute(
     assert "orchestrator/tests/test_models.py" in captured.out
 
 
+def test_partial_resolution_emits_loud_summary(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    """Partial resolution stays exit 0 (the resolvable-subset closure is
+    still useful) but must NOT be silent — a caller trusting the exit
+    code needs the closure flagged as possibly-incomplete (reviewer
+    non-blocking #2)."""
+    _stub_graph(
+        monkeypatch,
+        all_modules={"orchestrator.models"},
+        closure={"orchestrator.tests.test_models"},
+        test_files=["orchestrator/tests/test_models.py"],
+    )
+    rc = selector.impacted_tests(["not-a-file.txt", "orchestrator/models.py"], repo_root=Path("."))
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "WARNING partial resolution" in err
+    assert "1 of 2 path(s)" in err
+    assert "not-a-file.txt" in err
+
+
+def test_full_resolution_emits_no_partial_warning(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    """When every path resolves, the partial-resolution warning must
+    not fire — the closure is complete."""
+    _stub_graph(
+        monkeypatch,
+        all_modules={"orchestrator.models"},
+        closure={"orchestrator.tests.test_models"},
+        test_files=["orchestrator/tests/test_models.py"],
+    )
+    rc = selector.impacted_tests(["orchestrator/models.py"], repo_root=Path("."))
+    assert rc == 0
+    assert "partial resolution" not in capsys.readouterr().err
+
+
 # ----------------------------------------------------------------------
 # CLI wiring + the main() wrapper's mode-aware exception posture.
 # ----------------------------------------------------------------------
@@ -208,6 +245,56 @@ def test_main_wrapper_still_widens_for_default_mode(
     out_lines = capsys.readouterr().out.splitlines()
     for test_root in selector.TEST_ROOT_DIRS:
         assert test_root in out_lines
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--impacted-tests", "a.py"],  # canonical space-separated form
+        ["--impacted-tests=a.py"],  # single-value `=` form
+        ["--impacted-test", "a.py"],  # argparse prefix abbreviation
+        ["--impacted", "a.py"],  # shorter unambiguous abbreviation
+        ["--impacted=a.py"],  # abbreviation + `=` value
+    ],
+)
+def test_argv_requests_impacted_tests_matches_all_forms(argv: list[str]) -> None:
+    """The wrapper's mode detector must recognise every form argparse
+    accepts for `--impacted-tests`, not just the canonical bare flag
+    (reviewer non-blocking #1)."""
+    assert selector._argv_requests_impacted_tests(argv) is True
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        [],
+        ["--full-suite"],
+        ["--why", "tests/x.py"],
+        ["--include", "a.py"],  # `--include` is NOT a prefix of --impacted-tests
+        ["impacted-tests"],  # missing the leading `--`
+    ],
+)
+def test_argv_requests_impacted_tests_rejects_other_modes(argv: list[str]) -> None:
+    assert selector._argv_requests_impacted_tests(argv) is False
+
+
+def test_main_wrapper_exits_2_for_equals_form(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    """An exception under the `--impacted-tests=file.py` single-value
+    form must still honour the exit-2 contract, not fall open to the
+    full suite (reviewer non-blocking #1)."""
+
+    def boom(argv=None):
+        raise RuntimeError("internal error")
+
+    monkeypatch.setattr(selector._cli, "_main_inner", boom)
+    rc = selector.main(["--impacted-tests=orchestrator/models.py"])
+    assert rc == 2
+    captured = capsys.readouterr()
+    for test_root in selector.TEST_ROOT_DIRS:
+        assert test_root not in captured.out.splitlines()
+    assert "closure unavailable" in captured.err
 
 
 # ----------------------------------------------------------------------
