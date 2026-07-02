@@ -1602,7 +1602,10 @@ implement 90), the orchestrator publishes an `OVERSEER_ALERT` (subject
 `consensus-timeout: <agent_role> [<priority>]`, matching the SDLC skill's
 `<anomaly_type>: <agent_role> [<priority>]` convention so "Check agent logs" can
 extract the role) rather than gating the pipeline on a `choice` decision
-(see [issue #2264](https://github.com/jwbron/egg/issues/2264)). The SDLC skill surfaces the alert via
+(see [issue #2264](https://github.com/jwbron/egg/issues/2264)) — unless the phase
+already has an unresolved contract HITL decision pending, in which case the
+timeout is suspended until the operator resolves it rather than alerting
+(#3426). The SDLC skill surfaces the alert via
 its existing notification flow (Check agent logs / Acknowledge / Cancel pipeline). Check agent
 states via `egg-orch pipeline status` to identify blocked or stuck agents; intervene with
 `cancel_task` or `restart_phase` if you want to act.
