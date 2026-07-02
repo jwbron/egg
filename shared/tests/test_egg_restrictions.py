@@ -331,6 +331,116 @@ class TestCoderBlocklistComplement:
         assert not CODER_PATTERNS.can_write("../../etc/passwd")
 
 
+class TestFixtureTreeCarveOut:
+    """#3396: test-fixture / testdata trees are test inputs, not docs.
+
+    Fixtures deliberately imitate doc files (``AGENTS.md``, ``README.md``,
+    ``.cursor/rules.md``, ...) because the tools under test scan doc
+    files. Without a carve-out the ``**/*.md`` docs block misclassifies
+    them as documenter-owned and 403s the coder/tester that ship them
+    alongside the test. These are the exact paths from the #3396 denial.
+    """
+
+    FIXTURE_PATHS = [
+        ".agents/tools/agents_tools/harness/fixtures/excluded-siblings/.cursor/rules.md",
+        ".agents/tools/agents_tools/harness/fixtures/excluded-siblings/.github/instructions/copilot.md",
+        ".agents/tools/agents_tools/harness/fixtures/excluded-siblings/.pi/prompts.md",
+        ".agents/tools/agents_tools/harness/fixtures/staled/AGENTS.md",
+        ".agents/tools/agents_tools/harness/fixtures/unresolvable-citation/AGENTS.md",
+        ".agents/tools/testdata/README.md",
+        ".agents/tools/testdata/mini_repo/AGENTS.md",
+    ]
+
+    def test_coder_can_write_fixture_markdown(self):
+        for path in self.FIXTURE_PATHS:
+            assert CODER_PATTERNS.can_write(path), path
+
+    def test_tester_can_write_fixture_markdown(self):
+        # The tester review-and-hardens fixtures alongside the coder.
+        for path in self.FIXTURE_PATHS:
+            assert TESTER_PATTERNS.can_write(path), path
+
+    def test_carveout_covers_non_md_fixture_files(self):
+        # The directory-form carve-out is extension-agnostic: any file
+        # under a fixtures/testdata tree is a test input.
+        assert CODER_PATTERNS.can_write("pkg/fixtures/data/sample.json")
+        assert CODER_PATTERNS.can_write("pkg/testdata/golden.txt")
+
+    def test_real_docs_stay_documenter_owned(self):
+        # Negative control: genuine documentation must NOT be swept in.
+        for path in ["docs/guides/testing.md", "README.md", "shared/README.md", "docs/index.md"]:
+            assert not CODER_PATTERNS.can_write(path), path
+            assert not TESTER_PATTERNS.can_write(path), path
+            assert DOCUMENTER_PATTERNS.can_write(path), path
+
+    def test_hard_blocks_unaffected(self):
+        # The carve-out must not open a hole in the security blocks.
+        assert not CODER_PATTERNS.can_write(".egg-state/contracts/spec.json")
+        assert not CODER_PATTERNS.can_write(".github/workflows/ci.yml")
+        assert not TESTER_PATTERNS.can_write(".egg-state/contracts/spec.json")
+
+    def test_carveout_does_not_punch_through_github_block(self):
+        # #3396 regression: the ``**/fixtures/`` / ``**/testdata/``
+        # block-exempt carve-outs are evaluated against the union of all
+        # blocked patterns, so a fixture/testdata segment under ``.github/``
+        # must NOT become writable. ``.github/`` is a hard block that no
+        # exemption can override.
+        github_fixture_paths = [
+            ".github/fixtures/x.yml",
+            ".github/fixtures/x.md",
+            ".github/actions/foo/testdata/case.yml",
+            ".github/testdata/readme.md",
+        ]
+        for path in github_fixture_paths:
+            assert not CODER_PATTERNS.can_write(path), path
+            assert not TESTER_PATTERNS.can_write(path), path
+
+    def test_carveout_does_not_punch_through_egg_state_blocks(self):
+        # #3396 regression: a fixture/testdata segment under ANY ``.egg-state/``
+        # subtree must stay blocked for BOTH roles. The whole ``.egg-state/``
+        # tree is hard-blocked (only agent-outputs/agent-anchors carved back),
+        # so no ``**/fixtures/`` / ``**/testdata/`` exemption can reach it.
+        #
+        # These include the subtrees the previous (enumeration-based) fix
+        # missed — ``brc-history`` and ``checks`` are present and git-tracked
+        # in the repo today — plus contracts/drafts/pipelines/reviews/oversight.
+        egg_state_fixture_paths = [
+            ".egg-state/contracts/fixtures/z.json",
+            ".egg-state/drafts/fixtures/a.json",
+            ".egg-state/pipelines/testdata/b.json",
+            ".egg-state/reviews/testdata/c.json",
+            ".egg-state/oversight/fixtures/d.json",
+            ".egg-state/brc-history/fixtures/x.json",
+            ".egg-state/checks/fixtures/x.json",
+            ".egg-state/checkpoints/fixtures/y.json",
+        ]
+        for path in egg_state_fixture_paths:
+            assert not CODER_PATTERNS.can_write(path), f"coder {path}"
+            assert not TESTER_PATTERNS.can_write(path), f"tester {path}"
+
+    def test_carveout_does_not_punch_through_future_egg_state_subdir(self):
+        # The invariant must hold for subdirs that don't exist yet — the
+        # whole-tree hard block is what makes this true without editing the
+        # pattern list when a new ``.egg-state/`` subdir is added.
+        for role_pattern in (CODER_PATTERNS, TESTER_PATTERNS):
+            assert not role_pattern.can_write(".egg-state/some-new-dir/fixtures/x.json"), (
+                role_pattern.role
+            )
+            assert not role_pattern.can_write(".egg-state/another-future-dir/testdata/y.json"), (
+                role_pattern.role
+            )
+
+    def test_egg_state_carvebacks_still_writable(self):
+        # The whole ``.egg-state/`` tree is hard-blocked, but the handoff
+        # carve-backs (agent-outputs/, and for the coder agent-anchors/) are
+        # restored via ``hard_block_exempt_patterns`` so they keep working.
+        assert CODER_PATTERNS.can_write(".egg-state/agent-outputs/handoff.json")
+        assert CODER_PATTERNS.can_write(".egg-state/agent-anchors/anchor.json")
+        # Markdown handoffs (brc-memory.md) must clear the docs block too.
+        assert CODER_PATTERNS.can_write(".egg-state/agent-outputs/coder/brc-memory.md")
+        assert TESTER_PATTERNS.can_write(".egg-state/agent-outputs/tester.json")
+
+
 class TestTesterPatterns:
     def test_allows_test_dirs(self):
         assert TESTER_PATTERNS.can_write("tests/test_foo.py")

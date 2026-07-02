@@ -4904,6 +4904,25 @@ class TestFileBoundarySection:
         section = _build_file_boundary_section("nonexistent_role")
         assert section == ""
 
+    def test_coder_renders_hard_blocked_tier(self):
+        """#3396: the non-exemptible hard-block tier must be visible in the
+        agent prompt — otherwise the agent authors a hard-blocked path, hits a
+        gateway 403, and can't understand why."""
+        section = _build_file_boundary_section("coder")
+        assert "Hard-blocked" in section
+        assert "`.github/`" in section
+        assert "`.egg-state/`" in section
+        # The carve-backs must be rendered so the agent knows they still resolve.
+        assert "`.egg-state/agent-outputs/`" in section
+
+    def test_tester_renders_hard_blocked_tier(self):
+        """#3396: the tester prompt previously listed only docs as blocked; it
+        must now surface the `.github/` + `.egg-state/` hard blocks."""
+        section = _build_file_boundary_section("tester")
+        assert "Hard-blocked" in section
+        assert "`.github/`" in section
+        assert "`.egg-state/`" in section
+
     def test_coder_prompt_includes_file_boundaries(self):
         """The coder agent prompt includes file boundary info."""
         result = _build_agent_prompt(
@@ -4956,6 +4975,15 @@ class TestBuildRoleRestrictionsSection:
         section = _build_role_restrictions_section()
         assert "**Allowed**" in section
         assert "**Blocked**" in section
+
+    def test_includes_hard_blocked_tier(self):
+        """#3396: the planner must see the non-exemptible hard-block tier so it
+        doesn't route a hard-blocked path (a fixture under `.github/` or any
+        `.egg-state/` subdir) to a producer role that can't push it."""
+        section = _build_role_restrictions_section()
+        assert "Hard-blocked" in section
+        # Rendered for both producer roles that carry hard blocks.
+        assert section.count("Hard-blocked") >= 2
 
     def test_includes_role_assignment_guidance(self):
         """Section includes guidance about when to assign each role."""

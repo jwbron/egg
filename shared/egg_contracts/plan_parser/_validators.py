@@ -253,8 +253,10 @@ def _is_file_blocked_for_role(role: str, file_path: str, repo: str | None = None
 
     Mirrors ``gateway/phase_filter.py::FileRestriction.is_file_blocked``
     so plan-time validation matches push-time enforcement 1:1. The
-    gateway's check intentionally consults only blocked + block-exempt
-    patterns (not allowed_patterns), and so does this function.
+    gateway's check intentionally consults only hard-blocked + blocked +
+    block-exempt patterns (not allowed_patterns), and so does this
+    function. Hard blocks cannot be carved back by block-exempt patterns
+    (#3396).
 
     Per-repo overrides (#2528): when ``repo`` is supplied, the pattern
     used reflects ``role_patterns:`` in ``repositories.yaml`` for that
@@ -280,6 +282,12 @@ def _is_file_blocked_for_role(role: str, file_path: str, repo: str | None = None
     if normalized.startswith("../") or normalized.startswith("/"):
         return True
 
+    # Hard blocks cannot be carved back by the broad block_exempt_patterns —
+    # only by the narrow, explicitly-anchored hard_block_exempt_patterns
+    # (#3396).
+    if any(match_pattern(normalized, p) for p in pattern.hard_blocked_patterns):
+        if not any(match_pattern(normalized, p) for p in pattern.hard_block_exempt_patterns):
+            return True
     if not any(match_pattern(normalized, p) for p in pattern.blocked_patterns):
         return False
     if any(match_pattern(normalized, p) for p in pattern.block_exempt_patterns):

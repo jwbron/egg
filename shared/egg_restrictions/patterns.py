@@ -52,6 +52,8 @@ class AgentFilePattern:
     allowed_patterns: list[str] = field(default_factory=list)
     blocked_patterns: list[str] = field(default_factory=list)
     block_exempt_patterns: list[str] = field(default_factory=list)
+    hard_blocked_patterns: list[str] = field(default_factory=list)
+    hard_block_exempt_patterns: list[str] = field(default_factory=list)
     description: str = ""
 
     def can_write(self, file_path: str) -> bool:
@@ -75,12 +77,44 @@ class AgentFilePattern:
             coders (documentation), but ``.md`` files in agent-config
             directories (rules, skills, commands) are functional code and
             are exempted via block_exempt_patterns.
+
+            ``hard_blocked_patterns`` is a stricter tier that
+            ``block_exempt_patterns`` can NEVER override. It exists because
+            ``block_exempt_patterns`` is evaluated against the *union* of
+            all blocked patterns, so a broad, un-anchored exemption (e.g.
+            ``**/fixtures/``, added to clear the docs block for fixture
+            markdown) would otherwise also punch through the ``.github/``
+            branch-protection block and the ``.egg-state/`` pipeline-state
+            block for any path carrying a ``fixtures/``/``testdata/``
+            segment. Security-critical blocks that must survive every
+            broad exemption live here and are checked before anything else.
+
+            ``hard_block_exempt_patterns`` is the *only* way to carve a
+            path back out of a hard block. It is deliberately kept to a
+            tiny, explicitly-anchored allowlist (e.g.
+            ``.egg-state/agent-outputs/``) so that hard-blocking a whole
+            tree like ``.egg-state/`` still lets the handful of subdirs a
+            role legitimately owns resolve — without reopening the tree to
+            the broad ``fixtures/``/``testdata/`` exemption or to any
+            future ``.egg-state/`` subdir. Because these carve-backs are
+            anchored to specific paths (never ``**/fixtures/``), they can
+            neither match a ``.github/`` path nor a ``.egg-state/<newdir>/``
+            path, so the "current and future subdir" invariant holds
+            without hand-listing subtrees. See #3396.
         """
         normalized = self._normalize_path(file_path)
 
         # Reject invalid paths (e.g., path traversal attempts)
         if normalized == "__INVALID_PATH_TRAVERSAL__":
             return False
+
+        # Hard blocks are non-negotiable: the broad block_exempt_patterns
+        # can never carve them back. Only the narrow, explicitly-anchored
+        # hard_block_exempt_patterns can. Checked before the soft
+        # block/exempt pair below.
+        if any(match_pattern(normalized, p) for p in self.hard_blocked_patterns):
+            if not any(match_pattern(normalized, p) for p in self.hard_block_exempt_patterns):
+                return False
 
         # Check blocked patterns FIRST - security takes precedence
         # BUT skip the block if the path matches a block-exemption pattern.
@@ -217,47 +251,94 @@ def _build_coder_pattern(
         # allowlist to be edited.  See #1901.
         allowed_patterns=["**"],
         blocked_patterns=[
-            # Pipeline state (catch-all for every current and future subdir;
-            # .egg-state/agent-outputs/ is carved back via block_exempt_patterns)
-            ".egg-state/",
             # Documenter scope
             *docs_globs,
             # NOTE: tester's test scope is intentionally NOT blocked — the
             # coder authors its own tests (overlap with the tester). See the
             # docstring above.
-            # Defense-in-depth: CI workflows and CODEOWNERS — preserves the
-            # branch-protection invariant. Agents that need to propose
-            # `.github/` changes (CI workflow edits, CODEOWNERS rotation)
-            # write the proposed end-state to top-level `.github-staging/`
-            # mirroring the `.github/` structure; the prefix-match below
-            # leaves `.github-staging/` allowed via the `**` allowlist.
-            # The agent flags the staged files in its PR body so the
-            # human reviewer moves them into `.github/` before merge
-            # (issue #2508).
-            ".github/",
+            # NOTE: `.github/` and the whole `.egg-state/` pipeline-state tree
+            # are enforced via `hard_blocked_patterns` below (not here) so the
+            # `**/fixtures/` / `**/testdata/` block-exempt carve-outs cannot
+            # punch through them. The `.egg-state/` subdirs the coder legitimately
+            # owns are carved back via `hard_block_exempt_patterns`. See #3396.
         ],
         block_exempt_patterns=[
+            # These exemptions clear the *docs* (`**/*.md`) soft block only —
+            # they are markdown files that are functional code / test inputs,
+            # not documentation. They do NOT reach the hard blocks below.
+            #
+            # Coder's handoff directory — brc-memory.md and other markdown
+            # handoffs live under it, so it must clear the docs block. (The
+            # directory itself is carved back out of the `.egg-state/` hard
+            # block via `hard_block_exempt_patterns`.)
+            ".egg-state/agent-outputs/",
+            # Agent config .md files are functional code (rules, skills, commands),
+            # not documentation. See #1537. Paths are specific to avoid bypassing
+            # other blocked patterns (docs/, tests/).
+            "sandbox/agent-config/rules/*.md",
+            "sandbox/agent-config/commands/*.md",
+            # Top-level skills directory (skill definitions are functional code)
+            "skills/",
+            # Test-fixture / testdata trees are test INPUTS, not documentation.
+            # Fixtures deliberately imitate doc files (AGENTS.md, README.md,
+            # .cursor/rules.md, ...) because the tools under test scan doc
+            # files; the `**/*.md` docs block would otherwise misclassify them
+            # as documenter-owned and 403 the coder that ships them alongside
+            # the test. Same "functional code, not docs" rationale as the
+            # agent-config carve-outs above. The `**/<dir>/` directory form is
+            # the reliably-matched shape (the matcher's multi-`**` handling is
+            # fnmatch-loose and misses direct children); it correctly leaves
+            # genuine docs (`docs/`, `README.md`, nested `README.md`)
+            # documenter-owned. Because this is a *soft* block exemption, it
+            # can never reach the `.github/` / `.egg-state/` hard blocks — a
+            # fixtures/testdata path under either stays blocked. See #3396.
+            "**/fixtures/",
+            "**/testdata/",
+        ],
+        hard_blocked_patterns=[
+            # Non-exemptible blocks. `block_exempt_patterns` (which is
+            # evaluated against the union of all blocked patterns) can never
+            # carve these back — only the narrow `hard_block_exempt_patterns`
+            # below can. See the AgentFilePattern.can_write docstring and
+            # #3396. Without this tier the `**/fixtures/` / `**/testdata/`
+            # carve-outs would exempt any path with a fixtures/testdata
+            # segment from these blocks too (e.g. `.github/actions/x/testdata/`
+            # or `.egg-state/checks/fixtures/`).
+            #
+            # Branch-protection invariant: CI workflows and CODEOWNERS. Agents
+            # that need to propose `.github/` changes write the proposed
+            # end-state to top-level `.github-staging/` (allowed via the `**`
+            # allowlist) and flag it in the PR body so a human moves it into
+            # `.github/` before merge (issue #2508).
+            ".github/",
+            # Whole pipeline-state tree. Contracts flow through the contract
+            # API, not git (#2979); drafts/pipelines/reviews/oversight are
+            # owned by the plan/review/overseer roles; brc-history/checks and
+            # any *future* `.egg-state/` subdir are likewise not coder-owned.
+            # Hard-blocking the tree as a whole (rather than enumerating
+            # sensitive subtrees) makes the "current and future subdir"
+            # invariant hold without maintenance: no `**/fixtures/` /
+            # `**/testdata/` exemption can reach any `.egg-state/` subdir. The
+            # two subdirs the coder legitimately owns are carved back via
+            # `hard_block_exempt_patterns` below.
+            ".egg-state/",
+        ],
+        hard_block_exempt_patterns=[
+            # The ONLY carve-backs from the `.egg-state/` hard block. Kept to
+            # a tiny, explicitly-anchored allowlist so they can never match a
+            # `.github/` path or a future `.egg-state/<newdir>/` path.
+            #
             # Coder's handoff directory — the only .egg-state/ subdir the coder
-            # owns.
+            # owns for git-pushed output.
             ".egg-state/agent-outputs/",
             # Per-agent anchor files. The gateway's `check_anchor_write_permission`
             # (gateway/phase_filter.py::check_anchor_write_permission) enforces
             # per-agent scoping — an agent may only write its own
             # `.egg-state/agent-anchors/<AGENT_ANCHOR_ID>.json`. That downstream
             # guard can only run if the role-level check lets the path through,
-            # so this exemption restores the pre-#1901 behavior where the legacy
-            # `**/*.json` allowlist matched anchor files. The contract task
-            # TASK-1-1 for #1901 did not enumerate this exemption — the gap was
-            # surfaced by tester's pre-existing test_push_*_anchor_write tests
-            # against the new blocklist-complement. See #1901 NACK discussion.
+            # so this carve-back restores the pre-#1901 behavior where the legacy
+            # `**/*.json` allowlist matched anchor files. See #1901 NACK discussion.
             ".egg-state/agent-anchors/",
-            # Agent config .md files are functional code (rules, skills, commands),
-            # not documentation. See #1537. Paths are specific to avoid bypassing
-            # other blocked patterns (docs/, tests/, .egg-state/contracts/).
-            "sandbox/agent-config/rules/*.md",
-            "sandbox/agent-config/commands/*.md",
-            # Top-level skills directory (skill definitions are functional code)
-            "skills/",
         ],
     )
 
@@ -292,16 +373,63 @@ def _build_tester_pattern(
             # Dependency files (test dependency management)
             "**/*.lock",
             "**/requirements*.txt",
+            # Test-fixture / testdata trees are test inputs the tester
+            # review-and-hardens alongside the coder. They are not in
+            # ``tests_globs`` unless nested under a ``tests/`` dir, so they
+            # must be allowed explicitly here (see #3396). NOTE: this widens
+            # the tester allowlist beyond test files — any file under a
+            # ``fixtures/``/``testdata/`` directory becomes tester-writable,
+            # including a production module that happens to live under one
+            # (e.g. ``app/fixtures/loader.py``). That is intended: fixtures
+            # are treated as test inputs the tester co-owns.
+            "**/fixtures/",
+            "**/testdata/",
             # Handoff output
             ".egg-state/agent-outputs/",
         ],
         blocked_patterns=[
             # Documentation (Documenter handles)
             *docs_globs,
-            # Contracts
-            ".egg-state/contracts/",
-            # Issue #2521: parity with TESTER_ROLE.blocked_write — see CODER_PATTERNS for rationale.
+            # NOTE: the whole `.egg-state/` tree and `.github/` are enforced via
+            # `hard_blocked_patterns` below (not here) so the `**/fixtures/` /
+            # `**/testdata/` patterns — present in BOTH `allowed_patterns` and
+            # `block_exempt_patterns` above — cannot punch through them. The
+            # only `.egg-state/` subdir the tester owns (`agent-outputs/`) is
+            # carved back via `hard_block_exempt_patterns`. See #3396.
+        ],
+        block_exempt_patterns=[
+            # Fixture markdown (AGENTS.md, README.md, ...) is a test input,
+            # not documentation — clear the `**/*.md` docs block for the
+            # fixture/testdata trees the tester co-owns. Mirrors the coder
+            # carve-out. This is a *soft* block exemption; it can never reach
+            # the `.github/` / `.egg-state/` hard blocks. See #3396.
+            "**/fixtures/",
+            "**/testdata/",
+        ],
+        hard_blocked_patterns=[
+            # Non-exemptible blocks (see AgentFilePattern.can_write docstring
+            # and #3396). The tester allowlist and block-exempt list both
+            # match `**/fixtures/` / `**/testdata/`, so without this tier a
+            # fixture/testdata path under `.github/` or *any* `.egg-state/`
+            # subdir would be tester-writable.
+            #
+            # Whole pipeline-state tree — contracts flow through the contract
+            # API, not git (#2979), and drafts/pipelines/reviews/oversight (and
+            # any future subdir) are owned by other roles. Hard-blocking the
+            # tree as a whole (rather than only `.egg-state/contracts/`) closes
+            # the hole where `**/fixtures/` made every other `.egg-state/`
+            # subdir tester-writable. The tester's own handoff dir is carved
+            # back via `hard_block_exempt_patterns`.
+            ".egg-state/",
+            # Issue #2521: parity with TESTER_ROLE.blocked_write — see
+            # CODER_PATTERNS for the branch-protection rationale.
             ".github/",
+        ],
+        hard_block_exempt_patterns=[
+            # The ONLY carve-back from the `.egg-state/` hard block: the
+            # tester's handoff output directory. Explicitly anchored so it can
+            # never match a `.github/` or future `.egg-state/<newdir>/` path.
+            ".egg-state/agent-outputs/",
         ],
     )
 

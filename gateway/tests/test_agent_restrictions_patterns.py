@@ -196,6 +196,42 @@ class TestCanWrite:
         # Exempt pattern should NOT let paths inside docs/ through
         assert pattern.can_write("docs/rules/evil.md") is False
 
+    def test_hard_block_cannot_be_exempted(self):
+        """hard_blocked_patterns are non-negotiable — no block_exempt
+        pattern can carve them back (#3396)."""
+        pattern = AgentFilePattern(
+            role="test",
+            allowed_patterns=["**", "**/fixtures/"],
+            blocked_patterns=["**/*.md"],
+            block_exempt_patterns=["**/fixtures/"],
+            hard_blocked_patterns=[".github/"],
+        )
+        # A fixtures path outside .github/ is exempted from the docs block.
+        assert pattern.can_write("pkg/fixtures/readme.md") is True
+        # But the same carve-out must NOT punch through the hard block.
+        assert pattern.can_write(".github/fixtures/readme.md") is False
+        assert pattern.can_write(".github/workflows/ci.yml") is False
+
+    def test_hard_block_carved_back_only_by_hard_block_exempt(self):
+        """A hard block can be carved back ONLY by the narrow, anchored
+        hard_block_exempt_patterns — never by the broad block_exempt_patterns
+        (#3396). This is what lets a whole-tree `.egg-state/` hard block still
+        let `agent-outputs/` through while blocking every other subdir."""
+        pattern = AgentFilePattern(
+            role="test",
+            allowed_patterns=["**"],
+            blocked_patterns=["**/*.md"],
+            block_exempt_patterns=["**/fixtures/"],
+            hard_blocked_patterns=[".egg-state/"],
+            hard_block_exempt_patterns=[".egg-state/agent-outputs/"],
+        )
+        # The anchored carve-back resolves.
+        assert pattern.can_write(".egg-state/agent-outputs/handoff.json") is True
+        # The broad fixtures/ exemption cannot reach a hard-blocked subdir,
+        # current or future.
+        assert pattern.can_write(".egg-state/checks/fixtures/x.json") is False
+        assert pattern.can_write(".egg-state/some-new-dir/fixtures/x.json") is False
+
 
 class TestCoderRole:
     """Verify coder agent can/cannot write expected files."""
