@@ -2659,7 +2659,9 @@ def create_pipeline() -> tuple[Response, int]:
     # repos before creating the pipeline. Single-repo submissions are trivially
     # uniform and short-circuit without a gateway round-trip. Runs after the
     # gateway-ready gate above so the visibility lookup can reach the gateway.
-    _uniform_repos = [e["repo"] for e in repos_entries] if repos_entries else ([repo] if repo else [])
+    _uniform_repos = (
+        [e["repo"] for e in repos_entries] if repos_entries else ([repo] if repo else [])
+    )
     _uniformity_err = _assert_repo_set_uniform([r for r in _uniform_repos if r])
     if _uniformity_err:
         return make_error_response(
@@ -11837,8 +11839,7 @@ def _maybe_open_secondary_context_prs(
         )
     except Exception as sec_err:  # noqa: BLE001
         logger.warning(
-            "Lazy per-repo context PRs raised (continuing — primary context "
-            "PR unaffected) (#3393)",
+            "Lazy per-repo context PRs raised (continuing — primary context PR unaffected) (#3393)",
             pipeline_id=pipeline_id,
             error=str(sec_err),
         )
@@ -12832,7 +12833,7 @@ def _cross_repo_hold_resolution(contract: Any, slice_id: str) -> str | None:
             sel = payload.get("selected")
             if isinstance(sel, str):
                 selected = sel
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         pass
 
     text = selected.strip().lower()
@@ -20281,9 +20282,7 @@ def _run_implement_phase_slices(
                             for other in contract_post.slices:
                                 if other.id == slice_id:
                                     continue
-                                other_repo = (
-                                    resolve_slice_repo(other, pipeline) or pipeline.repo
-                                )
+                                other_repo = resolve_slice_repo(other, pipeline) or pipeline.repo
                                 if other_repo and other_repo != slice_repo and other.pr_number:
                                     sibling_pr_refs.append(
                                         {"repo": other_repo, "number": other.pr_number}
@@ -20296,17 +20295,12 @@ def _run_implement_phase_slices(
                             upstream_ids = slice_obj.dependencies or []
                             if upstream_ids:
                                 upstream = next(
-                                    (
-                                        s
-                                        for s in contract_post.slices
-                                        if s.id == upstream_ids[0]
-                                    ),
+                                    (s for s in contract_post.slices if s.id == upstream_ids[0]),
                                     None,
                                 )
                                 if upstream is not None and upstream.pr_number:
                                     upstream_repo = (
-                                        resolve_slice_repo(upstream, pipeline)
-                                        or pipeline.repo
+                                        resolve_slice_repo(upstream, pipeline) or pipeline.repo
                                     )
                                     if upstream_repo and upstream_repo != slice_repo:
                                         upstream_pr_ref = {
@@ -21164,16 +21158,13 @@ def _run_concurrent_phase(
         slice_obj = None
         try:
             _contract = load_contract(pipeline_id, worktree_repo_path)
-            slice_obj = next(
-                (s for s in _contract.slices if s.id == slice_id), None
-            )
+            slice_obj = next((s for s in _contract.slices if s.id == slice_id), None)
         except Exception as contract_err:  # noqa: BLE001
             # Best-effort: a contract load/parse failure degrades to the
             # pipeline-primary repo (today's behaviour), it does not block
             # the spawn. The slice still runs, just against the primary.
             logger.warning(
-                "Slice-repo scoping: contract load failed; using pipeline "
-                "primary repo (#3393)",
+                "Slice-repo scoping: contract load failed; using pipeline primary repo (#3393)",
                 pipeline_id=pipeline_id,
                 slice_id=slice_id,
                 error=str(contract_err),
@@ -21184,9 +21175,7 @@ def _run_concurrent_phase(
         resolved = _resolve_slice_gate_repo(slice_obj, pipeline) if slice_obj else None
         if resolved and resolved != pipeline.repo:
             slice_repo = resolved
-            slice_repo_path = _resolve_slice_worktree_path(
-                pipeline, resolved, worktree_repo_path
-            )
+            slice_repo_path = _resolve_slice_worktree_path(pipeline, resolved, worktree_repo_path)
             # Per-repo base branch from the pipeline's RepoSpec list.
             for spec in pipeline.repos or []:
                 if getattr(spec, "repo", None) == resolved:
@@ -26016,9 +26005,7 @@ def _run_pipeline(
                         # Keys are ``owner/repo``; the on-disk dir is the bare
                         # leaf, so strip the owner prefix before joining.
                         for owner_repo in wt_result.worktrees:
-                            candidate = (
-                                WORKTREE_BASE_DIR / worktree_id / owner_repo.split("/")[-1]
-                            )
+                            candidate = WORKTREE_BASE_DIR / worktree_id / owner_repo.split("/")[-1]
                             if candidate.exists():
                                 worktree_repo_path = candidate
                                 break

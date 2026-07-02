@@ -588,9 +588,12 @@ def _patch_visibility(monkeypatch, mapping):
 
     checker = MagicMock()
     checker.get_visibility.side_effect = lambda owner, repo, **_: mapping[f"{owner}/{repo}"]
-    checker.is_private.side_effect = lambda owner, repo, **_: mapping[f"{owner}/{repo}"] in (
-        "private",
-        "internal",
+    checker.is_private.side_effect = lambda owner, repo, **_: (
+        mapping[f"{owner}/{repo}"]
+        in (
+            "private",
+            "internal",
+        )
     )
     monkeypatch.setattr("repo_visibility.get_visibility_checker", lambda: checker, raising=False)
 
