@@ -34,6 +34,22 @@ the two-layer resolver design:
 - TASK-1-3 tests split across both layers (contract test_models.py +
   orchestrator/tests/test_models.py). Re-validated clean; re-proposed v2.
 
+## v3 (addressed reviewer_plan R3 NACK on slice-5 — CONCEDED, aligned to architect layer_6)
+TASK-5-1 pinned the three failure semantics reviewer_plan required:
+(a) merge detection = merged boolean / mergedAt (gh pr view --json state,mergedAt),
+NOT head-SHA equality (squash/rebase changes SHA); on merged⇒ NEW gateway verb
+mark_pr_ready(repo,pr_number) wrapping existing gh pr ready (github_client.py:124),
+exposed via gateway/gateway.py + gateway_client/_pr.py; poll on existing reconcile
+cadence (extend stacked_pr_reconciler.py or add cross_repo_merge_gate.py).
+(b) CLOSED-UNMERGED terminal ⇒ HITL hold (not auto-ready), surfaced on status —
+distinct from Tier B beyond-merge-state.
+(c) BOUND/TIMEOUT ⇒ never-merging escalates to HITL, not indefinite draft.
+TASK-5-1 files expanded: +stacked_pr_reconciler.py, +gateway_client/_pr.py,
++gateway/gateway.py, +gateway/github_client.py (all coder-writable; overlap OK —
+slice-5 is transitive descendant of slices 3&4 which own gateway.py/_pr.py).
+TASK-5-3 adds test cases: squash-merge SHA≠head, closed-unmerged⇒HITL,
+never-merging⇒HITL bound. Re-validated clean; re-proposed v3.
+
 ## Slice shape (for consistency across re-invocations)
 - slice-1 (root): repo dimension across TWO model layers (see v2 above).
   Chain root: nothing writes Slice.repo until it lands.
