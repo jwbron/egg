@@ -3360,30 +3360,72 @@ class TestMultiRepoAgentEnv:
 
     #3393 slice-3 removes the ``repos[0]`` collapse in the spawner: instead of
     deriving a single repo from ``repos[0]``, the spawner exposes the whole
-    ``owner/repo -> worktree path`` map (``EGG_REPO_VOLUMES``) and the full
-    ordered repo list (``EGG_PIPELINE_REPOS``) so a slice agent can select its
-    own repo's worktree. ``EGG_PIPELINE_REPO`` stays populated with the primary
-    (first) repo for back-compat.
+    ``owner/repo -> container worktree path`` map as ``EGG_PIPELINE_REPOS``
+    (JSON) so a per-slice agent can select ITS slice's repo worktree rather
+    than being collapsed onto the primary. ``EGG_PIPELINE_REPO`` stays
+    populated with the primary (first) repo for back-compat.
 
     The map is keyed by FULL ``owner/repo`` (operator ruling #6) so two repos
     with the same short name under different owners (``ownerA/foo`` vs
-    ``ownerB/foo``) get distinct entries instead of colliding on the bare name.
+    ``ownerB/foo``) get distinct KEYS instead of collapsing to one bare-name
+    entry.
     """
 
     def test_agent_env_exposes_full_owner_repo_worktree_map(self, spawner, mock_gateway):
         """A multi-repo spawn exposes every repo's worktree, keyed by owner/repo.
 
-        Two same-short-name repos under different owners must NOT collide: the
-        env map has two distinct ``owner/repo`` keys. ``EGG_PIPELINE_REPOS``
-        carries the full ordered list and ``EGG_PIPELINE_REPO`` resolves to the
-        primary (first) repo for back-compat.
+        The canonical motivating pattern (a schema repo + its consumer repo)
+        must surface BOTH repos in ``EGG_PIPELINE_REPOS`` — the full owner/repo
+        -> container-path map — while ``EGG_PIPELINE_REPO`` resolves to the
+        primary (first) repo for back-compat. Distinct bare names here so both
+        keys and paths are unambiguous (the same-bare-name key case is covered
+        separately below).
         """
-        worktrees = {
-            "ownerA/foo": "/home/egg/.egg-worktrees/pipe-multi/ownerA-foo",
-            "ownerB/foo": "/home/egg/.egg-worktrees/pipe-multi/ownerB-foo",
-        }
         mock_gateway.create_worktrees.return_value = _FakeWorktreeResult(
-            worktrees=dict(worktrees)
+            worktrees={
+                "ownerA/schema": "/home/egg/.egg-worktrees/pipe-multi/ownerA-schema",
+                "ownerB/consumer": "/home/egg/.egg-worktrees/pipe-multi/ownerB-consumer",
+            }
+        )
+
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-multi",
+            agent_role=AgentRole.CODER,
+            repos=["ownerA/schema", "ownerB/consumer"],
+        )
+        env = result.environment
+
+        # Full owner/repo-keyed map: an entry per repo, keyed by full owner/repo,
+        # valued by the container worktree path.
+        repo_map = json.loads(env["EGG_PIPELINE_REPOS"])
+        assert repo_map == {
+            "ownerA/schema": "/home/egg/repos/schema",
+            "ownerB/consumer": "/home/egg/repos/consumer",
+        }
+
+        # Back-compat: the singleton still resolves to the primary (first) repo.
+        assert env["EGG_PIPELINE_REPO"] == "ownerA/schema"
+
+    def test_agent_env_same_name_repos_get_distinct_map_keys(self, spawner, mock_gateway):
+        """Same short name under different owners → distinct owner/repo KEYS.
+
+        Operator ruling #6: the worktree map is re-keyed by full ``owner/repo``
+        so ``ownerA/foo`` and ``ownerB/foo`` do NOT collapse to a single
+        bare-name (``foo``) entry — the map has two distinct keys.
+
+        NOTE (non-blocking, flagged to reviewers/coder): the map *values* are
+        currently derived as ``/home/egg/repos/<bare-name>``, so two
+        same-bare-name repos share the same container mount target. That is a
+        property of the container mount-path scheme (``host_path_mounts``),
+        broader than this slice's owner/repo re-key of the map KEYS; this test
+        deliberately asserts only key-distinctness and does not bless the
+        value collision.
+        """
+        mock_gateway.create_worktrees.return_value = _FakeWorktreeResult(
+            worktrees={
+                "ownerA/foo": "/home/egg/.egg-worktrees/pipe-multi/ownerA-foo",
+                "ownerB/foo": "/home/egg/.egg-worktrees/pipe-multi/ownerB-foo",
+            }
         )
 
         result = spawner.spawn_agent_job(
@@ -3391,25 +3433,17 @@ class TestMultiRepoAgentEnv:
             agent_role=AgentRole.CODER,
             repos=["ownerA/foo", "ownerB/foo"],
         )
-        env = result.environment
+        repo_map = json.loads(result.environment["EGG_PIPELINE_REPOS"])
 
-        # Full owner/repo-keyed worktree map — no bare-name collision.
-        volumes = json.loads(env["EGG_REPO_VOLUMES"])
-        assert set(volumes.keys()) == {"ownerA/foo", "ownerB/foo"}
-        assert len(volumes) == 2, "same-short-name repos must not collapse to one key"
-
-        # Full ordered repo list is exposed to the agent.
-        assert json.loads(env["EGG_PIPELINE_REPOS"]) == ["ownerA/foo", "ownerB/foo"]
-
-        # Back-compat: the singleton still resolves to the primary (first) repo.
-        assert env["EGG_PIPELINE_REPO"] == "ownerA/foo"
+        assert set(repo_map.keys()) == {"ownerA/foo", "ownerB/foo"}
+        assert len(repo_map) == 2, "same-short-name repos must not collapse to one key"
 
     def test_agent_env_single_repo_backcompat(self, spawner, mock_gateway):
-        """N=1 pipelines still expose a one-entry map and the singleton env vars.
+        """N=1 pipelines still expose a one-entry map and the singleton env var.
 
-        The list-shaped env exposure must be behaviour-identical for the
-        single-repo case: a one-element map/list plus ``EGG_PIPELINE_REPO``
-        pointing at that repo.
+        The map-shaped env exposure must be behaviour-identical for the
+        single-repo case: a one-element ``EGG_PIPELINE_REPOS`` map plus
+        ``EGG_PIPELINE_REPO`` pointing at that repo.
         """
         mock_gateway.create_worktrees.return_value = _FakeWorktreeResult(
             worktrees={"owner/solo": "/home/egg/.egg-worktrees/pipe-solo/owner-solo"}
@@ -3422,8 +3456,7 @@ class TestMultiRepoAgentEnv:
         )
         env = result.environment
 
-        assert list(json.loads(env["EGG_REPO_VOLUMES"]).keys()) == ["owner/solo"]
-        assert json.loads(env["EGG_PIPELINE_REPOS"]) == ["owner/solo"]
+        assert json.loads(env["EGG_PIPELINE_REPOS"]) == {"owner/solo": "/home/egg/repos/solo"}
         assert env["EGG_PIPELINE_REPO"] == "owner/solo"
 
 
