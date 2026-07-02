@@ -17,11 +17,26 @@ Five slices edit `orchestrator/routes/pipelines.py`; slices 1 & 3 both edit
 a transitive-ancestor ordering → one linear `dependencies` chain. Do NOT
 re-parallelize 2–6 into independent roots (trips #3046).
 
+## v2 (addressed risk_analyst R1 NACK on slice-1 — CONCEDED, aligned to architect aeb3528)
+Original TASK-1-1 wrongly told the coder to fill Slice.repo + normalize the
+pipeline repo INSIDE the contract-model migration. Impossible: the Contract
+model has NO repo field and cannot see the orchestrator Pipeline. Realigned to
+the two-layer resolver design:
+- Contract layer (shared/egg_contracts/models.py): Slice.repo:str|None + PURE
+  ADDITIVE _migrate_schema_version_to_1_4 stamp (mirror _migrate_schema_version_to_1_3
+  verbatim; guard =="1.3"; idempotent; NO field mutation; Slice.repo stays None on
+  legacy load). Migration does NOT fill repo, does NOT reference pipeline, no repo
+  list on Contract.
+- Orchestrator layer (orchestrator/models.py): RepoSpec + Pipeline.repos +
+  validator synthesizes list from legacy singleton & mirrors repos[0] back +
+  primary_repo property + RUNTIME resolve_slice_repo(slice,pipeline)=slice.repo or
+  primary. absent⇒primary lives HERE, not in the contract migration.
+- TASK-1-3 tests split across both layers (contract test_models.py +
+  orchestrator/tests/test_models.py). Re-validated clean; re-proposed v2.
+
 ## Slice shape (for consistency across re-invocations)
-- slice-1 (root): repo dimension in persisted schema. `Slice.repo` +
-  Pipeline repo-list + schemaVersion 1.3→1.4 migration (absent ⇒ primary;
-  singleton ⇒ 1-elem list) [shared/egg_contracts/models.py, orchestrator/models.py]
-  + tests. Chain root: nothing writes Slice.repo until it lands.
+- slice-1 (root): repo dimension across TWO model layers (see v2 above).
+  Chain root: nothing writes Slice.repo until it lands.
 - slice-2 (dep 1): list-shaped submission (_submit.py + pipelines route) +
   uniform-visibility & uniform-auth validation (repo_visibility.py,
   _credentials.py). Same-name sets NOT rejected (ruling #6).
