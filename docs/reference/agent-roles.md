@@ -717,7 +717,7 @@ The gateway's `get_attributed_changed_files_in_push()` walks the unpushed range 
 
 For the exact allowed and blocked patterns per role, see `shared/egg_restrictions/patterns.py` (canonical source). The gateway imports from this shared package for push-time validation.
 
-**Per-repo overrides (#2528):** The test/code/docs glob lists described above are the *defaults*. Repositories with non-Python file conventions (Go, JS/TS, etc.) can override them via a `role_patterns:` block in `repositories.yaml`. Only the language-convention globs (`tests_globs`, `code_globs`, `docs_globs`) are configurable; security-relevant blocklists (the whole `.egg-state/` tree, `.github/`) are hard-coded and cannot be relaxed. See [Per-Repository Role Patterns](../guides/sdlc-pipeline.md#per-repository-role-patterns) for the configuration schema.
+**Per-repo overrides (#2528):** The test/code/docs glob lists described above are the *defaults*. Repositories with non-Python file conventions (Go, JS/TS, etc.) can override them via a `role_patterns:` block in `repositories.yaml`. Only the language-convention globs (`tests_globs`, `code_globs`, `docs_globs`) are configurable; security-relevant blocklists (`.egg-state/` — up to the whole tree for the coder/tester tier — and `.github/`) are hard-coded and cannot be relaxed. See [Per-Repository Role Patterns](../guides/sdlc-pipeline.md#per-repository-role-patterns) for the configuration schema.
 
 ## Per-Agent Git Identity
 
