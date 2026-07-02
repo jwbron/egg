@@ -17046,8 +17046,11 @@ def _unresolved_contract_hitl_ids(
         contract = load_contract(identifier, worktree)
     except OSError, ValueError, ContractNotFoundError, ContractValidationError:
         # OSError: filesystem failures resolving the worktree / reading the
-        # contract. ValueError: pydantic-V2 validation failures. Contract*:
-        # missing or corrupt contract JSON. All fail open to ``[]``.
+        # contract. ValueError: identifier / path-resolution failures from
+        # ``_pipeline_identifier`` (``load_contract`` wraps pydantic-V2
+        # validation errors as ContractValidationError, so a raw ValueError
+        # here does not come from schema validation). Contract*: missing or
+        # corrupt contract JSON. All fail open to ``[]``.
         logger.warning(
             "Consensus-timeout HITL gate contract scan failed",
             pipeline_id=pipeline_id,
