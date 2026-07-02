@@ -731,7 +731,11 @@ def _spawn_overseer_agent(
     except ImportError:
         from models import AgentRole  # type: ignore[no-redef]
 
-    overseer_repo = pipeline_repos[0] if pipeline_repos else None
+    # The overseer resolves its model from the pipeline's PRIMARY repo.
+    # ``pipeline_repos`` is canonically primary-first (#3393 slices 1-2), so
+    # take the first (primary) entry via ``next(iter(...))`` rather than a
+    # positional ``[0]`` collapse (#3393 slice-3).
+    overseer_repo = next(iter(pipeline_repos or []), None)
     try:
         overseer_decision = resolve_overseer_model(
             "adversarial",
@@ -24613,27 +24617,35 @@ def _run_pipeline(
                         wt_backoff *= 2
 
                 if wt_result and wt_result.success and wt_result.worktrees:
-                    # Gateway returns worktrees keyed by repo name only (e.g., "egg"),
-                    # stripping the owner prefix from "owner/repo" format. This matches
-                    # the container mount target at /home/egg/repos/<name>.
+                    # Gateway returns worktrees keyed by the full ``owner/repo``
+                    # slug (#3393 slice-3, operator ruling #6). The on-disk
+                    # worktree directory (and the container mount target) is
+                    # still the bare repo name at /home/egg/repos/<name>, so
+                    # the path reconstruction below strips the owner prefix
+                    # from each key.
                     repo_volumes = wt_result.worktrees
 
                     # Derive the orchestrator-accessible worktree path.
                     # Reviewer containers write verdict/draft/check files into
                     # the worktree, so the orchestrator must read from there.
-                    # Match against pipeline.repo explicitly to avoid picking
-                    # the wrong repo in multi-repo pipelines.
-                    repo_short = pipeline.repo.split("/")[-1] if pipeline.repo else None
+                    # Match against pipeline.repo (full owner/repo slug, which
+                    # is now the map key) explicitly to avoid picking the wrong
+                    # repo in multi-repo pipelines.
                     matched = False
-                    if repo_short and repo_short in wt_result.worktrees:
+                    if pipeline.repo and pipeline.repo in wt_result.worktrees:
+                        repo_short = pipeline.repo.split("/")[-1]
                         candidate = WORKTREE_BASE_DIR / worktree_id / repo_short
                         if candidate.exists():
                             worktree_repo_path = candidate
                             matched = True
                     if not matched:
-                        # Fallback: take the first existing worktree path
-                        for name in wt_result.worktrees:
-                            candidate = WORKTREE_BASE_DIR / worktree_id / name
+                        # Fallback: take the first existing worktree path.
+                        # Keys are ``owner/repo``; the on-disk dir is the bare
+                        # leaf, so strip the owner prefix before joining.
+                        for owner_repo in wt_result.worktrees:
+                            candidate = (
+                                WORKTREE_BASE_DIR / worktree_id / owner_repo.split("/")[-1]
+                            )
                             if candidate.exists():
                                 worktree_repo_path = candidate
                                 break

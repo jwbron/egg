@@ -43,7 +43,14 @@ def create_worktrees(
             in the gateway.
 
     Returns:
-        WorktreeResult with host paths for each repo
+        WorktreeResult with host paths for each repo. ``worktrees`` is keyed
+        by the full ``owner/repo`` slug (#3393 slice-3, operator ruling #6):
+        the gateway's ``/api/v1/worktree/create`` handler keys the map by the
+        slug it was handed, so two repos sharing a short name under different
+        owners get distinct entries. This client is a passthrough — it does
+        not re-key. The on-disk worktree directory (the map VALUE's leaf) is
+        still the bare repo name, so consumers that reconstruct a path from
+        the KEY must strip the owner prefix.
 
     Raises:
         GatewayError: On request failure
