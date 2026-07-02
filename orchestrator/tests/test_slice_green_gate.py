@@ -540,11 +540,19 @@ class TestRunSliceGreenGate:
         spawner = _spawner()
         with (
             patch.object(sgg, "_submit_runner_job") as submit,
-            patch.object(sgg, "_wait_for_runner_pod", return_value=None),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=None) as wait,
             patch.object(sgg, "_delete_runner_job") as delete_job,
         ):
             assert _run_gate(spawner) is None
         submit.assert_called_once()
+        # The orchestrator-side wait budget must include the scheduling grace so a
+        # cold-node image pull does not eat the check timeout and trip a spurious
+        # fail-open (#3398). Pin the caller-side wiring so a refactor that drops the
+        # grace can't stay green.
+        assert (
+            wait.call_args.kwargs["timeout"]
+            == sgg._DEFAULT_TIMEOUT_SECONDS + sgg._POD_SCHEDULING_GRACE_SECONDS
+        )
         delete_job.assert_called_once()
         spawner.gateway.delete_session_by_container.assert_called_once()
         spawner.gateway.delete_worktrees.assert_called_once()
