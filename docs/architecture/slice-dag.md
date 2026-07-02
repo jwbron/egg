@@ -773,6 +773,17 @@ with no slices gets neither. A single-repo pipeline gets exactly one work branch
 and one context PR, byte-equivalent to the pre-multi-repo path. Context-PR
 bodies cross-reference their sibling context PRs in the pipeline.
 
+For a multi-repo pipeline (`len(repos) > 1`), `kubernetes_spawner` asks the
+gateway to materialize each repo's work branch on its own remote right after
+the worktree is created (`create_worktrees(..., push_branches=True)`, wired
+through the gateway's `_materialize_work_branch_on_remote`, #3393 slice-7):
+the fresh worktree HEAD is pushed to
+`refs/heads/{assigned_branch or work-branch}`. The push is best-effort,
+non-forced, and idempotent — an already-materialized branch is a no-op — so a
+secondary repo's context/slice PR always has a head branch to open against
+instead of soft-failing on a missing one. Single-repo pipelines pass
+`push_branches=False` and stay byte-identical to the pre-#3393 path.
+
 ### Per-slice PR routing
 
 `GatewayClient.create_slice_pr` is repo-parameterized; the run loop passes each
