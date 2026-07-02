@@ -1,0 +1,176 @@
+{
+  "issue": 3393,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "title": "Risk assessment — multi-repo pipelines (coordinated PRs across repositories in one pipeline)",
+  "grounding_sha": "f085265b7",
+  "grounded_against": "live worktree at HEAD f085265b7 on 2026-07-02; every file:line anchor below re-verified against this tree (the refiner grounded at 20b476173 — tree has since advanced, anchors re-checked).",
+  "summary": "v1 scope is operator-ratified and well-bounded (8 ACs in the refine analysis, cq-1 resolved, six binding design rulings). The infra is genuinely more multi-repo-ready than a naive read suggests. The residual risk is NOT in the parts the issue calls out as ready (worktree list, per-repo creds, repo-parameterized PR creation) — it is in three under-appreciated seams: (1) the contract schema itself carries NO repo dimension, so 'Slice.repo absent => primary' has nothing to resolve 'primary' against at load time; (2) 'stop the repos[0] collapse' is not a pure deletion — EGG_PIPELINE_REPO is a HARD-REQUIRED downstream consumer (overseer entrypoint raises without it); (3) the cq-1 auto-release merge-poll is net-new orchestration with unspecified terminal/failure states. Proceed with the mitigations below folded into the plan.",
+  "overall_risk_level": "MEDIUM-HIGH",
+  "overall_risk": "MEDIUM-HIGH",
+  "recommendation": "PROCEED_WITH_MITIGATIONS",
+  "verdict": "PROCEED_WITH_MITIGATIONS",
+  "scope_note": "Assesses the operator-ratified v1 scope in the refine analysis (.egg-state/drafts/3393-analysis.md): arbitrary N repos, slice<->repo 1:1, uniform visibility + uniform auth per run, cross-repo ordering via slice deps, and the cq-1 two-tier merge-sequencing hold. Mixed auth, richer merge machinery, and cross-repo atomic merge are OUT of v1 and out of scope here.",
+  "plan_reconciliation": "No architect-output/architect-slices or task_planner plan-draft has been proposed at the time of this assessment (BRC state: all plan-phase producers WORKING, zero CONSENSUS_PROPOSE; transcript live=true). This assessment is therefore GROUNDED IN THE REFINE ANALYSIS + LIVE TREE, not in a plan. Reviewer obligation (risk_analyst also reviews in plan): when the architect and task_planner propose, reconcile their slice DAG + task breakdown against R1-R7 below and NACK if R1 (contract repo dimension), R2 (EGG_PIPELINE_REPO consumers preserved), or R3 (merge-poll terminal states) are unaddressed.",
+  "risks": [
+    {
+      "id": "R1",
+      "title": "The Contract model has NO repo dimension — 'Slice.repo absent => primary repo' has no 'primary' to resolve against at contract-load time",
+      "category": "schema-migration",
+      "severity": "HIGH",
+      "likelihood": "CERTAIN",
+      "impact": "AC-3 mandates 'Slice.repo exists (absent => primary repo via schema migration)'. But the migration is a Contract-level model_validator that sees only the contract dict. shared/egg_contracts/models.py has NO repo field on Contract (grep 'repo' hits only field docstrings at :351 and :435, never a real field). The primary repo lives on Pipeline.repo (orchestrator/models.py:1131) — a DIFFERENT model, in the orchestrator, NOT persisted inside the contract JSON. So an old contract loaded post-migration cannot fill absent Slice.repo => primary: the value simply is not reachable from where the migration runs. Scoping this to 'just add Slice.repo' silently breaks back-compat load of every existing single-repo contract.",
+      "description": "The real schema change is TWO fields, not one: (a) a repo dimension on the Contract (a repos list and/or primary_repo), populated at the pipeline->contract boundary and persisted, and (b) Slice.repo, whose absent-field migration defaults from (a). The refine analysis' 'four migration precedents exist' is TRUE for the mechanism (schemaVersion 1.0->1.1->1.2->1.3, models.py:1017-1119) but those precedents are all self-contained additive stamps that need no cross-model context; this one needs a value that today lives outside the contract.",
+      "affected_files": [
+        "shared/egg_contracts/models.py:322 (class Slice)",
+        "shared/egg_contracts/models.py:841 (schemaVersion field)",
+        "shared/egg_contracts/models.py:949 (_migrate_phases_to_slices validator)",
+        "shared/egg_contracts/models.py:1017-1119 (schemaVersion migration precedents)",
+        "orchestrator/models.py:1131 (Pipeline.repo singleton — the value the migration needs but cannot see)"
+      ],
+      "mitigations": [
+        "Plan must add a Contract-level repo dimension (repos list + designated primary) as part of the same schema bump, populated at the pipeline->contract handoff, BEFORE any Slice.repo work.",
+        "Slice.repo absent-field migration defaults from the Contract's primary repo — write a migration test that loads a pre-1.4 single-repo contract JSON fixture and asserts every slice.repo == primary.",
+        "Bump schemaVersion (1.3 -> 1.4) with a migration validator in the established additive pattern; do NOT mutate existing fields."
+      ],
+      "requires_human_review": false
+    },
+    {
+      "id": "R2",
+      "title": "'Stop the repos[0] collapse' is NOT a pure deletion — EGG_PIPELINE_REPO is a HARD-REQUIRED downstream consumer that a naive removal breaks",
+      "category": "regression",
+      "severity": "HIGH",
+      "likelihood": "LIKELY",
+      "impact": "AC-4 says 'all three repos[0] collapse sites are gone'. Two of the three (kubernetes_spawner/_spawn.py:452,464 -> :523) do not merely collapse a list; they PRODUCE the EGG_PIPELINE_REPO env var that downstream code HARD-REQUIRES: sandbox/entrypoint/_environment.py:46-59 RAISES for the overseer role if EGG_PIPELINE_REPO is absent; sandbox/egg_lib/orch_cli/_overseer.py:137-140 errors without it; sandbox/egg_lib/overseer_issue_body.py:106 reads it to target a single repo for 'gh issue create' (the gateway enforces --repo $EGG_PIPELINE_REPO). Deleting the collapse without preserving a primary-repo scalar breaks overseer issue-filing pipeline-wide.",
+      "description": "The requirement is 'stop collapsing the LIST to repos[0] where the full map is needed' — NOT 'delete the primary-repo scalar'. The overseer legitimately files issues against ONE repo (the primary). The fix is to EXPOSE THE FULL owner/repo->worktree MAP ALONGSIDE a retained primary-repo scalar, not INSTEAD of it. commit_authorship_store.py:932-933 (prefers repo named 'egg', else repos[0]) and routes/pipelines.py:732 (overseer_repo) are the other two — each needs a deliberate 'what is the right per-repo value here' decision, not a blanket removal.",
+      "affected_files": [
+        "orchestrator/kubernetes_spawner/_spawn.py:452,464,523 (produces EGG_PIPELINE_REPO)",
+        "orchestrator/commit_authorship_store.py:932-933",
+        "orchestrator/routes/pipelines.py:732 (overseer_repo)",
+        "sandbox/entrypoint/_environment.py:46-59 (RAISES without EGG_PIPELINE_REPO for overseer)",
+        "sandbox/egg_lib/orch_cli/_overseer.py:137-140 (consumer)",
+        "sandbox/egg_lib/overseer_issue_body.py:106 (consumer)"
+      ],
+      "mitigations": [
+        "Retain a primary-repo scalar (EGG_PIPELINE_REPO) for the overseer/issue-filing consumers; ADD the full owner/repo->worktree map as new env (do not remove the scalar).",
+        "AC-4's 'collapse sites are gone' must be read as 'no site silently assumes exactly-one/exactly-two'; each of the three sites gets an explicit per-repo or primary-repo decision, with the overseer path proven to still resolve its single target repo.",
+        "Add a regression test: an N=2 pipeline still sets EGG_PIPELINE_REPO to the primary and the overseer entrypoint does not raise."
+      ],
+      "requires_human_review": false
+    },
+    {
+      "id": "R3",
+      "title": "cq-1 auto-release merge-poll is net-new orchestration with UNSPECIFIED terminal/failure states — the dependent slice's draft PR can hang forever",
+      "category": "correctness",
+      "severity": "MEDIUM-HIGH",
+      "likelihood": "LIKELY",
+      "impact": "cq-1 (binding) requires the orchestrator to poll the upstream slice's PR merge-state and auto-mark the dependent slice's draft PR ready-for-review on merge. The draft primitive EXISTS (create_pr/create_slice_pr take draft=bool; _pr.py:42,152), but the poll-loop + draft->ready state machine does NOT. Undefined terminal states are the trap: upstream PR CLOSED-not-merged, squash/rebase-merge (the merge commit SHA != the PR head, so naive SHA-equality merge-detection misfires), force-push to the upstream branch, or upstream PR never merging. Without defined terminal handling the dependent PR silently stays draft forever, or auto-readies on a false merge signal.",
+      "description": "cq-1 also mandates a SECOND hold kind: beyond-merge-state conditions (release/publish waits, version-pinning) are HITL-resolved, NOT polled. So v1 needs (a) a merge-state poll + idempotent draft->ready transition, AND (b) a HITL hold type, AND (c) a rule that classifies each cross-repo dependency edge into (a) vs (b). The classification default (merge-state hold unless the plan identifies a release/publish/version-pin condition) is planner mechanics per the refine analysis, but the FAILURE semantics of the poll (closed-unmerged upstream => fail the dependent? escalate to HITL?) are NOT resolved by cq-1 and must be pinned by the plan.",
+      "affected_files": [
+        "orchestrator/gateway_client/_pr.py:31-137 (create_pr, draft=), :139-164 (create_slice_pr, draft=)",
+        "orchestrator/routes/pipelines.py (context-PR + slice-PR orchestration; new poll-loop lands here)",
+        "shared/egg_contracts/models.py:362-369 (Slice.dependencies — the ordering substrate)"
+      ],
+      "mitigations": [
+        "Plan MUST specify: poll cadence, merge-detection that tolerates squash/rebase merges (use the PR 'merged' boolean / merged_at, not head-SHA equality), and idempotent draft->ready.",
+        "Plan MUST specify terminal handling for upstream CLOSED-unmerged (recommend: do NOT auto-ready; escalate to HITL) and a bound/timeout so a never-merging upstream does not hang the dependent indefinitely.",
+        "Two hold kinds, two release paths (auto vs HITL) must be distinct slice/PR states, each observable in the status surface."
+      ],
+      "requires_human_review": true
+    },
+    {
+      "id": "R4",
+      "title": "Visibility + auth uniformity validation is genuinely new submission code; a LATE check risks partial-setup leakage of private content onto public surfaces",
+      "category": "security",
+      "severity": "MEDIUM",
+      "likelihood": "POSSIBLE",
+      "impact": "The refine analysis confirms there is NO submission-time visibility validation today (per-repo get_repo_visibility exists at gateway/repo_visibility.py; private mode is a GLOBAL gateway posture). _compute_gateway_mode (orchestrator/routes/pipelines.py:3020-3033) derives session mode from a SINGLE pipeline.repo's visibility. With N repos, the uniformity check (all-private or all-public; all-same-auth-mode) is new code that MUST run at submission ENTRY, before any per-repo worktree/session/PR setup. If the check runs late (after checkout/session registration), a mixed set could partially provision and let private-repo content flow through shared plan/contract/PR surfaces — exactly the leak the requirement exists to prevent.",
+      "description": "Two validations, same shape, both new: (1) uniform visibility (reject mixed private/public), (2) uniform auth mode (reject mixed bot/user — mixed auth is explicitly deferred). Both must reject with actionable errors. Same-NAME repo sets are NOT rejected (operator ruling #6: resolve via owner/repo re-key, see R5).",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py:2107-2109 (submission reads singular repo/base_branch today)",
+        "orchestrator/routes/pipelines.py:3020-3033 (_compute_gateway_mode, singleton visibility)",
+        "orchestrator/mcp_tools/_submit.py:78-89 (submit_task singular repo)",
+        "gateway/repo_visibility.py:407-425 (per-repo visibility lookup)"
+      ],
+      "mitigations": [
+        "Validate visibility + auth uniformity at submission ENTRY, before any per-repo checkout or session registration — fail closed on mixed sets.",
+        "_compute_gateway_mode must read the run's uniform visibility from the validated repo set (any member is representative once uniformity is proven), not an arbitrary pipeline.repo.",
+        "Add negative tests: mixed-visibility set rejected; mixed-auth set rejected; both with actionable error messages."
+      ],
+      "requires_human_review": false
+    },
+    {
+      "id": "R5",
+      "title": "Worktree map re-key from bare-name to owner/repo (operator ruling #6) is a fan-out; a missed consumer reading by bare name against an owner/repo-keyed map fails at runtime",
+      "category": "correctness",
+      "severity": "MEDIUM",
+      "likelihood": "POSSIBLE",
+      "impact": "The agent-facing repo->path map is keyed by bare repo NAME today (refiner grounding correction #2). Operator ruling #6 MANDATES re-keying by full owner/repo (the reject-same-name shortcut is FORBIDDEN). Re-keying changes the key at EVERY read site: spawner repo_volumes (kubernetes_spawner/_spawn.py:45, _concurrent.py:117), the agent env exposure, and any guarded single-repo readers (e.g. sandbox/egg_lib/sdlc_hitl.py:82, len==1-guarded). A consumer still reading by bare name against an owner/repo-keyed map gets KeyError/None at runtime.",
+      "description": "Operator ruling #6 also says: if the re-key fan-out proves prohibitive at plan time, that is a NEW HITL to surface — NEVER a silent fallback to reject-same-name. The plan must enumerate every map consumer and confirm each is updated, or raise the HITL.",
+      "affected_files": [
+        "orchestrator/gateway_client/_worktree.py:74-79 (map keyed by bare name today)",
+        "orchestrator/kubernetes_spawner/_spawn.py:45,283 (repo_volumes)",
+        "orchestrator/kubernetes_spawner/_concurrent.py:117",
+        "sandbox/egg_lib/sdlc_hitl.py:82 (guarded single-repo reader)"
+      ],
+      "mitigations": [
+        "Enumerate all worktree-map consumers (grep the map's field/param names) and update each to owner/repo keys in the same slice.",
+        "If fan-out is prohibitive, surface a NEW HITL decision (per ruling #6) — do not fall back to name-uniqueness assumptions.",
+        "Add a test with two same-name repos under different owners (ownerA/foo, ownerB/foo) that would collide under bare-name keying."
+      ],
+      "requires_human_review": false
+    },
+    {
+      "id": "R6",
+      "title": "Per-repo conventions (AC-7): test gate + reviewer diff must run under the SLICE's repo conventions, not egg's — a hardcoded egg 'make lint/test' false-greens or false-fails foreign-repo slices",
+      "category": "correctness",
+      "severity": "MEDIUM",
+      "likelihood": "POSSIBLE",
+      "impact": "AC-7 (operator ruling #5) requires a slice's agent to operate under THAT slice's repo CLAUDE.md/linters/check commands, with cwd in that repo's worktree. If the test gate resolves check commands from egg's conventions (make lint / make test-all) rather than per-slice-repo, a foreign-repo slice either fails spuriously (no Makefile) or false-greens (egg tests pass while the foreign repo is untested). Slice<->repo 1:1 makes the SCOPING mechanical (the slice's repo only), but the command RESOLUTION per repo is the real work.",
+      "description": "Reviewer diffs are already single-repo per the 1:1 rule (git diff in the slice worktree vs that repo's base). The genuinely new mechanic is resolving each repo's check commands and running the gate in the correct worktree cwd.",
+      "affected_files": [
+        "orchestrator test-gate / check-command resolution sites (plan must locate; egg's make targets must not be assumed for non-egg slices)"
+      ],
+      "mitigations": [
+        "Test gate resolves check commands per slice repo (from that repo's convention/config), runs in the slice repo's worktree cwd.",
+        "Reviewer diff is git diff in the slice's worktree against that repo's base only — no cross-repo diff surface in v1.",
+        "Add a slice-in-non-egg-repo test asserting the gate does not invoke egg's make targets."
+      ],
+      "requires_human_review": false
+    },
+    {
+      "id": "R7",
+      "title": "Naming / branch / status surfaces with repo no longer a scalar — many display sites, low correctness risk but easy to miss one",
+      "category": "maintainability",
+      "severity": "LOW",
+      "likelihood": "LIKELY",
+      "impact": "Operator ruling #4: pipeline id/naming keys off the PRIMARY repo (first in list unless explicitly flagged); branch naming uniform across repos; status surfaces render per-repo PR lists. Mostly mechanical, but the status surface now iterates N PRs and PR descriptions cross-reference siblings (AC-5). Missing a display site yields a confusing (not incorrect) surface.",
+      "description": "Low-severity but broad; call out so the planner budgets for the render sites and the cross-referencing PR-description text.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py (status surfaces, context-PR opener ~11001-11250)",
+        "orchestrator/mcp_tools/_status.py"
+      ],
+      "mitigations": [
+        "Primary-repo scalar drives pipeline id/naming (reuse the R2 retained primary).",
+        "Status surface renders per-repo PR lists; slice-PR descriptions cross-reference sibling PRs in the pipeline (AC-5)."
+      ],
+      "requires_human_review": false
+    }
+  ],
+  "areas_requiring_human_review": [
+    "R3 terminal semantics: upstream PR CLOSED-not-merged (or never merging) — cq-1 resolved the happy-path auto-release but NOT the failure path. Recommend the plan default to 'do not auto-ready; escalate to HITL' plus a bound/timeout; if the planner cannot pin this from cq-1, it is a new HITL decision, not planner discretion.",
+    "R5 worktree re-key fan-out: if enumerating/updating every owner/repo map consumer is prohibitive at plan time, operator ruling #6 REQUIRES surfacing a new HITL decision rather than a silent name-uniqueness fallback."
+  ],
+  "rollback_plan": "The schema change is additive + version-stamped (schemaVersion 1.3 -> 1.4) following four precedents (models.py:1017-1119), so a bad migration is caught at load and old contracts remain readable. Single-repo N=1 is the explicit regression baseline (AC-8: no behavior change for N=1) — gate merge on the N=1 suite staying green. Keep the singular submit_task repo path working alongside the new list path (back-compat, AC-1); the list surface can be feature-gated at submission so a regression is contained to multi-repo submissions without affecting in-flight single-repo pipelines.",
+  "implementation_recommendations": [
+    "Sequence the schema work FIRST (R1): Contract repo dimension + Slice.repo + migration land before any producer writes slice.repo, because refine/plan/implement all read contracts.",
+    "Treat 'stop the collapse' (R2) as 'expose the full owner/repo map ALONGSIDE a retained primary scalar', never as deleting EGG_PIPELINE_REPO — prove the overseer entrypoint still resolves its single target repo.",
+    "Pin R3 merge-poll terminal/failure states in the plan text (merged-boolean not SHA-equality; closed-unmerged => HITL; bounded poll).",
+    "Validate visibility + auth uniformity at submission entry, fail-closed, before any per-repo provisioning (R4).",
+    "Add the multi-repo regression tests each risk names; keep the N=1 suite as the hard merge gate."
+  ],
+  "performance_assessment": "Low concern. The new cost is the R3 merge-poll loop (one lightweight GH PR-state read per pending dependent slice per interval) and N worktrees per pipeline (the gateway already supports the worktree list). No hot-path change for single-repo pipelines. Choose a poll cadence that does not hammer the GH API; back off on rate limits.",
+  "security_assessment": "The load-bearing security control is R4: uniform-visibility validation prevents private-repo content from flowing through shared plan/contract/PR surfaces into a public repo. It MUST fail closed and run before any provisioning. Uniform-auth-mode validation (mixed bot/user deferred) similarly rejects mixed sets. Gateway push policy (check_branch_ownership) is repo-agnostic and fine under v1 uniform auth. No new secret-handling surface beyond the existing per-repo credential resolution (get_token_for_repo, already per-repo).",
+  "compatibility_assessment": "Back-compat is the primary correctness axis. R1 (contract needs a repo dimension for the absent=>primary default) is the sharp edge — an existing single-repo contract must load post-migration with every slice.repo == primary. AC-1 (singular submit still works) and AC-8 (N=1 no behavior change) are the regression contract. The additive schema-version pattern with four precedents makes the mechanism low-risk PROVIDED R1's cross-model context gap is closed.",
+  "overall_assessment": "PROCEED_WITH_MITIGATIONS. Scope is ratified and the infra is closer than it looks, but three seams are under-appreciated and load-bearing: R1 (the contract itself has no repo dimension, so the mandated Slice.repo absent=>primary migration has no context to resolve 'primary' — the schema change is two fields, not one), R2 (stopping the repos[0] collapse must PRESERVE a primary scalar because EGG_PIPELINE_REPO is a hard-required overseer consumer — a naive deletion regresses issue-filing), and R3 (the cq-1 auto-release merge-poll is net-new orchestration whose terminal/failure states are unspecified and can hang a dependent PR). R4 (fail-closed uniformity validation) is the security gate. Fold R1-R4 mitigations into the plan; R5-R7 are mechanical fan-out to budget for. Reviewer follow-up: NACK the architect/task_planner plan if R1, R2, or R3 are unaddressed."
+}
