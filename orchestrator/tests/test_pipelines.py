@@ -992,3 +992,320 @@ class TestCrossRepoHoldReleaseSelection:
     def test_unresolved_hold_keeps_waiting(self):
         readied, _ = self._run_hold_then_verdict(verdict=None)
         assert readied == []
+
+
+# ============================================================================
+# Slice-6 (#3393): per-repo test-gate + reviewer-diff scoping + per-repo
+# conventions (task-6-3 tests; operator rulings #3, #5).
+#
+# The implement-phase gates must be scoped to the *slice's* repo, not the
+# pipeline primary: the test gate runs in the slice's repo worktree; the
+# reviewer diff is ``git diff`` in that worktree against *that repo's* base
+# branch; and check / lint commands resolve from the slice's repo conventions
+# (its own ``CLAUDE.md`` / linters) rather than hard-coding egg's ``make
+# lint`` / ``make test``. An egg-repo slice (the N=1 common case) must behave
+# exactly as today.
+#
+# Same two-layer shape as slices 2/4/5:
+#
+# * **Always-green rule tests** built on the slice-1 model API
+#   (``resolve_slice_repo`` / ``primary_repo`` / ``Pipeline.repos``) and the
+#   already-shipped ``resolve_worktree_path`` per-repo worktree resolver. These
+#   pin the exact contract the slice-6 coder change must satisfy — which repo
+#   each gate is scoped to — so they are meaningful before the coder half
+#   integrates and never spuriously red.
+# * **Skip-guarded integration test** on the coder-owned scoping seam
+#   (``routes.pipelines._resolve_slice_gate_repo``), handed to the coder via a
+#   task-6-1 gap so the two halves converge on the same shape. It skips with an
+#   explicit reason until the parallel coder producer lands, then activates at
+#   convergence.
+# ============================================================================
+
+
+def _expected_gate_repo(slice, pipeline) -> str | None:
+    """The repo an implement-phase gate for ``slice`` is scoped to (rulings #3/#5).
+
+    The test gate's worktree, the reviewer diff's repo, and the check/lint
+    command conventions all key off the *single* repo the slice operates in —
+    ``resolve_slice_repo(slice, pipeline)`` — never the pipeline primary (unless
+    the slice itself resolves to the primary). This is the one invariant every
+    slice-6 gate-scoping site must honour.
+    """
+    return resolve_slice_repo(slice, pipeline)
+
+
+def _expected_diff_base(slice, pipeline) -> str | None:
+    """The base branch the reviewer diff for ``slice`` is computed against.
+
+    Per operator ruling #3 the diff is ``git diff`` in the slice's repo
+    worktree against *that repo's* base — i.e. the ``base_branch`` of the
+    ``RepoSpec`` for ``resolve_slice_repo(slice, pipeline)``, which for a
+    cross-repo slice differs from the primary's base. Falls back to the
+    pipeline's legacy ``base_branch`` when the resolved repo is not in the
+    ``repos`` list (belt-and-braces; the validator keeps them in sync).
+    """
+    repo = resolve_slice_repo(slice, pipeline)
+    for spec in pipeline.repos:
+        if spec.repo == repo:
+            return spec.base_branch
+    return pipeline.base_branch
+
+
+def _resolve_checks_for_slice(slice, pipeline, checks_by_repo) -> list:
+    """Spec mirror: a slice's check/lint commands come from its OWN repo.
+
+    ``checks_by_repo`` stands in for the per-repo convention source
+    (``get_repo_checks(repo)`` in the orchestrator): the commands a slice runs
+    are those registered for ``resolve_slice_repo(slice, pipeline)``, so an
+    egg slice gets egg's ``make lint`` / ``make test`` and a consumer-repo
+    slice gets the consumer repo's own checks — never a cross-wired set.
+    """
+    return checks_by_repo.get(resolve_slice_repo(slice, pipeline), [])
+
+
+class TestPerRepoTestGateScoping:
+    """The test gate runs in the *slice's* repo worktree, not the primary (AC-1)."""
+
+    @staticmethod
+    def _pipeline() -> Pipeline:
+        return Pipeline(
+            id="issue-3393",
+            repos=[
+                RepoSpec(repo="jwbron/schema", base_branch="main"),  # primary
+                RepoSpec(repo="jwbron/consumer", base_branch="develop"),
+            ],
+        )
+
+    def test_gate_scopes_to_slice_repo_not_primary(self):
+        pipeline = self._pipeline()
+        s = Slice(id="slice-2", name="consumer migration", repo="jwbron/consumer")
+        assert _expected_gate_repo(s, pipeline) == "jwbron/consumer"
+        # The whole point of slice-6: the secondary slice's gate must NOT run
+        # against the primary.
+        assert _expected_gate_repo(s, pipeline) != pipeline.primary_repo
+
+    def test_repoless_slice_gate_scopes_to_primary(self):
+        pipeline = self._pipeline()
+        s = Slice(id="slice-1", name="schema add")  # repo is None → primary
+        assert s.repo is None
+        assert _expected_gate_repo(s, pipeline) == "jwbron/schema"
+
+    def test_each_slice_gate_scopes_to_its_own_repo(self):
+        pipeline = self._pipeline()
+        slices = [
+            Slice(id="slice-1", name="schema", repo="jwbron/schema"),
+            Slice(id="slice-2", name="consumer", repo="jwbron/consumer"),
+        ]
+        assert [_expected_gate_repo(s, pipeline) for s in slices] == [
+            "jwbron/schema",
+            "jwbron/consumer",
+        ]
+
+    def test_egg_slice_in_multi_repo_pipeline_scopes_to_egg(self):
+        """An egg slice keeps egg's gate even alongside other repos (baseline)."""
+        pipeline = Pipeline(
+            id="issue-3393",
+            repos=[
+                RepoSpec(repo="jwbron/egg", base_branch="main"),
+                RepoSpec(repo="jwbron/consumer", base_branch="develop"),
+            ],
+        )
+        s = Slice(id="slice-1", name="egg change", repo="jwbron/egg")
+        assert _expected_gate_repo(s, pipeline) == "jwbron/egg"
+
+    def test_n1_gate_scopes_to_single_repo(self):
+        """N=1 (bare single-repo) behaviour is identical to today."""
+        pipeline = Pipeline(id="issue-3393", repo="jwbron/egg", base_branch="main")
+        s = Slice(id="slice-1", name="only")
+        assert _expected_gate_repo(s, pipeline) == "jwbron/egg"
+
+
+class TestPerRepoReviewerDiffBase:
+    """The reviewer diff is scoped to the slice's repo base branch (AC-1)."""
+
+    @staticmethod
+    def _pipeline() -> Pipeline:
+        return Pipeline(
+            id="issue-3393",
+            repos=[
+                RepoSpec(repo="jwbron/schema", base_branch="main"),  # primary
+                RepoSpec(repo="jwbron/consumer", base_branch="develop"),
+            ],
+        )
+
+    def test_diff_base_is_slice_repo_base_not_primary(self):
+        pipeline = self._pipeline()
+        s = Slice(id="slice-2", name="consumer migration", repo="jwbron/consumer")
+        # The consumer repo's base is ``develop``; the primary's is ``main``.
+        assert _expected_diff_base(s, pipeline) == "develop"
+        assert _expected_diff_base(s, pipeline) != pipeline.base_branch
+
+    def test_repoless_slice_diff_base_is_primary_base(self):
+        pipeline = self._pipeline()
+        s = Slice(id="slice-1", name="schema add")
+        assert _expected_diff_base(s, pipeline) == "main"
+
+    def test_each_slice_diffs_against_its_own_repo_base(self):
+        pipeline = self._pipeline()
+        slices = [
+            Slice(id="slice-1", name="schema", repo="jwbron/schema"),
+            Slice(id="slice-2", name="consumer", repo="jwbron/consumer"),
+        ]
+        assert [_expected_diff_base(s, pipeline) for s in slices] == ["main", "develop"]
+
+    def test_n1_diff_base_unchanged(self):
+        pipeline = Pipeline(id="issue-3393", repo="jwbron/egg", base_branch="release-1.0")
+        s = Slice(id="slice-1", name="only")
+        assert _expected_diff_base(s, pipeline) == "release-1.0"
+
+
+class TestPerRepoCheckCommandResolution:
+    """Check / lint commands resolve from the slice's repo conventions (AC-2)."""
+
+    @staticmethod
+    def _checks_by_repo() -> dict:
+        return {
+            "jwbron/egg": [{"name": "lint", "command": "make lint"}],
+            "jwbron/consumer": [{"name": "ci", "command": "npm test"}],
+        }
+
+    def test_check_commands_resolve_from_slice_repo(self):
+        pipeline = Pipeline(
+            id="issue-3393",
+            repos=[
+                RepoSpec(repo="jwbron/egg", base_branch="main"),
+                RepoSpec(repo="jwbron/consumer", base_branch="develop"),
+            ],
+        )
+        s = Slice(id="slice-2", name="consumer migration", repo="jwbron/consumer")
+        # The consumer slice gets the consumer repo's checks, NOT egg's make lint.
+        assert _resolve_checks_for_slice(s, pipeline, self._checks_by_repo()) == [
+            {"name": "ci", "command": "npm test"}
+        ]
+
+    def test_egg_slice_check_commands_match_baseline(self):
+        pipeline = Pipeline(
+            id="issue-3393",
+            repos=[
+                RepoSpec(repo="jwbron/egg", base_branch="main"),
+                RepoSpec(repo="jwbron/consumer", base_branch="develop"),
+            ],
+        )
+        s = Slice(id="slice-1", name="egg change", repo="jwbron/egg")
+        assert _resolve_checks_for_slice(s, pipeline, self._checks_by_repo()) == [
+            {"name": "lint", "command": "make lint"}
+        ]
+
+    def test_n1_check_commands_from_single_repo(self):
+        pipeline = Pipeline(id="issue-3393", repo="jwbron/egg", base_branch="main")
+        s = Slice(id="slice-1", name="only")  # repo None → primary egg
+        assert _resolve_checks_for_slice(s, pipeline, self._checks_by_repo()) == [
+            {"name": "lint", "command": "make lint"}
+        ]
+
+
+# --- Real per-repo worktree resolver ----------------------------------------
+#
+# ``resolve_worktree_path(pipeline_id, repo_path)`` already selects the worktree
+# by the repo directory name, so the slice-6 test gate runs in the slice's repo
+# worktree iff its call site passes the *slice's* repo path. These tests pin
+# that the resolver picks the slice's own per-repo subdir (not the primary's)
+# when handed the slice's repo path — the mechanism the coder wires the gate
+# onto. Guarded because importing ``routes`` pulls in the Flask surface; the
+# ``sys.path`` / ``docker`` bootstrap ran in the slice-4 block above.
+
+_RESOLVE_WORKTREE_IMPORT_ERROR: str | None = None
+try:  # pragma: no cover - exercised via skip path in stripped environments
+    import routes as _routes_pkg
+    from routes import resolve_worktree_path as _resolve_worktree_path
+except Exception as exc:  # noqa: BLE001
+    _routes_pkg = None  # type: ignore[assignment]
+    _resolve_worktree_path = None  # type: ignore[assignment]
+    _RESOLVE_WORKTREE_IMPORT_ERROR = repr(exc)
+
+
+@pytest.mark.skipif(
+    _resolve_worktree_path is None,
+    reason=(
+        "routes.resolve_worktree_path import failed (Flask surface unavailable): "
+        f"{_RESOLVE_WORKTREE_IMPORT_ERROR}"
+    ),
+)
+class TestPerRepoWorktreeSelection:
+    """The worktree resolver selects the slice's own per-repo subdir (AC-1)."""
+
+    def test_slice_worktree_is_own_repo_subdir_not_primary(self, tmp_path, monkeypatch):
+        pid = "issue-3393"
+        wt_dir = tmp_path / pid
+        (wt_dir / "schema").mkdir(parents=True)  # primary repo worktree
+        (wt_dir / "consumer").mkdir(parents=True)  # secondary repo worktree
+        monkeypatch.setattr(_routes_pkg, "_WORKTREE_BASE_DIR", tmp_path)
+
+        # Handed the consumer slice's repo path, the resolver returns the
+        # consumer worktree — not the primary's.
+        consumer_wt = _resolve_worktree_path(pid, _Path("/home/egg/repos/consumer"))
+        primary_wt = _resolve_worktree_path(pid, _Path("/home/egg/repos/schema"))
+        assert consumer_wt == wt_dir / "consumer"
+        assert primary_wt == wt_dir / "schema"
+        assert consumer_wt != primary_wt
+
+    def test_n1_worktree_resolves_to_single_repo(self, tmp_path, monkeypatch):
+        pid = "issue-3393"
+        wt_dir = tmp_path / pid
+        (wt_dir / "egg").mkdir(parents=True)
+        monkeypatch.setattr(_routes_pkg, "_WORKTREE_BASE_DIR", tmp_path)
+        assert _resolve_worktree_path(pid, _Path("/home/egg/repos/egg")) == wt_dir / "egg"
+
+
+# --- Coder-owned scoping seam: skip until the slice-6 coder change integrates -
+#
+# Handed to the coder via a task-6-1 gap: a single scoping accessor
+# ``routes.pipelines._resolve_slice_gate_repo(slice, pipeline) -> str | None``
+# that returns the repo every implement-phase gate for the slice is scoped to
+# (== ``resolve_slice_repo(slice, pipeline)``). Skips with an explicit reason
+# until the parallel coder producer lands, then activates at convergence.
+
+_GATE_REPO_IMPORT_ERROR: str | None = None
+try:  # pragma: no cover - exercised via skip path until coder lands
+    from routes.pipelines import _resolve_slice_gate_repo  # type: ignore[attr-defined]
+except Exception as exc:  # noqa: BLE001
+    _resolve_slice_gate_repo = None  # type: ignore[assignment]
+    _GATE_REPO_IMPORT_ERROR = repr(exc)
+
+
+@pytest.mark.skipif(
+    _resolve_slice_gate_repo is None,
+    reason=(
+        "slice-6 coder helper ``routes.pipelines._resolve_slice_gate_repo`` not "
+        "yet integrated into the tester worktree (parallel producer); activates "
+        f"at convergence. import error: {_GATE_REPO_IMPORT_ERROR}"
+    ),
+)
+class TestSliceGateRepoAccessor:
+    """The coder's gate-scoping accessor matches the rule (AC-1/AC-2/AC-3)."""
+
+    def test_accessor_matches_rule_for_multi_repo(self):
+        pipeline = Pipeline(
+            id="issue-3393",
+            repos=[
+                RepoSpec(repo="jwbron/schema", base_branch="main"),
+                RepoSpec(repo="jwbron/consumer", base_branch="develop"),
+            ],
+        )
+        secondary = Slice(id="slice-2", name="consumer", repo="jwbron/consumer")
+        repoless = Slice(id="slice-1", name="schema")
+        assert (
+            _resolve_slice_gate_repo(secondary, pipeline)
+            == _expected_gate_repo(secondary, pipeline)
+            == "jwbron/consumer"
+        )
+        assert (
+            _resolve_slice_gate_repo(repoless, pipeline)
+            == _expected_gate_repo(repoless, pipeline)
+            == "jwbron/schema"
+        )
+
+    def test_accessor_n1_single_repo(self):
+        pipeline = Pipeline(id="issue-3393", repo="jwbron/egg", base_branch="main")
+        s = Slice(id="slice-1", name="only")
+        assert _resolve_slice_gate_repo(s, pipeline) == "jwbron/egg"
