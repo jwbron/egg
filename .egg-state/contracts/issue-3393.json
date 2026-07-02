@@ -214,7 +214,7 @@
       "id": "slice-3",
       "name": "Stop the repos[0] collapse; owner/repo-keyed worktree map in agent env",
       "goal": "Remove all three enumerated `repos[0]` collapse sites and expose the full\nrepo\u2192worktree map to the agent environment, re-keyed by full `owner/repo`\n(operator ruling #6). Today the worktree dict keys by bare repo name\n(_worktree.py:74-79) and would collide on same-name repos under different\nowners. A ratchet test plus a `grep -rn 'repos\\[0\\]'` sweep guard against\nregressions, explicitly allowing the len(repos)==1-guarded\nsandbox/egg_lib/sdlc_hitl.py:82 (not a collapse).",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -223,8 +223,8 @@
         {
           "id": "task-3-1",
           "description": "Remove the three collapse sites and thread the full repo set through.\n(a) orchestrator/kubernetes_spawner/_spawn.py:452 (`repo_name =\nrepos[0].split(\"/\")[-1]`) and :464 (`pipeline_repo = repos[0]`) plus\nthe `EGG_PIPELINE_REPO` export at :523 \u2014 replace with logic that\nderives naming from the pipeline's primary repo but exposes the FULL\nrepo\u2192worktree map to the agent env keyed by full `owner/repo`\n(feeding from the client `worktrees` field \u2192 spawner `repo_volumes`).\nKeep `EGG_PIPELINE_REPO` populated with the primary for back-compat\nbut add the full map (e.g. an `EGG_PIPELINE_REPOS` / repo_volumes\nenv exposure) so agents can select the slice's repo. (b)\norchestrator/commit_authorship_store.py:932-933 \u2014 replace the\n`repos[0]` fallback with primary-repo resolution that does not assume\na single repo. (c) orchestrator/routes/pipelines.py:732\n(`overseer_repo = pipeline_repos[0]`) \u2014 resolve via the primary\naccessor. Use the `primary_repo` accessor from slice 1 rather than\nre-introducing index-0 access.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "5601063cb814987b49c57139ae41bb932012c544",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- All three collapse sites (`_spawn.py:452/:464`,\n  `commit_authorship_store.py:932-933`, `pipelines.py:732`) no longer\n  index `repos[0]`; they use the primary accessor or the full map.\n- The agent environment exposes the full repo\u2192worktree map keyed by\n  full `owner/repo` (no bare-name collision).\n- `EGG_PIPELINE_REPO` still resolves to the primary for back-compat.",
@@ -246,8 +246,8 @@
         {
           "id": "task-3-2",
           "description": "Re-key the worktree map by full `owner/repo` at its source. In\norchestrator/gateway_client/_worktree.py:74-79 the `worktrees` dict is\nkeyed by bare repo name (`repo.split(\"/\")[-1]`-shaped); change the key\nto the full `owner/repo` so two repos with the same short name under\ndifferent owners no longer collide, and update the corresponding\ngateway handler keying in gateway/gateway.py (worktree creation\nresponse, ~7827) to match. Preserve the returned path values; only the\nkey changes. Update the spawner consumer (fed via `repo_volumes`) to\nread the owner/repo keys.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "5601063cb814987b49c57139ae41bb932012c544",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- `WorktreeResult.worktrees` (and the gateway handler that builds it)\n  is keyed by full `owner/repo`.\n- Same-name-different-owner repos get distinct entries.\n- The spawner reads the owner/repo-keyed map; paths are unchanged.",
@@ -268,8 +268,8 @@
         {
           "id": "task-3-3",
           "description": "Add tests + a regression ratchet in orchestrator/tests. Assert: the\nagent env exposes the full owner/repo-keyed repo\u2192path map; each of the\nthree former collapse sites now resolves via the primary accessor / full\nmap (unit-level assertions on the spawner env, commit-authorship\nresolution, and overseer-repo resolution for a 2-repo pipeline); and a\nratchet test that greps the orchestrator source for `repos[0]`\ncollapse patterns and fails if any reappear, with an explicit allowlist\nentry for the len(repos)==1-guarded sandbox/egg_lib/sdlc_hitl.py:82.\nAlso assert the worktree map keying is owner/repo (no bare-name\ncollision) via test_kubernetes_spawner / test_gateway_client.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "6465cdaae",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Tests assert the full owner/repo-keyed env map and correct\n  resolution at all three former collapse sites for a multi-repo\n  pipeline.\n- A ratchet test fails if a `repos[0]` collapse is reintroduced, with\n  sdlc_hitl.py:82 allowlisted.\n- `make test` (narrowed) and `make test-all` green.",
@@ -292,11 +292,11 @@
         "slice-2"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3393/slice-2",
+      "integration_base_sha": "e9990ec3c2486de35d91ca50d27a2e6c42fd855c",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3424,
+      "pr_url": "https://github.com/jwbron/egg/pull/3424",
       "review_feedback": []
     },
     {
@@ -1037,6 +1037,105 @@
       "old_value": "607e90255",
       "new_value": "3388e7391",
       "reason": "Linked commit 3388e73 to task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T05:22:29.948925Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.commit",
+      "old_value": null,
+      "new_value": "5601063cb814987b49c57139ae41bb932012c544",
+      "reason": "Linked commit 5601063 to task-3-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T05:22:29.969441Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T05:22:30.582605Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.commit",
+      "old_value": null,
+      "new_value": "5601063cb814987b49c57139ae41bb932012c544",
+      "reason": "Linked commit 5601063 to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T05:22:30.609369Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T05:24:19.208472Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.2.commit",
+      "old_value": null,
+      "new_value": "0c6d8338e",
+      "reason": "Linked commit 0c6d833 to task-3-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T05:25:01.233230Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.2.commit",
+      "old_value": "0c6d8338e",
+      "new_value": "861fa518a",
+      "reason": "Linked commit 861fa51 to task-3-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T05:28:29.731864Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.2.commit",
+      "old_value": "861fa518a",
+      "new_value": "ffcea6b1c",
+      "reason": "Linked commit ffcea6b to task-3-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T05:47:57.587702Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.2.commit",
+      "old_value": "ffcea6b1c",
+      "new_value": "6465cdaae",
+      "reason": "Linked commit 6465cda to task-3-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T05:47:57.605534Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-3 as complete",
       "checkpoint_id": null
     }
   ],
