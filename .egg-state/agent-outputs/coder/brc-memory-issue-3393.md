@@ -26,22 +26,33 @@
   actionable, repo-naming **400**. Single repo (after de-dup) = trivially
   uniform, no gateway round-trip.
 
-### KEY DEVIATION (be consistent on re-spawn; flagged for reviewer_contract)
-Plan task-2-2 said put `assert_uniform_visibility`/`assert_uniform_auth` in
-`gateway/repo_visibility.py` + `gateway/git_client/_credentials.py` and call them
-from the submission path. **The orchestrator image (orchestrator/Dockerfile)
-ships `config/repo_config.py` + `shared/` but NOT `gateway/`** — those gateway
-modules are un-importable from `routes/pipelines.py` at runtime. So:
-- `assert_uniform_auth` → added to **`config/repo_config.py`** (canonical home of
-  `get_auth_mode`, bundled into BOTH images), imported by the orchestrator.
-- **visibility** uniformity → inline via `GatewayClient.get_repo_visibility`
-  (HTTP; the orchestrator's only visibility source; mirrors `_compute_gateway_mode`
-  at pipelines.py:3033). `internal` counts as private. Fail-open on an
-  indeterminate per-repo lookup (matches existing behavior) with a warning.
-This meets all behavioral acceptance criteria; it changes *where* the guards live
-(repo_config + inline) vs. the plan's gateway-module placement, to be
-runtime-correct and avoid dead code. If a reviewer NACKs wanting the gateway-file
-placement, the counter is the Dockerfile container boundary.
+### Uniformity guard placement — reconciled with tester's task-2-3 interface
+The tester (task-2-3, commit 6ecabe787, merged into this branch at convergence)
+pinned the interface: `gateway/repo_visibility.py` must expose
+`validate_visibility_uniformity(repos)` and `validate_auth_mode_uniformity(repos)`
+(both raise ValueError naming offenders; internal==private; same-name/diff-owner
+NOT rejected; single/uniform no-op). Their gateway tests patch
+`repo_visibility.get_repo_visibility` and `repo_config.get_auth_mode`.
+
+Implemented to match EXACTLY, with a single source of truth per dimension:
+- `gateway/repo_visibility.py`: `validate_visibility_uniformity` (canonical
+  visibility logic, splits owner/name → `get_repo_visibility(owner, name)`) +
+  `validate_auth_mode_uniformity` (delegates to `repo_config.assert_uniform_auth`).
+- `config/repo_config.py`: `assert_uniform_auth(repos)` — canonical auth rule,
+  beside `get_auth_mode`, bundled into BOTH gateway + orchestrator images.
+
+**Container-boundary fact (still load-bearing):** the orchestrator image
+(orchestrator/Dockerfile) ships `config/repo_config.py` + `shared/` but NOT
+`gateway/`, so `routes/pipelines.py` CANNOT import
+`gateway.repo_visibility.validate_visibility_uniformity`. The orchestrator
+submission enforcement therefore uses `_assert_repo_set_uniform`: auth via
+`repo_config.assert_uniform_auth` (shared with the gateway helper) and visibility
+inline via `GatewayClient.get_repo_visibility` (HTTP; mirrors `_compute_gateway_mode`).
+The inline visibility comparison is the deliberate HTTP-boundary twin of the
+gateway helper (cross-referenced in code); the small mirror is forced by the
+boundary. `gateway/git_client/_credentials.py` was NOT touched — the tester's
+auth patch targets `repo_config.get_auth_mode`, and the canonical helper lives in
+repo_config.
 
 ### Validation done locally (no venv — network/cert blocked, can't pip install)
 - `ruff check` clean on all 5 changed files; `py_compile` clean.

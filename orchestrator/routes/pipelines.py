@@ -2142,9 +2142,13 @@ def _assert_repo_set_uniform(repos: list[str]) -> str | None:
     Runtime note (container boundary): the orchestrator image bundles
     ``config/repo_config.py`` but NOT ``gateway/``, so the per-repo lookups are
     reached the way the orchestrator already reaches them — auth via
-    ``repo_config.assert_uniform_auth`` (imported directly) and visibility via
+    ``repo_config.assert_uniform_auth`` (imported directly, the same callable the
+    gateway's ``validate_auth_mode_uniformity`` delegates to) and visibility via
     ``GatewayClient.get_repo_visibility`` over HTTP (the gateway holds the
     tokens; mirrors ``_compute_gateway_mode``). ``internal`` counts as private.
+    The visibility comparison below is the HTTP-boundary twin of
+    ``gateway.repo_visibility.validate_visibility_uniformity`` (which the
+    orchestrator cannot import); keep the two in step.
     """
     unique = list(dict.fromkeys(repos))
     if len(unique) <= 1:

@@ -440,3 +440,68 @@ def is_repo_private(
         True if private/internal, False if public, None on error
     """
     return get_visibility_checker().is_private(owner, repo, for_write=for_write)
+
+
+# =============================================================================
+# Multi-repo pipeline uniformity guards (#3393)
+# =============================================================================
+#
+# Multi-repo pipelines require every repo in one run to share a single
+# visibility posture (all private/internal or all public) AND a single auth
+# mode (all bot or all user). Private mode is a pipeline-wide posture, so a
+# mixed set would let content from a private repo flow through shared
+# plan/contract/PR surfaces into a public one. Uniformity is a property of the
+# visibility/auth *bucket*, not the bare repo name — a same-name /
+# different-owner set (``ownerA/foo`` + ``ownerB/foo``) is NOT rejected on that
+# basis alone (operator ruling #6).
+#
+# These are the canonical, gateway-side implementations (the gateway holds the
+# GitHub tokens the visibility lookup needs). The orchestrator submission path
+# mirrors ``validate_visibility_uniformity`` over HTTP via
+# ``GatewayClient.get_repo_visibility`` because the orchestrator image does not
+# ship ``gateway/`` and so cannot import this module.
+
+
+def validate_visibility_uniformity(repos: list[str]) -> None:
+    """Require a uniform visibility posture across a run's repos (#3393).
+
+    Resolves each ``owner/name`` slug's visibility via :func:`get_repo_visibility`
+    and raises ``ValueError`` — naming the offending repos grouped by posture —
+    when the set spans the private/public boundary. ``internal`` shares the
+    private posture. A single repo (or fewer than two after de-duplication) is
+    trivially uniform. An indeterminate lookup (``None``) is excluded from the
+    vote rather than blocking the run.
+    """
+    posture: dict[str, list[str]] = {}
+    for slug in dict.fromkeys(repos):
+        owner, _, name = slug.partition("/")
+        visibility = get_repo_visibility(owner, name)
+        if visibility is None:
+            continue
+        bucket = "private" if visibility in ("private", "internal") else "public"
+        posture.setdefault(bucket, []).append(slug)
+    if len(posture) > 1:
+        groups = "; ".join(
+            f"{bucket}: {', '.join(sorted(rs))}" for bucket, rs in sorted(posture.items())
+        )
+        raise ValueError(
+            "Mixed repository visibility across the pipeline's repos is not allowed "
+            "(a run must be uniformly private or uniformly public, so private-repo "
+            "content cannot leak through shared plan/contract/PR surfaces). "
+            "Diverging repos — " + groups + "."
+        )
+
+
+def validate_auth_mode_uniformity(repos: list[str]) -> None:
+    """Require a single uniform auth mode across a run's repos (#3393).
+
+    Gateway-side entry point that delegates to
+    :func:`repo_config.assert_uniform_auth` — the canonical implementation that
+    lives beside :func:`repo_config.get_auth_mode` and is bundled into both the
+    gateway and orchestrator images — so the auth-uniformity rule has a single
+    source of truth. Raises ``ValueError`` naming the offending repos grouped by
+    mode on a mixed set; a single repo (or empty list) is trivially uniform.
+    """
+    from repo_config import assert_uniform_auth
+
+    assert_uniform_auth(repos)
