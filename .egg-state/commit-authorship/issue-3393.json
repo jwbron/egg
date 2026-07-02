@@ -104,6 +104,14 @@
       "repo": null,
       "role": "refiner"
     },
+    "aeb3528cdb401a2e21b62bcd64f1df1c119da165": {
+      "branch": "egg/issue-3393/work",
+      "patch_id": null,
+      "pipeline_id": "issue-3393",
+      "registered_at": "2026-07-02T00:13:34.923489+00:00",
+      "repo": null,
+      "role": "architect"
+    },
     "af18744944887833fec78b4ce63ea3573b54bfd4": {
       "branch": "egg/issue-3393/work",
       "patch_id": "706a476a1badb62aabbeca0335af188cd157dd70",
