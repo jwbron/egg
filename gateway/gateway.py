@@ -4610,7 +4610,7 @@ def gh_pr_merge_state() -> tuple[Response, int] | Response:
     if stdout:
         try:
             parsed = json.loads(stdout)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             parsed = None
         if isinstance(parsed, dict):
             state_val = parsed.get("state")
@@ -7874,6 +7874,13 @@ def worktree_create() -> tuple[Response, int] | Response:
     repos = data.get("repos", [])
     base_branch = data.get("base_branch")  # None = resolve per-repo
     assigned_branch = data.get("assigned_branch")  # None = skip upstream config
+    # #3393 slice-7: when True, materialize each repo's pipeline work
+    # branch on its OWN remote right after the worktree exists (push the
+    # worktree HEAD to refs/heads/{assigned_branch or work-branch}).
+    # Multi-repo pipelines set this so secondary-repo context / slice PRs
+    # find a head branch; single-repo (N=1) callers leave it False, so
+    # the path stays byte-identical to pre-#3393.
+    push_branch = bool(data.get("push_branch", False))
     # UID/GID for worktree ownership (default: 1000 for egg user)
     uid = data.get("uid")
     gid = data.get("gid")
@@ -7932,6 +7939,7 @@ def worktree_create() -> tuple[Response, int] | Response:
                 gid=gid,
                 assigned_branch=assigned_branch,
                 repo_slug=repo,
+                push_branch=push_branch,
             )
             # Translate container path to host path for egg launcher mount sources.
             # Key by the full ``owner/repo`` slug (#3393 slice-3, operator
