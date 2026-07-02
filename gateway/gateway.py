@@ -4532,6 +4532,176 @@ def gh_list_open_prs() -> tuple[Response, int] | Response:
     return make_success("Open PR list complete", {"prs": prs})
 
 
+@app.route("/api/v1/gh/pr/merge_state", methods=["POST"])
+@require_launcher_auth
+def gh_pr_merge_state() -> tuple[Response, int] | Response:
+    """Control-plane PR merge-state read: return ``state`` + ``mergedAt`` (#3393).
+
+    An **orchestrator-only** route gated by ``@require_launcher_auth``
+    rather than ``@require_session_auth`` — the caller is the control
+    plane (the orchestrator holds the launcher secret), not a sandboxed
+    agent. It is the read half of the cq-1 cross-repo merge-sequencing
+    gate: the orchestrator polls an upstream slice PR's merge state to
+    decide when to mark a downstream draft PR ready. Modelled on
+    ``gh_find_open_pr`` / ``gh_list_open_prs`` (#2925): the orchestrator
+    is the server that manages pipelines, not an ``AgentRole``, so it
+    authenticates as the control plane and uses a purpose-built,
+    fixed-argv read-only endpoint (no general gh surface here).
+
+    Merge detection deliberately keys off the PR's ``mergedAt`` /
+    ``state`` — NOT head-SHA equality: a squash/rebase merge produces a
+    merge-commit SHA that differs from the PR head, so a SHA comparison
+    would misfire (#3393 task-5-1 pin (a)).
+
+    Request body:
+        {"repo": "owner/name", "pr_number": <int>}
+
+    Returns:
+        ``{"state": "OPEN|CLOSED|MERGED"|null, "mergedAt": "<ISO-8601>"|null}``.
+    """
+    data = request.get_json()
+    if not data or not isinstance(data, dict):
+        return make_error("Invalid body: must be a JSON object")
+
+    repo = data.get("repo")
+    if not isinstance(repo, str) or not repo.strip():
+        return make_error("Missing or invalid repo: must be a non-empty string")
+    repo = repo.strip()
+    if OWNER_REPO_PATTERN.match(repo) is None:
+        return make_error("Invalid repo: must be 'owner/name'")
+
+    # ``bool`` is a subclass of ``int``; reject it explicitly so ``True``
+    # cannot slip through as ``pr_number=1``.
+    pr_number = data.get("pr_number")
+    if isinstance(pr_number, bool) or not isinstance(pr_number, int) or pr_number < 1:
+        return make_error("Invalid pr_number: must be a positive integer")
+
+    args = [
+        "pr",
+        "view",
+        str(pr_number),
+        "--repo",
+        repo,
+        "--json",
+        "state,mergedAt",
+    ]
+
+    auth_mode = get_auth_mode(repo)
+    github = get_github_client(mode=auth_mode)
+    result = github.execute(args, timeout=60, mode=auth_mode)
+
+    if not result.success:
+        stderr_excerpt = (result.stderr or "")[:500]
+        audit_log(
+            "gh_pr_merge_state_failed",
+            "gh_pr_merge_state",
+            success=False,
+            details={"repo": repo, "pr_number": pr_number, "stderr": stderr_excerpt},
+        )
+        return make_error(
+            f"Command failed: {result.stderr}",
+            status_code=500,
+            details=result.to_dict(),
+        )
+
+    state_val: Any = None
+    merged_at: Any = None
+    stdout = (result.stdout or "").strip()
+    if stdout:
+        try:
+            parsed = json.loads(stdout)
+        except (ValueError, TypeError):
+            parsed = None
+        if isinstance(parsed, dict):
+            state_val = parsed.get("state")
+            merged_at = parsed.get("mergedAt")
+
+    audit_log(
+        "gh_pr_merge_state",
+        "gh_pr_merge_state",
+        success=True,
+        details={"repo": repo, "pr_number": pr_number, "state": state_val},
+    )
+    return make_success(
+        "PR merge-state lookup complete",
+        {"state": state_val, "mergedAt": merged_at},
+    )
+
+
+@app.route("/api/v1/gh/pr/ready", methods=["POST"])
+@require_launcher_auth
+def gh_pr_ready() -> tuple[Response, int] | Response:
+    """Control-plane PR draft→ready transition: wrap ``gh pr ready`` (#3393).
+
+    An **orchestrator-only** route gated by ``@require_launcher_auth`` —
+    the write half of the cq-1 cross-repo merge-sequencing gate. When the
+    upstream slice PR merges, the orchestrator transitions the downstream
+    cross-repo dependent PR from draft to ready. Like the sibling
+    control-plane PR routes (``gh_find_open_pr`` / ``gh_list_open_prs``),
+    the caller is the control plane, so it authenticates with the
+    launcher secret and this route constructs a **fixed, narrow argv**
+    server-side (``pr ready <n> --repo <repo>``) — there is no arbitrary
+    gh-command surface on the launcher-auth path, only this single
+    ready-transition. ``pr ready`` is already on ``ALLOWED_GH_COMMANDS``
+    (github_client.py) so the underlying ``gh`` invocation re-validates
+    through the same allowlist floor.
+
+    Request body:
+        {"repo": "owner/name", "pr_number": <int>}
+
+    Returns:
+        ``{"stdout": "<gh output>"}`` on success.
+    """
+    data = request.get_json()
+    if not data or not isinstance(data, dict):
+        return make_error("Invalid body: must be a JSON object")
+
+    repo = data.get("repo")
+    if not isinstance(repo, str) or not repo.strip():
+        return make_error("Missing or invalid repo: must be a non-empty string")
+    repo = repo.strip()
+    if OWNER_REPO_PATTERN.match(repo) is None:
+        return make_error("Invalid repo: must be 'owner/name'")
+
+    pr_number = data.get("pr_number")
+    if isinstance(pr_number, bool) or not isinstance(pr_number, int) or pr_number < 1:
+        return make_error("Invalid pr_number: must be a positive integer")
+
+    args = [
+        "pr",
+        "ready",
+        str(pr_number),
+        "--repo",
+        repo,
+    ]
+
+    auth_mode = get_auth_mode(repo)
+    github = get_github_client(mode=auth_mode)
+    result = github.execute(args, timeout=60, mode=auth_mode)
+
+    if not result.success:
+        stderr_excerpt = (result.stderr or "")[:500]
+        audit_log(
+            "gh_pr_ready_failed",
+            "gh_pr_ready",
+            success=False,
+            details={"repo": repo, "pr_number": pr_number, "stderr": stderr_excerpt},
+        )
+        return make_error(
+            f"Failed to mark PR ready: {result.stderr}",
+            status_code=500,
+            details=result.to_dict(),
+        )
+
+    audit_log(
+        "gh_pr_ready",
+        "gh_pr_ready",
+        success=True,
+        details={"repo": repo, "pr_number": pr_number},
+    )
+    return make_success("PR marked ready", {"stdout": result.stdout})
+
+
 # =============================================================================
 # Jira REST Endpoints
 # =============================================================================

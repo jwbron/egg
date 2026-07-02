@@ -12519,6 +12519,154 @@ def _escalate_blocked_slice_to_hitl(
     )
 
 
+# --- #3393 slice-5: cross-repo merge-sequencing HITL holds -------------------
+# Stable discriminator prefix on the cross-repo-hold Decision question so
+# (a) the poll can idempotently detect an already-registered hold for a
+# gate across reconciler ticks / orchestrator restarts, and (b) a future
+# dispatch handler in ``routes/decisions.py`` can route on the literal
+# substring without a separate context field on the contract Decision.
+_CROSS_REPO_HOLD_MARKER_PREFIX = "[#3393 cross-repo-hold"
+
+
+def _cross_repo_hold_marker(slice_id: str) -> str:
+    """Return the stable per-gate discriminator embedded in the hold question."""
+    return f"{_CROSS_REPO_HOLD_MARKER_PREFIX} slice={slice_id}]"
+
+
+_CROSS_REPO_HOLD_REASON_TEXT = {
+    "closed_unmerged": (
+        "the upstream cross-repo PR was CLOSED without merging, so the "
+        "automated merge-state hold cannot auto-ready this slice's PR"
+    ),
+    "timeout": (
+        "the upstream cross-repo PR did not merge within the poll bound, so "
+        "the automated merge-state hold timed out rather than leaving this "
+        "slice's PR draft indefinitely"
+    ),
+    "beyond_merge_state": (
+        "the plan declared this cross-repo dependency a beyond-merge-state "
+        "condition (release/publish, version-pin, or cannot-continue block), "
+        "which is released by human decision, never automated detection"
+    ),
+}
+
+
+def _cross_repo_hold_resolved(contract: Any, slice_id: str) -> bool:
+    """Return True iff a cross-repo hold Decision for ``slice_id`` is resolved.
+
+    Scans the (freshly-loaded) contract for a Decision whose question
+    carries this gate's :func:`_cross_repo_hold_marker` and is resolved —
+    the single release path for every HITL cross-repo hold (Tier B plus
+    the two Tier-A failure terminals).
+    """
+    marker = _cross_repo_hold_marker(slice_id)
+    for d in getattr(contract, "decisions", None) or []:
+        if marker in (getattr(d, "question", "") or "") and getattr(d, "resolved", False):
+            return True
+    return False
+
+
+def _register_cross_repo_hold(
+    *,
+    pipeline_id: str,
+    slice_id: str,
+    repo: str,
+    pr_number: int,
+    reason: str,
+    worktree_repo_path: Path,
+    current_phase: PipelinePhase | None,
+) -> bool:
+    """Ensure a cross-repo merge-sequencing HITL hold exists on the contract.
+
+    Idempotent: if a Decision carrying this gate's marker already exists
+    (pending OR resolved), no new Decision is created. Returns ``True``
+    when a hold now exists for the gate (freshly registered or already
+    present), ``False`` only when registration could not be persisted —
+    the poll uses the return to decide whether the gate has been handed
+    off to the HITL release path. Modelled on :func:`_escalate_layer_c_hitl`
+    (loads the live contract from the per-pipeline worktree, allocates a
+    ``cq-N`` id, appends an unresolved HITL Decision, saves). The hold
+    surfaces on ``/status`` via the existing pending-decision collector.
+    """
+    try:
+        from egg_contracts.decisions import next_cq_id
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Decision, DecisionOption, DecisionType
+    except ImportError:
+        try:
+            from orchestrator.egg_contracts.decisions import (  # type: ignore[no-redef]
+                next_cq_id,
+            )
+            from orchestrator.egg_contracts.loader import (  # type: ignore[no-redef]
+                load_contract,
+                save_contract,
+            )
+            from orchestrator.egg_contracts.models import (  # type: ignore[no-redef]
+                Decision,
+                DecisionOption,
+                DecisionType,
+            )
+        except ImportError:
+            logger.warning(
+                "Cross-repo hold skipped: egg_contracts not importable (#3393)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+            )
+            return False
+
+    marker = _cross_repo_hold_marker(slice_id)
+    reason_text = _CROSS_REPO_HOLD_REASON_TEXT.get(reason, reason)
+    try:
+        with get_pipeline_state_lock(pipeline_id):
+            contract_local = load_contract(pipeline_id, worktree_repo_path)
+            # Idempotent: a hold Decision for this gate already exists.
+            for d in contract_local.decisions or []:
+                if marker in (getattr(d, "question", "") or ""):
+                    return True
+            decision_id = next_cq_id(contract_local.decisions)
+            question = (
+                f"{marker} Slice {slice_id} of pipeline {pipeline_id} opened PR "
+                f"{repo}#{pr_number} as a draft behind a cross-repo dependency, "
+                f"but {reason_text}. Resolve this decision to release the hold — "
+                f"the orchestrator will then mark the PR ready. How should the "
+                f"orchestrator proceed?"
+            )
+            options = [
+                DecisionOption(id="opt-1", label="Release the hold and mark the PR ready"),
+                DecisionOption(id="opt-2", label="Keep the PR held for manual handling"),
+            ]
+            contract_local.decisions.append(
+                Decision(
+                    id=decision_id,
+                    question=question,
+                    type=DecisionType.HITL,
+                    phase=current_phase or PipelinePhase.IMPLEMENT,
+                    options=options,
+                )
+            )
+            save_contract(contract_local, worktree_repo_path)
+        logger.info(
+            "Registered cross-repo merge-sequencing HITL hold (#3393)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            repo=repo,
+            pr_number=pr_number,
+            reason=reason,
+            decision_id=decision_id,
+        )
+        return True
+    except Exception as hold_err:  # noqa: BLE001
+        logger.warning(
+            "Cross-repo hold registration failed (#3393); PR stays draft, "
+            "poll will retry next tick",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            reason=reason,
+            error=str(hold_err),
+        )
+        return False
+
+
 def _check_slice_evidence_reachability(
     pipeline_id: str,
     spawner: "ContainerSpawner",  # noqa: UP037
@@ -18229,6 +18377,24 @@ def _start_stacked_pr_reconciler(
         from orchestrator.stacked_pr_reconciler import reconcile_once
     except ImportError:
         from stacked_pr_reconciler import reconcile_once  # type: ignore[no-redef]
+    # #3393 slice-5: the cross-repo merge-sequencing gate rides the SAME
+    # reconciler cadence (no new scheduler subsystem). Imported here (not
+    # top-level) to keep this helper's import surface minimal, mirroring
+    # the ``reconcile_once`` import above.
+    try:
+        import orchestrator.cross_repo_merge_gate as cross_repo_merge_gate
+    except ImportError:
+        import cross_repo_merge_gate  # type: ignore[no-redef]
+    try:
+        from orchestrator.env_config import get_cross_repo_merge_gate_max_attempts
+    except ImportError:
+        from env_config import (  # type: ignore[no-redef]
+            get_cross_repo_merge_gate_max_attempts,
+        )
+    try:
+        from orchestrator.models import resolve_slice_repo
+    except ImportError:
+        from models import resolve_slice_repo  # type: ignore[no-redef]
 
     if interval_seconds is None:
         try:
@@ -18245,6 +18411,52 @@ def _start_stacked_pr_reconciler(
     # implement loop already owns.
     repo_path_str = str(worktree_repo_path) if worktree_repo_path is not None else ""
     pr_repo = repo or str(getattr(pipeline, "repo", "") or "")
+
+    # #3393 slice-5: only multi-repo pipelines can have cross-repo
+    # dependency edges, so the merge gate is a strict no-op for N=1 —
+    # skip it entirely rather than burning a contract scan per tick.
+    _gate_enabled = len(getattr(pipeline, "repos", None) or []) > 1
+    # Per-run gate bookkeeping (attempts / hold-registered / resolved),
+    # keyed by dependent slice id; persists across reconciler ticks.
+    _gate_state: dict[str, Any] = {}
+    try:
+        _gate_max_attempts = int(get_cross_repo_merge_gate_max_attempts())
+    except Exception:  # noqa: BLE001
+        _gate_max_attempts = cross_repo_merge_gate.DEFAULT_MAX_POLL_ATTEMPTS
+    _gate_current_phase = getattr(pipeline, "current_phase", None)
+
+    def _poll_cross_repo_merge_gate(contract: Any) -> None:
+        # Drive one cross-repo merge-sequencing pass on the reconciler
+        # cadence (#3393 slice-5, task-5-1 / task-5-2). Reads upstream PR
+        # merge-state and auto-readies a dependent draft PR on merge
+        # (Tier A); registers a HITL hold on the closed-unmerged / timeout
+        # terminals and for plan-declared beyond-merge-state edges (Tier
+        # B). All gateway/contract effects are funnelled through the
+        # injected callables so the gate logic stays pure + unit-tested.
+        if not _gate_enabled:
+            return
+        cross_repo_merge_gate.poll_once(
+            contract,
+            resolve_repo=lambda s: resolve_slice_repo(s, pipeline),
+            get_merge_state=lambda repo_slug, pr_num: gateway.get_pr_merge_state(
+                pipeline_id, repo_slug, pr_num
+            ),
+            mark_ready=lambda repo_slug, pr_num: bool(
+                gateway.mark_pr_ready(pipeline_id, repo_slug, pr_num)
+            ),
+            register_hold=lambda gate, reason: _register_cross_repo_hold(
+                pipeline_id=pipeline_id,
+                slice_id=gate.slice_id,
+                repo=gate.repo,
+                pr_number=gate.pr_number,
+                reason=reason,
+                worktree_repo_path=worktree_repo_path,
+                current_phase=_gate_current_phase,
+            ),
+            hold_is_resolved=lambda gate: _cross_repo_hold_resolved(contract, gate.slice_id),
+            state=_gate_state,
+            max_attempts=_gate_max_attempts,
+        )
 
     def _list_open_prs() -> list[dict[str, Any]]:
         # Lists open PRs in ``pr_repo`` so ``find_orphaned_child_prs``
@@ -18338,6 +18550,18 @@ def _start_stacked_pr_reconciler(
                     list_extant_branches=_list_extant_branches,
                     rebase_onto=_rebase_onto,
                 )
+                # #3393 slice-5: drive the cross-repo merge-sequencing
+                # gate on the same tick + same freshly-loaded contract.
+                # No-op for N=1 pipelines. Wrapped in its own try so a
+                # gate failure never disrupts stacked-PR reconciliation.
+                try:
+                    _poll_cross_repo_merge_gate(contract)
+                except Exception as gate_exc:  # noqa: BLE001
+                    logger.debug(
+                        "cross_repo_merge_gate tick raised — continuing",
+                        pipeline_id=pipeline_id,
+                        error=str(gate_exc),
+                    )
             except Exception as exc:  # noqa: BLE001
                 logger.debug(
                     "stacked_pr_reconciler tick raised — continuing",
@@ -19617,11 +19841,37 @@ def _run_implement_phase_slices(
                                             "repo": upstream_repo,
                                             "number": upstream.pr_number,
                                         }
+                            # #3393 slice-5 / task-5-1: a slice with a
+                            # CROSS-repo dependency opens its PR as a DRAFT
+                            # — cross-repo edges can't stack, so the
+                            # dependent slice is developed in parallel and
+                            # only its PR *ready* transition waits on the
+                            # merge gate (auto draft→ready when the upstream
+                            # merges, else a HITL hold). A dep is cross-repo
+                            # iff the upstream slice resolves to a DIFFERENT
+                            # repo; same-repo-only deps and N=1 pipelines
+                            # stay non-draft (behaviour unchanged). Checks
+                            # ALL deps so any cross-repo upstream holds it.
+                            cross_repo_draft = False
+                            for _dep_id in slice_obj.dependencies or []:
+                                _dep = next(
+                                    (s for s in contract_post.slices if s.id == _dep_id),
+                                    None,
+                                )
+                                if _dep is None:
+                                    continue
+                                _dep_repo = resolve_slice_repo(_dep, pipeline) or pipeline.repo
+                                if _dep_repo and _dep_repo != slice_repo:
+                                    cross_repo_draft = True
+                                    break
                             slice_pr_data = {
                                 # #3393 slice-4: the repo this slice's PR is
                                 # opened in + its cross-repo coordination
                                 # references (empty for N=1).
                                 "slice_repo": slice_repo,
+                                # #3393 slice-5: open draft when this slice
+                                # has a cross-repo dependency (see above).
+                                "cross_repo_draft": cross_repo_draft,
                                 "sibling_pr_refs": sibling_pr_refs,
                                 "upstream_pr_ref": upstream_pr_ref,
                                 "slice_name": slice_obj.name or slice_id,
@@ -19751,6 +20001,11 @@ def _run_implement_phase_slices(
                             issue_number=issue_number,
                             agent_role="orchestrator",
                             mode=gateway_mode,  # type: ignore[arg-type]
+                            # #3393 slice-5 / task-5-1: draft when this
+                            # slice has a cross-repo dependency; the merge
+                            # gate marks it ready on upstream merge (or a
+                            # HITL hold releases it). False for N=1.
+                            draft=slice_pr_data["cross_repo_draft"],
                             program_title=slice_pr_data["program_title"],
                             program_description=slice_pr_data["program_description"],
                             program_test_plan=slice_pr_data["program_test_plan"],

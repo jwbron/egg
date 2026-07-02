@@ -672,6 +672,102 @@ def lookup_open_pr(
         return None
 
 
+def get_pr_merge_state(
+    self,
+    pipeline_id: str,
+    repo: str,
+    pr_number: int,
+) -> dict[str, Any] | None:
+    """Read an upstream PR's merge state via the control-plane route (#3393).
+
+    Calls the orchestrator-only ``/api/v1/gh/pr/merge_state`` endpoint
+    (launcher auth) which runs ``gh pr view <n> --repo <repo> --json
+    state,mergedAt`` server-side. Returns a normalised dict::
+
+        {"state": "OPEN"|"CLOSED"|"MERGED"|None, "merged_at": str|None}
+
+    The cross-repo merge-sequencing gate keys its draft→ready decision
+    off ``merged_at`` / ``state`` (NOT head-SHA equality — a squash or
+    rebase merge yields a merge-commit SHA that differs from the PR
+    head, so a SHA comparison would misfire; #3393 task-5-1 pin (a)).
+
+    Returns ``None`` on any transport/parse error OR invalid input,
+    which the gate treats as "state unknown this tick" (a pending, not
+    terminal, outcome — the bounded poll retries and eventually
+    escalates to a HITL hold if the upstream never resolves).
+    """
+    if not repo or isinstance(pr_number, bool) or not isinstance(pr_number, int) or pr_number < 1:
+        return None
+    try:
+        result = self._make_request(
+            "/api/v1/gh/pr/merge_state",
+            method="POST",
+            data={"repo": repo, "pr_number": int(pr_number)},
+            use_launcher_auth=True,
+        )
+        payload = (result.get("data", {}) or {}) if isinstance(result, dict) else {}
+        if not isinstance(payload, dict):
+            return None
+        return {
+            "state": payload.get("state"),
+            "merged_at": payload.get("mergedAt") or payload.get("merged_at"),
+        }
+    except Exception as exc:  # noqa: BLE001
+        _pkg.logger.warning(
+            "get_pr_merge_state: gateway request failed (treating as unknown)",
+            pipeline_id=pipeline_id,
+            repo=repo,
+            pr_number=pr_number,
+            error=str(exc),
+        )
+        return None
+
+
+def mark_pr_ready(
+    self,
+    pipeline_id: str,
+    repo: str,
+    pr_number: int,
+) -> bool:
+    """Transition a draft PR to ready via the control-plane route (#3393).
+
+    Calls the orchestrator-only ``/api/v1/gh/pr/ready`` endpoint
+    (launcher auth) which wraps ``gh pr ready <n> --repo <repo>``. Used
+    by the cross-repo merge-sequencing gate to auto-ready a downstream
+    dependent PR once its upstream slice PR merges.
+
+    Returns ``True`` on success, ``False`` on any failure. The gate
+    tracks per-slice progress and does not re-ready within a run, so a
+    ``False`` return is logged and simply retried on the next reconcile
+    tick — no caller aborts on it.
+    """
+    if not repo or isinstance(pr_number, bool) or not isinstance(pr_number, int) or pr_number < 1:
+        return False
+    try:
+        self._make_request(
+            "/api/v1/gh/pr/ready",
+            method="POST",
+            data={"repo": repo, "pr_number": int(pr_number)},
+            use_launcher_auth=True,
+        )
+        _pkg.logger.info(
+            "Marked cross-repo dependent PR ready via gateway (#3393)",
+            pipeline_id=pipeline_id,
+            repo=repo,
+            pr_number=pr_number,
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001
+        _pkg.logger.warning(
+            "mark_pr_ready: gateway request failed",
+            pipeline_id=pipeline_id,
+            repo=repo,
+            pr_number=pr_number,
+            error=str(exc),
+        )
+        return False
+
+
 def get_repo_visibility(self, repo: str) -> str | None:
     """Query repo visibility from gateway.
 
