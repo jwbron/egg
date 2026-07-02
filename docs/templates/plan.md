@@ -163,6 +163,19 @@ slices:
 > field. See [Slice-DAG Implement Phase](../architecture/slice-dag.md)
 > for the full design.
 
+> **Test co-location (#3411)**: a slice that removes, renames, or
+> rewrites code must carry the matching test updates (skip-guards,
+> deletions, rewrites) in the **same** slice — never a later one — with
+> the test files listed in that slice's task `files:`. Every cumulative
+> slice tip must be independently green: the per-slice green gate
+> (#3398) runs the repo's checks at the slice tip before opening the PR
+> and blocks while any check is red. In repos that ship the
+> changeset-aware selector (this repo does), discover the tests that
+> statically reach the changed files with
+> `python3 scripts/select_tests/__main__.py --impacted-tests <file>...`
+> — exit 2 means the closure could not be computed; grep the removed
+> symbols in the test trees instead.
+
 ---
 
 *Authored-by: egg*

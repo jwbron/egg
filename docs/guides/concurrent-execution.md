@@ -858,7 +858,7 @@ Timeout handling is idempotent — if the timeout fires multiple times (e.g., du
 
 - **Polling mechanics**: 30-second intervals. The per-iteration budget (`post_consensus_iteration_budget_seconds`, default 3600s) resets each time a producer issues a new `CONSENSUS_PROPOSE`, so productive multi-iteration BRC cycles are not cut off mid-iteration. An absolute cap (`post_consensus_max_total_seconds`, default 14400s) bounds the total wait regardless of proposal churn.
 - **Consensus complete** (all agents confirmed, no unresolved NACKs): the orchestrator immediately stops remaining containers, marks agents complete, restores the pipeline from `FAILED` to `RUNNING` if needed, and returns success — the timeout evaluation is overridden by the consensus outcome.
-- **Unresolved NACKs remain**: the orchestrator escalates to HITL with options "Retry phase", "Accept current state", "Abort phase". See [issue #1693](https://github.com/jwbron/egg/issues/1693).
+- **Unresolved NACKs remain**: the orchestrator escalates to HITL with options "Retry phase", "Accept current state", "Abort phase". See [issue #1693](https://github.com/jwbron/egg/issues/1693). Resolving with "Retry phase" dispatches through the `restart_phase` route in-process instead of resolving as an inert record (#3421) — see [HITL Decisions: Executable Consensus-Timeout Retry](../hitl-decisions.md#executable-consensus-timeout-retry-3421).
 
 This replaces the former per-container blocking wait, closing the race where a late NACK→re-propose→ACK cycle completing near the end of the budget could previously be missed ([issue #1921](https://github.com/jwbron/egg/issues/1921)).
 

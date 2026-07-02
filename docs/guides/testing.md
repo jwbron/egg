@@ -246,7 +246,7 @@ diagnostic.
 
 ---
 
-## 5. Introspection — `--why`, stderr, and the JSON log
+## 5. Introspection — `--why`, `--impacted-tests`, stderr, and the JSON log
 
 ### Stderr one-liner
 
@@ -308,6 +308,32 @@ This is the first-line tool when you expected a test to run but it
 didn't — it tells you exactly which import edge (or missing edge)
 explains the selection.
 
+### `--impacted-tests <file>...` — "which tests reach these files?"
+
+```bash
+.venv/bin/python scripts/select_tests/__main__.py --impacted-tests \
+    orchestrator/kubernetes_spawner/_spawn.py shared/egg_contracts/models.py
+```
+
+The reverse question, seeded from an explicit file list instead of
+`git diff`: prints every test file that transitively imports the named
+source files (same barrel-transparent reverse closure the default mode
+uses), one repo-relative path per line. Added for plan-phase test
+co-location ([#3411](https://github.com/jwbron/egg/issues/3411)): a
+slice that removes or rewrites the named files must update these tests
+in the same slice, or the per-slice green gate
+([#3398](https://github.com/jwbron/egg/issues/3398)) blocks its PR on a
+red cumulative tip.
+
+Exit contract (deliberately NOT fail-open, unlike the default mode):
+exit 0 means the closure was computed — empty output genuinely means
+"no test reaches these files"; exit 2 means the closure could **not**
+be computed (grimp unavailable, graph build failure, or no argument
+resolved to a graph module) — fall back to grepping the removed
+symbols, and never read exit-2 empty output as "no impacted tests".
+Widening to the full suite here would read as "everything is
+impacted", so this mode reports failure honestly instead.
+
 ---
 
 ## 6. Role-aware behavior and the fail-open contract
@@ -351,10 +377,12 @@ The selector's exit codes are deliberate:
   follow-up.
 - **Fallback to full suite is also exit 0.** A trigger firing is
   the expected path, not an error.
-- **`--record-good` is the only path that may exit non-zero**, and
-  only on validation failure (typo, non-existent sha, non-ancestor
-  sha). A write-side operation must refuse to silently poison the
-  sidecar.
+- **`--record-good` and `--impacted-tests` are the only paths that may
+  exit non-zero.** `--record-good` exits 1 only on validation failure
+  (typo, non-existent sha, non-ancestor sha) — a write-side operation
+  must refuse to silently poison the sidecar. `--impacted-tests` exits
+  2 when the reverse closure cannot be computed (see §5) — an advisory
+  query must distinguish "no impacted tests" from "could not compute".
 
 ---
 

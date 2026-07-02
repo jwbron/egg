@@ -1030,7 +1030,7 @@ All three keys (`tests_globs`, `code_globs`, `docs_globs`) are optional. Unset k
 
 The conflict-resolver role's allow list is the union of all three glob lists, so any of these keys also widens what the conflict-resolver can write.
 
-**Security boundary:** Security-relevant blocklists (`.egg-state/contracts/`, `.github/`) are hard-coded and cannot be relaxed by repo config. Only the language-convention globs are configurable.
+**Security boundary:** Security-relevant blocklists (`.egg-state/` — up to the whole tree for the coder/tester tier — and `.github/`) are hard-coded and cannot be relaxed by repo config. Only the language-convention globs are configurable.
 
 The orchestrator pre-resolves the override at spawn time and passes it to sandbox containers via the `EGG_PIPELINE_REPO_PATTERNS_JSON` environment variable. The gateway reads the override directly from `repositories.yaml` at push time. Validation behavior differs slightly between paths: `config/repo_config.py::get_repo_role_patterns` (the orchestrator/gateway path that reads `repositories.yaml`) emits a WARNING log on invalid root type, unknown keys, non-list values, and non-string list entries; `shared/egg_restrictions/patterns.py::load_repo_pattern_override` (the env-var path used inside the sandbox) only logs on invalid JSON and silently filters the rest. In practice the operator still sees diagnostic warnings at orchestrator spawn time because the orchestrator runs `get_repo_role_patterns` before serializing into the env var.
 
@@ -1613,7 +1613,10 @@ implement 90), the orchestrator publishes an `OVERSEER_ALERT` (subject
 `consensus-timeout: <agent_role> [<priority>]`, matching the SDLC skill's
 `<anomaly_type>: <agent_role> [<priority>]` convention so "Check agent logs" can
 extract the role) rather than gating the pipeline on a `choice` decision
-(see [issue #2264](https://github.com/jwbron/egg/issues/2264)). The SDLC skill surfaces the alert via
+(see [issue #2264](https://github.com/jwbron/egg/issues/2264)) — unless the phase
+already has an unresolved contract HITL decision pending, in which case the
+timeout is suspended until the operator resolves it rather than alerting
+(#3426). The SDLC skill surfaces the alert via
 its existing notification flow (Check agent logs / Acknowledge / Cancel pipeline). Check agent
 states via `egg-orch pipeline status` to identify blocked or stuck agents; intervene with
 `cancel_task` or `restart_phase` if you want to act.
