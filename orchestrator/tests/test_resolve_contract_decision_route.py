@@ -188,6 +188,48 @@ def test_already_resolved_contract_decision_returns_409(client, tmp_path):
     assert "already" in resp.get_json()["message"].lower()
 
 
+def test_resolution_persisted_to_work_branch(client, tmp_path):
+    """#3427: the resolution file write is uncommitted, and the
+    phase-(re)start worktree syncs ``git reset --hard`` to origin — so a
+    successful resolve must trigger the durable commit+push helper, or the
+    operator's answer silently reverts on the next ``restart_phase``.
+    """
+    _write_contract(tmp_path)
+    store_patch, queue_patch, worktree_patch = _patch_resolution(tmp_path)
+
+    with (
+        store_patch,
+        queue_patch,
+        worktree_patch,
+        patch("routes.pipelines.persist_contract_statefiles") as persist_mock,
+    ):
+        resp = _post(client, "cq-1", {"resolution": "opt-2"})
+
+    assert resp.status_code == 200
+    persist_mock.assert_called_once()
+    args, _kwargs = persist_mock.call_args
+    assert args[0] == PIPELINE_ID
+    assert args[1] == tmp_path
+    assert "cq-1" in args[2]
+
+
+def test_no_persist_when_resolution_rejected(client, tmp_path):
+    """A 409 (already resolved) must not trigger the durable persist."""
+    _write_contract(tmp_path, resolved=True)
+    store_patch, queue_patch, worktree_patch = _patch_resolution(tmp_path)
+
+    with (
+        store_patch,
+        queue_patch,
+        worktree_patch,
+        patch("routes.pipelines.persist_contract_statefiles") as persist_mock,
+    ):
+        resp = _post(client, "cq-1", {"resolution": "x"})
+
+    assert resp.status_code == 409
+    persist_mock.assert_not_called()
+
+
 def test_no_contract_returns_404(client, tmp_path):
     """No contract on disk at all — the fallback degrades to a 404."""
     store_patch, queue_patch, worktree_patch = _patch_resolution(tmp_path)

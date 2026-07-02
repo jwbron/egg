@@ -72,12 +72,18 @@ def simple_tracker(simple_graph):
     return t
 
 
-def _minimal_proposal(summary="test", artifacts=None):
-    """Build a minimal proposal payload."""
+def _minimal_proposal(summary="test", artifacts=None, commit_sha="abc1234"):
+    """Build a minimal proposal payload.
+
+    ``commit_sha`` is parameterised so a withdraw→re-propose flow can carry a
+    genuinely advanced tree: the unchanged-tree guard (#3395, mirrored into
+    ``handle_propose`` by #3415) rejects a re-propose whose SHA matches the
+    current proposal, so re-proposes in these tests must supply a new SHA.
+    """
     return {
         "summary": summary,
         "artifacts": artifacts or ["file.py"],
-        "commit_sha": "abc1234",
+        "commit_sha": commit_sha,
     }
 
 
@@ -199,9 +205,9 @@ class TestConfirmedStaleAckGuard:
         simple_tracker.handle_ack("reviewer_a", "producer", _minimal_ack())
         simple_tracker.handle_ack("reviewer_b", "producer", _minimal_ack())
 
-        # Producer withdraws and re-proposes v2
+        # Producer withdraws and re-proposes v2 (new commit — the fix landed)
         simple_tracker.handle_withdraw("producer", "Found a bug, re-doing")
-        simple_tracker.handle_propose("producer", _minimal_proposal("v2"))
+        simple_tracker.handle_propose("producer", _minimal_proposal("v2", commit_sha="def5678"))
 
         # reviewer_a tries to confirm without re-ACKing at v2
         result = simple_tracker.handle_confirmed("reviewer_a")
@@ -224,9 +230,10 @@ class TestConfirmedStaleAckGuard:
         simple_tracker.handle_propose("producer", _minimal_proposal())
         simple_tracker.handle_ack("reviewer_a", "producer", _minimal_ack())
 
-        # Re-propose (using withdraw + propose since re_propose needs NACK first)
+        # Re-propose (using withdraw + propose since re_propose needs NACK
+        # first) with a new commit so the unchanged-tree guard doesn't fire.
         simple_tracker.handle_withdraw("producer", "need changes")
-        simple_tracker.handle_propose("producer", _minimal_proposal("v2"))
+        simple_tracker.handle_propose("producer", _minimal_proposal("v2", commit_sha="def5678"))
 
         result = simple_tracker.handle_confirmed("reviewer_a")
         assert result["status"] == "pending_acks"
@@ -457,10 +464,16 @@ class TestEdgeCases:
             {"artifact_references": ["file.py"], "reason": "Needs fix"},
         )
 
-        # Producer re-proposes v2 (using handle_re_propose)
+        # Producer re-proposes v2 (using handle_re_propose). The re-propose
+        # must carry a *new* commit SHA — the unchanged-tree guard (#3395)
+        # rejects a re-propose whose commit SHA equals the current
+        # proposal's, since it lands zero new commits and cannot have
+        # addressed the NACK blockers.
+        v2_proposal = _minimal_proposal("v2")
+        v2_proposal["commit_sha"] = "def5678"
         result = simple_tracker.handle_re_propose(
             "producer",
-            _minimal_proposal("v2"),
+            v2_proposal,
             changed_artifacts=["file.py"],
         )
         assert result["version"] == 2

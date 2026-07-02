@@ -744,3 +744,87 @@ class TestIncompleteConsensusStallCheck:
             # Phase 3: second tick without activity — now DEGRADED
             result = check.run(ctx)
             assert result.status == HealthStatus.DEGRADED
+
+
+# ---------------------------------------------------------------------------
+# #3395: post-proposal grace must only be granted for commit-advancing
+# proposals — an unchanged-tree re-propose refreshes the proposal timestamp
+# but not the proposal-SHA fingerprint, so a NACK loop of empty re-proposes
+# spaced under the grace interval must not suppress this check forever.
+# ---------------------------------------------------------------------------
+
+
+class TestUnchangedReproposeGrace:
+    def _mock_modules(self, proposal_shas):
+        """Build sys.modules mocks: concurrent phase, blocking tester,
+        fresh proposal timestamp on every call, fixed proposal SHAs,
+        no progress activity."""
+        mock_ce = MagicMock()
+        mock_ce.is_concurrent_execution.return_value = True
+
+        mock_tracker = MagicMock()
+        mock_tracker.evaluate.return_value = {
+            "is_complete": False,
+            "blocking_agents": ["tester"],
+        }
+        # Each run sees a fresher proposal — simulating repeated re-proposes.
+        mock_tracker.get_latest_proposal_timestamp.side_effect = lambda: (
+            datetime.now(UTC) - timedelta(seconds=10)
+        )
+        mock_tracker.get_all_proposal_commit_shas.return_value = dict(proposal_shas)
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = mock_tracker
+
+        mock_progress_store = MagicMock()
+        mock_progress_store.get_events.return_value = []
+        mock_ps = MagicMock()
+        mock_ps.get_progress_store.return_value = mock_progress_store
+
+        return {
+            "concurrent_executor": mock_ce,
+            "peer_consensus": mock_pc,
+            "progress_store": mock_ps,
+        }
+
+    def test_unchanged_sha_repropose_does_not_reopen_grace(self):
+        """Grace already spent on this fingerprint: fresh unchanged-SHA
+        re-proposes must let ticks accumulate to DEGRADED."""
+        import time as _time
+
+        pipeline = _make_concurrent_pipeline()
+        ctx = _make_context(pipeline)
+        check = _make_check(stall_tick_threshold=2)
+
+        # Grace was granted for this fingerprint 600s ago (past 300s grace).
+        check._graced_fingerprints[pipeline.id] = (("tester", "e29714a"),)
+        check._graced_proposal_ts[pipeline.id] = _time.time() - 600
+        check._last_known_proposal_ts[pipeline.id] = _time.time() - 600
+
+        with patch.dict("sys.modules", self._mock_modules({"tester": "e29714a"})):
+            for _ in range(3):
+                result = check.run(ctx)
+
+        assert result.status == HealthStatus.DEGRADED
+        assert "tester" in result.details["blocking_agents"]
+
+    def test_sha_advancing_repropose_reopens_grace(self):
+        """A re-propose that changes the SHA fingerprint re-opens the grace
+        window (pre-#3395 behaviour for genuine proposals)."""
+        import time as _time
+
+        pipeline = _make_concurrent_pipeline()
+        ctx = _make_context(pipeline)
+        check = _make_check(stall_tick_threshold=2)
+
+        check._graced_fingerprints[pipeline.id] = (("tester", "e29714a"),)
+        check._graced_proposal_ts[pipeline.id] = _time.time() - 600
+        check._last_known_proposal_ts[pipeline.id] = _time.time() - 600
+
+        # The fix commit landed — new SHA, fresh timestamp.
+        with patch.dict("sys.modules", self._mock_modules({"tester": "7bb0dbc"})):
+            for _ in range(3):
+                result = check.run(ctx)
+
+        assert result.status == HealthStatus.HEALTHY
+        assert "post-proposal grace" in result.reasoning
+        assert check._graced_fingerprints[pipeline.id] == (("tester", "7bb0dbc"),)
