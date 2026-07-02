@@ -1264,6 +1264,7 @@ class TestSliceHasPendingDecision:
 # ---------------------------------------------------------------------------
 
 
+import subprocess  # noqa: E402
 import tempfile  # noqa: E402
 
 from egg_contracts.loader import load_contract, save_contract  # noqa: E402
@@ -1507,6 +1508,297 @@ class TestEscalateLayerCHITLPersistence:
             # reaching here. Pin the assertion so an accidental change
             # to "raise" mode trips this regression.
             assert True
+
+
+class TestEscalateLayerCDedupeAndDurability:
+    """#3427 hardening for ``_escalate_layer_c_hitl``.
+
+    Two guarantees:
+
+    * **Idempotent across bootstrap re-runs** — the Layer-C question text
+      is deterministic per (case, slice, pipeline), so every
+      ``restart_phase`` re-derives the identical question. The helper must
+      adopt an existing open duplicate and must NOT re-surface a question
+      the operator already resolved (dedupe/carry-forward parity with
+      ``register_open_question``, #3374/#3392).
+    * **Durable at write time** — a newly appended Decision must trigger
+      ``persist_contract_statefiles`` (commit+push to the work branch), so
+      the phase-(re)start ``git reset --hard`` syncs cannot revert it and
+      the next ``next_cq_id`` mint cannot reuse its id (#3427).
+    """
+
+    PIPELINE_ID = "issue-3427-layer-c"
+    QUESTION = (
+        "[#2777 slice-4 TASK-4-4 case 5] Slice slice-4 of pipeline "
+        "issue-3427-layer-c has an impossible status enum value."
+    )
+
+    def _seed_contract(self, repo_root: Path, *, decisions=None) -> None:
+        contract = Contract(
+            schemaVersion="1.2",
+            issue=IssueInfo(number=3427, title="#3427", url=""),
+            pipeline_id=self.PIPELINE_ID,
+            current_phase=ContractPhase.IMPLEMENT,
+            slices=[],
+            decisions=decisions or [],
+        )
+        save_contract(contract, repo_root)
+
+    def _escalate(self, repo_root: Path, question: str | None = None) -> None:
+        from models import PipelinePhase as PipelineModelsPhase
+        from routes.pipelines import _escalate_layer_c_hitl
+
+        _escalate_layer_c_hitl(
+            pipeline_id=self.PIPELINE_ID,
+            slice_id="slice-4",
+            worktree_repo_path=repo_root,
+            current_phase=PipelineModelsPhase.IMPLEMENT,
+            question=question or self.QUESTION,
+        )
+
+    def test_open_duplicate_adopted_not_reminted(self) -> None:
+        """A bootstrap re-run re-deriving an identical, still-open
+        question must adopt the existing ``cq-N`` — not append a second
+        copy the operator has to answer twice.
+        """
+        prior = [
+            Decision(
+                id="cq-1",
+                question=self.QUESTION,
+                type=DecisionType.HITL,
+                phase=ContractPhase.IMPLEMENT,
+            )
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._seed_contract(repo_root, decisions=prior)
+            self._escalate(repo_root)
+            reloaded = load_contract(self.PIPELINE_ID, repo_root)
+            assert [d.id for d in reloaded.decisions] == ["cq-1"], (
+                "identical open Layer-C question must be adopted, not re-minted"
+            )
+
+    def test_resolved_duplicate_not_reasked(self) -> None:
+        """A question the operator already resolved must NOT be
+        re-surfaced by a later bootstrap re-run (#3392 carry-forward);
+        re-asking is exactly the operator pain from #3427.
+        """
+        prior = [
+            Decision(
+                id="cq-1",
+                question=self.QUESTION,
+                type=DecisionType.HITL,
+                phase=ContractPhase.IMPLEMENT,
+                resolved=True,
+                resolution="opt-1",
+            )
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._seed_contract(repo_root, decisions=prior)
+            self._escalate(repo_root)
+            reloaded = load_contract(self.PIPELINE_ID, repo_root)
+            assert len(reloaded.decisions) == 1
+            assert reloaded.decisions[0].resolved is True, (
+                "operator resolution must survive a Layer-C re-run untouched"
+            )
+
+    def test_distinct_question_still_mints_next_id(self) -> None:
+        """Dedupe must not over-match: a different slice's Layer-C
+        question is a distinct decision and gets the next ``cq-N``.
+        """
+        prior = [
+            Decision(
+                id="cq-1",
+                question="[#2777 slice-4 TASK-4-4 case 5] Slice slice-1 is corrupt.",
+                type=DecisionType.HITL,
+                phase=ContractPhase.IMPLEMENT,
+                resolved=True,
+                resolution="opt-1",
+            )
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._seed_contract(repo_root, decisions=prior)
+            self._escalate(repo_root)
+            reloaded = load_contract(self.PIPELINE_ID, repo_root)
+            assert sorted(d.id for d in reloaded.decisions) == ["cq-1", "cq-2"]
+
+    def test_new_decision_triggers_durable_persist(self) -> None:
+        """A newly appended Decision must be committed+pushed at write
+        time via ``persist_contract_statefiles`` — otherwise the next
+        worktree reset reverts it and its id gets re-minted (#3427).
+        """
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._seed_contract(repo_root)
+            with patch("routes.pipelines.persist_contract_statefiles") as persist_mock:
+                self._escalate(repo_root)
+            persist_mock.assert_called_once()
+            args, _kwargs = persist_mock.call_args
+            assert args[0] == self.PIPELINE_ID
+            assert args[1] == repo_root
+            assert "cq-1" in args[2]
+
+    def test_dedupe_skip_does_not_persist(self) -> None:
+        """An adopted duplicate writes nothing, so nothing to persist."""
+        from unittest.mock import patch
+
+        prior = [
+            Decision(
+                id="cq-1",
+                question=self.QUESTION,
+                type=DecisionType.HITL,
+                phase=ContractPhase.IMPLEMENT,
+            )
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._seed_contract(repo_root, decisions=prior)
+            with patch("routes.pipelines.persist_contract_statefiles") as persist_mock:
+                self._escalate(repo_root)
+            persist_mock.assert_not_called()
+
+
+class TestPersistContractStatefiles:
+    """#3427: direct coverage of ``persist_contract_statefiles``.
+
+    Every *caller* of this helper mocks it (the mutate route, the resolve
+    route, and ``_escalate_layer_c_hitl`` above all patch it out), so its
+    own body — the commit+push wiring that makes a decision survive the
+    phase-restart ``git reset --hard`` — is never exercised by those
+    suites. A signature drift in ``_commit_statefiles_to_worktree`` or
+    ``gateway.push_worktree_branch`` would slip through as a
+    warning-logged no-op — the exact failure mode this fix exists to
+    prevent. This runs the real helper against a temp git repo and
+    asserts a commit lands and is handed to the gateway push.
+    """
+
+    PIPELINE_ID = "issue-3427-persist"
+
+    def _git(self, repo_root: Path, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git", "-C", str(repo_root), *args],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+
+    def _init_repo(self, repo_root: Path) -> None:
+        """A real git repo with an initial commit so HEAD resolves
+        (``_commit_statefiles_to_worktree`` runs ``git read-tree HEAD``).
+        """
+        self._git(repo_root, "init", "-q")
+        self._git(repo_root, "config", "user.email", "egg@localhost")
+        self._git(repo_root, "config", "user.name", "egg")
+        (repo_root / "README.md").write_text("seed\n")
+        self._git(repo_root, "add", "README.md")
+        self._git(repo_root, "commit", "-q", "-m", "init")
+
+    def _make_pipeline(self):
+        config = PipelineConfig(concurrent_execution=True, max_concurrent_agents=6)
+        return Pipeline(
+            id=self.PIPELINE_ID,
+            issue_number=3427,
+            repo="owner/repo",
+            branch=f"egg/{self.PIPELINE_ID}/work",
+            base_branch="main",
+            # Explicit mode so ``_compute_gateway_mode`` returns without a
+            # gateway round-trip.
+            network_mode="public",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+            config=config,
+        )
+
+    def _seed_contract(self, repo_root: Path) -> None:
+        contract = Contract(
+            schemaVersion="1.2",
+            issue=IssueInfo(number=3427, title="#3427", url=""),
+            pipeline_id=self.PIPELINE_ID,
+            current_phase=ContractPhase.IMPLEMENT,
+            slices=[],
+            decisions=[
+                Decision(
+                    id="cq-1",
+                    question="persist me durably",
+                    type=DecisionType.HITL,
+                    phase=ContractPhase.IMPLEMENT,
+                )
+            ],
+        )
+        save_contract(contract, repo_root)
+
+    def test_commits_and_hands_to_gateway_push(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from routes.pipelines import persist_contract_statefiles
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._init_repo(repo_root)
+            self._seed_contract(repo_root)
+            pipeline = self._make_pipeline()
+
+            spawner = MagicMock()
+            head_before = self._git(repo_root, "rev-parse", "HEAD").stdout.strip()
+
+            with patch("routes.pipelines._get_spawner", return_value=spawner):
+                result = persist_contract_statefiles(
+                    self.PIPELINE_ID,
+                    repo_root,
+                    "Persist contract decision mutation decisions.0 (#3427)",
+                    pipeline=pipeline,
+                )
+
+            assert result is True
+            # A real commit landed on the branch (the reset target now
+            # contains the decision, not just the worktree file).
+            head_after = self._git(repo_root, "rev-parse", "HEAD").stdout.strip()
+            assert head_after != head_before, "expected a new commit for the contract write"
+            subject = self._git(repo_root, "log", "-1", "--pretty=%s").stdout.strip()
+            assert subject == "Persist contract decision mutation decisions.0 (#3427)"
+            # The contract file is what got committed.
+            committed = self._git(repo_root, "show", "--stat", "--pretty=", "HEAD").stdout
+            assert ".egg-state/contracts/" in committed
+
+            # And the commit was pushed to the pipeline's work branch.
+            spawner.gateway.push_worktree_branch.assert_called_once()
+            push_kwargs = spawner.gateway.push_worktree_branch.call_args.kwargs
+            assert push_kwargs["pipeline_id"] == self.PIPELINE_ID
+            assert push_kwargs["branch"] == pipeline.branch
+            assert push_kwargs["base_branch"] == "main"
+
+    def test_no_branch_does_not_push_and_returns_false(self) -> None:
+        """A committed decision with no work branch to push to must not
+        claim durability — it returns ``False`` and skips the push (the
+        commit is local-only and a reset can still discard it).
+        """
+        from unittest.mock import MagicMock, patch
+
+        from routes.pipelines import persist_contract_statefiles
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._init_repo(repo_root)
+            self._seed_contract(repo_root)
+            pipeline = self._make_pipeline()
+            pipeline.branch = None
+
+            spawner = MagicMock()
+            with patch("routes.pipelines._get_spawner", return_value=spawner):
+                result = persist_contract_statefiles(
+                    self.PIPELINE_ID,
+                    repo_root,
+                    "Persist without a branch (#3427)",
+                    pipeline=pipeline,
+                )
+
+            assert result is False
+            spawner.gateway.push_worktree_branch.assert_not_called()
 
 
 class TestEscalateCorruptSliceToHITL:

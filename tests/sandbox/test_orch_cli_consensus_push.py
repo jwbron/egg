@@ -429,3 +429,81 @@ class TestConsensusProposeWithPush:
             assert result == 1
             # proposal should NOT have been sent
             mock_request.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Decision-ledger attestation flags (#3390)
+# ---------------------------------------------------------------------------
+
+
+class TestConsensusProposeDecisionLedgerFlags:
+    """--decisions-registered / --no-decisions-rationale map into the
+    proposal ``attestation`` so refine/plan producers can attest their
+    HITL decision ledger from the CLI (#3390).
+    """
+
+    def _propose_and_capture_payload(self, args) -> dict:
+        mock_response = {"success": True, "data": {"consensus": {"agents": {}}}}
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=mock_response,
+        ) as mock_request:
+            result = cmd_consensus_propose(args)
+            assert result == 0
+            return mock_request.call_args.kwargs.get(
+                "data", mock_request.call_args[0][1] if len(mock_request.call_args[0]) > 1 else {}
+            )
+
+    def test_decisions_registered_flag_maps_to_attestation(self, base_env):
+        args = _make_args()
+        args.decisions_registered = ["cq-1", "cq-2"]
+        args.no_decisions_rationale = None
+
+        data = self._propose_and_capture_payload(args)
+        assert data["payload"]["attestation"] == {"decisions_registered": ["cq-1", "cq-2"]}
+
+    def test_no_decisions_rationale_flag_maps_to_attestation(self, base_env):
+        args = _make_args()
+        args.decisions_registered = None
+        args.no_decisions_rationale = "mechanical change; no operator-grade choices"
+
+        data = self._propose_and_capture_payload(args)
+        assert data["payload"]["attestation"] == {
+            "no_decisions_rationale": "mechanical change; no operator-grade choices"
+        }
+
+    def test_flags_absent_leaves_attestation_empty(self, base_env):
+        args = _make_args()
+        args.decisions_registered = None
+        args.no_decisions_rationale = None
+
+        data = self._propose_and_capture_payload(args)
+        assert data["payload"]["attestation"] == {}
+
+    def test_parser_accepts_ledger_flags(self):
+        from egg_lib.orch_cli import create_parser
+
+        parser = create_parser()
+        args = parser.parse_args(
+            [
+                "consensus",
+                "propose",
+                "issue-1",
+                "--decisions-registered",
+                "cq-1",
+                "cq-2",
+                "--summary",
+                "long enough summary of the work that was completed here",
+            ]
+        )
+        assert args.decisions_registered == ["cq-1", "cq-2"]
+        args = parser.parse_args(
+            [
+                "consensus",
+                "propose",
+                "issue-1",
+                "--no-decisions-rationale",
+                "deliberately none",
+            ]
+        )
+        assert args.no_decisions_rationale == "deliberately none"

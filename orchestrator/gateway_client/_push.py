@@ -553,15 +553,28 @@ def _rebase_with_agent_output_autoresolve(
                 "Push reconcile: rebase failed — conflicts outside agent-outputs, aborting",
                 pipeline_id=pipeline_id,
                 branch=branch,
+                rebase_cmd=rebase_cmd[len(git_base) :],
                 conflicting_paths=unmerged_paths,
                 stdout=rebase_result.stdout,
                 stderr=rebase_result.stderr,
             )
             _abort_rebase_best_effort(git_base, pipeline_id, branch)
+            # Name the conflicting paths, the exact rebase form, and the
+            # git output in the detail: this string is what reaches the
+            # divergence-reconcile HITL decision, and #3416 showed that
+            # an operator cannot judge the pause without it (the logs
+            # roll; the decision persists).
+            excerpt = _compact_git_output(rebase_result.stderr, rebase_result.stdout)
+            detail = (
+                f"conflicts outside .egg-state/agent-outputs/: {_compact_path_list(non_ephemeral)} "
+                f"[git {' '.join(rebase_cmd[len(git_base) :])}]"
+            )
+            if excerpt:
+                detail = f"{detail}: {excerpt}"
             return PushResult(
                 ok=False,
                 category="reconcile_rebase_conflict",
-                detail=f"conflicts outside .egg-state/agent-outputs/: {', '.join(non_ephemeral)}",
+                detail=detail,
             )
 
         _pkg.logger.warning(
@@ -722,6 +735,63 @@ def _list_unmerged_paths(git_base: list[str]) -> list[str]:
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
+def _compact_path_list(paths: list[str], *, limit: int = 400) -> str:
+    """Join conflicting paths into a bounded, single-line detail segment.
+
+    The joined string feeds ``PushResult.detail`` and, downstream, the
+    divergence-reconcile HITL question.  Conflict path sets are typically
+    tiny, but a pathological rebase could surface many paths and grow the
+    detail well past its useful length before the git-output excerpt is
+    even appended (#3416).  Show as many whole paths as fit within
+    ``limit`` characters and summarise the remainder as ``(+N more)`` so
+    the operator still learns the true count without the string ballooning.
+    """
+    if not paths:
+        return ""
+    shown: list[str] = []
+    used = 0
+    for index, path in enumerate(paths):
+        # Reserve room for the "(+N more)" suffix the remaining paths need.
+        remaining = len(paths) - index
+        suffix_len = len(f" (+{remaining} more)") if remaining else 0
+        addition = len(path) + (2 if shown else 0)  # ", " separator
+        if shown and used + addition + suffix_len > limit:
+            break
+        shown.append(path)
+        used += addition
+    joined = ", ".join(shown)
+    hidden = len(paths) - len(shown)
+    if hidden:
+        joined = f"{joined} (+{hidden} more)"
+    return joined
+
+
+def _compact_git_output(*streams: str | None, limit: int = 400) -> str:
+    """Collapse git stdout/stderr into a single-line excerpt for a detail string.
+
+    Joins the non-empty lines of each stream with ``" | "`` and truncates
+    to ``limit`` characters, so the failing rebase's own explanation
+    (e.g. ``error: could not apply <sha>... <subject>`` and the
+    ``CONFLICT (add/add)`` line) can travel inside a ``PushResult.detail``
+    without flooding it.  ``hint:`` lines (git's resolve-it-yourself
+    boilerplate) are dropped — they would crowd the informative lines out
+    of the limit.
+    """
+    lines: list[str] = []
+    for stream in streams:
+        if not stream:
+            continue
+        lines.extend(
+            stripped
+            for line in stream.splitlines()
+            if (stripped := line.strip()) and not stripped.startswith("hint:")
+        )
+    joined = " | ".join(lines)
+    if len(joined) > limit:
+        joined = joined[: limit - 1] + "…"
+    return joined
+
+
 def _build_rebase_cmd(
     git_base: list[str],
     branch: str,
@@ -736,8 +806,11 @@ def _build_rebase_cmd(
       form.  This preserves pre-#1976 behaviour for any call site that
       still doesn't know the base branch.
     * ``base_branch`` is set and ``origin/{base_branch}`` resolves: return
-      the ``--onto origin/{branch} origin/{base_branch}`` form so only
-      ``origin/{base_branch}..HEAD`` commits are replayed.
+      an ``--onto origin/{branch} <upstream>`` form.  The upstream is
+      chosen by topology (see below) so the replay range contains only
+      the commits that are genuinely local — never commits already on
+      main (#1976) and never commits already shared with
+      ``origin/{branch}`` (#3416).
     * ``base_branch`` is set but ``origin/{base_branch}`` does NOT resolve
       (the upstream best-effort fetch silently failed earlier, or rev-parse
       timed out): return ``None``.  The caller must surface this as a
@@ -748,6 +821,28 @@ def _build_rebase_cmd(
       upstream main commits that landed since the stale snapshot) on top
       of the stale tip, producing a PR full of duplicate-by-content
       commits with rewritten SHAs.
+
+    Upstream selection (#3416): ``--onto origin/{branch}
+    origin/{base_branch}`` replays ``origin/{base_branch}..HEAD`` — on a
+    long-lived pipeline worktree that range is the ENTIRE pipeline
+    history since main, not just the local-only commits.  Git tolerates
+    re-applying the already-shared commits only while each one merges
+    empty against the new tip; a shared commit whose paths were later
+    rewritten on the shared lineage (the ``.egg-state/contracts/*.json``
+    statefile is rewritten on every contract mutation) instead produces
+    a guaranteed add/add or content conflict — a false-positive
+    "unreconcilable divergence" for commits both sides already have.
+    So when ``merge-base(HEAD, origin/{branch})`` resolves and is NOT an
+    ancestor of ``origin/{base_branch}`` — i.e. the shared history
+    extends past the branch point onto the pipeline lineage, the
+    long-lived-worktree topology — use ``--onto origin/{branch}
+    <merge-base>``, which replays exactly the local-only commits.  When
+    the merge-base IS on the main lineage (fresh worktree cut straight
+    from main — the #1976/#2222 topology, where ``merge-base..HEAD``
+    would include upstream main commits), keep the
+    ``origin/{base_branch}`` upstream.  If the merge-base cannot be
+    determined, fall back to ``origin/{base_branch}`` (pre-#3416
+    behaviour).
 
     ``--autostash`` is set on every returned form (#2714): the orchestrator
     writes statefile / agent-output deltas continuously and does not commit
@@ -781,7 +876,68 @@ def _build_rebase_cmd(
     except subprocess.TimeoutExpired:
         verify = None
     if verify and verify.returncode == 0:
-        return [*git_base, "rebase", "--autostash", "--onto", f"origin/{branch}", base_ref]
+        upstream = _divergence_replay_upstream(git_base, branch, base_ref) or base_ref
+        return [*git_base, "rebase", "--autostash", "--onto", f"origin/{branch}", upstream]
+    return None
+
+
+def _divergence_replay_upstream(
+    git_base: list[str],
+    branch: str,
+    base_ref: str,
+) -> str | None:
+    """Pick the rebase upstream that replays only local-only commits (#3416).
+
+    Returns ``merge-base(HEAD, origin/{branch})`` when it resolves and is
+    NOT an ancestor of ``base_ref`` — the long-lived-worktree topology,
+    where that merge-base is a shared pipeline commit and
+    ``<merge-base>..HEAD`` is exactly the local-only commit set.  Returns
+    ``None`` (caller keeps the ``base_ref`` upstream) when the merge-base
+    is on the main lineage (#1976/#2222 fresh-worktree topology) or
+    cannot be determined.
+
+    Assumes the pipeline branch never carries base-branch (``main``)
+    commits above the shared merge-base that are not yet on
+    ``origin/{branch}``: in the normal orchestrator flow ``main`` enters
+    the pipeline branch only via the orchestrator's controlled rebase,
+    which pushes to origin so those commits land at or below the
+    merge-base.  If a future change to the sync flow ever merged ``main``
+    into the worktree locally without pushing it to the pipeline branch,
+    the rc-1 branch below would replay those un-pushed main commits (the
+    old ``base_ref`` upstream excluded them) — reconsider the
+    discriminator before allowing that topology.
+    """
+    try:
+        merge_base = subprocess.run(
+            [*git_base, "merge-base", "HEAD", f"origin/{branch}"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    merge_base_sha = merge_base.stdout.strip()
+    if merge_base.returncode != 0 or not merge_base_sha:
+        return None
+    try:
+        is_ancestor = subprocess.run(
+            [*git_base, "merge-base", "--is-ancestor", merge_base_sha, base_ref],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    # rc 0 → the merge-base is on the main lineage: HEAD sits directly on
+    # (a snapshot of) main, so the caller must keep the ``base_ref``
+    # upstream to exclude upstream main commits from the replay (#1976).
+    # rc 1 → the merge-base is a shared pipeline commit: replaying from it
+    # yields exactly the local-only commits.  Other rcs are git errors —
+    # be conservative and keep the pre-#3416 upstream.
+    if is_ancestor.returncode == 1:
+        return merge_base_sha
     return None
 
 

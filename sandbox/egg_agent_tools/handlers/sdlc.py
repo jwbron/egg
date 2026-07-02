@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from egg_contracts.decisions import (
@@ -61,6 +62,60 @@ def _fetch_contract(identifier: int | str, repo_path: str | None) -> dict[str, A
     return result.get("data") or {}
 
 
+_SLICE_ID_RE = re.compile(r"^(?:slice|phase)-[0-9]+$")
+
+
+def _validate_adds_task(raw: Any, options: list[Any]) -> tuple[int, dict[str, Any]] | None:
+    """Validate the ``adds_task`` request payload (#3428).
+
+    Returns ``(1-based option index, payload dict ready to store on the
+    option)`` or ``None`` when no payload was supplied. The payload shape
+    mirrors ``egg_contracts.models.AddsTaskPayload``; validating here gives
+    the registering agent a clear ``HandlerError`` instead of a gateway-side
+    pydantic rejection on the mutate call.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise HandlerError("'adds_task' must be an object when provided")
+    if not options:
+        raise HandlerError("'adds_task' requires 'options' (it attaches to one of them)")
+
+    option = raw.get("option")
+    if not isinstance(option, int) or isinstance(option, bool) or not (1 <= option <= len(options)):
+        raise HandlerError(
+            f"'adds_task.option' must be a 1-based index into 'options' "
+            f"(1..{len(options)}); got {option!r}. It cannot reference the "
+            f"auto-appended 'Other' option."
+        )
+
+    slice_id = raw.get("slice_id")
+    if not isinstance(slice_id, str) or not _SLICE_ID_RE.match(slice_id):
+        raise HandlerError(f"'adds_task.slice_id' must match 'slice-<N>' (got {slice_id!r})")
+    description = raw.get("description")
+    if not description or not isinstance(description, str):
+        raise HandlerError("'adds_task.description' is required")
+
+    acceptance_criteria = raw.get("acceptance_criteria") or ""
+    if not isinstance(acceptance_criteria, str):
+        raise HandlerError("'adds_task.acceptance_criteria' must be a string")
+    files_affected = raw.get("files_affected") or []
+    if not isinstance(files_affected, list) or not all(isinstance(f, str) for f in files_affected):
+        raise HandlerError("'adds_task.files_affected' must be a list of strings")
+    role = raw.get("role")
+    if role is not None and (not isinstance(role, str) or not role):
+        raise HandlerError("'adds_task.role' must be a non-empty string when provided")
+
+    payload: dict[str, Any] = {
+        "slice_id": slice_id,
+        "description": description,
+        "acceptance_criteria": acceptance_criteria,
+        "files_affected": files_affected,
+        "role": role,
+    }
+    return option, payload
+
+
 def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
     """Create a HITL decision point on the contract.
 
@@ -77,6 +132,15 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
             contract-mutate RPC that creates the decision), because a BRC
             reviewer has no commit/push path to carry a free-standing
             agent-worktree file into the shared pipeline worktree.
+        adds_task (dict): optional. Structured contract mutation one of the
+            options mandates (#3428): ``{option: <1-based index into
+            options>, slice_id, description, acceptance_criteria?,
+            files_affected?, role?}``. Stored on that option; when the
+            operator resolves the decision by selecting it, the orchestrator
+            appends the described task to ``slice_id`` as an audited
+            operator action. Without this payload an "add a task" option is
+            inert — no agent has a task-add verb, so the resolution records
+            a choice and materializes nothing.
         repo_path (str): optional override for repo path.
         pipeline_id / issue: optional contract identifier.
 
@@ -97,6 +161,7 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
     redirect_seed = req.get("redirect_seed")
     if redirect_seed is not None and not isinstance(redirect_seed, str):
         raise HandlerError("'redirect_seed' must be a string when provided")
+    adds_task = _validate_adds_task(req.get("adds_task"), options)
     repo_path = req.get("repo_path") or get_repo_path()
 
     identifier = _resolve_identifier(req)
@@ -112,6 +177,9 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
                 "description": None,
             }
         )
+        if adds_task is not None:
+            option_idx, payload = adds_task
+            opt_objs[option_idx - 1]["adds_task"] = payload
 
     # TOCTOU hardening: two concurrent agents creating decisions may
     # both observe ``len(decisions) == N`` and race on ``decisions.N``.
@@ -157,6 +225,24 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
                     "redirect_seed differs from the stored one; keeping the stored "
                     "seed (the operator adopts the originally-registered redirect)",
                     duplicate.get("id"),
+                )
+            # Same silent-loss risk for a differing ``adds_task``: the dedup key
+            # excludes it, so a re-registration that carries a new/changed
+            # executable payload would materialize nothing — the resolution
+            # fires against the stored decision's payload. Warn so that loss is
+            # not invisible (#3428 review), matching the option/seed warnings.
+            new_adds_tasks = [o.get("adds_task") for o in opt_objs]
+            existing_adds_tasks = [
+                o.get("adds_task") for o in (duplicate.get("options") or []) if isinstance(o, dict)
+            ]
+            if adds_task is not None and new_adds_tasks != existing_adds_tasks:
+                _logger.warning(
+                    "register_open_question deduped onto %s but the re-registration's "
+                    "adds_task payload differs from the stored one; keeping the stored "
+                    "payload (new=%r, stored=%r)",
+                    duplicate.get("id"),
+                    new_adds_tasks,
+                    existing_adds_tasks,
                 )
             return {
                 "ok": True,
@@ -211,28 +297,37 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
             new_decision["redirect_seed"] = redirect_seed
 
         reason = f"Created HITL decision: {question[:50]}" + ("..." if len(question) > 50 else "")
-        result = gateway_request(
-            "/api/v1/contract/mutate",
-            method="POST",
-            data={
-                "identifier": identifier,
-                "repo_path": repo_path,
-                "field_path": f"decisions.{next_idx}",
-                "new_value": new_decision,
-                "actor": "egg",
-                "reason": reason,
-                **container_id_field(),
-            },
-        )
-        if result.get("success"):
-            return {
-                "ok": True,
-                "id": new_decision["id"],
-                "decision": new_decision,
-            }
+        # ``gateway_request`` RAISES on non-2xx (the mutate route rejects a
+        # stale-index collision with 409, #3427), so catch it here and feed
+        # the server message through the same retryable check — otherwise
+        # the TOCTOU retry loop never actually retries on a rejection.
+        try:
+            result = gateway_request(
+                "/api/v1/contract/mutate",
+                method="POST",
+                data={
+                    "identifier": identifier,
+                    "repo_path": repo_path,
+                    "field_path": f"decisions.{next_idx}",
+                    "new_value": new_decision,
+                    "actor": "egg",
+                    "reason": reason,
+                    **container_id_field(),
+                },
+            )
+        except GatewayError as exc:
+            message = str(exc)
+            last_error = exc
+        else:
+            if result.get("success"):
+                return {
+                    "ok": True,
+                    "id": new_decision["id"],
+                    "decision": new_decision,
+                }
+            message = result.get("message", "decision mutate failed")
+            last_error = GatewayError(message)
 
-        message = result.get("message", "decision mutate failed")
-        last_error = GatewayError(message)
         retryable = (
             "index" in message.lower()
             or "out of range" in message.lower()

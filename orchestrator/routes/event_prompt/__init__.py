@@ -107,6 +107,7 @@ from ._payload import (
     _extract_changed_artifacts,
     _extract_current_producers,
     _extract_iteration_feedback,
+    _extract_last_reviewed_sha_for_producer,
     _extract_nacks,
     _extract_producer_role,
     _extract_proposal_sha_for_producer,
@@ -155,6 +156,7 @@ __all__ = [
     # Event-payload extractors (_payload)
     "_extract_changed_artifacts",
     "_extract_current_producers",
+    "_extract_last_reviewed_sha_for_producer",
     "_extract_proposal_sha_for_producer",
     "_extract_artifacts_for_producer",
     "_extract_producer_role",
