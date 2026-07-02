@@ -96,6 +96,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "7fb31c8a5b0310379de04bec4a12bd4e3f3e17d9": {
+      "branch": "egg/issue-3393/work",
+      "patch_id": "8c21c99e78e26f85bcf961bf2953cb1dcbfd7e86",
+      "pipeline_id": "issue-3393",
+      "registered_at": "2026-07-02T00:23:34.004978+00:00",
+      "repo": null,
+      "role": "task_planner"
+    },
     "899b1dc40544fcab5550e97312259779b884c6b3": {
       "branch": "egg/issue-3393/work",
       "patch_id": "abe791008540b5e84621707b95822794e9628437",
