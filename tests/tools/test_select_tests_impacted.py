@@ -222,11 +222,19 @@ def test_impacted_tests_against_real_repo(capsys: pytest.CaptureFixture) -> None
     by orchestrator plan-ingestion tests, so the closure must be
     non-empty, every line must be an existing test file, and exit 0."""
     pytest.importorskip("grimp")
-    rc = selector.impacted_tests(["shared/egg_contracts/plan_parser/_validators.py"])
+    # Pin the repo root explicitly rather than relying on the process
+    # cwd: another test in the suite can leave cwd in a non-git temp dir,
+    # and `_git_repo_root()` then falls back to `Path.cwd()`, so the graph
+    # is built (via sys.path) but test files are mapped against the wrong
+    # root — yielding an empty closure with exit 0.  Passing repo_root
+    # makes this end-to-end check order-independent.
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    rc = selector.impacted_tests(
+        ["shared/egg_contracts/plan_parser/_validators.py"], repo_root=repo_root
+    )
     assert rc == 0
     out_lines = capsys.readouterr().out.splitlines()
     assert out_lines, "expected a non-empty impacted-test closure"
-    repo_root = Path(__file__).resolve().parent.parent.parent
     for line in out_lines:
         assert (repo_root / line).is_file(), f"non-existent path emitted: {line}"
         assert Path(line).name.startswith("test_") or Path(line).name.endswith("_test.py"), (
