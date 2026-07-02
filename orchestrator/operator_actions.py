@@ -240,6 +240,16 @@ def add_task_as_operator(
     slice number and ``N`` is one past the highest existing ``task-P-M``
     in that slice, all under the contract lock (no TOCTOU window).
 
+    An omitted ``role`` defaults to ``"coder"`` so the materialized task
+    is always *owned*: the per-producer ACK gate
+    (``contract_completeness.incomplete_tasks``) skips role-less rows, so
+    an unowned task would be invisible to every producer's ACK gate yet
+    still block the enforcer's CONFIRM with no owner to NACK — the same
+    operator-answered-but-still-wedged shape #3428 closes, moved one gate
+    downstream. Defaulting here (the single choke point for both the
+    decision executor and the direct REST route) keeps the loop closed
+    deterministically (#3428 review).
+
     Callers MUST sit behind an operator-authenticated surface
     (lifecycle secret); this function does no authentication itself.
 
@@ -250,6 +260,7 @@ def add_task_as_operator(
     description = (description or "").strip()
     if not description:
         raise OperatorActionError("description must be non-empty", status_code=400)
+    role = role or "coder"
 
     worktree = contract_store.resolve_pipeline_worktree(pipeline_id)
     if worktree is None:

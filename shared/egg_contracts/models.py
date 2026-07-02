@@ -491,8 +491,13 @@ class AddsTaskPayload(EggContractBaseModel):
         default=None,
         description=(
             "Producer role for the new task (coder/tester/documenter). "
-            "``None`` assigns the default producer (coder) — same fallback "
-            "as ``Task.role``."
+            "``None`` is defaulted to ``coder`` by "
+            "``operator_actions.add_task_as_operator`` when the task is "
+            "materialized, so the row is always owned (a role-less task is "
+            "invisible to the per-producer ACK gate yet blocks CONFIRM). "
+            "This is the executor's own fallback, not ``Task.role``'s — the "
+            "scheduler and completeness gate treat a role-less ``Task`` as "
+            "unassigned (#3428 review)."
         ),
     )
 

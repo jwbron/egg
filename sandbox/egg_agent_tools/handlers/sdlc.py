@@ -226,6 +226,24 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
                     "seed (the operator adopts the originally-registered redirect)",
                     duplicate.get("id"),
                 )
+            # Same silent-loss risk for a differing ``adds_task``: the dedup key
+            # excludes it, so a re-registration that carries a new/changed
+            # executable payload would materialize nothing — the resolution
+            # fires against the stored decision's payload. Warn so that loss is
+            # not invisible (#3428 review), matching the option/seed warnings.
+            new_adds_tasks = [o.get("adds_task") for o in opt_objs]
+            existing_adds_tasks = [
+                o.get("adds_task") for o in (duplicate.get("options") or []) if isinstance(o, dict)
+            ]
+            if adds_task is not None and new_adds_tasks != existing_adds_tasks:
+                _logger.warning(
+                    "register_open_question deduped onto %s but the re-registration's "
+                    "adds_task payload differs from the stored one; keeping the stored "
+                    "payload (new=%r, stored=%r)",
+                    duplicate.get("id"),
+                    new_adds_tasks,
+                    existing_adds_tasks,
+                )
             return {
                 "ok": True,
                 "id": duplicate.get("id"),

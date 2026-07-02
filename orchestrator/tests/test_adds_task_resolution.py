@@ -134,6 +134,21 @@ class TestAddTaskAsOperator:
         contract = load_contract(PIPELINE_ID, tmp_path)
         assert [t.id for t in contract.slices[0].tasks] == ["task-1-1", "task-1-5", "task-1-6"]
 
+    def test_omitted_role_defaults_to_coder(self, contract_worktree: Path):
+        # A role-less task would be invisible to the per-producer ACK gate yet
+        # still block the enforcer's CONFIRM with no owner to NACK — the wedge
+        # #3428 closes, moved one gate downstream. The executor defaults the
+        # materialized task's role to ``coder`` so it is always owned.
+        from egg_contracts import load_contract
+        from operator_actions import add_task_as_operator
+
+        with patch("contract_store.resolve_pipeline_worktree", return_value=contract_worktree):
+            result = add_task_as_operator(PIPELINE_ID, "slice-1", "new work")
+
+        assert result["role"] == "coder"
+        contract = load_contract(PIPELINE_ID, contract_worktree)
+        assert contract.slices[0].tasks[-1].role == "coder"
+
     def test_slice_id_matches_legacy_phase_prefix(self, tmp_path: Path):
         from operator_actions import add_task_as_operator
 
