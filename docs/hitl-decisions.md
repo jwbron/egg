@@ -205,7 +205,9 @@ is not listed twice.
 tagged to the running phase, the concurrent-mode consensus timeout is
 suspended rather than firing — a reviewer withholding its ACK pending this
 ruling is expected, not a stall. The clock resets once the decision is
-resolved. See [Concurrent Execution: Timeout Handling](guides/concurrent-execution.md#timeout-handling).
+resolved. Only phase-tagged `cq-N` decisions gate — a phase-less or legacy
+decision is skipped, so it can never suspend the timeout indefinitely. See
+[Concurrent Execution: Timeout Handling](guides/concurrent-execution.md#timeout-handling).
 
 **Deduplication (#3374).** A re-registration of a question already open and
 unresolved *under the same phase* adopts the existing `cq-N` rather than
