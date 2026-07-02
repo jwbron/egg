@@ -431,10 +431,17 @@ if not os.path.isdir(base) or not os.path.isdir(repo_dir):
 def copy_if_missing(src, dst, **kwargs):
     if os.path.exists(dst) or os.path.islink(dst):
         return
-    if os.path.islink(src):
-        os.symlink(os.readlink(src), dst)
-    else:
-        shutil.copy2(src, dst, **kwargs)
+    # Mirror the entrypoint's _copy_if_missing: log-and-continue per file
+    # so a single unreadable/mode-600 source degrades to a per-file warning
+    # instead of flipping the whole restore to a "restore failed" line via
+    # shutil.copytree's collected shutil.Error.
+    try:
+        if os.path.islink(src):
+            os.symlink(os.readlink(src), dst)
+        else:
+            shutil.copy2(src, dst, **kwargs)
+    except OSError as e:
+        print("  warn: failed to restore " + dst + ": " + str(e))
 
 
 restored = None
