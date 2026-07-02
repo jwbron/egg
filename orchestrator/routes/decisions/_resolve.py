@@ -481,6 +481,29 @@ def _resolve_contract_decision(
         source=getattr(request, "egg_source", "unknown"),
     )
 
+    # Durably land the resolution on the work branch (#3427): the contract
+    # file write above is uncommitted, and the phase-(re)start worktree
+    # syncs ``git reset --hard`` to origin — an operator resolution that
+    # was not committed+pushed by then was silently reverted, forcing the
+    # operator to re-answer. Best-effort: the helper logs and swallows
+    # failures.
+    try:
+        from routes.pipelines import persist_contract_statefiles
+
+        persist_contract_statefiles(
+            pipeline_id,
+            worktree,
+            f"Persist HITL resolution {decision_id} (#3427)",
+            pipeline=pipeline,
+        )
+    except Exception:
+        logger.warning(
+            "Failed to persist contract decision resolution to work branch",
+            pipeline_id=pipeline_id,
+            decision_id=decision_id,
+            exc_info=True,
+        )
+
     try:
         _pkg.emit_event(
             EventType.DECISION_RESOLVED,

@@ -1509,6 +1509,158 @@ class TestEscalateLayerCHITLPersistence:
             assert True
 
 
+class TestEscalateLayerCDedupeAndDurability:
+    """#3427 hardening for ``_escalate_layer_c_hitl``.
+
+    Two guarantees:
+
+    * **Idempotent across bootstrap re-runs** — the Layer-C question text
+      is deterministic per (case, slice, pipeline), so every
+      ``restart_phase`` re-derives the identical question. The helper must
+      adopt an existing open duplicate and must NOT re-surface a question
+      the operator already resolved (dedupe/carry-forward parity with
+      ``register_open_question``, #3374/#3392).
+    * **Durable at write time** — a newly appended Decision must trigger
+      ``persist_contract_statefiles`` (commit+push to the work branch), so
+      the phase-(re)start ``git reset --hard`` syncs cannot revert it and
+      the next ``next_cq_id`` mint cannot reuse its id (#3427).
+    """
+
+    PIPELINE_ID = "issue-3427-layer-c"
+    QUESTION = (
+        "[#2777 slice-4 TASK-4-4 case 5] Slice slice-4 of pipeline "
+        "issue-3427-layer-c has an impossible status enum value."
+    )
+
+    def _seed_contract(self, repo_root: Path, *, decisions=None) -> None:
+        contract = Contract(
+            schemaVersion="1.2",
+            issue=IssueInfo(number=3427, title="#3427", url=""),
+            pipeline_id=self.PIPELINE_ID,
+            current_phase=ContractPhase.IMPLEMENT,
+            slices=[],
+            decisions=decisions or [],
+        )
+        save_contract(contract, repo_root)
+
+    def _escalate(self, repo_root: Path, question: str | None = None) -> None:
+        from models import PipelinePhase as PipelineModelsPhase
+        from routes.pipelines import _escalate_layer_c_hitl
+
+        _escalate_layer_c_hitl(
+            pipeline_id=self.PIPELINE_ID,
+            slice_id="slice-4",
+            worktree_repo_path=repo_root,
+            current_phase=PipelineModelsPhase.IMPLEMENT,
+            question=question or self.QUESTION,
+        )
+
+    def test_open_duplicate_adopted_not_reminted(self) -> None:
+        """A bootstrap re-run re-deriving an identical, still-open
+        question must adopt the existing ``cq-N`` — not append a second
+        copy the operator has to answer twice.
+        """
+        prior = [
+            Decision(
+                id="cq-1",
+                question=self.QUESTION,
+                type=DecisionType.HITL,
+                phase=ContractPhase.IMPLEMENT,
+            )
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._seed_contract(repo_root, decisions=prior)
+            self._escalate(repo_root)
+            reloaded = load_contract(self.PIPELINE_ID, repo_root)
+            assert [d.id for d in reloaded.decisions] == ["cq-1"], (
+                "identical open Layer-C question must be adopted, not re-minted"
+            )
+
+    def test_resolved_duplicate_not_reasked(self) -> None:
+        """A question the operator already resolved must NOT be
+        re-surfaced by a later bootstrap re-run (#3392 carry-forward);
+        re-asking is exactly the operator pain from #3427.
+        """
+        prior = [
+            Decision(
+                id="cq-1",
+                question=self.QUESTION,
+                type=DecisionType.HITL,
+                phase=ContractPhase.IMPLEMENT,
+                resolved=True,
+                resolution="opt-1",
+            )
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._seed_contract(repo_root, decisions=prior)
+            self._escalate(repo_root)
+            reloaded = load_contract(self.PIPELINE_ID, repo_root)
+            assert len(reloaded.decisions) == 1
+            assert reloaded.decisions[0].resolved is True, (
+                "operator resolution must survive a Layer-C re-run untouched"
+            )
+
+    def test_distinct_question_still_mints_next_id(self) -> None:
+        """Dedupe must not over-match: a different slice's Layer-C
+        question is a distinct decision and gets the next ``cq-N``.
+        """
+        prior = [
+            Decision(
+                id="cq-1",
+                question="[#2777 slice-4 TASK-4-4 case 5] Slice slice-1 is corrupt.",
+                type=DecisionType.HITL,
+                phase=ContractPhase.IMPLEMENT,
+                resolved=True,
+                resolution="opt-1",
+            )
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._seed_contract(repo_root, decisions=prior)
+            self._escalate(repo_root)
+            reloaded = load_contract(self.PIPELINE_ID, repo_root)
+            assert sorted(d.id for d in reloaded.decisions) == ["cq-1", "cq-2"]
+
+    def test_new_decision_triggers_durable_persist(self) -> None:
+        """A newly appended Decision must be committed+pushed at write
+        time via ``persist_contract_statefiles`` — otherwise the next
+        worktree reset reverts it and its id gets re-minted (#3427).
+        """
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._seed_contract(repo_root)
+            with patch("routes.pipelines.persist_contract_statefiles") as persist_mock:
+                self._escalate(repo_root)
+            persist_mock.assert_called_once()
+            args, _kwargs = persist_mock.call_args
+            assert args[0] == self.PIPELINE_ID
+            assert args[1] == repo_root
+            assert "cq-1" in args[2]
+
+    def test_dedupe_skip_does_not_persist(self) -> None:
+        """An adopted duplicate writes nothing, so nothing to persist."""
+        from unittest.mock import patch
+
+        prior = [
+            Decision(
+                id="cq-1",
+                question=self.QUESTION,
+                type=DecisionType.HITL,
+                phase=ContractPhase.IMPLEMENT,
+            )
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._seed_contract(repo_root, decisions=prior)
+            with patch("routes.pipelines.persist_contract_statefiles") as persist_mock:
+                self._escalate(repo_root)
+            persist_mock.assert_not_called()
+
+
 class TestEscalateCorruptSliceToHITL:
     """``_escalate_corrupt_slice_to_hitl`` — case-5 wrapper that builds
     the question text with the ``[#2777 slice-4 TASK-4-4 case 5]``

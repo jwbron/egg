@@ -211,28 +211,37 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
             new_decision["redirect_seed"] = redirect_seed
 
         reason = f"Created HITL decision: {question[:50]}" + ("..." if len(question) > 50 else "")
-        result = gateway_request(
-            "/api/v1/contract/mutate",
-            method="POST",
-            data={
-                "identifier": identifier,
-                "repo_path": repo_path,
-                "field_path": f"decisions.{next_idx}",
-                "new_value": new_decision,
-                "actor": "egg",
-                "reason": reason,
-                **container_id_field(),
-            },
-        )
-        if result.get("success"):
-            return {
-                "ok": True,
-                "id": new_decision["id"],
-                "decision": new_decision,
-            }
+        # ``gateway_request`` RAISES on non-2xx (the mutate route rejects a
+        # stale-index collision with 409, #3427), so catch it here and feed
+        # the server message through the same retryable check — otherwise
+        # the TOCTOU retry loop never actually retries on a rejection.
+        try:
+            result = gateway_request(
+                "/api/v1/contract/mutate",
+                method="POST",
+                data={
+                    "identifier": identifier,
+                    "repo_path": repo_path,
+                    "field_path": f"decisions.{next_idx}",
+                    "new_value": new_decision,
+                    "actor": "egg",
+                    "reason": reason,
+                    **container_id_field(),
+                },
+            )
+        except GatewayError as exc:
+            message = str(exc)
+            last_error = exc
+        else:
+            if result.get("success"):
+                return {
+                    "ok": True,
+                    "id": new_decision["id"],
+                    "decision": new_decision,
+                }
+            message = result.get("message", "decision mutate failed")
+            last_error = GatewayError(message)
 
-        message = result.get("message", "decision mutate failed")
-        last_error = GatewayError(message)
         retryable = (
             "index" in message.lower()
             or "out of range" in message.lower()
