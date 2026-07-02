@@ -495,7 +495,7 @@
       "id": "slice-6",
       "name": "Per-repo test-gate + reviewer-diff scoping + per-repo conventions",
       "goal": "Scope the implement-phase gates to the slice's repo (operator rulings #3,\n#5). The test gate runs in the slice's repo worktree only; the reviewer diff\nis `git diff` in that worktree against that repo's base; the slice's agent\nruns with cwd in the slice's repo worktree under that repo's `CLAUDE.md`,\nlinters, and check commands \u2014 egg's `make lint`/`make test` apply only to\nslices whose repo is egg. Documentation is updated to describe the shipped\nmulti-repo model.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -504,8 +504,8 @@
         {
           "id": "task-6-1",
           "description": "Scope the test gate and reviewer diff to the slice's repo. In the\nimplement-phase gate/review wiring (orchestrator/routes/pipelines.py\nand any test-gate/reviewer-diff helper it calls): resolve the slice's\nworktree from the owner/repo-keyed map (slice 3), run the test gate in\nTHAT worktree, compute the reviewer diff as `git diff` in that worktree\nagainst that repo's base branch, and resolve check/lint commands from\nthe slice's repo conventions (its own CLAUDE.md / linters) rather than\nhard-coding egg's `make lint`/`make test`. Set the slice agent's cwd to\nthe slice's repo worktree. Keep the egg-repo path (the common case)\nbehaviorally identical to today.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "4553fd01279f55939a0159b2d4d78a8e8df9676a",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- The test gate runs only in the slice's repo worktree; the reviewer\n  diff is scoped to that repo against its base.\n- The slice agent's cwd is the slice's repo worktree; check/lint\n  commands resolve from that repo's conventions, not egg's, for\n  non-egg slices.\n- egg-repo slices behave exactly as today (N=1 baseline unchanged).",
@@ -517,7 +517,16 @@
           "max_cycles": 3,
           "escalated": false,
           "delegation_attempts": 0,
-          "gaps": [],
+          "gaps": [
+            {
+              "id": "gap-1",
+              "from_role": "tester",
+              "to_role": "coder",
+              "description": "slice-6 tester\u2194coder convergence seam (task-6-2): tester's skip-guarded integration test `TestSliceGateRepoAccessor` imports `routes.pipelines._resolve_slice_gate_repo(slice, pipeline) -> str | None`. To converge, expose the gate-scoping accessor under that exact name/signature, returning `resolve_slice_repo(slice, pipeline)` \u2014 the single repo every implement-phase gate (test-gate worktree, reviewer-diff base repo, check/lint conventions) is scoped to. The reviewer-diff base branch is that repo's RepoSpec.base_branch (tester asserts via `_expected_diff_base`), and the test gate must run in the slice's repo worktree resolved by `resolve_worktree_path(pipeline_id, <slice-repo path>)` (tester's `TestPerRepoWorktreeSelection` pins per-repo subdir selection). Always-green model-level rule tests already pin the invariants; only the named accessor is needed to activate the guarded class. If you scope the gate without a standalone `_resolve_slice_gate_repo` helper, tell the tester the actual symbol so the guard can be re-pointed.",
+              "created_at": "2026-07-02T18:43:29Z",
+              "resolved": false
+            }
+          ],
           "jira_key": null,
           "jira_action": null,
           "jira_action_status": null
@@ -525,10 +534,10 @@
         {
           "id": "task-6-2",
           "description": "Add tests in orchestrator/tests: for a multi-repo pipeline, the test\ngate is invoked in the slice's repo worktree (not the primary's), the\nreviewer diff is computed against the slice's repo base, and check\ncommands resolve from the slice's repo; for an egg-repo slice, behavior\nmatches the current single-repo path. Mock worktree paths and\nper-repo command resolution.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "3db72777e",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Added slice-6 per-repo gate-scoping tests to orchestrator/tests/test_pipelines.py (appended section). Two-layer idiom matching slices 2/4/5:\n- Always-green rule tests on slice-1 model API + shipped resolver:\n  * TestPerRepoTestGateScoping \u2014 gate scopes to resolve_slice_repo(slice,pipeline), not primary; repoless\u2192primary; per-slice; egg-in-multi-repo baseline; N=1.\n  * TestPerRepoReviewerDiffBase \u2014 diff base = slice repo's RepoSpec.base_branch (\u2260 primary base for cross-repo); repoless\u2192primary base; per-slice; N=1 unchanged.\n  * TestPerRepoCheckCommandResolution \u2014 check/lint commands keyed by slice repo (egg\u2192make lint, consumer\u2192npm test); egg baseline; N=1.\n  * TestPerRepoWorktreeSelection \u2014 REAL test of routes.resolve_worktree_path: given the slice's repo path it returns that repo's per-repo worktree subdir, not the primary's (tmp_path + monkeypatched _WORKTREE_BASE_DIR); N=1.\n- Skip-guarded integration: TestSliceGateRepoAccessor on coder seam routes.pipelines._resolve_slice_gate_repo (handed to coder via task-6-1 gap); activates at convergence.\nVerified: 56 passed / 4 skipped (2 pre-existing + 2 slice-6 coder-seam guards) on tester worktree; ruff check + format clean. No .venv present in this sandbox (system pytest used); make test/test-all gating is the convergence check.",
           "acceptance_criteria": "- Tests assert per-repo test-gate invocation, per-repo reviewer-diff\n  base, and per-repo check-command resolution, plus the egg-repo\n  baseline.\n- `make test` (narrowed) and `make test-all` green.",
           "files_affected": [
             "orchestrator/tests/test_pipelines.py"
@@ -546,8 +555,8 @@
         {
           "id": "task-6-3",
           "description": "Update documentation to describe the shipped multi-repo model\n(snapshot, not changelog): docs/guides/sdlc-pipeline.md (list-shaped\nsubmission with per-repo base_branch; uniform visibility + uniform auth\nrequirement; primary repo for naming/default) and the relevant\narchitecture doc for slices/PRs (Slice.repo 1:1 rule; per-repo work\nbranch + context PR; cross-repo ordering via slice dependencies; the\ncq-1 two-tier merge-sequencing hold; per-repo gate/diff/convention\nscoping). Describe current behavior; do not narrate slice numbers or\nthis pipeline's process.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "6afc6dfb75b3581d056cf128068e3dbf1fe19846",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- The pipeline guide documents list-shaped submission, the uniformity\n  rules, and the primary-repo concept.\n- An architecture doc documents Slice.repo (1:1), per-repo\n  work-branch/context-PR, cross-repo ordering + the two-tier hold, and\n  per-repo gate scoping \u2014 as current-state snapshot, no slice/TASK\n  references.",
@@ -570,11 +579,11 @@
         "slice-5"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3393/slice-5",
+      "integration_base_sha": "ac753260178b0b22ffd2a8d0877dacee86a2bfe4",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3437,
+      "pr_url": "https://github.com/jwbron/egg/pull/3437",
       "review_feedback": []
     },
     {
@@ -1441,6 +1450,112 @@
         "resolved": false
       },
       "reason": "Recorded gap gap-2 on task-5-1 (from tester to coder)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T18:36:26.027250Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.2.commit",
+      "old_value": null,
+      "new_value": "6afc6dfb75b3581d056cf128068e3dbf1fe19846",
+      "reason": "Linked commit 6afc6df to task-6-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T18:36:26.050186Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-6-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T18:43:29.648746Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.gaps.0",
+      "old_value": null,
+      "new_value": {
+        "id": "gap-1",
+        "from_role": "tester",
+        "to_role": "coder",
+        "description": "slice-6 tester\u2194coder convergence seam (task-6-2): tester's skip-guarded integration test `TestSliceGateRepoAccessor` imports `routes.pipelines._resolve_slice_gate_repo(slice, pipeline) -> str | None`. To converge, expose the gate-scoping accessor under that exact name/signature, returning `resolve_slice_repo(slice, pipeline)` \u2014 the single repo every implement-phase gate (test-gate worktree, reviewer-diff base repo, check/lint conventions) is scoped to. The reviewer-diff base branch is that repo's RepoSpec.base_branch (tester asserts via `_expected_diff_base`), and the test gate must run in the slice's repo worktree resolved by `resolve_worktree_path(pipeline_id, <slice-repo path>)` (tester's `TestPerRepoWorktreeSelection` pins per-repo subdir selection). Always-green model-level rule tests already pin the invariants; only the named accessor is needed to activate the guarded class. If you scope the gate without a standalone `_resolve_slice_gate_repo` helper, tell the tester the actual symbol so the guard can be re-pointed.",
+        "created_at": "2026-07-02T18:43:29Z",
+        "resolved": false
+      },
+      "reason": "Recorded gap gap-1 on task-6-1 (from tester to coder)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T18:43:35.745403Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.notes",
+      "old_value": "",
+      "new_value": "Added slice-6 per-repo gate-scoping tests to orchestrator/tests/test_pipelines.py (appended section). Two-layer idiom matching slices 2/4/5:\n- Always-green rule tests on slice-1 model API + shipped resolver:\n  * TestPerRepoTestGateScoping \u2014 gate scopes to resolve_slice_repo(slice,pipeline), not primary; repoless\u2192primary; per-slice; egg-in-multi-repo baseline; N=1.\n  * TestPerRepoReviewerDiffBase \u2014 diff base = slice repo's RepoSpec.base_branch (\u2260 primary base for cross-repo); repoless\u2192primary base; per-slice; N=1 unchanged.\n  * TestPerRepoCheckCommandResolution \u2014 check/lint commands keyed by slice repo (egg\u2192make lint, consumer\u2192npm test); egg baseline; N=1.\n  * TestPerRepoWorktreeSelection \u2014 REAL test of routes.resolve_worktree_path: given the slice's repo path it returns that repo's per-repo worktree subdir, not the primary's (tmp_path + monkeypatched _WORKTREE_BASE_DIR); N=1.\n- Skip-guarded integration: TestSliceGateRepoAccessor on coder seam routes.pipelines._resolve_slice_gate_repo (handed to coder via task-6-1 gap); activates at convergence.\nVerified: 56 passed / 4 skipped (2 pre-existing + 2 slice-6 coder-seam guards) on tester worktree; ruff check + format clean. No .venv present in this sandbox (system pytest used); make test/test-all gating is the convergence check.",
+      "reason": "Updated notes for task-6-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T18:54:16.071629Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.commit",
+      "old_value": null,
+      "new_value": "24e59f2fd",
+      "reason": "Linked commit 24e59f2 to task-6-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T18:54:16.096251Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-6-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T18:54:56.765867Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.commit",
+      "old_value": null,
+      "new_value": "4553fd01279f55939a0159b2d4d78a8e8df9676a",
+      "reason": "Linked commit 4553fd0 to task-6-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T18:54:56.779097Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-6-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-02T18:55:12.479201Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.commit",
+      "old_value": "24e59f2fd",
+      "new_value": "3db72777e",
+      "reason": "Linked commit 3db7277 to task-6-2",
       "checkpoint_id": null
     }
   ],
