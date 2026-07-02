@@ -4610,7 +4610,7 @@ def gh_pr_merge_state() -> tuple[Response, int] | Response:
     if stdout:
         try:
             parsed = json.loads(stdout)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             parsed = None
         if isinstance(parsed, dict):
             state_val = parsed.get("state")

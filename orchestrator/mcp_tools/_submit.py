@@ -87,8 +87,7 @@ def _handle_submit_task(self, args: dict[str, Any]) -> dict[str, Any]:
         if args.get("repo"):
             return {
                 "error": (
-                    "Pass either 'repo' (single-repo) or 'repos' (multi-repo list), "
-                    "not both."
+                    "Pass either 'repo' (single-repo) or 'repos' (multi-repo list), not both."
                 )
             }
         if isinstance(repos_arg, str):
@@ -132,7 +131,9 @@ def _handle_submit_task(self, args: dict[str, Any]) -> dict[str, Any]:
     elif args.get("repo"):
         data["repo"] = args["repo"]
     if not data.get("repo"):
-        return {"error": "Missing repo: pass either 'repo' (single-repo) or 'repos' (multi-repo list)"}
+        return {
+            "error": "Missing repo: pass either 'repo' (single-repo) or 'repos' (multi-repo list)"
+        }
     if args.get("config"):
         config = args["config"]
         if isinstance(config, str):

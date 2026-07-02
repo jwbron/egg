@@ -566,6 +566,10 @@ class TestNoSurvivingReadSites:
         # parser ignores them); these tests pin that schema, not a
         # PRMetadata read.
         "tests/test_yaml_tasks_schema.py",
+        # Contract-model migration tests feed legacy ``context_*`` keys
+        # to a persisted-contract load and assert they are stripped —
+        # their purpose is to verify the removal.
+        "shared/egg_contracts/tests/test_models.py",
         # The migration shim itself names the keys it drops.
         # (Path may shift; matched as a substring.)
     )
