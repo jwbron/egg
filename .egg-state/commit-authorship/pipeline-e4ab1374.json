@@ -1,5 +1,13 @@
 {
   "entries": {
+    "10aca8a5eb9d756b418fb646cebdc45213c53fff": {
+      "branch": "egg/pipeline-e4ab1374/work",
+      "patch_id": "caf591d6403b05f6cc3fa35a50be7130555d0f24",
+      "pipeline_id": "pipeline-e4ab1374",
+      "registered_at": "2026-07-02T23:38:07.826686+00:00",
+      "repo": null,
+      "role": "refiner"
+    },
     "31ca9f03fe83e05b6f76714a459e24e5d4b7dd36": {
       "branch": "egg/pipeline-e4ab1374/work",
       "patch_id": "0b1d804821edd07ba86cb171d515a00764e7b0f3",
