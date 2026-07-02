@@ -325,6 +325,76 @@ print('\n'.join(out))
     return 0
 }
 
+# Restore the repo's prebuilt build_commands toolchain (#3413): copy
+# /opt/prebuilt-deps/<owner--repo>/* (the persist_dirs snapshot baked at
+# image build, e.g. the repo's pinned .venv) into the mounted worktree,
+# skipping paths that already exist. This is the agent-path twin of
+# ``sandbox.entrypoint._worktrees.restore_prebuilt_deps`` and the #3412
+# green-gate runner's ``restore_prebuilt``: k8s agent pods override the
+# image ENTRYPOINT (the orchestrator injects this wrapper as the pod
+# command), so the entrypoint's restore never runs on this path and repo
+# checks would otherwise resolve to whatever tools the image happens to
+# install globally instead of the versions the repo pins. Copy-if-missing
+# keeps it idempotent across the many one-shot pods that share a role
+# worktree — only the first pod per worktree pays the copy. No chown
+# needed: this pod runs as the worktree's owning uid, unlike the root
+# entrypoint. Fail-soft: a failed restore logs and continues — the agent
+# invocation is never blocked on it, and a missing toolchain surfaces at
+# check time instead. ``EGG_PREBUILT_DEPS_BASE`` overrides the snapshot
+# source for tests.
+restore_prebuilt_deps() {
+    local repo="${EGG_REPO_PATH:-$PWD}"
+    local out rc
+    out=$(python3 - "$repo" 2>&1 <<'RESTORE_PREBUILT_PY'
+import os
+import shutil
+import sys
+
+repo_dir = sys.argv[1]
+base = os.environ.get("EGG_PREBUILT_DEPS_BASE", "/opt/prebuilt-deps")
+name = os.path.basename(os.path.normpath(repo_dir))
+if not os.path.isdir(base) or not os.path.isdir(repo_dir):
+    print("skipped (no prebuilt base or repo dir)")
+    sys.exit(0)
+
+
+def copy_if_missing(src, dst, **kwargs):
+    if os.path.exists(dst) or os.path.islink(dst):
+        return
+    if os.path.islink(src):
+        os.symlink(os.readlink(src), dst)
+    else:
+        shutil.copy2(src, dst, **kwargs)
+
+
+restored = None
+for entry in sorted(os.listdir(base)):
+    if entry == "__egg_system_dirs__" or not entry.endswith("--" + name):
+        continue
+    shutil.copytree(
+        os.path.join(base, entry),
+        repo_dir,
+        copy_function=copy_if_missing,
+        dirs_exist_ok=True,
+        symlinks=False,
+    )
+    restored = entry
+    break
+if restored is None:
+    print("no prebuilt snapshot for " + name)
+else:
+    print("restored " + restored)
+RESTORE_PREBUILT_PY
+)
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        cw_log "prebuilt-deps restore failed (rc=$rc, fail-soft): ${out:-<no output>}"
+    else
+        cw_log "prebuilt-deps restore: $out"
+    fi
+    return 0
+}
+
 # --- one-shot event handler (#3164) ------------------------------------
 ONE_SHOT_ACTION="${EGG_EVENT_ACTION:-}"
 if [ -z "$ONE_SHOT_ACTION" ]; then
@@ -381,6 +451,12 @@ if [ "$ONE_SHOT_DERIVED" != "$ONE_SHOT_ACTION" ]; then
     cw_log "Injected event is stale (injected=$ONE_SHOT_ACTION, derived=${ONE_SHOT_DERIVED:-<none>}); exiting 0 without invoking the agent."
     exit 0
 fi
+
+# Restore the repo-pinned prebuilt toolchain (#3413) after the freshness
+# re-check (a stale event exits above without paying the copy) and before
+# any arm runs — producer arms run repo checks too. Fail-soft inside the
+# function; the agent invocation is never blocked on it.
+restore_prebuilt_deps
 
 # Use the freshly-derived event_payload (current truth) for the invocation.
 # Reviewer arms (ack/nack) sync the pending proposal commits into the
