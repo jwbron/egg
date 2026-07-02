@@ -170,12 +170,26 @@ def apply_mutation(
         existing_decisions = contract.decisions or []
         if idx < len(existing_decisions):
             existing = existing_decisions[idx]
-            resolved_note = " (resolved)" if getattr(existing, "resolved", False) else ""
+            # Read ``id``/``resolved`` through a dict-or-object accessor:
+            # production loads pydantic ``Decision`` objects on the mutate
+            # path, but an in-memory contract built from dict-backed
+            # decisions would make a plain ``getattr`` degrade to
+            # ``None``/absent, dropping the identifying detail from the
+            # rejection message the caller logs.
+            existing_id = (
+                existing.get("id") if isinstance(existing, dict) else getattr(existing, "id", None)
+            )
+            existing_resolved = (
+                existing.get("resolved")
+                if isinstance(existing, dict)
+                else getattr(existing, "resolved", False)
+            )
+            resolved_note = " (resolved)" if existing_resolved else ""
             return MutationResult(
                 success=False,
                 message=(
                     f"Decision at index {idx} already exists "
-                    f"(id={getattr(existing, 'id', None)}{resolved_note}); "
+                    f"(id={existing_id}{resolved_note}); "
                     f"decisions are append-only — re-read the contract and "
                     f"mint a fresh index and id (#3427)"
                 ),

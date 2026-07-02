@@ -1210,6 +1210,15 @@ def _corrective_open_operator_hitl(
     if not result.success:
         raise RuntimeError(f"failed to open operator HITL decision: {result.message}")
     save_contract(contract, resolved_repo)
+    # NOTE(#3427): like ``route_impasses``, this overseer-corrective writer
+    # lands the ``cq-N`` decision with a bare ``save_contract`` and no
+    # write-time ``persist_contract_statefiles`` — so a HITL opened between
+    # checkpoints shares the same phase-restart volatility window (the
+    # ``git reset --hard origin/<work>`` can revert it). The append-only
+    # guard protects it from id reuse, but not from reversion. Not persisted
+    # here because the corrective seam runs against ``get_repo_path()`` (the
+    # base repo), not a pushable pipeline worktree — wiring a worktree-scoped
+    # persist through the CorrectiveExecutor is the residual follow-up.
     return decision_id
 
 
