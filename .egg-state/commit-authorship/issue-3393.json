@@ -208,6 +208,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "7310deaae5cfa7f862d45aa2cf9ec405565798c4": {
+      "branch": "egg/issue-3393/slice-5",
+      "patch_id": "c2ab91cb1e97ae866dbd5c388661ecca9aec9034",
+      "pipeline_id": "issue-3393",
+      "registered_at": "2026-07-02T18:06:11.532056+00:00",
+      "repo": null,
+      "role": "tester"
+    },
     "787953fd27280f1c52a571e45cc68b041ff5eb28": {
       "branch": "egg/issue-3393/work",
       "patch_id": "b4cca8ce811a65847de2ce47036c1d034d973fe2",
