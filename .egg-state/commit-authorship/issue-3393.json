@@ -240,6 +240,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "8cd35dd2c7f8c85a5061bfb6be88d24d8815331d": {
+      "branch": "egg/issue-3393/slice-4",
+      "patch_id": "5a3b10a5a39a5800ab068e0dd891b09a256ac8da",
+      "pipeline_id": "issue-3393",
+      "registered_at": "2026-07-02T06:05:52.773799+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "a6b3a59fec8d27b6a770b9b65ec985b7703c3200": {
       "branch": "egg/issue-3393/work",
       "patch_id": "6dfae33dfd3410a8947af0ba74ab6d14da0c8590",
