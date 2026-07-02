@@ -124,8 +124,23 @@ class PollResult:
     gates_detected: int = 0
     readied: int = 0
     holds_registered: int = 0
+    # Human resolved a hold by choosing "keep held" (opt-2) — the gate is
+    # terminally handled WITHOUT readying the PR (it stays draft for manual
+    # handling). Counted distinctly from ``readied`` so the release-selection
+    # honouring is observable (reviewer_code_holistic v1 NACK).
+    kept_held: int = 0
     pending: int = 0
     reasons: list[HoldReason] = field(default_factory=list)
+
+
+# Human-release verdicts returned by the ``hold_resolution`` callback:
+# ``None`` = the hold decision is not resolved yet (keep waiting); ``RELEASE``
+# = the human chose the release option (mark the PR ready); ``KEEP`` = the
+# human chose to keep the PR held (terminal, do NOT ready — the PR stays
+# draft for manual handling). Honouring the SELECTED option is the cq-1
+# "human owns the release" contract (reviewer_code_holistic v1 NACK).
+RELEASE = "release"
+KEEP = "keep"
 
 
 def _slice_repo_of(slice_obj: Any, resolve_repo: Callable[[Any], str | None]) -> str | None:
@@ -272,7 +287,7 @@ def poll_once(
     get_merge_state: Callable[[str, int], dict[str, Any] | None],
     mark_ready: Callable[[str, int], bool],
     register_hold: Callable[[CrossRepoGate, HoldReason], bool],
-    hold_is_resolved: Callable[[CrossRepoGate], bool],
+    hold_resolution: Callable[[CrossRepoGate], str | None],
     state: dict[str, GateProgress],
     max_attempts: int = DEFAULT_MAX_POLL_ATTEMPTS,
 ) -> PollResult:
@@ -286,8 +301,14 @@ def poll_once(
     * ``mark_ready(repo, pr_number) -> bool`` — draft→ready transition.
     * ``register_hold(gate, reason) -> bool`` — register/ensure a HITL hold
       decision on the contract (idempotent per gate; surfaced on status).
-    * ``hold_is_resolved(gate) -> bool`` — has the human resolved the gate's
-      hold decision on the (freshly-loaded) contract?
+    * ``hold_resolution(gate) -> RELEASE | KEEP | None`` — the human's verdict
+      on the gate's hold decision, read off the (freshly-loaded) contract.
+      ``None`` = unresolved (keep waiting); :data:`RELEASE` = the human chose
+      the release option → ready the PR; :data:`KEEP` = the human chose to
+      keep it held → terminal, do NOT ready. Honouring the SELECTED option is
+      the cq-1 "human owns the release" contract — a bare resolved-boolean
+      that readied on any resolution would make the "keep held" option a lie
+      (reviewer_code_holistic v1 NACK).
     * ``state`` — mutable per-gate progress that persists across ticks.
 
     Returns a :class:`PollResult` for logging/tests. Never raises for a
@@ -307,7 +328,7 @@ def poll_once(
                 get_merge_state=get_merge_state,
                 mark_ready=mark_ready,
                 register_hold=register_hold,
-                hold_is_resolved=hold_is_resolved,
+                hold_resolution=hold_resolution,
                 max_attempts=max_attempts,
                 result=result,
             )
@@ -327,20 +348,32 @@ def _poll_one_gate(
     get_merge_state: Callable[[str, int], dict[str, Any] | None],
     mark_ready: Callable[[str, int], bool],
     register_hold: Callable[[CrossRepoGate, HoldReason], bool],
-    hold_is_resolved: Callable[[CrossRepoGate], bool],
+    hold_resolution: Callable[[CrossRepoGate], str | None],
     max_attempts: int,
     result: PollResult,
 ) -> None:
     # A hold decision is already registered (Tier B up-front, or a Tier-A
-    # failure terminal). The ONLY release path now is human resolution.
+    # failure terminal). The ONLY release path now is human resolution, and
+    # it must HONOUR the human's selected option (cq-1: the human owns the
+    # release). A "keep held" selection terminally handles the gate WITHOUT
+    # readying — the PR stays draft for manual handling; readying on any
+    # resolution would make the "keep held" option a lie
+    # (reviewer_code_holistic v1 NACK).
     if prog.decision_registered:
-        if hold_is_resolved(gate):
+        verdict = hold_resolution(gate)
+        if verdict == RELEASE:
             if mark_ready(gate.repo, gate.pr_number):
                 prog.resolved = True
                 result.readied += 1
             else:
                 result.pending += 1
+        elif verdict == KEEP:
+            # Human chose to keep the PR held for manual handling: terminal,
+            # do NOT ready. Stop polling this gate.
+            prog.resolved = True
+            result.kept_held += 1
         else:
+            # Not resolved yet (verdict is None) — keep the hold in place.
             result.pending += 1
         return
 

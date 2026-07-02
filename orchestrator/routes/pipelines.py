@@ -12551,19 +12551,77 @@ _CROSS_REPO_HOLD_REASON_TEXT = {
 }
 
 
-def _cross_repo_hold_resolved(contract: Any, slice_id: str) -> bool:
-    """Return True iff a cross-repo hold Decision for ``slice_id`` is resolved.
+# The two operator-selectable options on a cross-repo hold Decision. The
+# RELEASE option readies the PR; the KEEP option leaves it draft for manual
+# handling. Kept as constants so the registration (options list) and the
+# resolution reader agree on one shape.
+_CROSS_REPO_HOLD_RELEASE_OPTION_ID = "opt-release"
+_CROSS_REPO_HOLD_RELEASE_OPTION_LABEL = "Release the hold and mark the PR ready"
+_CROSS_REPO_HOLD_KEEP_OPTION_ID = "opt-keep"
+_CROSS_REPO_HOLD_KEEP_OPTION_LABEL = "Keep the PR held for manual handling"
 
-    Scans the (freshly-loaded) contract for a Decision whose question
-    carries this gate's :func:`_cross_repo_hold_marker` and is resolved —
-    the single release path for every HITL cross-repo hold (Tier B plus
-    the two Tier-A failure terminals).
+
+def _cross_repo_hold_resolution(contract: Any, slice_id: str) -> str | None:
+    """Return the human's verdict on the cross-repo hold Decision for a slice.
+
+    Scans the (freshly-loaded) contract for the Decision carrying this gate's
+    :func:`_cross_repo_hold_marker` and, when it is resolved, maps the
+    operator's SELECTED option to a gate verdict:
+
+    * :data:`cross_repo_merge_gate.RELEASE` — the release option was chosen
+      (mark the PR ready), else
+    * :data:`cross_repo_merge_gate.KEEP` — the keep-held option was chosen, OR
+      the resolution is present but unrecognized (fail-safe: an ambiguous
+      resolution must NOT auto-ready — cq-1 "human owns the release").
+
+    Returns ``None`` when the Decision is absent or not yet resolved (keep
+    waiting). The stored ``Decision.resolution`` may be the option label, the
+    option id, or a ``{"action":"select","selected":<label>}`` envelope (the
+    SDLC HITL CLI shape), so we unwrap the envelope and match on both id and a
+    distinctive keyword. This is the release path that honours the operator's
+    choice rather than readying on the bare resolved-boolean
+    (reviewer_code_holistic v1 NACK).
     """
+    try:
+        from cross_repo_merge_gate import KEEP, RELEASE
+    except ImportError:
+        from ..cross_repo_merge_gate import KEEP, RELEASE  # type: ignore[no-redef]
+
     marker = _cross_repo_hold_marker(slice_id)
+    decision = None
     for d in getattr(contract, "decisions", None) or []:
-        if marker in (getattr(d, "question", "") or "") and getattr(d, "resolved", False):
-            return True
-    return False
+        if marker in (getattr(d, "question", "") or ""):
+            decision = d
+            break
+    if decision is None or not getattr(decision, "resolved", False):
+        return None
+
+    raw = getattr(decision, "resolution", None) or ""
+    # Unwrap the ``{"action":"select","selected":<label>}`` envelope the SDLC
+    # HITL CLI sends (mirrors routes.decisions._normalize_choice_resolution),
+    # tolerating a bare string / non-JSON resolution unchanged.
+    selected = raw
+    try:
+        import json as _json
+
+        payload = _json.loads(raw)
+        if isinstance(payload, dict) and payload.get("action") == "select":
+            sel = payload.get("selected")
+            if isinstance(sel, str):
+                selected = sel
+    except (ValueError, TypeError):
+        pass
+
+    text = selected.strip().lower()
+    if (
+        _CROSS_REPO_HOLD_RELEASE_OPTION_ID in text
+        or _CROSS_REPO_HOLD_RELEASE_OPTION_LABEL.lower() in text
+        or "release" in text
+    ):
+        return RELEASE
+    # Any other resolved value (the keep option, or an unrecognized string)
+    # keeps the PR held — never ready on an ambiguous selection.
+    return KEEP
 
 
 def _register_cross_repo_hold(
@@ -12627,13 +12685,20 @@ def _register_cross_repo_hold(
             question = (
                 f"{marker} Slice {slice_id} of pipeline {pipeline_id} opened PR "
                 f"{repo}#{pr_number} as a draft behind a cross-repo dependency, "
-                f"but {reason_text}. Resolve this decision to release the hold — "
-                f"the orchestrator will then mark the PR ready. How should the "
-                f"orchestrator proceed?"
+                f"but {reason_text}. Choose how the orchestrator should proceed: "
+                f"selecting '{_CROSS_REPO_HOLD_RELEASE_OPTION_LABEL}' marks the PR "
+                f"ready; selecting '{_CROSS_REPO_HOLD_KEEP_OPTION_LABEL}' leaves it "
+                f"draft for you to handle manually."
             )
             options = [
-                DecisionOption(id="opt-1", label="Release the hold and mark the PR ready"),
-                DecisionOption(id="opt-2", label="Keep the PR held for manual handling"),
+                DecisionOption(
+                    id=_CROSS_REPO_HOLD_RELEASE_OPTION_ID,
+                    label=_CROSS_REPO_HOLD_RELEASE_OPTION_LABEL,
+                ),
+                DecisionOption(
+                    id=_CROSS_REPO_HOLD_KEEP_OPTION_ID,
+                    label=_CROSS_REPO_HOLD_KEEP_OPTION_LABEL,
+                ),
             ]
             contract_local.decisions.append(
                 Decision(
@@ -18453,7 +18518,7 @@ def _start_stacked_pr_reconciler(
                 worktree_repo_path=worktree_repo_path,
                 current_phase=_gate_current_phase,
             ),
-            hold_is_resolved=lambda gate: _cross_repo_hold_resolved(contract, gate.slice_id),
+            hold_resolution=lambda gate: _cross_repo_hold_resolution(contract, gate.slice_id),
             state=_gate_state,
             max_attempts=_gate_max_attempts,
         )

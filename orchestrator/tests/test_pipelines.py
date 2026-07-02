@@ -887,3 +887,108 @@ class TestMergePollClassifierIntegration:
     def test_closed_unmerged_does_not_ready(self):
         pr_state = {"state": "CLOSED", "mergedAt": None}
         assert _MERGE_GATE_CLASSIFIER(pr_state) != _MARK_READY  # type: ignore[misc]
+
+
+# --- Release-selection semantics: poll_once must honour the SELECTED option --
+# reviewer_code_holistic v1 NACK: a hold that readied on the bare
+# ``Decision.resolved`` boolean made the "Keep held" option a lie — selecting
+# it would still ready the PR on the next tick. The fix routes a
+# RELEASE/KEEP/None verdict through ``poll_once``'s ``hold_resolution``
+# callback. These tests pin that behaviour on the coder's real gate module.
+_MERGE_GATE_MOD = None
+_MERGE_GATE_MOD_IMPORT_ERROR: str | None = None
+try:  # pragma: no cover - exercised via skip path until coder lands
+    import cross_repo_merge_gate as _MERGE_GATE_MOD  # type: ignore
+except Exception as exc:  # noqa: BLE001
+    _MERGE_GATE_MOD = None
+    _MERGE_GATE_MOD_IMPORT_ERROR = repr(exc)
+
+
+def _merge_gate_has_release_verdicts() -> bool:
+    return (
+        _MERGE_GATE_MOD is not None
+        and hasattr(_MERGE_GATE_MOD, "poll_once")
+        and hasattr(_MERGE_GATE_MOD, "RELEASE")
+        and hasattr(_MERGE_GATE_MOD, "KEEP")
+    )
+
+
+@pytest.mark.skipif(
+    not _merge_gate_has_release_verdicts(),
+    reason=(
+        "slice-5 coder release-selection seam (cross_repo_merge_gate.poll_once "
+        "with RELEASE/KEEP verdicts) not yet integrated; activates at "
+        f"convergence. probe: {_MERGE_GATE_MOD_IMPORT_ERROR}"
+    ),
+)
+class TestCrossRepoHoldReleaseSelection:
+    """``poll_once`` honours the human's SELECTED hold option (holistic v1 NACK).
+
+    A resolved hold released with the RELEASE verdict readies the PR; a hold
+    resolved with the KEEP verdict is terminal and does NOT ready (the PR
+    stays draft for manual handling); an unresolved hold keeps waiting.
+    """
+
+    @staticmethod
+    def _pipeline() -> Pipeline:
+        return Pipeline(
+            id="issue-3393",
+            repos=[
+                RepoSpec(repo="jwbron/schema", base_branch="main"),
+                RepoSpec(repo="jwbron/consumer", base_branch="main"),
+            ],
+        )
+
+    @staticmethod
+    def _contract():
+        from types import SimpleNamespace
+
+        up = Slice(id="slice-1", name="schema add", repo="jwbron/schema", pr_number=100)
+        down = Slice(
+            id="slice-2",
+            name="consumer migrate",
+            repo="jwbron/consumer",
+            dependencies=["slice-1"],
+            pr_number=200,
+        )
+        return SimpleNamespace(slices=[up, down], decisions=[])
+
+    def _run_hold_then_verdict(self, *, verdict):
+        """Tick 1 escalates a closed-unmerged upstream to a hold; tick 2 applies
+        the human ``verdict`` (RELEASE / KEEP / None). Returns (readied, result)."""
+        mod = _MERGE_GATE_MOD
+        pipeline = self._pipeline()
+        contract = self._contract()
+        readied: list[tuple[str, int]] = []
+        state: dict = {}
+        closed = {"state": "CLOSED", "merged_at": None}
+
+        def _tick(resolution):
+            return mod.poll_once(  # type: ignore[union-attr]
+                contract,
+                resolve_repo=lambda s: resolve_slice_repo(s, pipeline),
+                get_merge_state=lambda _r, _n: closed,
+                mark_ready=lambda r, n: readied.append((r, n)) or True,
+                register_hold=lambda _gate, _reason: True,
+                hold_resolution=lambda _gate: resolution,
+                state=state,
+                max_attempts=3,
+            )
+
+        _tick(None)  # tick 1: closed-unmerged → hold registered
+        result = _tick(verdict)  # tick 2: human verdict
+        return readied, result
+
+    def test_release_verdict_readies_the_pr(self):
+        readied, _ = self._run_hold_then_verdict(verdict=_MERGE_GATE_MOD.RELEASE)  # type: ignore[union-attr]
+        assert readied == [("jwbron/consumer", 200)]
+
+    def test_keep_verdict_does_not_ready_the_pr(self):
+        readied, result = self._run_hold_then_verdict(verdict=_MERGE_GATE_MOD.KEEP)  # type: ignore[union-attr]
+        # The whole point of the NACK: "Keep held" must NOT ready the PR.
+        assert readied == []
+        assert result.kept_held == 1
+
+    def test_unresolved_hold_keeps_waiting(self):
+        readied, _ = self._run_hold_then_verdict(verdict=None)
+        assert readied == []
