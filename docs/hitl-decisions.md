@@ -218,6 +218,30 @@ and logs a warning (the new options are not merged). The registration is
 idempotent — the response carries `deduped: true` and no second contract
 write occurs.
 
+### Append-Only Guard and Write-Time Durability (#3427)
+
+Contract `decisions[]` entries are append-only: a whole-entry mutation
+(`decisions.<idx>`) targeting an index that already exists is rejected with
+HTTP 409 (`error_kind="conflict"`) instead of silently overwriting the
+existing entry — including a *resolved* one. This closes a TOCTOU window
+where two writers (e.g. a re-run agent and a concurrent Layer-C escalation)
+mint the same index against a stale read and one clobbers the other's
+decision. `register_open_question` treats the 409 as retryable: it re-reads
+the contract and re-mints against the fresh `len(decisions)`.
+
+Decision writes (registration and resolution) are also committed and pushed
+to the pipeline's work branch at write time, not only at phase/slice
+checkpoints. Previously a `cq-N` registered or resolved between checkpoints
+lived only on the shared worktree's file; the `git reset --hard
+origin/<branch>` that runs at phase-(re)start silently reverted it, letting
+the next bootstrap re-mint reuse the same id and clobber an
+already-resolved decision. `persist_contract_statefiles`
+(`orchestrator/routes/pipelines.py`) makes this best-effort commit+push run
+inline with the mutation and resolution routes and with the Layer-C HITL
+escalation path; a failure there is logged and swallowed since the write is
+already live on the worktree file and the next checkpoint commit will pick
+it up.
+
 `provide_input` now falls back to the contract when the id is not found in
 the queue. It writes the resolution fields straight onto the contract
 (`resolved=True`, `resolved_by="human"`, stripped resolution string), so the
@@ -779,7 +803,8 @@ slices, DAG edits) still go through a replan, not a decision option.
 - `orchestrator/routes/decisions/` — Decision API endpoints (create, list, resolve), the `POST .../feedback/answer` route for contract-scoped feedback (`answer_feedback` MCP tool; #3007), the contract-decision fallback in `resolve_decision` that writes pre-gate `cq-N` resolutions directly to the contract when the id is not in the queue (#3071), the executable task-completion dispatch (`_maybe_complete_task_from_resolution`) that auto-executes `complete_task_as_operator` when the resolution matches "Mark task `<id>` complete" (#3124), orphaned-driver revival on `phase_gate` resolution: when no live `_run_pipeline` driver thread owns an `AWAITING_HUMAN` pipeline (e.g. after an orchestrator restart), the resolve path re-launches the driver via `start_pipeline`'s recovery branch so the resolution self-heals rather than hanging silently; an `OVERSEER_ALERT` is broadcast on the bus when the orphaned park is detected (before the `start_pipeline` re-launch, so it fires even if that re-launch returns non-200 or raises) (#3233), and the first-principles redirect accept-path (`_maybe_apply_first_principles_redirect`, in `_handlers.py` and re-exported through the package barrel `__init__.py`): when the operator resolves a `first_principles_reviewer` refine-phase decision with "Adopt the redirect", this handler rewrites the pipeline seed via `rewrite_task_description_as_operator` and re-runs the refine phase; "Don't build this" cancels the pipeline; "Proceed as-is" is a no-op (#3385)
 - `orchestrator/operator_actions.py` — Operator-grade contract mutations; `complete_task_as_operator` applies task-status mutations as `Role.HUMAN`, bypassing the implementer/reviewer field-ownership restriction (#3124); `rewrite_task_description_as_operator` rewrites `contract.task_description` as `Role.HUMAN` for the first-principles redirect accept-path (#3385); `add_task_as_operator` appends a task to a slice as `Role.HUMAN` for the executable `adds_task` decision option and the direct `POST /api/v1/contracts/<id>/tasks` route (#3428)
 - `orchestrator/mcp_tools.py` — `answer_feedback` MCP tool (`_handle_answer_feedback`) for host-side answering of pre-proposal contract feedback
-- `orchestrator/routes/pipelines.py` — Phase gate resolution with JSON payload parsing
+- `orchestrator/routes/pipelines.py` — Phase gate resolution with JSON payload parsing; `persist_contract_statefiles` commits and pushes a contract decision write to the work branch at write time so a phase-(re)start worktree reset cannot revert it (#3427)
+- `shared/egg_contracts/validator.py` — `apply_mutation`'s append-only guard rejects a whole-entry write to an existing `decisions[]` index with `error_kind="conflict"` (mapped to HTTP 409 in `orchestrator/routes/contracts.py`) rather than overwriting it (#3427)
 - `sandbox/egg_lib/sdlc_hitl.py` — Type-aware terminal HITL handler
 - `skills/sdlc/SKILL.md` — `/sdlc` Claude Code skill defining Phase 4 HITL handling: **two-wave surfacing** (phase_gate alone in Wave 1, deferred `choice`/`feedback` in Wave 2 after approval) and the session-scoped `resolved_questions_map` that handles cross-wave deduplication
 - `sandbox/egg_lib/orch_client.py` — `OrchClient.create_decision()` for typed decisions
