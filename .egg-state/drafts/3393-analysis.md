@@ -58,10 +58,9 @@ pervasive* — **holds**. Verdicts per claim:
 2. **The worktree dict is keyed by bare repo NAME, not `owner/repo`.**
    `_worktree.py:74-79` keys by short name (`repo.split("/")[-1]`-shaped).
    Two repos with the same name under different owners (`ownerA/foo`,
-   `ownerB/foo`) would collide. v1 must either (a) re-key the agent-facing
-   map by full `owner/repo`, or (b) validate-and-reject same-name repo sets
-   at submission. Planner picks; (a) is the honest list-shaped fix, (b) is
-   an acceptable v1 guard if (a) fans out too far.
+   `ownerB/foo`) would collide. **Resolved by operator ruling #6 (Design
+   questions section): re-key the agent-facing map by full `owner/repo` —
+   the reject-same-name-sets alternative is forbidden.**
 3. **`check_branch_ownership` nuance.** It is repo-agnostic in the sense the
    issue means (no single-repo assumption in the policy logic), but the bot
    identity + branch-prefix set is one global configuration. Under v1's
@@ -114,10 +113,16 @@ pervasive* — **holds**. Verdicts per claim:
   callers currently pass the pipeline's singleton repo. Routing to
   `slice.repo` is a call-site change, not new machinery.
 
-## Design questions — refine-level recommendations (planner owns mechanics)
+## Design questions — OPERATOR RULINGS (binding)
 
-1. **Work-branch / context-PR model per repo → recommend lazy-per-repo:**
-   every repo that has ≥1 slice gets its own work branch (same
+Per the operator's iteration-1 gate directive (2026-07-01T23:58Z), items 1
+and 3-6 below are **BINDING operator decisions with the same standing as the
+cq-1 HITL resolution** — recorded as ratified rulings, NOT refine-level
+recommendations the planner may revisit. The planner owns mechanics/spelling
+only, never the substance.
+
+1. **Work-branch / context-PR model per repo → RATIFIED: lazy-per-repo.**
+   Every repo that has ≥1 slice gets its own work branch (same
    `egg/<id>/work` naming, per repo) and its own context PR; repos submitted
    but ending up with no slices get neither. A single-slice repo still gets
    the standard context PR (uniformity beats special-casing; the context PR
@@ -129,22 +134,29 @@ pervasive* — **holds**. Verdicts per claim:
    upstream PR merges); anything **beyond merge state** (release/publish
    waits, version-pinning choices, genuine development blocks) is
    **HITL-resolved**, never programmatically detected.
-3. **Test-gate / reviewer-diff scoping:** the slice↔repo 1:1 rule makes this
-   mechanical — the test gate runs in the slice's repo's worktree only, and
-   the reviewer diff is `git diff` in that worktree against that repo's
-   base. No cross-repo diff surface exists in v1.
-4. **Naming/status surfaces:** pipeline id/naming keys off the **primary**
-   repo (first in the submitted list unless explicitly flagged); branch
-   naming is uniform across repos; status surfaces render per-repo PR lists.
-   Planner spells out exact renderings.
-5. **Per-repo conventions (issue entailment — do not drop):** an agent
-   working a slice operates under the conventions of **that slice's repo** —
-   its cwd is the slice's repo worktree, and that repo's `CLAUDE.md`,
-   linters, and check commands govern the work and its gates. The egg repo's
-   `make lint`/`make test` conventions apply only to slices whose repo is
-   egg; other repos bring their own. Planner makes this explicit in slice
-   task wording and in how the test gate resolves each repo's check
-   commands.
+3. **Test-gate / reviewer-diff scoping → RATIFIED:** the slice↔repo 1:1 rule
+   makes this mechanical — the test gate runs in the slice's repo's worktree
+   only, and the reviewer diff is `git diff` in that worktree against that
+   repo's base. No cross-repo diff surface exists in v1.
+4. **Naming/status surfaces → RATIFIED:** pipeline id/naming keys off the
+   **primary** repo (first in the submitted list unless explicitly flagged);
+   branch naming is uniform across repos; status surfaces render per-repo PR
+   lists. Planner spells out exact renderings (mechanics only).
+5. **Per-repo conventions (issue entailment — do not drop) → RATIFIED:** an
+   agent working a slice operates under the conventions of **that slice's
+   repo** — its cwd is the slice's repo worktree, and that repo's
+   `CLAUDE.md`, linters, and check commands govern the work and its gates.
+   The egg repo's `make lint`/`make test` conventions apply only to slices
+   whose repo is egg; other repos bring their own. Planner makes this
+   explicit in slice task wording and in how the test gate resolves each
+   repo's check commands.
+6. **Worktree-keying collision → OPERATOR RULES: option (a), re-key by full
+   `owner/repo`.** The agent-facing repo→path map (grounding correction #2)
+   MUST be re-keyed by full `owner/repo`. The (b) reject-same-name-sets
+   shortcut is **forbidden** — a name-uniqueness assumption in submission
+   contradicts the arbitrary-N requirement. If the re-key fan-out proves
+   genuinely prohibitive at plan time, that is a **new HITL decision to
+   surface to the operator**, never a silent fallback to (b).
 
 ## Hard parts (carried into the contract; do not under-scope)
 
@@ -166,15 +178,16 @@ pervasive* — **holds**. Verdicts per claim:
    with its own `base_branch`; single-repo submissions keep working
    unchanged (back-compat).
 2. Submission **rejects** (a) mixed-visibility repo sets, (b) mixed-auth-mode
-   repo sets, with actionable errors. (And guards the same-name-repo
-   collision per correction #2 unless the map is re-keyed to `owner/repo`.)
+   repo sets, with actionable errors. (Same-name repo sets are NOT rejected —
+   the collision is resolved by the mandated `owner/repo` re-key, operator
+   ruling #6.)
 3. `Slice.repo` exists (exactly one repo per slice; absent ⇒ primary repo via
    schema migration); contract schemaVersion bumped with a migration
    validator in the established pattern.
-4. Agent environment exposes the **full** repo→worktree map; all three
-   `repos[0]` collapse sites (`kubernetes_spawner/_spawn.py`,
-   `commit_authorship_store.py`, `routes/pipelines.py:732`) are gone, plus a
-   sweep for any others.
+4. Agent environment exposes the **full** repo→worktree map, **keyed by full
+   `owner/repo`** (operator ruling #6); all three `repos[0]` collapse sites
+   (`kubernetes_spawner/_spawn.py`, `commit_authorship_store.py`,
+   `routes/pipelines.py:732`) are gone, plus a sweep for any others.
 5. Slice PRs are created in `slice.repo`; each participating repo (≥1 slice)
    gets its own work branch + context PR; PR descriptions cross-reference
    sibling PRs in the pipeline.
@@ -271,3 +284,17 @@ condition).
   blocks). Folded into design recommendation #2, hard part #2, AC-6, and a
   new "HITL Resolution (cq-1)" section with planner-facing consequences.
   No new HITL decisions induced (resolution is self-contained).
+- 2026-07-01 (v5, iteration-1 operator rulings): the operator ratified the
+  remaining design recommendations as BINDING decisions with the same
+  standing as cq-1 — section retitled "Design questions — OPERATOR RULINGS
+  (binding)"; items 1 (lazy-per-repo work branches/context PRs), 3
+  (test-gate/reviewer-diff scoped to the slice's repo), 4 (naming/status
+  surfaces), 5 (per-repo conventions) marked RATIFIED; new ruling #6:
+  worktree map MUST be re-keyed by full `owner/repo` (option a), the
+  reject-same-name-sets shortcut is forbidden, and prohibitive re-key
+  fan-out at plan time is a new HITL to surface, never a silent fallback.
+  Consistency fixes only where the old option language contradicted the
+  ruling: correction #2's advice sentence now points to ruling #6 (facts
+  unchanged), AC-2 no longer offers same-name rejection, AC-4 requires the
+  `owner/repo` keying. cq-1 fold-in and all grounding facts untouched. No
+  new HITL decisions induced.

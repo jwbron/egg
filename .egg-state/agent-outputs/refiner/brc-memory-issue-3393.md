@@ -2,7 +2,17 @@
 
 ## Status
 
-- CURRENT: v4 proposed (iteration 1) — sole change: restored
+- CURRENT: v5 proposed (iteration 2) — folds in the operator's iteration-1
+  rulings as BINDING decisions (same standing as cq-1): section retitled
+  "Design questions — OPERATOR RULINGS (binding)"; items 1/3/4/5 marked
+  RATIFIED (substance unchanged); NEW ruling #6: worktree map re-keyed by
+  full `owner/repo` (option a) MANDATED, reject-same-name-sets FORBIDDEN
+  (contradicts arbitrary-N), prohibitive re-key fan-out at plan time = new
+  HITL, never silent fallback. Consistency fixes: correction #2 advice
+  sentence → points to ruling #6 (facts intact); AC-2 drops same-name
+  rejection; AC-4 adds owner/repo keying. cq-1 fold-in + grounding facts
+  untouched per directive. Human summary NOT touched (simplifier's).
+- v4 (`63c824cfe`, ACKed by all three named reviewers): restored
   `3393-analysis-human.md` byte-exact to the simplifier's `e88c16d61`
   rendering, un-doing my v3 clobber. `3393-analysis.md` untouched (both
   reviewers called it ACK-ready / "do not touch it further").
