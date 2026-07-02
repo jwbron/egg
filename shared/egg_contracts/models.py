@@ -463,12 +463,56 @@ class Slice(EggContractBaseModel):
 Phase = Slice
 
 
+class AddsTaskPayload(EggContractBaseModel):
+    """Structured contract mutation a decision option mandates (#3428).
+
+    A ``register_open_question`` option like "Add a new task/slice to wire
+    X as a dependency" used to be silently inert: agents have no task-add
+    verb, so resolving the decision recorded the choice and materialized
+    nothing — the blocked reviewer kept withholding ACK and the slice
+    re-deadlocked. An option carrying this payload is instead **executed**
+    by the orchestrator when the operator selects it: the described task is
+    appended to the named slice as an audited ``Role.HUMAN`` mutation
+    (``operator_actions.add_task_as_operator``), same executor family as
+    the ``Mark task <id> complete`` option (#3124).
+    """
+
+    slice_id: str = Field(
+        ...,
+        pattern=r"^(?:slice|phase)-[0-9]+$",
+        description="Slice the new task is appended to (must exist at resolve time)",
+    )
+    description: str = Field(..., min_length=1, description="Task description")
+    acceptance_criteria: str = Field(default="", description="Acceptance criteria for the new task")
+    files_affected: list[str] = Field(
+        default_factory=list, description="Files the new task is expected to touch"
+    )
+    role: str | None = Field(
+        default=None,
+        description=(
+            "Producer role for the new task (coder/tester/documenter). "
+            "``None`` assigns the default producer (coder) — same fallback "
+            "as ``Task.role``."
+        ),
+    )
+
+
 class DecisionOption(EggContractBaseModel):
     """An option for a decision."""
 
     id: str = Field(..., description="Option identifier")
     label: str = Field(..., description="Option label")
     description: str | None = Field(default=None, description="Option description")
+    adds_task: AddsTaskPayload | None = Field(
+        default=None,
+        description=(
+            "Contract mutation this option mandates (#3428). When the operator "
+            "resolves the decision with this option, the orchestrator appends "
+            "the described task to ``slice_id`` as an audited operator action "
+            "instead of leaving the resolution inert. ``None`` for options "
+            "that only gate agent behavior."
+        ),
+    )
 
 
 class Decision(EggContractBaseModel):

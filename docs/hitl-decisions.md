@@ -638,13 +638,68 @@ Note: #3129 also adds a *separate* auto-reopen mechanism that fires when a task 
 does **not** fire after the operator-completion path above, because the completion flips
 the row to `complete` and `incomplete_tasks` then returns nothing to reopen for.
 
+### Executable `adds_task` Option (#3428)
+
+A `register_open_question` option that mandates a contract mutation — "Add a new
+task/slice to wire X as a dependency" — used to be silently inert: agents have no
+task-add verb, so resolving the decision recorded the choice and materialized
+nothing. The reviewer that raised the question kept withholding ACK (correctly —
+the mandated task still didn't exist), the orchestrator kept re-spawning the
+producer at an unchanged contract, and the slice re-deadlocked *after* the human
+answered.
+
+Such options now carry a structured `adds_task` payload, attached at registration
+time:
+
+```json
+{
+  "question": "Slice-4 needs the secondary-repo worktree wired. How should we proceed?",
+  "options": ["Add a task to wire it as a slice-4 dependency", "Defer to a follow-up"],
+  "adds_task": {
+    "option": 1,
+    "slice_id": "slice-4",
+    "description": "Wire secondary-repo worktree + per-repo work/integration branch creation",
+    "acceptance_criteria": "...",
+    "files_affected": ["..."],
+    "role": "coder"
+  }
+}
+```
+
+When the operator resolves the decision by selecting that option (by label, `opt-N`
+id, or positional `option N` / `N` — free-form prose never fires the executor), the
+orchestrator materializes the task via `add_task_as_operator`: an audited
+`Role.HUMAN` mutation that appends the task to the named slice with a
+lock-allocated `task-<P>-<N>` id. The blocked agents see the new task on their next
+contract poll and the reviewer's precondition becomes satisfiable. Both resolve
+paths dispatch this — the pre-bridge contract fallback (`cq-N` resolved directly)
+and the post-gate bridged queue path (the contract decision is recovered via the
+bridge's context fingerprint). Execution failure is surfaced in the resolve
+response's `executed_action` payload and logged as an error, never silent.
+
+The direct REST surface (no live decision required) mirrors the task-completion
+route:
+
+```bash
+curl -X POST http://egg-orchestrator:9849/api/v1/contracts/<pipeline-id>/tasks \
+  -H "Authorization: Bearer $EGG_LIFECYCLE_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"slice_id": "slice-4", "description": "<task>", "reason": "materialize cq-4 opt-1"}'
+```
+
+**Registration guidance for agents:** if an option means "add a task", it MUST carry
+`adds_task` — without the payload the option is unactionable by anyone. Options that
+only gate agent behavior ("proceed with approach A") need no payload; the blocked
+agent reads the resolution and acts. Structural changes beyond a task append (new
+slices, DAG edits) still go through a replan, not a decision option.
+
 ## Related Files
 
 - `orchestrator/mcp_tools.py` — MCP `get_status` tool; enriches all pending decisions with `draft_content`; enriches `phase_gate` decisions additionally with `completed_agents_summary` and `reviewer_feedback`
 - `orchestrator/models.py` — `HITLDecision` model with `decision_type`, `questions`, `phase`, and `content_changed` fields; `content_changed` is set by the orchestrator on re-run phase gates to indicate whether the draft changed since the previous resolved decision (literal string comparison; `None` on first decision, `True`/`False` on subsequent ones). Also contains `OperatorDirective` (a single timestamped operator directive stored on kickback) and `IterationSummary` (BRC verdict snapshot for a kicked-back iteration), both accumulated on `PhaseExecution.operator_directives` / `PhaseExecution.iteration_history`.
 - `orchestrator/decision_queue.py` — Decision queue handling typed decisions
 - `orchestrator/routes/decisions/` — Decision API endpoints (create, list, resolve), the `POST .../feedback/answer` route for contract-scoped feedback (`answer_feedback` MCP tool; #3007), the contract-decision fallback in `resolve_decision` that writes pre-gate `cq-N` resolutions directly to the contract when the id is not in the queue (#3071), the executable task-completion dispatch (`_maybe_complete_task_from_resolution`) that auto-executes `complete_task_as_operator` when the resolution matches "Mark task `<id>` complete" (#3124), orphaned-driver revival on `phase_gate` resolution: when no live `_run_pipeline` driver thread owns an `AWAITING_HUMAN` pipeline (e.g. after an orchestrator restart), the resolve path re-launches the driver via `start_pipeline`'s recovery branch so the resolution self-heals rather than hanging silently; an `OVERSEER_ALERT` is broadcast on the bus when the orphaned park is detected (before the `start_pipeline` re-launch, so it fires even if that re-launch returns non-200 or raises) (#3233), and the first-principles redirect accept-path (`_maybe_apply_first_principles_redirect`, in `_handlers.py` and re-exported through the package barrel `__init__.py`): when the operator resolves a `first_principles_reviewer` refine-phase decision with "Adopt the redirect", this handler rewrites the pipeline seed via `rewrite_task_description_as_operator` and re-runs the refine phase; "Don't build this" cancels the pipeline; "Proceed as-is" is a no-op (#3385)
-- `orchestrator/operator_actions.py` — Operator-grade contract mutations; `complete_task_as_operator` applies task-status mutations as `Role.HUMAN`, bypassing the implementer/reviewer field-ownership restriction (#3124); `rewrite_task_description_as_operator` rewrites `contract.task_description` as `Role.HUMAN` for the first-principles redirect accept-path (#3385)
+- `orchestrator/operator_actions.py` — Operator-grade contract mutations; `complete_task_as_operator` applies task-status mutations as `Role.HUMAN`, bypassing the implementer/reviewer field-ownership restriction (#3124); `rewrite_task_description_as_operator` rewrites `contract.task_description` as `Role.HUMAN` for the first-principles redirect accept-path (#3385); `add_task_as_operator` appends a task to a slice as `Role.HUMAN` for the executable `adds_task` decision option and the direct `POST /api/v1/contracts/<id>/tasks` route (#3428)
 - `orchestrator/mcp_tools.py` — `answer_feedback` MCP tool (`_handle_answer_feedback`) for host-side answering of pre-proposal contract feedback
 - `orchestrator/routes/pipelines.py` — Phase gate resolution with JSON payload parsing
 - `sandbox/egg_lib/sdlc_hitl.py` — Type-aware terminal HITL handler

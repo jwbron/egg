@@ -552,6 +552,101 @@ def operator_complete_task(identifier: str, task_id: str) -> tuple[Response, int
     return _success(f"Task {task_id} marked complete by operator", data=result)
 
 
+@contracts_bp.route("/<identifier>/tasks", methods=["POST"])
+@require_lifecycle_secret
+def operator_add_task(identifier: str) -> tuple[Response, int]:
+    """Append a task to a contract slice as an audited operator action (#3428).
+
+    The in-band remediation for a contract that needs a task no agent can
+    add (agents have no task-add verb). Replaces hand-editing the live
+    contract JSON in the pipeline worktree. The HITL ``adds_task`` option
+    executor (``routes/decisions``) calls the same underlying operator
+    action; this route is the direct path for cases where no decision was
+    registered.
+
+    URL params:
+        identifier: Pipeline id (preferred) or issue number.
+
+    Request body::
+
+        {"slice_id": "slice-4",           # required
+         "description": "<task text>",    # required
+         "acceptance_criteria": "...",    # optional
+         "files_affected": ["a.py"],      # optional
+         "role": "coder",                 # optional (defaults to coder downstream)
+         "reason": "<why>"}               # optional
+
+    Auth: lifecycle-secret guarded — operator/host surface only; not
+    proxied by the gateway.
+    """
+    # Lazy import — same heavy-dependency seam as operator_complete_task.
+    from operator_actions import OperatorActionError, add_task_as_operator
+
+    ident = _coerce_identifier(identifier)
+    validation_error = _validate_identifier(ident)
+    if validation_error:
+        return validation_error
+
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return _error("Request body must be a JSON object")
+
+    pipeline_id = body.get("pipeline_id") or (str(ident) if not isinstance(ident, int) else None)
+    if not pipeline_id:
+        return _error(
+            "Cannot resolve pipeline worktree: pass the pipeline id as the "
+            "URL identifier or in the request body as 'pipeline_id'",
+            status_code=400,
+        )
+
+    slice_id = body.get("slice_id")
+    description = body.get("description")
+    if not slice_id or not isinstance(slice_id, str):
+        return _error("Missing slice_id", status_code=400)
+    if not description or not isinstance(description, str):
+        return _error("Missing description", status_code=400)
+    files_affected = body.get("files_affected") or []
+    if not isinstance(files_affected, list) or not all(isinstance(f, str) for f in files_affected):
+        return _error("files_affected must be a list of strings", status_code=400)
+
+    # Same operator-namespace scoping rationale as operator_complete_task:
+    # a body-provided actor must not read in the audit log as an agent
+    # mutation.
+    actor_suffix = body.get("actor")
+    actor = f"operator:{actor_suffix}" if actor_suffix else "operator"
+
+    try:
+        result = add_task_as_operator(
+            pipeline_id,
+            slice_id,
+            description,
+            acceptance_criteria=body.get("acceptance_criteria") or "",
+            files_affected=files_affected,
+            role=body.get("role"),
+            reason=body.get("reason", ""),
+            actor=actor,
+            issue_number=ident if isinstance(ident, int) else None,
+        )
+    except OperatorActionError as exc:
+        return _error(exc.message, status_code=exc.status_code)
+
+    logger.info(
+        "Operator appended contract task",
+        extra={
+            "pipeline_id": pipeline_id,
+            "task_id": result.get("task_id"),
+            "slice_id": slice_id,
+            "actor": actor,
+            "source": getattr(request, "egg_source", "unknown"),
+        },
+    )
+
+    return _success(
+        f"Task {result.get('task_id')} added to {result.get('slice_id')} by operator",
+        data=result,
+    )
+
+
 @contract_mutations_bp.route("/validate", methods=["POST"])
 def validate_contract_mutation() -> tuple[Response, int]:
     """Dry-run a mutation and report whether it would be accepted.

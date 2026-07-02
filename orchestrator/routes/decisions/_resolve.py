@@ -174,6 +174,13 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
             pipeline_id, decision_id, dispatch_resolution
         )
 
+        # Executable adds_task option (#3428): an option registered with a
+        # structured contract mutation ("add a task/slice") materializes it
+        # on resolve instead of recording an inert choice.
+        executed_action = executed_action or _pkg._maybe_add_task_from_resolution(
+            pipeline_id, decision, dispatch_resolution
+        )
+
         # #3233: if the orchestrator restarted while this pipeline was parked
         # AWAITING_HUMAN, the in-memory _run_pipeline driver that polls
         # wait_for_decision is gone — this resolution would otherwise be
@@ -514,6 +521,15 @@ def _resolve_contract_decision(
     # pre-bridge also executes instead of only recording the choice.
     executed_action = first_principles_action or _pkg._maybe_complete_task_from_resolution(
         pipeline_id, decision_id, normalized_resolution
+    )
+
+    # Executable adds_task option (#3428) — same dispatch as the queue
+    # path. This is the PRIMARY trigger: adds_task questions are typically
+    # registered mid-implement by a blocked producer/reviewer pair, so the
+    # operator resolves them here (pre-bridge) and the mandated task must
+    # materialize before the next contract poll.
+    executed_action = executed_action or _pkg._maybe_add_task_from_resolution(
+        pipeline_id, decision, normalized_resolution
     )
 
     return make_success_response(

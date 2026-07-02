@@ -313,6 +313,192 @@ def _maybe_complete_task_from_resolution(
 
 
 # ---------------------------------------------------------------------------
+# Executable adds_task option (#3428)
+# ---------------------------------------------------------------------------
+#
+# ``register_open_question`` lets agents pose options that mandate a contract
+# mutation ("Add a new task/slice to wire X as a dependency"), but no agent
+# has a task-add verb — resolving such a decision used to record the choice
+# and materialize nothing, so the reviewer that raised the question kept
+# withholding ACK and the slice re-deadlocked *after* the human answered.
+# Options that mandate the mutation now carry a structured ``adds_task``
+# payload (``egg_contracts.models.AddsTaskPayload``, attached at registration
+# time); when the operator resolves the decision by selecting that option,
+# the hook below executes the mutation via
+# ``operator_actions.add_task_as_operator`` — same audited executor family
+# as the ``Mark task <id> complete`` option (#3124).
+
+# Bridge context fingerprint — must stay in sync with the composer in
+# ``_queue_and_await_contract_decisions`` (routes/pipelines.py) and the
+# post-gate guard in ``_resolve_contract_decision``.
+_BRIDGED_CQ_CONTEXT_RE = re.compile(r"^Open contract question (cq-[0-9]+),")
+
+
+def _resolution_selects_option(option: Any, resolution: str) -> bool:
+    """True when ``resolution`` unambiguously selects ``option``.
+
+    Operators resolve ``choice`` decisions with heterogeneous strings: the
+    bare option label (the SDLC HITL CLI envelope is unwrapped upstream by
+    ``_normalize_choice_resolution``), the option id (``opt-1``), or a
+    positional reference (``option 1`` / ``1``). All are unambiguous
+    identifiers of a single option; anything else (free-form prose) does not
+    select — an audited contract mutation must never fire on a fuzzy match.
+    """
+    normalized = (resolution or "").strip().casefold()
+    if not normalized:
+        return False
+    label = (getattr(option, "label", "") or "").strip().casefold()
+    if label and normalized == label:
+        return True
+    option_id = (getattr(option, "id", "") or "").strip().casefold()
+    if not option_id:
+        return False
+    if normalized == option_id:
+        return True
+    positional = re.match(r"^(?:opt(?:ion)?[\s-]*)?([0-9]+)$", normalized)
+    return bool(positional) and option_id == f"opt-{positional.group(1)}"
+
+
+def _load_contract_decision(pipeline_id: str, decision_id: str) -> Any | None:
+    """Load the contract decision ``decision_id`` (``cq-N``) for ``pipeline_id``.
+
+    Best-effort: returns ``None`` (and logs) when the worktree/contract can't
+    be loaded or no decision matches. Used by resolution-dispatch hooks on the
+    bridged queue path, where the pipeline ``HITLDecision`` carries only bare
+    option labels and the structured payload must be recovered from the
+    contract.
+    """
+    import contract_store
+
+    try:
+        from egg_contracts import load_contract
+        from routes.pipelines import _pipeline_identifier
+
+        store, _ = _pkg.get_state_store_for_pipeline(pipeline_id)
+        pipeline = store.load_pipeline(pipeline_id)
+        worktree = contract_store.resolve_pipeline_worktree(pipeline_id)
+        if worktree is None:
+            return None
+        identifier = _pipeline_identifier(getattr(pipeline, "issue_number", None), pipeline_id)
+        contract = load_contract(identifier, worktree)
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Could not load contract to recover decision for resolution dispatch",
+            pipeline_id=pipeline_id,
+            decision_id=decision_id,
+            exc_info=True,
+        )
+        return None
+
+    return next(
+        (d for d in (getattr(contract, "decisions", None) or []) if d.id == decision_id),
+        None,
+    )
+
+
+def _maybe_add_task_from_resolution(
+    pipeline_id: str,
+    decision: Any,
+    resolution: str | None,
+) -> dict[str, Any] | None:
+    """Execute an ``adds_task``-carrying option resolution (#3428).
+
+    ``decision`` is either the contract ``Decision`` (the pre-bridge
+    ``_resolve_contract_decision`` path — its ``options`` carry the
+    structured payload directly) or the pipeline ``HITLDecision`` (the
+    bridged queue path — options are bare labels, so the contract decision
+    is recovered via the bridge's context fingerprint).
+
+    Returns the executed-action payload (merged into the resolve response so
+    the operator sees the materialization happened), or ``None`` when the
+    resolution does not select an ``adds_task`` option. Execution failure is
+    logged AND surfaced in the returned payload — the decision is already
+    marked resolved by the time dispatch runs, so a silent failure here would
+    recreate the records-a-choice-but-executes-nothing gap this hook closes.
+    """
+    if not resolution:
+        return None
+
+    options = list(getattr(decision, "options", None) or [])
+    decision_id = getattr(decision, "id", "?")
+    if not any(getattr(o, "adds_task", None) for o in options):
+        # Bridged queue path (or a decision with no structured payload):
+        # recover the contract decision named in the bridge context. Bail
+        # early when the context carries no fingerprint — that covers every
+        # ordinary queue decision without a contract round-trip.
+        context = getattr(decision, "context", "") or ""
+        match = _BRIDGED_CQ_CONTEXT_RE.match(context)
+        if not match:
+            return None
+        contract_decision = _load_contract_decision(pipeline_id, match.group(1))
+        if contract_decision is None:
+            return None
+        options = list(contract_decision.options or [])
+        if not any(getattr(o, "adds_task", None) for o in options):
+            return None
+
+    selected = next((o for o in options if _resolution_selects_option(o, resolution)), None)
+    payload = getattr(selected, "adds_task", None) if selected is not None else None
+    if payload is None:
+        return None
+
+    from operator_actions import OperatorActionError, add_task_as_operator
+
+    try:
+        result = add_task_as_operator(
+            pipeline_id,
+            payload.slice_id,
+            payload.description,
+            acceptance_criteria=payload.acceptance_criteria,
+            files_affected=list(payload.files_affected or []),
+            role=payload.role,
+            reason=(
+                f"HITL decision {decision_id} resolved with adds_task option "
+                f"{getattr(selected, 'id', '?')}"
+            ),
+            actor=f"operator:decision:{decision_id}",
+        )
+    except OperatorActionError as exc:
+        logger.error(
+            "adds_task resolution failed; mandated task was NOT materialized",
+            pipeline_id=pipeline_id,
+            decision_id=decision_id,
+            slice_id=payload.slice_id,
+            error=exc.message,
+        )
+        return {
+            "action": "add_task",
+            "slice_id": payload.slice_id,
+            "success": False,
+            "error": exc.message,
+        }
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.error(
+            "adds_task resolution raised unexpectedly",
+            pipeline_id=pipeline_id,
+            decision_id=decision_id,
+            slice_id=payload.slice_id,
+            error=str(exc),
+            exc_info=True,
+        )
+        return {
+            "action": "add_task",
+            "slice_id": payload.slice_id,
+            "success": False,
+            "error": str(exc),
+        }
+
+    logger.info(
+        "Executed adds_task materialization from decision resolution",
+        pipeline_id=pipeline_id,
+        decision_id=decision_id,
+        task_id=result.get("task_id"),
+        slice_id=result.get("slice_id"),
+    )
+    return {"action": "add_task", "success": True, **result}
+
+
+# ---------------------------------------------------------------------------
 # First-principles redirect accept-path
 # ---------------------------------------------------------------------------
 #
