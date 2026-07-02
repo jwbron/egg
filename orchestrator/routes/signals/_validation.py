@@ -388,40 +388,26 @@ def _extract_attested_decision_fields(payload: dict[str, Any]) -> tuple[Any, Any
     return attestation.get("decisions_registered"), attestation.get("no_decisions_rationale")
 
 
-def _validate_decision_attestation(
-    pipeline_id: str,
+def _validate_decision_attestation_shape(
     payload: dict[str, Any],
     *,
     agent_role: str,
     phase: str,
-    worktree_path: Path,
-    identifier: str | int,
 ) -> None:
-    """Require a well-formed decision-ledger attestation at propose time (#3390).
+    """Enforce the decision-ledger attestation *shape* at propose time (#3390).
 
-    The two-wave bridge and the converge-before-advance loop (#3392) can
-    only surface decisions that were *registered*; nothing verifies that a
-    phase which should raise decisions actually did, so a producer that
-    silently skips ``egg-contract add-decision`` advances the pipeline
-    with an empty ledger the operator cannot distinguish from
-    "deliberately none". This validator makes the ledger claim mandatory
-    and hard-fails the propose when it is missing, malformed, or refers
-    to decisions that were never registered:
+    The proposal ``attestation`` must carry exactly one of
+    ``decisions_registered`` (non-empty list of ``cq-N`` ids) or
+    ``no_decisions_rationale`` (non-empty string; the explicit empty
+    ledger). Shared with the Pydantic model via
+    ``decision_attestation_errors`` so the layers cannot drift.
 
-    1. **Shape** — the proposal ``attestation`` must carry exactly one of
-       ``decisions_registered`` (non-empty list of ``cq-N`` ids) or
-       ``no_decisions_rationale`` (non-empty string; the explicit empty
-       ledger). Shared with the Pydantic model via
-       ``decision_attestation_errors`` so the layers cannot drift.
-    2. **Cross-check** — every attested id must exist on the contract as
-       a HITL decision registered for the *current phase*. A hallucinated
-       or phase-misfiled id is rejected with the actionable fix.
-
-    Graceful degradation mirrors ``_validate_producer_artifacts``: when
-    the contract cannot be loaded (orchestrator-side glitch, not a
-    producer fault) the cross-check is skipped with a warning — the
-    shape requirement above has already been enforced, so the ledger
-    claim itself is never skipped.
+    This half needs neither contract nor commit access — only the
+    payload — so ``_validate_producer_artifacts`` runs it *ahead* of its
+    branch-verification early return. That guarantees the ledger claim is
+    hard-failed for every refine/plan producer even under a degraded
+    fetch (non-shared object store) where the contract cross-check in
+    :func:`_validate_decision_attestation` would be skipped.
     """
     if phase not in _DECISION_ATTESTING_PHASES or agent_role not in _DECISION_ATTESTING_ROLES:
         return
@@ -448,6 +434,53 @@ def _validate_decision_attestation(
             f"`mcp__sdlc__register_open_question`, then re-propose."
         )
 
+
+def _validate_decision_attestation(
+    pipeline_id: str,
+    payload: dict[str, Any],
+    *,
+    agent_role: str,
+    phase: str,
+    worktree_path: Path,
+    identifier: str | int,
+) -> None:
+    """Require a well-formed decision-ledger attestation at propose time (#3390).
+
+    The two-wave bridge and the converge-before-advance loop (#3392) can
+    only surface decisions that were *registered*; nothing verifies that a
+    phase which should raise decisions actually did, so a producer that
+    silently skips ``egg-contract add-decision`` advances the pipeline
+    with an empty ledger the operator cannot distinguish from
+    "deliberately none". This validator makes the ledger claim mandatory
+    and hard-fails the propose when it is missing, malformed, or refers
+    to decisions that were never registered:
+
+    1. **Shape** — delegated to :func:`_validate_decision_attestation_shape`.
+       ``_validate_producer_artifacts`` also runs that helper *ahead* of
+       its branch-verification early return, so the shape claim is
+       enforced even on the degraded-fetch path that reaches consensus
+       without the cross-check below. It is re-run here so a direct call
+       (or the plan back-compat wrapper) still enforces it.
+    2. **Cross-check** — every attested id must exist on the contract as
+       a HITL decision registered for the *current phase*. A hallucinated
+       or phase-misfiled id is rejected with the actionable fix. Only
+       ``hitl``-type decisions are recognised, matching the gate-side
+       counter in ``_collect_decision_ledger_status`` so the two views
+       cannot diverge into a spurious ``MISSING`` backstop.
+
+    Graceful degradation mirrors ``_validate_producer_artifacts``: when
+    the contract cannot be loaded (orchestrator-side glitch, not a
+    producer fault) the cross-check is skipped with a warning — but the
+    shape requirement is enforced by the hoisted shape check, so the
+    ledger claim itself is never skipped.
+    """
+    _validate_decision_attestation_shape(payload, agent_role=agent_role, phase=phase)
+
+    if phase not in _DECISION_ATTESTING_PHASES or agent_role not in _DECISION_ATTESTING_ROLES:
+        return
+
+    registered, _rationale = _extract_attested_decision_fields(payload)
+
     attested_ids = list(registered or [])
     if not attested_ids:
         return
@@ -464,11 +497,21 @@ def _validate_decision_attestation(
         )
         return
 
+    # Recognise only ``hitl``-type decisions, matching the gate-side
+    # counter in ``_collect_decision_ledger_status`` (#3390). If the two
+    # views disagreed — cross-check accepting an ``AUTO``-type id the gate
+    # never counts — an attested non-HITL id would pass propose yet still
+    # trip a spurious ``MISSING`` backstop at the gate.
     by_id: dict[str, Any] = {}
     for d in contract.decisions:
         d_id = getattr(d, "id", None)
-        if isinstance(d_id, str):
-            by_id[d_id] = d
+        if not isinstance(d_id, str):
+            continue
+        d_type = getattr(d, "type", None)
+        d_type = getattr(d_type, "value", d_type)
+        if d_type != "hitl":
+            continue
+        by_id[d_id] = d
 
     for attested in attested_ids:
         decision = by_id.get(attested)
@@ -671,6 +714,14 @@ def _validate_producer_artifacts(
 
     if worktree_path is None:
         worktree_path = _pkg.resolve_worktree_path(pipeline_id, repo_path)
+
+    # Decision-ledger shape enforcement (#3390) runs BEFORE the
+    # branch-verification early return below: the shape check needs no
+    # contract/commit access, so hoisting it guarantees a refine/plan
+    # producer cannot reach consensus with a missing or malformed ledger
+    # attestation even on the degraded-fetch path (non-shared object
+    # store) that skips the presence loop and the contract cross-check.
+    _pkg._validate_decision_attestation_shape(payload, agent_role=agent_role, phase=phase)
 
     # Orchestrator-side commit verification was inconclusive — a non-zero
     # ``git show`` below could be "commit not in local object cache" rather

@@ -3340,10 +3340,11 @@ class TestDecisionLedgerProposeValidation:
         return contract
 
     @staticmethod
-    def _decision(decision_id: str, phase: str):
+    def _decision(decision_id: str, phase: str, decision_type: str = "hitl"):
         d = MagicMock()
         d.id = decision_id
         d.phase = phase
+        d.type = decision_type
         return d
 
     def _validate(
@@ -3355,6 +3356,8 @@ class TestDecisionLedgerProposeValidation:
         router=None,
         contract=None,
         contract_error: Exception | None = None,
+        branch_verified: bool | None = True,
+        commit_resolvable: bool = True,
     ):
         from routes.signals import _validate_producer_artifacts
 
@@ -3365,7 +3368,11 @@ class TestDecisionLedgerProposeValidation:
             if contract_error is not None
             else patch("routes.signals.load_contract", return_value=contract or MagicMock())
         )
-        with patch("routes.signals.subprocess.run", side_effect=router), load_patch:
+        with (
+            patch("routes.signals.subprocess.run", side_effect=router),
+            patch("routes.signals._commit_object_resolvable", return_value=commit_resolvable),
+            load_patch,
+        ):
             _validate_producer_artifacts(
                 "issue-42",
                 payload,
@@ -3374,7 +3381,7 @@ class TestDecisionLedgerProposeValidation:
                 phase=phase,
                 pipeline_state=pipeline,
                 worktree_path=Path("/tmp/wt"),
-                branch_verified=True,
+                branch_verified=branch_verified,
             )
 
     # -- shape ---------------------------------------------------------------
@@ -3421,6 +3428,20 @@ class TestDecisionLedgerProposeValidation:
         # The simplifier owns no decision surface; no ledger requirement.
         self._validate(payload={"commit_sha": "abc1234"}, agent_role="simplifier", phase="refine")
 
+    def test_shape_enforced_on_degraded_fetch_path(self):
+        # Under a degraded fetch (branch verification inconclusive AND the
+        # commit not in the local object store) ``_validate_producer_artifacts``
+        # early-returns before the presence loop / contract cross-check. The
+        # shape check is hoisted ahead of that early return (#3390), so a
+        # missing attestation must still hard-fail even here — otherwise a
+        # refine/plan producer could reach consensus with no ledger claim.
+        with pytest.raises(ValueError, match="decision-ledger attestation"):
+            self._validate(
+                payload={"commit_sha": "abc1234"},
+                branch_verified=None,
+                commit_resolvable=False,
+            )
+
     # -- contract cross-check --------------------------------------------------
 
     def test_unregistered_id_rejected(self):
@@ -3437,6 +3458,23 @@ class TestDecisionLedgerProposeValidation:
     def test_phase_mismatched_id_rejected(self):
         contract = self._contract_with_decisions(self._decision("cq-1", "plan"))
         with pytest.raises(ValueError, match="registered for the 'plan' phase"):
+            self._validate(
+                payload={
+                    "commit_sha": "abc1234",
+                    "attestation": {"decisions_registered": ["cq-1"]},
+                },
+                contract=contract,
+            )
+
+    def test_non_hitl_attested_id_rejected(self):
+        # The cross-check recognises only ``hitl``-type decisions, matching
+        # the gate-side counter (#3390). Attesting a non-HITL id that the
+        # gate would never count is rejected at propose time rather than
+        # tripping a spurious ``MISSING`` backstop later.
+        contract = self._contract_with_decisions(
+            self._decision("cq-1", "refine", decision_type="auto")
+        )
+        with pytest.raises(ValueError, match="`cq-1` is not registered"):
             self._validate(
                 payload={
                     "commit_sha": "abc1234",

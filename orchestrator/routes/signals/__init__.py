@@ -155,6 +155,7 @@ from ._validation import (  # noqa: E402,F401
     _require_route_version,
     _validate_brc_content,
     _validate_decision_attestation,
+    _validate_decision_attestation_shape,
     _validate_decision_citations,
     _validate_plan_extensions,
     _validate_plan_proposal,
