@@ -157,6 +157,80 @@
   validated; keep verifying my file's integrity at every event.
 - Re-proposed as iteration-2 v2.
 
+### 2026-07-02 00:04–00:05 UTC — events #12–#13: REFINE COMPLETE → PLAN phase
+
+- DURABILITY LESSON (this entry is a re-write): the event-#12 memory edit
+  was made but NOT committed before exit; the phase-transition worktree
+  reseed discarded it. **Commit the memory file in the same invocation as
+  every edit** — uncommitted state does not survive phase gates.
+- Refine converged at my 899b1dc40 + refiner v5 47c1d9db5 (binding-rulings
+  fold-in; my file untouched — integrity verified). My simplifier->refiner
+  review edge was closed unexercised by the phase transition; moot.
+- PLAN matrix: producers architect, task_planner, risk_analyst, simplifier;
+  reviewer_plan gates. My producer artifact: `plan-draft-human` at
+  `.egg-state/drafts/3393-plan-human.md`, faithful jargon-free rendering of
+  task_planner's `3393-plan.md`, produced AFTER task_planner proposes
+  (artifact_spec.py lines 162-170).
+- Events #12 (00:04Z) and #13 (00:05Z): 3393-plan.md ABSENT, zero plan
+  CONSENSUS_PROPOSE (live=true), task_planner WORKING. Heartbeated
+  WAITING_ON_ROLE(task_planner) both times. Escalation: alert only if
+  task_planner heartbeat >15 min stale with no propose. Plans take longer
+  than analyses — expect a longer quiet stretch; keep per-event handling
+  minimal. Latest identical premature event: **#13 at 00:05Z** (update this
+  line in place; no new sections for identical events).
+- Carry-forwards: per-event integrity check of my artifacts (refiner
+  clobbered twice in refine); binding rulings (cq-1 + 4 ratifications) must
+  survive into plan + my summary; propose-timeout → check state before
+  retry; iteration-relative versions.
+
+### 2026-07-02 00:06 UTC — event #14: memory-durability finding #2 (orphaned commit)
+
+- Event #13's memory commit 11ad798ef did NOT survive either: the wrapper
+  reseeds the worktree to the shared work-branch lineage (HEAD f085265b7)
+  each spawn, orphaning local commits. **Committing is not enough — only
+  PUSHED commits survive, and pushes happen only via mcp__brc__propose.**
+- Recovery protocol used (and to reuse): the orphaned commit remains a git
+  object — `git checkout <sha> -- <memory-path>` restores it. Recovery SHA
+  for this content: will be the commit made this event; previous orphan:
+  11ad798ef.
+- DURABLE-CHANNEL RULE: put the essentials (current blocker, latest orphan
+  SHA) in every heartbeat body — the orchestrator message store survives
+  reseeds and is readable via read_peer_artifact(HEARTBEAT,
+  peer_role=simplifier).
+- Plan-phase state: events #17–#21 (00:10–00:13Z) were identical premature
+  proposes; slimmed to heartbeat-only handling from #18 on. Task_planner
+  liveness verified at #21 (their heartbeat 00:12:35Z).
+
+### 2026-07-02 00:13 UTC — event #22: task_planner PROPOSED → plan-human produced & proposed
+
+- task_planner v1 (commit d0673230d, 00:13:02Z): 3393-plan.md — six slices,
+  single serialized chain (five slices share routes/pipelines.py; #3046
+  file-overlap rule), all slices repo=jwbron/egg. Carries all 8 ACs + cq-1
+  two-tier hold + rulings #1 (lazy-per-repo), #6 (owner/repo re-key, no
+  reject; sdlc_hitl.py:82 allowlisted in ratchet), #3/#5 (per-repo gates/
+  conventions), #4 (primary = first unless flagged, preserved
+  EGG_PIPELINE_REPO back-compat per risk R2). Risk R1 addressed by slice-1
+  Contract/Pipeline repo-list. OBSERVED GAP (not mine to gate): plan does
+  not spell out Tier-A poll failure/terminal states (risk R3:
+  closed-unmerged upstream, squash-merge SHA) — noted in my propose
+  risk_considered for reviewer_plan's attention.
+- Wrote 3393-plan-human.md: fixed-order rationale in plain terms, the six
+  steps, verification (N=1 regression guarantee), after-it-lands (lazy
+  migration, deferred follow-ups). Faithful to plan content; no invented
+  commitments.
+- Proposed (iteration version 1 for plan phase).
+
+## Next invocation checklist
+- NEW at #16: risk_analyst PROPOSED (v1, commit 40b701184,
+  3393-risk_analyst-output.json) — 7 risks, PROCEED_WITH_MITIGATIONS.
+  Load-bearing for my future plan-human rendering: R1 Contract needs a repo
+  dimension TOO (migration can't resolve 'primary' otherwise — schema change
+  is TWO fields); R2 EGG_PIPELINE_REPO is hard-required by overseer
+  entrypoint (collapse removal must preserve a primary scalar); R3 cq-1
+  auto-release poll has unspecified failure states (closed-unmerged,
+  squash-merge SHA). Not my reviewer edge (no pending_reviews surfaced);
+  noted as context the task_planner should absorb.
+
 ## Next invocation checklist
 
 1. Read `.egg-state/drafts/issue-3393-analysis.md` (pull the refiner's
