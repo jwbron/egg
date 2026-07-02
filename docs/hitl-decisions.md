@@ -803,12 +803,52 @@ only gate agent behavior ("proceed with approach A") need no payload; the blocke
 agent reads the resolution and acts. Structural changes beyond a task append (new
 slices, DAG edits) still go through a replan, not a decision option.
 
+### Executable Consensus-Timeout Retry (#3421)
+
+The `consensus_timeout_incomplete` HITL decision (raised by
+`_incomplete_consensus_decision_text` when concurrent-phase consensus times out
+with unresolved NACKs, or no agents ever confirm — see [Concurrent Execution:
+Timeout Handling](guides/concurrent-execution.md#timeout-handling)) is persisted
+moments before the driver marks the pipeline `failed` and exits. Nothing else
+ever waits on it, so resolving "Retry phase" used to be a silent no-op: the
+decision flipped to resolved, the pipeline stayed `failed`, and no agents
+respawned.
+
+Resolving the decision now dispatches on its label:
+
+- **Retry phase** — calls the `restart_phase` route in-process (the documented
+  manual workaround), which tears down the failed phase, flips the pipeline
+  back to `running`, and respawns a fresh driver. As with any `restart_phase`
+  call, per-role branch tips are **not** preserved: fresh worktrees re-fork
+  from the shared work branch tip, and only committed-but-unpushed work is
+  salvaged (best-effort) to `egg/recovered/*` refs — see [Orchestrator CLI
+  Reference](reference/orchestrator-cli.md) for the full restart semantics.
+  The decision's question text now states this directly instead of promising
+  artifacts are preserved intact on a per-role branch.
+- **Abort phase** — no action: the driver already failed the pipeline when it
+  escalated the decision, so the state already matches the intent. The
+  resolve response's `executed_action` payload says so instead of resolving
+  silently.
+- **Accept current state** — not automated (force-advancing past a
+  non-converged phase is an operator judgment); the payload names
+  `advance_phase` / `restart_phase` as the manual follow-ups instead of
+  resolving silently.
+
+`_maybe_dispatch_consensus_timeout_resolution` (`orchestrator/routes/decisions/_handlers.py`)
+keys the dispatch on the decision's `context` field
+(`_CONSENSUS_TIMEOUT_HITL_CONTEXT = "consensus_timeout_incomplete"` in
+`routes/pipelines.py`), not the prose question text — the same discriminator
+pattern used elsewhere in this file. Dispatch failure (e.g. `restart_phase`
+raising, or returning non-200) is logged and surfaced in `executed_action`
+rather than swallowed, since the decision is already resolved by the time
+dispatch runs.
+
 ## Related Files
 
 - `orchestrator/mcp_tools.py` — MCP `get_status` tool; enriches all pending decisions with `draft_content`; enriches `phase_gate` decisions additionally with `completed_agents_summary` and `reviewer_feedback`
 - `orchestrator/models.py` — `HITLDecision` model with `decision_type`, `questions`, `phase`, and `content_changed` fields; `content_changed` is set by the orchestrator on re-run phase gates to indicate whether the draft changed since the previous resolved decision (literal string comparison; `None` on first decision, `True`/`False` on subsequent ones). Also contains `OperatorDirective` (a single timestamped operator directive stored on kickback) and `IterationSummary` (BRC verdict snapshot for a kicked-back iteration), both accumulated on `PhaseExecution.operator_directives` / `PhaseExecution.iteration_history`.
 - `orchestrator/decision_queue.py` — Decision queue handling typed decisions
-- `orchestrator/routes/decisions/` — Decision API endpoints (create, list, resolve), the `POST .../feedback/answer` route for contract-scoped feedback (`answer_feedback` MCP tool; #3007), the contract-decision fallback in `resolve_decision` that writes pre-gate `cq-N` resolutions directly to the contract when the id is not in the queue (#3071), the executable task-completion dispatch (`_maybe_complete_task_from_resolution`) that auto-executes `complete_task_as_operator` when the resolution matches "Mark task `<id>` complete" (#3124), orphaned-driver revival on `phase_gate` resolution: when no live `_run_pipeline` driver thread owns an `AWAITING_HUMAN` pipeline (e.g. after an orchestrator restart), the resolve path re-launches the driver via `start_pipeline`'s recovery branch so the resolution self-heals rather than hanging silently; an `OVERSEER_ALERT` is broadcast on the bus when the orphaned park is detected (before the `start_pipeline` re-launch, so it fires even if that re-launch returns non-200 or raises) (#3233), and the first-principles redirect accept-path (`_maybe_apply_first_principles_redirect`, in `_handlers.py` and re-exported through the package barrel `__init__.py`): when the operator resolves a `first_principles_reviewer` refine-phase decision with "Adopt the redirect", this handler rewrites the pipeline seed via `rewrite_task_description_as_operator` and re-runs the refine phase; "Don't build this" cancels the pipeline; "Proceed as-is" is a no-op (#3385)
+- `orchestrator/routes/decisions/` — Decision API endpoints (create, list, resolve), the `POST .../feedback/answer` route for contract-scoped feedback (`answer_feedback` MCP tool; #3007), the contract-decision fallback in `resolve_decision` that writes pre-gate `cq-N` resolutions directly to the contract when the id is not in the queue (#3071), the executable task-completion dispatch (`_maybe_complete_task_from_resolution`) that auto-executes `complete_task_as_operator` when the resolution matches "Mark task `<id>` complete" (#3124), orphaned-driver revival on `phase_gate` resolution: when no live `_run_pipeline` driver thread owns an `AWAITING_HUMAN` pipeline (e.g. after an orchestrator restart), the resolve path re-launches the driver via `start_pipeline`'s recovery branch so the resolution self-heals rather than hanging silently; an `OVERSEER_ALERT` is broadcast on the bus when the orphaned park is detected (before the `start_pipeline` re-launch, so it fires even if that re-launch returns non-200 or raises) (#3233), and the first-principles redirect accept-path (`_maybe_apply_first_principles_redirect`, in `_handlers.py` and re-exported through the package barrel `__init__.py`): when the operator resolves a `first_principles_reviewer` refine-phase decision with "Adopt the redirect", this handler rewrites the pipeline seed via `rewrite_task_description_as_operator` and re-runs the refine phase; "Don't build this" cancels the pipeline; "Proceed as-is" is a no-op (#3385); and the consensus-timeout retry dispatch (`_maybe_dispatch_consensus_timeout_resolution`, in `_handlers.py`) that auto-executes `restart_phase` when a `consensus_timeout_incomplete` decision is resolved with "Retry phase" (#3421)
 - `orchestrator/operator_actions.py` — Operator-grade contract mutations; `complete_task_as_operator` applies task-status mutations as `Role.HUMAN`, bypassing the implementer/reviewer field-ownership restriction (#3124); `rewrite_task_description_as_operator` rewrites `contract.task_description` as `Role.HUMAN` for the first-principles redirect accept-path (#3385); `add_task_as_operator` appends a task to a slice as `Role.HUMAN` for the executable `adds_task` decision option and the direct `POST /api/v1/contracts/<id>/tasks` route (#3428)
 - `orchestrator/mcp_tools.py` — `answer_feedback` MCP tool (`_handle_answer_feedback`) for host-side answering of pre-proposal contract feedback
 - `orchestrator/routes/pipelines.py` — Phase gate resolution with JSON payload parsing; `persist_contract_statefiles` commits and pushes a contract decision write to the work branch at write time so a phase-(re)start worktree reset cannot revert it (#3427)
