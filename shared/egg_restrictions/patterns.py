@@ -163,9 +163,9 @@ class AgentFilePattern:
 # ``role_patterns:`` in ``repositories.yaml`` so non-Python conventions
 # (Go ``*_test.go``, JS ``__tests__/``, etc.) get correct role boundaries.
 # Security-relevant blocklists (the whole ``.egg-state/`` tree for the
-# coder/tester tier, ``.egg-state/contracts/`` -- plus ``.egg-state/reviews/``
-# for plan agents -- for the other roles, and ``.github/``) are NOT
-# overridable -- they enforce the policy boundary independent of
+# coder/tester tier, ``.egg-state/contracts/`` — plus ``.egg-state/reviews/``
+# for plan agents — for the other roles, and ``.github/``) are NOT
+# overridable — they enforce the policy boundary independent of
 # repo-specific conventions.
 
 # Default test-file conventions: directory patterns + file-name patterns.
@@ -955,8 +955,8 @@ def build_agent_patterns(
 
     Security note:
         Security-relevant blocklists (the whole ``.egg-state/`` tree for
-        the coder/tester tier, ``.egg-state/contracts/`` -- plus
-        ``.egg-state/reviews/`` for plan agents -- for the other roles, and
+        the coder/tester tier, ``.egg-state/contracts/`` — plus
+        ``.egg-state/reviews/`` for plan agents — for the other roles, and
         ``.github/``) are sourced from this module's hard-coded builders and
         CANNOT be overridden by a repo's config. The per-repo knobs only
         widen the language-convention lists.
