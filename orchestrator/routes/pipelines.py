@@ -11928,7 +11928,7 @@ def _open_secondary_context_prs(
         return opened
 
     base_by_repo = {spec.repo: spec.base_branch for spec in (pipeline.repos or [])}
-    context_title = (
+    context_pr_title = (
         contract.pr.title.strip()
         if contract.pr and (contract.pr.title or "").strip()
         else f"{identifier} context"
@@ -11970,7 +11970,7 @@ def _open_secondary_context_prs(
             pr_url = spawner.gateway.create_pr(
                 pipeline_id=pipeline_id,
                 repo=repo,
-                title=context_title,
+                title=context_pr_title,
                 body=body,
                 head=work_branch,
                 base=base,
@@ -12837,14 +12837,23 @@ def _cross_repo_hold_resolution(contract: Any, slice_id: str) -> str | None:
         pass
 
     text = selected.strip().lower()
-    if (
-        _CROSS_REPO_HOLD_RELEASE_OPTION_ID in text
-        or _CROSS_REPO_HOLD_RELEASE_OPTION_LABEL.lower() in text
-        or "release" in text
+    # #3393 task-5-1/gap-2 (defends the operator's cq-1 fail-safe ruling):
+    # release ONLY on an EXACT match against the release option's id or
+    # label.  The prior ``"release" in text`` substring check failed OPEN
+    # — a freeform "Other" resolution that merely CONTAINS the word
+    # "release" in a negating sense (e.g. "do NOT release yet") would have
+    # auto-readied a PR the human meant to keep held, a narrower
+    # reintroduction of the "keep-held is a lie" class reviewer_code_holistic
+    # NACK'd.  Exact equality (after envelope-unwrap + strip + lower) keeps
+    # the designed path (selecting opt-release / its label) working while
+    # every ambiguous or negated value falls through to the KEEP fail-safe.
+    if text in (
+        _CROSS_REPO_HOLD_RELEASE_OPTION_ID.lower(),
+        _CROSS_REPO_HOLD_RELEASE_OPTION_LABEL.lower(),
     ):
         return RELEASE
-    # Any other resolved value (the keep option, or an unrecognized string)
-    # keeps the PR held — never ready on an ambiguous selection.
+    # Any other resolved value (the keep option, or an unrecognized/freeform
+    # string) keeps the PR held — never ready on an ambiguous selection.
     return KEEP
 
 
