@@ -3482,7 +3482,7 @@ def _bare_repos_index_zero_sites(paths):
             continue
         try:
             tokens = list(tokenize.tokenize(io.BytesIO(path.read_bytes()).readline))
-        except (SyntaxError, tokenize.TokenError):
+        except SyntaxError, tokenize.TokenError:
             continue
         for i, tok in enumerate(tokens):
             if tok.type != tokenize.NAME or tok.string not in ("repos", "pipeline_repos"):
