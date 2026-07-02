@@ -16,6 +16,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "461528a9c6d25eaf06ef7ef00f2c63f21400d2de": {
+      "branch": "egg/pipeline-e4ab1374/work",
+      "patch_id": "925f896dab011c242e279603e4fce04c31a02689",
+      "pipeline_id": "pipeline-e4ab1374",
+      "registered_at": "2026-07-02T23:24:18.856256+00:00",
+      "repo": null,
+      "role": "simplifier"
+    },
     "59cdef3434ba56ca4332a6db809b104860a7c55a": {
       "branch": "egg/pipeline-e4ab1374/work",
       "patch_id": "59ba9a0d39d35b094911e7f8d8dee3aba41f91d1",
@@ -29,6 +37,14 @@
       "patch_id": "925f896dab011c242e279603e4fce04c31a02689",
       "pipeline_id": "pipeline-e4ab1374",
       "registered_at": "2026-07-02T23:23:17.086710+00:00",
+      "repo": null,
+      "role": "simplifier"
+    },
+    "762658c27cadba495bac5e58a453391ccc76714a": {
+      "branch": "egg/pipeline-e4ab1374/work",
+      "patch_id": "1130cef79480d9aba7fff828dd39ab90ca6220f9",
+      "pipeline_id": "pipeline-e4ab1374",
+      "registered_at": "2026-07-02T23:24:18.861574+00:00",
       "repo": null,
       "role": "simplifier"
     }
