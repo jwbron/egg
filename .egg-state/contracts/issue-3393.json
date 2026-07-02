@@ -9,7 +9,531 @@
   "pipeline_id": "issue-3393",
   "current_phase": "refine",
   "acceptance_criteria": [],
-  "slices": [],
+  "slices": [
+    {
+      "id": "slice-1",
+      "name": "Repo dimension in the persisted contract & pipeline schema (migration)",
+      "goal": "Add the load-bearing repo dimension across the two model layers, aligned\nto the ratified architect design. shared/egg_contracts/models.py (contract\nlayer): add `Slice.repo: str | None = None` (owner/name; None \u21d2 resolved\nto primary at runtime, NOT in the model) and bump `Contract.schemaVersion`\n1.3\u21921.4 as a PURE ADDITIVE after-stamp `_migrate_schema_version_to_1_4`\nmirroring `_migrate_schema_version_to_1_3` verbatim (guard\nschemaVersion==\"1.3\"; idempotent; NO field mutation \u2014 `Slice.repo` stays\nNone on legacy load). The Contract model carries NO repo field and cannot\nsee the pipeline, so absent\u21d2primary CANNOT be a model migration.\norchestrator/models.py (orchestrator layer): add `RepoSpec{repo,\nbase_branch}` and `Pipeline.repos: list[RepoSpec]` with a model validator\nthat synthesizes `repos=[RepoSpec(repo, base_branch)]` from the legacy\nsingleton when absent (and mirrors `repos[0]` back onto `repo`/`base_branch`\nfor legacy readers), a `primary_repo` property, and a RUNTIME resolver\n`resolve_slice_repo(slice, pipeline) -> slice.repo or pipeline.primary_repo`.\nN=1 pipelines round-trip / behave identically. Chain root: nothing writes\n`Slice.repo` until it lands.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In shared/egg_contracts/models.py (CONTRACT layer only): (a) add\n`repo: str | None = None` to the `Slice` model, owner/name-shaped,\ndocumented as \"exactly one repo per slice; None \u21d2 resolved to the\npipeline's primary repo at RUNTIME (see resolve_slice_repo), NOT filled\nby the model.\" (b) Bump `Contract.schemaVersion` \"1.3\"\u2192\"1.4\" by adding\n`_migrate_schema_version_to_1_4` as a PURE ADDITIVE after-stamp that\nmirrors `_migrate_schema_version_to_1_3` (models.py:1049-1069)\nVERBATIM: guard `if self.schemaVersion == \"1.3\": self.schemaVersion =\n\"1.4\"`, idempotent, NO field mutation \u2014 `Slice.repo` stays None on a\nlegacy load. Update the schemaVersion field docstring (:844-862) to\nnote the new additive stamp. CRITICAL (per risk_analyst R1 / architect\naeb3528): the Contract model has NO repo field and cannot see the\norchestrator Pipeline, so the validator MUST NOT try to populate\n`Slice.repo` and MUST NOT reference any pipeline repo. The\nabsent\u21d2primary default and the pipeline repo LIST are BOTH orchestrator\nconcerns (TASK-1-2), NOT the contract. Do NOT persist a repo list onto\nthe Contract \u2014 the repo list lives only on the orchestrator Pipeline.\nPreserve every existing field and migration branch byte-for-byte.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- `Slice.repo` exists (str | None, default None), documented as\n  \"None \u21d2 primary repo resolved at runtime, not by the model\".\n- `Contract.schemaVersion` is \"1.4\"; `_migrate_schema_version_to_1_4`\n  is a pure additive stamp mirroring the 1.3 precedent (guarded on\n  \"1.3\", idempotent, no field mutation); `Slice.repo` stays None when a\n  1.3 contract is loaded.\n- The contract migration does NOT populate `Slice.repo` and does NOT\n  reference any pipeline/primary repo; no repo LIST is added to the\n  Contract.\n- The four existing migration branches are untouched; N=1 contracts\n  serialize/deserialize with no observable change.",
+          "files_affected": [
+            "shared/egg_contracts/models.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-2",
+          "description": "In orchestrator/models.py (ORCHESTRATOR layer): (a) add a `RepoSpec`\nmodel carrying `repo: str` (owner/name) and `base_branch: str | None`.\n(b) add `Pipeline.repos: list[RepoSpec]` (default_factory=list) and a\nmodel validator that, when `repos` is absent but the legacy singleton\n`Pipeline.repo` (models.py:1131) is set, SYNTHESIZES\n`repos=[RepoSpec(repo=repo, base_branch=base_branch)]` (back-compat),\nand mirrors `repos[0]` back onto the legacy `repo`/`base_branch` scalars\nso legacy readers keep working until slice 3 rewires them. (c) add a\n`primary_repo` property returning `repos[0].repo` \u2014 the INTENTIONAL\nprimary accessor for naming/defaulting, explicitly NOT one of the three\n`repos[0]` collapse sites removed in slice 3 (those collapse the\nagent-facing repo set to a single repo; this exposes a named primary\nwhile keeping the full list available). (d) add the RUNTIME resolver\n`resolve_slice_repo(slice, pipeline) -> slice.repo if slice.repo else\npipeline.primary_repo` \u2014 this is where absent-`Slice.repo`\u21d2primary\nlives (it takes the pipeline as a second input, which the contract\nmodel cannot). Nothing may assume `len(repos)` \u2208 {1, 2}.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- `RepoSpec{repo, base_branch}` and `Pipeline.repos: list[RepoSpec]`\n  exist; the validator synthesizes `repos` from a legacy singleton and\n  mirrors `repos[0]` back onto `repo`/`base_branch`.\n- `primary_repo` returns `repos[0].repo`; no two-repo or\n  primary+secondary shape is baked in; nothing assumes len(repos)\u2208{1,2}.\n- `resolve_slice_repo(slice, pipeline)` returns `slice.repo` when set\n  else `pipeline.primary_repo` \u2014 the absent\u21d2primary default lives HERE,\n  not in the contract migration.\n- No behavioral change for N=1 pipelines; the three collapse sites are\n  untouched (removed in slice 3).",
+          "files_affected": [
+            "orchestrator/models.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add tests covering the two-layer slice-1 design. In\nshared/egg_contracts/tests/test_models.py (CONTRACT layer): (a) a fresh\n1.4 contract accepts and round-trips `Slice.repo`; (b) loading a\npersisted 1.3 contract leaves each slice's `repo` as None and bumps\nschemaVersion to \"1.4\" (pure additive stamp \u2014 assert NO repo is filled\nby the model); (c) the 1.4 stamp is idempotent and the four pre-existing\nmigration branches still fire for their versions (no regression). In\norchestrator/tests (ORCHESTRATOR layer \u2014 nearest existing\npipeline-model test module): (d) `resolve_slice_repo(slice, pipeline)`\nreturns `slice.repo` when set and `pipeline.primary_repo` when\n`slice.repo` is None; (e) a legacy singleton `Pipeline.repo` synthesizes\na one-element `repos` list and mirrors back onto `repo`/`base_branch`;\n(f) `primary_repo` == `repos[0].repo`; (g) N=1 behavior is identical.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Contract-layer tests assert the additive 1.3\u21921.4 stamp with\n  `Slice.repo` staying None on legacy load (no model-filled repo),\n  idempotency, and the four prior branches intact.\n- Orchestrator-layer tests assert `resolve_slice_repo` (set\u21d2slice.repo,\n  None\u21d2primary), legacy singleton\u21d2one-element `repos` + mirror-back, and\n  `primary_repo`==repos[0].repo.\n- N=1 back-compat asserted at both layers.\n- `make test` (narrowed) and `make test-all` green.",
+          "files_affected": [
+            "shared/egg_contracts/tests/test_models.py",
+            "orchestrator/tests/test_models.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-2",
+      "name": "List-shaped submission + uniform visibility/auth validation",
+      "goal": "Make submission genuinely list-shaped end to end and enforce the two\nuniformity rules. `submit_task` and `POST /api/v1/pipelines` accept a list\nof {repo, base_branch}; a bare single repo stays accepted (back-compat).\nSubmission-time validation rejects mixed-visibility sets and\nmixed-auth-mode sets with actionable errors (reusing `get_repo_visibility`\nand per-repo `get_auth_mode`). Same-name repo sets are NOT rejected\n(operator ruling #6). One repo is designated primary (first unless\nflagged) for naming and slice-default.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Extend the submission surface to accept a repo *list*. In\norchestrator/mcp_tools/_submit.py (submit_task, currently a single\n`repo` + `base_branch` at :78-79): accept either a single\nrepo/base_branch (back-compat) or a list of {repo, base_branch}\nentries; normalize to the list-shaped Pipeline repo set from slice 1\nwith the first entry (or an explicitly flagged one) as primary. In\norchestrator/routes/pipelines.py: thread the repo list through the\n`POST /api/v1/pipelines` handler and pipeline construction so the\nfull list reaches Pipeline; do not collapse to a single repo. Do not\nadd the uniformity validators here (TASK-2-2) and do not touch the\nthree collapse sites (slice 3).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- submit_task accepts a list of {repo, base_branch}; a bare single\n  repo still works unchanged.\n- The pipelines route constructs a Pipeline with the full repo list\n  (per-repo base_branch), primary = first/flagged.\n- No collapse to repos[0] is introduced in the submission path.",
+          "files_affected": [
+            "orchestrator/mcp_tools/_submit.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add submission-time uniformity validation. Reuse\ngateway/repo_visibility.py `get_repo_visibility(owner, repo)` to\nrequire all repos in a run to be uniformly private or uniformly\npublic, and gateway/git_client/_credentials.py `get_auth_mode(repo)`\nto require a single uniform auth mode across the run. On a mixed set,\nreject the submission with an actionable error naming the offending\nrepos and which dimension (visibility vs auth) diverged. Do NOT reject\nsame-name repo sets \u2014 the collision is resolved by the owner/repo\nre-key in slice 3 (operator ruling #6). Add small, focused helper\nfunctions (e.g. `assert_uniform_visibility`, `assert_uniform_auth`)\non the gateway modules where the per-repo lookups live, and call them\nfrom the submission path in orchestrator/routes/pipelines.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- A mixed-visibility repo set is rejected with an actionable,\n  repo-naming error.\n- A mixed-auth-mode repo set is rejected with an actionable error.\n- Same-name repo sets are NOT rejected.\n- Uniform sets pass; single-repo submissions are trivially uniform.",
+          "files_affected": [
+            "gateway/repo_visibility.py",
+            "gateway/git_client/_credentials.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add tests for slice 2 in orchestrator/tests (submission) and\ngateway/tests (uniformity helpers): list submission accepted and\nconstructs the full repo list; bare single-repo submission still\naccepted; mixed-visibility set rejected with the expected error;\nmixed-auth-mode set rejected; same-name-different-owner set NOT\nrejected; primary-repo defaulting to first/flagged. Include the N=1\nregression path.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Tests cover list + single-repo submission, both uniformity\n  rejections, the same-name-allowed case, and primary defaulting.\n- N=1 submission behavior is asserted unchanged.\n- `make test` (narrowed) and `make test-all` green.",
+          "files_affected": [
+            "orchestrator/tests/test_pipelines.py",
+            "gateway/tests/test_repo_visibility.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-3",
+      "name": "Stop the repos[0] collapse; owner/repo-keyed worktree map in agent env",
+      "goal": "Remove all three enumerated `repos[0]` collapse sites and expose the full\nrepo\u2192worktree map to the agent environment, re-keyed by full `owner/repo`\n(operator ruling #6). Today the worktree dict keys by bare repo name\n(_worktree.py:74-79) and would collide on same-name repos under different\nowners. A ratchet test plus a `grep -rn 'repos\\[0\\]'` sweep guard against\nregressions, explicitly allowing the len(repos)==1-guarded\nsandbox/egg_lib/sdlc_hitl.py:82 (not a collapse).",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Remove the three collapse sites and thread the full repo set through.\n(a) orchestrator/kubernetes_spawner/_spawn.py:452 (`repo_name =\nrepos[0].split(\"/\")[-1]`) and :464 (`pipeline_repo = repos[0]`) plus\nthe `EGG_PIPELINE_REPO` export at :523 \u2014 replace with logic that\nderives naming from the pipeline's primary repo but exposes the FULL\nrepo\u2192worktree map to the agent env keyed by full `owner/repo`\n(feeding from the client `worktrees` field \u2192 spawner `repo_volumes`).\nKeep `EGG_PIPELINE_REPO` populated with the primary for back-compat\nbut add the full map (e.g. an `EGG_PIPELINE_REPOS` / repo_volumes\nenv exposure) so agents can select the slice's repo. (b)\norchestrator/commit_authorship_store.py:932-933 \u2014 replace the\n`repos[0]` fallback with primary-repo resolution that does not assume\na single repo. (c) orchestrator/routes/pipelines.py:732\n(`overseer_repo = pipeline_repos[0]`) \u2014 resolve via the primary\naccessor. Use the `primary_repo` accessor from slice 1 rather than\nre-introducing index-0 access.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- All three collapse sites (`_spawn.py:452/:464`,\n  `commit_authorship_store.py:932-933`, `pipelines.py:732`) no longer\n  index `repos[0]`; they use the primary accessor or the full map.\n- The agent environment exposes the full repo\u2192worktree map keyed by\n  full `owner/repo` (no bare-name collision).\n- `EGG_PIPELINE_REPO` still resolves to the primary for back-compat.",
+          "files_affected": [
+            "orchestrator/kubernetes_spawner/_spawn.py",
+            "orchestrator/commit_authorship_store.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-2",
+          "description": "Re-key the worktree map by full `owner/repo` at its source. In\norchestrator/gateway_client/_worktree.py:74-79 the `worktrees` dict is\nkeyed by bare repo name (`repo.split(\"/\")[-1]`-shaped); change the key\nto the full `owner/repo` so two repos with the same short name under\ndifferent owners no longer collide, and update the corresponding\ngateway handler keying in gateway/gateway.py (worktree creation\nresponse, ~7827) to match. Preserve the returned path values; only the\nkey changes. Update the spawner consumer (fed via `repo_volumes`) to\nread the owner/repo keys.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- `WorktreeResult.worktrees` (and the gateway handler that builds it)\n  is keyed by full `owner/repo`.\n- Same-name-different-owner repos get distinct entries.\n- The spawner reads the owner/repo-keyed map; paths are unchanged.",
+          "files_affected": [
+            "orchestrator/gateway_client/_worktree.py",
+            "gateway/gateway.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-3",
+          "description": "Add tests + a regression ratchet in orchestrator/tests. Assert: the\nagent env exposes the full owner/repo-keyed repo\u2192path map; each of the\nthree former collapse sites now resolves via the primary accessor / full\nmap (unit-level assertions on the spawner env, commit-authorship\nresolution, and overseer-repo resolution for a 2-repo pipeline); and a\nratchet test that greps the orchestrator source for `repos[0]`\ncollapse patterns and fails if any reappear, with an explicit allowlist\nentry for the len(repos)==1-guarded sandbox/egg_lib/sdlc_hitl.py:82.\nAlso assert the worktree map keying is owner/repo (no bare-name\ncollision) via test_kubernetes_spawner / test_gateway_client.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Tests assert the full owner/repo-keyed env map and correct\n  resolution at all three former collapse sites for a multi-repo\n  pipeline.\n- A ratchet test fails if a `repos[0]` collapse is reintroduced, with\n  sdlc_hitl.py:82 allowlisted.\n- `make test` (narrowed) and `make test-all` green.",
+          "files_affected": [
+            "orchestrator/tests/test_kubernetes_spawner.py",
+            "orchestrator/tests/test_gateway_client.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-2"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-4",
+      "name": "Slice-PR routing to slice.repo + lazy per-repo work branch & context PR",
+      "goal": "Route each slice's PR to `slice.repo` and give every participating repo its\nown work branch + context PR (lazy-per-repo, operator ruling #1). Repos with\n\u22651 slice get an `egg/<id>/work` branch and a context PR; submitted repos\nwith no slices get neither. Slice-PR and context-PR descriptions\ncross-reference sibling PRs in the pipeline.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Route slice-PR creation to the slice's repo. `create_slice_pr`\n(orchestrator/gateway_client/_pr.py:139-164) is already\nrepo-parameterized; change the caller(s) in\norchestrator/routes/pipelines.py to pass `slice.repo` (falling back to\nthe pipeline primary when a slice's repo is absent, per the slice-1\nmigration default) instead of the pipeline singleton. Render sibling\ncross-references into the slice-PR body: list the other pipeline PRs\n(repo + number) and, for a dependent slice, note the upstream slice's\nPR it is ordered behind.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Each slice's PR is opened in `slice.repo`; absent \u21d2 primary.\n- The slice-PR body cross-references sibling pipeline PRs (repo +\n  number) and names the upstream PR for dependent slices.\n- No behavioral change for N=1 (single repo) pipelines.",
+          "files_affected": [
+            "orchestrator/gateway_client/_pr.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-2",
+          "description": "Make the context-PR opener lazy-per-repo. In\norchestrator/routes/pipelines.py\n`_open_context_pr_at_implement_start` (~11001-11250), which today opens\none context PR on `egg/<id>/work \u2192 main` in the single repo: iterate\nthe set of repos that own \u22651 slice, and for each open its own\n`egg/<id>/work` branch (same naming, per repo) and its own context PR;\nskip submitted repos with no slices. A single-slice repo still gets the\nstandard context PR (uniformity beats special-casing). Cross-reference\nsibling context PRs in each body. Keep the N=1 path byte-equivalent to\ntoday.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Every repo with \u22651 slice gets its own `egg/<id>/work` branch and\n  context PR; a slice-less submitted repo gets neither.\n- A single-slice repo gets the standard context PR.\n- Context-PR bodies cross-reference sibling context PRs.\n- N=1 behavior is unchanged.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-3",
+          "description": "Add tests in orchestrator/tests: a slice's PR is created in\n`slice.repo` (and falls back to primary when absent); the slice-PR and\ncontext-PR bodies render sibling cross-references; the lazy-per-repo\nrule holds (repo with \u22651 slice \u21d2 work branch + context PR; slice-less\nrepo \u21d2 neither; single-slice repo \u21d2 standard context PR); N=1 opens\nexactly one work branch + context PR as today.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Tests assert slice-PR repo routing (+ primary fallback), sibling\n  cross-references, and the lazy-per-repo work-branch/context-PR rule.\n- N=1 regression asserted (one work branch + one context PR).\n- `make test` (narrowed) and `make test-all` green.",
+          "files_affected": [
+            "orchestrator/tests/test_pipelines.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-3"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-5",
+      "name": "Cross-repo merge-sequencing hold (cq-1 two-tier)",
+      "goal": "Implement the operator-resolved (HITL cq-1) two-tier merge-sequencing hold.\nTier A (automated): a cross-repo dependent slice is developed in parallel,\nits PR opens as draft, and the orchestrator polls the upstream slice's PR\nmerge state and auto-marks the dependent PR ready once the upstream merges\n\u2014 no HITL for plain merge ordering. Tier B (HITL): a distinct hold type for\nbeyond-merge-state conditions (release/publish of the upstream repo, a\nversion-pin choice, or a genuine cannot-continue development block) is held\nand released by a HITL decision, never programmatic detection. Dependencies\ngate merge-readiness, not development.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Implement Tier A (automated merge-ordering hold) with FULLY PINNED\nfailure semantics (reviewer_plan R3 / architect aeb3528 layer_6). A\ndependency edge B\u2192A is cross-repo iff\n`resolve_slice_repo(A) != resolve_slice_repo(B)`. For such an edge:\nopen B's PR as a DRAFT (already supported) while upstream A's PR is\nunmerged, and register an upstream-merge poll on the EXISTING reconcile\ncadence (extend orchestrator/stacked_pr_reconciler.py, or add a small\ncross_repo_merge_gate.py invoked from it \u2014 do not invent a new\nscheduler subsystem).\nPIN THREE SEMANTICS:\n(a) MERGE DETECTION uses the PR **merged boolean / `mergedAt`**\n(`gh pr view --json state,mergedAt` via a small gateway read verb),\nNOT head-SHA equality \u2014 a squash/rebase merge yields a merge-commit SHA\n\u2260 the PR head, so SHA-equality would misfire. On merged\u21d2 call a NEW\ngateway verb `mark_pr_ready(repo, pr_number)` (wraps the existing\n`gh pr ready`, gateway/github_client.py:124) exposed via gateway/gateway.py\n+ orchestrator/gateway_client/_pr.py, transitioning B draft\u2192ready.\n(b) CLOSED-UNMERGED TERMINAL: if upstream A's PR reaches state=CLOSED\nwith no `mergedAt` (closed, not merged), do NOT auto-ready B \u2014 escalate\nto a HITL hold (reuse the Tier-B hold mechanism / decision queue) and\nsurface it on status. This is distinct from Tier B's beyond-merge-state\nconditions; it is the Tier-A failure terminal.\n(c) BOUND / TIMEOUT: bound the poll (a max wait / attempt budget); a\nnever-merging upstream that exceeds the bound escalates to the same\nHITL hold rather than leaving B draft indefinitely. \"If the auto path\ncannot resolve, fall through to the HITL hold rather than hanging\"\n(architect layer_6).\nDevelopment is NOT serialized \u2014 B is worked in parallel; only B's\nPR ready-state waits. Do NOT implement release/publish or version\ndetection here (cq-1 forbids automating those signals).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- A cross-repo dependent slice's PR opens draft and is auto-marked\n  ready (via `mark_pr_ready`) only when the upstream PR's merged\n  boolean / `mergedAt` is set \u2014 detection uses merged-state, NOT\n  head-SHA equality.\n- Upstream PR CLOSED-not-merged does NOT auto-ready B; it escalates to\n  a HITL hold and is surfaced on status.\n- The poll is bounded; exceeding the bound (never-merging upstream)\n  escalates to the HITL hold, not an indefinite draft.\n- A new `mark_pr_ready(repo, pr_number)` gateway verb (wrapping\n  `gh pr ready`) exists and is used for the transition.\n- Development is not serialized by the dependency; no\n  release/publish/version auto-detection is added; same-repo\n  dependencies and N=1 pipelines are unaffected.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py",
+            "orchestrator/stacked_pr_reconciler.py",
+            "orchestrator/gateway_client/_pr.py",
+            "gateway/gateway.py",
+            "gateway/github_client.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-2",
+          "description": "Implement Tier B (HITL beyond-merge-state hold). Add a distinct hold\ntype that, for a dependency the plan marks as a beyond-merge-state\ncondition (release/publish of the upstream repo, version-pin choice, or\na genuine cannot-continue development block), holds the dependent\nslice's PR and releases it only via a HITL decision \u2014 never\nprogrammatic detection. Reuse the existing HITL decision mechanism\n(register_open_question / contract decision gate); default a cross-repo\ndependency to the Tier-A merge-state hold and escalate to Tier B only\nwhere the plan identifies such a condition. Wire it in\norchestrator/routes/pipelines.py alongside Tier A.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- A beyond-merge-state hold routes to a HITL decision and is released\n  by human resolution, not auto-detection.\n- The default for a plain cross-repo dependency is the Tier-A\n  merge-state hold; Tier B is opt-in per the plan.\n- The two hold kinds have two distinct release paths.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-3",
+          "description": "Add tests in orchestrator/tests covering Tier A's happy path AND both\nfailure terminals (reviewer_plan R3), plus Tier B. Mock the gateway\nPR-state read (`state`, `mergedAt`) and `mark_pr_ready`; do not hit the\nnetwork. Cases: (a) upstream PR mergedAt set \u21d2 dependent PR\ndraft\u2192ready via `mark_pr_ready`; assert detection keys off\nmerged-state, NOT head-SHA (include a squash-merge case where the merge\ncommit SHA \u2260 PR head and the transition still fires). (b)\nCLOSED-UNMERGED: upstream state=CLOSED, mergedAt=null \u21d2 NO auto-ready;\na HITL hold is registered and surfaced on status. (c) NEVER-MERGING:\npoll exceeds the bound/timeout \u21d2 HITL hold, dependent PR not left draft\nindefinitely. (d) development is not blocked while the hold is active.\n(e) Tier-B beyond-merge-state edge routes to a HITL decision and stays\nheld until resolved (no auto-release). (f) same-repo dependency and\nN=1 pipeline take neither hold.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Tests assert Tier-A auto draft\u2192ready on merged-state (incl. a\n  squash-merge SHA\u2260head case), the CLOSED-unmerged\u21d2HITL terminal, and\n  the never-merging\u21d2HITL bound/timeout terminal.\n- Tests assert non-blocking development, Tier-B HITL routing (no\n  auto-release), and the same-repo / N=1 no-hold paths.\n- `make test` (narrowed) and `make test-all` green.",
+          "files_affected": [
+            "orchestrator/tests/test_pipelines.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-4"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-6",
+      "name": "Per-repo test-gate + reviewer-diff scoping + per-repo conventions",
+      "goal": "Scope the implement-phase gates to the slice's repo (operator rulings #3,\n#5). The test gate runs in the slice's repo worktree only; the reviewer diff\nis `git diff` in that worktree against that repo's base; the slice's agent\nruns with cwd in the slice's repo worktree under that repo's `CLAUDE.md`,\nlinters, and check commands \u2014 egg's `make lint`/`make test` apply only to\nslices whose repo is egg. Documentation is updated to describe the shipped\nmulti-repo model.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Scope the test gate and reviewer diff to the slice's repo. In the\nimplement-phase gate/review wiring (orchestrator/routes/pipelines.py\nand any test-gate/reviewer-diff helper it calls): resolve the slice's\nworktree from the owner/repo-keyed map (slice 3), run the test gate in\nTHAT worktree, compute the reviewer diff as `git diff` in that worktree\nagainst that repo's base branch, and resolve check/lint commands from\nthe slice's repo conventions (its own CLAUDE.md / linters) rather than\nhard-coding egg's `make lint`/`make test`. Set the slice agent's cwd to\nthe slice's repo worktree. Keep the egg-repo path (the common case)\nbehaviorally identical to today.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- The test gate runs only in the slice's repo worktree; the reviewer\n  diff is scoped to that repo against its base.\n- The slice agent's cwd is the slice's repo worktree; check/lint\n  commands resolve from that repo's conventions, not egg's, for\n  non-egg slices.\n- egg-repo slices behave exactly as today (N=1 baseline unchanged).",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-6-2",
+          "description": "Add tests in orchestrator/tests: for a multi-repo pipeline, the test\ngate is invoked in the slice's repo worktree (not the primary's), the\nreviewer diff is computed against the slice's repo base, and check\ncommands resolve from the slice's repo; for an egg-repo slice, behavior\nmatches the current single-repo path. Mock worktree paths and\nper-repo command resolution.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Tests assert per-repo test-gate invocation, per-repo reviewer-diff\n  base, and per-repo check-command resolution, plus the egg-repo\n  baseline.\n- `make test` (narrowed) and `make test-all` green.",
+          "files_affected": [
+            "orchestrator/tests/test_pipelines.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-6-3",
+          "description": "Update documentation to describe the shipped multi-repo model\n(snapshot, not changelog): docs/guides/sdlc-pipeline.md (list-shaped\nsubmission with per-repo base_branch; uniform visibility + uniform auth\nrequirement; primary repo for naming/default) and the relevant\narchitecture doc for slices/PRs (Slice.repo 1:1 rule; per-repo work\nbranch + context PR; cross-repo ordering via slice dependencies; the\ncq-1 two-tier merge-sequencing hold; per-repo gate/diff/convention\nscoping). Describe current behavior; do not narrate slice numbers or\nthis pipeline's process.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- The pipeline guide documents list-shaped submission, the uniformity\n  rules, and the primary-repo concept.\n- An architecture doc documents Slice.repo (1:1), per-repo\n  work-branch/context-PR, cross-repo ordering + the two-tier hold, and\n  per-repo gate scoping \u2014 as current-state snapshot, no slice/TASK\n  references.",
+          "files_affected": [
+            "docs/guides/sdlc-pipeline.md",
+            "docs/architecture/slice-dag.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-5"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [
     {
       "id": "cq-1",
@@ -144,7 +668,14 @@
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
-  "pr": null,
+  "pr": {
+    "title": "Multi-repo pipelines: coordinated PRs across repositories (#3393)",
+    "description": "Lets a single pipeline operate across an arbitrary number of\nrepositories and open coordinated, cross-referencing PRs \u2014 one per\nslice, each in that slice's repo \u2014 with cross-repo ordering expressed\nthrough the existing slice-dependency mechanism. Replaces the manual\nhand-off that today carves the cross-repo half of a logically-single\nchange out of the pipeline and gives it to an engineer.\n\nThe change is built on the ratified refine analysis's verified thesis:\nthe single-repo assumption is concentrated, not pervasive. The gateway\nworktree list, per-repo credentials, `create_slice_pr(repo=...)`, and\nrepo-agnostic push policy already exist; the concentrated gaps are the\ncontract's missing repo dimension and the `repos[0]` collapse in the\nagent environment.\n\nDelivered as a single serialized six-slice chain (five slices edit\norchestrator/routes/pipelines.py, so per #3046 they are ordered along\none dependency chain):\n\n1. Repo dimension across the two model layers: contract-layer\n   `Slice.repo` + a pure additive schemaVersion 1.3\u21921.4 stamp (Slice.repo\n   stays None on legacy load), and orchestrator-layer `Pipeline.repos`\n   (RepoSpec) + `primary_repo` + a runtime `resolve_slice_repo` where\n   absent\u21d2primary is resolved; N=1 round-trips/behaves unchanged.\n2. List-shaped submission (`submit_task` / `POST /api/v1/pipelines`\n   accept a list of {repo, base_branch}) with submission-time\n   validation rejecting mixed-visibility and mixed-auth-mode sets.\n3. Removal of all three enumerated `repos[0]` collapse sites plus a\n   full repo\u2192worktree map exposed to the agent environment re-keyed by\n   full `owner/repo` (operator ruling #6), guarded by a ratchet test +\n   grep sweep.\n4. Slice-PR routing to `slice.repo` and a lazy-per-repo work branch +\n   context PR (every repo with \u22651 slice; PRs cross-reference siblings).\n5. Cross-repo merge-sequencing hold (cq-1 two-tier) with pinned failure\n   semantics: automated draft\u2192ready on the upstream PR's merged\n   boolean/mergedAt (not head-SHA) via a new mark_pr_ready gateway verb;\n   closed-unmerged and never-merging (bounded poll) both escalate to a\n   HITL hold; a separate HITL hold type for beyond-merge-state conditions\n   (release/publish, version pin, genuine development block).\n   Dependencies gate merge-readiness, not development.\n6. Per-repo test-gate + reviewer-diff scoping and per-repo conventions\n   (each slice's gates run in that slice's repo worktree under that\n   repo's CLAUDE.md / linters / check commands).\n\nOut of v1 (deferred): mixed auth modes across repos, richer\nmerge-sequencing machinery, and cross-repo atomic merge (impossible on\nGitHub \u2014 v1 ships an ordering hold, not atomicity).",
+    "test_plan": "Automated (per slice; `make test` narrows to reachable suites, then\n`make test-all` before phase exit; `make lint` green throughout):\n- Slice 1: shared/egg_contracts/tests \u2014 schemaVersion 1.3\u21921.4\n  migration; absent `Slice.repo` \u21d2 primary repo; legacy singleton\n  `Pipeline.repo` \u21d2 one-element list; JSON round-trip; N=1 back-compat\n  unchanged.\n- Slice 2: orchestrator/tests \u2014 list submission accepted; bare single\n  repo still accepted; mixed-visibility set rejected with actionable\n  error; mixed-auth-mode set rejected; primary-repo defaulting.\n- Slice 3: orchestrator/tests \u2014 agent env exposes the full repo\u2192path\n  map keyed by `owner/repo`; all three collapse sites gone; a ratchet\n  test asserts no `repos[0]` collapse reintroduced (with the\n  len(repos)==1-guarded sdlc_hitl.py:82 explicitly allowed).\n- Slice 4: orchestrator/tests \u2014 slice PR created in `slice.repo`; a\n  repo with \u22651 slice gets a work branch + context PR, a slice-less\n  submitted repo gets neither; sibling-PR cross-reference rendered.\n- Slice 5: orchestrator/tests \u2014 dependent slice PR opens draft;\n  upstream-merge poll auto-marks it ready; beyond-merge-state condition\n  routes to a HITL hold, not auto-release; development is not\n  serialized by the dependency.\n- Slice 6: orchestrator/tests \u2014 test gate and reviewer diff scope to\n  the slice's repo worktree only; per-repo check commands resolved from\n  the slice's repo.\n\nRegression baseline: single-repo (N=1) pipelines exhibit no behavior\nchange; existing suites stay green.",
+    "manual_steps": "Pre-merge: none.\n\nPost-merge: the schema migration (schemaVersion 1.3\u21921.4) applies\nlazily on contract load following the four existing precedents \u2014 no\nmanual migration of persisted contracts is required; absent `Slice.repo`\nresolves to the pipeline's primary repo on read. New multi-repo behavior\ntakes effect for pipelines submitted after the orchestrator image is\nrebuilt/redeployed on the normal release cadence. File a follow-up issue\nfor the deferred scope: mixed auth modes across repos and any richer\nfirst-class merge-sequencing machinery beyond the v1 hold.",
+    "context_pr_number": null,
+    "deferred_actions": []
+  },
   "feedback": null,
   "phase_configs": null,
   "agent_executions": []
