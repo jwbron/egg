@@ -162,8 +162,10 @@ class AgentFilePattern:
 # are the load-bearing language conventions. Repos can override them via
 # ``role_patterns:`` in ``repositories.yaml`` so non-Python conventions
 # (Go ``*_test.go``, JS ``__tests__/``, etc.) get correct role boundaries.
-# Security-relevant blocklists (``.egg-state/contracts/``, ``.github/``)
-# are NOT overridable — they enforce the policy boundary independent of
+# Security-relevant blocklists (the whole ``.egg-state/`` tree for the
+# coder/tester tier, ``.egg-state/contracts/`` — plus ``.egg-state/reviews/``
+# for plan agents — for the other roles, and ``.github/``) are NOT
+# overridable — they enforce the policy boundary independent of
 # repo-specific conventions.
 
 # Default test-file conventions: directory patterns + file-name patterns.
@@ -952,10 +954,12 @@ def build_agent_patterns(
         A fresh dict mapping role name to ``AgentFilePattern``.
 
     Security note:
-        Security-relevant blocklists (``.egg-state/contracts/``,
-        ``.github/``, etc.) are sourced from this module's hard-coded
-        builders and CANNOT be overridden by a repo's config. The
-        per-repo knobs only widen the language-convention lists.
+        Security-relevant blocklists (the whole ``.egg-state/`` tree for
+        the coder/tester tier, ``.egg-state/contracts/`` — plus
+        ``.egg-state/reviews/`` for plan agents — for the other roles, and
+        ``.github/``) are sourced from this module's hard-coded builders and
+        CANNOT be overridden by a repo's config. The per-repo knobs only
+        widen the language-convention lists.
     """
     if repo is not None and tests_globs is None and code_globs is None and docs_globs is None:
         override = load_repo_pattern_override(repo)

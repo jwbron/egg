@@ -1019,7 +1019,7 @@ All three keys (`tests_globs`, `code_globs`, `docs_globs`) are optional. Unset k
 
 The conflict-resolver role's allow list is the union of all three glob lists, so any of these keys also widens what the conflict-resolver can write.
 
-**Security boundary:** Security-relevant blocklists (`.egg-state/contracts/`, `.github/`) are hard-coded and cannot be relaxed by repo config. Only the language-convention globs are configurable.
+**Security boundary:** Security-relevant blocklists (`.egg-state/` — up to the whole tree for the coder/tester tier — and `.github/`) are hard-coded and cannot be relaxed by repo config. Only the language-convention globs are configurable.
 
 The orchestrator pre-resolves the override at spawn time and passes it to sandbox containers via the `EGG_PIPELINE_REPO_PATTERNS_JSON` environment variable. The gateway reads the override directly from `repositories.yaml` at push time. Validation behavior differs slightly between paths: `config/repo_config.py::get_repo_role_patterns` (the orchestrator/gateway path that reads `repositories.yaml`) emits a WARNING log on invalid root type, unknown keys, non-list values, and non-string list entries; `shared/egg_restrictions/patterns.py::load_repo_pattern_override` (the env-var path used inside the sandbox) only logs on invalid JSON and silently filters the rest. In practice the operator still sees diagnostic warnings at orchestrator spawn time because the orchestrator runs `get_repo_role_patterns` before serializing into the env var.
 
