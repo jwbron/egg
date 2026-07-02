@@ -26,5 +26,3 @@ files:
     issue: "2248"
   gateway/gateway.py:
     issue: "2248"
-  orchestrator/models.py:
-    issue: "3450"
