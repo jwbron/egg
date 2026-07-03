@@ -144,6 +144,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "696b9dc5bf9e49ddef6b48f36bc60ecdaf95f7de": {
+      "branch": "egg/pipeline-dcdad92d/slice-1",
+      "patch_id": "b2c98fad3c1c36986a2ef6ff0b40d325b503914a",
+      "pipeline_id": "pipeline-dcdad92d",
+      "registered_at": "2026-07-03T04:39:07.063816+00:00",
+      "repo": null,
+      "role": "tester"
+    },
     "74bcbb21fb1b8bc375fcbd02c061357790f2bf8f": {
       "branch": "egg/pipeline-dcdad92d/work",
       "patch_id": "8fd82d73cb94ff9026314036ac1350860a82121f",
