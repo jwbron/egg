@@ -569,6 +569,8 @@ egg-orch consensus ack coder --files-reviewed-file /tmp/files.txt \
 
 **Unchanged-tree rejection (#3395):** `consensus propose` (re-propose) is rejected with an `unchanged_tree_rejected` envelope (`current_version`, `commit_sha`, `attempts`) when the re-propose's `--commit-sha` equals the current proposal's SHA — zero new commits, so no open NACK could have been addressed. Unlike the exit-2 `open_nacks_blocked` family above, this is **not** currently surfaced as an exit-2 structured rejection: `brc_propose` does not unwrap the orchestrator's 409, so the CLI re-raises it as a plain `GatewayError` and exits **1**, with the envelope rendered under `Details:` on stderr. Shell callers should branch on the rendered envelope, not on exit 2. Like the exit-2 rejections, it is not resolved by simply retrying: land new commits before re-proposing, or convince the NACKing reviewer directly that no code change is needed.
 
+**Pending-task-row rejection (#3470):** `consensus propose` (both the first proposal and a re-propose) is rejected the same way — plain `GatewayError`, exit **1**, a `contract_incomplete` envelope under `Details:` — when the proposing producer still owns contract task rows in the active slice that are not `status=complete`. This runs before the tracker records anything, so it precedes and takes priority over the unchanged-tree check above. Mark the finished rows complete via `mcp__task__complete` and propose again; see [Contract Completeness Gate](../guides/concurrent-execution.md#contract-completeness-gate-3114) for the full check family.
+
 **Signal types for consensus:**
 
 | Signal type | Purpose |
