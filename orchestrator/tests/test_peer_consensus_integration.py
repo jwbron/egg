@@ -3843,3 +3843,58 @@ class TestIsProducerPendingConfirm:
     def test_unknown_role_is_not_pending(self):
         t = self._build_tracker()
         assert not t.is_producer_pending_confirm("not_a_real_role")
+
+
+class TestConsensusStateFingerprint:
+    """#3465: the digest a parked no-op arm watches for cohort progress.
+
+    It must move on every consensus-relevant transition (propose, verdict,
+    confirm) and be stable across calls that don't move the bus — otherwise
+    the event-loop park either never releases on BRC movement (the incident)
+    or releases every poll (defeating the #3425 park entirely).
+    """
+
+    def test_stable_when_nothing_moves(self, tracker):
+        assert tracker.consensus_state_fingerprint() == tracker.consensus_state_fingerprint()
+
+    def test_moves_on_propose(self, tracker):
+        before = tracker.consensus_state_fingerprint()
+        tracker.handle_propose(
+            "coder",
+            {"summary": "x" * 60, "artifacts": ["a.py"], "commit_sha": "abc1234"},
+        )
+        assert tracker.consensus_state_fingerprint() != before
+
+    def test_moves_on_ack_and_confirm(self, tracker):
+        tracker.handle_propose(
+            "coder",
+            {"summary": "x" * 60, "artifacts": ["a.py"], "commit_sha": "abc1234"},
+        )
+        after_propose = tracker.consensus_state_fingerprint()
+
+        tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
+        after_ack = tracker.consensus_state_fingerprint()
+        assert after_ack != after_propose
+
+        tracker.handle_ack("reviewer_contract", "coder", {"artifact_references": ["a.py"]})
+        tracker.handle_propose(
+            "tester",
+            {"summary": "y" * 60, "artifacts": ["t.py"], "commit_sha": "def5678"},
+        )
+        tracker.handle_ack("reviewer_code", "tester", {"artifact_references": ["t.py"]})
+        pre_confirm = tracker.consensus_state_fingerprint()
+        tracker.handle_confirmed("coder")
+        assert tracker.consensus_state_fingerprint() != pre_confirm
+
+    def test_moves_on_nack(self, tracker):
+        tracker.handle_propose(
+            "coder",
+            {"summary": "x" * 60, "artifacts": ["a.py"], "commit_sha": "abc1234"},
+        )
+        before = tracker.consensus_state_fingerprint()
+        tracker.handle_nack(
+            "reviewer_code",
+            "coder",
+            {"reason": "z" * 60, "artifact_references": ["a.py"]},
+        )
+        assert tracker.consensus_state_fingerprint() != before

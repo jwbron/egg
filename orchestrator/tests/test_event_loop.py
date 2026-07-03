@@ -2069,6 +2069,63 @@ class TestNoopParkSupervisor:
         supervisor.record_success("key-n", action="propose", role="coder")
         assert len(alerts) == 1
 
+    def test_release_on_brc_movement(self):
+        """#3465: cohort BRC progress releases a parked arm for one probe.
+
+        The incident shape: the tester's propose arm parks while the coder is
+        still writing (three fast no-ops), then the coder proposes and is
+        ACKed — the tracker moves, but the tester's own dedupe key never
+        changes, so only the BRC fingerprint can wake it before the heartbeat.
+        """
+        import event_loop
+
+        brc_state = ["coder-working"]
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            brc_probe=lambda: brc_state[0],
+        )
+        self._park(supervisor, "key-n", role="tester")
+        assert supervisor.noop_parked("key-n")
+
+        brc_state[0] = "coder-proposed"  # the coder's proposal moved the tracker
+        assert not supervisor.noop_parked("key-n")  # exactly one release
+        assert supervisor.noop_parked("key-n")  # fingerprint refreshed → parked again
+
+    def test_brc_release_does_not_realert(self):
+        """A BRC-movement release must not re-arm the alert latch: the probe
+        usually proceeds productively, and record_success cannot tell a
+        productive completion from a repeat no-op."""
+        import event_loop
+
+        brc_state = ["s1"]
+        alerts: list[dict] = []
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            brc_probe=lambda: brc_state[0],
+            overseer_alert=lambda **kw: alerts.append(kw),
+        )
+        self._park(supervisor, "key-n", role="tester")
+        assert len(alerts) == 1
+
+        brc_state[0] = "s2"
+        assert not supervisor.noop_parked("key-n")
+        supervisor.record_success("key-n", action="propose", role="tester")
+        assert len(alerts) == 1
+
+    def test_brc_probe_failure_falls_back_to_heartbeat(self):
+        import event_loop
+        import supervision_policy
+
+        def _broken_probe():
+            raise RuntimeError("tracker gone")
+
+        clock = _ManualClock()
+        supervisor = event_loop.JobSupervisor(clock=clock, brc_probe=_broken_probe)
+        self._park(supervisor, "key-n")
+        assert supervisor.noop_parked("key-n")
+        clock.advance(supervision_policy.SUPERVISION_NOOP_PARK_RETRY_SECONDS + 1)
+        assert not supervisor.noop_parked("key-n")
+
     def test_release_on_heartbeat(self):
         import event_loop
         import supervision_policy
@@ -2129,7 +2186,7 @@ class TestNoopParkSupervisor:
 class TestNoopParkThroughLoop:
     """#3425 driven through ``poll_once`` — the production wiring."""
 
-    def _wedged_loop(self, monkeypatch, *, hitl_probe=None, alerts=None):
+    def _wedged_loop(self, monkeypatch, *, hitl_probe=None, brc_probe=None, alerts=None):
         """A loop whose scripted coder propose always completes as a clean
         no-op: the view reports SUCCESS and the derived event never changes,
         so every completion re-derives the identical dedupe key."""
@@ -2142,6 +2199,7 @@ class TestNoopParkThroughLoop:
             clock=clock,
             overseer_alert=(lambda **kw: alerts.append(kw)) if alerts is not None else None,
             hitl_probe=hitl_probe,
+            brc_probe=brc_probe,
         )
         view = _FakeJobStatusView()
         loop = _make_supervised_loop(spawner, clock=clock, supervisor=supervisor, status_view=view)
@@ -2193,6 +2251,24 @@ class TestNoopParkThroughLoop:
         assert len(spawner.calls) == burned + 1  # exactly one probe spawn
 
         # The probe no-ops again → the arm re-parks under the new fingerprint.
+        for _ in range(5):
+            loop.poll_once(["coder"])
+        assert len(spawner.calls) == burned + 1
+
+    def test_brc_movement_releases_one_probe_spawn(self, monkeypatch):
+        """#3465 through the loop: the upstream producer's proposal moves the
+        tracker → the parked arm probes once, long before the heartbeat."""
+        brc_state = ["upstream-working"]
+        loop, spawner, clock, supervisor, key = self._wedged_loop(
+            monkeypatch, brc_probe=lambda: brc_state[0]
+        )
+        burned = self._drive_to_park(loop, spawner)
+
+        brc_state[0] = "upstream-proposed"  # cohort progress; this arm's key unchanged
+        loop.poll_once(["coder"])
+        assert len(spawner.calls) == burned + 1  # exactly one probe spawn
+
+        # The probe no-ops again with no further movement → re-parked.
         for _ in range(5):
             loop.poll_once(["coder"])
         assert len(spawner.calls) == burned + 1
