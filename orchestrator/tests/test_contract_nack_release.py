@@ -571,6 +571,40 @@ class TestMutateRouteTrigger:
         assert entry.state == ApprovalState.NACKED
         fake_store.add_message.assert_not_called()
 
+    def test_persist_failure_broadcasts_overseer_alert(self, client, fake_worktree):
+        """#3470: a swallowed durable-persist failure on a task-row
+        mutation silently re-opens the deadlock (the completion lands only
+        on the worktree file and the phase-restart reset reverts it), so it
+        must surface an ``OVERSEER_ALERT`` on the bus — while the mutation
+        response still succeeds (the write is live on the worktree file
+        regardless).
+        """
+        pipeline_id, _ = fake_worktree
+        fake_store = MagicMock()
+        with (
+            patch(
+                "routes.pipelines.persist_contract_statefiles",
+                side_effect=RuntimeError("gateway push failed"),
+            ),
+            patch("message_store.get_message_store", return_value=fake_store),
+        ):
+            response = _complete_task(client, pipeline_id)
+
+        # The mutation response is still 200 — persist is best-effort.
+        assert response.status_code == 200, response.data
+
+        # An OVERSEER_ALERT was broadcast for the failed persist.
+        alerts = [
+            call.args[0]
+            for call in fake_store.add_message.call_args_list
+            if call.args and call.args[0].message_type == "OVERSEER_ALERT"
+        ]
+        assert len(alerts) == 1, fake_store.add_message.call_args_list
+        alert = alerts[0]
+        assert alert.metadata["reason"] == "contract_persist_failed"
+        assert alert.metadata["field_path"] == "phases.0.tasks.0.status"
+        assert alert.pipeline_id == pipeline_id
+
     def test_gate_kill_switch_disables_release(
         self, client, fake_worktree, slice_tracker, monkeypatch
     ):
