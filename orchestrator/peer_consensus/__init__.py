@@ -196,6 +196,7 @@ class PeerConsensusTracker:
     get_all_proposal_commit_shas = _queries.get_all_proposal_commit_shas
     get_commit_sha_for_version = _queries.get_commit_sha_for_version
     get_pre_merge_conditions = _queries.get_pre_merge_conditions
+    consensus_state_fingerprint = _queries.consensus_state_fingerprint
     get_latest_proposal_timestamp = _queries.get_latest_proposal_timestamp
     get_latest_progress_timestamp = _queries.get_latest_progress_timestamp
     evaluate = _queries.evaluate

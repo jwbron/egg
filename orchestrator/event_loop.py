@@ -54,7 +54,11 @@ abort does not reset the count — a crash/no-op-flapping wedged arm should stil
 park) and parks the arm at ``SUPERVISION_NOOP_STREAK_PARK`` (sticky alert once).
 Because resolving the ``cq-N`` writes only the contract file — never the
 tracker — the park self-releases on a change in the unresolved
-contract-decision set (``hitl_probe``) and, as a liveness backstop, every
+contract-decision set (``hitl_probe``), on a change in the consensus-relevant
+BRC state (``brc_probe``, #3465 — an arm can park while merely racing its
+upstream producer, e.g. the tester's propose arm no-oping before the coder
+has committed; the producer's proposal moves the tracker but never this arm's
+own dedupe key), and, as a liveness backstop, every
 ``SUPERVISION_NOOP_PARK_RETRY_SECONDS``.
 
 **Slice-5 (#3064): convergence-stall detection (re-homed idle-budget)**
@@ -370,6 +374,7 @@ class JobSupervisor:
         agent_failed: Callable[..., Any] | None = None,
         on_exhausted: Callable[..., Any] | None = None,
         hitl_probe: Callable[[], Iterable[str] | None] | None = None,
+        brc_probe: Callable[[], str | None] | None = None,
     ) -> None:
         self.clock = clock
         self._overseer_alert = overseer_alert
@@ -382,6 +387,14 @@ class JobSupervisor:
         # probe (or no probe wired) means "unknown": the park then releases
         # only via the retry heartbeat.
         self._hitl_probe = hitl_probe
+        # #3465: best-effort probe returning an opaque fingerprint of the
+        # consensus-relevant BRC state (tracker phases / proposals / verdicts).
+        # An arm parked while racing its upstream producer (the tester's
+        # propose arm no-oping before the coder commits) is un-wedged by BRC
+        # movement — but that movement never changes the parked arm's OWN
+        # dedupe key, so without this probe the only wake path is the retry
+        # heartbeat. ``None`` means "unknown", same semantics as ``hitl_probe``.
+        self._brc_probe = brc_probe
         # #3064 slice-4: fired once when a dedupe key crosses into the
         # exhausted set (the ``_exhausted`` transition). The orchestrator
         # wires this to tear down the role's reused gateway session — an
@@ -429,6 +442,9 @@ class JobSupervisor:
         # {dedupe_key: fingerprint-at-park} — the unresolved contract-decision
         # id set observed when the key parked (or on the last probe release).
         self._noop_fingerprint: dict[str, frozenset[str] | None] = {}
+        # {dedupe_key: brc-fingerprint-at-park} — the consensus-state digest
+        # observed when the key parked (or on the last BRC-movement release).
+        self._noop_brc_fingerprint: dict[str, str | None] = {}
         # {dedupe_key: clock() of the last allowed park-probe spawn} — anchors
         # the retry heartbeat.
         self._noop_last_probe: dict[str, float] = {}
@@ -470,6 +486,7 @@ class JobSupervisor:
             self._alerted_noop[dedupe_key] = True
             fingerprint = self._probe_hitl_fingerprint()
             self._noop_fingerprint[dedupe_key] = fingerprint
+            self._noop_brc_fingerprint[dedupe_key] = self._probe_brc_fingerprint()
             self._noop_last_probe[dedupe_key] = self.clock()
             logger.warning(
                 "JobSupervisor: %d consecutive successful no-op invocations for key=%s "
@@ -499,6 +516,7 @@ class JobSupervisor:
         self._exhausted.discard(dedupe_key)
         self._noop_streaks.pop(dedupe_key, None)
         self._noop_fingerprint.pop(dedupe_key, None)
+        self._noop_brc_fingerprint.pop(dedupe_key, None)
         self._noop_last_probe.pop(dedupe_key, None)
         self._alerted_noop.pop(dedupe_key, None)
         logger.debug("JobSupervisor: retired key=%s — all supervision state dropped", dedupe_key)
@@ -704,6 +722,12 @@ class JobSupervisor:
         * immediately, when the unresolved contract-decision set differs from
           the one recorded at park time (e.g. the gating ``cq-N`` was
           resolved) — detected via ``hitl_probe``;
+        * immediately, when the consensus-relevant BRC state differs from the
+          one recorded at park time (#3465) — detected via ``brc_probe``. An
+          arm can also park while merely racing its upstream producer (the
+          tester's propose arm no-ops until the coder commits); the producer's
+          proposal / reviews move the tracker but never this arm's own dedupe
+          key, so without this check the slice wedges until the heartbeat;
         * every ``SUPERVISION_NOOP_PARK_RETRY_SECONDS`` as a liveness
           backstop (also the only release when no probe is wired or it
           fails).
@@ -718,34 +742,62 @@ class JobSupervisor:
         now = self.clock()
         current = self._probe_hitl_fingerprint()
         parked = self._noop_fingerprint.get(dedupe_key)
-        if current is not None and parked is not None and current != parked:
-            self._noop_fingerprint[dedupe_key] = current
+        current_brc = self._probe_brc_fingerprint()
+        parked_brc = self._noop_brc_fingerprint.get(dedupe_key)
+        hitl_moved = current is not None and parked is not None and current != parked
+        brc_moved = current_brc is not None and parked_brc is not None and current_brc != parked_brc
+        if hitl_moved or brc_moved:
+            # Refresh BOTH probe anchors on any release, not just the branch that
+            # fired. If a single poll sees the contract-decision set AND the BRC
+            # state move at once (the operator resolves a gating ``cq-N`` while
+            # the cohort proposes), advancing only the firing anchor would leave
+            # the other's park-time digest stale, so the very next poll would
+            # release again — two probe spawns for one wedge. Advancing every
+            # anchor whose probe currently reads a concrete value collapses this
+            # to one probe per poll regardless of how many signals moved. A
+            # ``None`` reading (probe unwired/failed) is left untouched: it can
+            # never compare as moved, so it cannot cause a spurious re-release,
+            # and preserving its park-time value avoids degrading a good anchor
+            # on a transient probe failure.
+            if current is not None:
+                self._noop_fingerprint[dedupe_key] = current
+            if current_brc is not None:
+                self._noop_brc_fingerprint[dedupe_key] = current_brc
             self._noop_last_probe[dedupe_key] = now
-            # Re-arm the once-per-key alert latch only when a decision is *still*
-            # gating (``current`` non-empty). The alert names the decisions
-            # recorded at park time; if the probe spawn no-ops again on a
-            # freshly-gating ``cq-N`` the arm re-parks, and without re-arming the
-            # latch would suppress a new alert, leaving the operator staring at a
-            # stale one naming an already-resolved cq-N. This keeps "one alert
-            # per distinct wedge" rather than "one alert per key lifetime".
+            # Re-arm the once-per-key alert latch only when the contract-decision
+            # set moved AND a decision is *still* gating (``current`` non-empty).
+            # The alert names the decisions recorded at park time; if the probe
+            # spawn no-ops again on a freshly-gating ``cq-N`` the arm re-parks,
+            # and without re-arming the latch would suppress a new alert, leaving
+            # the operator staring at a stale one naming an already-resolved
+            # cq-N. This keeps "one alert per distinct wedge" rather than "one
+            # alert per key lifetime".
             #
-            # But an *empty* new set means the wedge cleared (the operator
-            # resolved the last gating decision), so the released probe will
-            # proceed and make real progress. Re-arming here would let the next
+            # An *empty* new set means the wedge cleared (the operator resolved
+            # the last gating decision), and a pure BRC-movement release means
+            # the cohort progressed; in both cases the released probe will
+            # proceed and make real progress. Re-arming there would let the next
             # ``record_success`` — which cannot distinguish a productive
             # completion from a repeat no-op (any rc=0 exit maps to SUCCESS) —
             # fire a spurious high-priority alert on the common happy path,
             # falsely claiming zero BRC progress with no visible gating decision.
-            # So only re-arm when a decision remains.
-            if current:
+            # So only re-arm when a gating decision remains.
+            if hitl_moved and current:
                 self._alerted_noop.pop(dedupe_key, None)
-            logger.info(
-                "JobSupervisor: contract-decision set changed for parked key=%s "
-                "(was %s, now %s) — releasing the no-op park for a probe spawn",
-                dedupe_key,
-                sorted(parked),
-                sorted(current),
-            )
+            if hitl_moved:
+                logger.info(
+                    "JobSupervisor: contract-decision set changed for parked key=%s "
+                    "(was %s, now %s) — releasing the no-op park for a probe spawn",
+                    dedupe_key,
+                    sorted(parked),
+                    sorted(current),
+                )
+            if brc_moved:
+                logger.info(
+                    "JobSupervisor: BRC state moved for parked key=%s "
+                    "— releasing the no-op park for a probe spawn",
+                    dedupe_key,
+                )
             return False
         last = self._noop_last_probe.get(dedupe_key)
         if last is None or (now - last) >= SUPERVISION_NOOP_PARK_RETRY_SECONDS:
@@ -779,6 +831,25 @@ class JobSupervisor:
             return None
         return frozenset(result)
 
+    def _probe_brc_fingerprint(self) -> str | None:
+        """Snapshot the consensus-state fingerprint (best-effort, #3465).
+
+        ``None`` means "unknown" (no probe wired, or the probe failed) — the
+        caller must then never treat the fingerprint as comparable, falling
+        back to the retry heartbeat. Same contract as
+        :meth:`_probe_hitl_fingerprint`.
+        """
+        if self._brc_probe is None:
+            return None
+        try:
+            return self._brc_probe()
+        except Exception as exc:  # noqa: BLE001 — probing is best-effort
+            logger.warning(
+                "JobSupervisor: brc probe failed — treating fingerprint as unknown: %s",
+                exc,
+            )
+            return None
+
     def reconcile(self, live_dedupe_keys: Iterable[str]) -> None:
         """When restarting, reconcile from live Job labels.
 
@@ -800,6 +871,7 @@ class JobSupervisor:
         self._exhausted.clear()
         self._noop_streaks.clear()
         self._noop_fingerprint.clear()
+        self._noop_brc_fingerprint.clear()
         self._noop_last_probe.clear()
         self._alerted_noop.clear()
         # Re-initialise live-key set if the caller provides it.

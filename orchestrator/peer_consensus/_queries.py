@@ -9,6 +9,7 @@ so it stays a single binding.
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from typing import Any
 
@@ -62,6 +63,40 @@ def get_pre_merge_conditions(self) -> list[dict[str, Any]]:
     """
     with self._lock:
         return self.matrix.get_pre_merge_conditions()
+
+
+def consensus_state_fingerprint(self) -> str:
+    """Stable digest of the consensus-relevant BRC state (#3465).
+
+    Folds exactly the fields that move when the BRC bus moves — producer /
+    reviewer phases, the confirmed set, proposal versions and commit SHAs,
+    and per-edge approval state (including obligation resolution) — and
+    nothing that can move without bus progress (no timestamps, which the
+    matrix rewrites on idempotent re-verdicts). Wired as the event-loop
+    ``JobSupervisor``'s ``brc_probe``: a no-op-parked arm (#3425) whose own
+    dedupe key cannot observe cohort progress (the tester's propose arm
+    parked while the coder is still writing) self-releases when this digest
+    changes, instead of waiting out the retry heartbeat.
+    """
+    with self._lock:
+        parts: list[str] = []
+        for role in sorted(self._producer_phases):
+            parts.append(
+                f"producer:{role}={self._producer_phases[role].value}"
+                f"@{self._proposal_commit_shas.get(role, '')}"
+            )
+        for role in sorted(self._reviewer_phases):
+            parts.append(f"reviewer:{role}={self._reviewer_phases[role].value}")
+        parts.append("confirmed:" + ",".join(sorted(self._confirmed)))
+        matrix = self.matrix.to_dict()
+        for role, version in sorted(matrix.get("proposal_versions", {}).items()):
+            parts.append(f"version:{role}={version}")
+        for edge_key, entry in sorted(matrix.get("entries", {}).items()):
+            parts.append(
+                f"edge:{edge_key}={entry.get('state', '')}@{entry.get('version', 0)}"
+                f"/{int(bool(entry.get('obligation_resolved')))}"
+            )
+    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
 
 
 def get_latest_proposal_timestamp(self) -> datetime | None:

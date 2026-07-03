@@ -521,6 +521,12 @@ class ConcurrentPhaseExecutor:
             agent_failed=self._handle_propose_arm_exhaustion,
             on_exhausted=self._teardown_exhausted_session,
             hitl_probe=self._unresolved_contract_decision_ids,
+            # #3465: a parked arm self-releases on consensus movement (a
+            # cohort proposal/verdict never changes the parked arm's own
+            # dedupe key, so this is the only non-heartbeat wake for an arm
+            # parked while racing its upstream producer). ``getattr`` keeps
+            # test doubles without the method on the heartbeat-only path.
+            brc_probe=getattr(tracker, "consensus_state_fingerprint", None),
         )
 
         # #3064 slice-5: convergence-stall notifier re-uses the same
