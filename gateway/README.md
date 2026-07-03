@@ -457,7 +457,9 @@ GET /api/v1/proxy/ca-cert
                material, no auth required) for clients that must
                validate TLS-bumped hosts outside the shared-certs
                volume, e.g. the GitHub Packages npm read-through
-               (#3456). See ../docs/architecture/network-isolation.md
+               (#3456). The k8s one-shot event wrapper fetches it
+               per spawn and exports NODE_EXTRA_CA_CERTS (#3459).
+               See ../docs/architecture/network-isolation.md
                ("GitHub Packages npm Read-Through (Token-Gated)").
   Response: application/x-pem-file, or 404 {error: "ca_cert_unavailable"}
 ```

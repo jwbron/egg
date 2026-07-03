@@ -930,9 +930,12 @@ def get_proxy_ca_cert() -> tuple[Response, int] | Response:
     its trust store via the shared-certs volume in Compose mode. Under
     k8s the agent Job ``command`` overrides the image ENTRYPOINT, so the
     sandbox's ``setup_gateway_ca()`` never runs and no shared volume is
-    mounted; clients that must validate TLS-bumped hosts (e.g. the
-    GitHub Packages npm read-through, #3456) fetch the current CA from
-    this endpoint instead::
+    mounted; the one-shot event wrapper
+    (``orchestrator/consensus_wrapper.py``, #3459) fetches the current
+    CA from this endpoint per spawn and exports ``NODE_EXTRA_CA_CERTS``,
+    so agents validate TLS-bumped hosts (e.g. the GitHub Packages npm
+    read-through, #3456) without hand-wiring. Ad-hoc clients outside an
+    agent pod fetch the same way::
 
         curl -sf "$GATEWAY_URL/api/v1/proxy/ca-cert" -o /tmp/gateway-ca.crt
         NODE_EXTRA_CA_CERTS=/tmp/gateway-ca.crt pnpm install ...

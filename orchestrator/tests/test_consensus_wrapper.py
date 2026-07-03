@@ -506,6 +506,202 @@ class TestRestorePrebuiltDeps:
         assert not (repo / ".venv" / "bin" / "secret").exists()
 
 
+class TestSetupGatewayCa:
+    """Gateway proxy CA trust on the k8s agent path (#3459).
+
+    k8s agent pods override the image ENTRYPOINT (this wrapper IS the
+    pod command), so ``sandbox.entrypoint._environment.setup_gateway_ca``
+    never runs and no shared-certs volume is mounted — clients that must
+    validate TLS-bumped hosts (the GitHub Packages npm read-through,
+    #3456) had to fetch the CA by hand. The wrapper now fetches the
+    current CA from the gateway's public ``/api/v1/proxy/ca-cert``
+    endpoint (#3458) and exports ``NODE_EXTRA_CA_CERTS``, mirroring the
+    Compose entrypoint. Guarded on ``NODE_EXTRA_CA_CERTS`` being unset so
+    the Compose path (entrypoint env inherited via ``run_exec``) is
+    untouched; fail-soft so the agent invocation is never blocked on it.
+    """
+
+    _FAKE_PEM = "-----BEGIN CERTIFICATE-----\nfake-gateway-ca\n-----END CERTIFICATE-----\n"
+
+    def _script(self) -> str:
+        return build_consensus_wrapped_command("Prompt")[2]
+
+    def test_template_defines_setup_gateway_ca(self):
+        assert "setup_gateway_ca() {" in self._script()
+
+    def test_fetch_runs_after_stale_check_before_any_arm(self):
+        """Ordering invariant: a stale event must exit WITHOUT paying the
+        fetch, and every non-stale arm (review sync + agent invocation)
+        must inherit the exported NODE_EXTRA_CA_CERTS."""
+        script = self._script()
+        stale_exit = script.index("Injected event is stale")
+        ca_call = script.index("\nsetup_gateway_ca\n")
+        sync_call = script.index('sync_to_proposals "$ONE_SHOT_PAYLOAD"')
+        invoke_call = script.index('invoke_agent_for_event "$ONE_SHOT_ACTION" "$ONE_SHOT_PAYLOAD"')
+        assert stale_exit < ca_call < sync_call < invoke_call
+
+    def test_fetch_is_fail_soft(self):
+        """The agent invocation must never be blocked on the fetch: the
+        function returns 0 on every path (a missing CA surfaces as a
+        certificate error at install time instead)."""
+        script = self._script()
+        fn_body = script.split("setup_gateway_ca() {", 1)[1].split("\n}\n", 1)[0]
+        assert "fail-soft" in fn_body
+        assert fn_body.rstrip().endswith("return 0")
+
+    def test_fetch_targets_the_ca_cert_endpoint(self):
+        """Pin the endpoint contract with the gateway (#3458)."""
+        assert '"$GATEWAY_URL/api/v1/proxy/ca-cert"' in self._script()
+
+    def _extract_ca_harness(self, script: str, env_lines: str) -> str:
+        """Build a runnable bash harness: cw_log + setup_gateway_ca."""
+        import re
+
+        cw_match = re.search(r"cw_log\(\) \{.*?\n\}", script, flags=re.DOTALL)
+        assert cw_match is not None
+        ca_match = re.search(r"setup_gateway_ca\(\) \{.*?\n\}", script, flags=re.DOTALL)
+        assert ca_match is not None
+        return (
+            "#!/bin/bash\nset -uo pipefail\n"
+            + env_lines
+            + cw_match.group(0)
+            + "\n"
+            + ca_match.group(0)
+            + "\nsetup_gateway_ca"
+            + '\necho "CA_RC=$?"'
+            + '\necho "CA_ENV=${NODE_EXTRA_CA_CERTS:-unset}"\n'
+        )
+
+    def _serve_ca(self):
+        """Start a local HTTP server serving the fake PEM at the ca-cert
+        route; returns (server, base_url). Caller must shutdown()."""
+        import http.server
+        import threading
+
+        pem = self._FAKE_PEM.encode()
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802 — BaseHTTPRequestHandler API
+                if self.path == "/api/v1/proxy/ca-cert":
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/x-pem-file")
+                    self.end_headers()
+                    self.wfile.write(pem)
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return server, f"http://127.0.0.1:{server.server_address[1]}"
+
+    # Every variable setup_gateway_ca reads. The behavioral harness must
+    # control all of them, or an ambient value leaks in and makes the
+    # assertions environment-dependent — exactly the defect this guards
+    # against. The egg sandbox exports both NODE_EXTRA_CA_CERTS (entrypoint,
+    # sandbox/entrypoint/_environment.py) and GATEWAY_URL, so a leaked
+    # NODE_EXTRA_CA_CERTS trips the preset guard and a leaked GATEWAY_URL
+    # makes the "unset GATEWAY_URL" case fetch from a live gateway.
+    _CONSUMED_ENV = ("NODE_EXTRA_CA_CERTS", "GATEWAY_URL", "TMPDIR")
+
+    @classmethod
+    def _clean_env(cls) -> dict:
+        """Parent env for the bash harness with the vars setup_gateway_ca
+        consumes scrubbed. The harness re-exports whichever ones a given
+        case needs via its ``env_lines``, so scrubbing here is safe for
+        every case and makes the subprocess hermetic. Mirrors the explicit
+        ``env=`` pattern already used by ``TestRestorePrebuiltDeps``."""
+        return {k: v for k, v in os.environ.items() if k not in cls._CONSUMED_ENV}
+
+    def test_behavioral_fetches_and_exports(self, tmp_path):
+        """End-to-end: the CA is fetched from the gateway endpoint,
+        written under TMPDIR, and NODE_EXTRA_CA_CERTS is exported."""
+        server, base_url = self._serve_ca()
+        try:
+            env_lines = (
+                f"export GATEWAY_URL={shlex.quote(base_url)}\n"
+                f"export TMPDIR={shlex.quote(str(tmp_path))}\n"
+            )
+            harness = self._extract_ca_harness(self._script(), env_lines)
+            result = subprocess.run(
+                ["bash", "-c", harness],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=self._clean_env(),
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+        assert "CA_RC=0" in result.stdout, f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        ca_file = tmp_path / "gateway-ca.crt"
+        assert f"CA_ENV={ca_file}" in result.stdout
+        assert ca_file.read_text() == self._FAKE_PEM
+
+    def test_behavioral_preset_env_skips_fetch(self, tmp_path):
+        """Compose guard: an inherited NODE_EXTRA_CA_CERTS (set by the
+        entrypoint) is never overridden — no fetch is attempted, so no
+        GATEWAY_URL is even needed."""
+        env_lines = (
+            "export NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/gateway-ca.crt\n"
+            f"export TMPDIR={shlex.quote(str(tmp_path))}\n"
+        )
+        harness = self._extract_ca_harness(self._script(), env_lines)
+        result = subprocess.run(
+            ["bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=self._clean_env(),
+        )
+        assert "CA_RC=0" in result.stdout
+        assert "CA_ENV=/usr/local/share/ca-certificates/gateway-ca.crt" in result.stdout
+        assert "already set" in result.stderr
+        assert not (tmp_path / "gateway-ca.crt").exists()
+
+    def test_behavioral_unset_gateway_url_skips(self, tmp_path):
+        """No GATEWAY_URL (e.g. a bare test harness): skip, exit 0."""
+        harness = self._extract_ca_harness(
+            self._script(), f"export TMPDIR={shlex.quote(str(tmp_path))}\n"
+        )
+        result = subprocess.run(
+            ["bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=self._clean_env(),
+        )
+        assert "CA_RC=0" in result.stdout
+        assert "CA_ENV=unset" in result.stdout
+        assert "GATEWAY_URL unset" in result.stderr
+
+    def test_behavioral_fetch_failure_is_fail_soft(self, tmp_path):
+        """Unreachable gateway / 404 (squid certs absent): rc 0, no
+        export, no leftover partial file."""
+        server, base_url = self._serve_ca()
+        server.shutdown()
+        server.server_close()  # listening socket closed — connection refused
+        env_lines = (
+            f"export GATEWAY_URL={shlex.quote(base_url)}\n"
+            f"export TMPDIR={shlex.quote(str(tmp_path))}\n"
+        )
+        harness = self._extract_ca_harness(self._script(), env_lines)
+        result = subprocess.run(
+            ["bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=self._clean_env(),
+        )
+        assert "CA_RC=0" in result.stdout, f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        assert "CA_ENV=unset" in result.stdout
+        assert "fetch failed" in result.stderr
+        assert not (tmp_path / "gateway-ca.crt").exists()
+
+
 class TestSyncOutcomesAndBanner:
     """R1 non-silent sync banner (#3077 slice-1 TASK-1-3).
 
