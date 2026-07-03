@@ -421,6 +421,29 @@ The gateway runs Squid with the following key configuration elements:
 - **Caching:** disabled (not needed for API calls)
 - **Self-signed CA:** generated at build time for peek/splice operations only; never trusted externally
 
+### GitHub Packages npm Read-Through (Token-Gated)
+
+The npm registry entry in the allowlist covers `registry.npmjs.org` only. Packages hosted on the GitHub Packages npm registry (`npm.pkg.github.com`) can't ride the same splice path, for two structural reasons ([#3456](https://github.com/jwbron/egg/issues/3456)):
+
+1. **Reads require auth.** GitHub Packages returns 401 on unauthenticated requests, and lockfiles pin absolute tarball URLs on the registry host — so package managers fetch it directly and a registry-endpoint indirection (pointing the scope's registry config at a gateway route) can never intercept a frozen-lockfile install. Verified empirically: with the scope registry reconfigured, pnpm still fetches the lockfile-pinned URL.
+2. **Downloads redirect cross-host.** Tarball requests 302-redirect to GitHub's npm blob host (`npmregistryv2prod.blob.core.windows.net`, published under `domains.packages` in `https://api.github.com/meta`) with SAS-signed URLs.
+
+The read-through solves both at the proxy layer, and is **no-op by default** — it activates only when the operator provisions an `npm-packages-token` secret (see `config/README.md`):
+
+- **Registry host is TLS-bumped, not spliced.** Squid decrypts `npm.pkg.github.com` using the same gateway CA that sandboxes already trust, strips any client-supplied `Authorization` header (the sandbox cannot choose its own token), and injects the operator's token. The token never enters the sandbox.
+- **GET/HEAD only.** `http_access` denies every other method on the decrypted registry requests, so `npm publish`/unpublish is structurally impossible regardless of the token's scopes. Operators should still provision a minimal read-only packages token.
+- **Blob host is spliced.** The SAS-signed download URLs need no credential injection.
+- **Real per-package audit.** Because the registry host is bumped, the Squid access log records the full request path — exactly which package and version each sandbox fetched. Spliced hosts only ever produce host-level connection records.
+- **Trust distribution.** Clients validating the bumped host need the gateway CA: the gateway serves it at `GET /api/v1/proxy/ca-cert` (public key material, no auth), e.g. `curl -sf "$GATEWAY_URL/api/v1/proxy/ca-cert" -o /tmp/gateway-ca.crt && NODE_EXTRA_CA_CERTS=/tmp/gateway-ca.crt pnpm install --frozen-lockfile`.
+
+Mechanically, `entrypoint.sh` renders `gateway/squid-npm-packages-{ssl,access}.conf.template` into `/etc/squid/conf.d/` when the token secret is present, and truncates the includes to empty files when it isn't. A malformed token (characters outside `[A-Za-z0-9_-]`, or empty after trimming whitespace) leaves the read-through **disabled** with a loud `ERROR` in the gateway log rather than crashlooping the container — the feature is opt-in and no-op-by-default, so a bad secret must not take down git/gh/Anthropic traffic for every pipeline. `gateway/tests/test_npm_packages_readthrough.py` pins the include ordering, the strip-then-inject header rules, the GET/HEAD-only shape, and that neither host ever appears in `allowed_domains.txt`; when a `squid` binary with TLS-bump support is available it also runs `squid -k parse` over the rendered config to catch template syntax regressions (skipped otherwise).
+
+#### Blob host is a hardcoded dependency on `api.github.com/meta`
+
+The blob host (`npmregistryv2prod.blob.core.windows.net`) is **hardcoded** in `squid-npm-packages-ssl.conf.template` and the tests, mirroring the current `domains.packages` value published in `https://api.github.com/meta`. It is not discovered at runtime. If GitHub rotates or regionalizes that host, tarball downloads for the new host silently fall through to `ssl_bump terminate all` — the install fails with a generic TLS/connection error that does **not** name this feature.
+
+**Diagnosing a broken read-through after a GitHub-side change:** if metadata resolves (200 on `npm.pkg.github.com`) but tarball downloads fail, check the Squid access log — a `TCP_DENIED`/terminate against a `*.blob.core.windows.net` host you don't recognize means the published blob host has changed. Re-fetch `https://api.github.com/meta`, compare `domains.packages`, and update the hardcoded host to match: the `acl npm_pkg_blob` and `acl npm_pkg_blob_dst` lines in `squid-npm-packages-ssl.conf.template` (the value is literal there — there is no `BLOB_HOST` placeholder to substitute), and the `BLOB_HOST` constant in `test_npm_packages_readthrough.py`. This is the one part of the mechanism that can break without a code change on our side, so it is called out here rather than left as a silent constant.
+
 ### Breakout Prevention
 
 | Attack Vector | Mitigation |

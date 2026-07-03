@@ -101,13 +101,13 @@ def test_npm_registries_present(domain: str):
 @pytest.mark.parametrize(
     "bad_substr",
     [
-        # GitHub Packages is deliberately NOT allowlisted: it serves
-        # tarballs via a cross-host 302 redirect to a *.githubusercontent.com
-        # blob host that would also need allowlisting, and its auth-delivery
-        # story into the sandbox is undesigned. Allowlisting the registry
-        # host alone yields a confusing failure — metadata resolves 200,
-        # then the tarball download is terminated. Don't re-add it without
-        # also allowlisting the redirect target(s). Tracked as a follow-up.
+        # GitHub Packages is deliberately NOT in the general allowlist: it
+        # is served exclusively by the token-gated read-through (#3456) —
+        # the conf.d includes rendered by entrypoint.sh, which bump the
+        # host for credential injection and enforce GET/HEAD-only access.
+        # In this file it would be spliced instead: no credential
+        # injection (installs 401), no method restriction, and no
+        # per-package audit. See test_npm_packages_readthrough.py.
         "npm.pkg.github.com",
     ],
 )

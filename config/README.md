@@ -37,8 +37,33 @@ All persistent user configuration is consolidated under `~/.config/egg/`:
 ├── github-app-installation-id  # GitHub App Installation ID
 ├── github-app.pem     # GitHub App private key (bot identity)
 ├── reviewer-app.pem   # Reviewer GitHub App private key (optional, for separate reviewer bot)
+├── npm-packages-token # Optional: read-only token for the GitHub Packages npm read-through
 └── repositories.yaml  # Repository access configuration (created by setup.py)
 ```
+
+### npm-packages-token (Optional)
+
+Enables the token-gated GitHub Packages npm read-through
+([#3456](https://github.com/jwbron/egg/issues/3456), see
+[network-isolation.md](../docs/architecture/network-isolation.md#github-packages-npm-read-through-token-gated)):
+the gateway's Squid proxy TLS-bumps `npm.pkg.github.com`, strips any
+client-supplied `Authorization` header, and injects this token so sandboxes
+can install GitHub-Packages-hosted npm dependencies without ever holding a
+credential. Access is restricted to GET/HEAD at the proxy, so a broad token
+gains nothing — but provision a **minimal read-only packages token** anyway
+(classic PAT with only `read:packages`, or a fine-grained token with
+package read access).
+
+```bash
+printf '%s' 'ghp_...' > ~/.config/egg/npm-packages-token
+chmod 600 ~/.config/egg/npm-packages-token
+```
+
+Absent the file, the read-through is fully disabled (empty Squid includes;
+behavior identical to before the feature existed). In k8s the file reaches
+the gateway automatically via `make k3s-secrets` (all files under
+`~/.config/egg/` become keys of the gateway secret, mounted at
+`/secrets/`); the gateway pod must be restarted to pick up changes.
 
 ## Cache Directory (`~/.cache/egg/`)
 

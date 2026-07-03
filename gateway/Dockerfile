@@ -96,6 +96,19 @@ COPY gateway/squid-allow-all.conf /etc/squid/squid-allow-all.conf
 COPY gateway/allowed_domains.txt /etc/squid/allowed_domains.txt
 RUN chmod 644 /etc/squid/squid.conf /etc/squid/squid-allow-all.conf /etc/squid/allowed_domains.txt
 
+# GitHub Packages npm read-through (#3456): templates rendered by
+# entrypoint.sh into /etc/squid/conf.d/ when an npm-packages-token secret
+# is provisioned. The include files are created empty here so squid.conf's
+# `include` directives always have a valid target — with no token they
+# stay empty and Squid behavior is unchanged. The conf.d directory must be
+# writable by the runtime user (entrypoint re-renders on every start).
+COPY gateway/squid-npm-packages-ssl.conf.template /etc/squid/squid-npm-packages-ssl.conf.template
+COPY gateway/squid-npm-packages-access.conf.template /etc/squid/squid-npm-packages-access.conf.template
+RUN mkdir -p /etc/squid/conf.d && \
+    touch /etc/squid/conf.d/npm-packages-ssl.conf /etc/squid/conf.d/npm-packages-access.conf && \
+    chmod 644 /etc/squid/squid-npm-packages-ssl.conf.template /etc/squid/squid-npm-packages-access.conf.template && \
+    chown -R egg:egg /etc/squid/conf.d
+
 # Copy config validator for startup checks
 COPY gateway/config_validator.py ./config_validator.py
 

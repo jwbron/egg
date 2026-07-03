@@ -1,0 +1,20 @@
+# GitHub Packages npm read-through — http_access rules.
+#
+# Rendered into /etc/squid/conf.d/npm-packages-access.conf by entrypoint.sh
+# ONLY when the operator provisions an npm-packages-token secret; otherwise
+# the include is an empty file (no-op by default).
+#
+# ACLs referenced here are defined in squid-npm-packages-ssl.conf.template,
+# whose include point is parsed earlier in squid.conf. These rules sit
+# BEFORE the generic `http_access allow ... allowed_domains` rules and
+# the final `http_access deny all`.
+
+# CONNECT tunnels: registry (bumped) and blob host (spliced).
+http_access allow CONNECT localnet npm_pkg_registry_dst
+http_access allow CONNECT localnet npm_pkg_blob_dst
+
+# Decrypted registry requests: reads only. PUT/POST/DELETE (npm publish,
+# unpublish, token probing) are structurally denied regardless of the
+# injected token's scopes.
+http_access allow localnet npm_pkg_registry_dst npm_pkg_read_methods
+http_access deny npm_pkg_registry_dst

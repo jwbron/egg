@@ -75,6 +75,67 @@ export EGG_LAUNCHER_SECRET
 # No symlinks needed since we mount the directory
 
 # =============================================================================
+# GitHub Packages npm Read-Through (token-gated, no-op by default)
+# =============================================================================
+# When the operator provisions an npm-packages-token (a read-only
+# packages token; see config/README.md), render the Squid bump +
+# credential-injection includes so sandboxes can install packages from the
+# GitHub Packages npm registry without ever holding the token. Without the
+# secret, the includes are truncated to empty files and Squid behavior is
+# byte-identical to the splice-only baseline. See issue #3456.
+#
+# Fail *closed but soft* on a malformed token: this is an opt-in,
+# no-op-by-default feature, so a bad token file must NOT take down the
+# whole gateway (git/gh/Anthropic traffic for every pipeline). Both the
+# char-guard and the empty-after-trim case therefore log a loud error and
+# leave the read-through DISABLED (empty includes) rather than `exit 1`
+# crashlooping the container. Fail-closed is preserved — a token with
+# characters outside the GitHub alphabet is never rendered into Squid
+# config — while the blast radius is contained to this feature.
+
+NPM_PACKAGES_TOKEN_FILE="${EGG_NPM_PACKAGES_TOKEN_FILE:-/secrets/npm-packages-token}"
+NPM_SSL_INCLUDE="/etc/squid/conf.d/npm-packages-ssl.conf"
+NPM_ACCESS_INCLUDE="/etc/squid/conf.d/npm-packages-access.conf"
+mkdir -p /etc/squid/conf.d
+
+_npm_readthrough_disable() {
+  # Render empty includes so squid.conf's `include` directives always have
+  # a valid (no-op) target, then log why the feature is off.
+  : > "$NPM_SSL_INCLUDE"
+  : > "$NPM_ACCESS_INCLUDE"
+  echo "GitHub Packages npm read-through: disabled ($1)"
+}
+
+if [ -s "$NPM_PACKAGES_TOKEN_FILE" ]; then
+  NPM_PACKAGES_TOKEN=$(tr -d '[:space:]' < "$NPM_PACKAGES_TOKEN_FILE")
+  case "$NPM_PACKAGES_TOKEN" in
+    *[!A-Za-z0-9_-]*)
+      # Fail closed WITHOUT crashlooping: never render attacker-influenced
+      # config, but keep the rest of the gateway serving.
+      echo "ERROR: npm-packages-token contains characters outside the GitHub token alphabet ([A-Za-z0-9_-]); refusing to render Squid config. Fix the secret and restart the gateway to enable the read-through."
+      _npm_readthrough_disable "malformed token at $NPM_PACKAGES_TOKEN_FILE"
+      ;;
+    "")
+      echo "ERROR: npm-packages-token is empty after trimming whitespace. Fix the secret and restart the gateway to enable the read-through."
+      _npm_readthrough_disable "empty token at $NPM_PACKAGES_TOKEN_FILE"
+      ;;
+    *)
+      sed "s|@NPM_PACKAGES_TOKEN@|${NPM_PACKAGES_TOKEN}|" \
+        /etc/squid/squid-npm-packages-ssl.conf.template > "$NPM_SSL_INCLUDE"
+      cp /etc/squid/squid-npm-packages-access.conf.template "$NPM_ACCESS_INCLUDE"
+      # The ssl include embeds the token — owner-only. Squid reads its
+      # config as the user that starts it (this entrypoint's user), so 600
+      # suffices.
+      chmod 600 "$NPM_SSL_INCLUDE"
+      chmod 644 "$NPM_ACCESS_INCLUDE"
+      echo "GitHub Packages npm read-through: ENABLED (token from $NPM_PACKAGES_TOKEN_FILE)"
+      ;;
+  esac
+else
+  _npm_readthrough_disable "no token at $NPM_PACKAGES_TOKEN_FILE"
+fi
+
+# =============================================================================
 # Start Squid Proxy for Network Filtering
 # =============================================================================
 
