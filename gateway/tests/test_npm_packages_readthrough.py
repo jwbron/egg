@@ -18,7 +18,11 @@ the GET/HEAD-only access shape, and the hosts staying out of the general
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 GATEWAY_DIR = Path(__file__).parent.parent
 SQUID_CONF = GATEWAY_DIR / "squid.conf"
@@ -215,3 +219,113 @@ class TestCaCertRoute:
             resp = client.get("/api/v1/proxy/ca-cert")
         assert resp.status_code == 404
         assert resp.get_json()["error"] == "ca_cert_unavailable"
+
+
+def _squid_supports_ssl_bump(squid_bin: str) -> bool:
+    """True if the squid binary was built with TLS-bump (``ssl::server_name``) support."""
+    try:
+        out = subprocess.run([squid_bin, "-v"], capture_output=True, text=True, timeout=10)
+    except OSError, subprocess.SubprocessError:
+        return False
+    blob = (out.stdout + out.stderr).lower()
+    return "--enable-ssl" in blob or "--with-openssl" in blob
+
+
+class TestRenderedConfigParses:
+    """`squid -k parse` over the rendered config catches template syntax regressions.
+
+    The text-level tests above pin ordering and rule shape but can't catch a
+    genuine Squid syntax error introduced by a future template edit. This
+    runs the real parser over the rendered includes wired into a minimal
+    harness that reproduces the surrounding ``squid.conf`` context.
+
+    Skipped unless a ``squid`` binary with TLS-bump support *and* ``openssl``
+    are available — the pure-Python test image has neither, so this is a
+    bonus guard for environments that do (the gateway container, a dev box).
+    The deploy-time backstop is ``entrypoint.sh``'s ``squid -k check``, which
+    already fails container startup on an invalid rendered config.
+    """
+
+    def test_rendered_includes_parse(self, tmp_path):
+        squid_bin = shutil.which("squid") or shutil.which("squid3")
+        if not squid_bin:
+            pytest.skip("squid binary not available")
+        if not _squid_supports_ssl_bump(squid_bin):
+            pytest.skip("squid built without TLS-bump support")
+        openssl = shutil.which("openssl")
+        if not openssl:
+            pytest.skip("openssl not available to generate a bump cert")
+
+        # Throwaway self-signed cert for the ssl-bump port (parse-time only).
+        cert = tmp_path / "bump.pem"
+        key = tmp_path / "bump.key"
+        gen = subprocess.run(
+            [
+                openssl,
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:2048",
+                "-nodes",
+                "-keyout",
+                str(key),
+                "-out",
+                str(cert),
+                "-days",
+                "1",
+                "-subj",
+                "/CN=egg-test",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if gen.returncode != 0:
+            pytest.skip(f"openssl cert generation failed: {gen.stderr.strip()}")
+
+        conf_d = tmp_path / "conf.d"
+        conf_d.mkdir()
+        ssl_include = conf_d / "npm-packages-ssl.conf"
+        access_include = conf_d / "npm-packages-access.conf"
+        # Render exactly as entrypoint.sh does: sed-substitute the token into
+        # the ssl include; copy the access include verbatim.
+        ssl_include.write_text(
+            SSL_TEMPLATE.read_text().replace(TOKEN_PLACEHOLDER, "ghp_exampletoken")
+        )
+        access_include.write_text(ACCESS_TEMPLATE.read_text())
+
+        # Minimal harness: the ssl-bump port plus the ACLs the includes
+        # reference from the surrounding config (localnet, step1,
+        # allowed_domains), with the includes wired in at the same relative
+        # positions as squid.conf (ssl include between peek and splice;
+        # access include before the generic allows).
+        harness = tmp_path / "squid.conf"
+        harness.write_text(
+            "\n".join(
+                [
+                    "http_port 3128",
+                    f"https_port 3130 ssl-bump generate-host-certificates=on cert={cert} key={key}",
+                    "acl localnet src 10.0.0.0/8",
+                    "acl step1 at_step SslBump1",
+                    "acl allowed_domains ssl::server_name .example.org",
+                    "ssl_bump peek step1",
+                    f"include {ssl_include}",
+                    "ssl_bump splice allowed_domains",
+                    "ssl_bump terminate all",
+                    f"include {access_include}",
+                    "http_access allow localnet",
+                    "http_access deny all",
+                    "",
+                ]
+            )
+        )
+
+        result = subprocess.run(
+            [squid_bin, "-k", "parse", "-f", str(harness)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, (
+            f"squid -k parse rejected the rendered npm read-through config:\n{result.stderr}"
+        )

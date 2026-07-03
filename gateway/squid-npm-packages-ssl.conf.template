@@ -27,6 +27,11 @@
 # parsed first.
 
 # --- ACL definitions (shared with the access include) ---
+# NOTE: the blob host below is hardcoded from `domains.packages` in
+# https://api.github.com/meta. If GitHub rotates/regionalizes it, tarball
+# downloads silently fall through to `ssl_bump terminate all`. See the
+# "Blob host is a hardcoded dependency" troubleshooting note in
+# docs/architecture/network-isolation.md before changing it.
 acl npm_pkg_registry ssl::server_name npm.pkg.github.com
 acl npm_pkg_blob ssl::server_name npmregistryv2prod.blob.core.windows.net
 acl npm_pkg_registry_dst dstdomain npm.pkg.github.com
