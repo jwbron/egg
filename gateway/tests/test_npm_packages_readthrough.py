@@ -296,9 +296,13 @@ class TestRenderedConfigParses:
 
         # Minimal harness: the ssl-bump port plus the ACLs the includes
         # reference from the surrounding config (localnet, step1,
-        # allowed_domains), with the includes wired in at the same relative
-        # positions as squid.conf (ssl include between peek and splice;
-        # access include before the generic allows).
+        # allowed_domains, CONNECT), with the includes wired in at the same
+        # relative positions as squid.conf (ssl include between peek and
+        # splice; access include before the generic allows). CONNECT is not a
+        # Squid built-in — squid.conf defines it with `acl CONNECT method
+        # CONNECT`, and the access include's `http_access allow CONNECT ...`
+        # rules reference it, so the harness must define it too or `squid -k
+        # parse` aborts with "ACL name 'CONNECT' not found".
         harness = tmp_path / "squid.conf"
         harness.write_text(
             "\n".join(
@@ -308,6 +312,7 @@ class TestRenderedConfigParses:
                     "acl localnet src 10.0.0.0/8",
                     "acl step1 at_step SslBump1",
                     "acl allowed_domains ssl::server_name .example.org",
+                    "acl CONNECT method CONNECT",
                     "ssl_bump peek step1",
                     f"include {ssl_include}",
                     "ssl_bump splice allowed_domains",
