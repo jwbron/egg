@@ -216,7 +216,7 @@ def _contract_completeness_rejection(
     """Contract-task completeness gate for consensus signals (#3114).
 
     Returns a structured rejection response, or ``None`` when the signal
-    may proceed. Three checks share the same contract read:
+    may proceed. Four checks share the same contract read:
 
     * ``check="ack"`` — an enforcer reviewer (see
       ``CONTRACT_ENFORCER_ROLE_NAMES``) may not ACK ``producer_role``
@@ -230,6 +230,19 @@ def _contract_completeness_rejection(
       ``no_changes_needed`` proposal while owning incomplete rows in the
       active slice (a no-op needs no review, so it would bypass the
       per-producer ACK gate entirely).
+    * ``check="propose"`` — ``producer_role`` may not submit a regular
+      (or re-) proposal while owning incomplete rows in the active slice
+      (#3470). Producers routinely finish the work, commit, and propose
+      without calling ``mcp__task__complete``; the enforcer then NACKs
+      on pure bookkeeping, and when the fix is contract-only the
+      re-propose 409s on the unchanged-tree guard (#3395) and the slice
+      deadlocks. Rejecting here — before the tracker records anything —
+      turns that cross-agent review round into a same-session
+      self-correction. No bypass flag: the enforcer ACK gate above
+      already blocks any proposal with incomplete owned rows from
+      reaching consensus, so a "legitimately partial" propose does not
+      exist in the implement phase; ``EGG_CONTRACT_ACK_GATE`` remains
+      the operator escape hatch.
 
     Scope: implement phase only. Plan/refine consensus runs against
     contracts whose rows are expected to be pending, and the apply phase
@@ -336,6 +349,24 @@ def _contract_completeness_rejection(
                 status_code=409,
                 details={
                     "status": "contract_incomplete",
+                    "slice_id": slice_id,
+                    "incomplete_tasks": rows,
+                },
+            )
+        if check == "propose":
+            return make_error_response(
+                f"Propose rejected: {producer_role} owns {len(rows)} contract "
+                f"task(s) in {scope} not marked complete: {summary}. If the "
+                f"work is finished, mark each row complete via "
+                f"mcp__task__complete and propose again — proposing now would "
+                f"only draw a bookkeeping NACK from the contract reviewer, "
+                f"and a contract-only fix cannot re-propose (zero new "
+                f"commits). If a row cannot be delivered in this slice, "
+                f"escalate for a human decision.",
+                status_code=409,
+                details={
+                    "status": "contract_incomplete",
+                    "producer": producer_role,
                     "slice_id": slice_id,
                     "incomplete_tasks": rows,
                 },
@@ -638,6 +669,36 @@ def handle_consensus_propose_signal(
                 worktree_path=worktree_path,
                 branch_verified=branch_verified,
             )
+            # Contract-task completeness gate, propose flavour (#3470): a
+            # producer that finished its work but skipped
+            # mcp__task__complete would sail into review and draw a
+            # pure-bookkeeping NACK from the enforcer — and when the fix
+            # is contract-only, the re-propose 409s on the unchanged-tree
+            # guard (#3395) and the slice deadlocks with no in-protocol
+            # exit. Reject here, before the tracker records the proposal
+            # or any reviewer is invoked, so the producer self-corrects in
+            # the same session. Runs after the content validators so the
+            # producer is only told to mark rows complete once the
+            # artifact checks have passed. Covers the re-propose path too
+            # (the ``changed_artifacts`` dispatch below). Reuse the phase
+            # from ``pipeline_state`` when the commit-on-branch block
+            # already loaded it; otherwise the gate resolves phase itself,
+            # fail-open (#3081 posture).
+            propose_phase: str | None = None
+            if pipeline_state is not None:
+                phase_attr = getattr(pipeline_state, "current_phase", None)
+                if phase_attr is not None:
+                    propose_phase = phase_attr.value
+            gate_rejection = _pkg._contract_completeness_rejection(
+                pipeline_id=pipeline_id,
+                repo_path=repo_path,
+                slice_id=slice_id,
+                check="propose",
+                producer_role=agent_role,
+                current_phase=propose_phase,
+            )
+            if gate_rejection is not None:
+                return gate_rejection
 
         # Check if this is a re-proposal
         changed_artifacts = data.get("changed_artifacts")

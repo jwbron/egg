@@ -1399,6 +1399,157 @@ class TestConsensusProposeBranchVerification:
         assert msg.metadata.get("commit_sha") == "deadbeef"
 
 
+class TestConsensusProposePendingTaskGate:
+    """Propose-time contract-bookkeeping gate (#3470).
+
+    A producer proposing while its owned contract task rows are still
+    ``pending`` must be rejected before the tracker records the proposal
+    — otherwise reviewer_contract NACKs on pure bookkeeping, and a
+    contract-only fix cannot re-propose (unchanged-tree 409, #3395),
+    mechanically deadlocking the slice.
+    """
+
+    PIPELINE_ID = "issue-42"
+
+    @staticmethod
+    def _implement_pipeline():
+        from egg_contracts.models import PipelinePhase
+        from models import Pipeline
+
+        return Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+
+    @staticmethod
+    def _write_contract(worktree: Path, *, coder_row_status: str) -> None:
+        contracts_dir = worktree / ".egg-state" / "contracts"
+        contracts_dir.mkdir(parents=True, exist_ok=True)
+        contract = {
+            "schemaVersion": "1.0",
+            "issue": {"number": 42, "title": "gate test", "url": "http://example"},
+            "phases": [
+                {
+                    "id": "slice-2",
+                    "name": "second",
+                    "tasks": [
+                        {
+                            "id": "task-2-1",
+                            "description": "open coder work",
+                            "role": "coder",
+                            "status": coder_row_status,
+                        },
+                    ],
+                },
+            ],
+        }
+        (contracts_dir / "issue-42.json").write_text(json.dumps(contract))
+
+    def _propose(self, data_extra=None):
+        from routes.signals import handle_consensus_propose_signal
+
+        data = {
+            "agent_role": "coder",
+            "slice_id": "slice-2",
+            "payload": {
+                "summary": (
+                    "Implemented authentication with JWT validation and "
+                    "session management for issue-42"
+                ),
+                "artifacts": ["src/a.py"],
+            },
+        }
+        data.update(data_extra or {})
+        return handle_consensus_propose_signal(self.PIPELINE_ID, data, Path("/tmp/repo"))
+
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    def test_propose_with_pending_owned_rows_rejected_409(
+        self, mock_get_tracker, mock_get_store, mock_resolve_wt, app, tmp_path
+    ):
+        """Pending owned rows -> immediate 409 naming the rows and the fix."""
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = self._implement_pipeline()
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = tmp_path
+        self._write_contract(tmp_path, coder_row_status="pending")
+
+        mock_tracker = MagicMock()
+        mock_get_tracker.return_value = mock_tracker
+
+        with app.app_context():
+            response, status_code = self._propose()
+
+        assert status_code == 409
+        body = response.get_json()
+        assert body["details"]["status"] == "contract_incomplete"
+        assert [r["id"] for r in body["details"]["incomplete_tasks"]] == ["task-2-1"]
+        assert "task-2-1" in body["message"]
+        assert "mcp__task__complete" in body["message"]
+        # Rejected BEFORE the tracker recorded anything: no version bump,
+        # no reviewer invocation.
+        mock_tracker.handle_propose.assert_not_called()
+        mock_tracker.handle_re_propose.assert_not_called()
+
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    def test_re_propose_with_pending_owned_rows_rejected_409(
+        self, mock_get_tracker, mock_get_store, mock_resolve_wt, app, tmp_path
+    ):
+        """The changed_artifacts (re-propose) dispatch is gated too."""
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = self._implement_pipeline()
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = tmp_path
+        self._write_contract(tmp_path, coder_row_status="pending")
+
+        mock_tracker = MagicMock()
+        mock_get_tracker.return_value = mock_tracker
+
+        with app.app_context():
+            response, status_code = self._propose({"changed_artifacts": ["src/a.py"]})
+
+        assert status_code == 409
+        assert response.get_json()["details"]["status"] == "contract_incomplete"
+        mock_tracker.handle_re_propose.assert_not_called()
+
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    def test_propose_with_complete_rows_accepted(
+        self, mock_get_tracker, mock_get_store, mock_resolve_wt, app, tmp_path
+    ):
+        """After marking the rows complete, the same propose goes through."""
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = self._implement_pipeline()
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = tmp_path
+        self._write_contract(tmp_path, coder_row_status="complete")
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_propose.return_value = {
+            "version": 1,
+            "status": "proposed",
+            "commit_sha": "",
+            "reviewers": [],
+            "stale_reviewers": [],
+        }
+        mock_get_tracker.return_value = mock_tracker
+
+        with app.app_context():
+            with patch("message_store.get_message_store") as mock_msg_store:
+                mock_msg_store.return_value = MagicMock()
+                response, status_code = self._propose()
+
+        assert status_code == 200
+        mock_tracker.handle_propose.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # consensus_excuse_producer HITL gate tests (#1637)
 # ---------------------------------------------------------------------------
