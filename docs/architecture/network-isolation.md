@@ -444,6 +444,55 @@ The blob host (`npmregistryv2prod.blob.core.windows.net`) is **hardcoded** in `s
 
 **Diagnosing a broken read-through after a GitHub-side change:** if metadata resolves (200 on `npm.pkg.github.com`) but tarball downloads fail, check the Squid access log — a `TCP_DENIED`/terminate against a `*.blob.core.windows.net` host you don't recognize means the published blob host has changed. Re-fetch `https://api.github.com/meta`, compare `domains.packages`, and update the hardcoded host to match: the `acl npm_pkg_blob` and `acl npm_pkg_blob_dst` lines in `squid-npm-packages-ssl.conf.template` (the value is literal there — there is no `BLOB_HOST` placeholder to substitute), and the `BLOB_HOST` constant in `test_npm_packages_readthrough.py`. This is the one part of the mechanism that can break without a code change on our side, so it is called out here rather than left as a silent constant.
 
+### Troubleshooting: Corepack Failures That Look Like Blocked Egress
+
+A failing `pnpm` / `yarn` / `npx` inside the sandbox is **not** necessarily a
+proxy or allowlist problem — the most common failure never reaches Squid at
+all. When a repo's `build_commands` install a Node toolchain whose `pnpm` is
+a **Corepack shim** (`corepack enable` creates shims instead of real
+binaries), the shim must fetch the actual package manager from
+`registry.npmjs.org` on first use. Old Corepack releases (e.g. 0.25.x, as
+bundled with node 20.12.0) cannot perform that fetch through an HTTP proxy:
+they build a `ProxyAgent` from their *bundled* undici but pass it as the
+`dispatcher` to Node's *builtin* `fetch`, which dies client-side with
+`TypeError: this[kClient].connect is not a function`, surfaced as:
+
+```
+Internal Error: Error when performing the request to https://registry.npmjs.org/pnpm; for
+troubleshooting help, see https://github.com/nodejs/corepack#troubleshooting
+```
+
+Because agent pods always run with `HTTPS_PROXY` set, every bare `pnpm`
+invocation through such a shim fails this way — in **both** public and
+private session modes — and the error text reads exactly like a blocked
+domain, which is how it gets misdiagnosed as an egress problem
+([#3463](https://github.com/jwbron/egg/issues/3463)). Two aggravators make
+the shim always need the network at runtime: `corepack prepare` during the
+image build caches under `/root/.cache`, which is not persisted into the
+final image, and a repo `packageManager` pin can name a version that was
+never prepared at build time anyway.
+
+**Disambiguate in one command** from inside the sandbox:
+
+```bash
+curl --proxy "$HTTPS_PROXY" -sS -o /dev/null -w '%{http_code}\n' https://registry.npmjs.org/
+```
+
+`200` means the egress path (proxy → SNI allowlist → splice) is healthy and
+the failure is client-side toolchain, not network. A Squid denial looks
+different: a 403 with Squid's error page, or a TLS termination with the
+proxy's self-signed certificate.
+
+**Fixes** (in `build_commands` for the repo that installs the toolchain —
+see the Node toolchain note in `config/repositories.yaml.example`):
+
+- Upgrade the shim after unpacking Node: `npm install -g corepack@latest`.
+  Current Corepack fetches through `HTTPS_PROXY` correctly and honors
+  `packageManager` pins; the runtime fetch is permitted because
+  `registry.npmjs.org` is allowlisted ([#3455](https://github.com/jwbron/egg/issues/3455)).
+- Or avoid the shim entirely: install the real package manager with
+  `npm install -g pnpm@<version>`.
+
 ### Breakout Prevention
 
 | Attack Vector | Mitigation |
