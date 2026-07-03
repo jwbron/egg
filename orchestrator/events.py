@@ -91,6 +91,14 @@ class EventType(StrEnum):
     # driven by the persisted ``CONSENSUS_REOPENED`` bus message, not
     # by this event.
     CONSENSUS_PRODUCER_REOPENED = "consensus.producer_reopened"
+    # A reviewer's outstanding NACK was invalidated because its cited
+    # contract blocker was repaired (#3470: producer marked its contract
+    # rows complete after a contract_incomplete NACK). Intentionally has
+    # no subscriber today — emitted by
+    # ``peer_consensus.release_contract_nack`` as a forward-compat hook,
+    # mirroring CONSENSUS_PRODUCER_REOPENED. The release itself is driven
+    # by the persisted ``CONSENSUS_NACK_INVALIDATED`` bus message.
+    CONSENSUS_NACK_INVALIDATED = "consensus.nack_invalidated"
 
     # HITL events
     DECISION_CREATED = "decision.created"

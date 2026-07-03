@@ -163,6 +163,7 @@ def remove_agent(self, role: str) -> None:
         self._producer_phases.pop(role, None)
         self._reviewer_phases.pop(role, None)
         self._confirmed.discard(role)
+        self._withdrawn_producers.discard(role)
 
 
 def clear(self) -> None:
@@ -171,6 +172,7 @@ def clear(self) -> None:
         self._producer_phases.clear()
         self._reviewer_phases.clear()
         self._confirmed.clear()
+        self._withdrawn_producers.clear()
         self._proposal_timestamps.clear()
         self._flip_flop_counts.clear()
         self._proposal_artifacts.clear()

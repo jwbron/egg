@@ -125,6 +125,7 @@ def _handle_propose_inner(
     # Transition to PROPOSED
     self._producer_phases[agent_role] = ConsensusPhase.PROPOSED
     self._confirmed.discard(agent_role)  # Clear stale confirmed status (#1411)
+    self._withdrawn_producers.discard(agent_role)  # Fresh proposal (#3470)
     self._proposal_timestamps[agent_role] = datetime.now(UTC)
     self._proposal_artifacts[agent_role] = list(proposal.artifacts)
     self._proposal_commit_shas[agent_role] = proposal.commit_sha
@@ -434,6 +435,10 @@ def handle_withdraw(
         # Transition back to WORKING
         self._producer_phases[agent_role] = ConsensusPhase.WORKING
         self._confirmed.discard(agent_role)  # Clear stale confirmed status (#1411)
+        # Mark the proposal retracted so release_contract_nack won't restore
+        # PROPOSED for it (#3470): a released reviewer must not ACK work the
+        # producer withdrew. Cleared on the next propose / re-propose.
+        self._withdrawn_producers.add(agent_role)
 
         emit_event(
             EventType.CONSENSUS_WITHDRAW_RECEIVED,

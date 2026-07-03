@@ -92,6 +92,15 @@ class MessageType:
     # (the propose guard requires WORKING) and a restart would resurrect
     # the deadlock the reopen resolved. ``to_role`` carries the producer.
     CONSENSUS_REOPENED = "CONSENSUS_REOPENED"
+    # Contract-blocked NACK release (#3470): a producer repaired the
+    # contract_incomplete blocker its reviewer's NACK cited (marked the
+    # owned task rows complete), so the orchestrator invalidated that
+    # NACK for re-review. Persisted so
+    # ``reconstruct_tracker_from_messages`` can replay the release —
+    # without it, a restart would resurrect the NACK and the deadlock it
+    # caused. ``to_role`` carries the reviewer; metadata carries
+    # ``reviewer_role`` / ``producer_role``.
+    CONSENSUS_NACK_INVALIDATED = "CONSENSUS_NACK_INVALIDATED"
     # Overseer anomaly broadcasts (issue #1413)
     OVERSEER_ALERT = "OVERSEER_ALERT"
     # Tier 1 health monitor nudge messages (issue #1428)
