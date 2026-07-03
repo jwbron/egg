@@ -56,6 +56,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "257ce1a0ffd4d22e7b7f7f34a9d3c94342798465": {
+      "branch": "egg/pipeline-dcdad92d/slice-2",
+      "patch_id": "68184f11aed00966fe5feae43b8089a8fa4322b6",
+      "pipeline_id": "pipeline-dcdad92d",
+      "registered_at": "2026-07-03T05:39:33.683630+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "257f38519a6a08ff03c07d6e0f932699764385a2": {
       "branch": "egg/pipeline-dcdad92d/work",
       "patch_id": "1ca5f8e2f9fe0ea3c2b270199d4200cc1fffb6fe",
