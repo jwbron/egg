@@ -80,6 +80,61 @@ except ImportError:
 logger = get_logger("orchestrator.cli")
 
 
+def _reconcile_and_relaunch_repo(store, docker_client) -> None:
+    """Reconcile stale containers for one repo store at boot, then relaunch
+    driverless RUNNING pipelines — but ONLY when reconciliation settled state
+    cleanly.
+
+    Split out of ``cmd_serve`` so the ordering invariant is unit-testable
+    (#3469): on reconciliation failure we return early WITHOUT relaunching, so
+    a pipeline that reconciliation would have marked FAILED off unsettled
+    state is never relaunched as a live RUNNING driver. Both steps are
+    best-effort — a failure in either is logged and never fatal to boot.
+    """
+    repo = str(getattr(store, "repo_path", "unknown"))
+    try:
+        from startup_reconciliation import reconcile_stale_containers
+
+        recovered = reconcile_stale_containers(store, docker_client)
+        if recovered:
+            logger.warning(
+                "Recovered stale pipelines on startup",
+                count=recovered,
+                repo=repo,
+            )
+    except Exception as reconcile_err:
+        logger.warning(
+            "Startup reconciliation failed",
+            error=str(reconcile_err),
+            repo=repo,
+        )
+        return
+
+    # Relaunch _run_pipeline drivers for pipelines still RUNNING after
+    # reconciliation (#3469). The driver threads (and the BRC event loop they
+    # own) died with the previous process; reconciliation restores state but
+    # nothing else revives the loop, leaving RUNNING pipelines permanently
+    # driverless. Runs only when reconciliation succeeded above, so pipelines
+    # that reconciliation would have marked FAILED are never relaunched off
+    # unsettled state.
+    try:
+        from routes.pipelines import relaunch_driverless_running_pipelines
+
+        relaunched = relaunch_driverless_running_pipelines(store)
+        if relaunched:
+            logger.warning(
+                "Relaunched drivers for RUNNING pipelines on startup",
+                count=relaunched,
+                repo=repo,
+            )
+    except Exception as relaunch_err:
+        logger.warning(
+            "Startup driver relaunch failed",
+            error=str(relaunch_err),
+            repo=repo,
+        )
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     """Start the orchestrator API server."""
     # Safety check: refuse to run as root to prevent permission issues.
@@ -174,25 +229,20 @@ def cmd_serve(args: argparse.Namespace) -> int:
             logger.warning("No git repos found under EGG_REPO_PATH", path=repo_path)
         try:
             from docker_client import get_docker_client
-            from startup_reconciliation import reconcile_stale_containers
 
             for rp in repo_paths:
                 try:
                     store = get_state_store(rp)
                     stores.append(store)
-                    recovered = reconcile_stale_containers(store, get_docker_client())
-                    if recovered:
-                        logger.warning(
-                            "Recovered stale pipelines on startup",
-                            count=recovered,
-                            repo=str(rp),
-                        )
-                except Exception as reconcile_err:
+                except Exception as store_err:
                     logger.warning(
                         "Startup reconciliation failed",
-                        error=str(reconcile_err),
+                        error=str(store_err),
                         repo=str(rp),
                     )
+                    continue
+
+                _reconcile_and_relaunch_repo(store, get_docker_client())
         except Exception as reconcile_err:
             logger.warning(
                 "Startup reconciliation failed",

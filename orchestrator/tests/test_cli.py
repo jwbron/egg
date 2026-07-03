@@ -4,6 +4,7 @@ Tests for egg-orchestrator CLI.
 
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from threading import Thread
 from unittest.mock import MagicMock, patch
 
@@ -189,6 +190,81 @@ class TestServeProbeListenerStartup:
         assert "port" in call_kwargs, (
             "start_probe_listener must be called with an explicit port kwarg"
         )
+
+
+class TestReconcileAndRelaunchOrdering:
+    """Issue #3469: boot-time driver relaunch of RUNNING pipelines runs only
+    AFTER ``reconcile_stale_containers`` has settled pipeline status for the
+    repo. ``_reconcile_and_relaunch_repo`` encodes that ordering; these tests
+    lock the "never relaunch off unsettled state" invariant the relaunch
+    docstring leans on:
+
+    1. On a clean reconcile, relaunch runs (in that order).
+    2. On a reconcile failure, relaunch is skipped entirely — a pipeline that
+       reconciliation would have marked FAILED off unsettled state is never
+       relaunched as a live RUNNING driver.
+    """
+
+    def _store(self):
+        store = MagicMock()
+        store.repo_path = Path("/tmp/repo")
+        return store
+
+    def test_relaunch_runs_after_successful_reconcile(self):
+        from cli import _reconcile_and_relaunch_repo
+
+        store = self._store()
+        docker_client = MagicMock()
+        call_order = []
+
+        def _reconcile(s, c):
+            call_order.append("reconcile")
+            return 0
+
+        def _relaunch(s):
+            call_order.append("relaunch")
+            return 1
+
+        with patch(
+            "startup_reconciliation.reconcile_stale_containers", side_effect=_reconcile
+        ) as mock_reconcile:
+            with patch(
+                "routes.pipelines.relaunch_driverless_running_pipelines",
+                side_effect=_relaunch,
+            ) as mock_relaunch:
+                _reconcile_and_relaunch_repo(store, docker_client)
+
+        mock_reconcile.assert_called_once_with(store, docker_client)
+        mock_relaunch.assert_called_once_with(store)
+        assert call_order == ["reconcile", "relaunch"], (
+            "relaunch must run only after reconciliation settles status"
+        )
+
+    def test_relaunch_skipped_when_reconcile_raises(self):
+        from cli import _reconcile_and_relaunch_repo
+
+        store = self._store()
+        with patch(
+            "startup_reconciliation.reconcile_stale_containers",
+            side_effect=RuntimeError("k8s query failed"),
+        ):
+            with patch("routes.pipelines.relaunch_driverless_running_pipelines") as mock_relaunch:
+                # Must not raise — startup recovery is best-effort.
+                _reconcile_and_relaunch_repo(store, MagicMock())
+
+        mock_relaunch.assert_not_called()
+
+    def test_relaunch_failure_is_non_fatal(self):
+        from cli import _reconcile_and_relaunch_repo
+
+        store = self._store()
+        with patch("startup_reconciliation.reconcile_stale_containers", return_value=0):
+            with patch(
+                "routes.pipelines.relaunch_driverless_running_pipelines",
+                side_effect=RuntimeError("thread limit"),
+            ):
+                # A relaunch failure is logged and swallowed, never fatal to boot.
+                _reconcile_and_relaunch_repo(store, MagicMock())
 
 
 class MockHealthHandler(BaseHTTPRequestHandler):
