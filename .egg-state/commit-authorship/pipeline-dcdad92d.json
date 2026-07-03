@@ -312,6 +312,14 @@
       "repo": null,
       "role": "architect"
     },
+    "8e51405f8720a219abbc63189f3396370b7dbb4b": {
+      "branch": "egg/pipeline-dcdad92d/slice-5",
+      "patch_id": "986b0c27cf670d81c6dfdbebb66c30104f31c1d2",
+      "pipeline_id": "pipeline-dcdad92d",
+      "registered_at": "2026-07-03T16:36:04.440278+00:00",
+      "repo": null,
+      "role": "tester"
+    },
     "9075a670d02e1bf9414c6d391aad4cc4812ed5b5": {
       "branch": "egg/pipeline-dcdad92d/work",
       "patch_id": "7a9040a83559ca27c25c2ac633ea80f9de7c04c6",
