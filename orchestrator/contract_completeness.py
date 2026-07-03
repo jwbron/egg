@@ -21,7 +21,12 @@ orchestrator's signal routes use these helpers to reject:
   incomplete (covers role-less rows and no-op-proposal bypasses);
 * a ``no_changes_needed`` proposal from a producer that owns incomplete
   rows in the active slice (a no-op proposal is vacuously fully-acked,
-  so without this it would bypass the per-producer ACK gate entirely).
+  so without this it would bypass the per-producer ACK gate entirely);
+* a regular (or re-) proposal from a producer that owns incomplete rows
+  in the active slice (#3470) — finished-but-unmarked work is corrected
+  in-session via ``mcp__task__complete`` instead of drawing a
+  pure-bookkeeping enforcer NACK, which (when the fix is contract-only)
+  deadlocks on the unchanged-tree re-propose guard.
 
 All checks are scoped to the implement phase by the callers — plan and
 refine consensus run against contracts whose task rows are *expected*

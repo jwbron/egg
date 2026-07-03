@@ -5,10 +5,11 @@ Covers:
 * ``contract_completeness`` module — slice/role scoping, the
   unknown-slice ``None`` sentinel, the kill switch, and graceful
   contract loading.
-* ``routes.signals._contract_completeness_rejection`` — the three
-  checks (enforcer ACK, enforcer CONFIRM, no-op propose), the
-  attestation requirement/cross-check on passing ACKs, and the
-  fail-open posture on orchestrator-side read failures.
+* ``routes.signals._contract_completeness_rejection`` — the four
+  checks (enforcer ACK, enforcer CONFIRM, no-op propose, and the
+  propose-time pending-row gate #3470), the attestation
+  requirement/cross-check on passing ACKs, and the fail-open posture
+  on orchestrator-side read failures.
 * ``review_graph`` — the enforcer's CRITICAL edges to every producer.
 """
 
@@ -541,6 +542,22 @@ class TestKillSwitchAllChecks:
             is None
         )
 
+    def test_propose_skipped(
+        self, signals_module, app, gate_env, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(cc.GATE_ENV_VAR, "off")
+        _write_contract(gate_env)
+        assert (
+            _reject(
+                signals_module,
+                app,
+                check="propose",
+                producer_role="coder",
+                current_phase="implement",
+            )
+            is None
+        )
+
 
 class TestSliceless:
     """End-to-end gate behavior for non-sliced (slice_id=None) contracts.
@@ -598,6 +615,22 @@ class TestSliceless:
         assert status == 400
         assert body["details"]["status"] == "contract_incomplete"
         assert [r["id"] for r in body["details"]["incomplete_tasks"]] == ["task-2-3"]
+
+    def test_propose_aggregates_owned_rows_across_slices(
+        self, signals_module, app, gate_env
+    ) -> None:
+        _write_contract(gate_env)
+        status, body = _reject(
+            signals_module,
+            app,
+            check="propose",
+            producer_role="coder",
+            slice_id=None,
+            current_phase="implement",
+        )
+        assert status == 409
+        assert body["details"]["status"] == "contract_incomplete"
+        assert [r["id"] for r in body["details"]["incomplete_tasks"]] == ["task-2-2"]
 
 
 class TestConfirmGate:
@@ -664,6 +697,71 @@ class TestNoopProposeGate:
                 check="noop_propose",
                 producer_role="tester",
                 current_phase="implement",
+            )
+            is None
+        )
+
+
+class TestProposeGate:
+    """Propose-time pending-row gate (#3470)."""
+
+    def test_producer_with_open_rows_rejected_409(self, signals_module, app, gate_env) -> None:
+        _write_contract(gate_env)
+        status, body = _reject(
+            signals_module,
+            app,
+            check="propose",
+            producer_role="coder",
+            current_phase="implement",
+        )
+        assert status == 409
+        assert body["details"]["status"] == "contract_incomplete"
+        assert body["details"]["producer"] == "coder"
+        assert [r["id"] for r in body["details"]["incomplete_tasks"]] == ["task-2-2"]
+        # The rejection must be self-explanatory: name the rows and the
+        # exact call that fixes the omission in-session.
+        assert "task-2-2" in body["message"]
+        assert "mcp__task__complete" in body["message"]
+
+    def test_complete_rows_pass(self, signals_module, app, gate_env) -> None:
+        _write_contract(gate_env, slice2_complete=True)
+        assert (
+            _reject(
+                signals_module,
+                app,
+                check="propose",
+                producer_role="coder",
+                current_phase="implement",
+            )
+            is None
+        )
+
+    def test_producer_without_owned_rows_passes(self, signals_module, app, gate_env) -> None:
+        # The dual-role tester owns no rows in slice-2 (task-2-4 is
+        # role-less); its propose must not be blocked by other roles'
+        # pending rows.
+        _write_contract(gate_env)
+        assert (
+            _reject(
+                signals_module,
+                app,
+                check="propose",
+                producer_role="tester",
+                current_phase="implement",
+            )
+            is None
+        )
+
+    def test_plan_phase_skipped(self, signals_module, app, gate_env) -> None:
+        # Plan/refine contracts have pending rows by design.
+        _write_contract(gate_env)
+        assert (
+            _reject(
+                signals_module,
+                app,
+                check="propose",
+                producer_role="coder",
+                current_phase="plan",
             )
             is None
         )
