@@ -881,3 +881,128 @@ def test_next_action_pending_reviews_last_reviewed_sha_empty_on_first_review(
     pending = (payload.get("event_payload") or {}).get("pending_reviews") or []
     assert len(pending) >= 1
     assert pending[0].get("last_reviewed_commit_sha") == ""
+
+
+# ---------------------------------------------------------------------------
+# #3478: first-propose gate: a dual-role producer whose reviewed peer
+# producers are ALL still pre-first-propose derives ``wait``, not
+# ``propose``. Spawning it at that state can only orient-and-exit, which
+# burns the #3425 no-op streak and parks the arm. The gate lifts on the
+# upstream's first proposal (any proposal: current, withdrawn, no-changes),
+# so the #2749 R11a propose-first ordering is untouched.
+# ---------------------------------------------------------------------------
+
+
+def test_next_action_dual_role_all_upstream_pre_propose_returns_wait(client, dual_tracker):
+    """Fresh slice: coder and tester both WORKING at v0. The tester
+    (producer of tests, reviewer of coder) has nothing to build against
+    and nothing to review; it must wait, naming the producers it is
+    waiting on."""
+    resp = _post_next_action(client, "tester", tracker=dual_tracker)
+    payload = _assert_action(resp, "wait")
+    event_payload = payload.get("event_payload") or {}
+    assert event_payload.get("waiting_on_producers") == ["coder"], (
+        f"wait payload must name the pre-propose upstream producers; got {payload!r}"
+    )
+    assert "upstream" in (payload.get("reason") or ""), payload
+
+
+def test_next_action_pure_producer_unaffected_by_first_propose_gate(client, dual_tracker):
+    """The coder reviews no one, so the gate never applies to it: it
+    derives ``propose`` at the same fresh-slice state that gates the
+    tester."""
+    resp = _post_next_action(client, "coder", tracker=dual_tracker)
+    _assert_action(resp, "propose")
+
+
+def test_next_action_first_propose_gate_lifts_on_upstream_propose(client, dual_tracker):
+    """The gate releases on the coder's FIRST proposal: the tester flips
+    from ``wait`` to ``propose`` (R11a: propose own work before reviewing)
+    on the next derivation."""
+    resp = _post_next_action(client, "tester", tracker=dual_tracker)
+    _assert_action(resp, "wait")
+    _propose(dual_tracker, "coder")
+    resp = _post_next_action(client, "tester", tracker=dual_tracker)
+    _assert_action(resp, "propose")
+
+
+def test_next_action_first_propose_gate_off_after_upstream_withdraw(client, dual_tracker):
+    """A withdrawn upstream proposal still means artifacts existed
+    (version > 0): the tester is NOT re-gated when the coder withdraws
+    back to WORKING."""
+    _propose(dual_tracker, "coder")
+    dual_tracker.handle_withdraw(
+        "coder",
+        "New information: the approach conflicts with the slice contract "
+        "and the proposal must be rethought before review.",
+    )
+    resp = _post_next_action(client, "tester", tracker=dual_tracker)
+    _assert_action(resp, "propose")
+
+
+def test_next_action_mutual_producer_review_does_not_wait(client):
+    """Deadlock guard: with mutual producer edges (coder and tester
+    review each other) neither upstream is terminal, so neither role
+    gates; both derive ``propose`` exactly as before #3478."""
+    graph = ReviewGraph(
+        [
+            ReviewEdge("tester", "coder", ReviewCriticality.CRITICAL),
+            ReviewEdge("coder", "tester", ReviewCriticality.CRITICAL),
+            ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+            ReviewEdge("reviewer_code", "tester", ReviewCriticality.CRITICAL),
+        ]
+    )
+    tracker = PeerConsensusTracker(PIPELINE_ID, graph, cooldown_seconds=0)
+    for role in ("coder", "tester", "reviewer_code"):
+        tracker.register_agent(role)
+
+    for role in ("coder", "tester"):
+        resp = _post_next_action(client, role, tracker=tracker)
+        _assert_action(resp, "propose")
+
+
+def test_next_action_wake_only_upstream_never_gates(client):
+    """The de-roled simplifier (#3381) is woken by its own propose-arm
+    re-spawning until the upstream draft exists, so its wake-only edge
+    must never convert to a ``wait``."""
+    graph = ReviewGraph(
+        [
+            ReviewEdge("simplifier", "refiner", ReviewCriticality.ADVISORY, wake_only=True),
+            ReviewEdge("reviewer_plan", "refiner", ReviewCriticality.CRITICAL),
+            ReviewEdge("reviewer_plan", "simplifier", ReviewCriticality.CRITICAL),
+        ]
+    )
+    tracker = PeerConsensusTracker(PIPELINE_ID, graph, cooldown_seconds=0)
+    for role in ("refiner", "simplifier", "reviewer_plan"):
+        tracker.register_agent(role)
+
+    # refiner is WORKING at v0, but the simplifier's only edge to it is
+    # wake-only: the simplifier must keep deriving propose (it self-gates
+    # in-pod on the draft existing).
+    resp = _post_next_action(client, "simplifier", tracker=tracker)
+    _assert_action(resp, "propose")
+
+
+def test_next_action_multi_upstream_gate_lifts_on_any_upstream_propose(client):
+    """With several terminal upstream producers the gate holds only while
+    ALL are pre-propose; the first proposal from any of them releases it
+    (minimal deferral: there is now something to build against)."""
+    graph = ReviewGraph(
+        [
+            ReviewEdge("tester", "coder", ReviewCriticality.CRITICAL),
+            ReviewEdge("tester", "documenter", ReviewCriticality.CRITICAL),
+            ReviewEdge("reviewer_code", "tester", ReviewCriticality.CRITICAL),
+        ]
+    )
+    tracker = PeerConsensusTracker(PIPELINE_ID, graph, cooldown_seconds=0)
+    for role in ("coder", "documenter", "tester", "reviewer_code"):
+        tracker.register_agent(role)
+
+    resp = _post_next_action(client, "tester", tracker=tracker)
+    payload = _assert_action(resp, "wait")
+    waiting_on = (payload.get("event_payload") or {}).get("waiting_on_producers") or []
+    assert sorted(waiting_on) == ["coder", "documenter"], payload
+
+    _propose(tracker, "documenter")
+    resp = _post_next_action(client, "tester", tracker=tracker)
+    _assert_action(resp, "propose")
