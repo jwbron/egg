@@ -197,7 +197,9 @@ class TestReconcilerOnProducerShape:
                 "base_ref": "egg/issue-2137/slice-1",
             }
         ]
-        orphans = find_orphaned_child_prs(contract, only_orphan, set())
+        # The orphan's own head branch must be extant; an open PR
+        # implies its head exists on origin (#3479).
+        orphans = find_orphaned_child_prs(contract, only_orphan, {"egg/issue-2137/slice-2"})
         assert len(orphans) == 1
         orphan = orphans[0]
         assert orphan.slice_id == "slice-2"
@@ -237,7 +239,7 @@ class TestReconcilerOnProducerShape:
         result = reconcile_once(
             contract,
             list_open_prs=lambda: producer_prs,
-            list_extant_branches=lambda: set(),
+            list_extant_branches=lambda: {"egg/issue-2137/slice-2"},
             rebase_onto=fake_rebase,
         )
 
@@ -401,7 +403,7 @@ class TestEndToEndOrphanHeal:
         result = reconcile_once(
             contract,
             list_open_prs=lambda: producer_prs,
-            list_extant_branches=lambda: set(),
+            list_extant_branches=lambda: {"egg/issue-2137/slice-2"},
             rebase_onto=rebase_via_gateway,
         )
 

@@ -25,10 +25,12 @@ def list_remote_branches(
     transport is the existing ``/api/v1/git/fetch`` route with
     ``operation="ls-remote"`` — no new privileged surface.
 
-    On error returns an empty set; the reconciler treats this
-    as "every base looks deleted" but since
-    :func:`list_open_prs` is the join key, the empty set is
-    safe — no PRs means no orphans.
+    On error returns an empty set. The reconciler treats an empty
+    set as "nothing confirmable on origin" and skips every
+    candidate (an open PR whose head branch is not in the set is
+    not actionable; see ``find_orphaned_child_prs``), so a failed
+    listing degrades to a no-op pass rather than a storm of doomed
+    rebases (#3479).
     """
     return set(
         self.list_remote_branches_with_shas(

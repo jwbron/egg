@@ -162,11 +162,20 @@ def find_orphaned_child_prs(
        not a root slice that targets the pipeline branch directly).
     2. There IS an open PR with a head branch matching the slice's
        integration branch.
-    3. The PR's base branch is NOT in ``extant_branches``.
+    3. The PR's head branch IS in ``extant_branches``: an open PR
+       implies its head exists on origin, so a head missing from the
+       set means the branch listing is stale or broken (or the branch
+       really is gone, in which case the PR is closed/merged and any
+       rebase + force-push of it can never succeed). Either way the
+       orphan is not actionable; retrying it every tick is a
+       permanent hot loop (#3479). This also makes an EMPTY extant
+       set (a failed or misparsed ``ls-remote``) degrade to "no
+       orphans" instead of "rebase every open PR".
+    4. The PR's base branch is NOT in ``extant_branches``.
 
-    Roots, completed slices, and slices whose base still exists
-    are silently skipped so the reconciler is idempotent on each
-    pass.
+    Roots, slices whose base still exists, and slices whose own
+    head branch cannot be confirmed on origin are silently skipped
+    so the reconciler is idempotent on each pass.
 
     PR records missing ``head_ref`` (or its legacy ``head`` alias),
     a real integer ``number``, or ``base_ref`` are dropped — a
@@ -217,6 +226,43 @@ def find_orphaned_child_prs(
         pr = pr_by_head.get(slice_branch)
         if pr is None:
             continue  # slice's PR hasn't been opened yet (or is closed)
+        if slice_branch not in extant_branches:
+            # An open PR implies its head branch exists on origin, so a
+            # head missing from the extant set means the set is stale or
+            # broken; or the branch really was deleted, closing the PR
+            # behind the (now stale) listing. In every one of those
+            # worlds a ``rebase --onto`` + force-push of ``slice_branch``
+            # cannot succeed, and re-attempting it on every tick is the
+            # permanent ~30s hot loop from #3479. Skip; a later pass
+            # with a consistent listing picks the slice up again.
+            #
+            # Distinguish the two observable regimes so a future silent
+            # ls-remote breakage (or a genuinely wedged PR) is not
+            # indistinguishable from healthy steady state (#3484 review
+            # note 2): an *empty* extant set is the #3479 broken-listing
+            # degraded no-op — log at debug to avoid per-tick noise. A
+            # *non-empty* set that is missing only this head is a real
+            # anomaly — the head was deleted upstream while the PR stayed
+            # open, or the listing is partially broken — so surface it at
+            # info level, keyed enough for an operator to act on.
+            if extant_branches:
+                logger.info(
+                    "stacked_pr_reconciler: open slice PR head missing from a "
+                    "non-empty branch listing; PR may be wedged (head deleted "
+                    "upstream) — skipping rebase",
+                    extra={
+                        "slice_id": slice_.id,
+                        "head": slice_branch,
+                        "pr_number": pr.get("number"),
+                    },
+                )
+            else:
+                logger.debug(
+                    "stacked_pr_reconciler: skipping PR whose head branch is not "
+                    "on origin (empty branch listing; degraded no-op)",
+                    extra={"slice_id": slice_.id, "head": slice_branch},
+                )
+            continue
         deleted_base = pr.get("base_ref") or pr.get("base")
         if not isinstance(deleted_base, str) or deleted_base in extant_branches:
             continue  # base still alive — GitHub auto-retarget did its job

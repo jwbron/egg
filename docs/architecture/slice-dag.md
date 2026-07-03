@@ -664,13 +664,22 @@ A child slice PR is orphaned when:
    targets the pipeline branch directly).
 2. There is an open PR whose head branch matches the slice's integration
    branch (`egg/issue-N/slice-M`).
-3. The PR's base branch is **not** in the set of extant origin branches.
+3. The PR's head branch **is** in the set of extant origin branches
+   ([#3479](https://github.com/jwbron/egg/issues/3479)): an open PR
+   implies its head exists on origin, so a head missing from the set
+   means the branch listing is stale or broken (or the branch really is
+   gone and the listing hasn't caught up); in every one of those worlds
+   the rebase + force-push cannot succeed, and surfacing the orphan
+   would retry a doomed rebase on every tick. In particular an **empty**
+   extant set (failed listing) yields zero orphans instead of a rebase
+   storm across every open slice PR.
+4. The PR's base branch is **not** in the set of extant origin branches.
 
 The intended new base is sourced from `Slice.parent_branch_at_creation`,
 not inferred from PR metadata — so the reconciler is robust against
-parent slice branches that have been renamed or rebased. Roots, completed
-slices, and slices whose base still exists are silently skipped, making
-each pass idempotent.
+parent slice branches that have been renamed or rebased. Roots, slices
+whose base still exists, and slices whose head cannot be confirmed on
+origin are silently skipped, making each pass idempotent.
 
 The three callables decouple `reconcile_once` from the gateway client and
 GitHub API so unit tests can substitute deterministic fakes. In
@@ -688,10 +697,15 @@ reconciler is fully functional, not a no-op:
   flake does not cause the reconciler to misclassify orphans.
 - **`list_remote_branches`** → `GatewayClient.list_remote_branches(...)`,
   which runs `git ls-remote --heads origin` through the existing
-  per-agent `ls-remote` allowlist (`operation="ls-remote"`). The
-  reconciler treats the returned set as the join key for the orphan
-  check; an empty set on failure preserves the conservative default
-  (no PR is treated as orphaned).
+  per-agent `ls-remote` allowlist (`operation="ls-remote"`). The gateway
+  emits ls-remote flags **before** the repository argument: `git
+  ls-remote` stops option parsing at the first positional, so a post-URL
+  `--heads` is silently treated as a never-matching ref pattern and the
+  listing comes back empty with exit 0
+  ([#3479](https://github.com/jwbron/egg/issues/3479)). The reconciler
+  treats the returned set as the join key for the orphan check; an empty
+  set on failure preserves the conservative default (no PR is treated as
+  orphaned, because no head can be confirmed extant).
 - **`rebase_onto`** → `GatewayClient.rebase_onto(pipeline_id, repo_path,
   branch=..., new_base=..., old_base=...) → bool`. This bridges the
   reconciler's `Callable[[str, str, str], bool]` shape to

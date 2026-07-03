@@ -2832,6 +2832,15 @@ def git_execute() -> tuple[Response, int] | Response:
         return make_error(f"git {operation} failed: {e}", status_code=500)
 
 
+# ls-remote flags that take a separate-argument value (``--sort <key>``).
+# Used by ``git_fetch`` to keep such a value adjacent to its flag when
+# partitioning validated args into pre-URL flags and post-URL ref patterns,
+# so the value is never stranded after the repository as a bogus ref pattern
+# (#3484). ``--sort`` is the only value-taking flag in the ls-remote allowlist
+# (``git_client._policy.GIT_ALLOWED_COMMANDS``); the rest are booleans.
+LS_REMOTE_VALUE_FLAGS: frozenset[str] = frozenset({"--sort"})
+
+
 @app.route("/api/v1/git/fetch", methods=["POST"])
 @require_session_auth
 def git_fetch() -> tuple[Response, int] | Response:
@@ -2962,7 +2971,48 @@ def git_fetch() -> tuple[Response, int] | Response:
         else:
             cmd_args = ["fetch", fetch_target] + validated_args
     else:  # ls-remote
-        cmd_args = ["ls-remote", fetch_target] + validated_args
+        # ``git ls-remote`` stops option parsing at the first positional
+        # argument: anything after <repository> is a <ref> pattern, not a
+        # flag. ``ls-remote <url> --heads`` therefore filters by the
+        # literal pattern "--heads", matching nothing and exiting 0 with
+        # empty output (#3479: the stacked-PR reconciler read that empty
+        # listing as "every branch deleted" and hot-looped rebases of
+        # healthy PRs). Emit flags before the repository and ref patterns
+        # after it.
+        #
+        # A naive startswith("-") partition would strand a separate-
+        # argument flag *value* after the URL as a bogus ref pattern
+        # (#3484 review note 1): ``--sort committerdate`` is an allowlisted
+        # ls-remote flag whose value does not start with "-", so it would
+        # become ``ls-remote --sort <url> committerdate`` — ``committerdate``
+        # silently matching nothing. Keep such a value adjacent to its flag
+        # on the pre-URL side. No caller passes the separate-value form
+        # today; this hardens the route against a future footgun.
+        flags: list[str] = []
+        patterns: list[str] = []
+        arg_idx = 0
+        while arg_idx < len(validated_args):
+            token = validated_args[arg_idx]
+            if not token.startswith("-"):
+                patterns.append(token)
+                arg_idx += 1
+                continue
+            flags.append(token)
+            # Inline ``--sort=key`` is self-contained; only the separate
+            # ``--sort key`` form needs its value pulled along with it.
+            takes_separate_value = (
+                token.split("=", 1)[0] in LS_REMOTE_VALUE_FLAGS and "=" not in token
+            )
+            if (
+                takes_separate_value
+                and arg_idx + 1 < len(validated_args)
+                and not validated_args[arg_idx + 1].startswith("-")
+            ):
+                flags.append(validated_args[arg_idx + 1])
+                arg_idx += 2
+                continue
+            arg_idx += 1
+        cmd_args = ["ls-remote", *flags, fetch_target, *patterns]
 
     cmd = git_cmd(*cmd_args)
 
