@@ -823,23 +823,32 @@ stacked-PR reconciler cadence.
 
 - **Tier A — automated merge-state hold (default).** The dependent slice's PR
   opens as a **draft** while the upstream PR is unmerged. A bounded poll watches
-  the upstream PR's merge state and, on merge, auto-marks the dependent PR ready
-  via the `mark_pr_ready(repo, pr_number)` gateway verb (wrapping `gh pr
-  ready`). **Merge detection keys off the PR `mergedAt` / merged boolean, not
-  head-SHA equality** — a squash or rebase merge produces a merge-commit SHA ≠
-  the PR head, so SHA-equality would misfire. Two failure terminals fall through
-  to a HITL hold rather than hanging: an upstream that reaches
-  **CLOSED-not-merged**, and a poll that exceeds its **attempt bound** (a
-  never-merging upstream). Both surface on pipeline status.
+  the upstream PR's merge state via the orchestrator-only gateway routes
+  `POST /api/v1/gh/pr/merge_state` (read) and `POST /api/v1/gh/pr/ready` (write)
+  — see [Gateway README](../../gateway/README.md) — and, on merge, auto-marks
+  the dependent PR ready via the `mark_pr_ready(repo, pr_number)` gateway verb
+  (wrapping `gh pr ready`). **Merge detection keys off the PR `mergedAt` /
+  merged boolean, not head-SHA equality** — a squash or rebase merge produces a
+  merge-commit SHA ≠ the PR head, so SHA-equality would misfire. Two failure
+  terminals fall through to a HITL hold rather than hanging: an upstream that
+  reaches **CLOSED-not-merged**, and a poll that exceeds its **attempt bound**
+  (`EGG_ORCH_CROSS_REPO_MERGE_GATE_MAX_ATTEMPTS`, default 240 ticks, ~2h at the
+  default 30s reconciler cadence — a never-merging upstream). Both surface on
+  pipeline status.
 - **Tier B — HITL beyond-merge-state hold (opt-in).** For an edge the plan (or
   task description) marks with a beyond-merge-state condition — a
   release/publish of the upstream repo, a version-pin choice, or a genuine
-  cannot-continue development block — the dependent PR is held and released
-  **only by a HITL decision**, never by programmatic detection. Absent that
-  marker, a cross-repo edge defaults to the Tier-A automated hold.
+  cannot-continue development block — the dependent slice opts in via the
+  `[hold:beyond-merge-state]` marker in its `goal` (or a task description); the
+  dependent PR is then held and released **only by a HITL decision**, never by
+  programmatic detection. Absent that marker, a cross-repo edge defaults to the
+  Tier-A automated hold.
 
 All HITL holds (Tier B, plus the two Tier-A failure terminals) route through the
-same decision-queue mechanism and share a single release path.
+same decision-queue mechanism and share a single release path — each registers a
+HITL Decision offering two operator-selectable options: release the hold (marks
+the PR ready) or keep it held (terminal; the PR stays draft for manual
+handling).
 
 ### Per-repo gate, diff & convention scoping
 
@@ -958,6 +967,7 @@ on parse failure. The green-gate knobs below are read directly via
 | `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES` | int | 10 | Pipeline-wide summed slice-cycle cap. *Currently inert — see local cycles row.* |
 | `EGG_ORCH_SLICE_FAILURE_GRACE_SECONDS` | float | 60.0 | Grace window before a failure cascade marks the downstream subtree `BLOCKED_ON_FAILED_DEPENDENCY`. |
 | `EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS` | float | 30.0 | Reconciler polling cadence for orphaned child PRs. |
+| `EGG_ORCH_CROSS_REPO_MERGE_GATE_MAX_ATTEMPTS` | int | 240 | Poll-attempt budget for the cross-repo merge-sequencing gate (#3393) before a never-merging upstream escalates to a HITL hold; ~2h at the default reconciler cadence. See [Cross-repo merge-sequencing hold](#cross-repo-merge-sequencing-hold-two-tier). |
 | `EGG_SLICE_GREEN_GATE` | str | `off` | Per-slice green gate rollout switch (#3398): `off` skips the gate entirely; `log` runs the repo's configured checks at the slice tip and logs a red verdict without blocking; `on` blocks slice PR-open on a red verdict. Case-insensitive, with aliases — `on` also accepts `1`/`true`/`yes`, and `log` also accepts `log-only`/`log_only`. Unknown values resolve to `off`. |
 | `EGG_SLICE_GREEN_GATE_SKIP_CHECKS` | str (comma-separated) | `security` | Configured check *names* (from `repositories.yaml` `checks`) the gate skips. |
 | `EGG_SLICE_GREEN_GATE_TIMEOUT_SECONDS` | int | 1800 | Wall-clock budget for the check-runner pod (spawn-to-terminal); a hung suite degrades to fail-open rather than wedging the slice close. |
