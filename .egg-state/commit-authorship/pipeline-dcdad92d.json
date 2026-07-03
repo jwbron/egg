@@ -8,6 +8,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "257f38519a6a08ff03c07d6e0f932699764385a2": {
+      "branch": "egg/pipeline-dcdad92d/work",
+      "patch_id": "1ca5f8e2f9fe0ea3c2b270199d4200cc1fffb6fe",
+      "pipeline_id": "pipeline-dcdad92d",
+      "registered_at": "2026-07-03T01:34:56.105127+00:00",
+      "repo": null,
+      "role": "first_principles_reviewer"
+    },
     "417389810a1ade093813a77574951e22ccc56d3e": {
       "branch": "egg/pipeline-dcdad92d/work",
       "patch_id": "c9e48a4a04d5986c040eace1bb40698e809c9266",
