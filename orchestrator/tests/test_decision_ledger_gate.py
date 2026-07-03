@@ -1,10 +1,13 @@
-"""Tests for the gate-side decision-ledger backstop helpers (#3390).
+"""Tests for the gate-side decision-ledger backstop helpers (#3390, #3462).
 
 ``_collect_decision_ledger_status`` summarizes the phase's decision ledger
 for the phase_gate surface: "N registered" (from the contract), "explicitly
 none" (from a producer's ``no_decisions_rationale`` propose attestation), or
 MISSING (neither — the backstop-HITL trigger). ``_find_explicit_none_
 attestation`` is the message-store scan behind the explicit-none case.
+``_ledger_attestation_question`` / ``_ledger_attestation_confirmed`` back the
+explicit-none confirmation decision the gate surfaces to the operator
+(#3462).
 """
 
 from __future__ import annotations
@@ -98,10 +101,11 @@ class TestCollectDecisionLedgerStatus:
                 _decision("cq-3", phase="plan"),
             ],
         )
-        note, missing = _collect_decision_ledger_status(
+        note, missing, explicit_none = _collect_decision_ledger_status(
             tmp_path, "pipeline-id", "issue-42", PipelinePhase.REFINE
         )
         assert missing is False
+        assert explicit_none is None
         assert "2 decision(s) registered" in note
         assert "cq-1" in note and "cq-2" in note and "cq-3" not in note
         assert "1 resolved" in note
@@ -116,10 +120,11 @@ class TestCollectDecisionLedgerStatus:
             )
         ]
         with _patch_message_store(messages):
-            note, missing = _collect_decision_ledger_status(
+            note, missing, explicit_none = _collect_decision_ledger_status(
                 tmp_path, "pipeline-id", "issue-42", PipelinePhase.REFINE
             )
         assert missing is False
+        assert explicit_none == ("refiner", "mechanical change, no choices")
         assert "explicitly none" in note
         assert "refiner" in note
         assert "mechanical change" in note
@@ -129,10 +134,11 @@ class TestCollectDecisionLedgerStatus:
 
         _make_contract_file(tmp_path, "issue-42", decisions=[])
         with _patch_message_store([]):
-            note, missing = _collect_decision_ledger_status(
+            note, missing, explicit_none = _collect_decision_ledger_status(
                 tmp_path, "pipeline-id", "issue-42", PipelinePhase.REFINE
             )
         assert missing is True
+        assert explicit_none is None
         assert "MISSING" in note
 
     def test_contract_unloadable_falls_back_to_attestation(self, tmp_path: Path):
@@ -141,10 +147,11 @@ class TestCollectDecisionLedgerStatus:
         # No contract file written at all.
         messages = [_propose_message(attestation={"no_decisions_rationale": "none needed"})]
         with _patch_message_store(messages):
-            note, missing = _collect_decision_ledger_status(
+            note, missing, explicit_none = _collect_decision_ledger_status(
                 tmp_path, "pipeline-id", "issue-42", PipelinePhase.REFINE
             )
         assert missing is False
+        assert explicit_none == ("refiner", "none needed")
         assert "explicitly none" in note
 
     def test_message_store_outage_fails_closed(self, tmp_path: Path):
@@ -152,10 +159,11 @@ class TestCollectDecisionLedgerStatus:
 
         _make_contract_file(tmp_path, "issue-42", decisions=[])
         with patch("message_store.get_message_store", side_effect=RuntimeError("redis down")):
-            note, missing = _collect_decision_ledger_status(
+            note, missing, explicit_none = _collect_decision_ledger_status(
                 tmp_path, "pipeline-id", "issue-42", PipelinePhase.REFINE
             )
         assert missing is True
+        assert explicit_none is None
         assert "MISSING" in note
 
 
@@ -203,3 +211,82 @@ class TestFindExplicitNoneAttestation:
         messages = [_propose_message(attestation={"decisions_registered": ["cq-1"]})]
         with _patch_message_store(messages):
             assert _find_explicit_none_attestation("pipeline-id", "refine") is None
+
+
+class TestLedgerAttestationConfirmation:
+    """The explicit-none confirmation decision surface (#3462).
+
+    An explicit-none attestation is surfaced to the operator as its own
+    confirmable decision. ``_ledger_attestation_question`` composes it;
+    ``_ledger_attestation_confirmed`` decides whether a resolution
+    confirms (proceed to the gate) or rejects (re-run the phase).
+    """
+
+    def test_question_quotes_role_phase_and_rationale(self):
+        from routes.pipelines import _ledger_attestation_question
+
+        question = _ledger_attestation_question(
+            "refiner", "answers present in seeded context", "refine"
+        )
+        assert "refiner" in question
+        assert "refine phase" in question
+        assert "answers present in seeded context" in question
+        assert "#3462" in question
+
+    def test_question_is_stable_for_identical_claims(self):
+        # Converge-round dedupe keys on question equality: the same
+        # (role, rationale, phase) must compose the identical question.
+        from routes.pipelines import _ledger_attestation_question
+
+        a = _ledger_attestation_question("refiner", "no choices", "refine")
+        b = _ledger_attestation_question("refiner", "no choices", "refine")
+        assert a == b
+        assert a != _ledger_attestation_question("refiner", "other claim", "refine")
+
+    def test_bare_confirm_keyword_confirms(self):
+        from routes.pipelines import _ledger_attestation_confirmed
+
+        assert _ledger_attestation_confirmed("confirm") is True
+        assert _ledger_attestation_confirmed("  Confirm  ") is True
+
+    def test_full_option_label_confirms(self):
+        from routes.pipelines import (
+            _LEDGER_ATTESTATION_CONFIRM_OPTION,
+            _ledger_attestation_confirmed,
+        )
+
+        assert _ledger_attestation_confirmed(_LEDGER_ATTESTATION_CONFIRM_OPTION) is True
+        assert _ledger_attestation_confirmed(_LEDGER_ATTESTATION_CONFIRM_OPTION.upper()) is True
+
+    def test_choice_envelope_unwrapped(self):
+        # The SDLC HITL CLI resolves a choice as
+        # {"action": "select", "selected": "<label>"} (#2978) — the
+        # confirm match must unwrap it.
+        from routes.pipelines import (
+            _LEDGER_ATTESTATION_CONFIRM_OPTION,
+            _ledger_attestation_confirmed,
+        )
+
+        envelope = json.dumps({"action": "select", "selected": _LEDGER_ATTESTATION_CONFIRM_OPTION})
+        assert _ledger_attestation_confirmed(envelope) is True
+
+    def test_rerun_option_and_free_text_reject(self):
+        from routes.pipelines import (
+            _LEDGER_BACKSTOP_RERUN_OPTION,
+            _ledger_attestation_confirmed,
+        )
+
+        assert _ledger_attestation_confirmed(_LEDGER_BACKSTOP_RERUN_OPTION) is False
+        # Free text is a re-run directive, even when it contains the
+        # word "confirm" in a negating sense.
+        assert _ledger_attestation_confirmed("do not confirm — register cq for deploy") is False
+        assert _ledger_attestation_confirmed("") is False
+
+    def test_envelope_with_rerun_selection_rejects(self):
+        from routes.pipelines import (
+            _LEDGER_BACKSTOP_RERUN_OPTION,
+            _ledger_attestation_confirmed,
+        )
+
+        envelope = json.dumps({"action": "select", "selected": _LEDGER_BACKSTOP_RERUN_OPTION})
+        assert _ledger_attestation_confirmed(envelope) is False

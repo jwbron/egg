@@ -4157,6 +4157,68 @@ class TestDecisionLedgerPromptSurface:
         assert "do not over-NACK" in criteria
 
 
+class TestTaskNamedDecisionRegistrationSurface:
+    """Prompt/reviewer surface of the task-named registration rule (#3462).
+
+    An agent must register task-named decisions even when it believes prior
+    context resolves them — belief about resolution is a recommended
+    disposition, not a reason to skip — and self-attesting an empty ledger
+    is confirmable by the operator, never a silent bypass.
+    """
+
+    @staticmethod
+    def _refine_prompt() -> str:
+        return _build_phase_prompt(
+            phase="refine",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="Analyze this issue.",
+            issue_number=100,
+        )
+
+    def test_refine_prompt_requires_registering_task_named_decisions(self):
+        prompt = self._refine_prompt()
+        assert "Task-named decisions are non-optional" in prompt
+        assert "recommended disposition" in prompt
+        assert "(recommended)" in prompt
+        # Prose is a supplement, never a substitute.
+        assert "never a substitute" in prompt
+
+    def test_refine_prompt_narrows_the_skip_already_resolved_rule(self):
+        prompt = self._refine_prompt()
+        # The #2481 skip rule must not cover task-named decisions or
+        # answers inherited from a prior/cancelled run's seeded context —
+        # that over-read is exactly what #3462's motivating failure did.
+        assert "This skip rule is NARROW" in prompt
+        assert "prior or cancelled run" in prompt
+
+    def test_refine_prompt_do_not_list_forbids_attesting_away(self):
+        prompt = self._refine_prompt()
+        assert "Skip registration because you believe a decision is already" in prompt
+        assert "Attest `no_decisions_rationale` when the task names decisions" in prompt
+
+    def test_producer_preamble_warns_rationale_is_confirmable(self):
+        for role, phase in (
+            ("refiner", "refine"),
+            ("task_planner", "plan"),
+            ("architect", "plan"),
+            ("risk_analyst", "plan"),
+        ):
+            preamble = _build_brc_preamble(role, phase)
+            assert "not a shortcut (#3462)" in preamble, (role, phase)
+            assert "confirm" in preamble, (role, phase)
+
+    def test_refine_reviewer_nacks_explicit_none_on_task_named_decisions(self):
+        criteria = _get_refine_review_criteria()
+        assert "Task-named decisions — NACK an explicit-none ledger (#3462)" in criteria
+        assert "recommended disposition" in criteria
+
+    def test_plan_reviewer_nacks_explicit_none_on_task_named_decisions(self):
+        criteria = _get_plan_review_criteria()
+        assert "Task-named decisions — NACK an explicit-none ledger (#3462)" in criteria
+        assert "recommended disposition" in criteria
+
+
 class TestPlannerPromptTreatsRefinerSlicingAsAdvisory:
     """Planner prompts must frame any refiner-side slice sketch as advisory.
 
