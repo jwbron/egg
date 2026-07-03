@@ -1006,3 +1006,35 @@ def test_next_action_multi_upstream_gate_lifts_on_any_upstream_propose(client):
     _propose(tracker, "documenter")
     resp = _post_next_action(client, "tester", tracker=tracker)
     _assert_action(resp, "propose")
+
+
+def test_next_action_plan_phase_risk_analyst_gated_on_architect_and_planner(client):
+    """The gate is phase-agnostic: on the DEFAULT plan graph the dual-role
+    ``risk_analyst`` (producer of the risk register, reviewer of
+    ``architect`` + ``task_planner``, both terminal CRITICAL producers)
+    derives ``wait`` at a fresh slice, naming both upstream producers, and
+    lifts on the first upstream proposal — mirroring the implement-phase
+    ``tester``. This pins production behavior against the real graph so a
+    regression in ``risk_analyst``'s startup ordering is caught."""
+    from review_graph import get_default_plan_graph
+
+    graph = get_default_plan_graph()
+    tracker = PeerConsensusTracker(PIPELINE_ID, graph, cooldown_seconds=0)
+    for role in ("architect", "task_planner", "risk_analyst", "reviewer_plan", "simplifier"):
+        tracker.register_agent(role)
+
+    resp = _post_next_action(client, "risk_analyst", tracker=tracker)
+    payload = _assert_action(resp, "wait")
+    waiting_on = (payload.get("event_payload") or {}).get("waiting_on_producers") or []
+    assert sorted(waiting_on) == ["architect", "task_planner"], payload
+
+    # The terminal producers are unaffected — they derive propose.
+    for role in ("architect", "task_planner"):
+        resp = _post_next_action(client, role, tracker=tracker)
+        _assert_action(resp, "propose")
+
+    # First upstream proposal lifts the gate; risk_analyst proposes its own
+    # work before reviewing (R11a preserved).
+    _propose(tracker, "architect")
+    resp = _post_next_action(client, "risk_analyst", tracker=tracker)
+    _assert_action(resp, "propose")
