@@ -200,6 +200,14 @@
       "repo": null,
       "role": "tester"
     },
+    "5927277e12cbb75235458f7e8015a2eb92647ebe": {
+      "branch": "egg/pipeline-dcdad92d/slice-3",
+      "patch_id": "0c0493971a6e86a661c621b4618260d20c878376",
+      "pipeline_id": "pipeline-dcdad92d",
+      "registered_at": "2026-07-03T08:57:41.048440+00:00",
+      "repo": null,
+      "role": "tester"
+    },
     "5d6f966c049918a663645565205052e8f2b5a51b": {
       "branch": "egg/pipeline-dcdad92d/work",
       "patch_id": "ca08bf5d5909a962a541064776ce2d0a43111162",
@@ -375,6 +383,14 @@
       "registered_at": "2026-07-03T08:29:20.522977+00:00",
       "repo": null,
       "role": "documenter"
+    },
+    "bfa9f8e45eb540b91f38be3c1a5d0c9065636130": {
+      "branch": "egg/pipeline-dcdad92d/slice-3",
+      "patch_id": "1efdceba5461b27ae8c14b86083bb37d75d260ad",
+      "pipeline_id": "pipeline-dcdad92d",
+      "registered_at": "2026-07-03T08:57:41.043774+00:00",
+      "repo": null,
+      "role": "tester"
     },
     "c5884716d3471af575327f2a7edef884ae8088d4": {
       "branch": "egg/pipeline-dcdad92d/work",
