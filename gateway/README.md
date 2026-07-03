@@ -449,6 +449,19 @@ POST /v1/messages/count_tokens
   Description: Proxy for Anthropic token counting API
 ```
 
+### Proxy
+
+```
+GET /api/v1/proxy/ca-cert
+  Description: Serve the gateway's Squid CA certificate (public key
+               material, no auth required) for clients that must
+               validate TLS-bumped hosts outside the shared-certs
+               volume, e.g. the GitHub Packages npm read-through
+               (#3456). See ../docs/architecture/network-isolation.md
+               ("GitHub Packages npm Read-Through (Token-Gated)").
+  Response: application/x-pem-file, or 404 {error: "ca_cert_unavailable"}
+```
+
 ### Health
 
 ```
