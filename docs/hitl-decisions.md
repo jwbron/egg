@@ -226,7 +226,7 @@ and logs a warning (the new options are not merged). The registration is
 idempotent — the response carries `deduped: true` and no second contract
 write occurs.
 
-### Append-Only Guard and Write-Time Durability (#3427)
+### Append-Only Guard and Write-Time Durability (#3427, #3470)
 
 Contract `decisions[]` entries are append-only: a whole-entry mutation
 (`decisions.<idx>`) targeting an index that already exists is rejected with
@@ -243,12 +243,27 @@ checkpoints. Previously a `cq-N` registered or resolved between checkpoints
 lived only on the shared worktree's file; the `git reset --hard
 origin/<branch>` that runs at phase-(re)start silently reverted it, letting
 the next bootstrap re-mint reuse the same id and clobber an
-already-resolved decision. `persist_contract_statefiles`
-(`orchestrator/routes/pipelines.py`) makes this best-effort commit+push run
-inline with the mutation and resolution routes and with the Layer-C HITL
-escalation path; a failure there is logged and swallowed since the write is
-already live on the worktree file and the next checkpoint commit will pick
-it up.
+already-resolved decision. The best-effort commit+push
+(`persist_contract_statefiles`, `orchestrator/routes/pipelines.py`) runs
+inline with the resolution route
+(`orchestrator/routes/decisions/_resolve.py`) and the Layer-C HITL
+escalation path (`orchestrator/routes/pipelines.py`) — both calling it
+directly — and with the contract mutate route via the
+`_persist_durable_mutation` wrapper (`orchestrator/routes/contracts.py`,
+#3470), which covers decision registration and contract task-row mutations
+alike; a failure there is logged and swallowed since the write is already
+live on the worktree file and the next checkpoint commit will pick it up.
+
+The same write-time persist covers contract task-row `status`/`commit`
+mutations (`phases.*.tasks.*.status` / `.commit`, #3470): without it, a
+task marked `complete` between checkpoints was silently reverted by the
+same phase-restart reset, flipping it back to pending and causing the
+[Contract Completeness Gate](guides/concurrent-execution.md#contract-completeness-gate-3114)
+to re-reject a reviewer's ACK/CONFIRM against work that had already
+landed. Unlike the decision path, a failed persist here also broadcasts a
+`contract_persist_failed` `OVERSEER_ALERT` (still best-effort — the
+mutation itself never fails) since a silently swallowed failure on a task
+row reintroduces the same deadlock invisibly.
 
 `provide_input` now falls back to the contract when the id is not found in
 the queue. It writes the resolution fields straight onto the contract
