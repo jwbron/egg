@@ -745,9 +745,7 @@ class JobSupervisor:
         current_brc = self._probe_brc_fingerprint()
         parked_brc = self._noop_brc_fingerprint.get(dedupe_key)
         hitl_moved = current is not None and parked is not None and current != parked
-        brc_moved = (
-            current_brc is not None and parked_brc is not None and current_brc != parked_brc
-        )
+        brc_moved = current_brc is not None and parked_brc is not None and current_brc != parked_brc
         if hitl_moved or brc_moved:
             # Refresh BOTH probe anchors on any release, not just the branch that
             # fired. If a single poll sees the contract-decision set AND the BRC
