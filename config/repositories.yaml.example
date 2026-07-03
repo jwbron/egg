@@ -94,6 +94,17 @@ readable_repos:
 #       stage into the final Docker image. Use this for system-level tool
 #       installations that build_commands place outside the repo directory.
 #       (e.g., /usr/local/go, /usr/local/node)
+#     NODE TOOLCHAIN NOTE: if your commands unpack a Node tarball, don't rely
+#     on its bundled Corepack shims for pnpm/yarn at runtime. Old Corepack
+#     releases (e.g. 0.25.x with node 20.12.x) cannot fetch the package
+#     manager through the sandbox's egress proxy — every bare `pnpm` fails
+#     with "Internal Error: Error when performing the request to
+#     https://registry.npmjs.org/pnpm", which looks like blocked egress but
+#     is a client-side Corepack bug (#3463). After unpacking Node, either
+#     upgrade the shim (`npm install -g corepack@latest`) or install the real
+#     package manager (`npm install -g pnpm@<version>`). See the
+#     "Corepack Failures That Look Like Blocked Egress" section in
+#     docs/architecture/network-isolation.md.
 #   - role_patterns: Per-repo overrides for the test/code/docs glob lists
 #     that gate coder/tester/documenter file access (#2528). Useful for
 #     non-Python repos with different file conventions (Go uses *_test.go,
