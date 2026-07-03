@@ -26109,6 +26109,72 @@ def has_live_pipeline_driver(pipeline_id: str) -> bool:
     return False
 
 
+def relaunch_driverless_running_pipelines(store) -> int:
+    """Relaunch drivers for RUNNING pipelines orphaned by a restart (#3469).
+
+    Called once per repo store at orchestrator startup, after
+    ``startup_reconciliation.reconcile_stale_containers`` has settled each
+    pipeline's status.  A pipeline still RUNNING at that point was mid-flight
+    when the previous orchestrator process died: its consensus state is fully
+    reconciled at boot, but its ``_run_pipeline`` driver thread — and the BRC
+    event loop the driver owns — died with the old process, and no other code
+    path revives it.  ``restart_agent`` delegates the respawn to the (dead)
+    event loop and returns success, while ``start_pipeline`` rejects
+    status=RUNNING with a 409, so without this sweep the pipeline is
+    permanently driverless and never spawns another pod (#3469).
+
+    Relaunching reuses the proven resume path (the same one
+    ``restart_agent``'s inactive-pipeline branch relies on, #3244):
+    ``_run_pipeline`` re-enters ``pipeline.current_phase``, re-syncs the
+    worktree with the remote, and restarts the event loop, which respawns
+    one-shot agent Jobs within one poll.  The persisted ``run_epoch`` is
+    deliberately NOT bumped: the old process is gone so no stale thread can
+    contend for the epoch, and the relaunched thread derives its own epoch
+    from persisted state exactly as the original did.
+
+    AWAITING_HUMAN pipelines are out of scope — their drivers are revived on
+    decision resolution by ``maybe_revive_orphaned_awaiting_human_driver``
+    (#3233).
+
+    Returns the number of drivers relaunched.  Per-pipeline failures are
+    logged and skipped so one broken record cannot strand the rest.
+    """
+    try:
+        pipeline_ids = store.list_pipelines()
+    except Exception as e:  # noqa: BLE001 - startup sweep must not raise
+        logger.warning(
+            "Driver relaunch sweep skipped: could not list pipelines",
+            error=str(e),
+        )
+        return 0
+
+    relaunched = 0
+    for pipeline_id in pipeline_ids:
+        try:
+            pipeline = store.load_pipeline(pipeline_id)
+            if pipeline.status != PipelineStatus.RUNNING:
+                continue
+            if has_live_pipeline_driver(pipeline_id):
+                continue
+            run_epoch = pipeline.run_epoch or pipeline.created_at
+            _spawn_pipeline_run_thread(pipeline_id, store.repo_path, run_epoch)
+            relaunched += 1
+            logger.warning(
+                "Relaunched _run_pipeline driver for RUNNING pipeline with no "
+                "live driver thread (orchestrator restart recovery, #3469)",
+                pipeline_id=pipeline_id,
+                phase=pipeline.current_phase.value,
+                run_epoch=run_epoch.isoformat() if run_epoch else None,
+            )
+        except Exception as e:  # noqa: BLE001 - per-pipeline isolation
+            logger.warning(
+                "Failed to relaunch driver for RUNNING pipeline (continuing sweep)",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+    return relaunched
+
+
 def _broadcast_orphaned_driver_alert(pipeline_id: str, pipeline: Pipeline) -> None:
     """Surface an orphaned-driver revival as an overseer alert (#3233).
 

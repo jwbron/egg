@@ -193,6 +193,32 @@ def cmd_serve(args: argparse.Namespace) -> int:
                         error=str(reconcile_err),
                         repo=str(rp),
                     )
+                    continue
+
+                # Relaunch _run_pipeline drivers for pipelines still RUNNING
+                # after reconciliation (#3469). The driver threads (and the
+                # BRC event loop they own) died with the previous process;
+                # reconciliation restores state but nothing else revives the
+                # loop, leaving RUNNING pipelines permanently driverless.
+                # Runs only when reconciliation succeeded for this repo, so
+                # pipelines that reconciliation would have marked FAILED are
+                # never relaunched off unsettled state.
+                try:
+                    from routes.pipelines import relaunch_driverless_running_pipelines
+
+                    relaunched = relaunch_driverless_running_pipelines(store)
+                    if relaunched:
+                        logger.warning(
+                            "Relaunched drivers for RUNNING pipelines on startup",
+                            count=relaunched,
+                            repo=str(rp),
+                        )
+                except Exception as relaunch_err:
+                    logger.warning(
+                        "Startup driver relaunch failed",
+                        error=str(relaunch_err),
+                        repo=str(rp),
+                    )
         except Exception as reconcile_err:
             logger.warning(
                 "Startup reconciliation failed",
