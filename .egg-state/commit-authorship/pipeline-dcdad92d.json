@@ -440,6 +440,14 @@
       "repo": null,
       "role": "documenter"
     },
+    "ca916300fa315b0bc342a127355f46d5afd35265": {
+      "branch": "egg/pipeline-dcdad92d/slice-5",
+      "patch_id": "d758c8507ebf6fdd68185290d7cabe18d628bc6a",
+      "pipeline_id": "pipeline-dcdad92d",
+      "registered_at": "2026-07-03T09:14:02.201458+00:00",
+      "repo": null,
+      "role": "tester"
+    },
     "cf27344c8695845d1d9dc368babab3125b5f7da4": {
       "branch": "egg/pipeline-dcdad92d/slice-5",
       "patch_id": null,
