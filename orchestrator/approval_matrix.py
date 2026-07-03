@@ -360,6 +360,39 @@ class ApprovalMatrix:
             return True
         return False
 
+    def invalidate_nack(
+        self,
+        reviewer: str,
+        producer: str,
+    ) -> bool:
+        """Invalidate a reviewer's NACK so the current version needs re-review.
+
+        Orchestrator-initiated release of an outstanding NACK whose cited
+        blocker was repaired out-of-band (#3470: a ``contract_incomplete``
+        NACK after the producer marked its contract rows complete — a
+        task-status mutation moves no BRC state, so without this the
+        reviewer waits for a re-propose the producer cannot send). The
+        entry returns to PENDING and its version is stepped back below the
+        producer's current proposal version, so the next-action derivation
+        sees an un-verdicted current proposal and re-derives ``ack`` for
+        the reviewer, which re-reviews and re-verdicts freely.
+
+        Returns True if a NACK was invalidated, False if not applicable.
+        """
+        key = (reviewer, producer)
+        entry = self._entries.get(key)
+        if entry and entry.state == ApprovalState.NACKED:
+            entry.state = ApprovalState.PENDING
+            # Step the verdict version below the producer's current
+            # proposal version: pending-review derivation treats
+            # ``entry.version < current_version`` as "verdict needed".
+            entry.version = max(0, entry.version - 1)
+            entry.artifact_refs = []
+            entry.nack_artifact_refs = []
+            entry.reason = ""
+            return True
+        return False
+
     def invalidate_overlapping_acks(
         self,
         producer: str,

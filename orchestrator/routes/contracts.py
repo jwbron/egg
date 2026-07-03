@@ -405,9 +405,11 @@ def mutate_contract(identifier: str) -> tuple[Response, int]:
         },
     )
 
-    _persist_decision_mutation(field_path, worktree)
+    _persist_durable_mutation(field_path, worktree)
 
     _audit_confirmed_assignee_reassignment(result.contract, field_path, new_value, actor)
+
+    _maybe_release_contract_blocked_nacks(result.contract, field_path, new_value)
 
     return _success(
         "Mutation applied successfully",
@@ -415,20 +417,33 @@ def mutate_contract(identifier: str) -> tuple[Response, int]:
     )
 
 
-def _persist_decision_mutation(field_path: str, worktree: Path) -> None:
-    """Best-effort commit+push after a ``decisions.*`` mutation (#3427).
+# Task rows whose mutation must be durably persisted at write time
+# (#3470): ``status`` is what the #3114 completeness gate reads;
+# ``commit`` is what the #3125 evidence-reachability gate reads.
+_TASK_DURABLE_PATH_RE = re.compile(r"^phases\.\d+\.tasks\.\d+\.(?:status|commit)$")
 
-    Contract HITL decisions written through this RPC (agent
-    ``register_open_question`` etc.) landed only on the worktree file; the
+
+def _persist_durable_mutation(field_path: str, worktree: Path) -> None:
+    """Best-effort commit+push after a durability-critical mutation.
+
+    Contract HITL decisions (#3427) and task ``status``/``commit`` rows
+    (#3470) written through this RPC landed only on the worktree file; the
     phase-(re)start worktree syncs ``git reset --hard`` to origin, so a
-    registration that was not committed+pushed by then was silently
-    reverted — and the next ``cq-N`` mint against the reverted file reused
-    its id, clobbering a live (possibly resolved) decision. Persist at
-    write time so the reset target already contains the decision. Must
-    never fail the mutation response — the write is live on the worktree
-    file regardless.
+    write that was not committed+pushed by then was silently reverted.
+    For decisions that let the next ``cq-N`` mint reuse a live id; for
+    task rows it flipped completed tasks back to pending, so the #3114
+    ACK-guard re-rejected reviewer ACKs with ``contract_incomplete``
+    against work that had already been delivered and marked complete —
+    deadlocking the slice (observed on pipeline-dcdad92d: the driver
+    relaunch's ``_rebase_pipeline_branch_onto_base`` double reset orphaned
+    the un-pushed persist commit and reverted the live completions).
+    Persist at write time so the reset target already contains the write.
+    Must never fail the mutation response — the write is live on the
+    worktree file regardless.
     """
-    if field_path != "decisions" and not field_path.startswith("decisions."):
+    is_decision = field_path == "decisions" or field_path.startswith("decisions.")
+    is_task_row = bool(_TASK_DURABLE_PATH_RE.match(field_path))
+    if not is_decision and not is_task_row:
         return
     try:
         pipeline_id, _ = _pipeline_context()
@@ -436,14 +451,187 @@ def _persist_decision_mutation(field_path: str, worktree: Path) -> None:
             return
         from routes.pipelines import persist_contract_statefiles
 
+        issue_ref = "#3427" if is_decision else "#3470"
         persist_contract_statefiles(
             pipeline_id,
             worktree,
-            f"Persist contract decision mutation {field_path} (#3427)",
+            f"Persist contract mutation {field_path} ({issue_ref})",
         )
     except Exception:
         logger.warning(
-            "Failed to persist decisions mutation to work branch",
+            "Failed to persist contract mutation to work branch",
+            extra={"field_path": field_path},
+            exc_info=True,
+        )
+
+
+_TASK_STATUS_PATH_RE = re.compile(r"^phases\.(\d+)\.tasks\.(\d+)\.status$")
+
+# Heuristic match for a NACK reason that cites contract-task
+# incompleteness. The #3114 ACK-guard's rejection tells the reviewer to
+# "NACK ... citing these task ids" and names the ``contract_incomplete``
+# status; reviewers echo that vocabulary. A false positive costs one
+# re-review cycle (the reviewer re-verdicts freely and re-NACKs a real
+# defect); a false negative leaves the reviewer parked until the next
+# unrelated BRC movement or operator restart.
+_CONTRACT_INCOMPLETE_VOCAB_RE = re.compile(
+    r"incomplete|not\s+(?:yet\s+)?(?:marked\s+)?complete|pending"
+    r"|status=complete|mcp__task__complete|complete-task|task\s+rows?",
+    re.IGNORECASE,
+)
+
+
+def _nack_cites_contract_incompleteness(reason: str) -> bool:
+    text = (reason or "").lower()
+    if "contract_incomplete" in text:
+        return True
+    if "contract" not in text:
+        return False
+    return bool(_CONTRACT_INCOMPLETE_VOCAB_RE.search(text))
+
+
+def _maybe_release_contract_blocked_nacks(
+    contract: Contract,
+    field_path: str,
+    new_value: Any,
+) -> None:
+    """Wake reviewers whose ``contract_incomplete`` NACK blocker was repaired (#3470).
+
+    A contract task-status mutation moves no BRC state: after an enforcer
+    reviewer NACKed a producer citing incomplete contract rows (the #3114
+    ACK-guard's prescribed remediation), the producer's
+    ``mcp__task__complete`` repairs the cited blocker but nothing
+    re-derives the reviewer — it holds a standing verdict on the current
+    proposal version, so the event loop derives ``wait`` for it forever,
+    while the producer cannot re-propose (zero new commits → the
+    unchanged-re-propose guard 409s). The slice deadlocks until an
+    operator restarts the reviewer (observed for ~8h on
+    pipeline-dcdad92d slice-5).
+
+    When a ``status`` mutation flips a task row to ``complete`` and the
+    owning producer now owes no incomplete rows in the slice, release
+    each contract-enforcer NACK on the producer's current version that
+    cited contract incompleteness: a ``CONSENSUS_NACK_INVALIDATED`` bus
+    message is written first (replay parity, #3124 pattern), then the
+    tracker invalidates the NACK so the reviewer's next-action poll
+    re-derives ``ack`` and the event loop respawns it to re-verdict.
+
+    Best-effort: any failure is logged and swallowed — the mutation
+    already succeeded, and the wake can be recovered by an operator
+    restart exactly as before.
+    """
+    try:
+        match = _TASK_STATUS_PATH_RE.match(field_path)
+        if not match or new_value != "complete":
+            return
+
+        pipeline_id, _repo_hint = _pipeline_context()
+        if not pipeline_id:
+            return
+
+        slice_idx, task_idx = int(match.group(1)), int(match.group(2))
+        slices = list(getattr(contract, "slices", None) or [])
+        if slice_idx >= len(slices):
+            return
+        contract_slice = slices[slice_idx]
+        slice_id = getattr(contract_slice, "id", None)
+        tasks = list(getattr(contract_slice, "tasks", None) or [])
+        if task_idx >= len(tasks):
+            return
+        producer_role = getattr(tasks[task_idx], "role", None)
+        if not producer_role:
+            return
+
+        # Same scope and kill switch as the gate that minted the
+        # rejection: only wake when the gate could actually have blocked.
+        import contract_completeness as cc
+
+        if not cc.gate_enabled():
+            return
+        incomplete = cc.incomplete_tasks(contract, slice_id, role=producer_role)
+        if incomplete is None or incomplete:
+            return  # slice not found, or the producer still owes rows
+
+        from peer_consensus import get_peer_consensus_tracker
+
+        tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
+        if tracker is None:
+            return
+
+        from egg_contracts.agent_roles import CONTRACT_ENFORCER_ROLE_NAMES
+
+        # Lock-free selection over a matrix snapshot; release_contract_nack
+        # re-checks the NACK under the tracker lock (same posture as the
+        # #3124 reopen pre-check). Only current-version NACKs are
+        # candidates — a stale-version NACK is already superseded and the
+        # reviewer already derives a re-review for it.
+        current_version = tracker.matrix.get_proposal_version(producer_role)
+        if current_version <= 0:
+            return
+        candidates = [
+            reviewer
+            for reviewer, entry in tracker.matrix.get_nack_entries_for(producer_role)
+            if reviewer in CONTRACT_ENFORCER_ROLE_NAMES
+            and entry.version == current_version
+            and _nack_cites_contract_incompleteness(entry.reason)
+        ]
+        if not candidates:
+            return
+
+        from message_store import Message, MessageType, get_message_store
+
+        store = get_message_store()
+        release_reason = (
+            f"contract task rows for {producer_role} are complete; "
+            f"released {field_path}-blocked NACK for re-review (#3470)"
+        )
+        for reviewer in candidates:
+            # Bus message BEFORE the tracker mutation so message replay
+            # performs the same transition (#3124 pattern). If the write
+            # fails, skip the mutation — replay parity over liveness.
+            try:
+                store.add_message(
+                    Message(
+                        pipeline_id=pipeline_id,
+                        from_role="orchestrator",
+                        to_role=reviewer,
+                        message_type=MessageType.CONSENSUS_NACK_INVALIDATED,
+                        subject=f"NACK on {producer_role} released for re-review",
+                        body=release_reason,
+                        phase="implement",
+                        metadata={
+                            "reviewer_role": reviewer,
+                            "producer_role": producer_role,
+                            "field_path": field_path,
+                            **({"slice_id": slice_id} if slice_id is not None else {}),
+                        },
+                    )
+                )
+            except Exception:
+                logger.warning(
+                    "Skipped contract NACK release: could not persist CONSENSUS_NACK_INVALIDATED",
+                    extra={
+                        "pipeline_id": pipeline_id,
+                        "reviewer": reviewer,
+                        "producer": producer_role,
+                    },
+                    exc_info=True,
+                )
+                continue
+            result = tracker.release_contract_nack(reviewer, producer_role, release_reason)
+            logger.info(
+                "Contract NACK release after task completion",
+                extra={
+                    "pipeline_id": pipeline_id,
+                    "slice_id": slice_id,
+                    "reviewer": reviewer,
+                    "producer": producer_role,
+                    "status": result.get("status"),
+                },
+            )
+    except Exception:  # noqa: BLE001 — wake is best-effort; mutation already succeeded
+        logger.warning(
+            "Contract NACK release check failed",
             extra={"field_path": field_path},
             exc_info=True,
         )

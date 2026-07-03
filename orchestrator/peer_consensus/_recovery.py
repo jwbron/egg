@@ -321,6 +321,85 @@ def reopen_producer(self, agent_role: str, reason: str = "") -> dict[str, Any]:
         return {"status": "reopened", "role": agent_role, "reason": reason}
 
 
+def release_contract_nack(
+    self,
+    reviewer_role: str,
+    producer_role: str,
+    reason: str = "",
+) -> dict[str, Any]:
+    """Invalidate a reviewer's outstanding NACK whose contract blocker was repaired (#3470).
+
+    A contract-enforcer reviewer whose ACK the #3114 completeness gate
+    rejected NACKs the producer citing the incomplete contract rows. When
+    the producer then repairs the cited blocker via ``mcp__task__complete``,
+    the mutation moves only the contract file — never the BRC tracker — so
+    the reviewer keeps deriving ``wait`` (its verdict on the current
+    version stands) while the producer cannot re-propose (zero new
+    commits → the unchanged-re-propose guard rejects it). The slice
+    deadlocks until an operator restarts the reviewer.
+
+    Releasing the NACK returns the review edge to PENDING with its
+    verdict version stepped back, so the next-action poll re-derives
+    ``ack`` for the reviewer and the event loop respawns it to
+    re-verdict — no producer re-propose required.
+
+    Idempotent: returns ``{"status": "noop"}`` when the edge holds no
+    NACK (already released, superseded by a re-propose, or re-verdicted),
+    so message replay can apply it blindly.
+
+    Raises ValueError if there is no ``reviewer -> producer`` review edge.
+    """
+    with self._lock:
+        if self.matrix.get_entry(reviewer_role, producer_role) is None:
+            raise ValueError(f"No review edge: {reviewer_role} -> {producer_role}")
+
+        if not self.matrix.invalidate_nack(reviewer_role, producer_role):
+            return {"status": "noop", "reviewer": reviewer_role, "producer": producer_role}
+
+        # The NACK had flipped the producer back to WORKING. With no
+        # NACKs left against it, its current proposal stands again —
+        # restore PROPOSED so the pending-review derivation surfaces
+        # that proposal to the released reviewer (and the producer's
+        # own arm stops deriving a doomed zero-commit re-propose).
+        # Caveat: a producer that WITHDREW after this NACK is also
+        # WORKING; restoring PROPOSED for it is harmless — re-propose
+        # from PROPOSED is the normal re-propose flow, so its intended
+        # next proposal still lands as the next version.
+        if (
+            self._producer_phases.get(producer_role) == ConsensusPhase.WORKING
+            and self.matrix.get_proposal_version(producer_role) > 0
+            and not self.matrix.has_unresolved_nacks_as_producer(producer_role)
+        ):
+            self._producer_phases[producer_role] = ConsensusPhase.PROPOSED
+
+        emit_event(
+            EventType.CONSENSUS_NACK_INVALIDATED,
+            self.pipeline_id,
+            data={
+                "reviewer": reviewer_role,
+                "producer": producer_role,
+                "reason": reason,
+            },
+        )
+
+        logger.info(
+            "Released contract-blocked NACK for re-review",
+            reviewer=reviewer_role,
+            producer=producer_role,
+            reason=reason,
+            pipeline_id=self.pipeline_id,
+        )
+
+        self._run_invariant_checks("release_contract_nack")
+
+        return {
+            "status": "released",
+            "reviewer": reviewer_role,
+            "producer": producer_role,
+            "reason": reason,
+        }
+
+
 def is_timeout_handled(self) -> bool:
     """Check whether the BRC tracker has already handled the timeout."""
     with self._lock:

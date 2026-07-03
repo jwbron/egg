@@ -188,6 +188,7 @@ class PeerConsensusTracker:
     excuse_reviewer = _recovery.excuse_reviewer
     excuse_producer = _recovery.excuse_producer
     reopen_producer = _recovery.reopen_producer
+    release_contract_nack = _recovery.release_contract_nack
     is_timeout_handled = _recovery.is_timeout_handled
     handle_timeout = _recovery.handle_timeout
 
@@ -358,6 +359,12 @@ def reconstruct_tracker_from_messages(
         # proposal (the propose guard requires WORKING) and resurrect the
         # deadlock the reopen resolved.
         "CONSENSUS_REOPENED",
+        # Contract-blocked NACK release (#3470). Replayed so the
+        # NACKED→PENDING re-review transition survives restarts — without
+        # it, replay would resurrect the NACK against a producer that can
+        # no longer re-propose (zero new commits) and restore the
+        # deadlock the release resolved.
+        "CONSENSUS_NACK_INVALIDATED",
     }
     consensus_msgs = [m for m in messages if m.message_type in consensus_types]
 
@@ -508,6 +515,26 @@ def reconstruct_tracker_from_messages(
                 reopened_producer = msg.to_role
                 if reopened_producer and reopened_producer != "all":
                     tracker.reopen_producer(reopened_producer, reason="replay")
+
+            elif msg.message_type == "CONSENSUS_NACK_INVALIDATED":
+                # Emitted by the orchestrator (contract mutate route) when a
+                # producer repaired the contract_incomplete blocker a
+                # reviewer's NACK cited (#3470). Metadata carries the roles;
+                # ``to_role`` doubles as the reviewer for older messages.
+                # ``from_role`` is the orchestrator and is deliberately not
+                # replayed as a participant. release_contract_nack is
+                # idempotent, so a duplicate message is harmless.
+                metadata = msg.metadata or {}
+                released_reviewer = metadata.get("reviewer_role") or msg.to_role
+                released_producer = metadata.get("producer_role")
+                if not released_reviewer or released_reviewer == "all" or not released_producer:
+                    logger.debug(
+                        "Skipping NACK-invalidation message with missing roles",
+                        pipeline_id=pipeline_id,
+                        message_id=msg.id,
+                    )
+                    continue
+                tracker.release_contract_nack(released_reviewer, released_producer, reason="replay")
 
             elif msg.message_type == "CONSENSUS_OBLIGATION_RESOLVED":
                 # Metadata carries the participant roles plus optional
