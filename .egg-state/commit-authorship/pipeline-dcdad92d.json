@@ -63,6 +63,14 @@
       "registered_at": "2026-07-03T01:30:47.581894+00:00",
       "repo": null,
       "role": "refiner"
+    },
+    "ea730a1c1ea0f656e5ddbb1a3314c7b02692584d": {
+      "branch": "egg/pipeline-dcdad92d/work",
+      "patch_id": "8d159d1db6e19ea0049d559df7e137f778755fb3",
+      "pipeline_id": "pipeline-dcdad92d",
+      "registered_at": "2026-07-03T03:15:23.874362+00:00",
+      "repo": null,
+      "role": "simplifier"
     }
   },
   "version": 2
