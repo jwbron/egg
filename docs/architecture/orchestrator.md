@@ -822,6 +822,24 @@ re-derives `next-action` once before invoking the agent so a pod spawned
 against an event that another actor has already superseded falls through to
 a no-op rather than acting on stale state.
 
+**First-propose gate ([#3478](https://github.com/jwbron/egg/issues/3478)):**
+a dual-role producer builds on the artifacts of the producers it reviews.
+This is phase-agnostic — in the default implement graph it is the `tester`
+(producer of tests, reviewer of the `coder`); in the default plan graph it
+is the `risk_analyst` (producer of the risk register, reviewer of
+`architect` + `task_planner`). While every one of those upstream producers
+is still pre-first-propose (WORKING at proposal version 0), the derivation
+returns `wait` instead of `propose`; spawning at
+that state could only orient-and-exit, burning the #3425 no-op streak and
+parking the arm. The gate lifts on the upstream's first proposal (the next
+poll tick derives `propose`; the #2749 R11a propose-own-work-first ordering
+is unchanged from that point). Wake-only edges are exempt (the de-roled
+simplifier is deliberately woken by its own propose arm), and the gate only
+engages when at least one upstream producer is terminal (reviews no
+producers itself), so cyclic custom graphs cannot mutually `wait` into a
+deadlock. See `_pre_propose_upstream_producers` in
+`orchestrator/routes/consensus.py`.
+
 ### Wake conditions (pre-confirm vs post-confirm)
 
 The orchestrator derives a role's wake conditions conditionally from

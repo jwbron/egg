@@ -320,6 +320,91 @@ def _producer_has_unresolved_nacks_on_current_version(
     return out
 
 
+def _pre_propose_upstream_producers(tracker: PeerConsensusTracker, role: str) -> list[str]:
+    """Upstream producers that gate ``role``'s first ``propose`` (#3478).
+
+    A dual-role producer builds on the artifacts of the producers it
+    reviews. This is phase-agnostic: in the default implement graph it
+    is the ``tester`` (producer of test files, reviewer of the coder's
+    source, gated on ``coder``); in the default plan graph it is the
+    ``risk_analyst`` (producer of the risk register, reviewer of
+    ``architect`` + ``task_planner``, gated on both). Any future graph
+    with the same shape gates the same way. Deriving ``propose`` for
+    such a role while every one of those
+    upstream producers is still pre-first-propose spawns an agent that
+    can only orient-and-exit (nothing to build against, nothing to
+    review); three such no-ops burn the #3425 streak and park the arm,
+    which the #3465 BRC-movement release then has to claw back.
+
+    Returns the role's upstream producer set (the derivation defers the
+    first propose with ``wait``) when ALL of the following hold, else an
+    empty list (derive ``propose`` exactly as before):
+
+    * ``role`` reviews at least one peer producer, excluding itself and
+      wake-only edges; the same exemptions as
+      ``_has_pending_peer_proposals``. The wake-only exclusion is
+      load-bearing: the de-roled simplifier (#3381) is deliberately
+      woken by its own propose-arm re-spawning until the upstream draft
+      exists, so its wake-only edge must never convert to a ``wait``.
+    * at least one upstream producer is *terminal* (it reviews no peer
+      producers of its own, so it can never derive this wait itself).
+      This keeps the waits-on relation acyclic by construction: a gated
+      role always has an ungated producer to wait on, so a custom
+      review graph with mutual producer edges cannot mutually ``wait``
+      into a deadlock. In the default implement graph the coder is
+      terminal.
+    * every upstream producer is pre-first-propose: WORKING phase at
+      proposal version 0. Any proposal at all (a current one, a
+      withdrawn one, a no-changes one) means there is something to
+      build against or review, and the #2749 R11a propose-first
+      ordering applies unchanged.
+
+    Liveness: the gate can only hold while an ungated terminal producer
+    is pre-propose. Its first propose flips the condition on the next
+    poll tick; a crashed producer resolves via supervision/HITL, and an
+    excused producer is removed from the graph edges entirely, which
+    dissolves the gate.
+
+    Caller must hold ``tracker._lock`` (same contract as the sibling
+    helpers above).
+    """
+    graph = tracker.graph
+    wake_only = graph.wake_only_producers_for(role)
+    # dict.fromkeys dedupes while preserving first-seen order:
+    # graph.producers_for(role) yields one element per edge, so a graph
+    # with parallel role->X edges would otherwise repeat X in both the
+    # gate check and the waiting_on_producers payload.
+    upstream = list(
+        dict.fromkeys(
+            producer
+            for producer in graph.producers_for(role)
+            if producer != role and producer not in wake_only
+        )
+    )
+    if not upstream:
+        return []
+
+    def _reviews_peer_producers(producer: str) -> bool:
+        producer_wake_only = graph.wake_only_producers_for(producer)
+        return any(
+            peer != producer and peer not in producer_wake_only
+            for peer in graph.producers_for(producer)
+        )
+
+    if all(_reviews_peer_producers(producer) for producer in upstream):
+        # No terminal upstream producer: waiting could form a cycle, so
+        # keep the pre-#3478 behavior and propose immediately.
+        return []
+
+    for producer in upstream:
+        producer_phase = tracker._producer_phases.get(producer, ConsensusPhase.WORKING)
+        if producer_phase != ConsensusPhase.WORKING:
+            return []
+        if tracker.matrix.get_proposal_version(producer) > 0:
+            return []
+    return upstream
+
+
 def _derive_next_action(
     tracker: PeerConsensusTracker, role: str
 ) -> tuple[str, dict[str, Any] | None, str]:
@@ -335,6 +420,15 @@ def _derive_next_action(
         the role's own ``propose`` takes priority, NOT peer review.
       * sub-case b: dual-role post-own-propose with peer reviews
         pending → review the peer (``ack``).
+
+    First-propose gate (#3478): a dual-role producer in WORKING whose
+    reviewed peer producers are ALL still pre-first-propose derives
+    ``wait`` instead of ``propose`` (see
+    ``_pre_propose_upstream_producers``). This is phase-agnostic — it
+    fires for the implement-phase ``tester`` (gated on ``coder``) and
+    the plan-phase ``risk_analyst`` (gated on ``architect`` +
+    ``task_planner``) alike. R11a is untouched: the moment any upstream
+    producer has proposed, propose-own-work-first applies.
     """
     with tracker._lock:
         # ---- 1. role-complete short-circuit ----
@@ -384,6 +478,23 @@ def _derive_next_action(
                 payload: dict[str, Any] = {"producer": role}
                 if nacks:
                     payload["unresolved_nacks"] = nacks
+                else:
+                    # #3478: defer the FIRST propose of a dual-role
+                    # producer while every producer it reviews is still
+                    # pre-first-propose (the tester racing its coder, or
+                    # the risk_analyst racing architect + task_planner).
+                    # Spawning at that state can only no-op; the arm
+                    # burns its #3425 streak and parks. With unresolved
+                    # NACKs the producer has actionable feedback of its
+                    # own, so the gate never applies.
+                    waiting_on = _pre_propose_upstream_producers(tracker, role)
+                    if waiting_on:
+                        return (
+                            "wait",
+                            {"waiting_on_producers": waiting_on},
+                            "upstream producers have not yet proposed; "
+                            "deferring first propose until their artifacts exist",
+                        )
                 return "propose", payload, "produce and propose"
 
             if producer_phase == ConsensusPhase.PROPOSED:

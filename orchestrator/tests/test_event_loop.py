@@ -2315,3 +2315,89 @@ class TestNoopParkThroughLoop:
         for _ in range(5):
             loop.poll_once(["coder"])
         assert len(spawner.calls) == burned + 1
+
+
+# ---------------------------------------------------------------------------
+# #3478 first-propose gate through the loop: REAL tracker, REAL derivation
+# ---------------------------------------------------------------------------
+
+
+class TestFirstProposeGateThroughLoop:
+    """The #3478 incident shape end-to-end through ``poll_once``.
+
+    Unlike the scripted tests above, this uses a real
+    ``PeerConsensusTracker`` and the real ``routes.consensus`` derivation:
+    the tester's propose arm must dispatch NO spawn while the coder is
+    pre-first-propose (pre-#3478 this burned three no-op spawns and parked
+    the arm), then dispatch exactly one propose spawn on the poll tick
+    after the coder's proposal lands.
+    """
+
+    def _real_tracker(self):
+        from unittest.mock import MagicMock
+
+        # Mock docker before the lazy ``routes.consensus`` import the real
+        # derivation performs (mirrors test_consensus_next_action.py).
+        sys.modules.setdefault("docker", MagicMock())
+        sys.modules.setdefault("docker.errors", MagicMock())
+        sys.modules.setdefault("docker.types", MagicMock())
+        _shared = Path(__file__).parent.parent.parent / "shared"
+        if _shared.exists() and str(_shared) not in sys.path:
+            sys.path.insert(0, str(_shared))
+
+        from peer_consensus import PeerConsensusTracker
+        from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
+
+        graph = ReviewGraph(
+            [
+                ReviewEdge("tester", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_code", "tester", ReviewCriticality.CRITICAL),
+            ]
+        )
+        tracker = PeerConsensusTracker("issue-3478", graph, cooldown_seconds=0)
+        for role in ("coder", "tester", "reviewer_code"):
+            tracker.register_agent(role)
+        return tracker
+
+    def test_tester_arm_spawns_nothing_until_coder_proposes(self):
+        import event_loop
+
+        tracker = self._real_tracker()
+        spawner = _RecordingSpawner()
+        loop = event_loop.OrchestratorEventLoop(
+            tracker=tracker,
+            spawner=spawner,
+            pipeline_id="issue-3478",
+            slice_id="slice-9",
+            phase="implement",
+            clock=_FakeClock(),
+            agent_free_handler=_AgentFreeRecorder(),
+        )
+
+        # Coder still writing: repeated polls of the tester arm derive
+        # ``wait`` and dispatch nothing (no no-op streak to burn).
+        for _ in range(3):
+            (decision,) = loop.poll_once(["tester"])
+            assert decision.action == "wait"
+            assert decision.spawned is False
+        assert spawner.spawn_count == 0
+
+        tracker.handle_propose(
+            "coder",
+            {
+                "summary": (
+                    "Proposal v1 with substantive content describing the "
+                    "work, tests run, and tasks satisfied for review."
+                ),
+                "artifacts": ["a.py"],
+                "commit_sha": "abc1234",
+            },
+        )
+
+        # Gate lifted on the very next poll tick: one propose spawn.
+        (decision,) = loop.poll_once(["tester"])
+        assert decision.action == "propose"
+        assert decision.spawned is True
+        assert spawner.spawned_actions == ["propose"]
+        assert spawner.calls[0]["role"] == "tester"
