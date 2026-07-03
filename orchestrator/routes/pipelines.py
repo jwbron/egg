@@ -5856,7 +5856,16 @@ def _get_refine_review_criteria() -> str:
         "- If the ledger is deliberately empty (the producer attested "
         "`no_decisions_rationale`), verify the rationale holds: requirements "
         "genuinely unambiguous, no assumptions made silently. NACK if you "
-        "find a hidden operator-grade choice.\n\n"
+        "find a hidden operator-grade choice.\n"
+        "- **Task-named decisions — NACK an explicit-none ledger (#3462).** "
+        "If the task description names decisions as the operator's to make "
+        "(or directs that decisions be surfaced as HITL questions), each "
+        "must have a registered `cq-N` — even when the draft argues prior "
+        'context already resolves it. "Already resolved" is a recommended '
+        "disposition to register (recommended option citing the resolving "
+        "context), not a reason to skip; a `no_decisions_rationale` "
+        "attestation on such a task is a **NACK** regardless of how "
+        "defensible the rationale reads.\n\n"
         + _human_companion_review_criteria(
             companion="`*-analysis-human.md`",
             parent="the refine analysis",
@@ -6291,7 +6300,16 @@ def _get_plan_review_criteria() -> str:
         "boundaries, external commitments, user-visible behavior).\n"
         "- A deliberately empty ledger arrives as a producer's "
         "`no_decisions_rationale` attestation — verify it holds; NACK if "
-        "the plan hides an operator-grade choice.\n\n"
+        "the plan hides an operator-grade choice.\n"
+        "- **Task-named decisions — NACK an explicit-none ledger (#3462).** "
+        "If the task description or refine analysis names decisions as the "
+        "operator's to make (or directs that decisions be surfaced as HITL "
+        "questions), each must have a registered `cq-N` — even when the "
+        'plan argues prior context already resolves it. "Already '
+        'resolved" is a recommended disposition to register (recommended '
+        "option citing the resolving context), not a reason to skip; a "
+        "`no_decisions_rationale` attestation on such a task is a **NACK** "
+        "regardless of how defensible the rationale reads.\n\n"
         + _human_companion_review_criteria(
             companion="`*-plan-human.md`",
             parent="the implementation plan",
@@ -14141,7 +14159,26 @@ def _build_phase_prompt(
                 "anything, list those items in a `### Resolved in Pre-Refine` "
                 "subsection at the top of `## Open Questions` (one bullet per resolved "
                 "item, citing the answer). Only register questions that go beyond what "
-                "`## Additional Context` covers.\n",
+                "`## Additional Context` covers. This skip rule is NARROW: it covers "
+                "only answers THIS pipeline's operator recorded in "
+                "`## Additional Context`. It never covers decisions the task "
+                "description names as operator-owned, and never answers inherited "
+                "from a prior or cancelled run's seeded context — register those "
+                "(see the next rule).\n",
+                "**Task-named decisions are non-optional (#3462).** If the task "
+                "description or contract names specific decisions as the operator's "
+                "to make — or contains any directive to surface decisions as HITL "
+                "questions — you MUST register each one via "
+                "`egg-contract add-decision`, even when you believe prior context "
+                "already resolves it, or that it is non-blocking or deferred. "
+                "Belief about resolution is a *recommended disposition*, not a "
+                "reason to skip registration: make your recommended answer the "
+                "first option (suffix its label with `(recommended)`) and cite the "
+                "resolving context in that option's description, so the operator "
+                "can confirm in one click while retaining the authority to choose "
+                "differently. Documenting a decision in draft prose is a "
+                "supplement to registration, never a substitute — unregistered "
+                "decisions never reach the operator's decision surface.\n",
                 "Surface uncertainties, ambiguities, and assumptions **that genuinely "
                 "need a human to answer**. Filter ruthlessly: a good open question is "
                 "one the operator must answer because the answer changes what we're "
@@ -14210,6 +14247,13 @@ def _build_phase_prompt(
                 "`<!-- DECISION: ... -->` instead of the contract CLI",
                 "- Skip registration because you think the questions are minor — "
                 "register every question",
+                "- Skip registration because you believe a decision is already "
+                "resolved, non-blocking, or deferred — register it with your "
+                "recommended disposition instead (#3462)",
+                "- Attest `no_decisions_rationale` when the task names decisions "
+                "to surface — the attestation is presented to the operator as its "
+                "own confirmable decision, and a rejected 'none' sends the phase "
+                "back for a re-run (#3462)",
                 "- Transcribe this `## How to Populate Open Questions` section "
                 "into your analysis document — it is meta-guidance, not template "
                 "content\n",
@@ -14226,7 +14270,13 @@ def _build_phase_prompt(
                 "request (no `cq-N` decisions), attest the rationale form and "
                 "name the feedback request in it. This is what lets the "
                 "operator trust that an empty gate means *deliberately no "
-                "decisions*, not *forgot to register*.\n",
+                "decisions*, not *forgot to register*. The explicit-none form "
+                "is not a shortcut (#3462): the orchestrator surfaces it to "
+                "the operator as its own confirmable decision before the "
+                "phase gate, and it is only valid when the phase genuinely "
+                "raises no meaningful decision — never when the task names "
+                "decisions to surface, and never as a substitute for "
+                "registering a decision you believe is already resolved.\n",
                 "",
             ]
         )
@@ -14972,7 +15022,13 @@ def _build_brc_preamble(
                 "`cq-N` (copying the `--format markdown` output into the "
                 "draft satisfies this). A decision your draft commits to "
                 "without a registered `cq-N` is a reviewer NACK — register "
-                "it or remove the unilateral commitment."
+                "it or remove the unilateral commitment. The rationale form "
+                "is not a shortcut (#3462): the operator is asked to confirm "
+                "it as its own decision before the phase gate, and a rejected "
+                "'none' re-runs the phase. If the task names decisions to "
+                "surface — or you believe a decision is already resolved by "
+                "prior context — register it with your recommended answer as "
+                "the first option instead of attesting none."
             )
         if phase == "implement":
             propose_line += (
@@ -24750,6 +24806,253 @@ def _sync_pipeline_decisions_to_contract(
 _LEDGER_BACKSTOP_RERUN_OPTION = "Re-run phase to register decisions"
 _LEDGER_BACKSTOP_PROCEED_OPTION = "Proceed without a decision ledger"
 
+# Explicit-none attestation confirmation option (#3462). Paired with
+# ``_LEDGER_BACKSTOP_RERUN_OPTION`` on the confirmation decision; only a
+# resolution that IS a confirmation (the bare keyword or the full label)
+# proceeds — any other text is treated as a re-run directive, mirroring
+# the phase_gate's "bare approve advances, notes request changes" posture.
+_LEDGER_ATTESTATION_CONFIRM_OPTION = "Confirm — no open decisions this phase"
+
+
+def _ledger_attestation_question(role: str, rationale: str, phase_value: str) -> str:
+    """Compose the explicit-none confirmation question (#3462).
+
+    A producer's claim that a phase raises no operator decisions is itself
+    a judgment call about what *is* a judgment call — exactly the class of
+    decision the HITL contract assigns to the operator. It therefore
+    surfaces as its own confirmable decision, not a sentence embedded in
+    the phase_gate question.
+    """
+    return (
+        f"The {role} attests the {phase_value} phase deliberately raises "
+        f"no operator decisions (#3462):\n\n"
+        f"> {rationale}\n\n"
+        f"Confirm to proceed to the phase gate, or choose "
+        f"“{_LEDGER_BACKSTOP_RERUN_OPTION}” to send the phase back so its "
+        f"agents register the decisions as first-class contract entries "
+        f"(cq-N). Any free-text reply is treated as a re-run directive and "
+        f"forwarded to the agents."
+    )
+
+
+def _unwrap_choice_resolution(resolution: str) -> str:
+    """Unwrap the ``{"action":"select","selected":<label>}`` envelope.
+
+    The SDLC HITL CLI resolves a ``choice`` decision with that structured
+    envelope (mirrors ``routes.decisions._normalize_choice_resolution``);
+    a bare string / non-JSON resolution passes through unchanged.
+    """
+    try:
+        payload = json.loads(resolution)
+        if isinstance(payload, dict) and payload.get("action") == "select":
+            selected = payload.get("selected")
+            if isinstance(selected, str):
+                return selected
+    except ValueError, TypeError:
+        pass
+    return resolution
+
+
+def _ledger_attestation_confirmed(resolution: str) -> bool:
+    """Return True when ``resolution`` confirms the explicit-none attestation.
+
+    Conservative on purpose (#3462): only the bare keyword ``confirm`` or
+    the full confirm-option label counts. Anything else — the re-run
+    option, or free text naming decisions the operator expected — kicks
+    the phase back, with the text riding along as the directive.
+    """
+    normalized = _unwrap_choice_resolution(resolution).strip().lower()
+    return normalized in ("confirm", _LEDGER_ATTESTATION_CONFIRM_OPTION.lower())
+
+
+def _ledger_attestation_rerun_directive(phase_value: str, rationale: str, resolution: str) -> str:
+    """Compose the re-run directive for a rejected explicit-none attestation (#3462).
+
+    The operator declined to confirm that the phase raises no operator
+    decisions, so the phase re-runs with an instruction to register each
+    decision — including ones the producer believes prior context already
+    resolves. Any free-text resolution (i.e. not the bare re-run option) is
+    an operator note and rides along verbatim so the agents see the specific
+    concern.
+    """
+    directive = (
+        f"The operator declined to confirm the {phase_value} phase's "
+        f"no-decisions attestation (#3462). The phase claimed: "
+        f"“{rationale}”. Register each operator-grade decision via "
+        f"`egg-contract add-decision` — including decisions you believe "
+        f"prior context already resolves: register those with your "
+        f"recommended answer as the first option and cite the resolving "
+        f"context in its description. Belief about resolution is a "
+        f"recommended disposition, not a reason to skip registration."
+    )
+    if resolution.strip().lower() != _LEDGER_BACKSTOP_RERUN_OPTION.lower():
+        directive += f"\n\nOperator note: {resolution.strip()}"
+    return directive
+
+
+def _handle_explicit_none_attestation_gate(
+    *,
+    pipeline,
+    pipeline_id: str,
+    repo_path,
+    current_phase: PipelinePhase,
+    ledger_note: str,
+    explicit_none: tuple[str, str],
+    store,
+    spawner,
+):
+    """Surface an explicit-none attestation as a confirmable HITL decision (#3462).
+
+    A producer's claim that a refine/plan phase raises no operator decisions
+    bypasses the entire register → bridge → resolve chain, and the claim is
+    itself a judgment call the HITL contract assigns to the operator. Rather
+    than folding it into the phase_gate question as prose, surface it as its
+    own confirmable ``choice`` decision: confirming records the operator's
+    endorsement on the ledger note; rejecting re-runs the phase so producers
+    register the decisions as first-class ``cq-N`` entries.
+
+    Returns ``(rerun_requested, ledger_note, pipeline)``:
+
+    - ``rerun_requested`` — True when the operator rejected the attestation
+      and the phase has already been re-run here; the caller must ``continue``
+      its poll loop. False when the attestation was confirmed (or fail-open on
+      a cancelled/non-RESOLVED terminal state); the caller proceeds to the
+      phase gate.
+    - ``ledger_note`` — the note to thread into the phase_gate question,
+      annotated with the confirmation outcome.
+    - ``pipeline`` — the (possibly reloaded) pipeline the caller must rebind,
+      since queuing the confirmation decision reloads and mutates state.
+    """
+    attest_role, attest_rationale = explicit_none
+    attest_question = _ledger_attestation_question(
+        attest_role, attest_rationale, current_phase.value
+    )
+    # A converge-loop round (or a resume) re-enters this gate with the same
+    # attestation — do not re-ask a question the operator already answered,
+    # and reuse a pending one instead of queueing a duplicate (mirrors the
+    # phase_gate's #1152 guard).
+    prior_confirm = next(
+        (
+            d
+            for d in reversed(pipeline.decisions)
+            if d.decision_type == "choice"
+            and d.phase == current_phase
+            and d.question == attest_question
+            and d.status == DecisionStatus.RESOLVED
+            and _ledger_attestation_confirmed(str(d.resolution or ""))
+        ),
+        None,
+    )
+    if prior_confirm is not None:
+        return False, ledger_note + " Operator confirmed the attestation.", pipeline
+
+    dq = get_decision_queue(pipeline_id, repo_path)
+    pending_attest = next(
+        (
+            d
+            for d in reversed(pipeline.decisions)
+            if d.decision_type == "choice"
+            and d.phase == current_phase
+            and d.question == attest_question
+            and d.status == DecisionStatus.PENDING
+        ),
+        None,
+    )
+    if pending_attest is not None:
+        attest_decision = pending_attest
+        newly_created = False
+    else:
+        attest_decision = dq.queue_decision(
+            question=attest_question,
+            context=ledger_note,
+            options=[
+                _LEDGER_ATTESTATION_CONFIRM_OPTION,
+                _LEDGER_BACKSTOP_RERUN_OPTION,
+            ],
+            decision_type="choice",
+            phase=current_phase,
+        )
+        newly_created = True
+    with get_pipeline_state_lock(pipeline_id):
+        pipeline = store.load_pipeline(pipeline_id)
+        pipeline.status = PipelineStatus.AWAITING_HUMAN
+        phase_execution = pipeline.get_phase_execution(current_phase)
+        phase_execution.status = PipelineStatus.AWAITING_HUMAN
+        store.save_pipeline(pipeline)
+    # Only announce a freshly-created decision. Reusing a pending decision
+    # across polls must not re-emit ``decision.created`` — a duplicate event
+    # for a decision the operator is already looking at (#3462 review).
+    if newly_created:
+        report_pipeline_status(
+            pipeline,
+            event_type="decision.created",
+            message=(
+                f"{current_phase.value} phase attests no operator "
+                f"decisions — awaiting operator confirmation (#3462)"
+            ),
+        )
+        _emit_pipeline_event(pipeline, "decision.created")
+
+    attest_resolved = dq.wait_for_decision(attest_decision.id)
+    attest_resolution = _unwrap_choice_resolution(
+        str(getattr(attest_resolved, "resolution", None) or "")
+    ).strip()
+    resolved_ok = attest_resolved.status == DecisionStatus.RESOLVED
+    confirmed = resolved_ok and _ledger_attestation_confirmed(attest_resolution)
+
+    if resolved_ok and not confirmed:
+        # Rejected — re-run the phase so producers register the decisions as
+        # first-class cq-N entries.
+        rerun_directive = _ledger_attestation_rerun_directive(
+            current_phase.value, attest_rationale, attest_resolution
+        )
+        logger.info(
+            "Explicit-none attestation rejected: re-running phase (#3462)",
+            pipeline_id=pipeline_id,
+            phase=current_phase.value,
+        )
+        with get_pipeline_state_lock(pipeline_id):
+            pipeline = store.load_pipeline(pipeline_id)
+            pipeline.status = PipelineStatus.RUNNING
+            phase_execution = pipeline.get_phase_execution(current_phase)
+            phase_execution.status = PipelineStatus.RUNNING
+            phase_execution.completed_at = None
+            phase_execution.hitl_review_cycles += 1
+            _alert_threshold = pipeline.config.max_hitl_review_cycles
+            if phase_execution.hitl_review_cycles >= _alert_threshold:
+                _broadcast_hitl_nonconvergence_alert(
+                    pipeline_id,
+                    pipeline,
+                    current_phase,
+                    phase_execution.hitl_review_cycles,
+                    _alert_threshold,
+                )
+            _perform_hitl_phase_rerun(
+                store=store,
+                spawner=spawner,
+                pipeline=pipeline,
+                phase_execution=phase_execution,
+                pipeline_id=pipeline_id,
+                current_phase=current_phase,
+                feedback_text=rerun_directive,
+                event_message=(
+                    f"Re-running {current_phase.value}: no-decisions attestation rejected (#3462)"
+                ),
+            )
+        return True, ledger_note, pipeline
+
+    if confirmed:
+        return False, ledger_note + " Operator confirmed the attestation.", pipeline
+    # Fail open to the phase gate on a non-RESOLVED terminal state (cancel):
+    # the gate itself still blocks for approval, mirroring the missing-ledger
+    # backstop's posture. Record the outcome accurately — do not claim a
+    # confirmation the operator never gave (#3462 review).
+    return (
+        False,
+        ledger_note + " Attestation confirmation was cancelled; deferring to the phase gate.",
+        pipeline,
+    )
+
 
 def _find_explicit_none_attestation(
     pipeline_id: str,
@@ -24801,10 +25104,10 @@ def _collect_decision_ledger_status(
     pipeline_id: str,
     pipeline_identifier: int | str,
     phase: PipelinePhase,
-) -> tuple[str, bool]:
+) -> tuple[str, bool, tuple[str, str] | None]:
     """Summarize the phase's decision ledger for the gate surface (#3390).
 
-    Returns ``(note, missing)``:
+    Returns ``(note, missing, explicit_none)``:
 
     - ``note`` — an operator-visible one-liner appended to the phase_gate
       question so "N registered" vs "explicitly none" vs "MISSING" is
@@ -24815,6 +25118,11 @@ def _collect_decision_ledger_status(
       bypassed consensus (force-advance, resume) or the producer's claim
       was lost — the caller surfaces a dedicated backstop HITL rather
       than silently advancing.
+    - ``explicit_none`` — the ``(role, rationale)`` of a producer's
+      explicit-none attestation when that is what stands in for a ledger
+      (zero registered decisions), else ``None``. The caller surfaces it
+      as its own confirmable decision (#3462) rather than trusting the
+      self-attestation. Mutually exclusive with ``missing``.
     """
     phase_value = phase.value
     registered_ids: list[str] = []
@@ -24849,6 +25157,7 @@ def _collect_decision_ledger_status(
             f"Decision ledger: {len(registered_ids)} decision(s) registered this "
             f"phase ({', '.join(registered_ids)}), {resolved} resolved.",
             False,
+            None,
         )
 
     explicit_none = _find_explicit_none_attestation(pipeline_id, phase_value)
@@ -24857,6 +25166,7 @@ def _collect_decision_ledger_status(
         return (
             f"Decision ledger: explicitly none — {role} attested: {rationale}",
             False,
+            explicit_none,
         )
 
     return (
@@ -24865,6 +25175,7 @@ def _collect_decision_ledger_status(
         "“0 decisions” here cannot be distinguished from “failed "
         "to register”.",
         True,
+        None,
     )
 
 
@@ -28022,11 +28333,13 @@ def _run_pipeline(
                 # the gate-skip posture — surface a missing ledger loudly
                 # (event + warning) but never block.
                 try:
-                    _ledger_note, _ledger_missing = _collect_decision_ledger_status(
-                        worktree_repo_path,
-                        pipeline_id,
-                        _pipeline_identifier(pipeline.issue_number, pipeline_id),
-                        current_phase,
+                    _ledger_note, _ledger_missing, _ledger_explicit_none = (
+                        _collect_decision_ledger_status(
+                            worktree_repo_path,
+                            pipeline_id,
+                            _pipeline_identifier(pipeline.issue_number, pipeline_id),
+                            current_phase,
+                        )
                     )
                     if _ledger_missing:
                         logger.warning(
@@ -28040,6 +28353,19 @@ def _run_pipeline(
                             message=(
                                 f"{current_phase.value} phase advanced autonomously "
                                 f"with no decision ledger — {_ledger_note}"
+                            ),
+                        )
+                    elif _ledger_explicit_none is not None:
+                        # No human is present to confirm the attestation
+                        # (#3462) — mirror the gate-skip posture: surface
+                        # loudly, never block.
+                        report_pipeline_status(
+                            pipeline,
+                            event_type="phase.decision_ledger_explicit_none",
+                            message=(
+                                f"{current_phase.value} phase advanced autonomously "
+                                f"on an unconfirmed no-decisions attestation — "
+                                f"{_ledger_note}"
                             ),
                         )
                 except Exception as ledger_err:  # noqa: BLE001
@@ -28061,12 +28387,15 @@ def _run_pipeline(
                 # explicit operator override to proceed.
                 _ledger_note = ""
                 _ledger_missing = False
+                _ledger_explicit_none: tuple[str, str] | None = None
                 try:
-                    _ledger_note, _ledger_missing = _collect_decision_ledger_status(
-                        worktree_repo_path,
-                        pipeline_id,
-                        _pipeline_identifier(pipeline.issue_number, pipeline_id),
-                        current_phase,
+                    _ledger_note, _ledger_missing, _ledger_explicit_none = (
+                        _collect_decision_ledger_status(
+                            worktree_repo_path,
+                            pipeline_id,
+                            _pipeline_identifier(pipeline.issue_number, pipeline_id),
+                            current_phase,
+                        )
                     )
                 except Exception as ledger_err:  # noqa: BLE001
                     # Never let a helper bug strand the pipeline — the
@@ -28179,6 +28508,29 @@ def _run_pipeline(
                         phase=current_phase.value,
                         resolution=_backstop_resolution[:200],
                     )
+                elif _ledger_explicit_none is not None:
+                    # --- Explicit-none attestation confirmation (#3462) ---
+                    # The producer's claim that this phase raises no operator
+                    # decisions bypasses the entire register → bridge →
+                    # resolve chain, and is itself a judgment call the HITL
+                    # contract assigns to the operator. Surface it as its own
+                    # confirmable decision (see the helper): confirming records
+                    # the operator's endorsement on the ledger note; rejecting
+                    # re-runs the phase to register cq-N entries.
+                    _rerun_requested, _ledger_note, pipeline = (
+                        _handle_explicit_none_attestation_gate(
+                            pipeline=pipeline,
+                            pipeline_id=pipeline_id,
+                            repo_path=repo_path,
+                            current_phase=current_phase,
+                            ledger_note=_ledger_note,
+                            explicit_none=_ledger_explicit_none,
+                            store=store,
+                            spawner=spawner,
+                        )
+                    )
+                    if _rerun_requested:
+                        continue  # Re-enter outer loop → re-run phase
 
                 # Check for an existing pending phase_gate decision for this
                 # phase.  A prior agent-exit event may

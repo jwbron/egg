@@ -1,10 +1,13 @@
-"""Tests for the gate-side decision-ledger backstop helpers (#3390).
+"""Tests for the gate-side decision-ledger backstop helpers (#3390, #3462).
 
 ``_collect_decision_ledger_status`` summarizes the phase's decision ledger
 for the phase_gate surface: "N registered" (from the contract), "explicitly
 none" (from a producer's ``no_decisions_rationale`` propose attestation), or
 MISSING (neither — the backstop-HITL trigger). ``_find_explicit_none_
 attestation`` is the message-store scan behind the explicit-none case.
+``_ledger_attestation_question`` / ``_ledger_attestation_confirmed`` back the
+explicit-none confirmation decision the gate surfaces to the operator
+(#3462).
 """
 
 from __future__ import annotations
@@ -98,10 +101,11 @@ class TestCollectDecisionLedgerStatus:
                 _decision("cq-3", phase="plan"),
             ],
         )
-        note, missing = _collect_decision_ledger_status(
+        note, missing, explicit_none = _collect_decision_ledger_status(
             tmp_path, "pipeline-id", "issue-42", PipelinePhase.REFINE
         )
         assert missing is False
+        assert explicit_none is None
         assert "2 decision(s) registered" in note
         assert "cq-1" in note and "cq-2" in note and "cq-3" not in note
         assert "1 resolved" in note
@@ -116,10 +120,11 @@ class TestCollectDecisionLedgerStatus:
             )
         ]
         with _patch_message_store(messages):
-            note, missing = _collect_decision_ledger_status(
+            note, missing, explicit_none = _collect_decision_ledger_status(
                 tmp_path, "pipeline-id", "issue-42", PipelinePhase.REFINE
             )
         assert missing is False
+        assert explicit_none == ("refiner", "mechanical change, no choices")
         assert "explicitly none" in note
         assert "refiner" in note
         assert "mechanical change" in note
@@ -129,10 +134,11 @@ class TestCollectDecisionLedgerStatus:
 
         _make_contract_file(tmp_path, "issue-42", decisions=[])
         with _patch_message_store([]):
-            note, missing = _collect_decision_ledger_status(
+            note, missing, explicit_none = _collect_decision_ledger_status(
                 tmp_path, "pipeline-id", "issue-42", PipelinePhase.REFINE
             )
         assert missing is True
+        assert explicit_none is None
         assert "MISSING" in note
 
     def test_contract_unloadable_falls_back_to_attestation(self, tmp_path: Path):
@@ -141,10 +147,11 @@ class TestCollectDecisionLedgerStatus:
         # No contract file written at all.
         messages = [_propose_message(attestation={"no_decisions_rationale": "none needed"})]
         with _patch_message_store(messages):
-            note, missing = _collect_decision_ledger_status(
+            note, missing, explicit_none = _collect_decision_ledger_status(
                 tmp_path, "pipeline-id", "issue-42", PipelinePhase.REFINE
             )
         assert missing is False
+        assert explicit_none == ("refiner", "none needed")
         assert "explicitly none" in note
 
     def test_message_store_outage_fails_closed(self, tmp_path: Path):
@@ -152,10 +159,11 @@ class TestCollectDecisionLedgerStatus:
 
         _make_contract_file(tmp_path, "issue-42", decisions=[])
         with patch("message_store.get_message_store", side_effect=RuntimeError("redis down")):
-            note, missing = _collect_decision_ledger_status(
+            note, missing, explicit_none = _collect_decision_ledger_status(
                 tmp_path, "pipeline-id", "issue-42", PipelinePhase.REFINE
             )
         assert missing is True
+        assert explicit_none is None
         assert "MISSING" in note
 
 
@@ -203,3 +211,339 @@ class TestFindExplicitNoneAttestation:
         messages = [_propose_message(attestation={"decisions_registered": ["cq-1"]})]
         with _patch_message_store(messages):
             assert _find_explicit_none_attestation("pipeline-id", "refine") is None
+
+
+class TestLedgerAttestationConfirmation:
+    """The explicit-none confirmation decision surface (#3462).
+
+    An explicit-none attestation is surfaced to the operator as its own
+    confirmable decision. ``_ledger_attestation_question`` composes it;
+    ``_ledger_attestation_confirmed`` decides whether a resolution
+    confirms (proceed to the gate) or rejects (re-run the phase).
+    """
+
+    def test_question_quotes_role_phase_and_rationale(self):
+        from routes.pipelines import _ledger_attestation_question
+
+        question = _ledger_attestation_question(
+            "refiner", "answers present in seeded context", "refine"
+        )
+        assert "refiner" in question
+        assert "refine phase" in question
+        assert "answers present in seeded context" in question
+        assert "#3462" in question
+
+    def test_question_is_stable_for_identical_claims(self):
+        # Converge-round dedupe keys on question equality: the same
+        # (role, rationale, phase) must compose the identical question.
+        from routes.pipelines import _ledger_attestation_question
+
+        a = _ledger_attestation_question("refiner", "no choices", "refine")
+        b = _ledger_attestation_question("refiner", "no choices", "refine")
+        assert a == b
+        assert a != _ledger_attestation_question("refiner", "other claim", "refine")
+
+    def test_bare_confirm_keyword_confirms(self):
+        from routes.pipelines import _ledger_attestation_confirmed
+
+        assert _ledger_attestation_confirmed("confirm") is True
+        assert _ledger_attestation_confirmed("  Confirm  ") is True
+
+    def test_full_option_label_confirms(self):
+        from routes.pipelines import (
+            _LEDGER_ATTESTATION_CONFIRM_OPTION,
+            _ledger_attestation_confirmed,
+        )
+
+        assert _ledger_attestation_confirmed(_LEDGER_ATTESTATION_CONFIRM_OPTION) is True
+        assert _ledger_attestation_confirmed(_LEDGER_ATTESTATION_CONFIRM_OPTION.upper()) is True
+
+    def test_choice_envelope_unwrapped(self):
+        # The SDLC HITL CLI resolves a choice as
+        # {"action": "select", "selected": "<label>"} (#2978) — the
+        # confirm match must unwrap it.
+        from routes.pipelines import (
+            _LEDGER_ATTESTATION_CONFIRM_OPTION,
+            _ledger_attestation_confirmed,
+        )
+
+        envelope = json.dumps({"action": "select", "selected": _LEDGER_ATTESTATION_CONFIRM_OPTION})
+        assert _ledger_attestation_confirmed(envelope) is True
+
+    def test_rerun_option_and_free_text_reject(self):
+        from routes.pipelines import (
+            _LEDGER_BACKSTOP_RERUN_OPTION,
+            _ledger_attestation_confirmed,
+        )
+
+        assert _ledger_attestation_confirmed(_LEDGER_BACKSTOP_RERUN_OPTION) is False
+        # Free text is a re-run directive, even when it contains the
+        # word "confirm" in a negating sense.
+        assert _ledger_attestation_confirmed("do not confirm — register cq for deploy") is False
+        assert _ledger_attestation_confirmed("") is False
+
+    def test_envelope_with_rerun_selection_rejects(self):
+        from routes.pipelines import (
+            _LEDGER_BACKSTOP_RERUN_OPTION,
+            _ledger_attestation_confirmed,
+        )
+
+        envelope = json.dumps({"action": "select", "selected": _LEDGER_BACKSTOP_RERUN_OPTION})
+        assert _ledger_attestation_confirmed(envelope) is False
+
+
+class TestLedgerAttestationRerunDirective:
+    """The re-run directive built when an explicit-none attestation is
+    rejected (#3462). Free-text resolutions ride along as an operator note;
+    the bare re-run option does not.
+    """
+
+    def test_directive_names_phase_rationale_and_registration_rule(self):
+        from routes.pipelines import _ledger_attestation_rerun_directive
+
+        directive = _ledger_attestation_rerun_directive(
+            "refine", "no choices this phase", "Re-run phase to register decisions"
+        )
+        assert "refine phase" in directive
+        assert "no choices this phase" in directive
+        assert "egg-contract add-decision" in directive
+        assert "recommended disposition" in directive
+
+    def test_bare_rerun_option_adds_no_operator_note(self):
+        from routes.pipelines import (
+            _LEDGER_BACKSTOP_RERUN_OPTION,
+            _ledger_attestation_rerun_directive,
+        )
+
+        directive = _ledger_attestation_rerun_directive(
+            "plan", "nothing to decide", _LEDGER_BACKSTOP_RERUN_OPTION
+        )
+        assert "Operator note:" not in directive
+
+    def test_free_text_resolution_rides_along_as_operator_note(self):
+        from routes.pipelines import _ledger_attestation_rerun_directive
+
+        directive = _ledger_attestation_rerun_directive(
+            "plan", "nothing to decide", "register the deploy-target choice"
+        )
+        assert "Operator note: register the deploy-target choice" in directive
+
+
+class TestHandleExplicitNoneAttestationGate:
+    """The orchestration around the explicit-none confirmation decision (#3462).
+
+    ``_handle_explicit_none_attestation_gate`` queues the confirmable choice,
+    waits on it, and either falls through to the phase gate (confirm / cancel
+    fail-open) or re-runs the phase (reject). The dedup branches — a prior
+    confirmation reused without re-asking, and a pending decision reused
+    without re-emitting ``decision.created`` — are the net-new integration
+    logic this covers.
+    """
+
+    _ROLE = "refiner"
+    _RATIONALE = "requirements are unambiguous; no operator choices"
+
+    def _fake_phase_execution(self):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            status=None,
+            completed_at="2026-04-01T00:00:00+00:00",
+            hitl_review_cycles=0,
+        )
+
+    def _fake_pipeline(self, decisions=None):
+        from types import SimpleNamespace
+
+        phase_exec = self._fake_phase_execution()
+        return SimpleNamespace(
+            decisions=list(decisions or []),
+            status=None,
+            config=SimpleNamespace(max_hitl_review_cycles=3),
+            get_phase_execution=lambda _phase: phase_exec,
+        )
+
+    def _choice_decision(self, question, status, resolution=None):
+        from types import SimpleNamespace
+
+        from models import PipelinePhase
+
+        return SimpleNamespace(
+            decision_type="choice",
+            phase=PipelinePhase.REFINE,
+            question=question,
+            status=status,
+            resolution=resolution,
+        )
+
+    def _call(self, *, pipeline, dq, store=None, spawner=None):
+        """Invoke the helper with all module-level collaborators patched."""
+        from unittest.mock import MagicMock, patch
+
+        from models import PipelinePhase
+        from routes.pipelines import _handle_explicit_none_attestation_gate
+
+        store = store or MagicMock()
+        store.load_pipeline.return_value = pipeline
+        spawner = spawner or MagicMock()
+
+        with (
+            patch("routes.pipelines.get_decision_queue", return_value=dq) as m_get_dq,
+            patch("routes.pipelines.get_pipeline_state_lock", return_value=MagicMock()),
+            patch("routes.pipelines.report_pipeline_status") as m_report,
+            patch("routes.pipelines._emit_pipeline_event") as m_emit,
+            patch("routes.pipelines._perform_hitl_phase_rerun") as m_rerun,
+            patch("routes.pipelines._broadcast_hitl_nonconvergence_alert") as m_alert,
+        ):
+            rerun_requested, note, out_pipeline = _handle_explicit_none_attestation_gate(
+                pipeline=pipeline,
+                pipeline_id="pipeline-id",
+                repo_path=Path("/tmp/repo"),
+                current_phase=PipelinePhase.REFINE,
+                ledger_note="Decision ledger: explicitly none — refiner attested: x",
+                explicit_none=(self._ROLE, self._RATIONALE),
+                store=store,
+                spawner=spawner,
+            )
+        return {
+            "rerun_requested": rerun_requested,
+            "note": note,
+            "pipeline": out_pipeline,
+            "get_dq": m_get_dq,
+            "report": m_report,
+            "emit": m_emit,
+            "rerun": m_rerun,
+            "alert": m_alert,
+            "store": store,
+        }
+
+    def _question(self):
+        from models import PipelinePhase
+        from routes.pipelines import _ledger_attestation_question
+
+        return _ledger_attestation_question(self._ROLE, self._RATIONALE, PipelinePhase.REFINE.value)
+
+    def test_confirm_falls_through_with_note(self):
+        from unittest.mock import MagicMock
+
+        from models import DecisionStatus
+
+        dq = MagicMock()
+        dq.queue_decision.return_value = MagicMock(id="attest-1")
+        dq.wait_for_decision.return_value = MagicMock(
+            status=DecisionStatus.RESOLVED, resolution="confirm"
+        )
+        pipeline = self._fake_pipeline()
+
+        res = self._call(pipeline=pipeline, dq=dq)
+
+        assert res["rerun_requested"] is False
+        assert res["note"].endswith("Operator confirmed the attestation.")
+        dq.queue_decision.assert_called_once()
+        # A freshly-created decision is announced exactly once.
+        assert res["emit"].call_count == 1
+        res["rerun"].assert_not_called()
+
+    def test_reject_rerun_option_triggers_phase_rerun(self):
+        from unittest.mock import MagicMock
+
+        from models import DecisionStatus, PipelineStatus
+        from routes.pipelines import _LEDGER_BACKSTOP_RERUN_OPTION
+
+        dq = MagicMock()
+        dq.queue_decision.return_value = MagicMock(id="attest-1")
+        dq.wait_for_decision.return_value = MagicMock(
+            status=DecisionStatus.RESOLVED, resolution=_LEDGER_BACKSTOP_RERUN_OPTION
+        )
+        pipeline = self._fake_pipeline()
+
+        res = self._call(pipeline=pipeline, dq=dq)
+
+        assert res["rerun_requested"] is True
+        res["rerun"].assert_called_once()
+        directive = res["rerun"].call_args.kwargs["feedback_text"]
+        assert "egg-contract add-decision" in directive
+        assert "Operator note:" not in directive
+        assert pipeline.status == PipelineStatus.RUNNING
+
+    def test_reject_free_text_forwards_operator_note(self):
+        from unittest.mock import MagicMock
+
+        from models import DecisionStatus
+
+        dq = MagicMock()
+        dq.queue_decision.return_value = MagicMock(id="attest-1")
+        dq.wait_for_decision.return_value = MagicMock(
+            status=DecisionStatus.RESOLVED,
+            resolution="you skipped the deploy-target choice",
+        )
+        pipeline = self._fake_pipeline()
+
+        res = self._call(pipeline=pipeline, dq=dq)
+
+        assert res["rerun_requested"] is True
+        directive = res["rerun"].call_args.kwargs["feedback_text"]
+        assert "Operator note: you skipped the deploy-target choice" in directive
+
+    def test_prior_confirmation_is_reused_without_reasking(self):
+        from unittest.mock import MagicMock
+
+        from models import DecisionStatus
+
+        prior = self._choice_decision(
+            self._question(), DecisionStatus.RESOLVED, resolution="confirm"
+        )
+        pipeline = self._fake_pipeline(decisions=[prior])
+        dq = MagicMock()
+
+        res = self._call(pipeline=pipeline, dq=dq)
+
+        assert res["rerun_requested"] is False
+        assert res["note"].endswith("Operator confirmed the attestation.")
+        # No new decision is queued and the queue is never even fetched.
+        res["get_dq"].assert_not_called()
+        res["emit"].assert_not_called()
+        res["rerun"].assert_not_called()
+
+    def test_pending_decision_reused_without_reemitting_created(self):
+        from unittest.mock import MagicMock
+
+        from models import DecisionStatus
+
+        pending = self._choice_decision(self._question(), DecisionStatus.PENDING)
+        pending.id = "attest-pending"
+        pipeline = self._fake_pipeline(decisions=[pending])
+        dq = MagicMock()
+        dq.wait_for_decision.return_value = MagicMock(
+            status=DecisionStatus.RESOLVED, resolution="confirm"
+        )
+
+        res = self._call(pipeline=pipeline, dq=dq)
+
+        # The pending decision is reused, not re-queued...
+        dq.queue_decision.assert_not_called()
+        dq.wait_for_decision.assert_called_once_with("attest-pending")
+        # ...and reusing it must not re-announce decision.created.
+        res["emit"].assert_not_called()
+        assert res["rerun_requested"] is False
+
+    def test_cancel_fails_open_with_accurate_note(self):
+        from unittest.mock import MagicMock
+
+        from models import DecisionStatus
+
+        dq = MagicMock()
+        dq.queue_decision.return_value = MagicMock(id="attest-1")
+        dq.wait_for_decision.return_value = MagicMock(
+            status=DecisionStatus.CANCELLED, resolution=None
+        )
+        pipeline = self._fake_pipeline()
+
+        res = self._call(pipeline=pipeline, dq=dq)
+
+        # Fail open to the phase gate, but record the cancel accurately —
+        # never claim a confirmation the operator did not give (#3462 review).
+        assert res["rerun_requested"] is False
+        assert "Operator confirmed the attestation." not in res["note"]
+        assert "cancelled" in res["note"].lower()
+        res["rerun"].assert_not_called()

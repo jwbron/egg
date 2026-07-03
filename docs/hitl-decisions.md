@@ -435,6 +435,44 @@ normal gate. On autonomous pipelines (`hitl_gates: false`) the missing ledger
 is surfaced as a loud `phase.decision_ledger_missing` event but never blocks,
 mirroring the autonomous gate-skip posture.
 
+### Explicit-none attestations are confirmed, not trusted (#3462)
+
+An explicit-none attestation is itself a judgment call about what *is* a
+judgment call — exactly the class of decision the HITL contract assigns to
+the operator, and the one escape hatch through which an agent under
+convergence pressure can bypass the whole register → bridge → resolve chain.
+So the gate does not fold it into the `phase_gate` question as prose: when a
+refine/plan phase reaches its gate with an explicit-none attestation standing
+in for a ledger, the orchestrator first surfaces a dedicated **confirmable
+`choice` decision** quoting the role and rationale ("the &lt;role&gt; attests
+this phase deliberately raises no operator decisions — confirm?").
+
+- **Confirm** (the bare keyword or the full option label — anything else is
+  conservatively treated as a rejection, mirroring the phase_gate's
+  "bare approve advances" posture) proceeds to the normal phase gate, and the
+  gate's ledger note records "Operator confirmed the attestation".
+- **Re-run** (or any free-text reply, which rides along as an operator note)
+  kicks the phase back via the converge loop's standard re-run, with a
+  directive telling producers to register each decision — including ones they
+  believe prior context already resolves, registered with the recommended
+  answer as the first option rather than attested away.
+
+The confirmation is idempotent across converge rounds: a re-entered gate with
+the *same* attestation reuses the operator's prior confirmation (or a pending
+confirmation decision) instead of re-asking; a changed rationale is a new
+claim and is asked again. On autonomous pipelines the unconfirmed attestation
+is surfaced as a `phase.decision_ledger_explicit_none` event but never
+blocks.
+
+Prompt-side, the same issue closes the loophole at the source: decisions the
+task description names as operator-owned (or covered by any
+"surface as HITL" directive) **must be registered** even when the producer
+believes they are already resolved, non-blocking, or deferred — belief about
+resolution is a *recommended disposition* (recommended option citing the
+resolving context), never a reason to skip registration — and
+`reviewer_refine` (§7) / `reviewer_plan` (§14) NACK an explicit-none ledger
+on a task that names decisions to surface.
+
 ### Judgment: reviewer obligation against un-surfaced decisions
 
 A draft that quietly **commits** to an operator-grade choice ("we will drop
