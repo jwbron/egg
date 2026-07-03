@@ -472,6 +472,42 @@ RESTORE_PREBUILT_PY
     return 0
 }}
 
+# Trust the gateway proxy CA for TLS-bumped hosts (#3459): k8s agent
+# pods override the image ENTRYPOINT (this wrapper IS the pod command),
+# so the sandbox entrypoint's ``setup_gateway_ca()`` never runs and no
+# shared-certs volume is mounted. Fetch the current CA from the
+# gateway's public ca-cert endpoint (#3458) and export
+# NODE_EXTRA_CA_CERTS so node/npm/pnpm validate TLS-bumped hosts — the
+# GitHub Packages npm read-through (#3456) — without per-run
+# hand-wiring. Compose pods inherit NODE_EXTRA_CA_CERTS from the
+# entrypoint (run_exec copies os.environ), so the already-set guard
+# keeps that path byte-identical. Fetching per-spawn also stays correct
+# across gateway restarts, which regenerate the CA. Fail-soft: a failed
+# fetch logs and continues — the agent invocation is never blocked on
+# it, and only installs from TLS-bumped registries would later fail,
+# with a certificate error at install time.
+setup_gateway_ca() {{
+    if [ -n "${{NODE_EXTRA_CA_CERTS:-}}" ]; then
+        cw_log "gateway-ca: NODE_EXTRA_CA_CERTS already set (entrypoint path); skipping fetch."
+        return 0
+    fi
+    if [ -z "${{GATEWAY_URL:-}}" ]; then
+        cw_log "gateway-ca: GATEWAY_URL unset; skipping CA fetch (fail-soft)."
+        return 0
+    fi
+    local ca_file="${{TMPDIR:-/tmp}}/gateway-ca.crt"
+    if curl -sf --connect-timeout 5 --max-time 15 \
+            "$GATEWAY_URL/api/v1/proxy/ca-cert" -o "$ca_file" \
+            && [ -s "$ca_file" ]; then
+        export NODE_EXTRA_CA_CERTS="$ca_file"
+        cw_log "gateway-ca: fetched proxy CA; exported NODE_EXTRA_CA_CERTS=$ca_file"
+    else
+        rm -f "$ca_file" 2>/dev/null || true
+        cw_log "gateway-ca: CA fetch failed (fail-soft); TLS-bumped registry installs will not trust the gateway CA."
+    fi
+    return 0
+}}
+
 """
 
 
@@ -558,6 +594,13 @@ fi
 # any arm runs — producer arms run repo checks too. Fail-soft inside the
 # function; the agent invocation is never blocked on it.
 restore_prebuilt_deps
+
+# Trust the gateway proxy CA (#3459), same placement rationale: after the
+# freshness re-check (a stale event exits without paying the fetch),
+# before any arm runs, so the exported NODE_EXTRA_CA_CERTS is inherited
+# by the agent and every subprocess it spawns. Fail-soft inside the
+# function; the agent invocation is never blocked on it.
+setup_gateway_ca
 
 # Use the freshly-derived event_payload (current truth) for the invocation.
 # Reviewer arms (ack/nack) sync the pending proposal commits into the
