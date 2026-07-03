@@ -80,6 +80,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "db7f6cbc46f74dd9a1e3372f28481bdf3708bc21": {
+      "branch": "egg/pipeline-dcdad92d/work",
+      "patch_id": "d2f20d3b9f31755a1c2bc55985a10f995a7327da",
+      "pipeline_id": "pipeline-dcdad92d",
+      "registered_at": "2026-07-03T03:17:11.150777+00:00",
+      "repo": null,
+      "role": "risk_analyst"
+    },
     "e250c0f46462a9463e452f9bf169f08192288260": {
       "branch": "egg/pipeline-dcdad92d/work",
       "patch_id": "64490a0182ac809c749582a42e6d98c8c0f6a3e2",
