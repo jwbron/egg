@@ -75,6 +75,79 @@ def test_atlassian_domains_absent(bad_substr: str):
         )
 
 
+@pytest.mark.parametrize(
+    "domain",
+    [
+        # Public npm registry for runtime, lockfile-pinned dependency
+        # installation (`pnpm install --frozen-lockfile` / `npm ci`) in
+        # repos whose dependency sets are too large or dynamic to bake
+        # into the sandbox image at build time. Removing this entry
+        # silently breaks in-sandbox installs for such repos, so pin its
+        # presence here.
+        "registry.npmjs.org",
+    ],
+)
+def test_npm_registries_present(domain: str):
+    """The npm registry host must stay in the Squid allowlist."""
+    text = ALLOWED_DOMAINS_PATH.read_text()
+    lines = list(_iter_non_comment_lines(text))
+    assert domain in lines, (
+        f"{domain!r} missing from allowed_domains.txt. Runtime npm "
+        "dependency installation (lockfile-pinned installs through the "
+        "Squid proxy) requires this registry host."
+    )
+
+
+@pytest.mark.parametrize(
+    "bad_substr",
+    [
+        # GitHub Packages is deliberately NOT allowlisted: it serves
+        # tarballs via a cross-host 302 redirect to a *.githubusercontent.com
+        # blob host that would also need allowlisting, and its auth-delivery
+        # story into the sandbox is undesigned. Allowlisting the registry
+        # host alone yields a confusing failure — metadata resolves 200,
+        # then the tarball download is terminated. Don't re-add it without
+        # also allowlisting the redirect target(s). Tracked as a follow-up.
+        "npm.pkg.github.com",
+    ],
+)
+def test_github_packages_absent(bad_substr: str):
+    """GitHub Packages must not appear until its redirect + auth story lands."""
+    text = ALLOWED_DOMAINS_PATH.read_text()
+    for line in _iter_non_comment_lines(text):
+        assert bad_substr not in line.lower(), (
+            f"{bad_substr!r} found in allowed_domains.txt on line: {line!r}. "
+            "GitHub Packages installs redirect to an un-allowlisted blob "
+            "host and would fail at the tarball step; do not re-add it "
+            "without allowlisting the redirect target(s) and designing the "
+            "auth-delivery path."
+        )
+
+
+@pytest.mark.parametrize(
+    "bad_substr",
+    [
+        # Python installs remain image-bake-only: PyPI must not appear in
+        # the runtime egress allowlist.
+        "pypi.org",
+        "files.pythonhosted.org",
+    ],
+)
+def test_pypi_domains_absent(bad_substr: str):
+    """No non-comment line may reference a PyPI host.
+
+    Unlike npm (allowed for runtime lockfile-pinned installs), Python
+    dependencies must be pre-installed in the sandbox image.
+    """
+    text = ALLOWED_DOMAINS_PATH.read_text()
+    for line in _iter_non_comment_lines(text):
+        assert bad_substr not in line.lower(), (
+            f"{bad_substr!r} found in allowed_domains.txt on line: {line!r}. "
+            "Python package installation is image-bake-only; PyPI hosts "
+            "must not be reachable from the sandbox at runtime."
+        )
+
+
 def test_allowed_domains_has_no_bare_wildcard():
     """A bare ``*`` would defeat the purpose of the allowlist entirely."""
     text = ALLOWED_DOMAINS_PATH.read_text()

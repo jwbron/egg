@@ -38,6 +38,27 @@
 # REST calls — a test in gateway/tests/test_allowed_domains.py asserts that
 # no such entry is present.
 
-# Note: PyPI, npm, and other package managers are intentionally NOT included
-# All dependencies must be pre-installed in the Docker image
-# This prevents supply chain attacks and ensures reproducible builds
+# npm registry — allowed for runtime dependency installation.
+#
+# Some repositories have dependency sets that are too large or too dynamic
+# to bake into the sandbox image at build time (e.g. large JS monorepos).
+# For those, agents run lockfile-pinned installs (`pnpm install
+# --frozen-lockfile` / `npm ci`) inside the sandbox, routed through this
+# proxy. Reproducibility comes from the committed lockfile. Because Squid
+# splices these connections (SNI peek, no MITM decryption), its access log
+# captures host-level connection records — the registry host and byte
+# counts — not the individual package or version fetched. This mirrors the
+# DNS/domain-allowlist pattern used by hardened CI runners, which permit
+# exactly this registry host for dependency installation.
+#
+# Scope: public npm registry only, reachable by npm and pnpm. Yarn
+# Classic's default host (registry.yarnpkg.com) is a distinct SNI host and
+# is intentionally NOT included. GitHub Packages (npm.pkg.github.com) is
+# also NOT included: it serves tarballs via a cross-host 302 redirect to a
+# *.githubusercontent.com blob host that would itself need allowlisting,
+# and its auth-delivery story into the sandbox is undesigned. GitHub
+# Packages support is tracked as a follow-up.
+#
+# PyPI and other package managers remain intentionally NOT included —
+# Python dependencies must still be pre-installed in the Docker image.
+registry.npmjs.org
