@@ -132,7 +132,7 @@ def _validate_worktree_for_reuse(
                     check=True,
                 ).stdout.strip()
                 # The gateway creates per-agent worktrees on the role's own
-                # local work branch (egg/{container_id}/work), not on the
+                # local work branch (egg/{agent_worktree_id}/work), not on the
                 # assigned branch it pushes to; the assigned branch alone
                 # would mismatch on every event spawn and permanently degrade
                 # re-attach to create-with-retry (#3480).
