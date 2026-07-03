@@ -243,13 +243,16 @@ checkpoints. Previously a `cq-N` registered or resolved between checkpoints
 lived only on the shared worktree's file; the `git reset --hard
 origin/<branch>` that runs at phase-(re)start silently reverted it, letting
 the next bootstrap re-mint reuse the same id and clobber an
-already-resolved decision. `_persist_durable_mutation`
-(`orchestrator/routes/contracts.py`, calling
-`persist_contract_statefiles` in `orchestrator/routes/pipelines.py`) makes
-this best-effort commit+push run inline with the mutation and resolution
-routes and with the Layer-C HITL escalation path; a failure there is
-logged and swallowed since the write is already live on the worktree file
-and the next checkpoint commit will pick it up.
+already-resolved decision. The best-effort commit+push
+(`persist_contract_statefiles`, `orchestrator/routes/pipelines.py`) runs
+inline with the resolution route
+(`orchestrator/routes/decisions/_resolve.py`) and the Layer-C HITL
+escalation path (`orchestrator/routes/pipelines.py`) — both calling it
+directly — and with the contract mutate route via the
+`_persist_durable_mutation` wrapper (`orchestrator/routes/contracts.py`,
+#3470), which covers decision registration and contract task-row mutations
+alike; a failure there is logged and swallowed since the write is already
+live on the worktree file and the next checkpoint commit will pick it up.
 
 The same write-time persist covers contract task-row `status`/`commit`
 mutations (`phases.*.tasks.*.status` / `.commit`, #3470): without it, a
