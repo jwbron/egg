@@ -26136,40 +26136,46 @@ def relaunch_driverless_running_pipelines(store) -> int:
     decision resolution by ``maybe_revive_orphaned_awaiting_human_driver``
     (#3233).
 
+    The sweep iterates ``store.get_active_pipelines()`` rather than the full
+    ``list_pipelines()`` so terminal/historical records (COMPLETE, FAILED,
+    CANCELLED) are skipped without a redundant load — reconciliation already
+    walked every pipeline immediately before this, and re-scanning the whole
+    store would double the boot-time git reads on repos with many historical
+    pipelines.
+
     Returns the number of drivers relaunched.  Per-pipeline failures are
     logged and skipped so one broken record cannot strand the rest.
     """
     try:
-        pipeline_ids = store.list_pipelines()
+        active_pipelines = store.get_active_pipelines()
     except Exception as e:  # noqa: BLE001 - startup sweep must not raise
         logger.warning(
-            "Driver relaunch sweep skipped: could not list pipelines",
+            "Driver relaunch sweep skipped: could not list active pipelines",
             error=str(e),
         )
         return 0
 
     relaunched = 0
-    for pipeline_id in pipeline_ids:
+    for pipeline in active_pipelines:
         try:
-            pipeline = store.load_pipeline(pipeline_id)
             if pipeline.status != PipelineStatus.RUNNING:
                 continue
-            if has_live_pipeline_driver(pipeline_id):
+            if has_live_pipeline_driver(pipeline.id):
                 continue
             run_epoch = pipeline.run_epoch or pipeline.created_at
-            _spawn_pipeline_run_thread(pipeline_id, store.repo_path, run_epoch)
+            _spawn_pipeline_run_thread(pipeline.id, store.repo_path, run_epoch)
             relaunched += 1
             logger.warning(
                 "Relaunched _run_pipeline driver for RUNNING pipeline with no "
                 "live driver thread (orchestrator restart recovery, #3469)",
-                pipeline_id=pipeline_id,
+                pipeline_id=pipeline.id,
                 phase=pipeline.current_phase.value,
-                run_epoch=run_epoch.isoformat() if run_epoch else None,
+                run_epoch=run_epoch.isoformat(),
             )
         except Exception as e:  # noqa: BLE001 - per-pipeline isolation
             logger.warning(
                 "Failed to relaunch driver for RUNNING pipeline (continuing sweep)",
-                pipeline_id=pipeline_id,
+                pipeline_id=getattr(pipeline, "id", "unknown"),
                 error=str(e),
             )
     return relaunched

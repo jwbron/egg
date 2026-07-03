@@ -34,18 +34,15 @@ def _pipeline(pipeline_id="issue-3469", status=PipelineStatus.RUNNING, run_epoch
 
 
 def _store(pipelines, repo_path=Path("/tmp/repo")):
-    """A StateStore double serving the given ``{id: Pipeline-or-Exception}`` map."""
+    """A StateStore double whose ``get_active_pipelines`` returns ``pipelines``.
+
+    The sweep iterates ``get_active_pipelines()`` (which already filters out
+    terminal records at the store layer), so the double serves the active
+    (non-terminal) pipelines directly rather than an id→record map.
+    """
     store = MagicMock()
     store.repo_path = repo_path
-    store.list_pipelines.return_value = list(pipelines)
-
-    def _load(pid):
-        value = pipelines[pid]
-        if isinstance(value, Exception):
-            raise value
-        return value
-
-    store.load_pipeline.side_effect = _load
+    store.get_active_pipelines.return_value = list(pipelines)
     return store
 
 
@@ -56,7 +53,7 @@ class TestRelaunchDriverlessRunningPipelines:
         from routes.pipelines import relaunch_driverless_running_pipelines
 
         epoch = datetime(2026, 7, 3, 6, 0, 0, tzinfo=UTC)
-        store = _store({"issue-3469": _pipeline(run_epoch=epoch)})
+        store = _store([_pipeline(run_epoch=epoch)])
 
         assert relaunch_driverless_running_pipelines(store) == 1
         mock_spawn.assert_called_once_with("issue-3469", store.repo_path, epoch)
@@ -67,7 +64,7 @@ class TestRelaunchDriverlessRunningPipelines:
         from routes.pipelines import relaunch_driverless_running_pipelines
 
         pipeline = _pipeline(run_epoch=None)
-        store = _store({"issue-3469": pipeline})
+        store = _store([pipeline])
 
         assert relaunch_driverless_running_pipelines(store) == 1
         mock_spawn.assert_called_once_with("issue-3469", store.repo_path, pipeline.created_at)
@@ -77,15 +74,16 @@ class TestRelaunchDriverlessRunningPipelines:
     def test_skips_non_running_pipelines(self, _mock_has_driver, mock_spawn):
         from routes.pipelines import relaunch_driverless_running_pipelines
 
+        # ``get_active_pipelines`` filters terminal records at the store layer,
+        # so the sweep only ever sees non-terminal statuses. The status guard
+        # must still skip the non-RUNNING actives — PENDING (not yet driving)
+        # and AWAITING_HUMAN (#3233's territory: revived on decision
+        # resolution, never at boot).
         store = _store(
-            {
-                "issue-1": _pipeline("issue-1", status=PipelineStatus.FAILED),
-                "issue-2": _pipeline("issue-2", status=PipelineStatus.COMPLETE),
-                "issue-3": _pipeline("issue-3", status=PipelineStatus.CANCELLED),
-                # AWAITING_HUMAN is #3233's territory: revived on decision
-                # resolution, never at boot.
-                "issue-4": _pipeline("issue-4", status=PipelineStatus.AWAITING_HUMAN),
-            }
+            [
+                _pipeline("issue-1", status=PipelineStatus.PENDING),
+                _pipeline("issue-2", status=PipelineStatus.AWAITING_HUMAN),
+            ]
         )
 
         assert relaunch_driverless_running_pipelines(store) == 0
@@ -96,33 +94,42 @@ class TestRelaunchDriverlessRunningPipelines:
     def test_skips_pipeline_with_live_driver(self, _mock_has_driver, mock_spawn):
         from routes.pipelines import relaunch_driverless_running_pipelines
 
-        store = _store({"issue-3469": _pipeline()})
+        store = _store([_pipeline()])
 
         assert relaunch_driverless_running_pipelines(store) == 0
         mock_spawn.assert_not_called()
 
     @patch("routes.pipelines._spawn_pipeline_run_thread")
-    @patch("routes.pipelines.has_live_pipeline_driver", return_value=False)
-    def test_per_pipeline_failure_does_not_abort_sweep(self, _mock_has_driver, mock_spawn):
+    @patch("routes.pipelines.has_live_pipeline_driver")
+    def test_per_pipeline_failure_does_not_abort_sweep(self, mock_has_driver, mock_spawn):
         from routes.pipelines import relaunch_driverless_running_pipelines
 
         epoch = datetime(2026, 7, 3, 6, 0, 0, tzinfo=UTC)
+
+        # A per-pipeline probe failure (here: has_live_pipeline_driver raising
+        # for one record) must be isolated so the rest of the sweep proceeds.
+        def _driver(pid):
+            if pid == "issue-broken":
+                raise RuntimeError("driver probe wedged")
+            return False
+
+        mock_has_driver.side_effect = _driver
         store = _store(
-            {
-                "issue-broken": RuntimeError("corrupt state"),
-                "issue-ok": _pipeline("issue-ok", run_epoch=epoch),
-            }
+            [
+                _pipeline("issue-broken", run_epoch=epoch),
+                _pipeline("issue-ok", run_epoch=epoch),
+            ]
         )
 
         assert relaunch_driverless_running_pipelines(store) == 1
         mock_spawn.assert_called_once_with("issue-ok", store.repo_path, epoch)
 
     @patch("routes.pipelines._spawn_pipeline_run_thread")
-    def test_list_pipelines_failure_returns_zero(self, mock_spawn):
+    def test_get_active_pipelines_failure_returns_zero(self, mock_spawn):
         from routes.pipelines import relaunch_driverless_running_pipelines
 
         store = MagicMock()
-        store.list_pipelines.side_effect = RuntimeError("git wedged")
+        store.get_active_pipelines.side_effect = RuntimeError("git wedged")
 
         assert relaunch_driverless_running_pipelines(store) == 0
         mock_spawn.assert_not_called()
@@ -134,10 +141,10 @@ class TestRelaunchDriverlessRunningPipelines:
 
         mock_spawn.side_effect = [RuntimeError("thread limit"), None]
         store = _store(
-            {
-                "issue-a": _pipeline("issue-a"),
-                "issue-b": _pipeline("issue-b"),
-            }
+            [
+                _pipeline("issue-a"),
+                _pipeline("issue-b"),
+            ]
         )
 
         assert relaunch_driverless_running_pipelines(store) == 1
