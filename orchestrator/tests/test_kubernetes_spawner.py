@@ -2751,6 +2751,30 @@ class TestSpawnEventJobWorktreeReattach:
 
         assert vols is None
 
+    def test_reattach_work_branch_head_validates(self, tmp_path):
+        """The production shape (#3480): the gateway creates per-agent
+        worktrees on ``egg/{container_id}/work``, not on the assigned branch,
+        so a worktree with ``HEAD`` on the derived work branch must validate."""
+        from kubernetes_spawner import _validate_worktree_for_reuse
+
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", f"egg/{_WT_ID}/work")
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            vols = _validate_worktree_for_reuse(_WT_ID, _REPOS, _BRANCH)
+
+        assert vols is not None
+        assert vols["owner/repo"] == str(repo)
+
+    def test_reattach_other_agents_work_branch_falls_back(self, tmp_path):
+        """A DIFFERENT agent's work branch is still a mismatch; only the work
+        branch derived from this agent_worktree_id is accepted."""
+        from kubernetes_spawner import _validate_worktree_for_reuse
+
+        _make_worktree(tmp_path, _WT_ID, "repo", "egg/other-agent-id/work")
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            vols = _validate_worktree_for_reuse(_WT_ID, _REPOS, _BRANCH)
+
+        assert vols is None
+
     def test_reattach_corrupt_git_falls_back(self, tmp_path):
         """A directory whose ``.git`` is gone ⇒ rev-parse fails ⇒ None."""
         from kubernetes_spawner import _validate_worktree_for_reuse
@@ -2805,6 +2829,33 @@ class TestSpawnEventJobWorktreeReattach:
         success, repo_volumes = result
         assert success
         assert "owner/repo" in repo_volumes
+
+    def test_try_reuse_production_shape_work_branch(self, spawner, tmp_path):
+        """End-to-end for the production shape (#3480): HEAD on the derived
+        work branch, assigned branch only on origin. Validation accepts the
+        work branch and the R6 hard-sync resets to ``origin/{assigned}``."""
+        work_branch = f"egg/{_WT_ID}/work"
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", work_branch, with_origin=True)
+        # Publish the assigned branch on origin (the hard-sync target), then
+        # advance the local work branch past it so the sync has work to do.
+        _git(repo, "push", "origin", f"{work_branch}:{_BRANCH}")
+        (repo / "local.txt").write_text("unpushed\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "local unpushed commit")
+
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            result = spawner._try_reuse_worktree(_WT_ID, _BRANCH, _REPOS)
+
+        assert result is not None
+        success, repo_volumes = result
+        assert success
+        assert repo_volumes["owner/repo"] == str(repo)
+        # The predecessor's local, unpushed commit was discarded by the
+        # hard-sync to origin/{assigned} (R6 dirty-state policy).
+        assert not (repo / "local.txt").exists()
+        head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        remote = _git(repo, "rev-parse", f"origin/{_BRANCH}").stdout.strip()
+        assert head == remote
 
 
 class TestSpawnEventJobDirtyWorktree:

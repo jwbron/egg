@@ -24,7 +24,11 @@ def _validate_worktree_for_reuse(
     Checks the filesystem worktree at ``WORKTREE_BASE_DIR / agent_worktree_id / <repo>``
     for directory existence, ``.git`` integrity (``git rev-parse --git-dir``), lock
     files (``.git/*.lock`` and ``.git/refs/*/*.lock``), and expected branch (when
-    ``branch`` is supplied — the worktree's ``HEAD`` should be on the role's branch).
+    ``branch`` is supplied). The gateway materializes every per-agent worktree on
+    its own local work branch ``egg/{agent_worktree_id}/work`` (wired to push to
+    the assigned branch), so ``HEAD`` is never on the assigned branch itself
+    (#3480). The branch check therefore accepts the derived work branch, the
+    assigned ``branch``, or a detached ``HEAD``.
 
     This function performs **validation only** — the caller must also invoke
     :meth:`KubernetesSpawner._clean_reused_worktree` to discard dirty state
@@ -127,12 +131,18 @@ def _validate_worktree_for_reuse(
                     timeout=10,
                     check=True,
                 ).stdout.strip()
-                if cb != branch and cb != "HEAD":
+                # The gateway creates per-agent worktrees on the role's own
+                # local work branch (egg/{container_id}/work), not on the
+                # assigned branch it pushes to; the assigned branch alone
+                # would mismatch on every event spawn and permanently degrade
+                # re-attach to create-with-retry (#3480).
+                work_branch = f"egg/{agent_worktree_id}/work"
+                if cb not in (branch, work_branch, "HEAD"):
                     logger.info(
                         "Worktree re-attach: branch mismatch",
                         agent_worktree_id=agent_worktree_id,
                         repo=n,
-                        expected=branch,
+                        expected=f"{work_branch} or {branch}",
                         actual=cb,
                     )
                     return None
