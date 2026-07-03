@@ -163,7 +163,10 @@ Under orchestrator ownership the worktree becomes a hot path.
 
 **Worktree re-attach-first policy:**
 1. Validate the existing worktree for `{pipeline_id}[-{slice_id}]-{role}`:
-   expected branch checked out, `.git` integrity, no foreign lock.
+   `.git` integrity, no foreign lock, and branch checked out is the assigned
+   branch, the derived per-agent work branch `egg/{agent_worktree_id}/work`
+   (the gateway materializes worktrees on this local branch, wired to push to
+   the assigned branch — #3480), or detached `HEAD`.
 2. **On pass:** discard uncommitted changes and untracked staging artifacts
    (`git reset --hard` + `git clean -fd`) and hard-sync to the role branch tip
    before agent invocation. (The #3023 post-mortem constraint means a
