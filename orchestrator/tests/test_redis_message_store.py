@@ -362,6 +362,34 @@ class TestSinceTimestampSeek:
         messages = store.get_messages("test-pipeline", since_id=first.id, since=cutoff)
         assert [m.subject for m in messages] == ["second"]
 
+    def test_since_is_inclusive_at_cutoff_ms_on_long_poll_path(self, store):
+        """The long-poll (``wait > 0``) path is inclusive of the cutoff ms.
+
+        Regression guard for the #3485 review note: the blocking read uses
+        XREAD, which is *exclusive* of its start id, so anchoring the seek
+        on ``<cutoff_ms>-0`` skipped an entry sitting at exactly that id —
+        contradicting the "inclusive of the cutoff millisecond" contract
+        that the non-blocking XRANGE path already honoured. The fix seeks
+        to the exclusive predecessor of ``<cutoff_ms>-0`` so both paths
+        agree on the boundary. A single message in its millisecond lands at
+        sequence 0, so this exercises exactly the skipped-entry case.
+        """
+        msg = self._msg("boundary")
+        store.add_message(msg)
+
+        # Recover the entry's assigned stream id and rebuild a cutoff that
+        # maps to exactly its millisecond, so the seek lands on the boundary.
+        stream_id = store._resolve_stream_id("test-pipeline", msg.id)
+        assert stream_id is not None
+        ms_part, seq_part = stream_id.split("-")
+        assert seq_part == "0"  # single message in its ms → sequence 0
+        cutoff = datetime.fromtimestamp(int(ms_part) / 1000, UTC)
+
+        # wait > 0 drives the XREAD (long-poll) path; the pre-existing entry
+        # makes the blocking read return immediately.
+        messages = store.get_messages("test-pipeline", since=cutoff, wait=1)
+        assert [m.subject for m in messages] == ["boundary"]
+
 
 class TestGetStatus:
     """Test message status/statistics."""
