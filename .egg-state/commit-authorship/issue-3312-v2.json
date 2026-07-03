@@ -1,0 +1,13 @@
+{
+  "entries": {
+    "8e8ed492ef3b88c607863e83ec8aafd947395e7f": {
+      "branch": "egg/issue-3312-v2/slice-1",
+      "patch_id": "d108f04fa477149413537badb97defbf510b52ce",
+      "pipeline_id": "issue-3312-v2",
+      "registered_at": "2026-07-03T21:48:07.828240+00:00",
+      "repo": null,
+      "role": "coder"
+    }
+  },
+  "version": 2
+}
