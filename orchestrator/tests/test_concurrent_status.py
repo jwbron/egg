@@ -454,6 +454,135 @@ class TestGetConcurrentStatusSliceAware:
         assert "consensus" not in result
 
 
+class TestConsensusNackDetails:
+    """The consensus block carries the tracker's NACK details (#3481).
+
+    ``evaluate()`` computes ``has_unresolved_nacks`` / ``unresolved_nacks``
+    but the status payload used to drop them, so the MCP tool's structured
+    path always reported ``has_unresolved_nacks: False`` while the
+    executor logs showed the real blocked state.
+    """
+
+    def test_consensus_block_includes_unresolved_nacks(self):
+        pipeline = _make_concurrent_pipeline(pipeline_id="issue-777")
+        tracker = MagicMock()
+        tracker.get_state.return_value = {
+            "is_complete": False,
+            "blocking_agents": ["coder", "tester"],
+            "has_unresolved_nacks": True,
+            "unresolved_nacks": [
+                {
+                    "reviewer": "reviewer_code",
+                    "producer": "coder",
+                    "reason": "off-by-one in pagination",
+                    "version": 2,
+                }
+            ],
+            "agents": {"coder": {"producer_phase": "PROPOSED", "confirmed": False}},
+            "protocol": "brc",
+        }
+
+        with (
+            patch("concurrent_executor.is_concurrent_execution", return_value=True),
+            patch("message_store.get_message_store") as mock_get_store,
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=tracker),
+        ):
+            mock_store = MagicMock()
+            mock_store.get_status.return_value = {"total": 0, "by_type": {}}
+            mock_get_store.return_value = mock_store
+
+            result = _get_concurrent_status(pipeline)
+
+        consensus = result["consensus"]
+        assert consensus["has_unresolved_nacks"] is True
+        assert consensus["unresolved_nacks"] == [
+            {
+                "reviewer": "reviewer_code",
+                "producer": "coder",
+                "reason": "off-by-one in pagination",
+                "version": 2,
+            }
+        ]
+
+
+class TestSliceConsensusSurfacing:
+    """A slice-id-less query surfaces live per-slice trackers (#3481).
+
+    Keyed explicitly by slice; never merged into the pipeline-level
+    ``consensus`` block, so #2761's cross-slice-soup invariant holds.
+    """
+
+    @staticmethod
+    def _brc_state(blocking):
+        return {
+            "is_complete": False,
+            "blocking_agents": blocking,
+            "has_unresolved_nacks": True,
+            "unresolved_nacks": [
+                {"reviewer": "reviewer_code", "producer": "coder", "reason": "bug", "version": 1}
+            ],
+            "agents": {"coder": {"producer_phase": "PROPOSED", "confirmed": False}},
+            "protocol": "brc",
+        }
+
+    def _run(self, pipeline, slice_trackers, slice_id=None):
+        with (
+            patch("concurrent_executor.is_concurrent_execution", return_value=True),
+            patch("message_store.get_message_store") as mock_get_store,
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=None),
+            patch("peer_consensus.reconstruct_tracker_from_messages", return_value=None),
+            patch("peer_consensus.get_slice_trackers", return_value=slice_trackers),
+        ):
+            mock_store = MagicMock()
+            mock_store.get_status.return_value = {"total": 0, "by_type": {}}
+            mock_get_store.return_value = mock_store
+
+            return _get_concurrent_status(pipeline, slice_id=slice_id)
+
+    def test_slice_trackers_surface_under_slice_consensus(self):
+        pipeline = _make_concurrent_pipeline(pipeline_id="issue-888")
+        t1, t3 = MagicMock(), MagicMock()
+        t1.get_state.return_value = self._brc_state(["coder"])
+        t3.get_state.return_value = self._brc_state(["tester"])
+
+        result = self._run(pipeline, {"slice-3": t3, "slice-1": t1})
+
+        # The pipeline-level block stays absent (#2761) ...
+        assert "consensus" not in result
+        # ... but each live slice's real snapshot is served, keyed by slice.
+        assert sorted(result["slice_consensus"]) == ["slice-1", "slice-3"]
+        assert result["slice_consensus"]["slice-3"]["blocking_agents"] == ["tester"]
+        assert result["slice_consensus"]["slice-1"]["has_unresolved_nacks"] is True
+
+    def test_slice_scoped_query_omits_slice_consensus(self):
+        """An explicit slice scope keeps the single-slice response shape."""
+        pipeline = _make_concurrent_pipeline(pipeline_id="issue-888")
+        t1 = MagicMock()
+        t1.get_state.return_value = self._brc_state(["coder"])
+
+        result = self._run(pipeline, {"slice-1": t1}, slice_id="slice-1")
+
+        assert "slice_consensus" not in result
+
+    def test_no_slice_trackers_omits_slice_consensus(self):
+        pipeline = _make_concurrent_pipeline(pipeline_id="issue-888")
+
+        result = self._run(pipeline, {})
+
+        assert "slice_consensus" not in result
+        assert "consensus" not in result
+
+    def test_one_bad_slice_does_not_hide_the_rest(self):
+        pipeline = _make_concurrent_pipeline(pipeline_id="issue-888")
+        good, bad = MagicMock(), MagicMock()
+        good.get_state.return_value = self._brc_state(["coder"])
+        bad.get_state.side_effect = RuntimeError("tracker lock poisoned")
+
+        result = self._run(pipeline, {"slice-1": bad, "slice-2": good})
+
+        assert list(result["slice_consensus"]) == ["slice-2"]
+
+
 class TestPipelineStatusConcurrentEndpoint:
     """Tests for the pipeline status endpoint with concurrent data."""
 

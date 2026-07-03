@@ -5426,6 +5426,28 @@ def _get_pr_info(pipeline: Pipeline) -> tuple[str | None, int | None]:
     return pr_url, pr_number
 
 
+def _consensus_block(consensus_state: dict) -> dict:
+    """Slim a tracker ``get_state()`` snapshot down to the status payload.
+
+    Keeps the fields operators act on (per-role phases + confirmed
+    flags, the blocking set, and the unresolved-NACK details: who
+    NACKed whom, on which version, and why; #3481) and drops the
+    bulky ``approval_matrix`` / ``review_graph`` dumps.
+
+    BRC trackers only emit dict-format agent entries (the legacy
+    AgentReadiness object came from the now-deleted ConsensusEvaluator,
+    cq-5 of #2777).
+    """
+    return {
+        "agents": dict(consensus_state.get("agents", {})),
+        "is_complete": consensus_state.get("is_complete", False),
+        "blocking_agents": consensus_state.get("blocking_agents", []),
+        "has_unresolved_nacks": consensus_state.get("has_unresolved_nacks", False),
+        "unresolved_nacks": consensus_state.get("unresolved_nacks", []),
+        "protocol": consensus_state.get("protocol", "brc"),
+    }
+
+
 def _get_concurrent_status(pipeline: Pipeline, slice_id: str | None = None) -> dict | None:
     """Get concurrent execution monitoring data for a pipeline.
 
@@ -5453,9 +5475,11 @@ def _get_concurrent_status(pipeline: Pipeline, slice_id: str | None = None) -> d
     cross-slice reconstruction (#2761). Callers querying a per-slice
     agent's consensus must pass that agent's ``slice_id``; the consensus
     block then reflects exactly that slice's tracker. When omitted, only
-    pipeline-level (non-slice) consensus is reported — a slice-DAG
-    pipeline queried without a slice yields no ``consensus`` block rather
-    than a fabricated one.
+    pipeline-level (non-slice) consensus is reported in ``consensus``;
+    a slice-DAG pipeline queried without a slice yields no ``consensus``
+    block rather than a fabricated one. Instead, live slice-scoped
+    trackers are surfaced under ``slice_consensus`` keyed by slice_id
+    (#3481), so operators still see each active round's real state.
     """
     try:
         from concurrent_executor import is_concurrent_execution
@@ -5554,22 +5578,46 @@ def _get_concurrent_status(pipeline: Pipeline, slice_id: str | None = None) -> d
         consensus_state = None
 
     if consensus_state is not None:
-        # BRC trackers only emit dict-format agent entries (the legacy
-        # AgentReadiness object came from the now-deleted
-        # ConsensusEvaluator, cq-5 of #2777).
-        agents_data = dict(consensus_state.get("agents", {}))
-        result["consensus"] = {
-            "agents": agents_data,
-            "is_complete": consensus_state.get("is_complete", False),
-            "blocking_agents": consensus_state.get("blocking_agents", []),
-            "protocol": consensus_state.get("protocol", "brc"),
-        }
+        result["consensus"] = _consensus_block(consensus_state)
     else:
         # Don't populate consensus with empty placeholder — callers (e.g. the
         # MCP get_consensus_status tool) use truthiness to decide whether to
         # fall back to message-based inference.  An empty-but-truthy dict
         # prevents that fallback from triggering (see issue #1229).
         pass
+
+    # Slice-id-less observability (#3481): in a slice-DAG implement phase
+    # the live trackers are keyed ``{pipeline_id}/{slice_id}``, so the
+    # pipeline-level lookup above finds nothing and an operator querying
+    # without a slice scope saw no structured consensus at all; the only
+    # way to see tracker state was tailing orchestrator pod logs. Surface
+    # each active slice's real snapshot, explicitly keyed by slice. This
+    # is NOT the #2761 cross-slice "soup" (that was mingling every
+    # slice's messages into ONE inferred tracker); the pipeline-level
+    # ``consensus`` block above still never reflects a slice tracker.
+    if slice_id is None:
+        try:
+            try:
+                from peer_consensus import get_slice_trackers
+            except ImportError:
+                from ..peer_consensus import get_slice_trackers  # type: ignore[no-redef]
+
+            slice_trackers = get_slice_trackers(pipeline.id)
+        except ImportError:
+            slice_trackers = {}
+        slice_consensus: dict[str, dict] = {}
+        for sid in sorted(slice_trackers):
+            try:
+                slice_consensus[sid] = _consensus_block(slice_trackers[sid].get_state())
+            except Exception as e:  # noqa: BLE001 - one bad slice must not hide the rest
+                logger.warning(
+                    "Slice consensus snapshot failed",
+                    pipeline_id=pipeline.id,
+                    slice_id=sid,
+                    error=str(e),
+                )
+        if slice_consensus:
+            result["slice_consensus"] = slice_consensus
 
     # Agent lifecycle info from the phase execution record — shows which agents
     # are spawned for the current phase and their container-level status.

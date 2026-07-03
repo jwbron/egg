@@ -812,6 +812,90 @@ class TestSinceIdRecovery:
                 assert data["data"]["messages"][0]["subject"] == "second"
 
 
+class TestSinceTimestampParam:
+    """GET /messages honors ``since`` (#3481).
+
+    Previously the param was accepted and silently ignored; the
+    response window was driven only by ``limit`` and internal ordering,
+    so operators got messages starting hours before the cutoff.
+    """
+
+    @staticmethod
+    def _msg(subject: str) -> Message:
+        return Message(
+            pipeline_id="test-pipeline",
+            from_role="coder",
+            to_role="all",
+            message_type=MessageType.PROGRESS,
+            subject=subject,
+        )
+
+    def test_since_filters_older_messages(self, client, app):
+        import time
+        from datetime import UTC, datetime
+
+        store = _make_store()
+        store.add_message(self._msg("old"))
+        time.sleep(0.015)
+        cutoff = datetime.now(UTC)
+        time.sleep(0.015)
+        store.add_message(self._msg("new"))
+
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
+
+                since = cutoff.isoformat().replace("+00:00", "Z")
+                resp = client.get(f"/api/v1/pipelines/test-pipeline/messages?since={since}")
+                data = json.loads(resp.data)
+
+        assert resp.status_code == 200
+        assert data["data"]["count"] == 1
+        assert data["data"]["messages"][0]["subject"] == "new"
+
+    def test_invalid_since_returns_400(self, client, app):
+        store = _make_store()
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
+
+                resp = client.get("/api/v1/pipelines/test-pipeline/messages?since=3-hours-ago")
+                data = json.loads(resp.data)
+
+        assert resp.status_code == 400
+        assert "since" in data["message"]
+
+    def test_since_with_since_id_returns_400(self, client, app):
+        store = _make_store()
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
+
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages"
+                    "?since=2026-07-03T18:00:00Z&since_id=abc123"
+                )
+                data = json.loads(resp.data)
+
+        assert resp.status_code == 400
+        assert "not both" in data["message"]
+
+
 class TestSinceIdStaleSignal:
     """Issue #2464 — ``/messages`` and ``/messages/wait`` advertise a
     structured ``since_id_stale: true`` flag when the cursor was unknown,

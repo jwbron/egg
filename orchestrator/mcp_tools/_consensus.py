@@ -16,15 +16,40 @@ from urllib.parse import quote
 from mcp_tools import _SLICE_ID_PATTERN
 
 
+def _structured_consensus(consensus: dict[str, Any]) -> dict[str, Any]:
+    """Shape a structured (tracker-backed) consensus block for the tool result.
+
+    Derives ``confirmed_agents`` from the per-role ``confirmed`` flags so
+    the structured path and the message-inference fallback expose the
+    same top-level fields (#3481).
+    """
+    agents = dict(consensus.get("agents", {}))
+    return {
+        "is_complete": consensus.get("is_complete", False),
+        "confirmed_agents": [
+            role
+            for role, info in agents.items()
+            if isinstance(info, dict) and info.get("confirmed")
+        ],
+        "blocking_agents": consensus.get("blocking_agents", []),
+        "has_unresolved_nacks": consensus.get("has_unresolved_nacks", False),
+        "unresolved_nacks": consensus.get("unresolved_nacks", []),
+        "agents": agents,
+    }
+
+
 def _handle_get_consensus_status(self, args: dict[str, Any]) -> dict[str, Any]:
     """Get consensus status for a pipeline's current phase.
 
     ``slice_id`` scopes the result to one slice's BRC consensus in a
     slice-DAG implement phase — each slice runs its own consensus,
-    keyed ``{pipeline_id}/{slice_id}``. Without it, only
-    pipeline-level consensus is reported, and a slice-DAG pipeline
-    yields no consensus rather than a misleading cross-slice view
-    (#2761).
+    keyed ``{pipeline_id}/{slice_id}``. Without it, pipeline-level
+    consensus is reported; when only slice-scoped trackers are live
+    (the slice-DAG case), the active slice trackers are resolved
+    automatically from the status endpoint's ``slice_consensus`` map
+    (#3481), rather than degrading to an empty message-inference view:
+    a single active slice is served directly, multiple are returned
+    per-slice. Slices are never merged into one block (#2761).
     """
     task_id = quote(args["task_id"], safe="")
     raw_slice_id = args.get("slice_id") or None
@@ -64,15 +89,34 @@ def _handle_get_consensus_status(self, args: dict[str, Any]) -> dict[str, Any]:
         concurrent = {}
 
     consensus = concurrent.get("consensus", {})
+    slice_consensus = concurrent.get("slice_consensus", {}) if slice_id is None else {}
 
     if consensus and consensus.get("agents"):
-        result["consensus"] = {
-            "is_complete": consensus.get("is_complete", False),
-            "blocking_agents": consensus.get("blocking_agents", []),
-            "has_unresolved_nacks": consensus.get("has_unresolved_nacks", False),
-            "unresolved_nacks": consensus.get("unresolved_nacks", []),
-            "agents": consensus.get("agents", {}),
-        }
+        result["consensus"] = _structured_consensus(consensus)
+    elif slice_consensus:
+        # Slice-scoped trackers are live but no explicit slice_id was
+        # given (#3481). Serve the real tracker snapshots instead of
+        # degrading to message inference: one active slice resolves
+        # directly (with ``resolved_slice_id`` naming the scope), and
+        # multiple stay keyed per-slice so they are never merged (#2761).
+        if len(slice_consensus) == 1:
+            resolved_slice_id, block = next(iter(slice_consensus.items()))
+            result["resolved_slice_id"] = resolved_slice_id
+            result["consensus"] = _structured_consensus(block)
+            result["consensus"]["note"] = (
+                f"Resolved the single active slice-scoped tracker "
+                f"'{resolved_slice_id}'; pass slice_id to pin the scope"
+            )
+        else:
+            result["active_slice_ids"] = sorted(slice_consensus)
+            result["slice_consensus"] = {
+                sid: _structured_consensus(block) for sid, block in slice_consensus.items()
+            }
+            result["note"] = (
+                "Multiple slice-scoped consensus rounds are active; "
+                "per-slice snapshots are under 'slice_consensus'. Pass "
+                "slice_id to scope the result to one slice."
+            )
     else:
         # Fall back to message-based inference. Filter messages by
         # the requested slice scope — symmetric with

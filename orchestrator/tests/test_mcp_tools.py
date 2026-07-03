@@ -406,6 +406,157 @@ class TestGetConsensusStatus:
         assert "note" in result["consensus"]
 
 
+class TestGetConsensusStatusSliceResolution:
+    """A slice-id-less call resolves live slice-scoped trackers (#3481).
+
+    During a slice-DAG implement phase only ``{pipeline_id}/{slice_id}``
+    trackers exist, so the structured pipeline-level block is absent and
+    the tool used to degrade to an empty message-inference view while the
+    executor logs showed the real tracker state. The status endpoint now
+    ships the per-slice snapshots under ``concurrent.slice_consensus``;
+    the tool serves them instead of the empty inference.
+    """
+
+    @staticmethod
+    def _pipeline_resp():
+        return {
+            "data": {
+                "pipeline": {
+                    "id": "issue-42",
+                    "current_phase": "implement",
+                    "status": "running",
+                }
+            }
+        }
+
+    @staticmethod
+    def _slice_block(blocking, confirmed_role=None):
+        agents = {role: {"producer_phase": "PROPOSED", "confirmed": False} for role in blocking}
+        if confirmed_role:
+            agents[confirmed_role] = {"producer_phase": "CONFIRMED", "confirmed": True}
+        return {
+            "is_complete": False,
+            "blocking_agents": blocking,
+            "has_unresolved_nacks": True,
+            "unresolved_nacks": [
+                {"reviewer": "reviewer_code", "producer": "coder", "reason": "bug", "version": 3}
+            ],
+            "agents": agents,
+            "protocol": "brc",
+        }
+
+    def test_single_active_slice_resolves_directly(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                self._pipeline_resp(),
+                {
+                    "data": {
+                        "concurrent": {
+                            "enabled": True,
+                            "slice_consensus": {
+                                "slice-3": self._slice_block(
+                                    ["coder", "tester"], confirmed_role="architect"
+                                )
+                            },
+                        }
+                    }
+                },
+            ]
+            result = handler.handle_tool_call("get_consensus_status", {"task_id": "issue-42"})
+
+        # No message-inference round-trip happened.
+        assert mock_req.call_count == 2
+        assert result["resolved_slice_id"] == "slice-3"
+        consensus = result["consensus"]
+        assert consensus["blocking_agents"] == ["coder", "tester"]
+        assert consensus["confirmed_agents"] == ["architect"]
+        assert consensus["has_unresolved_nacks"] is True
+        assert consensus["unresolved_nacks"][0]["reviewer"] == "reviewer_code"
+        assert "slice-3" in consensus["note"]
+
+    def test_multiple_active_slices_returned_per_slice(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                self._pipeline_resp(),
+                {
+                    "data": {
+                        "concurrent": {
+                            "enabled": True,
+                            "slice_consensus": {
+                                "slice-3": self._slice_block(["coder"]),
+                                "slice-1": self._slice_block(["tester"]),
+                            },
+                        }
+                    }
+                },
+            ]
+            result = handler.handle_tool_call("get_consensus_status", {"task_id": "issue-42"})
+
+        assert mock_req.call_count == 2
+        assert result["active_slice_ids"] == ["slice-1", "slice-3"]
+        # Never merged into one block (#2761); keyed per slice instead.
+        assert "consensus" not in result
+        assert result["slice_consensus"]["slice-3"]["blocking_agents"] == ["coder"]
+        assert result["slice_consensus"]["slice-1"]["blocking_agents"] == ["tester"]
+        assert "slice_id" in result and result["slice_id"] is None
+
+    def test_explicit_slice_id_skips_slice_consensus_map(self, handler):
+        """A slice-scoped call never reads the slice_consensus map.
+
+        The status endpoint doesn't emit it for slice-scoped queries;
+        even if a stale proxy did, the tool must not second-guess the
+        explicit scope. With no structured block it falls back to
+        (slice-filtered) message inference.
+        """
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                self._pipeline_resp(),
+                {
+                    "data": {
+                        "concurrent": {
+                            "enabled": True,
+                            "slice_consensus": {"slice-3": self._slice_block(["coder"])},
+                        }
+                    }
+                },
+                {"data": {"messages": []}},
+            ]
+            result = handler.handle_tool_call(
+                "get_consensus_status", {"task_id": "issue-42", "slice_id": "slice-7"}
+            )
+
+        assert "resolved_slice_id" not in result
+        assert "slice_consensus" not in result
+        assert "note" in result["consensus"]  # inference fallback
+
+    def test_structured_consensus_exposes_confirmed_agents(self, handler):
+        """The structured path derives confirmed_agents for shape parity
+        with the message-inference fallback (#3481)."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                self._pipeline_resp(),
+                {
+                    "data": {
+                        "concurrent": {
+                            "consensus": {
+                                "is_complete": False,
+                                "blocking_agents": ["coder"],
+                                "has_unresolved_nacks": False,
+                                "unresolved_nacks": [],
+                                "agents": {
+                                    "coder": {"producer_phase": "PROPOSED", "confirmed": False},
+                                    "tester": {"producer_phase": "CONFIRMED", "confirmed": True},
+                                },
+                            }
+                        }
+                    }
+                },
+            ]
+            result = handler.handle_tool_call("get_consensus_status", {"task_id": "issue-42"})
+
+        assert result["consensus"]["confirmed_agents"] == ["tester"]
+
+
 class TestGetConsensusStatusSliceScope:
     """get_consensus_status scopes to a slice's BRC consensus (#2761).
 

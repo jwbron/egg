@@ -254,6 +254,29 @@ def get_peer_consensus_tracker(
     return _trackers.get(_tracker_key(pipeline_id, slice_id))
 
 
+def get_slice_trackers(pipeline_id: str) -> dict[str, PeerConsensusTracker]:
+    """Return the live slice-scoped trackers for a pipeline, keyed by slice_id.
+
+    Observability accessor (#3481): during a slice-DAG implement phase
+    the registry holds per-slice trackers under ``{pipeline_id}/{slice_id}``
+    and nothing under the bare pipeline id, so a slice-id-less status
+    query cannot see any consensus state. This enumerates the registry
+    so callers (``_get_concurrent_status``) can serve each active
+    slice's real tracker snapshot, explicitly keyed by slice; NOT a
+    merged cross-slice view (#2761's "soup" concern only applies to
+    mingling slices into one tracker). In-memory registry only: after
+    an orchestrator restart slices reappear here as their trackers are
+    reconstructed on first slice-scoped access.
+    """
+    prefix = f"{pipeline_id}/"
+    with _trackers_lock:
+        return {
+            key[len(prefix) :]: tracker
+            for key, tracker in _trackers.items()
+            if key.startswith(prefix)
+        }
+
+
 def create_peer_consensus_tracker(
     pipeline_id: str,
     graph: ReviewGraph,

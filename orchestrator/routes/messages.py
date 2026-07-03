@@ -5,6 +5,7 @@ messages during concurrent phase execution.
 """
 
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -288,6 +289,10 @@ def poll_messages(pipeline_id: str) -> tuple[Response, int]:
     Query params:
         role: Filter messages for this role (returns targeted + broadcast)
         since_id: Return only messages after this ID
+        since: Return only messages at or after this ISO 8601 timestamp
+            (naive values are treated as UTC). Mutually exclusive with
+            since_id. Issue #3481: previously accepted-and-ignored, which
+            silently returned a window hours before the cutoff.
         limit: Max messages to return (default 100)
     """
     # Validate pipeline exists (consistent with send_message)
@@ -300,6 +305,15 @@ def poll_messages(pipeline_id: str) -> tuple[Response, int]:
 
     role = request.args.get("role")
     since_id = request.args.get("since_id")
+    since_raw = request.args.get("since")
+    since: datetime | None = None
+    if since_raw:
+        if since_id:
+            return _make_error("Pass either 'since' or 'since_id', not both.")
+        try:
+            since = datetime.fromisoformat(since_raw.replace("Z", "+00:00"))
+        except ValueError:
+            return _make_error("Invalid 'since' timestamp format. Use ISO 8601.")
     try:
         limit = int(request.args.get("limit", "100"))
     except (ValueError, TypeError):  # fmt: skip
@@ -318,6 +332,7 @@ def poll_messages(pipeline_id: str) -> tuple[Response, int]:
     kwargs: dict[str, Any] = {
         "role": role,
         "since_id": since_id,
+        "since": since,
         "limit": limit,
     }
     if wait > 0:
