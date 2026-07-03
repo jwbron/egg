@@ -36,9 +36,12 @@ Coverage:
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 # sys.path setup matches test_concurrent_executor_staging_branch.py.
 _project_root = Path(__file__).parent.parent.parent
@@ -437,7 +440,9 @@ class TestFindOrphans:
         assert len(orphans) == 1
         assert orphans[0].intended_new_base == "egg/issue-2137-v3/slice-1"
 
-    def test_pr_whose_head_branch_is_missing_is_skipped(self) -> None:
+    def test_pr_whose_head_branch_is_missing_is_skipped(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         # #3479: an open PR implies its head branch exists on origin.
         # A head missing from ``extant_branches`` means the listing is
         # stale/broken or the branch really is gone; either way the
@@ -458,11 +463,25 @@ class TestFindOrphans:
                 base="egg/issue-2137/slice-1",
             )
         ]
-        # Base gone AND head gone: nothing actionable.
+        # Base gone AND head gone, but the listing is NON-empty (it
+        # enumerates `.../work`): a truthful-looking listing missing only
+        # this open PR's head is a genuinely-wedged PR, not the degraded
+        # empty-listing no-op. #3484 review note 2: surface it at INFO so
+        # an operator can distinguish "PR wedged" from healthy steady
+        # state rather than only a silent debug line.
         extant: set[str] = {"egg/issue-2137/work"}
-        assert find_orphaned_child_prs(contract, prs, extant) == []
+        with caplog.at_level(logging.INFO, logger="stacked_pr_reconciler"):
+            assert find_orphaned_child_prs(contract, prs, extant) == []
+        wedged = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.INFO and "may be wedged" in r.getMessage()
+        ]
+        assert len(wedged) == 1
+        assert getattr(wedged[0], "pr_number", None) == 11
+        assert getattr(wedged[0], "head", None) == "egg/issue-2137/slice-2"
 
-    def test_empty_extant_set_yields_no_orphans(self) -> None:
+    def test_empty_extant_set_yields_no_orphans(self, caplog: pytest.LogCaptureFixture) -> None:
         # #3479 root-cause shape: a broken/failed branch listing
         # (gateway ``ls-remote`` misparse returned zero branches while
         # every slice PR was open and healthy) must degrade to a no-op
@@ -484,7 +503,17 @@ class TestFindOrphans:
             _pr(number=11, head="egg/issue-2137/slice-2", base="egg/issue-2137/slice-1"),
             _pr(number=12, head="egg/issue-2137/slice-3", base="egg/issue-2137/slice-2"),
         ]
-        assert find_orphaned_child_prs(contract, prs, set()) == []
+        # An EMPTY extant set is the degraded broken-listing regime: it
+        # must NOT emit the INFO "wedged" signal (that is reserved for a
+        # non-empty listing missing a single head), only the quiet
+        # per-tick debug no-op (#3484 review note 2).
+        with caplog.at_level(logging.INFO, logger="stacked_pr_reconciler"):
+            assert find_orphaned_child_prs(contract, prs, set()) == []
+        assert not [
+            r
+            for r in caplog.records
+            if r.levelno >= logging.INFO and "may be wedged" in r.getMessage()
+        ]
 
 
 # ---------- reconcile_once ----------

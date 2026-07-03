@@ -235,10 +235,33 @@ def find_orphaned_child_prs(
             # cannot succeed, and re-attempting it on every tick is the
             # permanent ~30s hot loop from #3479. Skip; a later pass
             # with a consistent listing picks the slice up again.
-            logger.debug(
-                "stacked_pr_reconciler: skipping PR whose head branch is not on origin",
-                extra={"slice_id": slice_.id, "head": slice_branch},
-            )
+            #
+            # Distinguish the two observable regimes so a future silent
+            # ls-remote breakage (or a genuinely wedged PR) is not
+            # indistinguishable from healthy steady state (#3484 review
+            # note 2): an *empty* extant set is the #3479 broken-listing
+            # degraded no-op — log at debug to avoid per-tick noise. A
+            # *non-empty* set that is missing only this head is a real
+            # anomaly — the head was deleted upstream while the PR stayed
+            # open, or the listing is partially broken — so surface it at
+            # info level, keyed enough for an operator to act on.
+            if extant_branches:
+                logger.info(
+                    "stacked_pr_reconciler: open slice PR head missing from a "
+                    "non-empty branch listing; PR may be wedged (head deleted "
+                    "upstream) — skipping rebase",
+                    extra={
+                        "slice_id": slice_.id,
+                        "head": slice_branch,
+                        "pr_number": pr.get("number"),
+                    },
+                )
+            else:
+                logger.debug(
+                    "stacked_pr_reconciler: skipping PR whose head branch is not "
+                    "on origin (empty branch listing; degraded no-op)",
+                    extra={"slice_id": slice_.id, "head": slice_branch},
+                )
             continue
         deleted_base = pr.get("base_ref") or pr.get("base")
         if not isinstance(deleted_base, str) or deleted_base in extant_branches:

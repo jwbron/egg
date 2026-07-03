@@ -3384,6 +3384,65 @@ class TestGitFetch:
             # ...and the ref pattern AFTER it so git treats it as a <ref>.
             assert cmd.index("refs/heads/feature-x") > repo_idx
 
+    def test_ls_remote_separate_argument_flag_value_stays_with_flag(self, client, auth_headers):
+        """A separate-argument flag value is not stranded after the repository.
+
+        #3484 review note 1: the flag/pattern partition splits on
+        ``startswith("-")``, which would push a separate-argument flag
+        *value* (``--sort committerdate`` — ``committerdate`` does not
+        start with ``-``) past the repository as a bogus ref pattern,
+        silently matching nothing. The value must stay adjacent to its
+        flag on the pre-URL side.
+        """
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_token_for_repo") as mock_get_token,
+        ):
+            captured_cmds = []
+
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                captured_cmds.append(list(cmd))
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+                if "remote" in cmd and "get-url" in cmd:
+                    result.stdout = "https://github.com/owner/repo.git\n"
+                elif "ls-remote" in cmd:
+                    result.stdout = "abc123\trefs/heads/main\n"
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+            mock_get_token.return_value = ("test-token", "bot", "")
+
+            response = client.post(
+                "/api/v1/git/fetch",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "operation": "ls-remote",
+                        "remote": "origin",
+                        "args": ["--heads", "--sort", "committerdate"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            ls_remote_cmds = [c for c in captured_cmds if "ls-remote" in c]
+            assert len(ls_remote_cmds) == 1
+            cmd = ls_remote_cmds[0]
+            repo_idx = cmd.index("origin")
+            # Both the flag AND its value precede the repository...
+            assert cmd.index("--sort") < repo_idx
+            assert cmd.index("committerdate") < repo_idx
+            # ...and the value stays immediately after its flag, not
+            # stranded as a post-URL ref pattern.
+            assert cmd.index("committerdate") == cmd.index("--sort") + 1
+
     def test_fetch_with_url_remote(self, client, auth_headers):
         """Fetch succeeds when remote is a URL instead of a named remote."""
         with (
