@@ -923,7 +923,7 @@ def _check_squid_health() -> dict[str, Any]:
 
 
 @app.route("/api/v1/proxy/ca-cert", methods=["GET"])
-def get_proxy_ca_cert() -> Response:
+def get_proxy_ca_cert() -> tuple[Response, int] | Response:
     """Serve the gateway proxy CA certificate (no auth required).
 
     The CA is public key material — every sandbox already receives it in
