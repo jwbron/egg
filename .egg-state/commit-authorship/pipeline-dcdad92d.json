@@ -647,6 +647,14 @@
       "registered_at": "2026-07-03T03:15:23.874362+00:00",
       "repo": null,
       "role": "simplifier"
+    },
+    "f9b306ab9c2bed365e64505c2fa1e99b81a6813c": {
+      "branch": "egg/pipeline-dcdad92d/slice-12",
+      "patch_id": "a43bd78dce6e7faffed2f4c3ee66547708a95db5",
+      "pipeline_id": "pipeline-dcdad92d",
+      "registered_at": "2026-07-03T20:51:28.290879+00:00",
+      "repo": null,
+      "role": "coder"
     }
   },
   "version": 2
