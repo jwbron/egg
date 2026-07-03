@@ -26143,8 +26143,16 @@ def relaunch_driverless_running_pipelines(store) -> int:
     store would double the boot-time git reads on repos with many historical
     pipelines.
 
-    Returns the number of drivers relaunched.  Per-pipeline failures are
-    logged and skipped so one broken record cannot strand the rest.
+    Returns the number of drivers relaunched.  Failures are isolated at two
+    layers: a record that fails to load with ``StateStoreError`` (corruption)
+    is skipped inside ``get_active_pipelines()``, and a per-pipeline failure
+    during the relaunch itself (driver probe or thread spawn) is logged and
+    skipped so one bad pipeline cannot strand the rest.  The one case that is
+    *not* isolated: a load failure other than ``StateStoreError`` propagates out
+    of ``get_active_pipelines()`` and the outer ``except`` aborts the sweep
+    (returns 0) — an accepted trade for using the canonical active-pipeline
+    accessor, matching how ``get_active_pipelines()`` behaves for its other
+    callers.
     """
     try:
         active_pipelines = store.get_active_pipelines()
