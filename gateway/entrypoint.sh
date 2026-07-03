@@ -75,6 +75,49 @@ export EGG_LAUNCHER_SECRET
 # No symlinks needed since we mount the directory
 
 # =============================================================================
+# GitHub Packages npm Read-Through (token-gated, no-op by default)
+# =============================================================================
+# When the operator provisions an npm-packages-token (a read-only
+# packages token; see config/README.md), render the Squid bump +
+# credential-injection includes so sandboxes can install packages from the
+# GitHub Packages npm registry without ever holding the token. Without the
+# secret, the includes are truncated to empty files and Squid behavior is
+# byte-identical to the splice-only baseline. See issue #3456.
+
+NPM_PACKAGES_TOKEN_FILE="${EGG_NPM_PACKAGES_TOKEN_FILE:-/secrets/npm-packages-token}"
+NPM_SSL_INCLUDE="/etc/squid/conf.d/npm-packages-ssl.conf"
+NPM_ACCESS_INCLUDE="/etc/squid/conf.d/npm-packages-access.conf"
+mkdir -p /etc/squid/conf.d
+
+if [ -s "$NPM_PACKAGES_TOKEN_FILE" ]; then
+  NPM_PACKAGES_TOKEN=$(tr -d '[:space:]' < "$NPM_PACKAGES_TOKEN_FILE")
+  # Fail loud on characters outside the GitHub token alphabet: anything
+  # else risks Squid config injection via the token file.
+  case "$NPM_PACKAGES_TOKEN" in
+    *[!A-Za-z0-9_-]*)
+      echo "ERROR: npm-packages-token contains unexpected characters; refusing to render Squid config"
+      exit 1
+      ;;
+    "")
+      echo "ERROR: npm-packages-token is empty after trimming whitespace"
+      exit 1
+      ;;
+  esac
+  sed "s|@NPM_PACKAGES_TOKEN@|${NPM_PACKAGES_TOKEN}|" \
+    /etc/squid/squid-npm-packages-ssl.conf.template > "$NPM_SSL_INCLUDE"
+  cp /etc/squid/squid-npm-packages-access.conf.template "$NPM_ACCESS_INCLUDE"
+  # The ssl include embeds the token — owner-only. Squid reads its config
+  # as the user that starts it (this entrypoint's user), so 600 suffices.
+  chmod 600 "$NPM_SSL_INCLUDE"
+  chmod 644 "$NPM_ACCESS_INCLUDE"
+  echo "GitHub Packages npm read-through: ENABLED (token from $NPM_PACKAGES_TOKEN_FILE)"
+else
+  : > "$NPM_SSL_INCLUDE"
+  : > "$NPM_ACCESS_INCLUDE"
+  echo "GitHub Packages npm read-through: disabled (no token at $NPM_PACKAGES_TOKEN_FILE)"
+fi
+
+# =============================================================================
 # Start Squid Proxy for Network Filtering
 # =============================================================================
 

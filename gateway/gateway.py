@@ -922,6 +922,30 @@ def _check_squid_health() -> dict[str, Any]:
     return result
 
 
+@app.route("/api/v1/proxy/ca-cert", methods=["GET"])
+def get_proxy_ca_cert() -> Response:
+    """Serve the gateway proxy CA certificate (no auth required).
+
+    The CA is public key material — every sandbox already receives it in
+    its trust store via the shared-certs volume in Compose mode. Under
+    k8s the agent Job ``command`` overrides the image ENTRYPOINT, so the
+    sandbox's ``setup_gateway_ca()`` never runs and no shared volume is
+    mounted; clients that must validate TLS-bumped hosts (e.g. the
+    GitHub Packages npm read-through, #3456) fetch the current CA from
+    this endpoint instead::
+
+        curl -sf "$GATEWAY_URL/api/v1/proxy/ca-cert" -o /tmp/gateway-ca.crt
+        NODE_EXTRA_CA_CERTS=/tmp/gateway-ca.crt pnpm install ...
+
+    Serving it per-request also stays correct across gateway restarts,
+    which regenerate the CA (generate-ca-cert.sh).
+    """
+    ca_path = Path("/etc/squid/certs/gateway-ca.crt")
+    if not ca_path.is_file():
+        return jsonify({"error": "ca_cert_unavailable"}), 404
+    return Response(ca_path.read_text(), mimetype="application/x-pem-file")
+
+
 @app.route("/api/v1/health", methods=["GET"])
 def health_check() -> Response:
     """Health check endpoint (no auth required)."""

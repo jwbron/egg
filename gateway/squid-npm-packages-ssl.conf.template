@@ -1,0 +1,51 @@
+# GitHub Packages npm read-through — TLS-bump + credential-injection rules.
+#
+# Rendered into /etc/squid/conf.d/npm-packages-ssl.conf by entrypoint.sh
+# ONLY when the operator provisions an npm-packages-token secret; otherwise
+# the include is an empty file and Squid behavior is byte-identical to the
+# splice-only baseline (no-op by default).
+#
+# Design (issue #3456):
+# - npm.pkg.github.com requires auth even for reads, and lockfiles pin
+#   absolute tarball URLs on that host, so package managers fetch it
+#   directly — a registry-endpoint indirection can never intercept a
+#   frozen-lockfile install. Credential injection therefore happens here,
+#   at the proxy: the registry host is BUMPED (MITM with the gateway CA
+#   that sandboxes already trust), any client-supplied Authorization is
+#   stripped, and the operator's read-only token is injected.
+# - Tarball downloads 302-redirect to GitHub's npm blob host (listed under
+#   `domains.packages` in https://api.github.com/meta). Those URLs are
+#   SAS-signed, so the blob host needs no credential injection and is
+#   SPLICED like every other allowlisted domain.
+# - Bumped traffic is logged with full request URLs, so the audit log
+#   records exactly which package/version each sandbox fetched — spliced
+#   traffic can only ever log host-level connection records.
+#
+# The companion access rules (GET/HEAD-only enforcement) live in
+# squid-npm-packages-access.conf.template, positioned in squid.conf's
+# http_access section. ACLs are defined here because this include is
+# parsed first.
+
+# --- ACL definitions (shared with the access include) ---
+acl npm_pkg_registry ssl::server_name npm.pkg.github.com
+acl npm_pkg_blob ssl::server_name npmregistryv2prod.blob.core.windows.net
+acl npm_pkg_registry_dst dstdomain npm.pkg.github.com
+acl npm_pkg_blob_dst dstdomain npmregistryv2prod.blob.core.windows.net
+acl npm_pkg_read_methods method GET HEAD
+
+# --- TLS handling ---
+# Bump the registry (decrypt so headers can be rewritten); splice the
+# SAS-signed blob host. These lines sit between `ssl_bump peek step1` and
+# `ssl_bump splice allowed_domains`, so they take precedence for exactly
+# these two hosts and nothing else.
+ssl_bump bump npm_pkg_registry
+ssl_bump splice npm_pkg_blob
+
+# --- Credential injection ---
+# Never forward a sandbox-supplied Authorization header to the registry —
+# the sandbox must not be able to choose its own token — then inject the
+# operator's read-only token. Applies only to decrypted (bumped) registry
+# requests; spliced traffic is opaque and untouched.
+request_header_access Authorization deny npm_pkg_registry_dst
+request_header_access Authorization allow all
+request_header_add Authorization "Bearer @NPM_PACKAGES_TOKEN@" npm_pkg_registry_dst
