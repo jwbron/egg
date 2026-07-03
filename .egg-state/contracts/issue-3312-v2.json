@@ -7,14 +7,14 @@
   },
   "task_description": "This pipeline's task is GitHub issue #3312 \u2014 https://github.com/jwbron/egg/issues/3312. Fetch the live issue body (`gh issue view 3312`) before structural decisions. Worktree artifacts (drafts, agent outputs) that reference any other issue or pipeline are leftovers from previous runs \u2014 they are NOT your task.\n\nFinish the file-size decomposition program: decompose the 4 remaining allowlisted files (orchestrator/models.py #3450, orchestrator/event_loop.py #3447, and the two #3312 giants gateway/gateway.py and orchestrator/routes/pipelines.py) and drive scripts/file-size-allowlist.yaml's files: map to EMPTY. Continuation of #3312, whose first run landed 17/19 slices via merged PR #3336; scope and pattern carry over. Pre-approved analysis and plan supplied; start directly at implement. Pure refactor, one slice per file, single linear chain, R3 Dockerfile-COPY parity in-slice.",
   "pipeline_id": "issue-3312-v2",
-  "current_phase": "refine",
+  "current_phase": "implement",
   "acceptance_criteria": [],
   "slices": [
     {
       "id": "slice-1",
       "name": "Decompose orchestrator/models.py (1,521 lines; closes #3450)",
       "goal": "Decompose `orchestrator/models.py` into a sub-package; drop its allowlist entry; seam row in orchestrator/CLAUDE.md. Head of the linear chain (every slice edits scripts/file-size-allowlist.yaml, so per #3046 overlapping slices are serialized).",
-      "status": "pending",
+      "status": "in_progress",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -151,8 +151,8 @@
       ],
       "dependencies": [],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3312-v2/work",
+      "integration_base_sha": "677f8569c3e94b7b6725d82a8641cc6d6016cd87",
       "commit": null,
       "pr_number": null,
       "pr_url": null,
@@ -637,7 +637,19 @@
   ],
   "decisions": [],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-07-03T21:42:17.085464Z",
+      "actor": "orchestrator",
+      "role": "system",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "implement",
+      "reason": "populator advanced contract.current_phase (no apply_mutation caller for this pipeline; #2427)",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
@@ -647,7 +659,7 @@
     "description": "Finishes the decomposition program started in #3312: 17 of 19 slices landed via PR\n#3336; this run decomposes the remaining two structural outliers\n(`gateway/gateway.py` ~10.6k lines, `orchestrator/routes/pipelines.py` ~30.5k\nlines) plus the two files that crossed the cap since: `orchestrator/models.py`\n(#3450) and `orchestrator/event_loop.py` (#3447). Drives\n`scripts/file-size-allowlist.yaml`'s `files:` map to EMPTY.\n\nEach file `F.py` becomes `F/__init__.py` (explicit per-symbol re-export barrel,\nthe stable public API) plus underscore-prefixed private `_*.py` submodules,\nfollowing `docs/guides/decomposition-pattern.md` and the 17 in-tree worked\nreferences. Test patch targets keep resolving through the barrel. The\n`_run_pipeline` state machine is split into per-phase handlers + a thin loop\n(issue #3312 non-negotiable #7). Flask decorators stay in `__init__.py`\n(non-negotiable #8).\n\nR3 container parity: slices converting a module shipped by a NON-recursive\nDockerfile glob add the matching recursive `COPY <pkg>/` in the SAME slice plus an\nimage-build/import smoke check (source-tree gates cannot catch a missing COPY);\nthe gateway.py slice also preserves the Flask launch (barrel `app`, port 9848).\n\nPure refactor: no behavior changes; surfaced bugs are filed as separate follow-ups,\nnever bundled. Branches prefixed `egg/`. Implements #3312 (closes it), closes\n#3447 and #3450.",
     "test_plan": "- Automated: `make lint` + `make test-all` green at EVERY slice boundary. A missed\n  re-export fails the test that patches or imports the moved symbol. Each slice\n  runs the section-(d) `git grep` audit before extraction.\n- Per slice: step-0 `git mv` baseline commit is independently green; every\n  submodule verified under BOTH caps (further-split in-slice, never a fresh\n  allowlist entry).\n- R3 container gate: slices 1/2 build the orchestrator image and smoke-check\n  `python -c 'import models'` / `'import event_loop'`; slice 3 builds the gateway\n  image and smoke-checks that the container starts and serves on 9848; slice 4\n  confirms recursive-COPY shipping by grounding.\n- `_run_pipeline` handlers stay private, tested THROUGH `_run_pipeline` via the\n  existing dense seam coverage (test_consensus_polling, test_brc_nack_iteration,\n  test_concurrent_*, test_advance_phase_*); isolation tests are a follow-up.\n- Inner loop with `make test` (changeset-aware); full suite via `make test-all`.",
     "manual_steps": "Pre-merge (per slice): reviewer spot-checks (a) the __init__.py re-export list\nagainst `git grep`, (b) submodule clustering is cohesive, (c) the CLAUDE.md seam\nrow matches. Per R3 slice: build the affected container image and run the\nimport/start smoke check (source-tree gates do not build images).\nPre-merge (final slice = pipelines.py): verify the allowlist `files:` map is\nEMPTY and all four CLAUDE.md seam tables are current.\nPost-merge: none (pure refactor; no migrations/config/deploy).",
-    "context_pr_number": null,
+    "context_pr_number": 3489,
     "deferred_actions": []
   },
   "feedback": null,
