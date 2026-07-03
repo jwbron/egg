@@ -416,6 +416,13 @@ RESTORE_PREBUILT_PY
 # fetch logs and continues — the agent invocation is never blocked on
 # it, and only installs from TLS-bumped registries would later fail,
 # with a certificate error at install time.
+#
+# Scope: NODE_EXTRA_CA_CERTS only — deliberately narrower than the
+# Compose entrypoint, which also sets REQUESTS_CA_BUNDLE/SSL_CERT_FILE
+# and installs the CA into the system trust store. The only TLS-bumped
+# host today is npm.pkg.github.com (Node-only), so the Node var is
+# sufficient here. A future Python/curl-side TLS-bumped read-through
+# would need the extra vars exported on this k8s path too.
 setup_gateway_ca() {
     if [ -n "${NODE_EXTRA_CA_CERTS:-}" ]; then
         cw_log "gateway-ca: NODE_EXTRA_CA_CERTS already set (entrypoint path); skipping fetch."

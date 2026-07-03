@@ -598,6 +598,24 @@ class TestSetupGatewayCa:
         threading.Thread(target=server.serve_forever, daemon=True).start()
         return server, f"http://127.0.0.1:{server.server_address[1]}"
 
+    # Every variable setup_gateway_ca reads. The behavioral harness must
+    # control all of them, or an ambient value leaks in and makes the
+    # assertions environment-dependent — exactly the defect this guards
+    # against. The egg sandbox exports both NODE_EXTRA_CA_CERTS (entrypoint,
+    # sandbox/entrypoint/_environment.py) and GATEWAY_URL, so a leaked
+    # NODE_EXTRA_CA_CERTS trips the preset guard and a leaked GATEWAY_URL
+    # makes the "unset GATEWAY_URL" case fetch from a live gateway.
+    _CONSUMED_ENV = ("NODE_EXTRA_CA_CERTS", "GATEWAY_URL", "TMPDIR")
+
+    @classmethod
+    def _clean_env(cls) -> dict:
+        """Parent env for the bash harness with the vars setup_gateway_ca
+        consumes scrubbed. The harness re-exports whichever ones a given
+        case needs via its ``env_lines``, so scrubbing here is safe for
+        every case and makes the subprocess hermetic. Mirrors the explicit
+        ``env=`` pattern already used by ``TestRestorePrebuiltDeps``."""
+        return {k: v for k, v in os.environ.items() if k not in cls._CONSUMED_ENV}
+
     def test_behavioral_fetches_and_exports(self, tmp_path):
         """End-to-end: the CA is fetched from the gateway endpoint,
         written under TMPDIR, and NODE_EXTRA_CA_CERTS is exported."""
@@ -609,10 +627,15 @@ class TestSetupGatewayCa:
             )
             harness = self._extract_ca_harness(self._script(), env_lines)
             result = subprocess.run(
-                ["bash", "-c", harness], capture_output=True, text=True, timeout=30
+                ["bash", "-c", harness],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=self._clean_env(),
             )
         finally:
             server.shutdown()
+            server.server_close()
         assert "CA_RC=0" in result.stdout, f"stdout={result.stdout!r} stderr={result.stderr!r}"
         ca_file = tmp_path / "gateway-ca.crt"
         assert f"CA_ENV={ca_file}" in result.stdout
@@ -627,7 +650,13 @@ class TestSetupGatewayCa:
             f"export TMPDIR={shlex.quote(str(tmp_path))}\n"
         )
         harness = self._extract_ca_harness(self._script(), env_lines)
-        result = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            ["bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=self._clean_env(),
+        )
         assert "CA_RC=0" in result.stdout
         assert "CA_ENV=/usr/local/share/ca-certificates/gateway-ca.crt" in result.stdout
         assert "already set" in result.stderr
@@ -638,7 +667,13 @@ class TestSetupGatewayCa:
         harness = self._extract_ca_harness(
             self._script(), f"export TMPDIR={shlex.quote(str(tmp_path))}\n"
         )
-        result = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            ["bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=self._clean_env(),
+        )
         assert "CA_RC=0" in result.stdout
         assert "CA_ENV=unset" in result.stdout
         assert "GATEWAY_URL unset" in result.stderr
@@ -647,13 +682,20 @@ class TestSetupGatewayCa:
         """Unreachable gateway / 404 (squid certs absent): rc 0, no
         export, no leftover partial file."""
         server, base_url = self._serve_ca()
-        server.shutdown()  # port is now closed — connection refused
+        server.shutdown()
+        server.server_close()  # listening socket closed — connection refused
         env_lines = (
             f"export GATEWAY_URL={shlex.quote(base_url)}\n"
             f"export TMPDIR={shlex.quote(str(tmp_path))}\n"
         )
         harness = self._extract_ca_harness(self._script(), env_lines)
-        result = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            ["bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=self._clean_env(),
+        )
         assert "CA_RC=0" in result.stdout, f"stdout={result.stdout!r} stderr={result.stderr!r}"
         assert "CA_ENV=unset" in result.stdout
         assert "fetch failed" in result.stderr
