@@ -361,12 +361,17 @@ def release_contract_nack(
         # restore PROPOSED so the pending-review derivation surfaces
         # that proposal to the released reviewer (and the producer's
         # own arm stops deriving a doomed zero-commit re-propose).
-        # Caveat: a producer that WITHDREW after this NACK is also
-        # WORKING; restoring PROPOSED for it is harmless — re-propose
-        # from PROPOSED is the normal re-propose flow, so its intended
-        # next proposal still lands as the next version.
+        #
+        # Skip the restore for a producer that WITHDREW after the NACK
+        # (also WORKING): its proposal is retracted, and restoring
+        # PROPOSED would surface the withdrawn work to the released
+        # reviewer, which could re-review and ACK it before the producer
+        # re-proposes — converging consensus on retracted work. Leaving it
+        # WORKING is correct: the producer's next (re-)propose lands the
+        # replacement as the next version and re-arms the reviewer then.
         if (
             self._producer_phases.get(producer_role) == ConsensusPhase.WORKING
+            and producer_role not in self._withdrawn_producers
             and self.matrix.get_proposal_version(producer_role) > 0
             and not self.matrix.has_unresolved_nacks_as_producer(producer_role)
         ):

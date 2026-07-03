@@ -97,6 +97,14 @@ class PeerConsensusTracker:
         self._reviewer_phases: dict[str, ConsensusPhase] = {}
         # Per-agent confirmed status (both state machines must confirm)
         self._confirmed: set[str] = set()
+        # Producers whose latest action was a withdraw (proposal retracted,
+        # #3470). Set on handle_withdraw, cleared on the next propose /
+        # re-propose. release_contract_nack reads this to avoid restoring
+        # PROPOSED for a producer that retracted its proposal — restoring
+        # would let a released reviewer ACK withdrawn work. Derived purely
+        # from replayed WITHDRAW / PROPOSE messages, so it survives
+        # reconstruct_tracker_from_messages.
+        self._withdrawn_producers: set[str] = set()
         # Timestamp of last proposal per producer (for cooldown)
         self._proposal_timestamps: dict[str, datetime] = {}
         # Flip-flop counter per producer (proposal -> withdraw cycles)

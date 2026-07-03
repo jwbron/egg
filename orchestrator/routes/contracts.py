@@ -420,6 +420,14 @@ def mutate_contract(identifier: str) -> tuple[Response, int]:
 # Task rows whose mutation must be durably persisted at write time
 # (#3470): ``status`` is what the #3114 completeness gate reads;
 # ``commit`` is what the #3125 evidence-reachability gate reads.
+#
+# These regexes intentionally track the *wire* field path (``phases.*``),
+# not the model field. Post-#2137 the canonical model attribute is
+# ``slices``, but the mutate RPC's ``field_path`` is always emitted as
+# ``phases.<i>.tasks.<j>.<field>`` by every production producer
+# (sandbox/egg_agent_tools/handlers/task.py, operator_actions.py). Do not
+# "fix" these to ``slices.*`` — production never emits that path, so the
+# rename would silently disable the persist.
 _TASK_DURABLE_PATH_RE = re.compile(r"^phases\.\d+\.tasks\.\d+\.(?:status|commit)$")
 
 
@@ -445,6 +453,7 @@ def _persist_durable_mutation(field_path: str, worktree: Path) -> None:
     is_task_row = bool(_TASK_DURABLE_PATH_RE.match(field_path))
     if not is_decision and not is_task_row:
         return
+    pipeline_id = ""
     try:
         pipeline_id, _ = _pipeline_context()
         if not pipeline_id:
@@ -463,6 +472,46 @@ def _persist_durable_mutation(field_path: str, worktree: Path) -> None:
             extra={"field_path": field_path},
             exc_info=True,
         )
+        # A swallowed persist failure on a task-row mutation silently
+        # reintroduces the exact #3470 deadlock: the completion lands only
+        # on the worktree file, the phase-restart reset reverts it, and the
+        # #3114 ACK-guard re-rejects. Surface it on the bus (not just the
+        # log) so recurrence is observable rather than mysterious — same
+        # posture as the #3233 orphaned-driver alert. Best-effort: an alert
+        # failure never fails the mutation response.
+        if is_task_row and pipeline_id:
+            _alert_persist_failure(pipeline_id, field_path)
+
+
+def _alert_persist_failure(pipeline_id: str, field_path: str) -> None:
+    """Broadcast an OVERSEER_ALERT for a failed durability-critical persist (#3470)."""
+    try:
+        from message_store import Message, MessageType, get_message_store
+
+        get_message_store().add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="orchestrator",
+                to_role="all",
+                message_type=MessageType.OVERSEER_ALERT,
+                subject="contract_persist_failed: orchestrator [high]",
+                body=(
+                    f"Durable persist of contract task-row mutation "
+                    f"{field_path} failed. The completion is live on the "
+                    f"worktree file but was not committed+pushed, so a "
+                    f"phase-restart reset will revert it and re-open the "
+                    f"#3470 contract_incomplete deadlock. Verify the branch "
+                    f"and re-mark the task complete if needed. See #3470."
+                ),
+                metadata={"reason": "contract_persist_failed", "field_path": field_path},
+            )
+        )
+    except Exception:  # noqa: BLE001 — alert is best-effort; mutation already succeeded
+        logger.warning(
+            "Failed to broadcast contract-persist-failure alert (non-fatal)",
+            extra={"field_path": field_path, "pipeline_id": pipeline_id},
+            exc_info=True,
+        )
 
 
 _TASK_STATUS_PATH_RE = re.compile(r"^phases\.(\d+)\.tasks\.(\d+)\.status$")
@@ -470,10 +519,14 @@ _TASK_STATUS_PATH_RE = re.compile(r"^phases\.(\d+)\.tasks\.(\d+)\.status$")
 # Heuristic match for a NACK reason that cites contract-task
 # incompleteness. The #3114 ACK-guard's rejection tells the reviewer to
 # "NACK ... citing these task ids" and names the ``contract_incomplete``
-# status; reviewers echo that vocabulary. A false positive costs one
-# re-review cycle (the reviewer re-verdicts freely and re-NACKs a real
-# defect); a false negative leaves the reviewer parked until the next
-# unrelated BRC movement or operator restart.
+# status; reviewers echo that vocabulary. A false positive is always
+# self-correcting — the released reviewer re-verdicts freely and re-NACKs
+# any real defect — but the cost is not uniform: when the released edge
+# was the only blocker it's a single re-review cycle, whereas releasing a
+# mis-matched defect NACK that coexists with another reviewer's genuine
+# NACK adds a re-review round without unblocking the slice (the other
+# NACK still holds). A false negative leaves the reviewer parked until the
+# next unrelated BRC movement or operator restart.
 _CONTRACT_INCOMPLETE_VOCAB_RE = re.compile(
     r"incomplete|not\s+(?:yet\s+)?(?:marked\s+)?complete|pending"
     r"|status=complete|mcp__task__complete|complete-task|task\s+rows?",

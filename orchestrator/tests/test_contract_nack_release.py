@@ -238,6 +238,51 @@ class TestReleaseContractNack:
         assert tracker.evaluate()["is_complete"]
         assert tracker._producer_phases["coder"] == ConsensusPhase.CONFIRMED
 
+    def test_release_does_not_restore_proposed_for_withdrawn_producer(self):
+        """A producer that WITHDREW after the NACK keeps its proposal
+        retracted (#3470): release must not restore PROPOSED, or the freed
+        reviewer could re-review and ACK withdrawn work before the producer
+        re-proposes. The producer stays WORKING until its next (re-)propose.
+        """
+        tracker = _tracker()
+        _propose(tracker)
+        _nack(tracker, "reviewer_contract", "coder")
+
+        # Producer withdraws the proposal after the NACK (both leave it
+        # WORKING, so the restore must distinguish them).
+        tracker.handle_withdraw("coder", "retracting to rework the approach")
+        assert tracker._producer_phases["coder"] == ConsensusPhase.WORKING
+
+        result = tracker.release_contract_nack("reviewer_contract", "coder", "rows complete")
+        assert result["status"] == "released"
+
+        # PROPOSED is NOT restored — the withdrawn proposal is not resurfaced.
+        assert tracker._producer_phases["coder"] == ConsensusPhase.WORKING
+
+        # The freed reviewer therefore does not derive an ACK against the
+        # retracted work; it re-arms only when the producer re-proposes.
+        action, _, _ = _derive_next_action(tracker, "reviewer_contract")
+        assert action != "ack"
+
+        # A subsequent re-propose (new commit SHA, so the unchanged-tree
+        # guard allows it) clears the withdrawn state and the normal flow
+        # resumes: the reviewer derives an actionable re-review.
+        tracker.handle_propose(
+            "coder",
+            {
+                "summary": (
+                    "Reworked proposal with substantive content describing the "
+                    "revised work, tests run, and tasks satisfied for review."
+                ),
+                "artifacts": ["a.py"],
+                "commit_sha": "def5678",
+            },
+        )
+        assert tracker._producer_phases["coder"] == ConsensusPhase.PROPOSED
+        assert "coder" not in tracker._withdrawn_producers
+        action, _, _ = _derive_next_action(tracker, "reviewer_contract")
+        assert action == "ack"
+
 
 # ---------------------------------------------------------------------------
 # Reconstruction: CONSENSUS_NACK_INVALIDATED replay arm
