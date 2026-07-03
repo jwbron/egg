@@ -24865,6 +24865,195 @@ def _ledger_attestation_confirmed(resolution: str) -> bool:
     return normalized in ("confirm", _LEDGER_ATTESTATION_CONFIRM_OPTION.lower())
 
 
+def _ledger_attestation_rerun_directive(phase_value: str, rationale: str, resolution: str) -> str:
+    """Compose the re-run directive for a rejected explicit-none attestation (#3462).
+
+    The operator declined to confirm that the phase raises no operator
+    decisions, so the phase re-runs with an instruction to register each
+    decision — including ones the producer believes prior context already
+    resolves. Any free-text resolution (i.e. not the bare re-run option) is
+    an operator note and rides along verbatim so the agents see the specific
+    concern.
+    """
+    directive = (
+        f"The operator declined to confirm the {phase_value} phase's "
+        f"no-decisions attestation (#3462). The phase claimed: "
+        f"“{rationale}”. Register each operator-grade decision via "
+        f"`egg-contract add-decision` — including decisions you believe "
+        f"prior context already resolves: register those with your "
+        f"recommended answer as the first option and cite the resolving "
+        f"context in its description. Belief about resolution is a "
+        f"recommended disposition, not a reason to skip registration."
+    )
+    if resolution.strip().lower() != _LEDGER_BACKSTOP_RERUN_OPTION.lower():
+        directive += f"\n\nOperator note: {resolution.strip()}"
+    return directive
+
+
+def _handle_explicit_none_attestation_gate(
+    *,
+    pipeline,
+    pipeline_id: str,
+    repo_path,
+    current_phase: PipelinePhase,
+    ledger_note: str,
+    explicit_none: tuple[str, str],
+    store,
+    spawner,
+):
+    """Surface an explicit-none attestation as a confirmable HITL decision (#3462).
+
+    A producer's claim that a refine/plan phase raises no operator decisions
+    bypasses the entire register → bridge → resolve chain, and the claim is
+    itself a judgment call the HITL contract assigns to the operator. Rather
+    than folding it into the phase_gate question as prose, surface it as its
+    own confirmable ``choice`` decision: confirming records the operator's
+    endorsement on the ledger note; rejecting re-runs the phase so producers
+    register the decisions as first-class ``cq-N`` entries.
+
+    Returns ``(rerun_requested, ledger_note, pipeline)``:
+
+    - ``rerun_requested`` — True when the operator rejected the attestation
+      and the phase has already been re-run here; the caller must ``continue``
+      its poll loop. False when the attestation was confirmed (or fail-open on
+      a cancelled/non-RESOLVED terminal state); the caller proceeds to the
+      phase gate.
+    - ``ledger_note`` — the note to thread into the phase_gate question,
+      annotated with the confirmation outcome.
+    - ``pipeline`` — the (possibly reloaded) pipeline the caller must rebind,
+      since queuing the confirmation decision reloads and mutates state.
+    """
+    attest_role, attest_rationale = explicit_none
+    attest_question = _ledger_attestation_question(
+        attest_role, attest_rationale, current_phase.value
+    )
+    # A converge-loop round (or a resume) re-enters this gate with the same
+    # attestation — do not re-ask a question the operator already answered,
+    # and reuse a pending one instead of queueing a duplicate (mirrors the
+    # phase_gate's #1152 guard).
+    prior_confirm = next(
+        (
+            d
+            for d in reversed(pipeline.decisions)
+            if d.decision_type == "choice"
+            and d.phase == current_phase
+            and d.question == attest_question
+            and d.status == DecisionStatus.RESOLVED
+            and _ledger_attestation_confirmed(str(d.resolution or ""))
+        ),
+        None,
+    )
+    if prior_confirm is not None:
+        return False, ledger_note + " Operator confirmed the attestation.", pipeline
+
+    dq = get_decision_queue(pipeline_id, repo_path)
+    pending_attest = next(
+        (
+            d
+            for d in reversed(pipeline.decisions)
+            if d.decision_type == "choice"
+            and d.phase == current_phase
+            and d.question == attest_question
+            and d.status == DecisionStatus.PENDING
+        ),
+        None,
+    )
+    if pending_attest is not None:
+        attest_decision = pending_attest
+        newly_created = False
+    else:
+        attest_decision = dq.queue_decision(
+            question=attest_question,
+            context=ledger_note,
+            options=[
+                _LEDGER_ATTESTATION_CONFIRM_OPTION,
+                _LEDGER_BACKSTOP_RERUN_OPTION,
+            ],
+            decision_type="choice",
+            phase=current_phase,
+        )
+        newly_created = True
+    with get_pipeline_state_lock(pipeline_id):
+        pipeline = store.load_pipeline(pipeline_id)
+        pipeline.status = PipelineStatus.AWAITING_HUMAN
+        phase_execution = pipeline.get_phase_execution(current_phase)
+        phase_execution.status = PipelineStatus.AWAITING_HUMAN
+        store.save_pipeline(pipeline)
+    # Only announce a freshly-created decision. Reusing a pending decision
+    # across polls must not re-emit ``decision.created`` — a duplicate event
+    # for a decision the operator is already looking at (#3462 review).
+    if newly_created:
+        report_pipeline_status(
+            pipeline,
+            event_type="decision.created",
+            message=(
+                f"{current_phase.value} phase attests no operator "
+                f"decisions — awaiting operator confirmation (#3462)"
+            ),
+        )
+        _emit_pipeline_event(pipeline, "decision.created")
+
+    attest_resolved = dq.wait_for_decision(attest_decision.id)
+    attest_resolution = _unwrap_choice_resolution(
+        str(getattr(attest_resolved, "resolution", None) or "")
+    ).strip()
+    resolved_ok = attest_resolved.status == DecisionStatus.RESOLVED
+    confirmed = resolved_ok and _ledger_attestation_confirmed(attest_resolution)
+
+    if resolved_ok and not confirmed:
+        # Rejected — re-run the phase so producers register the decisions as
+        # first-class cq-N entries.
+        rerun_directive = _ledger_attestation_rerun_directive(
+            current_phase.value, attest_rationale, attest_resolution
+        )
+        logger.info(
+            "Explicit-none attestation rejected: re-running phase (#3462)",
+            pipeline_id=pipeline_id,
+            phase=current_phase.value,
+        )
+        with get_pipeline_state_lock(pipeline_id):
+            pipeline = store.load_pipeline(pipeline_id)
+            pipeline.status = PipelineStatus.RUNNING
+            phase_execution = pipeline.get_phase_execution(current_phase)
+            phase_execution.status = PipelineStatus.RUNNING
+            phase_execution.completed_at = None
+            phase_execution.hitl_review_cycles += 1
+            _alert_threshold = pipeline.config.max_hitl_review_cycles
+            if phase_execution.hitl_review_cycles >= _alert_threshold:
+                _broadcast_hitl_nonconvergence_alert(
+                    pipeline_id,
+                    pipeline,
+                    current_phase,
+                    phase_execution.hitl_review_cycles,
+                    _alert_threshold,
+                )
+            _perform_hitl_phase_rerun(
+                store=store,
+                spawner=spawner,
+                pipeline=pipeline,
+                phase_execution=phase_execution,
+                pipeline_id=pipeline_id,
+                current_phase=current_phase,
+                feedback_text=rerun_directive,
+                event_message=(
+                    f"Re-running {current_phase.value}: no-decisions attestation rejected (#3462)"
+                ),
+            )
+        return True, ledger_note, pipeline
+
+    if confirmed:
+        return False, ledger_note + " Operator confirmed the attestation.", pipeline
+    # Fail open to the phase gate on a non-RESOLVED terminal state (cancel):
+    # the gate itself still blocks for approval, mirroring the missing-ledger
+    # backstop's posture. Record the outcome accurately — do not claim a
+    # confirmation the operator never gave (#3462 review).
+    return (
+        False,
+        ledger_note + " Attestation confirmation was cancelled; deferring to the phase gate.",
+        pipeline,
+    )
+
+
 def _find_explicit_none_attestation(
     pipeline_id: str,
     phase_value: str,
@@ -28323,145 +28512,25 @@ def _run_pipeline(
                     # --- Explicit-none attestation confirmation (#3462) ---
                     # The producer's claim that this phase raises no operator
                     # decisions bypasses the entire register → bridge →
-                    # resolve chain, and the claim is itself a judgment call
-                    # the HITL contract assigns to the operator. Surface it
-                    # as its own confirmable decision instead of a sentence
-                    # embedded in the phase_gate question: confirming records
-                    # the operator's endorsement on the ledger note;
-                    # rejecting re-runs the phase so producers register the
-                    # decisions as first-class cq-N entries.
-                    _attest_role, _attest_rationale = _ledger_explicit_none
-                    _attest_question = _ledger_attestation_question(
-                        _attest_role, _attest_rationale, current_phase.value
+                    # resolve chain, and is itself a judgment call the HITL
+                    # contract assigns to the operator. Surface it as its own
+                    # confirmable decision (see the helper): confirming records
+                    # the operator's endorsement on the ledger note; rejecting
+                    # re-runs the phase to register cq-N entries.
+                    _rerun_requested, _ledger_note, pipeline = (
+                        _handle_explicit_none_attestation_gate(
+                            pipeline=pipeline,
+                            pipeline_id=pipeline_id,
+                            repo_path=repo_path,
+                            current_phase=current_phase,
+                            ledger_note=_ledger_note,
+                            explicit_none=_ledger_explicit_none,
+                            store=store,
+                            spawner=spawner,
+                        )
                     )
-                    # A converge-loop round (or a resume) re-enters this gate
-                    # with the same attestation — do not re-ask a question
-                    # the operator already answered, and reuse a pending one
-                    # instead of queueing a duplicate (mirrors the
-                    # phase_gate's #1152 guard).
-                    _prior_confirm = next(
-                        (
-                            d
-                            for d in reversed(pipeline.decisions)
-                            if d.decision_type == "choice"
-                            and d.phase == current_phase
-                            and d.question == _attest_question
-                            and d.status == DecisionStatus.RESOLVED
-                            and _ledger_attestation_confirmed(str(d.resolution or ""))
-                        ),
-                        None,
-                    )
-                    if _prior_confirm is not None:
-                        _ledger_note += " Operator confirmed the attestation."
-                    else:
-                        dq = get_decision_queue(pipeline_id, repo_path)
-                        _pending_attest = next(
-                            (
-                                d
-                                for d in reversed(pipeline.decisions)
-                                if d.decision_type == "choice"
-                                and d.phase == current_phase
-                                and d.question == _attest_question
-                                and d.status == DecisionStatus.PENDING
-                            ),
-                            None,
-                        )
-                        if _pending_attest is not None:
-                            _attest_decision = _pending_attest
-                        else:
-                            _attest_decision = dq.queue_decision(
-                                question=_attest_question,
-                                context=_ledger_note,
-                                options=[
-                                    _LEDGER_ATTESTATION_CONFIRM_OPTION,
-                                    _LEDGER_BACKSTOP_RERUN_OPTION,
-                                ],
-                                decision_type="choice",
-                                phase=current_phase,
-                            )
-                        with get_pipeline_state_lock(pipeline_id):
-                            pipeline = store.load_pipeline(pipeline_id)
-                            pipeline.status = PipelineStatus.AWAITING_HUMAN
-                            phase_execution = pipeline.get_phase_execution(current_phase)
-                            phase_execution.status = PipelineStatus.AWAITING_HUMAN
-                            store.save_pipeline(pipeline)
-                        report_pipeline_status(
-                            pipeline,
-                            event_type="decision.created",
-                            message=(
-                                f"{current_phase.value} phase attests no operator "
-                                f"decisions — awaiting operator confirmation (#3462)"
-                            ),
-                        )
-                        _emit_pipeline_event(pipeline, "decision.created")
-
-                        _attest_resolved = dq.wait_for_decision(_attest_decision.id)
-                        _attest_resolution = _unwrap_choice_resolution(
-                            str(getattr(_attest_resolved, "resolution", None) or "")
-                        ).strip()
-                        # Fail open to the phase gate on a non-RESOLVED
-                        # terminal state (cancel): the gate itself still
-                        # blocks for approval, mirroring the missing-ledger
-                        # backstop's posture.
-                        _confirmed = (
-                            _attest_resolved.status != DecisionStatus.RESOLVED
-                            or _ledger_attestation_confirmed(_attest_resolution)
-                        )
-                        if not _confirmed:
-                            _rerun_directive = (
-                                f"The operator declined to confirm the "
-                                f"{current_phase.value} phase's no-decisions "
-                                f"attestation (#3462). The phase claimed: "
-                                f"“{_attest_rationale}”. Register each "
-                                f"operator-grade decision via `egg-contract "
-                                f"add-decision` — including decisions you "
-                                f"believe prior context already resolves: "
-                                f"register those with your recommended answer "
-                                f"as the first option and cite the resolving "
-                                f"context in its description. Belief about "
-                                f"resolution is a recommended disposition, not "
-                                f"a reason to skip registration."
-                            )
-                            if _attest_resolution.lower() != (
-                                _LEDGER_BACKSTOP_RERUN_OPTION.lower()
-                            ):
-                                _rerun_directive += f"\n\nOperator note: {_attest_resolution}"
-                            logger.info(
-                                "Explicit-none attestation rejected: re-running phase (#3462)",
-                                pipeline_id=pipeline_id,
-                                phase=current_phase.value,
-                            )
-                            with get_pipeline_state_lock(pipeline_id):
-                                pipeline = store.load_pipeline(pipeline_id)
-                                pipeline.status = PipelineStatus.RUNNING
-                                phase_execution = pipeline.get_phase_execution(current_phase)
-                                phase_execution.status = PipelineStatus.RUNNING
-                                phase_execution.completed_at = None
-                                phase_execution.hitl_review_cycles += 1
-                                _alert_threshold = pipeline.config.max_hitl_review_cycles
-                                if phase_execution.hitl_review_cycles >= _alert_threshold:
-                                    _broadcast_hitl_nonconvergence_alert(
-                                        pipeline_id,
-                                        pipeline,
-                                        current_phase,
-                                        phase_execution.hitl_review_cycles,
-                                        _alert_threshold,
-                                    )
-                                _perform_hitl_phase_rerun(
-                                    store=store,
-                                    spawner=spawner,
-                                    pipeline=pipeline,
-                                    phase_execution=phase_execution,
-                                    pipeline_id=pipeline_id,
-                                    current_phase=current_phase,
-                                    feedback_text=_rerun_directive,
-                                    event_message=(
-                                        f"Re-running {current_phase.value}: "
-                                        f"no-decisions attestation rejected (#3462)"
-                                    ),
-                                )
-                            continue  # Re-enter outer loop → re-run phase
-                        _ledger_note += " Operator confirmed the attestation."
+                    if _rerun_requested:
+                        continue  # Re-enter outer loop → re-run phase
 
                 # Check for an existing pending phase_gate decision for this
                 # phase.  A prior agent-exit event may
