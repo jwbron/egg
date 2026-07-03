@@ -2112,6 +2112,34 @@ class TestNoopParkSupervisor:
         supervisor.record_success("key-n", action="propose", role="tester")
         assert len(alerts) == 1
 
+    def test_simultaneous_hitl_and_brc_movement_releases_once(self):
+        """Both signals moving in a single poll must yield exactly one probe.
+
+        Previously each release branch refreshed only its own anchor, so if the
+        operator resolved a gating ``cq-N`` *and* the cohort proposed before the
+        same poll tick, the HITL branch released first leaving the BRC anchor
+        stale, and the next poll released again via the BRC branch — two probe
+        spawns for one wedge. The release now refreshes both anchors, collapsing
+        it to one probe per poll regardless of how many signals moved.
+        """
+        import event_loop
+
+        pending = {"cq-1"}
+        brc_state = ["coder-working"]
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            hitl_probe=lambda: set(pending),
+            brc_probe=lambda: brc_state[0],
+        )
+        self._park(supervisor, "key-n", role="tester")
+        assert supervisor.noop_parked("key-n")
+
+        # Both signals move before the same poll tick.
+        pending.clear()  # operator resolved the last gating decision
+        brc_state[0] = "coder-proposed"  # the coder proposed
+        assert not supervisor.noop_parked("key-n")  # exactly one release
+        assert supervisor.noop_parked("key-n")  # both anchors refreshed → no second release
+
     def test_brc_probe_failure_falls_back_to_heartbeat(self):
         import event_loop
         import supervision_policy

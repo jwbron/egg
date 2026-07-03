@@ -742,51 +742,64 @@ class JobSupervisor:
         now = self.clock()
         current = self._probe_hitl_fingerprint()
         parked = self._noop_fingerprint.get(dedupe_key)
-        if current is not None and parked is not None and current != parked:
-            self._noop_fingerprint[dedupe_key] = current
+        current_brc = self._probe_brc_fingerprint()
+        parked_brc = self._noop_brc_fingerprint.get(dedupe_key)
+        hitl_moved = current is not None and parked is not None and current != parked
+        brc_moved = (
+            current_brc is not None and parked_brc is not None and current_brc != parked_brc
+        )
+        if hitl_moved or brc_moved:
+            # Refresh BOTH probe anchors on any release, not just the branch that
+            # fired. If a single poll sees the contract-decision set AND the BRC
+            # state move at once (the operator resolves a gating ``cq-N`` while
+            # the cohort proposes), advancing only the firing anchor would leave
+            # the other's park-time digest stale, so the very next poll would
+            # release again — two probe spawns for one wedge. Advancing every
+            # anchor whose probe currently reads a concrete value collapses this
+            # to one probe per poll regardless of how many signals moved. A
+            # ``None`` reading (probe unwired/failed) is left untouched: it can
+            # never compare as moved, so it cannot cause a spurious re-release,
+            # and preserving its park-time value avoids degrading a good anchor
+            # on a transient probe failure.
+            if current is not None:
+                self._noop_fingerprint[dedupe_key] = current
+            if current_brc is not None:
+                self._noop_brc_fingerprint[dedupe_key] = current_brc
             self._noop_last_probe[dedupe_key] = now
-            # Re-arm the once-per-key alert latch only when a decision is *still*
-            # gating (``current`` non-empty). The alert names the decisions
-            # recorded at park time; if the probe spawn no-ops again on a
-            # freshly-gating ``cq-N`` the arm re-parks, and without re-arming the
-            # latch would suppress a new alert, leaving the operator staring at a
-            # stale one naming an already-resolved cq-N. This keeps "one alert
-            # per distinct wedge" rather than "one alert per key lifetime".
+            # Re-arm the once-per-key alert latch only when the contract-decision
+            # set moved AND a decision is *still* gating (``current`` non-empty).
+            # The alert names the decisions recorded at park time; if the probe
+            # spawn no-ops again on a freshly-gating ``cq-N`` the arm re-parks,
+            # and without re-arming the latch would suppress a new alert, leaving
+            # the operator staring at a stale one naming an already-resolved
+            # cq-N. This keeps "one alert per distinct wedge" rather than "one
+            # alert per key lifetime".
             #
-            # But an *empty* new set means the wedge cleared (the operator
-            # resolved the last gating decision), so the released probe will
-            # proceed and make real progress. Re-arming here would let the next
+            # An *empty* new set means the wedge cleared (the operator resolved
+            # the last gating decision), and a pure BRC-movement release means
+            # the cohort progressed; in both cases the released probe will
+            # proceed and make real progress. Re-arming there would let the next
             # ``record_success`` — which cannot distinguish a productive
             # completion from a repeat no-op (any rc=0 exit maps to SUCCESS) —
             # fire a spurious high-priority alert on the common happy path,
             # falsely claiming zero BRC progress with no visible gating decision.
-            # So only re-arm when a decision remains.
-            if current:
+            # So only re-arm when a gating decision remains.
+            if hitl_moved and current:
                 self._alerted_noop.pop(dedupe_key, None)
-            logger.info(
-                "JobSupervisor: contract-decision set changed for parked key=%s "
-                "(was %s, now %s) — releasing the no-op park for a probe spawn",
-                dedupe_key,
-                sorted(parked),
-                sorted(current),
-            )
-            return False
-        current_brc = self._probe_brc_fingerprint()
-        parked_brc = self._noop_brc_fingerprint.get(dedupe_key)
-        if current_brc is not None and parked_brc is not None and current_brc != parked_brc:
-            self._noop_brc_fingerprint[dedupe_key] = current_brc
-            self._noop_last_probe[dedupe_key] = now
-            # The alert latch is deliberately NOT re-armed here: BRC movement
-            # means the cohort progressed, so the released probe will usually
-            # proceed productively — and ``record_success`` cannot distinguish
-            # a productive completion from a repeat no-op, so re-arming would
-            # fire a spurious high-priority alert on the common happy path
-            # (same reasoning as the empty-set case above).
-            logger.info(
-                "JobSupervisor: BRC state moved for parked key=%s "
-                "— releasing the no-op park for a probe spawn",
-                dedupe_key,
-            )
+            if hitl_moved:
+                logger.info(
+                    "JobSupervisor: contract-decision set changed for parked key=%s "
+                    "(was %s, now %s) — releasing the no-op park for a probe spawn",
+                    dedupe_key,
+                    sorted(parked),
+                    sorted(current),
+                )
+            if brc_moved:
+                logger.info(
+                    "JobSupervisor: BRC state moved for parked key=%s "
+                    "— releasing the no-op park for a probe spawn",
+                    dedupe_key,
+                )
             return False
         last = self._noop_last_probe.get(dedupe_key)
         if last is None or (now - last) >= SUPERVISION_NOOP_PARK_RETRY_SECONDS:
