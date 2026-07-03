@@ -2962,7 +2962,17 @@ def git_fetch() -> tuple[Response, int] | Response:
         else:
             cmd_args = ["fetch", fetch_target] + validated_args
     else:  # ls-remote
-        cmd_args = ["ls-remote", fetch_target] + validated_args
+        # ``git ls-remote`` stops option parsing at the first positional
+        # argument: anything after <repository> is a <ref> pattern, not a
+        # flag. ``ls-remote <url> --heads`` therefore filters by the
+        # literal pattern "--heads", matching nothing and exiting 0 with
+        # empty output (#3479: the stacked-PR reconciler read that empty
+        # listing as "every branch deleted" and hot-looped rebases of
+        # healthy PRs). Emit flags before the repository and ref patterns
+        # after it.
+        flags = [a for a in validated_args if a.startswith("-")]
+        patterns = [a for a in validated_args if not a.startswith("-")]
+        cmd_args = ["ls-remote", *flags, fetch_target, *patterns]
 
     cmd = git_cmd(*cmd_args)
 

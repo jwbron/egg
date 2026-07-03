@@ -21,6 +21,12 @@ Coverage:
 * Slices whose PR has not yet been opened (no matching head) are
   silently skipped — the next reconciliation pass picks them up
   once the PR exists.
+* Slices whose own head branch is missing from ``extant_branches``
+  are skipped (#3479): an open PR implies its head exists on
+  origin, so a missing head means the listing is stale or broken
+  and the rebase could never succeed. In particular an EMPTY
+  extant set (failed/misparsed ``ls-remote``) yields no orphans
+  instead of a doomed rebase of every open PR on every tick.
 * ``reconcile_once`` invokes the rebase callable once per orphan
   and counts successes / failures; rebase exceptions are caught
   and counted, never propagated.
@@ -148,7 +154,9 @@ class TestFindOrphans:
                 base="egg/issue-2137/slice-1",
             )
         ]
-        extant: set[str] = set()  # parent base no longer on origin
+        # Parent base no longer on origin; the orphan's own head still is
+        # (an open PR implies its head exists, #3479).
+        extant: set[str] = {"egg/issue-2137/slice-2"}
         orphans = find_orphaned_child_prs(contract, prs, extant)
         assert len(orphans) == 1
         orphan = orphans[0]
@@ -189,8 +197,9 @@ class TestFindOrphans:
                 base="egg/issue-2137/slice-2",
             )
         ]
-        # slice-2's branch deleted; slice-1's still alive.
-        extant: set[str] = {"egg/issue-2137/slice-1"}
+        # slice-2's branch deleted; slice-1's still alive, and so is
+        # the orphan's own head (open PR ⇒ head extant, #3479).
+        extant: set[str] = {"egg/issue-2137/slice-1", "egg/issue-2137/slice-3"}
         orphans = find_orphaned_child_prs(contract, prs, extant)
         assert len(orphans) == 1
         # Walk: slice-3's parent is slice-2 (deleted) → walk to
@@ -221,8 +230,8 @@ class TestFindOrphans:
                 base="egg/issue-2137/slice-2",
             )
         ]
-        # Both ancestors gone.
-        extant: set[str] = set()
+        # Both ancestors gone; only the orphan's own head survives.
+        extant: set[str] = {"egg/issue-2137/slice-3"}
         orphans = find_orphaned_child_prs(contract, prs, extant)
         assert len(orphans) == 1
         # Pipeline tip lives at ``egg/<id>/work`` — see #2399.
@@ -252,7 +261,7 @@ class TestFindOrphans:
                 base="egg/issue-2137/some-other-thing",
             )
         ]
-        extant: set[str] = {"egg/issue-2137/slice-1"}
+        extant: set[str] = {"egg/issue-2137/slice-1", "egg/issue-2137/slice-2"}
         orphans = find_orphaned_child_prs(contract, prs, extant)
         assert len(orphans) == 1
         # ``intended_new_base`` is computed from the DAG + extant
@@ -294,8 +303,9 @@ class TestFindOrphans:
             )
         )
         prs = [{"number": 11, "head_ref": "egg/issue-2137/slice-2", "base_ref": None}]
-        # Should not raise.
-        orphans = find_orphaned_child_prs(contract, prs, set())
+        # Should not raise. Head is extant so the record reaches the
+        # base-shape check rather than being skipped earlier (#3479).
+        orphans = find_orphaned_child_prs(contract, prs, {"egg/issue-2137/slice-2"})
         # And should NOT count this PR as orphaned (we have no way to
         # know its base disappeared if there's no string to check).
         assert orphans == []
@@ -320,7 +330,7 @@ class TestFindOrphans:
                 "base": "egg/issue-2137/slice-1",
             }
         ]
-        orphans = find_orphaned_child_prs(contract, prs, set())
+        orphans = find_orphaned_child_prs(contract, prs, {"egg/issue-2137/slice-2"})
         assert len(orphans) == 1
         assert orphans[0].pr_number == 11
         assert orphans[0].deleted_base == "egg/issue-2137/slice-1"
@@ -342,7 +352,7 @@ class TestFindOrphans:
                 "base_ref": "egg/issue-2137/slice-1",
             }
         ]
-        orphans = find_orphaned_child_prs(contract, prs, set())
+        orphans = find_orphaned_child_prs(contract, prs, {"egg/issue-2137/slice-2"})
         assert orphans == []
 
     def test_pr_with_zero_number_dropped(self) -> None:
@@ -355,7 +365,7 @@ class TestFindOrphans:
             )
         )
         prs = [_pr(number=0, head="egg/issue-2137/slice-2", base="egg/issue-2137/slice-1")]
-        assert find_orphaned_child_prs(contract, prs, set()) == []
+        assert find_orphaned_child_prs(contract, prs, {"egg/issue-2137/slice-2"}) == []
 
     def test_qualified_pipeline_id_preserves_qualifier_in_issue_branch(self) -> None:
         # Regression for #2370 review: when a contract's pipeline_id
@@ -383,7 +393,7 @@ class TestFindOrphans:
             )
         ]
         # Parent base no longer on origin → must surface as orphan.
-        orphans = find_orphaned_child_prs(contract, prs, set())
+        orphans = find_orphaned_child_prs(contract, prs, {"egg/issue-2137-v3/slice-2"})
         assert len(orphans) == 1
         orphan = orphans[0]
         assert orphan.slice_id == "slice-2"
@@ -420,11 +430,61 @@ class TestFindOrphans:
                 base="egg/issue-2137-v3/slice-2",
             )
         ]
-        # slice-2's branch deleted; slice-1's qualified branch alive.
-        extant: set[str] = {"egg/issue-2137-v3/slice-1"}
+        # slice-2's branch deleted; slice-1's qualified branch alive,
+        # plus the orphan's own head (open PR ⇒ head extant, #3479).
+        extant: set[str] = {"egg/issue-2137-v3/slice-1", "egg/issue-2137-v3/slice-3"}
         orphans = find_orphaned_child_prs(contract, prs, extant)
         assert len(orphans) == 1
         assert orphans[0].intended_new_base == "egg/issue-2137-v3/slice-1"
+
+    def test_pr_whose_head_branch_is_missing_is_skipped(self) -> None:
+        # #3479: an open PR implies its head branch exists on origin.
+        # A head missing from ``extant_branches`` means the listing is
+        # stale/broken or the branch really is gone; either way the
+        # rebase + force-push can never succeed, so surfacing the
+        # orphan would retry a doomed rebase on every ~30s tick,
+        # forever. Skip it.
+        contract = _contract(
+            _slice(
+                "slice-2",
+                deps=["slice-1"],
+                parent_branch="egg/issue-2137/slice-1",
+            )
+        )
+        prs = [
+            _pr(
+                number=11,
+                head="egg/issue-2137/slice-2",
+                base="egg/issue-2137/slice-1",
+            )
+        ]
+        # Base gone AND head gone: nothing actionable.
+        extant: set[str] = {"egg/issue-2137/work"}
+        assert find_orphaned_child_prs(contract, prs, extant) == []
+
+    def test_empty_extant_set_yields_no_orphans(self) -> None:
+        # #3479 root-cause shape: a broken/failed branch listing
+        # (gateway ``ls-remote`` misparse returned zero branches while
+        # every slice PR was open and healthy) must degrade to a no-op
+        # pass, NOT to "every open PR's base looks deleted → rebase
+        # them all every tick".
+        contract = _contract(
+            _slice(
+                "slice-2",
+                deps=["slice-1"],
+                parent_branch="egg/issue-2137/slice-1",
+            ),
+            _slice(
+                "slice-3",
+                deps=["slice-2"],
+                parent_branch="egg/issue-2137/slice-2",
+            ),
+        )
+        prs = [
+            _pr(number=11, head="egg/issue-2137/slice-2", base="egg/issue-2137/slice-1"),
+            _pr(number=12, head="egg/issue-2137/slice-3", base="egg/issue-2137/slice-2"),
+        ]
+        assert find_orphaned_child_prs(contract, prs, set()) == []
 
 
 # ---------- reconcile_once ----------
@@ -474,7 +534,7 @@ class TestProducerConsumerContract:
                 "base_ref": "egg/issue-2137/slice-1",
             }
         ]
-        orphans = find_orphaned_child_prs(contract, producer_shape, set())
+        orphans = find_orphaned_child_prs(contract, producer_shape, {"egg/issue-2137/slice-2"})
         assert len(orphans) == 1
         # ``pr_number`` MUST be the real PR number from the producer
         # — not silently defaulted to 0 — so the production rebase
@@ -524,7 +584,7 @@ class TestReconcileOnce:
         result = reconcile_once(
             contract,
             list_open_prs=lambda: prs,
-            list_extant_branches=lambda: set(),
+            list_extant_branches=lambda: {"egg/issue-2137/slice-2"},
             rebase_onto=rebaser,
         )
         assert result.orphans_detected == 1
@@ -556,7 +616,7 @@ class TestReconcileOnce:
         result = reconcile_once(
             contract,
             list_open_prs=lambda: prs,
-            list_extant_branches=lambda: set(),
+            list_extant_branches=lambda: {"egg/issue-2137/slice-2"},
             rebase_onto=rebaser,
         )
         assert result.rebases_succeeded == 0
@@ -578,7 +638,7 @@ class TestReconcileOnce:
         result = reconcile_once(
             contract,
             list_open_prs=lambda: prs,
-            list_extant_branches=lambda: set(),
+            list_extant_branches=lambda: {"egg/issue-2137/slice-2"},
             rebase_onto=rebaser,
         )
         assert result.rebases_failed == 1

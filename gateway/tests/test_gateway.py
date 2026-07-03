@@ -3325,6 +3325,65 @@ class TestGitFetch:
             assert data["success"] is True
             assert "refs/heads/main" in data["data"]["stdout"]
 
+    def test_ls_remote_flags_precede_repository_and_patterns_follow(self, client, auth_headers):
+        """ls-remote argv puts flags before the repository, ref patterns after.
+
+        ``git ls-remote`` stops option parsing at the first positional
+        argument; anything after <repository> is a <ref> pattern. The
+        pre-#3479 argv (``ls-remote <url> --heads``) therefore filtered
+        by the literal pattern ``--heads``, matching nothing and exiting
+        0 with empty output; the stacked-PR reconciler read that empty
+        listing as "every branch deleted" and hot-looped rebases of
+        healthy slice PRs every ~30s. Lock the corrected ordering here.
+        """
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_token_for_repo") as mock_get_token,
+        ):
+            captured_cmds = []
+
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                captured_cmds.append(list(cmd))
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+                if "remote" in cmd and "get-url" in cmd:
+                    result.stdout = "https://github.com/owner/repo.git\n"
+                elif "ls-remote" in cmd:
+                    result.stdout = "abc123\trefs/heads/main\n"
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+            mock_get_token.return_value = ("test-token", "bot", "")
+
+            response = client.post(
+                "/api/v1/git/fetch",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "operation": "ls-remote",
+                        "remote": "origin",
+                        "args": ["--heads", "refs/heads/feature-x"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            ls_remote_cmds = [c for c in captured_cmds if "ls-remote" in c]
+            assert len(ls_remote_cmds) == 1
+            cmd = ls_remote_cmds[0]
+            # The remote URL is HTTPS so the named remote is used as-is.
+            repo_idx = cmd.index("origin")
+            # Flag BEFORE the repository so git parses it as an option...
+            assert cmd.index("--heads") < repo_idx
+            # ...and the ref pattern AFTER it so git treats it as a <ref>.
+            assert cmd.index("refs/heads/feature-x") > repo_idx
+
     def test_fetch_with_url_remote(self, client, auth_headers):
         """Fetch succeeds when remote is a URL instead of a named remote."""
         with (
