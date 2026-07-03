@@ -48,6 +48,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "4c99f4deb3822b68ddb3f398c0d69c333fb5cecd": {
+      "branch": "egg/pipeline-dcdad92d/work",
+      "patch_id": "d7afa423cdce8d7420d85f83ba0290fecd6ca1f7",
+      "pipeline_id": "pipeline-dcdad92d",
+      "registered_at": "2026-07-03T03:22:55.861032+00:00",
+      "repo": null,
+      "role": "architect"
+    },
     "4cc77512f00abbc884f5dd853846bab045957aeb": {
       "branch": "egg/pipeline-dcdad92d/work",
       "patch_id": "a80b65b127eeef77fce66d13c44be0fb573641cc",
