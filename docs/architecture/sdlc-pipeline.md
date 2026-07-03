@@ -83,7 +83,7 @@ The contract is a JSON document tracking the complete state of an issue through 
 
 ```json
 {
-  "schemaVersion": "1.3",
+  "schemaVersion": "1.4",
   "issue": { "number": 133, "title": "...", "url": "..." },
   "task_description": "This pipeline's task is GitHub issue #133 — https://github.com/org/repo/issues/133. Fetch the live issue body (`gh issue view 133`) before structural decisions...",
   "current_phase": "implement",
@@ -113,7 +113,7 @@ the agent reads to recover the task:
 
 ```json
 {
-  "schemaVersion": "1.3",
+  "schemaVersion": "1.4",
   "issue": null,
   "task_description": "Add a /healthz endpoint that returns 200 once the DB pool is warm and Redis is reachable. …",
   "pipeline_id": "PROJ-1234",
@@ -170,6 +170,22 @@ the agent reads to recover the task:
 > (`Contract._migrate_schema_version_to_1_3`) promotes any `1.2` contract
 > to `1.3` at load time; the new value is persisted on the next save.
 > See [v1.2 → v1.3 migration note](#schema-v12--v13-migration-note-3033).
+>
+> **Schema 1.4 (#3393)**: `schemaVersion` was bumped from `1.3` to `1.4`
+> to document the addition of an optional `Slice.repo` field
+> (`owner/name`-shaped), part of the multi-repo pipelines migration.
+> Slice ↔ repo is 1:1 — a slice's work, worktree, branch, review diff,
+> test scope, and PR all live in one repo; cross-repo work is expressed
+> as multiple dependent slices, never a single slice touching two repos.
+> `Slice.repo` stays `None` on a legacy load: the `Contract` model has
+> no visibility into the orchestrator `Pipeline`, so the absent⇒primary
+> default is resolved at runtime by `resolve_slice_repo` in
+> `orchestrator/models.py`, not by the migration. The bump is purely
+> additive: a `model_validator(mode="after")`
+> (`Contract._migrate_schema_version_to_1_4`) promotes any `1.3` contract
+> to `1.4` at load time; the new value is persisted on the next save.
+> See [Per-slice repo (multi-repo pipelines)](slice-dag.md#per-slice-repo-multi-repo-pipelines)
+> for the full design.
 >
 > **Context-PR mechanism (#2777 collapse).** The context PR is opened
 > **up-front at the plan→implement boundary**, **hard-required** and
