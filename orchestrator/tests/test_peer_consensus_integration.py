@@ -3898,3 +3898,49 @@ class TestConsensusStateFingerprint:
             {"reason": "z" * 60, "artifact_references": ["a.py"]},
         )
         assert tracker.consensus_state_fingerprint() != before
+
+
+# ---------------------------------------------------------------------------
+# Tests: get_slice_trackers (#3481)
+# ---------------------------------------------------------------------------
+
+
+class TestGetSliceTrackers:
+    """Registry enumeration of a pipeline's live slice-scoped trackers."""
+
+    def test_returns_slice_trackers_keyed_by_slice_id(self, simple_graph):
+        from peer_consensus import (
+            create_peer_consensus_tracker,
+            get_slice_trackers,
+            remove_peer_consensus_tracker,
+        )
+
+        try:
+            t1 = create_peer_consensus_tracker("issue-42", simple_graph, slice_id="slice-1")
+            t3 = create_peer_consensus_tracker("issue-42", simple_graph, slice_id="slice-3")
+            # Pipeline-level tracker and a sibling pipeline's slice must
+            # not leak into the result.
+            create_peer_consensus_tracker("issue-42", simple_graph)
+            create_peer_consensus_tracker("issue-99", simple_graph, slice_id="slice-1")
+
+            result = get_slice_trackers("issue-42")
+
+            assert result == {"slice-1": t1, "slice-3": t3}
+        finally:
+            remove_peer_consensus_tracker("issue-42", slice_id="slice-1")
+            remove_peer_consensus_tracker("issue-42", slice_id="slice-3")
+            remove_peer_consensus_tracker("issue-42")
+            remove_peer_consensus_tracker("issue-99", slice_id="slice-1")
+
+    def test_empty_when_no_slice_trackers(self, simple_graph):
+        from peer_consensus import (
+            create_peer_consensus_tracker,
+            get_slice_trackers,
+            remove_peer_consensus_tracker,
+        )
+
+        try:
+            create_peer_consensus_tracker("issue-43", simple_graph)
+            assert get_slice_trackers("issue-43") == {}
+        finally:
+            remove_peer_consensus_tracker("issue-43")

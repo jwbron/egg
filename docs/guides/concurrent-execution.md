@@ -162,6 +162,7 @@ Query parameters:
 |-----------|-------------|
 | `role` | Return messages targeted to this role or broadcast to `"all"` |
 | `since_id` | Return only messages after this message ID (for incremental polling). If the cursor is not found (e.g., after a phase-boundary clear or post-compaction anchor recovery), the store falls back to returning all messages rather than an empty list. |
+| `since` | Return only messages at or after this ISO 8601 timestamp (naive values are treated as UTC). Millisecond resolution via the Redis stream ID. Intended for operators debugging a live pipeline; mutually exclusive with `since_id` (400 if both are passed). Invalid timestamps 400 instead of being silently ignored ([#3481](https://github.com/jwbron/egg/issues/3481)). |
 | `limit` | Maximum messages to return (default: 100) |
 
 Messages are returned oldest-first. The `since_id` filter excludes the reference message itself — only messages that follow it are returned. If the cursor ID is no longer present in the store (stale cursor), the endpoint degrades gracefully to a full-history replay instead of silently returning empty — preventing polling agents from stalling after a phase transition or anchor recovery.

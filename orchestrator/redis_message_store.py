@@ -59,6 +59,12 @@ _SOCKET_TIMEOUT_SEC = 5
 # and scheduling slack so the slice returns before redis-py trips.
 _MAX_BLOCK_MS = (_SOCKET_TIMEOUT_SEC - 1) * 1000
 
+# Largest sequence number in a Redis Stream ID (64-bit unsigned). Used to
+# name the exclusive predecessor of ``<ms>-0`` when seeking by ``since``
+# timestamp so the exclusive XREAD (long-poll) and inclusive XRANGE
+# (non-blocking) paths agree on the cutoff-millisecond boundary (#3481).
+_MAX_STREAM_SEQ = (1 << 64) - 1
+
 
 def _stream_key(pipeline_id: str) -> str:
     """Get the Redis Stream key for a pipeline."""
@@ -188,6 +194,7 @@ class RedisMessageStore:
         *,
         role: str | None = None,
         since_id: str | None = None,
+        since: datetime | None = None,
         limit: int = 100,
         wait: int = 0,
         wait_for_types: Sequence[str] | None = None,
@@ -206,6 +213,9 @@ class RedisMessageStore:
             pipeline_id: Pipeline ID to query.
             role: If set, return messages where to_role is this role or 'all'.
             since_id: If set, return only messages after this message ID.
+            since: If set (and ``since_id`` is not), return only messages
+                at or after this timestamp. Millisecond stream-ID
+                resolution; see :meth:`get_messages_with_meta` (#3481).
             limit: Maximum messages to return.
             wait: If > 0, block for this many seconds waiting for new messages.
             wait_for_types: If set (and ``wait > 0``), only treat a read as
@@ -233,6 +243,7 @@ class RedisMessageStore:
             pipeline_id,
             role=role,
             since_id=since_id,
+            since=since,
             limit=limit,
             wait=wait,
             wait_for_types=wait_for_types,
@@ -249,6 +260,7 @@ class RedisMessageStore:
         *,
         role: str | None = None,
         since_id: str | None = None,
+        since: datetime | None = None,
         limit: int = 100,
         wait: int = 0,
         wait_for_types: Sequence[str] | None = None,
@@ -259,6 +271,19 @@ class RedisMessageStore:
         _suppress_stale_warning: bool = False,
     ) -> tuple[list[Message], GetMessagesMeta]:
         """Same as :meth:`get_messages` but also returns staleness metadata.
+
+        ``since`` (#3481): timestamp cutoff for operators debugging a live
+        pipeline. Redis Stream auto-IDs are ``<unix-ms>-<seq>``, so the
+        cutoff maps directly to a start stream ID and the read seeks past
+        older history instead of scanning from ``0-0`` (which made
+        ``limit`` return a window hours before the cutoff). Resolution is
+        the stream ID's millisecond, inclusive of the cutoff millisecond on
+        both the non-blocking (XRANGE) and long-poll (XREAD, ``wait > 0``)
+        paths — the seek anchors on the exclusive predecessor of
+        ``<cutoff_ms>-0`` so the exclusive XREAD start and the inclusive
+        XRANGE ``min`` agree on the boundary (#3485 review).
+        Ignored when ``since_id`` is supplied; the explicit cursor is
+        more precise (the route rejects the combination outright).
 
         ``meta.since_id_stale`` is ``True`` iff the caller supplied a
         non-None ``since_id`` that did not resolve to any stream entry
@@ -327,6 +352,22 @@ class RedisMessageStore:
                     else:
                         since_id_stale = True
                         start_id = "0-0"
+        elif since is not None:
+            # Timestamp seek (#3481). Naive datetimes are treated as UTC
+            # to match ``Message.timestamp``'s default factory. Seek to the
+            # *exclusive predecessor* of ``<cutoff_ms>-0`` (i.e.
+            # ``<cutoff_ms - 1>`` at the max sequence) rather than to
+            # ``<cutoff_ms>-0`` itself, so both read paths land inclusive of
+            # the cutoff millisecond: the non-blocking XRANGE uses this as an
+            # inclusive ``min`` and the blocking XREAD (long-poll, wait > 0)
+            # treats it as an exclusive start. Anchoring on ``<cutoff_ms>-0``
+            # directly would make the XREAD path skip an entry sitting at
+            # exactly that id, contradicting the "inclusive of the cutoff
+            # millisecond" contract above (#3485 review). ``cutoff_ms == 0``
+            # (epoch or earlier) floors to ``0-0``.
+            cutoff = since if since.tzinfo is not None else since.replace(tzinfo=UTC)
+            cutoff_ms = max(int(cutoff.timestamp() * 1000), 0)
+            start_id = f"{cutoff_ms - 1}-{_MAX_STREAM_SEQ}" if cutoff_ms else "0-0"
 
         meta = GetMessagesMeta(since_id_stale=since_id_stale)
         want_types = set(wait_for_types) if wait_for_types else None

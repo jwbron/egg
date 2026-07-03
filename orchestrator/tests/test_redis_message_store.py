@@ -7,6 +7,7 @@ a real Redis backend without requiring a running Redis server.
 import sys
 import threading
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import fakeredis
@@ -290,6 +291,104 @@ class TestGetMessages:
         msgs_b = store.get_messages("pipeline-b")
         assert len(msgs_a) == 3
         assert len(msgs_b) == 5
+
+
+class TestSinceTimestampSeek:
+    """``since`` timestamp cutoff (#3481).
+
+    Stream auto-IDs are ``<unix-ms>-<seq>``, so the cutoff seeks the
+    read past older history instead of scanning from ``0-0``; the bug
+    was that ``limit`` alone drove the window, returning messages hours
+    before the requested cutoff. Sleeps around the cutoff keep the
+    millisecond-resolution boundary deterministic.
+    """
+
+    @staticmethod
+    def _msg(subject: str) -> Message:
+        return Message(
+            pipeline_id="test-pipeline",
+            from_role="coder",
+            to_role="all",
+            message_type=MessageType.PROGRESS,
+            subject=subject,
+        )
+
+    def test_since_excludes_older_messages(self, store):
+        store.add_message(self._msg("old"))
+        time.sleep(0.015)
+        cutoff = datetime.now(UTC)
+        time.sleep(0.015)
+        store.add_message(self._msg("new"))
+
+        messages, meta = store.get_messages_with_meta("test-pipeline", since=cutoff)
+        assert [m.subject for m in messages] == ["new"]
+        assert meta.since_id_stale is False
+
+    def test_since_before_all_messages_returns_everything(self, store):
+        cutoff = datetime.now(UTC)
+        time.sleep(0.015)
+        store.add_message(self._msg("a"))
+        store.add_message(self._msg("b"))
+
+        messages = store.get_messages("test-pipeline", since=cutoff)
+        assert [m.subject for m in messages] == ["a", "b"]
+
+    def test_since_after_all_messages_returns_empty(self, store):
+        store.add_message(self._msg("old"))
+        time.sleep(0.015)
+        cutoff = datetime.now(UTC)
+
+        messages = store.get_messages("test-pipeline", since=cutoff)
+        assert messages == []
+
+    def test_naive_since_treated_as_utc(self, store):
+        store.add_message(self._msg("old"))
+        time.sleep(0.015)
+        cutoff = datetime.now(UTC).replace(tzinfo=None)
+        time.sleep(0.015)
+        store.add_message(self._msg("new"))
+
+        messages = store.get_messages("test-pipeline", since=cutoff)
+        assert [m.subject for m in messages] == ["new"]
+
+    def test_since_id_takes_precedence_over_since(self, store):
+        cutoff = datetime.now(UTC)
+        time.sleep(0.015)
+        first = self._msg("first")
+        store.add_message(first)
+        store.add_message(self._msg("second"))
+
+        # since alone would return both; the explicit cursor wins.
+        messages = store.get_messages("test-pipeline", since_id=first.id, since=cutoff)
+        assert [m.subject for m in messages] == ["second"]
+
+    def test_since_is_inclusive_at_cutoff_ms_on_long_poll_path(self, store):
+        """The long-poll (``wait > 0``) path is inclusive of the cutoff ms.
+
+        Regression guard for the #3485 review note: the blocking read uses
+        XREAD, which is *exclusive* of its start id, so anchoring the seek
+        on ``<cutoff_ms>-0`` skipped an entry sitting at exactly that id —
+        contradicting the "inclusive of the cutoff millisecond" contract
+        that the non-blocking XRANGE path already honoured. The fix seeks
+        to the exclusive predecessor of ``<cutoff_ms>-0`` so both paths
+        agree on the boundary. A single message in its millisecond lands at
+        sequence 0, so this exercises exactly the skipped-entry case.
+        """
+        msg = self._msg("boundary")
+        store.add_message(msg)
+
+        # Recover the entry's assigned stream id and rebuild a cutoff that
+        # maps to exactly its millisecond, so the seek lands on the boundary.
+        stream_id = store._resolve_stream_id("test-pipeline", msg.id)
+        assert stream_id is not None
+        ms_part, seq_part = stream_id.split("-")
+        assert seq_part == "0"  # single message in its ms → sequence 0
+        cutoff = datetime.fromtimestamp(int(ms_part) / 1000, UTC)
+
+        # wait > 0 drives the XREAD (long-poll) path; the pre-existing entry
+        # makes the blocking read return immediately.
+        messages = store.get_messages("test-pipeline", since=cutoff, wait=1)
+        assert [m.subject for m in messages] == ["boundary"]
 
 
 class TestGetStatus:

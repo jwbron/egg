@@ -332,11 +332,14 @@ PIPELINE_TOOLS = [
         "name": "get_consensus_status",
         "description": (
             "Get BRC consensus status for a pipeline. Shows which agents have "
-            "proposed, ACKed, NACKed, or confirmed. Falls back to message-based "
-            "inference when structured consensus data is unavailable. In a "
-            "slice-DAG implement phase each slice runs its own consensus — "
-            "pass slice_id to scope the result to one slice; without it, only "
-            "pipeline-level consensus is reported."
+            "proposed, ACKed, NACKed, or confirmed, plus unresolved NACK "
+            "details. Falls back to message-based inference when structured "
+            "consensus data is unavailable. In a slice-DAG implement phase "
+            "each slice runs its own consensus: pass slice_id to scope the "
+            "result to one slice; without it, live slice-scoped rounds are "
+            "resolved automatically (a single active slice is served "
+            "directly, multiple are returned per-slice under "
+            "'slice_consensus')."
         ),
         "inputSchema": {
             "type": "object",
