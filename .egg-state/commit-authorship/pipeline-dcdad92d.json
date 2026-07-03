@@ -128,6 +128,14 @@
       "repo": null,
       "role": "refiner"
     },
+    "89085f4a459ce5731582d1e4f2cbc78e9c7df655": {
+      "branch": "egg/pipeline-dcdad92d/work",
+      "patch_id": "29621fafa77b18a713b8e2e77dba3e13cad32d3b",
+      "pipeline_id": "pipeline-dcdad92d",
+      "registered_at": "2026-07-03T03:40:05.793495+00:00",
+      "repo": null,
+      "role": "architect"
+    },
     "8cdec851ddf87e9e40d3e42b8262a177487cf62f": {
       "branch": "egg/pipeline-dcdad92d/work",
       "patch_id": "b3c5f3eeb051a019a573dd631266c682f69c799b",
