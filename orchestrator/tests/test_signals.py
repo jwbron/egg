@@ -1549,6 +1549,64 @@ class TestConsensusProposePendingTaskGate:
         assert status_code == 200
         mock_tracker.handle_propose.assert_called_once()
 
+    @patch("routes.signals._verify_commit_on_branch", return_value=True)
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    def test_propose_with_commit_sha_rejected_via_preloaded_phase(
+        self,
+        mock_get_tracker,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_verify_branch,
+        app,
+        tmp_path,
+    ):
+        """Production-realistic path: a non-no-op propose carries a
+        ``commit_sha``, so the commit-on-branch block pre-loads
+        ``pipeline_state`` and the gate reuses its phase (lines 687-691)
+        instead of self-loading. Pending owned rows must still 409, and the
+        gate must NOT re-read pipeline state — proving the reject flows
+        through the pre-loaded-phase branch, not the ``current_phase is
+        None`` self-load fallback the other tests exercise.
+        """
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = self._implement_pipeline()
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = tmp_path
+        self._write_contract(tmp_path, coder_row_status="pending")
+
+        mock_tracker = MagicMock()
+        mock_get_tracker.return_value = mock_tracker
+
+        with app.app_context():
+            response, status_code = self._propose(
+                {
+                    "payload": {
+                        "summary": (
+                            "Implemented authentication with JWT validation "
+                            "and session management for issue-42"
+                        ),
+                        "artifacts": ["src/a.py"],
+                        "commit_sha": "abc1234",
+                    },
+                }
+            )
+
+        assert status_code == 409
+        body = response.get_json()
+        assert body["details"]["status"] == "contract_incomplete"
+        assert [r["id"] for r in body["details"]["incomplete_tasks"]] == ["task-2-1"]
+        assert "mcp__task__complete" in body["message"]
+        # The commit-on-branch block loaded pipeline state exactly once; the
+        # gate reused that phase rather than self-loading. A second
+        # load_pipeline call would mean the propose_phase reuse regressed to
+        # the self-load fallback.
+        assert mock_store.load_pipeline.call_count == 1
+        # Rejected before the tracker recorded anything.
+        mock_tracker.handle_propose.assert_not_called()
+        mock_tracker.handle_re_propose.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # consensus_excuse_producer HITL gate tests (#1637)

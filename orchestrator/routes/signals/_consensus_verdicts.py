@@ -684,6 +684,18 @@ def handle_consensus_propose_signal(
             # from ``pipeline_state`` when the commit-on-branch block
             # already loaded it; otherwise the gate resolves phase itself,
             # fail-open (#3081 posture).
+            #
+            # Passing ``current_phase`` in makes the gate skip its own
+            # state load, so — like the ``noop_propose`` path, which also
+            # feeds a pre-resolved phase — it never resolves
+            # ``issue_number`` and loads the contract keyed on
+            # ``[pipeline_id]`` alone (the ACK/CONFIRM checks, which
+            # self-load, key on ``[pipeline_id, issue_number]``). This is
+            # deliberate parity with ``noop_propose``: harmless in the
+            # pipeline-id-keyed k8s flow (the only production flow), and
+            # fail-open elsewhere. A commit_sha is always present on a
+            # non-no-op propose, so an issue-number-keyed contract would
+            # simply no-op the gate rather than misbehave.
             propose_phase: str | None = None
             if pipeline_state is not None:
                 phase_attr = getattr(pipeline_state, "current_phase", None)
