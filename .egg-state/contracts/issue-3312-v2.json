@@ -387,7 +387,7 @@
           "id": "task-3-4",
           "description": "Pre-allocate and verify cluster sizing: at ~10.6k lines several submodules will themselves approach the cap; further-split in-slice (section-(g), recursive barrel pattern) rather than adding any fresh allowlist entry. Confirm EVERY resulting module is under BOTH caps.",
           "status": "pending",
-          "commit": null,
+          "commit": "3a85636d6",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "No submodule over 1500 lines / 100KB; any further-split uses a nested barrel; zero new allowlist entries.",
@@ -878,6 +878,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-3-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T03:47:50.067958Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.3.commit",
+      "old_value": null,
+      "new_value": "3a85636d6",
+      "reason": "Linked commit 3a85636 to task-3-4",
       "checkpoint_id": null
     }
   ],
