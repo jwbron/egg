@@ -430,7 +430,7 @@
           "id": "task-3-6",
           "description": "R3 container-packaging + Flask-launch mitigation (SAME SLICE). gateway/Dockerfile:67 ships top-level modules via the NON-recursive glob `COPY gateway/*.py ./`. Converting gateway.py -> gateway/gateway/__init__.py needs TWO same-slice fixes handled together: (a) add `COPY gateway/gateway/ ./gateway/` to gateway/Dockerfile (mirroring the git_client/worktree_manager lines) so the new package dir ships; (b) preserve the Flask launch: gateway.py defines `app = Flask(__name__)` (L486) and `if __name__=='__main__': app.run(...)` (L10639/L10647), started on port 9848 via gateway/entrypoint.sh; keep the same `app` object exported through the barrel and update the launch invocation / any `import gateway` consumer (incl. config_validator.py) so the server still starts. BUILD the gateway image and smoke-check the container starts and serves on 9848.",
           "status": "pending",
-          "commit": null,
+          "commit": "9079e9c02",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "gateway/Dockerfile copies the new gateway/gateway/ package; `app` is exported through the barrel and the launch path (entrypoint.sh) starts the Flask server on 9848 unchanged; built image passes a start/serve smoke check.",
@@ -900,6 +900,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-3-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T03:47:54.929872Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.5.commit",
+      "old_value": null,
+      "new_value": "9079e9c02",
+      "reason": "Linked commit 9079e9c to task-3-6",
       "checkpoint_id": null
     }
   ],
