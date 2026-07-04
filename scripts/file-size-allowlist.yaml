@@ -22,5 +22,3 @@ caps:
 files:
   orchestrator/routes/pipelines.py:
     issue: "2248"
-  gateway/gateway.py:
-    issue: "2248"
