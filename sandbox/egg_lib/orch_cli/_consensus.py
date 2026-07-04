@@ -452,6 +452,12 @@ def cmd_consensus_status(args: argparse.Namespace) -> int:
     :func:`egg_agent_tools.handlers.brc.brc_get_state` so the MCP
     ``mcp__brc__get_state`` tool and this CLI share one handler.  The
     human-readable rendering stays here in the shim.
+
+    In a slice-DAG implement phase queried without a slice scope, the
+    handler resolves the live slice-scoped trackers (#3487): a single
+    active slice renders directly (named as auto-resolved), several
+    render one section per slice under ``slice_consensus``; they are
+    never merged into one block (#2761).
     """
     from egg_agent_tools.handlers import brc as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
@@ -472,8 +478,29 @@ def cmd_consensus_status(args: argparse.Namespace) -> int:
         return _render_handler_error(err)
 
     consensus = resp.get("consensus", {}) or {}
+    slice_consensus = resp.get("slice_consensus", {}) or {}
     if args.json:
-        print_json(consensus)
+        # Top-level shape stays the consensus block (legacy contract);
+        # the slice-scope keys ride alongside when present.
+        payload = dict(consensus)
+        if resp.get("resolved_slice_id"):
+            payload["resolved_slice_id"] = resp["resolved_slice_id"]
+        if slice_consensus:
+            payload["active_slice_ids"] = list(
+                resp.get("active_slice_ids") or sorted(slice_consensus)
+            )
+            payload["slice_consensus"] = slice_consensus
+        print_json(payload)
+        return 0
+
+    if slice_consensus:
+        print(
+            f"No pipeline-level consensus; {len(slice_consensus)} active "
+            f"slice consensus rounds (pass --slice-id to scope to one):"
+        )
+        for sid in sorted(slice_consensus):
+            print(f"\nSlice: {sid}")
+            _render_consensus_block(slice_consensus[sid] or {})
         return 0
 
     if not consensus:
@@ -484,9 +511,18 @@ def cmd_consensus_status(args: argparse.Namespace) -> int:
             print("No consensus data available.")
         return 0
 
+    resolved = resp.get("resolved_slice_id")
     scope = resp.get("slice_id")
-    if scope:
+    if resolved and not scope:
+        print(f"Slice: {resolved} (single active slice, auto-resolved)")
+    elif scope:
         print(f"Slice: {scope}")
+    _render_consensus_block(consensus)
+    return 0
+
+
+def _render_consensus_block(consensus: dict[str, Any]) -> None:
+    """Render one consensus block (agent matrix, blockers, obligations)."""
     is_complete = consensus.get("is_complete", False)
     print(f"Consensus complete: {is_complete}")
 
@@ -532,8 +568,6 @@ def cmd_consensus_status(args: argparse.Namespace) -> int:
                 text = cond.get("condition", "")
                 sha = cond.get("resolved_in_diff", "")
                 print(f"  {reviewer} → {producer}: {text} [resolved in {sha}]")
-
-    return 0
 
 
 # ---------------------------------------------------------------------------

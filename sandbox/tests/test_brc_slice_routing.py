@@ -287,3 +287,119 @@ class TestGetStateSliceScope:
         ):
             with pytest.raises(HandlerError, match="slice_id"):
                 handlers.brc_get_state(dict(_STATE_REQ))
+
+
+def _slice_block(*, is_complete: bool, blocking: list[str]) -> dict[str, Any]:
+    return {
+        "agents": {"coder": {"producer_phase": "PROPOSED", "confirmed": is_complete}},
+        "is_complete": is_complete,
+        "blocking_agents": blocking,
+        "has_unresolved_nacks": False,
+        "unresolved_nacks": [],
+        "protocol": "brc",
+    }
+
+
+class TestGetStateSliceConsensusResolution:
+    """Slice-id-less queries resolve live slice trackers (#3487).
+
+    In a slice-DAG implement phase the trackers are keyed
+    ``{pipeline_id}/{slice_id}`` and the status route surfaces them
+    under ``concurrent.slice_consensus`` (#3481). ``brc_get_state``
+    must mirror the orchestrator MCP ``get_consensus_status``
+    semantics: a single active slice is served directly, multiple stay
+    keyed per-slice and are never merged (#2761).
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_slice_env(self, monkeypatch):
+        monkeypatch.delenv("EGG_SLICE_ID", raising=False)
+
+    def test_single_active_slice_resolves_directly(self):
+        from egg_agent_tools.handlers import brc as handlers
+
+        block = _slice_block(is_complete=False, blocking=["coder"])
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={"data": {"concurrent": {"slice_consensus": {"slice-3": block}}}},
+        ):
+            resp = handlers.brc_get_state(dict(_STATE_REQ))
+
+        assert resp["resolved_slice_id"] == "slice-3"
+        assert resp["slice_id"] is None
+        assert resp["consensus"]["blocking_agents"] == ["coder"]
+        assert "note" in resp["consensus"]
+        assert resp["is_complete"] is False
+        assert resp["blocking_agents"] == ["coder"]
+        assert "slice_consensus" not in resp
+
+    def test_multiple_active_slices_stay_keyed_per_slice(self):
+        from egg_agent_tools.handlers import brc as handlers
+
+        slice_map = {
+            "slice-5": _slice_block(is_complete=True, blocking=[]),
+            "slice-3": _slice_block(is_complete=False, blocking=["tester"]),
+        }
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={"data": {"concurrent": {"slice_consensus": slice_map}}},
+        ):
+            resp = handlers.brc_get_state(dict(_STATE_REQ))
+
+        assert resp["active_slice_ids"] == ["slice-3", "slice-5"]
+        assert resp["slice_consensus"]["slice-3"]["blocking_agents"] == ["tester"]
+        assert resp["slice_consensus"]["slice-5"]["is_complete"] is True
+        # The top-level block is never a merged cross-slice view (#2761).
+        assert resp["consensus"] == {}
+        assert resp["is_complete"] is False
+        assert resp["blocking_agents"] == []
+        assert "resolved_slice_id" not in resp
+
+    def test_pipeline_level_consensus_takes_precedence(self):
+        from egg_agent_tools.handlers import brc as handlers
+
+        pipeline_block = _slice_block(is_complete=True, blocking=[])
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={
+                "data": {
+                    "concurrent": {
+                        "consensus": pipeline_block,
+                        "slice_consensus": {
+                            "slice-3": _slice_block(is_complete=False, blocking=["coder"])
+                        },
+                    }
+                }
+            },
+        ):
+            resp = handlers.brc_get_state(dict(_STATE_REQ))
+
+        assert resp["consensus"] == pipeline_block
+        assert resp["is_complete"] is True
+        assert "resolved_slice_id" not in resp
+        assert "slice_consensus" not in resp
+
+    def test_explicit_slice_id_skips_resolution(self, monkeypatch):
+        from egg_agent_tools.handlers import brc as handlers
+
+        monkeypatch.setenv("EGG_SLICE_ID", "slice-3")
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={
+                "data": {
+                    "concurrent": {
+                        "slice_consensus": {
+                            "slice-9": _slice_block(is_complete=False, blocking=["coder"])
+                        }
+                    }
+                }
+            },
+        ):
+            resp = handlers.brc_get_state(dict(_STATE_REQ))
+
+        # A slice-scoped query reports only its own (empty here) block;
+        # the surfaced map for other slices is not resolved into it.
+        assert resp["slice_id"] == "slice-3"
+        assert resp["consensus"] == {}
+        assert "resolved_slice_id" not in resp
+        assert "slice_consensus" not in resp
