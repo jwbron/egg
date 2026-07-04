@@ -209,3 +209,128 @@ class TestStatusRendersResolvedSubsection:
         assert "Pending pre-merge obligations:" in out
         assert "still-open obligation" in out
         assert "Resolved within this PR:" not in out
+
+
+def _slice_block(is_complete: bool, blocking: list[str]) -> dict:
+    return {
+        "agents": {"coder": {"producer_phase": "PROPOSED", "confirmed": is_complete}},
+        "is_complete": is_complete,
+        "blocking_agents": blocking,
+    }
+
+
+class TestStatusRendersSliceConsensus:
+    """Slice-id-less queries in a slice-DAG implement phase (#3487).
+
+    The handler resolves live slice trackers: one active slice arrives
+    auto-resolved into ``consensus`` (with ``resolved_slice_id``),
+    several arrive keyed under ``slice_consensus``. The CLI must render
+    both instead of "No consensus data available.".
+    """
+
+    def test_multi_slice_renders_one_section_per_slice(self, capsys):
+        fake_state = {
+            "slice_id": None,
+            "consensus": {},
+            "active_slice_ids": ["slice-3", "slice-5"],
+            "slice_consensus": {
+                "slice-3": _slice_block(False, ["tester"]),
+                "slice-5": _slice_block(True, []),
+            },
+        }
+        with patch(
+            "egg_agent_tools.handlers.brc.brc_get_state",
+            return_value=fake_state,
+        ):
+            rc = cmd_consensus_status(_make_args())
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "2 active slice consensus rounds" in out
+        assert "Slice: slice-3" in out
+        assert "Slice: slice-5" in out
+        assert "Blocking agents: tester" in out
+        assert "No consensus data available" not in out
+
+    def test_single_slice_auto_resolved_names_the_scope(self, capsys):
+        fake_state = {
+            "slice_id": None,
+            "resolved_slice_id": "slice-7",
+            "consensus": _slice_block(False, ["coder"]),
+        }
+        with patch(
+            "egg_agent_tools.handlers.brc.brc_get_state",
+            return_value=fake_state,
+        ):
+            rc = cmd_consensus_status(_make_args())
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "Slice: slice-7 (single active slice, auto-resolved)" in out
+        assert "Blocking agents: coder" in out
+
+    def test_json_carries_slice_consensus_alongside_block(self, capsys):
+        import json
+
+        fake_state = {
+            "slice_id": None,
+            "consensus": {},
+            "active_slice_ids": ["slice-3", "slice-5"],
+            "slice_consensus": {
+                "slice-3": _slice_block(False, ["tester"]),
+                "slice-5": _slice_block(True, []),
+            },
+        }
+        args = argparse.Namespace(pipeline_id="test-pipeline-1", json=True)
+        with patch(
+            "egg_agent_tools.handlers.brc.brc_get_state",
+            return_value=fake_state,
+        ):
+            rc = cmd_consensus_status(args)
+        payload = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert payload["active_slice_ids"] == ["slice-3", "slice-5"]
+        assert payload["slice_consensus"]["slice-3"]["blocking_agents"] == ["tester"]
+
+    def test_json_carries_multi_slice_note(self, capsys):
+        import json
+
+        # The handler's top-level multi-slice ``note`` must ride through
+        # ``--json`` so it stays symmetric with ``egg-orch brc get-state``,
+        # which dumps the whole handler response.
+        fake_state = {
+            "slice_id": None,
+            "consensus": {},
+            "active_slice_ids": ["slice-3", "slice-5"],
+            "slice_consensus": {
+                "slice-3": _slice_block(False, ["tester"]),
+                "slice-5": _slice_block(True, []),
+            },
+            "note": "Multiple slice-scoped consensus rounds are active; ...",
+        }
+        args = argparse.Namespace(pipeline_id="test-pipeline-1", json=True)
+        with patch(
+            "egg_agent_tools.handlers.brc.brc_get_state",
+            return_value=fake_state,
+        ):
+            rc = cmd_consensus_status(args)
+        payload = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert payload["note"] == fake_state["note"]
+
+    def test_json_carries_resolved_slice_id(self, capsys):
+        import json
+
+        fake_state = {
+            "slice_id": None,
+            "resolved_slice_id": "slice-7",
+            "consensus": _slice_block(False, ["coder"]),
+        }
+        args = argparse.Namespace(pipeline_id="test-pipeline-1", json=True)
+        with patch(
+            "egg_agent_tools.handlers.brc.brc_get_state",
+            return_value=fake_state,
+        ):
+            rc = cmd_consensus_status(args)
+        payload = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert payload["resolved_slice_id"] == "slice-7"
+        assert payload["blocking_agents"] == ["coder"]
