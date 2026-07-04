@@ -99,6 +99,37 @@ class _EventJobStatusView:
             return False
         return any(getattr(c, "exit_code", None) == EX_AUTH_FATAL for c in containers)
 
+    def exit_detail_for(self, dedupe_key: str) -> str | None:
+        """Return a short operator-facing exit description for a dead pod (#3496).
+
+        Reads the pod(s) carrying this event's dedupe-key label and renders
+        their terminated exit codes (e.g. ``exit_code=137``). The event loop
+        calls this on the ``abnormal``/``fatal`` observation branch — before
+        the Job is reaped — and records it into the supervisor's per-key
+        termination history, so the exhaustion escalation can name WHY the
+        arm died. Best-effort: a list failure, a missing pod (already GC'd),
+        or no readable exit code returns ``None``.
+        """
+        try:
+            containers = self._spawner.k8s.list_containers(
+                labels={LABEL_EVENT_DEDUPE: _pkg._dedupe_label_value(dedupe_key)}
+            )
+        except Exception as exc:  # noqa: BLE001 — detail capture is best-effort
+            logger.warning(
+                "Failed to read pod exit detail for event-loop supervision",
+                dedupe_key=dedupe_key,
+                error=str(exc),
+            )
+            return None
+        if not isinstance(containers, (list, tuple)):
+            return None
+        codes = sorted(
+            {c.exit_code for c in containers if getattr(c, "exit_code", None) is not None}
+        )
+        if not codes:
+            return None
+        return "exit_code=" + ",".join(str(code) for code in codes)
+
     def reap_terminated(self, dedupe_key: str) -> int:
         """Delete terminal (FAILED/EXITED) Jobs carrying this dedupe-key label.
 
