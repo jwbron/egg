@@ -451,7 +451,7 @@
         {
           "id": "task-3-7",
           "description": "make lint + make test-all green at the slice boundary; mechanical patch-path rewrites in-slice; any latent bug surfaced is filed as a 'Part of #3312' follow-up, never bundled.",
-          "status": "pending",
+          "status": "complete",
           "commit": "3a85636d683bdf48308bc3b35db1823e3e76a6e0",
           "checkpoint_id": null,
           "notes": "",
@@ -955,6 +955,17 @@
       "old_value": null,
       "new_value": "3a85636d683bdf48308bc3b35db1823e3e76a6e0",
       "reason": "Linked commit 3a85636 to task-3-7",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T03:50:45.120228Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.6.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-7 as complete",
       "checkpoint_id": null
     }
   ],
