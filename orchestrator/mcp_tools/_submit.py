@@ -289,15 +289,26 @@ def _handle_update_pipeline_config(self, args: dict[str, Any]) -> dict[str, Any]
         payload["agent_models"] = agent_models
 
     for timeout_key in _CONSENSUS_TIMEOUT_ARG_KEYS:
-        if timeout_key in args:
-            payload[timeout_key] = args[timeout_key]
+        value = args.get(timeout_key)
+        if value is None:
+            # FastMCP materializes every omitted optional param as None
+            # before the handler runs, so None here cannot mean "clear
+            # the override" — forwarding it would null out all four
+            # timeouts on every call (#3499). Treat None as "leave
+            # unchanged"; clearing is expressed as 0, mapped to the
+            # REST PATCH's null (its valid set is int >= 1 or null).
+            continue
+        if isinstance(value, int) and not isinstance(value, bool) and value == 0:
+            payload[timeout_key] = None
+        else:
+            payload[timeout_key] = value
 
     if not payload:
         return {
             "error": (
                 "Provide at least one mutable config key: agent_models or "
                 f"one of {list(_CONSENSUS_TIMEOUT_ARG_KEYS)}. Timeout values "
-                "are integer minutes >= 1, or null to clear the override."
+                "are integer minutes >= 1, or 0 to clear the override."
             )
         }
 
