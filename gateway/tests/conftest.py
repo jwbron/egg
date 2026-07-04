@@ -10,7 +10,6 @@ absolute imports that resolve to our loaded modules.
 
 import os
 import sys
-from importlib.machinery import ModuleSpec
 from pathlib import Path
 from types import ModuleType
 
@@ -380,62 +379,32 @@ mem_trace = _load_module_with_replaced_imports(
     GATEWAY_DIR / "mem_trace.py",
 )
 
-# gateway imports from all
-gateway = _load_module_with_replaced_imports(
+# gateway.py became the gateway/gateway/ sub-package in #3312 slice-18
+# (10,648 lines, over the byte cap). Like git_client/ and worktree_manager/
+# above, the single-file _load_module_with_replaced_imports loader cannot exec
+# a package whose __init__/submodules use ``from .._sibling import`` /
+# ``from ._submodule import`` imports, so load it via an explicit spec with
+# submodule_search_locations. The package is registered under BOTH
+# ``gateway`` (the flat top-level name the whole test suite imports) and
+# ``gateway.gateway`` (the dotted path production uses and tests patch, e.g.
+# ``patch("gateway.gateway.get_session_manager")``) so both resolve to the one
+# barrel object. The barrel's own ``from ..<sibling> import`` lines raise
+# ImportError at the top level in flat mode and fall through to the paired
+# ``from <sibling> import`` absolutes, which resolve against the flat sibling
+# modules this conftest already registered above. submodule_search_locations
+# lists the package dir first (so ``from ._submodule import`` resolves) and
+# GATEWAY_DIR second (so ``gateway.tests`` still resolves for pytest
+# collection, and grimp's find_spec("gateway") returns a real package spec).
+_gateway_pkg = GATEWAY_DIR / "gateway"
+_gateway_pkg_spec = _importlib_util.spec_from_file_location(
     "gateway",
-    GATEWAY_DIR / "gateway.py",
-    import_replacements={
-        "from ._module_loader import": "from _module_loader import",
-        "from .agent_restrictions import": "from agent_restrictions import",
-        "from .anthropic_credentials import": "from anthropic_credentials import",
-        "from .artifact_api import": "from artifact_api import",
-        "from .auth import": "from auth import",
-        "from .contract_api import": "from contract_api import",
-        "from .git_client import": "from git_client import",
-        "from .github_client import": "from github_client import",
-        "from .phase_api import": "from phase_api import",
-        "from .phase_filter import": "from phase_filter import",
-        "from .policy import": "from policy import",
-        "from .private_repo_policy import": "from private_repo_policy import",
-        "from .repo_parser import": "from repo_parser import",
-        "from .session_manager import": "from session_manager import",
-        "from .rate_limiter import": "from rate_limiter import",
-        "from .repo_visibility import": "from repo_visibility import",
-        "from .routing_policy import": "from routing_policy import",
-        "from .worktree_manager import": "from worktree_manager import",
-        "from .jira_client import": "from jira_client import",
-        "from .jira_credentials import": "from jira_credentials import",
-        "from .jira_policy import": "from jira_policy import",
-        "from .jira_search import": "from jira_search import",
-        "from .confluence_client import": "from confluence_client import",
-        "from .confluence_credentials import": "from confluence_credentials import",
-        "from .confluence_policy import": "from confluence_policy import",
-        "from .confluence_search import": "from confluence_search import",
-        "from .mode_gate import": "from mode_gate import",
-    },
+    _gateway_pkg / "__init__.py",
+    submodule_search_locations=[str(_gateway_pkg), str(GATEWAY_DIR)],
 )
-
-# Loading gateway.py as sys.modules["gateway"] above replaces the real
-# gateway package; without __path__, pytest's collector (with
-# consider_namespace_packages=true) cannot walk into gateway.tests.*
-# and raises "module 'gateway' has no attribute '__path__'" for every
-# test file under gateway/tests/. Point __path__ at the gateway dir so
-# the namespace subpackage gateway.tests resolves correctly.
-gateway.__path__ = [str(GATEWAY_DIR)]
-
-# Set __spec__ so importlib.util.find_spec("gateway") returns a valid
-# package spec instead of raising "gateway.__spec__ is None". Tools
-# like grimp (used by scripts/select_tests/) call find_spec to
-# locate the gateway package on disk; without this, they fail at
-# graph build time once the gateway tests have populated sys.modules.
-_gateway_spec = ModuleSpec(
-    name="gateway",
-    loader=None,
-    origin=str(GATEWAY_DIR / "__init__.py"),
-    is_package=True,
-)
-_gateway_spec.submodule_search_locations = [str(GATEWAY_DIR)]
-gateway.__spec__ = _gateway_spec
+gateway = _importlib_util.module_from_spec(_gateway_pkg_spec)
+sys.modules["gateway"] = gateway
+sys.modules["gateway.gateway"] = gateway
+_gateway_pkg_spec.loader.exec_module(gateway)
 
 # Also load the __init__.py to prevent pytest from trying to import it
 # and failing on relative imports

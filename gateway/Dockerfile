@@ -73,6 +73,11 @@ COPY gateway/git_client/ ./git_client/
 # caveat as git_client — copy it explicitly or `import worktree_manager` fails
 # at runtime with ModuleNotFoundError.
 COPY gateway/worktree_manager/ ./worktree_manager/
+# gateway.py became the gateway/ sub-package (#3312 slice-18); same
+# non-recursive-glob caveat — copy it explicitly or `python3 -m gateway`
+# (the entrypoint launch, replacing `python3 gateway.py`) fails at runtime
+# with ModuleNotFoundError.
+COPY gateway/gateway/ ./gateway/
 
 # Copy shared modules (egg_logging for logging, egg_config for config parsing, egg_contracts for contract API, egg_restrictions for agent role enforcement, egg_health for health tracking, egg_git for cross-process git locking, egg_session_placeholder for /v1/messages token-keyed session lookup)
 COPY shared/egg_logging/ ./egg_logging/

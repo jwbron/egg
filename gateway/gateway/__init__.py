@@ -64,7 +64,7 @@ from waitress import serve
 # Add shared directory to path for egg_logging
 # In container, egg_logging is at /app/egg_logging
 # On host, it's at ../../shared/egg_logging
-_shared_path = Path(__file__).parent.parent.parent / "shared"
+_shared_path = Path(__file__).parent.parent.parent.parent / "shared"
 if _shared_path.exists():
     sys.path.insert(0, str(_shared_path))
 from egg_health import HealthTracker
@@ -80,21 +80,21 @@ _health_tracker = HealthTracker()
 # Import gateway modules - try relative import first (module mode),
 # fall back to absolute import (standalone script mode in container)
 try:
-    from .agent_restrictions import (
+    from ..agent_restrictions import (
         check_agent_gh_operation,
         get_agent_pattern,  # noqa: F401 — re-exported for test patching
     )
-    from .anthropic_credentials import (
+    from ..anthropic_credentials import (
         get_credentials_manager,
         get_litellm_credentials_manager,
     )
-    from .confluence_client import (
+    from ..confluence_client import (
         DEFAULT_LIMIT as CONFLUENCE_DEFAULT_LIMIT,
     )
-    from .confluence_client import (
+    from ..confluence_client import (
         HARD_MAX_LIMIT as CONFLUENCE_HARD_MAX_LIMIT,
     )
-    from .confluence_client import (
+    from ..confluence_client import (
         ConfluenceCredentialsUnavailable,
         ConfluenceResponseTooLarge,
         ConfluenceUpstreamError,
@@ -103,18 +103,18 @@ try:
         redact_response,
         validate_confluence_api_path,
     )
-    from .confluence_credentials import reload_confluence_credentials
-    from .confluence_policy import (
+    from ..confluence_credentials import reload_confluence_credentials
+    from ..confluence_policy import (
         allowed_spaces as confluence_allowed_spaces,
     )
-    from .confluence_policy import (
+    from ..confluence_policy import (
         is_space_allowed as is_confluence_space_allowed,
     )
-    from .confluence_policy import (
+    from ..confluence_policy import (
         reload_confluence_policy,
     )
-    from .confluence_search import extract_search_spaces
-    from .git_client import (
+    from ..confluence_search import extract_search_spaces
+    from ..git_client import (
         GIT_ALLOWED_COMMANDS,
         cleanup_credential_helper,
         create_credential_helper,
@@ -130,7 +130,7 @@ try:
         validate_git_args,
         validate_repo_path,
     )
-    from .github_client import (
+    from ..github_client import (
         ALLOWED_GH_COMMANDS,
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
@@ -147,34 +147,34 @@ try:
         resolve_gh_api_template_variables,
         validate_gh_api_path,
     )
-    from .jira_client import (
+    from ..jira_client import (
         JiraCredentialsUnavailable,
         JiraUpstreamError,
         get_jira_client,
         validate_jira_api_path,
     )
-    from .jira_client import (
+    from ..jira_client import (
         validate_fields as validate_jira_fields,
     )
-    from .jira_credentials import reload_jira_credentials
-    from .jira_policy import (
+    from ..jira_credentials import reload_jira_credentials
+    from ..jira_policy import (
         epic_link_field as jira_epic_link_field,
     )
-    from .jira_policy import (
+    from ..jira_policy import (
         extract_project_key,
         is_project_allowed,
         reload_jira_policy,
     )
-    from .jira_policy import (
+    from ..jira_policy import (
         link_type_allowed as jira_link_type_allowed,
     )
-    from .jira_search import extract_search_projects
-    from .mode_gate import require_private_mode
-    from .orchestrator_pipelines import (
+    from ..jira_search import extract_search_projects
+    from ..mode_gate import require_private_mode
+    from ..orchestrator_pipelines import (
         fetch_active_pipeline_ids,
         wait_for_active_pipeline_ids,
     )
-    from .phase_filter import (
+    from ..phase_filter import (
         OperationType,
         PipelinePhase,
         check_agent_restrictions,  # noqa: F401 — re-exported for test patching
@@ -182,34 +182,34 @@ try:
         check_phase_file_restrictions,
         filter_operation,
     )
-    from .policy import (
+    from ..policy import (
         extract_branch_from_refspec,
         extract_repo_from_remote,
         get_policy_engine,
         reload_policy_caches,
     )
-    from .private_repo_policy import (
+    from ..private_repo_policy import (
         check_private_repo_access,
     )
-    from .rate_limiter import (
+    from ..rate_limiter import (
         check_heartbeat_rate_limit,
         record_failed_lookup,
     )
-    from .repo_parser import OWNER_REPO_PATTERN, parse_owner_repo
-    from .repo_visibility import get_repo_visibility
-    from .routing_policy import (
+    from ..repo_parser import OWNER_REPO_PATTERN, parse_owner_repo
+    from ..repo_visibility import get_repo_visibility
+    from ..routing_policy import (
         RouteHop,
         get_routing_policy_manager,
     )
-    from .session_manager import (
+    from ..session_manager import (
         get_session_manager,
         validate_session_for_request,
     )
-    from .upstream_registry import (
+    from ..upstream_registry import (
         UnknownUpstreamError,
         get_upstream_registry,
     )
-    from .worktree_manager import (
+    from ..worktree_manager import (
         REPOS_BASE_DIR,
         WORKTREE_BASE_DIR,
         WorktreeManager,
@@ -382,7 +382,7 @@ except ImportError:
 
 # Import repo_config for user mode support
 # Path setup needed because config is in a sibling directory
-_config_path = Path(__file__).parent.parent / "config"
+_config_path = Path(__file__).parent.parent.parent / "config"
 if _config_path.exists() and str(_config_path) not in sys.path:
     sys.path.insert(0, str(_config_path))
 from repo_config import get_auth_mode
@@ -392,7 +392,7 @@ logger = get_logger("gateway")
 
 try:
     # Production / package mode.
-    from ._module_loader import load_sibling_gateway_module as _load_sibling_gateway_module
+    from .._module_loader import load_sibling_gateway_module as _load_sibling_gateway_module
 except ImportError:
     # Standalone-script mode (the test conftest loads gateway.py as
     # a flat top-level module, in which case the relative import
@@ -487,7 +487,7 @@ app = Flask(__name__)
 
 # Register contract API blueprint
 try:
-    from .contract_api import contract_bp
+    from ..contract_api import contract_bp
 
     app.register_blueprint(contract_bp)
 except ImportError:
@@ -497,7 +497,7 @@ except ImportError:
 
 # Register phase API blueprint
 try:
-    from .phase_api import phase_bp
+    from ..phase_api import phase_bp
 
     app.register_blueprint(phase_bp)
 except ImportError:
@@ -508,7 +508,7 @@ except ImportError:
 # Register artifact API blueprint (#3077 slice-4: served reads of
 # spec-registered coordination artifacts; modeled on contract_api).
 try:
-    from .artifact_api import artifact_bp
+    from ..artifact_api import artifact_bp
 
     app.register_blueprint(artifact_bp)
 except ImportError:
@@ -657,7 +657,7 @@ def translate_to_host_path(container_path: str) -> str:
 
 # Import session auth decorator from auth module to avoid circular imports
 try:
-    from .auth import require_session_auth
+    from ..auth import require_session_auth
 except ImportError:
     from auth import require_session_auth  # type: ignore[no-redef, import-untyped]
 
@@ -1641,7 +1641,7 @@ def git_push() -> tuple[Response, int] | Response:
 
                 _partition_fn = _imported_partition
             except ImportError:  # pragma: no cover
-                from .agent_restrictions import (
+                from ..agent_restrictions import (
                     partition_files_by_role as _imported_partition,
                 )
 
@@ -1659,7 +1659,7 @@ def git_push() -> tuple[Response, int] | Response:
 
                 _get_attributed_fn = _imported_attr
             except ImportError:  # pragma: no cover
-                from .git_client import (
+                from ..git_client import (
                     get_attributed_changed_files_in_push as _imported_attr,
                 )
 
@@ -3905,7 +3905,12 @@ def gh_execute() -> tuple[Response, int] | Response:
         and args[_overseer_cmd_idx] == "issue"
         and args[_overseer_cmd_idx + 1] == "create"
     ):
-        from .agent_restrictions import check_overseer_gh_issue_create
+        try:
+            from ..agent_restrictions import check_overseer_gh_issue_create
+        except ImportError:
+            from agent_restrictions import (  # type: ignore[no-redef]
+                check_overseer_gh_issue_create,
+            )
 
         # Parse the relevant flags from the gh argv. We accept both
         # --title-file/--body-file (the new CLI verb's preferred path)
@@ -5005,7 +5010,7 @@ def jira_search() -> tuple[Response, int] | Response:
     # request keeps the mtime check out of the hot path for tests that
     # monkeypatch ``is_project_allowed`` directly.
     try:
-        from .jira_policy import allowed_projects
+        from ..jira_policy import allowed_projects
     except ImportError:
         from jira_policy import allowed_projects  # type: ignore[no-redef]
     allowed = allowed_projects()
@@ -5419,7 +5424,7 @@ def jira_ticket_transition() -> tuple[Response, int] | Response:
     comment_adf: dict[str, Any] | None = None
     if isinstance(comment_text, str) and comment_text.strip():
         try:
-            from .jira_adf import wrap_text_as_adf
+            from ..jira_adf import wrap_text_as_adf
         except ImportError:
             # Issue #1557 tester v1 lint finding: ``jira_adf`` ships
             # without a ``py.typed`` marker so mypy reports it as
@@ -5494,7 +5499,7 @@ def jira_ticket_transition() -> tuple[Response, int] | Response:
 # full discussion of why the launcher-secret bearer is not itself a
 # strictly-stronger constraint than session auth.
 try:
-    from .mode_gate import PRIVATE_MODE_MARKER_ATTR as _PRIVATE_MODE_MARKER_ATTR  # noqa: E402
+    from ..mode_gate import PRIVATE_MODE_MARKER_ATTR as _PRIVATE_MODE_MARKER_ATTR  # noqa: E402
 except ImportError:
     from mode_gate import PRIVATE_MODE_MARKER_ATTR as _PRIVATE_MODE_MARKER_ATTR  # type: ignore[no-redef]  # noqa: E402, I001
 
@@ -5823,7 +5828,7 @@ def _validate_jira_text_field(
         # ADF dict — ensure it's structurally valid; size cap applied to
         # serialised length so a malicious nested ADF tree can't hide.
         try:
-            from .jira_adf import is_adf_dict
+            from ..jira_adf import is_adf_dict
         except ImportError:
             from jira_adf import is_adf_dict  # type: ignore[no-redef]
         if not is_adf_dict(value):
@@ -10615,7 +10620,7 @@ def main() -> None:
     # periodic RSS + top-allocation-site log records to stdout so the trail
     # survives pod OOM via `kubectl logs --previous`. See #1885.
     try:
-        from .mem_trace import start_if_enabled as _mem_trace_start
+        from ..mem_trace import start_if_enabled as _mem_trace_start
     except ImportError:
         from mem_trace import (  # type: ignore[no-redef, import-untyped]
             start_if_enabled as _mem_trace_start,
