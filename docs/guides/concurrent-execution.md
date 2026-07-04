@@ -921,6 +921,26 @@ When a phase completes and the orchestrator stops agent containers, agents recei
 
 This means clean BRC exits (exit code 0) and orchestrator-initiated teardowns (exit code 143) are both safe to observe without triggering HITL escalation or false `FAILED` pipeline transitions. Only genuinely unexpected exits (any other non-zero code) are classified as failures.
 
+### Arms-Exhausted Livelock Recovery (#3496)
+
+A distinct wedge from the timeout/stall scenarios above: every spawn arm the
+event loop's `JobSupervisor` derives for a slice has exhausted its retry
+budget (`SUPERVISION_FAILURE_STREAK_ALERT` streak reached, per-key), nothing
+is in flight, and an exhausted key never clears on its own. Left undetected,
+this looks like a healthy `running` pipeline with an empty `pending_decisions`
+queue — the event loop just logs "spawn blocked" every poll until the
+consensus timeout eventually hard-fails the slice.
+
+The event loop now detects this condition once per wedge episode and
+escalates it as both an `OVERSEER_ALERT` and a persisted, resolvable HITL
+decision offering an in-band "Retry arms" recovery (reset the exhausted spawn
+budgets without tearing the phase down) alongside "Restart phase" and a
+manual "Abort". See [Agent Recovery: Exhausted-key escalation and in-band
+reset](../reference/agent-recovery.md#exhausted-key-escalation-and-in-band-reset-3496)
+for the detection and reset mechanics, and [HITL Decisions: Executable
+Arms-Exhausted Retry](../hitl-decisions.md#executable-arms-exhausted-retry-3496)
+for the decision's resolution options.
+
 ## Failure Recovery
 
 ### Single Failure
