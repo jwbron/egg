@@ -249,8 +249,12 @@ override, then legacy global, then the phase-aware default). Unlike
 `agent_models`, no restart is needed: the phase poll loop re-resolves
 the budget from freshly-loaded config right before the consensus wall
 fires, so an operator watching a long-running slice can widen the
-window in place. Narrowing works too, but only takes effect once the
-current elapsed time crosses the new wall.
+window in place. Narrowing is accepted and stored, but does **not** fire
+the wall earlier than the original budget: the re-resolve runs only after
+`elapsed` crosses the current in-memory wall, so a narrowed budget takes
+effect no sooner than the wall that was already in place when the slice
+started. To force-fail a wedged slice sooner, use `cancel_task` /
+`restart_phase` rather than a narrowing `PATCH`.
 
 > **Scope.** Only `agent_models` is mutable through this endpoint.
 > Most of `PipelineConfig` is consumed at submit time or mid-phase in

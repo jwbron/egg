@@ -61,6 +61,7 @@ def _make_execution(role: AgentRole, container_id: str) -> AgentExecution:
 
 
 class TestConsensusTimeoutLiveWidening:
+    @patch("routes.pipelines.logger")
     @patch("routes.pipelines._handle_brc_consensus_timeout")
     @patch("routes.pipelines.time.sleep")
     @patch("routes.pipelines.time.monotonic")
@@ -77,6 +78,7 @@ class TestConsensusTimeoutLiveWidening:
         mock_monotonic,
         mock_sleep,
         mock_timeout_handler,
+        mock_logger,
     ):
         """A live-widened budget keeps the loop polling past the original
         wall; consensus reached inside the widened window succeeds.
@@ -175,3 +177,22 @@ class TestConsensusTimeoutLiveWidening:
         # The timeout path was never taken: no consensus-timeout alert or
         # container-exit fallback was triggered.
         mock_timeout_handler.assert_not_called()
+        # Pin the widening branch itself: exit 0 alone could be reached by an
+        # unexpected early defer (progress/HITL gate) letting consensus finish
+        # without ever re-resolving the budget. Assert the #3490 live-widening
+        # log fired, proving control entered the re-resolve block and the
+        # freshly-loaded 200-minute budget replaced the original 30-minute one.
+        widening_logs = [
+            call
+            for call in mock_logger.info.call_args_list
+            if call.args and call.args[0] == "Consensus timeout budget updated from live config"
+        ]
+        assert len(widening_logs) == 1, (
+            "Expected the live-widening branch to fire exactly once "
+            f"('Consensus timeout budget updated from live config'); got "
+            f"{len(widening_logs)}. info() calls: "
+            f"{[c.args[0] for c in mock_logger.info.call_args_list if c.args]}"
+        )
+        widen_kwargs = widening_logs[0].kwargs
+        assert widen_kwargs.get("old_timeout_minutes") == 30
+        assert widen_kwargs.get("new_timeout_minutes") == 200

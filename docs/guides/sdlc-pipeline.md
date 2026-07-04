@@ -1395,7 +1395,7 @@ defaults below (refine 90 / plan 180 / implement 360). To tune a single
 phase, set the per-phase override — `consensus_timeout_minutes_implement: 120`
 to give implement extra runway without touching refine/plan. Setting the
 legacy global (`consensus_timeout_minutes`) overrides *every* phase, so a
-value of `30` would shrink plan from 60→30 and implement from 90→30; prefer
+value of `30` would shrink plan from 180→30 and implement from 360→30; prefer
 per-phase overrides unless that uniform behaviour is intended.
 
 | Field | Type | Default | Description |
