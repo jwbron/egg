@@ -279,7 +279,7 @@
           "id": "task-2-6",
           "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice; follow-ups filed as 'Part of #3447' for anything more.",
           "status": "pending",
-          "commit": null,
+          "commit": "648f30148",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Green; no behavior change.",
@@ -735,6 +735,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-2-5 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:30:04.866414Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.5.commit",
+      "old_value": null,
+      "new_value": "648f30148",
+      "reason": "Linked commit 648f301 to task-2-6",
       "checkpoint_id": null
     }
   ],
