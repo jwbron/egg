@@ -693,10 +693,10 @@
           "adds_task": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "Restart slice from scratch. Slice-4 has no slice-specific commits; the commits on its integration branch are inherited from the serialized chain (parent egg/issue-3312-v2/slice-3), which is expected for a PENDING chained slice. Proceed with the slice-4 decomposition work.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-04T23:36:22.770857Z",
       "debounce_until": null,
       "redirect_seed": null
     }
