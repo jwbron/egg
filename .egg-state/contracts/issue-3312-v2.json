@@ -194,7 +194,7 @@
           "id": "task-2-2",
           "description": "Step-0 git mv event_loop.py -> event_loop/__init__.py; green baseline commit.",
           "status": "pending",
-          "commit": null,
+          "commit": "6ae6a1028",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Pure-move baseline commit green.",
@@ -669,6 +669,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-2-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:29:48.711455Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": null,
+      "new_value": "6ae6a1028",
+      "reason": "Linked commit 6ae6a10 to task-2-2",
       "checkpoint_id": null
     }
   ],
