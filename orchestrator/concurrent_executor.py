@@ -81,6 +81,16 @@ SpawnFn = Callable[..., Any]
 # Failure detection window: multiple failures within this window trigger abort
 MULTI_FAILURE_WINDOW_SECONDS = 60
 
+# #3496: arms-exhausted HITL escalation. Stable context discriminator +
+# option labels, single-sourced here (the decision is created here) and
+# lazily imported by the resolution dispatch hook in
+# ``routes/decisions/_handlers.py`` — same pattern as the
+# ``consensus_timeout_incomplete`` context in ``routes/pipelines.py``.
+ARMS_EXHAUSTED_HITL_CONTEXT = "event_arms_exhausted"
+ARMS_EXHAUSTED_RETRY_OPTION = "Retry arms (reset spawn budgets)"
+ARMS_EXHAUSTED_RESTART_OPTION = "Restart phase"
+ARMS_EXHAUSTED_ABORT_OPTION = "Abort phase"
+
 # Warm-resume session-store substrate (#3278). The agent's Claude session store
 # lives at ``$CLAUDE_CONFIG_DIR`` (default ``~/.claude`` = ``/home/egg/.claude``);
 # we pin it explicitly so the wrapper's pull/push and the agent agree on the path
@@ -543,6 +553,7 @@ class ConcurrentPhaseExecutor:
             job_status_view=self._event_status_view,
             convergence_stall_notifier=self._emit_supervision_alert,
             active_roles_notifier=self._publish_active_roles,
+            arms_exhausted_notifier=self._handle_arms_exhausted,
         )
         self._event_loop = loop
         loop.start()
@@ -1057,6 +1068,112 @@ class ConcurrentPhaseExecutor:
                 exc_info=True,
             )
             return None
+
+    def _handle_arms_exhausted(
+        self, *, report: list[dict[str, Any]], blocked_arms: list[tuple[str, str]]
+    ) -> None:
+        """Escalate the all-arms-exhausted livelock to the operator (#3496).
+
+        Wired as the event loop's ``arms_exhausted_notifier``: every arm the
+        slice needs in order to advance is blocked on an exhausted dedupe key
+        (spawn budget spent), nothing is in flight, and exhaustion is
+        terminal — the loop would otherwise sit silently logging "spawn
+        blocked" until the consensus timeout hard-fails the slice hours
+        later. Two surfaces, mirroring the consensus-timeout escalation:
+
+        * an ``OVERSEER_ALERT`` broadcast (message-bus listeners), and
+        * a **persisted** HITL decision (``pending_decisions`` — the surface
+          the incident showed stays empty) whose options are executable on
+          resolve (``routes/decisions/_handlers.py``): "Retry arms" clears
+          the exhausted keys on the live loop for an in-band recovery;
+          "Restart phase" tears the phase down; "Abort phase" is recorded
+          with a pointer at cancel_task.
+
+        Deduped on a pending decision with the same context, so a second
+        wedged slice (or a re-fired episode) never stacks duplicate
+        decisions — "Retry arms" resets every live loop of the pipeline, so
+        one decision covers them all. Best-effort throughout: an escalation
+        failure must never wedge the event loop.
+        """
+        detail_lines = [
+            (
+                f"- {entry['role']}/{entry['action']}: streak={entry['streak']}, "
+                f"recent terminations: {entry['exit_history_text']}"
+            )
+            for entry in report
+        ]
+        arms = ", ".join(f"{role}/{action}" for role, action in blocked_arms)
+        slice_label = self._slice_id or "pipeline"
+        detail = (
+            f"Event loop for pipeline={self.pipeline.id} slice={slice_label} "
+            f"phase={self.pipeline.current_phase.value} cannot advance: every "
+            f"derivable spawn arm ({arms}) is blocked on an exhausted dedupe "
+            f"key, no one-shot Job is in flight, and exhausted keys never "
+            f"clear on their own. Exhausted keys:\n" + "\n".join(detail_lines)
+        )
+        self._emit_supervision_alert(
+            anomaly="event-arms-exhausted",
+            priority="high",
+            summary=f"all spawn arms exhausted for slice {slice_label} — pipeline wedged",
+            detail=detail,
+        )
+        try:
+            # Lazy imports: routes.pipelines is too heavy to bind at module
+            # import time (same precedent as _unresolved_contract_decision_ids).
+            from routes import get_state_store_for_pipeline
+            from routes.pipelines import _persist_hitl_decision
+
+            store, disk_pipeline = get_state_store_for_pipeline(self.pipeline.id)
+            if any(
+                d.context == ARMS_EXHAUSTED_HITL_CONTEXT
+                for d in disk_pipeline.get_pending_decisions()
+            ):
+                logger.info(
+                    "Arms-exhausted HITL already pending; not stacking another",
+                    pipeline_id=self.pipeline.id,
+                    slice_id=self._slice_id,
+                )
+                return
+            question = (
+                f"{detail}\n\n"
+                f"How to proceed?\n"
+                f"- '{ARMS_EXHAUSTED_RETRY_OPTION}': clear the exhausted keys so the "
+                f"blocked arms respawn with fresh budgets (in-band; nothing in "
+                f"flight is torn down). If the underlying failure persists the "
+                f"arms will re-exhaust and this decision will re-fire.\n"
+                f"- '{ARMS_EXHAUSTED_RESTART_OPTION}': tear down and re-run the "
+                f"current phase (work pushed to the shared branch is preserved).\n"
+                f"- '{ARMS_EXHAUSTED_ABORT_OPTION}': recorded only — use cancel_task "
+                f"to stop the pipeline."
+            )
+            decision = _persist_hitl_decision(
+                self.pipeline.id,
+                self.pipeline,
+                store,
+                question=question,
+                options=[
+                    ARMS_EXHAUSTED_RETRY_OPTION,
+                    ARMS_EXHAUSTED_RESTART_OPTION,
+                    ARMS_EXHAUSTED_ABORT_OPTION,
+                ],
+                phase=self.pipeline.current_phase,
+                context=ARMS_EXHAUSTED_HITL_CONTEXT,
+            )
+            if decision is not None:
+                logger.warning(
+                    "Arms-exhausted HITL decision created",
+                    pipeline_id=self.pipeline.id,
+                    slice_id=self._slice_id,
+                    decision_id=decision.id,
+                    blocked_arms=arms,
+                )
+        except Exception as exc:  # noqa: BLE001 — escalation must not wedge the loop
+            logger.warning(
+                "Failed to persist arms-exhausted HITL decision",
+                pipeline_id=self.pipeline.id,
+                slice_id=self._slice_id,
+                error=str(exc),
+            )
 
     def _handle_propose_arm_exhaustion(
         self, *, role: str, action: str, dedupe_key: str, streak: int, fatal: bool = False

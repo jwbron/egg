@@ -183,6 +183,15 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
             pipeline_id, decision, dispatch_resolution
         )
 
+        # Arms-exhausted HITL (#3496): "Retry arms" clears the exhausted
+        # spawn budgets on the pipeline's live event loop(s) in-band;
+        # "Restart phase" tears the phase down and re-runs it. Without this
+        # dispatch the decision would resolve as a record-only no-op and the
+        # livelock would persist.
+        executed_action = executed_action or _pkg._maybe_dispatch_arms_exhausted_resolution(
+            pipeline_id, decision, dispatch_resolution
+        )
+
         # Executable adds_task option (#3428): an option registered with a
         # structured contract mutation ("add a task/slice") materializes it
         # on resolve instead of recording an inert choice.
