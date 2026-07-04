@@ -882,7 +882,12 @@ def brc_get_state(req: dict[str, Any]) -> dict[str, Any]:
         "consensus": consensus,
     }
 
-    if not consensus and slice_consensus:
+    # Mirror the #3485 orchestrator guard verbatim (`mcp_tools/_consensus.py`):
+    # fall through to slice resolution whenever the pipeline-level block carries
+    # no agents. Guarding on `not consensus` instead would let a truthy-but-
+    # agent-less block short-circuit and serve empty state over the live
+    # per-slice trackers.
+    if not consensus.get("agents") and slice_consensus:
         if len(slice_consensus) == 1:
             resolved_slice_id, block = next(iter(slice_consensus.items()))
             consensus = dict(block)
@@ -917,11 +922,35 @@ def brc_list_blocking(req: dict[str, Any]) -> dict[str, Any]:
     No CLI counterpart — the same data is reachable via `egg-orch
     pipeline status --json` but the filtered blocking-agents shape is
     an agent-convenience view (decision-13).
+
+    Slice-aware to stay consistent with :func:`brc_get_state` (#3487):
+    when queried without a slice scope in a slice-DAG phase (no
+    pipeline-level block with agents), the blocking roles are unioned
+    across the live per-slice trackers so a pipeline-level caller (the
+    overseer agent, operators) isn't told nothing is blocking while a
+    slice round is wedged.
     """
     pid = _require_pipeline_id(req)
-    result = orchestrator_request(f"/api/v1/pipelines/{pid}/status")
-    consensus = result.get("data", {}).get("concurrent", {}).get("consensus", {})
-    blocking = list(consensus.get("blocking_agents", []) or [])
+    slice_id = resolve_slice_id(req)
+    endpoint = f"/api/v1/pipelines/{pid}/status"
+    if slice_id:
+        endpoint += "?" + urlencode({"slice_id": slice_id})
+    result = orchestrator_request(endpoint)
+    concurrent = result.get("data", {}).get("concurrent", {}) or {}
+    consensus = concurrent.get("consensus", {})
+    slice_consensus = concurrent.get("slice_consensus", {}) if slice_id is None else {}
+
+    if consensus.get("agents") or not slice_consensus:
+        blocking = list(consensus.get("blocking_agents", []) or [])
+    else:
+        # Union across active slice-scoped trackers, preserving first-seen
+        # order. This is a flat role list (not a merged consensus block), so
+        # the #2761 no-cross-slice-soup invariant is untouched.
+        blocking = []
+        for block in slice_consensus.values():
+            for role in (block or {}).get("blocking_agents", []) or []:
+                if role not in blocking:
+                    blocking.append(role)
     return {"ok": True, "blocking_agents": blocking}
 
 

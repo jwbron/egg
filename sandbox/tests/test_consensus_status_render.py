@@ -290,6 +290,32 @@ class TestStatusRendersSliceConsensus:
         assert payload["active_slice_ids"] == ["slice-3", "slice-5"]
         assert payload["slice_consensus"]["slice-3"]["blocking_agents"] == ["tester"]
 
+    def test_json_carries_multi_slice_note(self, capsys):
+        import json
+
+        # The handler's top-level multi-slice ``note`` must ride through
+        # ``--json`` so it stays symmetric with ``egg-orch brc get-state``,
+        # which dumps the whole handler response.
+        fake_state = {
+            "slice_id": None,
+            "consensus": {},
+            "active_slice_ids": ["slice-3", "slice-5"],
+            "slice_consensus": {
+                "slice-3": _slice_block(False, ["tester"]),
+                "slice-5": _slice_block(True, []),
+            },
+            "note": "Multiple slice-scoped consensus rounds are active; ...",
+        }
+        args = argparse.Namespace(pipeline_id="test-pipeline-1", json=True)
+        with patch(
+            "egg_agent_tools.handlers.brc.brc_get_state",
+            return_value=fake_state,
+        ):
+            rc = cmd_consensus_status(args)
+        payload = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert payload["note"] == fake_state["note"]
+
     def test_json_carries_resolved_slice_id(self, capsys):
         import json
 

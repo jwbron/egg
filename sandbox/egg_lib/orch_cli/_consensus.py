@@ -490,6 +490,11 @@ def cmd_consensus_status(args: argparse.Namespace) -> int:
                 resp.get("active_slice_ids") or sorted(slice_consensus)
             )
             payload["slice_consensus"] = slice_consensus
+        # Carry the handler's top-level multi-slice note so `--json` stays
+        # symmetric with `egg-orch brc get-state`, which dumps the whole
+        # response. (The single-slice note rides inside the consensus block.)
+        if resp.get("note") and "note" not in payload:
+            payload["note"] = resp["note"]
         print_json(payload)
         return 0
 

@@ -355,6 +355,30 @@ class TestGetStateSliceConsensusResolution:
         assert resp["blocking_agents"] == []
         assert "resolved_slice_id" not in resp
 
+    def test_agentless_pipeline_block_falls_through_to_slices(self):
+        # A truthy-but-agent-less pipeline block must not short-circuit and
+        # serve empty state; it falls through to slice resolution, mirroring
+        # the #3485 orchestrator guard (`consensus.get("agents")`).
+        from egg_agent_tools.handlers import brc as handlers
+
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={
+                "data": {
+                    "concurrent": {
+                        "consensus": {"protocol": "brc", "agents": {}},
+                        "slice_consensus": {
+                            "slice-3": _slice_block(is_complete=False, blocking=["coder"])
+                        },
+                    }
+                }
+            },
+        ):
+            resp = handlers.brc_get_state(dict(_STATE_REQ))
+
+        assert resp["resolved_slice_id"] == "slice-3"
+        assert resp["blocking_agents"] == ["coder"]
+
     def test_pipeline_level_consensus_takes_precedence(self):
         from egg_agent_tools.handlers import brc as handlers
 
@@ -403,3 +427,72 @@ class TestGetStateSliceConsensusResolution:
         assert resp["consensus"] == {}
         assert "resolved_slice_id" not in resp
         assert "slice_consensus" not in resp
+
+
+class TestListBlockingSliceAware:
+    """``brc_list_blocking`` unions blockers across live slices (#3487).
+
+    Kept consistent with ``brc_get_state`` so an overseer keying off
+    ``mcp__brc__list_blocking`` in a slice-DAG phase isn't told nothing
+    is blocking while a per-slice round is wedged.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_slice_env(self, monkeypatch):
+        monkeypatch.delenv("EGG_SLICE_ID", raising=False)
+
+    def test_pipeline_level_block_used_when_present(self):
+        from egg_agent_tools.handlers import brc as handlers
+
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={
+                "data": {
+                    "concurrent": {
+                        "consensus": _slice_block(is_complete=False, blocking=["coder"]),
+                        "slice_consensus": {
+                            "slice-3": _slice_block(is_complete=False, blocking=["tester"])
+                        },
+                    }
+                }
+            },
+        ):
+            resp = handlers.brc_list_blocking(dict(_STATE_REQ))
+
+        # Pipeline-level block (has agents) wins; slices are not unioned in.
+        assert resp["blocking_agents"] == ["coder"]
+
+    def test_unions_blockers_across_slices(self):
+        from egg_agent_tools.handlers import brc as handlers
+
+        slice_map = {
+            "slice-5": _slice_block(is_complete=False, blocking=["coder"]),
+            "slice-3": _slice_block(is_complete=False, blocking=["tester", "coder"]),
+        }
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={"data": {"concurrent": {"slice_consensus": slice_map}}},
+        ):
+            resp = handlers.brc_list_blocking(dict(_STATE_REQ))
+
+        # De-duplicated union across slices; first-seen order preserved.
+        assert resp["blocking_agents"] == ["coder", "tester"]
+
+    def test_explicit_slice_id_reads_only_that_slice(self, monkeypatch):
+        from egg_agent_tools.handlers import brc as handlers
+
+        monkeypatch.setenv("EGG_SLICE_ID", "slice-3")
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={
+                "data": {
+                    "concurrent": {
+                        "consensus": _slice_block(is_complete=False, blocking=["tester"])
+                    }
+                }
+            },
+        ) as mock_request:
+            resp = handlers.brc_list_blocking(dict(_STATE_REQ))
+
+        assert "slice_id=slice-3" in _captured_endpoint(mock_request)
+        assert resp["blocking_agents"] == ["tester"]
