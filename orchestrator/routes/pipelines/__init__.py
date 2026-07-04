@@ -37,7 +37,7 @@ from flask import Blueprint, Response, jsonify, request, stream_with_context
 # decomposition cap (#2261). The slice-3 plan acceptance is satisfied
 # by either import path; tests bind on
 # ``orchestrator.routes.event_prompt`` directly.
-from .event_prompt import compose_event_prompt  # noqa: F401
+from ..event_prompt import compose_event_prompt  # noqa: F401
 
 
 # Closed enumeration of ``ContextPrCreationError.reason`` values
@@ -4359,7 +4359,7 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
                 from routes import resolve_worktree_path
             except ImportError:
                 try:
-                    from . import (
+                    from .. import (
                         resolve_worktree_path,  # type: ignore[no-redef]
                     )
                 except ImportError:
@@ -5178,7 +5178,7 @@ def wait_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
         from routes.messages import _apply_delphi_filter as _delphi
     except ImportError:  # pragma: no cover
         try:
-            from .messages import _apply_delphi_filter as _delphi  # type: ignore[no-redef]
+            from ..messages import _apply_delphi_filter as _delphi  # type: ignore[no-redef]
         except ImportError:
             _delphi = None  # type: ignore[assignment]
 
