@@ -75,4 +75,28 @@ Pure refactor: every symbol is AST-identical to the pre-split file — no behavi
 
 > Seam table documents the slice-12 target layout (per the architect slice goal); finalized per-submodule symbol placement tracks the coder's landed decomposition and is retagged to the shipped layout on the post-landing doc pass.
 
-`git_client/` was the first `gateway/` decomposition; the remaining gateway slice (`gateway/` itself, slice 18) appends its own subsection below.
+### `gateway/gateway/` — Flask app + REST route handlers ([#3312](https://github.com/jwbron/egg/issues/3312), slice 18)
+
+`gateway.py` (10,648 lines, 419 KB — the structural outlier, over both the line and byte caps) → `gateway/gateway/` (barrel + 14 submodules; largest `_git_ops.py`, 1,357 lines). This is the Flask app and the policy-enforced `git`/`gh`/Jira/Confluence/session/proxy REST surface. The split follows the **routes-handling convention**: all 50 `@app.route(...)` decorators stay on thin wrapper functions in the `__init__.py` barrel, and each wrapper delegates to an implementation function in a responsibility-grouped `_<cluster>.py` submodule — so the URL→handler map and the `gateway.gateway` import path are unchanged. The barrel does explicit per-symbol re-exports and declares `__all__`, keeping the full public API (`app`, `main`, `GitHubClient`, `WorktreeManager`, the policy constants/enums, and every helper) as the stable surface, so `patch("gateway.gateway.<symbol>")`, `patch.object(gateway, "<symbol>")`, and `monkeypatch.setattr` targets across the ~35 referencing files resolve unchanged. Cross-submodule seams are resolved on the barrel at call time via a `_b()` accessor; a `_BarrelLogger` proxy forwards `gateway.logger`; and module-singleton seams (`subprocess.run` / `time.sleep` / `open`) stay barrel attributes so their patch targets survive the split.
+
+| Submodule | Responsibility | Key symbols |
+|-----------|----------------|-------------|
+| `__init__.py` (barrel) | Flask `app`, all 50 `@app.route` thin wrappers, `main` bootstrap; per-symbol re-exports + `__all__`; `_b()` call-time seam resolution, `_BarrelLogger`, module-singleton seam attrs | `app`, `main`, re-exports of every symbol below |
+| `__main__.py` | `python3 -m gateway` entry-point shim (replaces `python3 gateway.py`) → calls barrel `main()` | `main` (imported) |
+| `_helpers.py` | JSON response/error builders, audit logging, orchestrator/squid connectivity checks, barrel accessor + logger proxy | `make_response`, `make_error`, `make_success`, `make_worktree_not_found_error`, `audit_log`, `_check_orchestrator_connectivity`, `_check_squid_health`, `_b`, `_BarrelLogger` |
+| `_health.py` | Health-check + config-reload endpoints, proxy CA-cert exposure | `health_check`, `config_reload`, `get_proxy_ca_cert`, `_reload_all_config` |
+| `_git_ops.py` (largest, 1,357 lines) | Policy-enforced `git push` / `git fetch` (attribution, upstream config, detached-head hinting) | `git_push`, `git_fetch`, `_detached_head_hint` |
+| `_git_execute.py` | Generic validated `git` command execution | `git_execute` |
+| `_gh_ops.py` | `gh` PR lifecycle: create/comment/edit/close, open-PR lookup, merge-state/ready checks, label application | `gh_pr_create`, `gh_pr_comment`, `gh_pr_edit`, `gh_pr_close`, `gh_find_open_pr`, `gh_list_open_prs`, `gh_pr_merge_state`, `gh_pr_ready`, `_apply_pr_labels` |
+| `_gh_execute.py` | Generic validated `gh` command execution | `gh_execute` |
+| `_jira.py` | Jira read routes + orchestrator-authorized transition | `jira_ticket_get`, `jira_search`, `jira_ticket_comments`, `jira_ticket_remotelinks`, `jira_ticket_transition`, `jira_execute` |
+| `_jira_writes.py` | Jira write routes + key/text/label validation | `jira_ticket_create`, `jira_ticket_edit`, `jira_ticket_comment_add`, `jira_issue_link_create`, `_validate_jira_write_keys` |
+| `_confluence.py` | Read-only Confluence proxy: space-key resolution, limit clamping, page-id/space validation, upstream-error shaping | `_resolve_space_key_for_payload`, `_confluence_clamp_limit`, `_validate_confluence_page_id`, `_validate_confluence_space_key`, `_confluence_error_from_upstream` |
+| `_worktree.py` | Worktree REST ops + container-path→worktree mapping, stale-pack/dir cleanup | `map_container_path_to_worktree`, `worktree_create`, `worktree_delete`, `worktree_list`, `worktrees_prune` |
+| `_sessions.py` | Session lifecycle, heartbeats, phase updates, repo-visibility, session listing | `session_create`, `session_delete`, `session_get`, `session_heartbeat`, `session_update`, `session_update_phase`, `repos_visibility`, `sessions_list` |
+| `_proxy.py` | Upstream LLM proxy: route-chain resolution, credential/attribution injection, hop preparation + streaming | `_prepare_hop`, `_inject_upstream_credentials`, `_inject_anthropic_credentials`, `_resolve_route_chain`, `_with_attribution_headers`, `_PreparedHop` |
+| `_server.py` | Server bootstrap `main()` + background health-server thread | `main`, `_run_health_server` |
+
+Pure refactor: every implementation body is AST-identical to the pre-split file — no behavior change. **Container packaging + launch (R3):** `gateway/Dockerfile` gains `COPY gateway/gateway/ ./gateway/` (the non-recursive `COPY gateway/*.py ./` no longer matches the package dir), and because a package cannot be run as `python3 gateway.py`, the launch becomes `python3 -m gateway` (via `gateway/gateway/__main__.py` → barrel `main()`) in `gateway/entrypoint.sh`; the Flask server still binds port 9848 unchanged.
+
+`git_client/` was the first `gateway/` decomposition; `gateway/gateway/` (this slice) completes the gateway-package split.
