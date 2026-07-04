@@ -128,10 +128,28 @@
       "resolution": "Retry phase. Slice-2's decomposition is already complete and pushed on egg/issue-3312-v2/slice-2 (pure-move baseline 6ae6a1028 + extraction 648f30148, allowlist entry dropped); the retry worktree should inherit that branch, so only propose/review/consensus remains, which fits comfortably inside the 90-minute window (slice-1's retry completed in ~10 minutes the same way).",
       "phase": "implement",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Event loop for pipeline=issue-3312-v2 slice=slice-3 phase=implement cannot advance: every derivable spawn arm (coder/propose, documenter/propose) is blocked on an exhausted dedupe key, no one-shot Job is in flight, and exhausted keys never clear on their own. Exhausted keys:\n- coder/propose: streak=10, recent terminations: 2026-07-04T05:23:33+00:00 abnormal (exit_code=75); 2026-07-04T05:23:55+00:00 abnormal (exit_code=75); 2026-07-04T05:24:18+00:00 abnormal (exit_code=75); 2026-07-04T05:24:45+00:00 abnormal (exit_code=75); 2026-07-04T05:25:14+00:00 abnormal (exit_code=75)\n- documenter/propose: streak=10, recent terminations: 2026-07-04T05:23:33+00:00 abnormal (exit_code=75); 2026-07-04T05:23:55+00:00 abnormal (exit_code=75); 2026-07-04T05:24:18+00:00 abnormal (exit_code=75); 2026-07-04T05:24:45+00:00 abnormal (exit_code=75); 2026-07-04T05:25:12+00:00 abnormal (exit_code=75)\n\nHow to proceed?\n- 'Retry arms (reset spawn budgets)': clear the exhausted keys so the blocked arms respawn with fresh budgets (in-band; nothing in flight is torn down). If the underlying failure persists the arms will re-exhaust and this decision will re-fire.\n- 'Restart phase': tear down and re-run the current phase (work pushed to the shared branch is preserved).\n- 'Abort phase': recorded only — use cancel_task to stop the pipeline.",
+      "context": "event_arms_exhausted",
+      "options": [
+        "Retry arms (reset spawn budgets)",
+        "Restart phase",
+        "Abort phase"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-07-04T05:25:14.983595Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "implement",
+      "content_changed": null
     }
   ],
   "created_at": "2026-07-03T21:42:11.955390Z",
-  "updated_at": "2026-07-04T05:21:58.718193Z",
+  "updated_at": "2026-07-04T05:25:14.983707Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -144,7 +162,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-07-04T02:21:11.157474Z",
-  "version": 39,
+  "version": 40,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
