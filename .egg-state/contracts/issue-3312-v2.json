@@ -163,7 +163,7 @@
       "id": "slice-2",
       "name": "Decompose orchestrator/event_loop.py (1,622 lines; closes #3447)",
       "goal": "Decompose `orchestrator/event_loop.py` into a sub-package; drop its allowlist entry; seam row in orchestrator/CLAUDE.md. Depends on the previous slice (single linear chain).",
-      "status": "pending",
+      "status": "in_progress",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -173,7 +173,7 @@
           "id": "task-2-1",
           "description": "External-importer audit (section-(d)) for event_loop.py (~6 referencing files; small surface). Enumerate every public symbol and unittest.mock.patch target.",
           "status": "pending",
-          "commit": null,
+          "commit": "648f30148",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Re-export set derived from external-reference audit.",
@@ -302,8 +302,8 @@
         "slice-1"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3312-v2/slice-1",
+      "integration_base_sha": "525770f11685fe9b2c8dda762fc6a08e4d6efa35",
       "commit": null,
       "pr_number": null,
       "pr_url": null,
@@ -647,6 +647,17 @@
       "old_value": "refine",
       "new_value": "implement",
       "reason": "populator advanced contract.current_phase (no apply_mutation caller for this pipeline; #2427)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:29:43.086018Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": null,
+      "new_value": "648f30148",
+      "reason": "Linked commit 648f301 to task-2-1",
       "checkpoint_id": null
     }
   ],
