@@ -172,7 +172,7 @@
         {
           "id": "task-2-1",
           "description": "External-importer audit (section-(d)) for event_loop.py (~6 referencing files; small surface). Enumerate every public symbol and unittest.mock.patch target.",
-          "status": "pending",
+          "status": "complete",
           "commit": "648f30148",
           "checkpoint_id": null,
           "notes": "",
@@ -658,6 +658,17 @@
       "old_value": null,
       "new_value": "648f30148",
       "reason": "Linked commit 648f301 to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:29:45.877291Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-1 as complete",
       "checkpoint_id": null
     }
   ],
