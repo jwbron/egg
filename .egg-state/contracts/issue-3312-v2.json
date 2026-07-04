@@ -344,7 +344,7 @@
         {
           "id": "task-3-2",
           "description": "Step-0 git mv gateway.py -> gateway/__init__.py; green baseline commit (move only). Confirm the Flask app object and all @app.route registrations still resolve on import.",
-          "status": "pending",
+          "status": "complete",
           "commit": "9079e9c02",
           "checkpoint_id": null,
           "notes": "",
@@ -845,6 +845,17 @@
       "old_value": null,
       "new_value": "9079e9c02",
       "reason": "Linked commit 9079e9c to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T03:47:42.272592Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-2 as complete",
       "checkpoint_id": null
     }
   ],
