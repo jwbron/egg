@@ -1391,7 +1391,7 @@ Or pass it in the pipeline config JSON (e.g. via the API):
 ```
 
 Leave `consensus_timeout_minutes` unset to use the calibrated per-phase
-defaults below (refine 30 / plan 60 / implement 90). To tune a single
+defaults below (refine 90 / plan 180 / implement 360). To tune a single
 phase, set the per-phase override — `consensus_timeout_minutes_implement: 120`
 to give implement extra runway without touching refine/plan. Setting the
 legacy global (`consensus_timeout_minutes`) overrides *every* phase, so a
@@ -1411,9 +1411,9 @@ per-phase overrides unless that uniform behaviour is intended.
 | `max_parallel_slices` | int \| null | `null` (effective `1` from env) | Per-pipeline cap on concurrent implement-phase slices in a wave. Each slice spawns ~8 containers; raise on hosts with capacity. When `null`, falls back to `EGG_ORCH_MAX_PARALLEL_SLICES` (default 1). |
 | `message_poll_hint_seconds` | int | `30` | Suggested polling interval for agents |
 | `consensus_timeout_minutes` | int \| null | `null` | Global consensus timeout. When set, applies to every phase. When `null` (the default), each phase falls back to the calibrated per-phase default below. |
-| `consensus_timeout_minutes_refine` | int \| null | `null` (effective `30`) | Per-phase consensus timeout for refine. Wins over the legacy global. |
-| `consensus_timeout_minutes_plan` | int \| null | `null` (effective `60`) | Per-phase consensus timeout for plan. Wins over the legacy global. |
-| `consensus_timeout_minutes_implement` | int \| null | `null` (effective `90`) | Per-phase consensus timeout for implement. Wins over the legacy global. |
+| `consensus_timeout_minutes_refine` | int \| null | `null` (effective `90`) | Per-phase consensus timeout for refine. Wins over the legacy global. |
+| `consensus_timeout_minutes_plan` | int \| null | `null` (effective `180`) | Per-phase consensus timeout for plan. Wins over the legacy global. |
+| `consensus_timeout_minutes_implement` | int \| null | `null` (effective `360`) | Per-phase consensus timeout for implement. Wins over the legacy global. |
 | `brc_consensus_progress_gate_seconds` | int | `300` | Defer the consensus-timeout `OVERSEER_ALERT` while BRC bus or container heartbeats are active. Set to `0` to disable. |
 | `post_consensus_iteration_budget_seconds` | int | `3600` | Per-iteration wait budget after consensus timeout. Resets on each new `CONSENSUS_PROPOSE` from a producer. |
 | `post_consensus_max_total_seconds` | int | `14400` | Hard ceiling on total post-timeout wait. Must be ≥ `post_consensus_iteration_budget_seconds`. |
@@ -1483,7 +1483,7 @@ Phase completion in concurrent mode uses a consensus-based approach:
    - The orchestrator polls every 5 seconds and stops containers immediately on consensus
 4. Any agent can object (signal `OBJECTING`) to block completion
    - A HITL decision is created with options: **Override objections**, **Wait for resolution**, **Abort phase**
-5. Timeout (per-phase: refine 30 / plan 60 / implement 90 by default; configurable via `consensus_timeout_minutes_<phase>` or the legacy global `consensus_timeout_minutes`) first checks whether the phase is already operator-gated on an unresolved contract HITL decision (`cq-N`); if so, the timeout is suspended entirely — no alert — until the decision resolves, and the clock then resets ([#3426](https://github.com/jwbron/egg/issues/3426)). Otherwise it publishes a non-blocking `OVERSEER_ALERT` (subject `consensus-timeout: <agent_role> [<priority>]`) rather than creating a new HITL decision — see [issue #2264](https://github.com/jwbron/egg/issues/2264)
+5. Timeout (per-phase: refine 90 / plan 180 / implement 360 by default; configurable via `consensus_timeout_minutes_<phase>` or the legacy global `consensus_timeout_minutes`) first checks whether the phase is already operator-gated on an unresolved contract HITL decision (`cq-N`); if so, the timeout is suspended entirely — no alert — until the decision resolves, and the clock then resets ([#3426](https://github.com/jwbron/egg/issues/3426)). Otherwise it publishes a non-blocking `OVERSEER_ALERT` (subject `consensus-timeout: <agent_role> [<priority>]`) rather than creating a new HITL decision — see [issue #2264](https://github.com/jwbron/egg/issues/2264)
    - The `/sdlc` skill surfaces the alert (Check agent logs / Acknowledge / Cancel pipeline)
    - The orchestrator continues polling for consensus under the post-timeout budget; operators can intervene with `cancel_task`, `restart_phase`, or `provide_input`
 6. The consensus wrapper drives the agent lifecycle as a deterministic event-pump: it invokes the agent one-shot per actionable BRC event (`propose|ack|nack`) and blocks between events on `egg-orch message wait-loop`. If no actionable event arrives within the idle budget (`EGG_BRC_IDLE_BUDGET_MIN`, default 30 min), the wrapper emits an `OVERSEER_ALERT` (anomaly `stuck-phase-transition`) and keeps blocking — it never exits with code 1 on idle alone. The old capped-restart model (`MAX_CONSENSUS_RESTARTS`, recovery system prompt) was deleted (#2908). See [Concurrent Execution: Consensus Wrapper](concurrent-execution.md#consensus-wrapper).
@@ -1608,8 +1608,8 @@ role. Messages are filtered by `to_role` — only targeted messages and broadcas
 
 **Consensus timeout**: If agents don't reach consensus within the resolved per-phase
 budget (`consensus_timeout_minutes_<phase>` if set, else the legacy global
-`consensus_timeout_minutes`, else the calibrated default — refine 30 / plan 60 /
-implement 90), the orchestrator publishes an `OVERSEER_ALERT` (subject
+`consensus_timeout_minutes`, else the calibrated default — refine 90 / plan 180 /
+implement 360), the orchestrator publishes an `OVERSEER_ALERT` (subject
 `consensus-timeout: <agent_role> [<priority>]`, matching the SDLC skill's
 `<anomaly_type>: <agent_role> [<priority>]` convention so "Check agent logs" can
 extract the role) rather than gating the pipeline on a `choice` decision

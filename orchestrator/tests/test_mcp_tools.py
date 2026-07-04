@@ -3398,4 +3398,45 @@ class TestUpdatePipelineConfig:
         tool = next(t for t in PIPELINE_TOOLS if t["name"] == "update_pipeline_config")
         required = tool["inputSchema"]["required"]
         assert "task_id" in required
-        assert "agent_models" in required
+        # agent_models is optional since #3490; a request may carry only
+        # consensus timeout keys.
+        assert "agent_models" not in required
+        properties = tool["inputSchema"]["properties"]
+        assert "agent_models" in properties
+        for key in (
+            "consensus_timeout_minutes",
+            "consensus_timeout_minutes_refine",
+            "consensus_timeout_minutes_plan",
+            "consensus_timeout_minutes_implement",
+        ):
+            assert key in properties
+
+    def test_consensus_timeout_keys_passed_through(self, handler):
+        """Timeout overrides (#3490) reach the PATCH body, including an
+        explicit null that clears an override."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True, "data": {}}
+            result = handler.handle_tool_call(
+                "update_pipeline_config",
+                {
+                    "task_id": "issue-77",
+                    "consensus_timeout_minutes_implement": 480,
+                    "consensus_timeout_minutes": None,
+                },
+            )
+
+        assert mock_req.call_args[1]["data"] == {
+            "consensus_timeout_minutes_implement": 480,
+            "consensus_timeout_minutes": None,
+        }
+        assert result["updated"] is True
+
+    def test_no_mutable_keys_rejected_without_request(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            result = handler.handle_tool_call(
+                "update_pipeline_config",
+                {"task_id": "issue-77"},
+            )
+
+        assert "error" in result
+        mock_req.assert_not_called()

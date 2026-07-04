@@ -238,6 +238,20 @@ The generic `PATCH /pipelines/<id>` dotted-key form
 map instead of merging, validates only via the wrapped Pydantic error,
 and shouldn't be needed now that the scoped surface exists.
 
+### Consensus timeouts on a live pipeline (#3490)
+
+The same endpoint and MCP tool also accept the
+`consensus_timeout_minutes` family (`consensus_timeout_minutes`,
+`consensus_timeout_minutes_refine` / `_plan` / `_implement`): an
+integer number of minutes (>= 1) sets the override, an explicit `null`
+clears it (the phase falls back to the resolution chain: per-phase
+override, then legacy global, then the phase-aware default). Unlike
+`agent_models`, no restart is needed: the phase poll loop re-resolves
+the budget from freshly-loaded config right before the consensus wall
+fires, so an operator watching a long-running slice can widen the
+window in place. Narrowing works too, but only takes effect once the
+current elapsed time crosses the new wall.
+
 > **Scope.** Only `agent_models` is mutable through this endpoint.
 > Most of `PipelineConfig` is consumed at submit time or mid-phase in
 > ways a partial update could corrupt; `agent_models` is safe
