@@ -80,6 +80,14 @@ COPY orchestrator/gateway_client/ ./gateway_client/
 # state_store/ + peer_consensus/ + mcp_tools/ + kubernetes_spawner/ +
 # gateway_client/) or `import models` fails at orchestrator start.
 COPY orchestrator/models/ ./models/
+# event_loop.py became a sub-package (#3312, slice-2; closes #3447); same reason
+# as state_store/ + peer_consensus/ + mcp_tools/ + kubernetes_spawner/ +
+# gateway_client/ + models/ above — the non-recursive `orchestrator/*.py` glob
+# no longer copies it, so copy the dir explicitly (mirrors routes/ +
+# health_checks/ + state_store/ + peer_consensus/ + mcp_tools/ +
+# kubernetes_spawner/ + gateway_client/ + models/) or `import event_loop` fails
+# at orchestrator start.
+COPY orchestrator/event_loop/ ./event_loop/
 # overseer/monitor.py became a sub-package (overseer/monitor/) in #3312
 # slice-8, but needs NO COPY change: orchestrator/overseer/ is not copied
 # into this image at all (the non-recursive `orchestrator/*.py` glob never

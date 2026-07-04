@@ -24,5 +24,3 @@ files:
     issue: "2248"
   gateway/gateway.py:
     issue: "2248"
-  orchestrator/event_loop.py:
-    issue: "2248"

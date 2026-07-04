@@ -1,0 +1,545 @@
+"""JobSupervisor method bodies for the event_loop sub-package (#3447).
+
+Method bodies extracted verbatim from the pre-split ``event_loop.py`` as
+module-level functions taking ``self`` explicitly (decomposition-pattern.md
+§c). The barrel binds these back onto the ``JobSupervisor`` class, so
+``patch.object(JobSupervisor, ...)`` and ``self.<method>(...)`` dispatch work
+unchanged. JobSupervisor touches only ``self`` + the SUPERVISION_* constants +
+``logger``; it calls no monkeypatched module-global function, so the constants
+are value-imported from the barrel with no ``_pkg`` indirection.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable  # noqa: F401 — used in method annotations
+
+from . import (
+    SUPERVISION_BACKOFF_CAP_SECONDS,
+    SUPERVISION_BACKOFF_FACTOR,
+    SUPERVISION_FAILURE_STREAK_ALERT,
+    SUPERVISION_FAILURE_STREAK_WARN,
+    SUPERVISION_NOOP_PARK_RETRY_SECONDS,
+    SUPERVISION_NOOP_STREAK_PARK,
+    logger,
+)
+
+
+def record_success(self, dedupe_key: str, *, action: str = "", role: str = "") -> None:
+    """Reset the failure streak and latches for a given dedupe key.
+
+    Called when a finished Job with ``dedupe_key`` returns success
+    (rc=0, agent completed the event cleanly).
+
+    #3425: a clean exit is not necessarily progress. A success that moved
+    the BRC state is never re-derived under the same key, so its no-op
+    counter dies at 1; a successful *no-op* (the agent ran, discovered it
+    was blocked — typically on an unresolved operator HITL ``cq-N`` — and
+    exited without a bus message) is re-spawned under an identical key and
+    climbs the counter. At ``SUPERVISION_NOOP_STREAK_PARK`` the arm parks
+    and a sticky alert fires once (see :meth:`noop_parked` for the
+    release conditions). The #3138 failure-streak park cannot catch this
+    case — these invocations *succeed*.
+    """
+    self._streaks.pop(dedupe_key, None)
+    self._alerted_warn.pop(dedupe_key, None)
+    self._alerted_10.pop(dedupe_key, None)
+    self._exhausted.discard(dedupe_key)
+    streak = self._noop_streaks.get(dedupe_key, 0) + 1
+    self._noop_streaks[dedupe_key] = streak
+    logger.debug(
+        "JobSupervisor: success for key=%s — failure streak reset (clean completions=%d)",
+        dedupe_key,
+        streak,
+    )
+    if streak >= SUPERVISION_NOOP_STREAK_PARK and not self._alerted_noop.get(dedupe_key, False):
+        self._alerted_noop[dedupe_key] = True
+        fingerprint = self._probe_hitl_fingerprint()
+        self._noop_fingerprint[dedupe_key] = fingerprint
+        self._noop_brc_fingerprint[dedupe_key] = self._probe_brc_fingerprint()
+        self._noop_last_probe[dedupe_key] = self.clock()
+        logger.warning(
+            "JobSupervisor: %d consecutive successful no-op invocations for key=%s "
+            "(action=%s, role=%s) — parking the arm; spawning at an unchanged BRC "
+            "state cannot resolve an operator-bound wedge",
+            streak,
+            dedupe_key,
+            action,
+            role,
+        )
+        self._emit_noop_alert(dedupe_key, streak, action, role, fingerprint)
+
+
+def retire(self, dedupe_key: str) -> None:
+    """Forget ALL supervision state for a key that will never be re-derived.
+
+    The "this key is done" primitive for superseded same-role siblings
+    (#3337): the event's tracker state is stale, so its streaks, latches,
+    exhaustion, and no-op park state must not linger for the process
+    lifetime. Distinct from :meth:`record_success`, which counts the
+    completion toward the #3425 no-op streak.
+    """
+    self._streaks.pop(dedupe_key, None)
+    self._last_abort_time.pop(dedupe_key, None)
+    self._last_action.pop(dedupe_key, None)
+    self._alerted_warn.pop(dedupe_key, None)
+    self._alerted_10.pop(dedupe_key, None)
+    self._exhausted.discard(dedupe_key)
+    self._noop_streaks.pop(dedupe_key, None)
+    self._noop_fingerprint.pop(dedupe_key, None)
+    self._noop_brc_fingerprint.pop(dedupe_key, None)
+    self._noop_last_probe.pop(dedupe_key, None)
+    self._alerted_noop.pop(dedupe_key, None)
+    logger.debug("JobSupervisor: retired key=%s — all supervision state dropped", dedupe_key)
+
+
+def record_legitimate_outcome(self, dedupe_key: str, outcome: str) -> None:
+    """Called when a Job finishes with a legitimate BRC outcome.
+
+    ``outcome`` is one of: ``confirmed`` (confirm voted), ``nack``
+    (proposed or review nack — legitimate). This does NOT change the
+    current-dedupe-key budget; a subsequent abnormal termination of the
+    same key continues incrementing the streak.
+
+    The wrapper equivalent is the wrapper arm's own logic —
+    ``egg-orch consensus confirmed`` → exit 0, no counter increment.
+    """
+    logger.debug(
+        "JobSupervisor: legitimate outcome (%s) for key=%s — streak untouched",
+        outcome,
+        dedupe_key,
+    )
+
+
+def record_abort(self, dedupe_key: str, action: str, role: str) -> None:
+    """Called when a Job terminates abnormally (non-zero, non-BRC-legitimate).
+
+    Increments the per-key streak and (the caller applies backoff if the
+    key is not exhausted) for scheduling the respawn. Proposes sending
+    ``sticky OVERSEER_ALERT`` when crossing thresholds.
+    """
+    streak = self._streaks.get(dedupe_key, 0) + 1
+    self._streaks[dedupe_key] = streak
+    self._last_abort_time[dedupe_key] = self.clock()
+    self._last_action[dedupe_key] = (action, role)
+    # Silent retries below the warn threshold (#3138): a one-off transient
+    # is expected to recover on the next respawn, so it stays at debug
+    # rather than spamming warn-level logs on every streak increment.
+    logger.debug(
+        "JobSupervisor: abnormal terminate for key=%s (action=%s, role=%s) — streak=%d",
+        dedupe_key,
+        action,
+        role,
+        streak,
+    )
+    # Threshold guards — each fires exactly once per key-lifetime.
+    # Sticky warn at the WARN threshold: a streak this long is likely a
+    # permanent failure (unknown model alias, auth misconfig, prompt
+    # crash) rather than a transient — mirror the wrapper's warn line.
+    if streak >= SUPERVISION_FAILURE_STREAK_WARN and not self._alerted_warn.get(dedupe_key, False):
+        self._alerted_warn[dedupe_key] = True
+        logger.warning(
+            "JobSupervisor: agent-invocation failure streak crossed %d for key=%s "
+            "(action=%s, role=%s) — likely a permanent failure, not a transient",
+            SUPERVISION_FAILURE_STREAK_WARN,
+            dedupe_key,
+            action,
+            role,
+        )
+    # Sticky alert + exhaustion at the ALERT threshold.
+    if streak >= SUPERVISION_FAILURE_STREAK_ALERT and not self._alerted_10.get(dedupe_key, False):
+        self._alerted_10[dedupe_key] = True
+        self._exhausted.add(dedupe_key)
+        self._emit_alert(dedupe_key, streak, action, role)
+        # #3064 slice-4: release the role's reused orchestrator-mode gateway
+        # session — the exhausted arm spawns no further events, so the
+        # long-lived session is torn down at this transition (any later
+        # spawn for the role simply re-registers on a cache miss). Fires for
+        # every action (a stuck reviewer arm is just as dead as a producer);
+        # best-effort so a teardown failure never wedges supervision.
+        if self._on_exhausted is not None:
+            try:
+                self._on_exhausted(role=role, action=action, dedupe_key=dedupe_key)
+            except Exception:  # noqa: BLE001 — teardown is best-effort
+                logger.warning(
+                    "JobSupervisor: on_exhausted teardown failed for key=%s (action=%s, role=%s)",
+                    dedupe_key,
+                    action,
+                    role,
+                )
+        # #2806 relocated for orchestrator mode: a *producer* propose arm
+        # that exhausts its budget engages the existing AGENT_FAILED path.
+        # Reviewer arms (ack/nack) are not producer failures.
+        if action == "propose" and self._agent_failed is not None:
+            self._agent_failed(
+                role=role,
+                action=action,
+                dedupe_key=dedupe_key,
+                streak=streak,
+            )
+
+
+def record_fatal(self, dedupe_key: str, action: str, role: str) -> None:
+    """Called when a Job terminates with a non-retryable credential failure.
+
+    The agent exited with ``egg_agent.auth_errors.EX_AUTH_FATAL`` (#3373):
+    its Claude credential is unusable (subscription weekly/usage limit,
+    expired/invalid token, 401, exhausted credit balance). Retrying only
+    re-uses the same rejected credential, so — unlike :meth:`record_abort`,
+    which increments a streak toward the ALERT threshold — this exhausts the
+    key on the *first* occurrence and emits a named, actionable alert that
+    identifies the cause and the remediation. Idempotent per key (a
+    re-read before the Job is reaped does not re-emit).
+    """
+    if dedupe_key in self._exhausted:
+        return
+    self._exhausted.add(dedupe_key)
+    self._last_action[dedupe_key] = (action, role)
+    # Latch the streak alerts so a later abort on the same key cannot
+    # re-fire the generic streak alert after this fatal one.
+    self._alerted_warn[dedupe_key] = True
+    self._alerted_10[dedupe_key] = True
+    logger.warning(
+        "JobSupervisor: fatal credential failure for key=%s (action=%s, role=%s) "
+        "— exhausting immediately, no retry (agent credential rejected)",
+        dedupe_key,
+        action,
+        role,
+    )
+    self._emit_fatal_alert(dedupe_key, action, role)
+    # Mirror the streak-exhaustion transition: release the role's reused
+    # gateway session (the arm spawns no further events) — best-effort.
+    if self._on_exhausted is not None:
+        try:
+            self._on_exhausted(role=role, action=action, dedupe_key=dedupe_key)
+        except Exception:  # noqa: BLE001 — teardown is best-effort
+            logger.warning(
+                "JobSupervisor: on_exhausted teardown failed for fatal key=%s (action=%s, role=%s)",
+                dedupe_key,
+                action,
+                role,
+            )
+    # A producer's propose arm that fails fatally is just as stuck as one
+    # that exhausts its streak — route it through the same AGENT_FAILED /
+    # HITL path so the failure reaches the operator's decision queue. Pass
+    # ``fatal=True`` (and the honest ``streak=1`` — a fatal exhausts on its
+    # first failure, not after the streak-to-10 budget) so the handler
+    # renders the HITL entry as a named credential failure with its
+    # remediation, rather than the generic "exhausted after 10 consecutive
+    # agent-invocation failures" message this work set out to replace.
+    if action == "propose" and self._agent_failed is not None:
+        self._agent_failed(
+            role=role,
+            action=action,
+            dedupe_key=dedupe_key,
+            streak=1,
+            fatal=True,
+        )
+
+
+def backoff_seconds(self, dedupe_key: str) -> float:
+    """Compute backoff delay for the respawn (streak * factor).
+
+    The caller is expected NOT to spawn when exhausted AND the dedupe key
+    is unchanged — the loop re-reads consensus and only spawns for a new key.
+    """
+    streak = self._streaks.get(dedupe_key, 0)
+    return min(streak * SUPERVISION_BACKOFF_FACTOR, SUPERVISION_BACKOFF_CAP_SECONDS)
+
+
+def ready_to_respawn(self, dedupe_key: str) -> bool:
+    """Return True iff the backoff window since the last abort has elapsed.
+
+    A key with no recorded abort (fresh, or just reset by
+    :meth:`record_success`) is always ready. After an abort the caller
+    must wait :meth:`backoff_seconds` (``streak*factor`` capped) measured
+    from the abort timestamp before respawning — this is what throttles a
+    deterministic fast-fail loop instead of hammering the orchestrator.
+    """
+    last = self._last_abort_time.get(dedupe_key)
+    if last is None:
+        return True
+    backoff = self.backoff_seconds(dedupe_key)
+    if backoff <= 0:
+        return True
+    return (self.clock() - last) >= backoff
+
+
+def is_exhausted(self, dedupe_key: str) -> bool:
+    """Return True if the given dedupe-key has exhausted its retry budget."""
+    return dedupe_key in self._exhausted
+
+
+def noop_parked(self, dedupe_key: str) -> bool:
+    """Return True iff the key is parked on a successful-no-op streak (#3425).
+
+    Parked = ``SUPERVISION_NOOP_STREAK_PARK`` clean completions of the
+    same key with zero BRC progress (the loop re-derived the identical key
+    each time; an interleaved abort does not reset the count). Unlike #3138
+    failure exhaustion, the park self-releases — the wedge is typically an
+    unresolved operator HITL decision (``cq-N``), whose resolution writes
+    only the contract file and never the tracker, so waiting for a new
+    dedupe key would deadlock the slice after the operator answers:
+
+    * immediately, when the unresolved contract-decision set differs from
+      the one recorded at park time (e.g. the gating ``cq-N`` was
+      resolved) — detected via ``hitl_probe``;
+    * immediately, when the consensus-relevant BRC state differs from the
+      one recorded at park time (#3465) — detected via ``brc_probe``. An
+      arm can also park while merely racing its upstream producer (the
+      tester's propose arm no-ops until the coder commits); the producer's
+      proposal / reviews move the tracker but never this arm's own dedupe
+      key, so without this check the slice wedges until the heartbeat;
+    * every ``SUPERVISION_NOOP_PARK_RETRY_SECONDS`` as a liveness
+      backstop (also the only release when no probe is wired or it
+      fails).
+
+    Each release allows exactly one probe spawn: the fingerprint /
+    heartbeat anchor is refreshed, and if the pod no-ops again the streak
+    keeps the key parked. Called only on the loop's would-spawn path, so
+    the probe never runs for healthy keys.
+    """
+    if self._noop_streaks.get(dedupe_key, 0) < SUPERVISION_NOOP_STREAK_PARK:
+        return False
+    now = self.clock()
+    current = self._probe_hitl_fingerprint()
+    parked = self._noop_fingerprint.get(dedupe_key)
+    current_brc = self._probe_brc_fingerprint()
+    parked_brc = self._noop_brc_fingerprint.get(dedupe_key)
+    hitl_moved = current is not None and parked is not None and current != parked
+    brc_moved = current_brc is not None and parked_brc is not None and current_brc != parked_brc
+    if hitl_moved or brc_moved:
+        # Refresh BOTH probe anchors on any release, not just the branch that
+        # fired. If a single poll sees the contract-decision set AND the BRC
+        # state move at once (the operator resolves a gating ``cq-N`` while
+        # the cohort proposes), advancing only the firing anchor would leave
+        # the other's park-time digest stale, so the very next poll would
+        # release again — two probe spawns for one wedge. Advancing every
+        # anchor whose probe currently reads a concrete value collapses this
+        # to one probe per poll regardless of how many signals moved. A
+        # ``None`` reading (probe unwired/failed) is left untouched: it can
+        # never compare as moved, so it cannot cause a spurious re-release,
+        # and preserving its park-time value avoids degrading a good anchor
+        # on a transient probe failure.
+        if current is not None:
+            self._noop_fingerprint[dedupe_key] = current
+        if current_brc is not None:
+            self._noop_brc_fingerprint[dedupe_key] = current_brc
+        self._noop_last_probe[dedupe_key] = now
+        # Re-arm the once-per-key alert latch only when the contract-decision
+        # set moved AND a decision is *still* gating (``current`` non-empty).
+        # The alert names the decisions recorded at park time; if the probe
+        # spawn no-ops again on a freshly-gating ``cq-N`` the arm re-parks,
+        # and without re-arming the latch would suppress a new alert, leaving
+        # the operator staring at a stale one naming an already-resolved
+        # cq-N. This keeps "one alert per distinct wedge" rather than "one
+        # alert per key lifetime".
+        #
+        # An *empty* new set means the wedge cleared (the operator resolved
+        # the last gating decision), and a pure BRC-movement release means
+        # the cohort progressed; in both cases the released probe will
+        # proceed and make real progress. Re-arming there would let the next
+        # ``record_success`` — which cannot distinguish a productive
+        # completion from a repeat no-op (any rc=0 exit maps to SUCCESS) —
+        # fire a spurious high-priority alert on the common happy path,
+        # falsely claiming zero BRC progress with no visible gating decision.
+        # So only re-arm when a gating decision remains.
+        if hitl_moved and current:
+            self._alerted_noop.pop(dedupe_key, None)
+        if hitl_moved:
+            logger.info(
+                "JobSupervisor: contract-decision set changed for parked key=%s "
+                "(was %s, now %s) — releasing the no-op park for a probe spawn",
+                dedupe_key,
+                sorted(parked),
+                sorted(current),
+            )
+        if brc_moved:
+            logger.info(
+                "JobSupervisor: BRC state moved for parked key=%s "
+                "— releasing the no-op park for a probe spawn",
+                dedupe_key,
+            )
+        return False
+    last = self._noop_last_probe.get(dedupe_key)
+    if last is None or (now - last) >= SUPERVISION_NOOP_PARK_RETRY_SECONDS:
+        self._noop_last_probe[dedupe_key] = now
+        logger.info(
+            "JobSupervisor: no-op park retry heartbeat elapsed for key=%s — allowing a probe spawn",
+            dedupe_key,
+        )
+        return False
+    return True
+
+
+def _probe_hitl_fingerprint(self) -> frozenset[str] | None:
+    """Snapshot the unresolved contract-decision id set (best-effort).
+
+    ``None`` means "unknown" (no probe wired, probe failed, or the probe
+    itself signalled unknown) — the caller must then never treat the
+    fingerprint as comparable, falling back to the retry heartbeat.
+    """
+    if self._hitl_probe is None:
+        return None
+    try:
+        result = self._hitl_probe()
+    except Exception as exc:  # noqa: BLE001 — probing is best-effort
+        logger.warning(
+            "JobSupervisor: hitl probe failed — treating fingerprint as unknown: %s",
+            exc,
+        )
+        return None
+    if result is None:
+        return None
+    return frozenset(result)
+
+
+def _probe_brc_fingerprint(self) -> str | None:
+    """Snapshot the consensus-state fingerprint (best-effort, #3465).
+
+    ``None`` means "unknown" (no probe wired, or the probe failed) — the
+    caller must then never treat the fingerprint as comparable, falling
+    back to the retry heartbeat. Same contract as
+    :meth:`_probe_hitl_fingerprint`.
+    """
+    if self._brc_probe is None:
+        return None
+    try:
+        return self._brc_probe()
+    except Exception as exc:  # noqa: BLE001 — probing is best-effort
+        logger.warning(
+            "JobSupervisor: brc probe failed — treating fingerprint as unknown: %s",
+            exc,
+        )
+        return None
+
+
+def reconcile(self, live_dedupe_keys: Iterable[str]) -> None:
+    """When restarting, reconcile from live Job labels.
+
+    After a simulated orchestrator restart (e.g. crash), live pods may
+    be running. We do NOT persist supervision state; a fresh loop
+    starts with empty streaks. This means the first-old-dedupe-key
+    starts a fresh budget, which is the intended stateless design.
+
+    NOTE: this clears ``_exhausted`` along with the streaks, so it is the
+    *restart* path only — it is NOT called per-poll. The live driver
+    (``OrchestratorEventLoop.poll_once``) observes Job status and drives
+    ``record_*`` directly; it never calls ``reconcile`` on the steady-state
+    path, so per-poll exhaustion is never wiped.
+    """
+    self._streaks.clear()
+    self._last_abort_time.clear()
+    self._alerted_warn.clear()
+    self._alerted_10.clear()
+    self._exhausted.clear()
+    self._noop_streaks.clear()
+    self._noop_fingerprint.clear()
+    self._noop_brc_fingerprint.clear()
+    self._noop_last_probe.clear()
+    self._alerted_noop.clear()
+    # Re-initialise live-key set if the caller provides it.
+    # We only need to know which keys exist, not the full history.
+    for key in live_dedupe_keys:
+        if key:
+            self._last_action[key] = ("(reconciled)", "(reconciled)")
+
+
+def _emit_alert(self, dedupe_key: str, streak: int, action: str, role: str) -> None:
+    """Emit an OVERSEER_ALERT for an exhausted key.
+
+    The wrapper's ``raise_agent_fail_alert`` path (``consensus_wrapper.py:690``)
+    is the reference for the message payload; we mirror the anomaly
+    name and format here.
+    """
+    if self._overseer_alert is not None:
+        self._overseer_alert(
+            anomaly="agent-invocation-fail-streak",
+            priority="high",
+            summary=(f"agent invocation failing repeatedly (action={action}, streak={streak})"),
+            detail=(
+                f"Event-pump for role={role} has had {streak} consecutive "
+                f"agent-invocation failures on action={action}. "
+                f"The orchestrator has exhausted retries for the current "
+                f"dedupe key ({dedupe_key}). No further pods will be "
+                f"spawned until the BRC state changes (new dedupe key). "
+                f"Threshold: streak >= {SUPERVISION_FAILURE_STREAK_ALERT}."
+            ),
+        )
+
+
+def _emit_noop_alert(
+    self,
+    dedupe_key: str,
+    streak: int,
+    action: str,
+    role: str,
+    fingerprint: frozenset[str] | None,
+) -> None:
+    """Emit a named, once-per-key alert for a successful-no-op park (#3425).
+
+    Distinct from :meth:`_emit_alert`'s ``agent-invocation-fail-streak``:
+    these invocations *succeed* — the slice is wedged on something a
+    respawn cannot resolve (typically an unresolved operator HITL
+    ``cq-N``), so the message points the operator at the pending decision
+    rather than at agent health.
+    """
+    if self._overseer_alert is None:
+        return
+    if fingerprint:
+        gating = (
+            f" Unresolved contract HITL decision(s) likely gating it: "
+            f"{', '.join(sorted(fingerprint))} — check get_status "
+            f"pending_contract_decisions and resolve via provide_input."
+        )
+    else:
+        gating = (
+            " No unresolved contract decision was visible at park time; "
+            "check the slice's BRC transcript for what the agent is "
+            "blocked on."
+        )
+    self._overseer_alert(
+        anomaly="agent-invocation-noop-streak",
+        priority="high",
+        summary=(
+            f"agent invocations completing with zero BRC progress "
+            f"(action={action}, streak={streak})"
+        ),
+        detail=(
+            f"Event-pump for role={role} has had {streak} consecutive one-shot "
+            f"invocations on action={action} that exited cleanly WITHOUT any "
+            f"BRC-bus progress (dedupe key {dedupe_key} re-derived unchanged "
+            f"each time). The arm is parked: no further pods spawn for this key "
+            f"until the unresolved contract-decision set changes (e.g. the "
+            f"gating cq-N is resolved) or the BRC state moves; a probe spawn is "
+            f"retried every {SUPERVISION_NOOP_PARK_RETRY_SECONDS}s as a "
+            f"backstop.{gating}"
+        ),
+    )
+
+
+def _emit_fatal_alert(self, dedupe_key: str, action: str, role: str) -> None:
+    """Emit a named, actionable alert for an auth-fatal exhaustion (#3373).
+
+    Distinct from :meth:`_emit_alert`'s generic
+    ``agent-invocation-fail-streak``: this names the credential cause and
+    the remediation so the operator is not left reading a generic "failing
+    repeatedly" message with no pointer to the fix.
+    """
+    if self._overseer_alert is not None:
+        self._overseer_alert(
+            anomaly="agent-credential-fatal",
+            priority="high",
+            summary=(f"agent credential rejected — non-retryable (action={action}, role={role})"),
+            detail=(
+                f"Event-pump for role={role} (action={action}) failed with a "
+                f"non-retryable credential error: the agent's Claude credential "
+                f"was rejected (subscription weekly/usage limit, expired/invalid "
+                f"token, 401, or exhausted credit balance). The orchestrator "
+                f"exhausted dedupe key {dedupe_key} on the first failure rather "
+                f"than retrying — a retry would re-use the same rejected "
+                f"credential. Remediation: rotate the Claude credential (set the "
+                f"intended account as the active CLAUDE_CODE_OAUTH_TOKEN in "
+                f"secrets.env and apply the gateway secret), then restart this "
+                f"phase to mint a fresh dedupe key so pods respawn."
+            ),
+        )
