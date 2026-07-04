@@ -519,9 +519,9 @@ def _maybe_dispatch_arms_exhausted_resolution(
       "Restart phase" instead).
     - **Restart phase** → tear down and re-run the decision's phase
       in-process (shared ``_execute_restart_phase`` executor).
-    - **Abort phase** → not automated (stopping the pipeline is a distinct
-      operator action); the payload names ``cancel_task`` instead of
-      resolving silently.
+    - **Abort (manual — recorded only)** → not automated (stopping the
+      pipeline is a distinct operator action); the payload names
+      ``cancel_task`` instead of resolving silently.
 
     Returns the executed-action payload, or ``None`` when the decision is
     not an arms-exhausted HITL (or the resolution is a free-form reply).

@@ -13,7 +13,12 @@ pin the fix end-to-end:
 * the loop detects the all-arms-exhausted wedge and fires
   ``arms_exhausted_notifier`` once per episode;
 * the executor escalates the wedge as an OVERSEER_ALERT + a persisted HITL
-  decision (deduped on the ``event_arms_exhausted`` context);
+  decision (deduped on the ``event_arms_exhausted`` context — the dedup gate
+  suppresses BOTH surfaces so a re-armed latch does not re-broadcast);
+* the escalation report is scoped to the currently-blocked keys (stale keys
+  from superseded BRC rounds are filtered out);
+* the loop auto-withdraws the stale HITL when the wedge clears by another
+  route, guarded so a still-wedged sibling slice holds the shared decision;
 * the resolve-decision dispatch executes "Retry arms" against the live-loop
   registry and "Restart phase" via the in-process restart route.
 """
@@ -104,6 +109,19 @@ class _NotifierSpy:
         self.calls.append(kwargs)
 
 
+class _ClearedSpy:
+    """Zero-arg wedge-cleared notifier double (#3496 review)."""
+
+    def __init__(self, *, raises: bool = False) -> None:
+        self.count = 0
+        self._raises = raises
+
+    def __call__(self) -> None:
+        self.count += 1
+        if self._raises:
+            raise RuntimeError("withdrawal boom")
+
+
 _PROPOSE_PAYLOAD = {"producer": "coder"}
 _ACK_PAYLOAD = {"pending_reviews": [{"producer": "coder", "proposal_commit_sha": "deadbeef1"}]}
 
@@ -124,6 +142,7 @@ def _make_loop(
     clock=None,
     roles=None,
     notifier=None,
+    cleared_notifier=None,
     status_view=None,
     agent_free_handler=None,
     pipeline_id="issue-3496",
@@ -143,6 +162,7 @@ def _make_loop(
         job_supervisor=supervisor,
         job_status_view=status_view,
         arms_exhausted_notifier=notifier,
+        arms_exhausted_cleared_notifier=cleared_notifier,
     )
 
 
@@ -312,6 +332,106 @@ class TestArmsExhaustedThroughLoop:
         _exhaust(supervisor, key, "ack", "reviewer_code")
         loop.poll_once(["reviewer_code"])
         assert len(notifier.calls) == 2
+
+    def test_report_excludes_stale_exhausted_keys(self, monkeypatch):
+        """Only the currently-blocked arm's key reaches the notifier report;
+        a stale exhausted key from a superseded round is filtered out (#3496
+        review)."""
+        import event_loop
+
+        _script(monkeypatch, {"reviewer_code": ("ack", _ACK_PAYLOAD, "x")})
+        supervisor = event_loop.JobSupervisor(clock=_ManualClock())
+        notifier = _NotifierSpy()
+        loop = _make_loop(_RecordingSpawner(), supervisor=supervisor, notifier=notifier)
+        key = _key_for(loop, "reviewer_code", "ack", _ACK_PAYLOAD)
+        _exhaust(supervisor, key, "ack", "reviewer_code")
+        # A stale key from a superseded BRC round: exhausted but no longer the
+        # dedupe key any derivable arm resolves to.
+        _exhaust(supervisor, "stale-superseded-key", "ack", "reviewer_code")
+
+        loop.poll_once(["reviewer_code"])
+        assert len(notifier.calls) == 1
+        reported = [e["dedupe_key"] for e in notifier.calls[0]["report"]]
+        assert reported == [key]
+
+    def test_wedge_clear_fires_cleared_notifier_once(self, monkeypatch):
+        """The cleared-notifier fires exactly once on the wedged→clear edge
+        (#3496 review) — the hook the executor uses to auto-withdraw the
+        now-stale HITL."""
+        import event_loop
+
+        _script(monkeypatch, {"reviewer_code": ("ack", _ACK_PAYLOAD, "x")})
+        supervisor = event_loop.JobSupervisor(clock=_ManualClock())
+        notifier = _NotifierSpy()
+        cleared = _ClearedSpy()
+        loop = _make_loop(
+            _RecordingSpawner(),
+            supervisor=supervisor,
+            notifier=notifier,
+            cleared_notifier=cleared,
+        )
+        key = _key_for(loop, "reviewer_code", "ack", _ACK_PAYLOAD)
+        _exhaust(supervisor, key, "ack", "reviewer_code")
+
+        loop.poll_once(["reviewer_code"])
+        assert len(notifier.calls) == 1
+        assert cleared.count == 0
+
+        # The wedge clears by another route: the role now derives a benign
+        # wait (e.g. an unrelated decision re-keyed the arm).
+        _script(monkeypatch, {})  # reviewer_code now derives wait
+        loop.poll_once(["reviewer_code"])
+        assert cleared.count == 1
+
+        # Idempotent: staying clear does not re-fire.
+        loop.poll_once(["reviewer_code"])
+        assert cleared.count == 1
+
+    def test_cleared_notifier_failure_is_swallowed(self, monkeypatch):
+        """A withdrawal-side failure must never propagate into poll_once."""
+        import event_loop
+
+        _script(monkeypatch, {"reviewer_code": ("ack", _ACK_PAYLOAD, "x")})
+        supervisor = event_loop.JobSupervisor(clock=_ManualClock())
+        cleared = _ClearedSpy(raises=True)
+        loop = _make_loop(
+            _RecordingSpawner(),
+            supervisor=supervisor,
+            notifier=_NotifierSpy(),
+            cleared_notifier=cleared,
+        )
+        key = _key_for(loop, "reviewer_code", "ack", _ACK_PAYLOAD)
+        _exhaust(supervisor, key, "ack", "reviewer_code")
+        loop.poll_once(["reviewer_code"])
+
+        _script(monkeypatch, {})
+        # Must not raise even though the notifier throws.
+        loop.poll_once(["reviewer_code"])
+        assert cleared.count == 1
+
+    def test_reset_does_not_fire_cleared_notifier(self, monkeypatch):
+        """An operator "Retry arms" reset clears the latch directly — the
+        decision is already resolved, so no auto-withdrawal transition fires."""
+        import event_loop
+
+        _script(monkeypatch, {"reviewer_code": ("ack", _ACK_PAYLOAD, "x")})
+        supervisor = event_loop.JobSupervisor(clock=_ManualClock())
+        cleared = _ClearedSpy()
+        loop = _make_loop(
+            _RecordingSpawner(),
+            supervisor=supervisor,
+            notifier=_NotifierSpy(),
+            cleared_notifier=cleared,
+        )
+        key = _key_for(loop, "reviewer_code", "ack", _ACK_PAYLOAD)
+        _exhaust(supervisor, key, "ack", "reviewer_code")
+        loop.poll_once(["reviewer_code"])
+
+        loop.reset_exhausted_arms()
+        # The reset re-armed the latch to False without a wedge-clear
+        # transition; the next (now-spawning) poll must not fire the notifier.
+        loop.poll_once(["reviewer_code"])
+        assert cleared.count == 0
 
     def test_live_job_suppresses_wedge(self, monkeypatch):
         """An in-flight pod for any role means progress may still occur."""
@@ -568,6 +688,26 @@ class TestExecutorEscalation:
         executor._handle_arms_exhausted(report=_REPORT, blocked_arms=_BLOCKED)
 
         mock_persist.assert_not_called()
+        # #3496 review: the dedup gate suppresses BOTH surfaces — a re-armed
+        # latch must not re-broadcast the OVERSEER_ALERT either.
+        mock_store.return_value.add_message.assert_not_called()
+
+    @patch("routes.pipelines._persist_hitl_decision")
+    @patch("routes.get_state_store_for_pipeline")
+    @patch("concurrent_executor.get_message_store")
+    def test_read_failure_still_alerts(self, mock_store, mock_get_state, mock_persist):
+        """A pending-decisions read failure must not swallow the escalation:
+        the alert still fires (the HITL cannot, without a store)."""
+        from message_store import MessageType
+
+        mock_get_state.side_effect = RuntimeError("store down")
+
+        executor = _make_executor()
+        executor._handle_arms_exhausted(report=_REPORT, blocked_arms=_BLOCKED)
+
+        msg = mock_store.return_value.add_message.call_args[0][0]
+        assert msg.message_type == MessageType.OVERSEER_ALERT
+        mock_persist.assert_not_called()
 
     @patch("routes.get_state_store_for_pipeline", side_effect=RuntimeError("store down"))
     @patch("concurrent_executor.get_message_store")
@@ -575,6 +715,83 @@ class TestExecutorEscalation:
         executor = _make_executor()
         # Must not raise — escalation failure cannot wedge the event loop.
         executor._handle_arms_exhausted(report=_REPORT, blocked_arms=_BLOCKED)
+
+
+# ---------------------------------------------------------------------------
+# Executor: auto-withdrawal on wedge-clear (#3496 review)
+# ---------------------------------------------------------------------------
+
+
+class TestArmsExhaustedWithdrawal:
+    @patch("routes.pipelines._withdraw_arms_exhausted_decisions", return_value=1)
+    @patch("routes.get_state_store_for_pipeline")
+    @patch("event_loop.get_live_event_loops", return_value=[])
+    def test_withdraw_runs_when_no_sibling_wedged(
+        self, mock_loops, mock_get_state, mock_withdraw
+    ):
+        mock_get_state.return_value = (MagicMock(), MagicMock())
+        executor = _make_executor()
+        executor._withdraw_arms_exhausted_hitl()
+
+        mock_get_state.assert_called_once_with("issue-3496")
+        mock_withdraw.assert_called_once()
+
+    @patch("routes.pipelines._withdraw_arms_exhausted_decisions")
+    @patch("routes.get_state_store_for_pipeline")
+    @patch("event_loop.get_live_event_loops")
+    def test_withdraw_skipped_when_sibling_still_wedged(
+        self, mock_loops, mock_get_state, mock_withdraw
+    ):
+        sibling = MagicMock()
+        sibling.arms_exhausted_escalated = True
+        mock_loops.return_value = [sibling]
+
+        executor = _make_executor()
+        executor._withdraw_arms_exhausted_hitl()
+
+        # A still-wedged sibling holds the shared decision in place.
+        mock_withdraw.assert_not_called()
+        mock_get_state.assert_not_called()
+
+    @patch("routes.get_state_store_for_pipeline", side_effect=RuntimeError("store down"))
+    @patch("event_loop.get_live_event_loops", return_value=[])
+    def test_withdraw_never_raises(self, mock_loops, mock_get_state):
+        executor = _make_executor()
+        # Must not raise — a withdrawal failure cannot wedge the event loop.
+        executor._withdraw_arms_exhausted_hitl()
+
+    def test_withdraw_decisions_helper_cancels_only_matching(self):
+        from models import DecisionStatus
+        from routes.pipelines import _withdraw_arms_exhausted_decisions
+
+        arms = _arms_decision(None)  # context = ARMS_EXHAUSTED_HITL_CONTEXT
+        arms.status = DecisionStatus.PENDING
+        other = _arms_decision(None, context="failed_role:coder")
+        other.status = DecisionStatus.PENDING
+
+        disk_pipeline = MagicMock()
+        disk_pipeline.get_pending_decisions.return_value = [arms, other]
+        store = MagicMock()
+        store.load_pipeline.return_value = disk_pipeline
+
+        withdrawn = _withdraw_arms_exhausted_decisions("issue-3496", store)
+
+        assert withdrawn == 1
+        assert arms.status == DecisionStatus.CANCELLED
+        assert "auto-withdrawn" in (arms.resolution or "")
+        assert other.status == DecisionStatus.PENDING
+        store.save_pipeline.assert_called_once_with(disk_pipeline)
+
+    def test_withdraw_decisions_helper_noop_when_none_pending(self):
+        from routes.pipelines import _withdraw_arms_exhausted_decisions
+
+        disk_pipeline = MagicMock()
+        disk_pipeline.get_pending_decisions.return_value = []
+        store = MagicMock()
+        store.load_pipeline.return_value = disk_pipeline
+
+        assert _withdraw_arms_exhausted_decisions("issue-3496", store) == 0
+        store.save_pipeline.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

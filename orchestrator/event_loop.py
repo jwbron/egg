@@ -1142,6 +1142,7 @@ class OrchestratorEventLoop:
         convergence_stall_notifier: Callable[..., Any] | None = None,
         active_roles_notifier: Callable[[set[str]], Any] | None = None,
         arms_exhausted_notifier: Callable[..., Any] | None = None,
+        arms_exhausted_cleared_notifier: Callable[[], Any] | None = None,
     ) -> None:
         self.tracker = tracker
         self.spawner = spawner
@@ -1198,6 +1199,13 @@ class OrchestratorEventLoop:
         # arms-exhausted HITL escalation; ``None`` (unit tests / pod mode)
         # leaves detection dormant except for the WARN log.
         self._arms_exhausted_notifier = arms_exhausted_notifier
+        # #3496 review: fired once on the wedged→clear transition — the
+        # symmetric counterpart of the notifier above. Wired in production to
+        # the executor's HITL auto-withdrawal so a decision the operator never
+        # resolved (the wedge cleared by another route) is retracted rather
+        # than left stale in ``pending_decisions``. ``None`` leaves the
+        # decision in place (unit tests / pod mode).
+        self._arms_exhausted_cleared_notifier = arms_exhausted_cleared_notifier
         # Sticky latch so the notifier fires exactly once per wedge episode;
         # cleared when the condition no longer holds (an arm spawned, a new
         # key derived, or an operator reset cleared the exhausted set).
@@ -1414,12 +1422,28 @@ class OrchestratorEventLoop:
             and not any(d.agent_free for d in decisions)
         )
         if not wedged:
-            self._arms_exhausted_alerted = False
+            if self._arms_exhausted_alerted:
+                # Wedged→clear transition (#3496 review): this loop escalated a
+                # wedge that has since recovered by another route — a fresh key
+                # was derived, a spawn succeeded, or an operator resolved a
+                # different decision that re-keyed the arms. Clear the latch
+                # first (so the pipeline-wide withdrawal guard sees only the
+                # *other* slices' latches), then auto-withdraw the now-stale
+                # HITL. Fires at most once per episode — the transition edge.
+                self._arms_exhausted_alerted = False
+                self._notify_arms_exhausted_cleared()
             return
         if self._arms_exhausted_alerted:
             return
         self._arms_exhausted_alerted = True
-        report = self.supervisor.exhausted_report()
+        # Scope the report to the keys that are *currently* blocking a
+        # derivable spawn arm. ``exhausted_report()`` covers every key in the
+        # supervisor's exhausted set, which can include stale keys from
+        # superseded BRC rounds (a re-propose re-keys the reviewer's arm but
+        # nothing retires the old exhausted key) — surfacing those in the
+        # operator-facing detail would list arms that are not the blockers.
+        blocked_keys = {d.dedupe_key for d in spawn_decisions if d.dedupe_key}
+        report = [e for e in self.supervisor.exhausted_report() if e["dedupe_key"] in blocked_keys]
         logger.warning(
             "event-loop: all derivable spawn arms are exhausted — the slice "
             "cannot advance without operator intervention (blocked arms: %s)",
@@ -1435,6 +1459,35 @@ class OrchestratorEventLoop:
             blocked_arms=[(d.role, d.action) for d in spawn_decisions],
         )
 
+    @property
+    def arms_exhausted_escalated(self) -> bool:
+        """True while this loop is inside an escalated arms-exhausted episode.
+
+        The pipeline-wide withdrawal guard reads this across the live-loop
+        registry: the shared arms-exhausted HITL must not be auto-withdrawn
+        while any slice of the pipeline is still wedged (#3496 review).
+        """
+        return self._arms_exhausted_alerted
+
+    def _notify_arms_exhausted_cleared(self) -> None:
+        """Fire the wedge-cleared notifier best-effort (#3496 review).
+
+        Isolated so a withdrawal-side failure (state-store read, lock, save)
+        can never propagate into ``poll_once`` and wedge the loop — the exact
+        failure mode the escalation exists to surface.
+        """
+        if self._arms_exhausted_cleared_notifier is None:
+            return
+        try:
+            self._arms_exhausted_cleared_notifier()
+        except Exception:  # noqa: BLE001 — withdrawal must never wedge the loop
+            logger.warning(
+                "event-loop: arms-exhausted cleared notifier raised; ignoring",
+                pipeline_id=self.pipeline_id,
+                slice_id=self.slice_id,
+                exc_info=True,
+            )
+
     def reset_exhausted_arms(self) -> list[str]:
         """Clear every exhausted key so blocked arms respawn (#3496).
 
@@ -1443,6 +1496,16 @@ class OrchestratorEventLoop:
         exhausted key a fresh spawn budget and re-arms the wedge latch so a
         retry that fails all the way back to exhaustion re-escalates rather
         than being swallowed by the spent latch. Returns the cleared keys.
+
+        Cross-thread note: this runs on the Flask resolve-route thread while
+        the event-loop daemon thread mutates the same supervisor dicts/sets
+        in ``poll_once`` — a new sharing pattern on a previously
+        single-threaded structure (#3496 review). It is lock-free by design
+        and safe under CPython: every mutation here is an atomic dict/set op
+        under the GIL, and ``reset_exhausted`` snapshots the exhausted set
+        (``sorted()``) before iterating so a concurrent add/discard cannot
+        invalidate the iterator. Worst case a key the loop re-exhausts on the
+        same tick is cleared and re-exhausts on the next — benign.
         """
         cleared = self.supervisor.reset_exhausted()
         self._arms_exhausted_alerted = False

@@ -89,7 +89,10 @@ MULTI_FAILURE_WINDOW_SECONDS = 60
 ARMS_EXHAUSTED_HITL_CONTEXT = "event_arms_exhausted"
 ARMS_EXHAUSTED_RETRY_OPTION = "Retry arms (reset spawn budgets)"
 ARMS_EXHAUSTED_RESTART_OPTION = "Restart phase"
-ARMS_EXHAUSTED_ABORT_OPTION = "Abort phase"
+# Label spells out that this option only *records* the operator's choice —
+# it does not stop the phase (which keeps running, wedged, until cancel_task).
+# "Abort phase" implied an action the resolution does not take (#3496 review).
+ARMS_EXHAUSTED_ABORT_OPTION = "Abort (manual — recorded only)"
 
 # Warm-resume session-store substrate (#3278). The agent's Claude session store
 # lives at ``$CLAUDE_CONFIG_DIR`` (default ``~/.claude`` = ``/home/egg/.claude``);
@@ -554,6 +557,7 @@ class ConcurrentPhaseExecutor:
             convergence_stall_notifier=self._emit_supervision_alert,
             active_roles_notifier=self._publish_active_roles,
             arms_exhausted_notifier=self._handle_arms_exhausted,
+            arms_exhausted_cleared_notifier=self._withdraw_arms_exhausted_hitl,
         )
         self._event_loop = loop
         loop.start()
@@ -1086,14 +1090,21 @@ class ConcurrentPhaseExecutor:
           the incident showed stays empty) whose options are executable on
           resolve (``routes/decisions/_handlers.py``): "Retry arms" clears
           the exhausted keys on the live loop for an in-band recovery;
-          "Restart phase" tears the phase down; "Abort phase" is recorded
-          with a pointer at cancel_task.
+          "Restart phase" tears the phase down; the abort option is
+          recorded only (with a pointer at cancel_task — it does not stop
+          the still-wedged phase on its own).
 
-        Deduped on a pending decision with the same context, so a second
-        wedged slice (or a re-fired episode) never stacks duplicate
-        decisions — "Retry arms" resets every live loop of the pipeline, so
-        one decision covers them all. Best-effort throughout: an escalation
-        failure must never wedge the event loop.
+        Deduped on a pending decision with the same context: a second wedged
+        slice (or a re-fired episode) never stacks a duplicate decision AND
+        never re-broadcasts the alert — "Retry arms" resets every live loop
+        of the pipeline, so one pending decision covers them all, and a
+        re-armed per-loop latch would otherwise emit a redundant alert
+        (#3496 review). The dedup read is best-effort and outside any state
+        lock (two slices wedging on the same tick can still race past it,
+        harmless given the sticky latch); a read failure falls through to
+        escalating, since losing an escalation is worse than a possible
+        duplicate. Best-effort throughout: an escalation failure must never
+        wedge the event loop.
         """
         detail_lines = [
             (
@@ -1111,29 +1122,53 @@ class ConcurrentPhaseExecutor:
             f"key, no one-shot Job is in flight, and exhausted keys never "
             f"clear on their own. Exhausted keys:\n" + "\n".join(detail_lines)
         )
+        # Read pending decisions up front so the dedup gate covers BOTH the
+        # alert and the HITL. Best-effort: a read failure treats the pipeline
+        # as not-yet-escalated so we still surface the wedge.
+        store = None
+        try:
+            # Lazy import: routes.pipelines is too heavy to bind at module
+            # import time (same precedent as _unresolved_contract_decision_ids).
+            from routes import get_state_store_for_pipeline
+
+            store, disk_pipeline = get_state_store_for_pipeline(self.pipeline.id)
+            already_pending = any(
+                d.context == ARMS_EXHAUSTED_HITL_CONTEXT
+                for d in disk_pipeline.get_pending_decisions()
+            )
+        except Exception as exc:  # noqa: BLE001 — escalation must not wedge the loop
+            logger.warning(
+                "Failed to read pending decisions for arms-exhausted dedup; "
+                "escalating anyway",
+                pipeline_id=self.pipeline.id,
+                slice_id=self._slice_id,
+                error=str(exc),
+            )
+            already_pending = False
+
+        if already_pending:
+            logger.info(
+                "Arms-exhausted HITL already pending; not re-alerting or "
+                "stacking another",
+                pipeline_id=self.pipeline.id,
+                slice_id=self._slice_id,
+            )
+            return
+
         self._emit_supervision_alert(
             anomaly="event-arms-exhausted",
             priority="high",
             summary=f"all spawn arms exhausted for slice {slice_label} — pipeline wedged",
             detail=detail,
         )
+
+        if store is None:
+            # The dedup read failed above, so we have no store to persist the
+            # HITL through — the alert (message-bus surface) still fired.
+            return
         try:
-            # Lazy imports: routes.pipelines is too heavy to bind at module
-            # import time (same precedent as _unresolved_contract_decision_ids).
-            from routes import get_state_store_for_pipeline
             from routes.pipelines import _persist_hitl_decision
 
-            store, disk_pipeline = get_state_store_for_pipeline(self.pipeline.id)
-            if any(
-                d.context == ARMS_EXHAUSTED_HITL_CONTEXT
-                for d in disk_pipeline.get_pending_decisions()
-            ):
-                logger.info(
-                    "Arms-exhausted HITL already pending; not stacking another",
-                    pipeline_id=self.pipeline.id,
-                    slice_id=self._slice_id,
-                )
-                return
             question = (
                 f"{detail}\n\n"
                 f"How to proceed?\n"
@@ -1170,6 +1205,58 @@ class ConcurrentPhaseExecutor:
         except Exception as exc:  # noqa: BLE001 — escalation must not wedge the loop
             logger.warning(
                 "Failed to persist arms-exhausted HITL decision",
+                pipeline_id=self.pipeline.id,
+                slice_id=self._slice_id,
+                error=str(exc),
+            )
+
+    def _withdraw_arms_exhausted_hitl(self) -> None:
+        """Auto-withdraw a stale arms-exhausted HITL once the wedge clears (#3496 review).
+
+        Symmetric to :meth:`_handle_arms_exhausted`: wired as the event loop's
+        ``arms_exhausted_cleared_notifier`` and fired once on the wedged→clear
+        transition. When every derivable spawn arm recovers by a route other
+        than the operator resolving this very decision — a fresh key derived, a
+        spawn succeeded, an unrelated decision re-keyed the arms — the pending
+        HITL is obsolete, so it is retracted rather than left for the operator
+        to dispose of (mirrors ``_cancel_consensus_timeout_decisions`` on the
+        convergence-success path).
+
+        Pipeline-wide guard: the decision is deduped across slices (one
+        decision covers them all), so it must NOT be withdrawn while another
+        slice is still wedged. The calling loop clears its own latch before
+        firing this, so the live-loop registry check sees only the *other*
+        slices' latches — a still-wedged sibling holds the decision in place.
+
+        Best-effort throughout: a withdrawal failure must never wedge the loop
+        (the loop wraps this call, but the state-store work is guarded here
+        too so a partial failure is logged with context).
+        """
+        try:
+            # Lazy imports: same heavy-module reason as _handle_arms_exhausted.
+            from event_loop import get_live_event_loops
+            from routes import get_state_store_for_pipeline
+            from routes.pipelines import _withdraw_arms_exhausted_decisions
+
+            if any(
+                loop.arms_exhausted_escalated
+                for loop in get_live_event_loops(self.pipeline.id)
+            ):
+                # A sibling slice of this pipeline is still wedged on the shared
+                # decision — leave it pending for that slice to resolve.
+                return
+            store, _ = get_state_store_for_pipeline(self.pipeline.id)
+            withdrawn = _withdraw_arms_exhausted_decisions(self.pipeline.id, store)
+            if withdrawn:
+                logger.info(
+                    "Auto-withdrew stale arms-exhausted HITL after the wedge cleared",
+                    pipeline_id=self.pipeline.id,
+                    slice_id=self._slice_id,
+                    withdrawn=withdrawn,
+                )
+        except Exception as exc:  # noqa: BLE001 — withdrawal must not wedge the loop
+            logger.warning(
+                "Failed to auto-withdraw arms-exhausted HITL after wedge cleared",
                 pipeline_id=self.pipeline.id,
                 slice_id=self._slice_id,
                 error=str(exc),

@@ -17625,6 +17625,45 @@ def _cancel_consensus_timeout_decisions(pipeline: Pipeline) -> int:
     return withdrawn
 
 
+def _withdraw_arms_exhausted_decisions(pipeline_id: str, store: StateStore) -> int:
+    """Cancel any pending arms-exhausted HITL on ``pipeline_id`` (#3496 review).
+
+    The symmetric counterpart to :func:`_persist_hitl_decision` on the
+    arms-exhausted path: when the wedge clears (the blocked arms recovered by
+    a route other than the operator resolving this decision — a fresh key
+    derived, a spawn succeeded, an unrelated decision re-keyed the arms) the
+    pending ``event_arms_exhausted`` decision is obsolete, so this withdraws it
+    rather than leaving the operator to dispose of a decision the system
+    already resolved for them (mirrors :func:`_cancel_consensus_timeout_decisions`
+    on the convergence-success path).
+
+    Unlike ``_cancel_consensus_timeout_decisions`` — a pure mutator that
+    piggybacks on the convergence-success write already under the state lock —
+    the wedge-clear path has no ambient lock/load/save, so this does its own
+    load → cancel → save under ``get_pipeline_state_lock``. Returns how many
+    decisions were withdrawn (0 when none were pending, so the caller can skip
+    logging on the common no-op).
+    """
+    from concurrent_executor import ARMS_EXHAUSTED_HITL_CONTEXT
+
+    with get_pipeline_state_lock(pipeline_id):
+        disk_pipeline = store.load_pipeline(pipeline_id)
+        withdrawn = 0
+        for decision in disk_pipeline.get_pending_decisions():
+            if decision.context != ARMS_EXHAUSTED_HITL_CONTEXT:
+                continue
+            decision.status = DecisionStatus.CANCELLED
+            decision.resolution = (
+                "auto-withdrawn: the wedge cleared (blocked arms recovered) "
+                "before this decision was resolved"
+            )
+            decision.resolved_at = datetime.now(UTC)
+            withdrawn += 1
+        if withdrawn:
+            store.save_pipeline(disk_pipeline)
+    return withdrawn
+
+
 # Bound on how many times the worktree-divergence reconcile will pause
 # for the operator before giving up and failing the pipeline (#2979).
 # A small budget guards against an operator repeatedly choosing

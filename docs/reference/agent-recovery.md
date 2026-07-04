@@ -223,7 +223,9 @@ The loop now detects that wedge (`_check_arms_exhausted`, `event_loop.py`): ever
 - a **persisted HITL decision** (context `event_arms_exhausted`) carrying each exhausted key's role/action, failure streak, and recent termination history, with three options executable on resolve (`routes/decisions/_handlers.py`):
   - **Retry arms (reset spawn budgets)** — clears the exhausted keys on the pipeline's live event loop(s) through the in-process live-loop registry (`event_loop.get_live_event_loops`), giving each arm a fresh budget without tearing anything down. If the underlying failure persists the arms re-exhaust and the decision re-fires.
   - **Restart phase** — the in-process `restart_phase` call (same executor as the consensus-timeout "Retry phase", #3421).
-  - **Abort phase** — recorded with a pointer at `cancel_task` (stopping the pipeline stays an explicit operator action).
+  - **Abort (manual — recorded only)** — recorded with a pointer at `cancel_task` (stopping the pipeline stays an explicit operator action; the option label spells out that resolving it does *not* stop the still-wedged phase on its own).
+
+The escalation report is scoped to the keys currently blocking a derivable arm — stale exhausted keys from superseded BRC rounds are filtered out — and the dedup gate suppresses **both** surfaces when a decision is already pending, so a re-armed latch (after a failed retry) does not re-broadcast the alert. If the wedge later clears by another route (a fresh key is derived, a spawn succeeds, or an unrelated decision re-keys the arms) the loop auto-withdraws the now-stale HITL (`_withdraw_arms_exhausted_hitl`, mirroring the consensus-timeout auto-withdrawal), guarded against the multi-slice case so a still-wedged sibling slice holds the shared decision in place.
 
 Supervision state is per-process: an orchestrator restart already resets all streaks and exhausted keys (`JobSupervisor.reconcile`), so "Retry arms" is meaningful only against a live loop; when none exists the resolution reports that and points at "Restart phase".
 
