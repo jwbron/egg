@@ -1252,6 +1252,7 @@ __all__ = [
     "_verify_orchestrator_transition_auth",
     "_with_attribution_headers",
     "_worktree_prune_lock",
+    "app",
     "artifact_bp",
     "audit_log",
     "check_agent_gh_operation",
