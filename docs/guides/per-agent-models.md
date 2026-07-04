@@ -256,10 +256,12 @@ effect no sooner than the wall that was already in place when the slice
 started. To force-fail a wedged slice sooner, use `cancel_task` /
 `restart_phase` rather than a narrowing `PATCH`.
 
-> **Scope.** Only `agent_models` is mutable through this endpoint.
-> Most of `PipelineConfig` is consumed at submit time or mid-phase in
-> ways a partial update could corrupt; `agent_models` is safe
-> precisely because of the fresh-reload guarantee above. Widening the
+> **Scope.** Only `agent_models` and the `consensus_timeout_minutes*`
+> family are mutable through this endpoint. Most of `PipelineConfig` is
+> consumed at submit time or mid-phase in ways a partial update could
+> corrupt; these two families are safe precisely because each has its
+> own fresh-reload guarantee (agent spawn for `agent_models`, the phase
+> poll loop for `consensus_timeout_minutes*` — see above). Widening the
 > allowlist (`_MUTABLE_CONFIG_KEYS` in `orchestrator/routes/pipelines.py`)
 > requires verifying the same guarantee for the new key.
 
