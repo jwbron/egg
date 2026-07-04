@@ -16,12 +16,18 @@ from egg_contracts.models import PipelinePhase, Slice
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from slice_id_validation import SLICE_ID_PATTERN
 
-# Phase-aware fallback defaults for consensus timeout. Calibrated against
-# producer/reviewer fan-out and iteration profile per phase — see #2263.
+# Phase-aware fallback defaults for consensus timeout. Originally calibrated
+# against producer/reviewer fan-out and iteration profile per phase (#2263),
+# then widened 3-4x after the wall hard-failed verified-correct work (#3490):
+# the clock starts at slice start, so initial build time on a large slice eats
+# the review/iteration budget, and a single legitimate step on a giant slice
+# (e.g. `make test-all`) can run 30-60+ minutes (#3341). The wall is a
+# last-resort backstop against a genuinely wedged slice, not a pace-setter;
+# the #2243 progress gate already defers it while agents show live activity.
 PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN: dict[str, int] = {
-    "refine": 30,
-    "plan": 60,
-    "implement": 90,
+    "refine": 90,
+    "plan": 180,
+    "implement": 360,
 }
 
 
