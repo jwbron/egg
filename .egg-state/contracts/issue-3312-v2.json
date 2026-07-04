@@ -236,9 +236,9 @@
           "id": "task-2-4",
           "description": "Drop event_loop.py's allowlist entry; add a concrete event_loop/ seam row to orchestrator/CLAUDE.md.",
           "status": "pending",
-          "commit": null,
+          "commit": "648f30148",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Coder deliverable = allowlist drop only (commit 648f30148 removes orchestrator/event_loop.py from scripts/file-size-allowlist.yaml; ratchet exit 0). The orchestrator/CLAUDE.md event_loop/ seam ROW is coder-blocked (alternative_role=documenter) and is the documenter producer's file \u2014 mirrors slice-1's separate documenter commit 3d30f299f. Handed to documenter.",
           "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.",
           "files_affected": [
             "scripts/file-size-allowlist.yaml",
@@ -757,6 +757,28 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-2-6 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:30:16.401213Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.3.notes",
+      "old_value": "",
+      "new_value": "Coder deliverable = allowlist drop only (commit 648f30148 removes orchestrator/event_loop.py from scripts/file-size-allowlist.yaml; ratchet exit 0). The orchestrator/CLAUDE.md event_loop/ seam ROW is coder-blocked (alternative_role=documenter) and is the documenter producer's file \u2014 mirrors slice-1's separate documenter commit 3d30f299f. Handed to documenter.",
+      "reason": "Updated notes for task-2-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:30:19.024318Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.3.commit",
+      "old_value": null,
+      "new_value": "648f30148",
+      "reason": "Linked commit 648f301 to task-2-4",
       "checkpoint_id": null
     }
   ],
