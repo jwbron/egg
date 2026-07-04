@@ -487,7 +487,7 @@
       "id": "slice-4",
       "name": "Decompose orchestrator/routes/pipelines.py (30,520 lines, STRUCTURAL OUTLIER, OVER BYTE CAP): _run_pipeline split (#3312 slice-19 equivalent, non-negotiable #7)",
       "goal": "Decompose `orchestrator/routes/pipelines.py` (30,520 lines / 1.44 MB) into a sub-package; drop the LAST allowlist entry (files: map EMPTY); seam coverage in orchestrator/CLAUDE.md. Depends on the previous slice (single linear chain). Closes #3312.",
-      "status": "pending",
+      "status": "in_progress",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -626,8 +626,8 @@
         "slice-3"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3312-v2/slice-3",
+      "integration_base_sha": "64fa3077375a9f297d97842ab0187ade87d0e3c9",
       "commit": null,
       "pr_number": null,
       "pr_url": null,
@@ -661,10 +661,10 @@
           "adds_task": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "Mark slice complete and continue. Slice-3 reached consensus (8/8 confirmed), was marked COMPLETE basis=consensus_complete, and PR 3503 was auto-created; the unclassifiable state was an artifact of bootstrap reconciliation racing the reboot.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-04T23:36:19.999498Z",
       "debounce_until": null,
       "redirect_seed": null
     },
