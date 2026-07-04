@@ -257,7 +257,7 @@
         {
           "id": "task-2-5",
           "description": "R3 container-packaging mitigation (SAME SLICE). Same non-recursive glob as slice 1 (orchestrator/Dockerfile:44). Add an explicit `COPY orchestrator/event_loop/ ./event_loop/` line; BUILD the orchestrator image and smoke-check `python -c 'import event_loop'` inside it.",
-          "status": "pending",
+          "status": "complete",
           "commit": "648f30148",
           "checkpoint_id": null,
           "notes": "",
@@ -724,6 +724,17 @@
       "old_value": null,
       "new_value": "648f30148",
       "reason": "Linked commit 648f301 to task-2-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:30:02.255662Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.4.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-5 as complete",
       "checkpoint_id": null
     }
   ],
