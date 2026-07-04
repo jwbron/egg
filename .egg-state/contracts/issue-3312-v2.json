@@ -408,7 +408,7 @@
           "id": "task-3-5",
           "description": "Drop gateway.py's allowlist entry; author the concrete gateway/ submodule layout rows in gateway/CLAUDE.md's seam table.",
           "status": "pending",
-          "commit": null,
+          "commit": "3a85636d6",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Allowlist entry removed; gateway/CLAUDE.md carries the concrete submodule layout; lint ratchet passes.",
@@ -922,6 +922,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-3-6 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T03:48:07.676959Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.4.commit",
+      "old_value": null,
+      "new_value": "3a85636d6",
+      "reason": "Linked commit 3a85636 to task-3-5",
       "checkpoint_id": null
     }
   ],
