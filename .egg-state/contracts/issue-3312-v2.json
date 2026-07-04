@@ -215,7 +215,7 @@
           "id": "task-2-3",
           "description": "Apply the method-modules-on-class pattern (section-(c)) per issue #3447: the module is class-dominated (EventDecision L331, JobSupervisor L353, OrchestratorEventLoop L990). Keep class definitions + __init__ in the barrel; move method bodies to responsibility-grouped private submodules as module-level functions taking self, bound back onto the class in the barrel (matching the landed state_store/, peer_consensus/, kubernetes_spawner/ slices). Explicit per-symbol re-export barrel preserving every external symbol and patch target.",
           "status": "pending",
-          "commit": null,
+          "commit": "648f30148",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "All submodules <=1500 lines / <=100KB; class identities stay on the event_loop module path; barrel re-exports every external symbol; patch('event_loop.*') targets resolve.",
@@ -691,6 +691,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-2-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:29:54.335456Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.commit",
+      "old_value": null,
+      "new_value": "648f30148",
+      "reason": "Linked commit 648f301 to task-2-3",
       "checkpoint_id": null
     }
   ],
