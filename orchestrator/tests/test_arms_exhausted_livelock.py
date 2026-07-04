@@ -726,9 +726,7 @@ class TestArmsExhaustedWithdrawal:
     @patch("routes.pipelines._withdraw_arms_exhausted_decisions", return_value=1)
     @patch("routes.get_state_store_for_pipeline")
     @patch("event_loop.get_live_event_loops", return_value=[])
-    def test_withdraw_runs_when_no_sibling_wedged(
-        self, mock_loops, mock_get_state, mock_withdraw
-    ):
+    def test_withdraw_runs_when_no_sibling_wedged(self, mock_loops, mock_get_state, mock_withdraw):
         mock_get_state.return_value = (MagicMock(), MagicMock())
         executor = _make_executor()
         executor._withdraw_arms_exhausted_hitl()

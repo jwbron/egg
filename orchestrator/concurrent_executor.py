@@ -1138,8 +1138,7 @@ class ConcurrentPhaseExecutor:
             )
         except Exception as exc:  # noqa: BLE001 — escalation must not wedge the loop
             logger.warning(
-                "Failed to read pending decisions for arms-exhausted dedup; "
-                "escalating anyway",
+                "Failed to read pending decisions for arms-exhausted dedup; escalating anyway",
                 pipeline_id=self.pipeline.id,
                 slice_id=self._slice_id,
                 error=str(exc),
@@ -1148,8 +1147,7 @@ class ConcurrentPhaseExecutor:
 
         if already_pending:
             logger.info(
-                "Arms-exhausted HITL already pending; not re-alerting or "
-                "stacking another",
+                "Arms-exhausted HITL already pending; not re-alerting or stacking another",
                 pipeline_id=self.pipeline.id,
                 slice_id=self._slice_id,
             )
@@ -1239,8 +1237,7 @@ class ConcurrentPhaseExecutor:
             from routes.pipelines import _withdraw_arms_exhausted_decisions
 
             if any(
-                loop.arms_exhausted_escalated
-                for loop in get_live_event_loops(self.pipeline.id)
+                loop.arms_exhausted_escalated for loop in get_live_event_loops(self.pipeline.id)
             ):
                 # A sibling slice of this pipeline is still wedged on the shared
                 # decision — leave it pending for that slice to resolve.
