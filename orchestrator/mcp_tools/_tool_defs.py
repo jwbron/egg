@@ -478,34 +478,43 @@ PIPELINE_TOOLS = [
                         "the role's override."
                     ),
                 },
+                # The timeout params use "0 clears" rather than the REST
+                # endpoint's "null clears": FastMCP materializes omitted
+                # optional params as None before the handler runs, so an
+                # explicit null is indistinguishable from "not provided"
+                # over this transport (#3499).
                 "consensus_timeout_minutes": {
-                    "type": ["integer", "null"],
+                    "type": "integer",
                     "description": (
                         "Legacy global consensus timeout in minutes (>= 1). "
-                        "Applies to every phase when set; null clears the "
+                        "Applies to every phase when set; 0 clears the "
                         "override so each phase falls back to its per-phase "
-                        "override or phase-aware default."
+                        "override or phase-aware default; omit to leave "
+                        "unchanged."
                     ),
                 },
                 "consensus_timeout_minutes_refine": {
-                    "type": ["integer", "null"],
+                    "type": "integer",
                     "description": (
                         "Per-phase consensus timeout for refine, in minutes "
-                        "(>= 1); null clears the override."
+                        "(>= 1); 0 clears the override; omit to leave "
+                        "unchanged."
                     ),
                 },
                 "consensus_timeout_minutes_plan": {
-                    "type": ["integer", "null"],
+                    "type": "integer",
                     "description": (
                         "Per-phase consensus timeout for plan, in minutes "
-                        "(>= 1); null clears the override."
+                        "(>= 1); 0 clears the override; omit to leave "
+                        "unchanged."
                     ),
                 },
                 "consensus_timeout_minutes_implement": {
-                    "type": ["integer", "null"],
+                    "type": "integer",
                     "description": (
                         "Per-phase consensus timeout for implement, in "
-                        "minutes (>= 1); null clears the override."
+                        "minutes (>= 1); 0 clears the override; omit to "
+                        "leave unchanged."
                     ),
                 },
             },

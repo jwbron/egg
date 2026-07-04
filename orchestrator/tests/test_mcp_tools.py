@@ -3412,8 +3412,7 @@ class TestUpdatePipelineConfig:
             assert key in properties
 
     def test_consensus_timeout_keys_passed_through(self, handler):
-        """Timeout overrides (#3490) reach the PATCH body, including an
-        explicit null that clears an override."""
+        """Timeout overrides (#3490) reach the PATCH body."""
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.return_value = {"success": True, "data": {}}
             result = handler.handle_tool_call(
@@ -3421,22 +3420,87 @@ class TestUpdatePipelineConfig:
                 {
                     "task_id": "issue-77",
                     "consensus_timeout_minutes_implement": 480,
-                    "consensus_timeout_minutes": None,
                 },
             )
 
         assert mock_req.call_args[1]["data"] == {
             "consensus_timeout_minutes_implement": 480,
-            "consensus_timeout_minutes": None,
         }
         assert result["updated"] is True
 
-    def test_no_mutable_keys_rejected_without_request(self, handler):
+    def test_none_timeout_means_unchanged_not_clear(self, handler):
+        """FastMCP materializes omitted optional params as None before
+        the handler runs, so None must be skipped — forwarding it would
+        clear every timeout override on every call (#3499)."""
         with patch.object(handler, "_make_request") as mock_req:
-            result = handler.handle_tool_call(
+            mock_req.return_value = {"success": True, "data": {}}
+            handler.handle_tool_call(
                 "update_pipeline_config",
-                {"task_id": "issue-77"},
+                {
+                    "task_id": "issue-77",
+                    "agent_models": {"coder": "opus"},
+                    "consensus_timeout_minutes": None,
+                    "consensus_timeout_minutes_refine": None,
+                    "consensus_timeout_minutes_plan": None,
+                    "consensus_timeout_minutes_implement": None,
+                },
             )
+
+        assert mock_req.call_args[1]["data"] == {"agent_models": {"coder": "opus"}}
+
+    def test_zero_timeout_clears_override(self, handler):
+        """0 is the MCP-side clear sentinel (mapped to the REST PATCH's
+        null); valid set values are >= 1 so 0 is unambiguous."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True, "data": {}}
+            handler.handle_tool_call(
+                "update_pipeline_config",
+                {
+                    "task_id": "issue-77",
+                    "consensus_timeout_minutes_implement": 0,
+                },
+            )
+
+        assert mock_req.call_args[1]["data"] == {
+            "consensus_timeout_minutes_implement": None,
+        }
+
+    def test_false_timeout_is_not_treated_as_clear(self, handler):
+        """``False == 0`` in Python; a bool must NOT map to the clear
+        sentinel — it passes through so the route rejects it with its
+        structured validation error."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True, "data": {}}
+            handler.handle_tool_call(
+                "update_pipeline_config",
+                {
+                    "task_id": "issue-77",
+                    "consensus_timeout_minutes": False,
+                },
+            )
+
+        assert mock_req.call_args[1]["data"] == {"consensus_timeout_minutes": False}
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            {"task_id": "issue-77"},
+            # All-None timeout args are what FastMCP delivers when the
+            # caller provided nothing — must be "no mutable keys", not
+            # a PATCH that clears all four overrides (#3499).
+            {
+                "task_id": "issue-77",
+                "agent_models": None,
+                "consensus_timeout_minutes": None,
+                "consensus_timeout_minutes_refine": None,
+                "consensus_timeout_minutes_plan": None,
+                "consensus_timeout_minutes_implement": None,
+            },
+        ],
+    )
+    def test_no_mutable_keys_rejected_without_request(self, handler, args):
+        with patch.object(handler, "_make_request") as mock_req:
+            result = handler.handle_tool_call("update_pipeline_config", args)
 
         assert "error" in result
         mock_req.assert_not_called()

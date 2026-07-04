@@ -243,9 +243,14 @@ and shouldn't be needed now that the scoped surface exists.
 The same endpoint and MCP tool also accept the
 `consensus_timeout_minutes` family (`consensus_timeout_minutes`,
 `consensus_timeout_minutes_refine` / `_plan` / `_implement`): an
-integer number of minutes (>= 1) sets the override, an explicit `null`
-clears it (the phase falls back to the resolution chain: per-phase
-override, then legacy global, then the phase-aware default). Unlike
+integer number of minutes (>= 1) sets the override; clearing it makes
+the phase fall back to the resolution chain (per-phase override, then
+legacy global, then the phase-aware default). How you clear depends on
+the surface: the REST `PATCH` takes an explicit `null`, while the MCP
+tool takes `0` — FastMCP materializes omitted optional params as
+`None` before the tool handler runs, so over MCP an explicit `null` is
+indistinguishable from "not provided" and is treated as "leave
+unchanged" (#3499). Unlike
 `agent_models`, no restart is needed: the phase poll loop re-resolves
 the budget from freshly-loaded config right before the consensus wall
 fires, so an operator watching a long-running slice can widen the
