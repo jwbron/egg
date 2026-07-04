@@ -314,7 +314,7 @@
       "id": "slice-3",
       "name": "Decompose gateway/gateway.py (10,648 lines, STRUCTURAL OUTLIER, OVER BYTE CAP): Flask @app.route seam (#3312 slice-18 equivalent)",
       "goal": "Decompose `gateway/gateway.py` (10,648 lines / 419 KB) into a sub-package; drop its allowlist entry; seam coverage in gateway/CLAUDE.md. Depends on the previous slice (single linear chain).",
-      "status": "pending",
+      "status": "in_progress",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -323,7 +323,7 @@
         {
           "id": "task-3-1",
           "description": "External-importer audit (section-(d)) for gateway.py: ~35 files reference gateway.gateway / import gateway (incl. config_validator.py); re-run the audit live. Enumerate every @app.route handler and every externally-referenced helper (e.g. get_anthropic_client).",
-          "status": "pending",
+          "status": "complete",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
@@ -475,8 +475,8 @@
         "slice-2"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3312-v2/slice-2",
+      "integration_base_sha": "6be7c255d001f3cf5782d371b26d3480661d18c9",
       "commit": null,
       "pr_number": null,
       "pr_url": null,
@@ -823,6 +823,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-2-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T03:47:37.155363Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-1 as complete",
       "checkpoint_id": null
     }
   ],
