@@ -48,6 +48,22 @@
       "repo": null,
       "role": "documenter"
     },
+    "429e55873ab9183a38ba7739b7845230c0ce0cd2": {
+      "branch": "egg/issue-3312-v2/slice-4",
+      "patch_id": "4e7ad2f1668f5e16ddfcbd48640d175172f33690",
+      "pipeline_id": "issue-3312-v2",
+      "registered_at": "2026-07-05T19:37:54.941313+00:00",
+      "repo": null,
+      "role": "coder"
+    },
+    "44bbd229c48efa2dfe45d8b585eb69ff636ca150": {
+      "branch": "egg/issue-3312-v2/slice-4",
+      "patch_id": "1b024e5061b7343ddf1417e3c2e7eec8c19e0931",
+      "pipeline_id": "issue-3312-v2",
+      "registered_at": "2026-07-05T19:37:54.955593+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "46536d7cc0ea185b02604365c258d960a576d8dc": {
       "branch": "egg/issue-3312-v2/slice-4",
       "patch_id": "dca126c4873f634436fa9f4652ea0c9143eed4b0",
@@ -61,6 +77,14 @@
       "patch_id": "7958d6eea84cde919a7fac5162cf7c0b68aa0a93",
       "pipeline_id": "issue-3312-v2",
       "registered_at": "2026-07-04T00:07:52.230875+00:00",
+      "repo": null,
+      "role": "coder"
+    },
+    "54252753bb9edc8ae19c76890377d406470b12af": {
+      "branch": "egg/issue-3312-v2/slice-4",
+      "patch_id": "feaafa0127d8e8812da4291fb78302a8b6018cb3",
+      "pipeline_id": "issue-3312-v2",
+      "registered_at": "2026-07-05T19:37:54.935036+00:00",
       "repo": null,
       "role": "coder"
     },
@@ -141,6 +165,14 @@
       "patch_id": "feaafa0127d8e8812da4291fb78302a8b6018cb3",
       "pipeline_id": "issue-3312-v2",
       "registered_at": "2026-07-05T18:17:32.233352+00:00",
+      "repo": null,
+      "role": "coder"
+    },
+    "7613b4b65bcc2e445bef7d21d60143fb6471a606": {
+      "branch": "egg/issue-3312-v2/slice-4",
+      "patch_id": "dca126c4873f634436fa9f4652ea0c9143eed4b0",
+      "pipeline_id": "issue-3312-v2",
+      "registered_at": "2026-07-05T19:37:54.951095+00:00",
       "repo": null,
       "role": "coder"
     },
@@ -229,6 +261,14 @@
       "patch_id": "feaafa0127d8e8812da4291fb78302a8b6018cb3",
       "pipeline_id": "issue-3312-v2",
       "registered_at": "2026-07-05T19:07:55.088407+00:00",
+      "repo": null,
+      "role": "coder"
+    },
+    "cd41efe5898fb62635a811464015bf5d42308801": {
+      "branch": "egg/issue-3312-v2/slice-4",
+      "patch_id": "829a94657b94dc427a4986ee6dd2eaaf36812244",
+      "pipeline_id": "issue-3312-v2",
+      "registered_at": "2026-07-05T19:37:54.946239+00:00",
       "repo": null,
       "role": "coder"
     },
