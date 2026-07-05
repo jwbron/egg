@@ -2677,7 +2677,7 @@ def _make_worktree(base, worktree_id, repo_name, branch, *, with_origin=False):
 
     When ``with_origin`` is set, also create a bare ``origin`` repo, wire it as
     the ``origin`` remote, and push *branch* so ``origin/<branch>`` exists (the
-    hard-sync target). Returns ``(repo_path, origin_path_or_None)``.
+    sync/reset target). Returns ``(repo_path, origin_path_or_None)``.
     """
     repo = Path(base) / worktree_id / repo_name
     repo.mkdir(parents=True)
