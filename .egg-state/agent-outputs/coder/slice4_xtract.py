@@ -244,12 +244,15 @@ def main() -> int:
         for node in seg_tree.body:
             walk(node, [])
 
-        # Apply insertions right-to-left.
+        # Apply insertions right-to-left. NOTE: ast col_offset is a UTF-8 BYTE
+        # offset, so slice on the encoded bytes (lines with multibyte chars —
+        # em-dashes, curly quotes — otherwise shift the insert into the middle
+        # of an identifier).
         inserts = sorted(set(inserts), reverse=True)
         buf = list(seg_lines)
         for lineno, col in inserts:
-            line = buf[lineno - 1]
-            buf[lineno - 1] = line[:col] + "_pkg." + line[col:]
+            lb = buf[lineno - 1].encode("utf-8")
+            buf[lineno - 1] = (lb[:col] + b"_pkg." + lb[col:]).decode("utf-8")
         return "".join(buf)
 
     extracted_parts = []
