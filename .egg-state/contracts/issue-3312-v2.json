@@ -709,29 +709,34 @@
         {
           "id": "opt-1",
           "label": "Re-slice slice-4 into ~6-8 smaller sub-slices (one sub-package cluster per slice, e.g. _criteria/_prompt_building/_brc_history/_context_pr/_slice_state/_concurrent/_run_loop), each completable in one invocation \u2014 mirrors how #3312's first run landed 17/19 slices as separate PRs. RECOMMENDED.",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-2",
           "label": "Disable the per-invocation worktree reset for the coder producer on slice-4 so partial verified commits accumulate across invocations toward a single PR.",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-3",
           "label": "Keep attempting the monolithic single-invocation decomposition unchanged (status quo \u2014 expected to keep crashing at exit_code=75).",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-4",
           "label": "Other (explain in reply)",
-          "description": null
+          "description": null,
+          "adds_task": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
-      "debounce_until": null
+      "resolved": true,
+      "resolution": "Other: the structural incompatibility is FIXED as of build eca7ca740 (PR 3507, issue 3506): worktree re-attach is now fast-forward-aware and PRESERVES clean unpushed agent commits that descend from the slice base. Your diagnosis was correct and drove the fix. Proceed with the monolithic slice-4 decomposition INCREMENTALLY across invocations toward the single PR: (1) work in verified checkpoints, committing after each cohesive cluster extraction; commits now persist across invocations; (2) ALSO push to egg/issue-3312-v2/slice-4 at the end of every invocation for durability (pushes to your slice branch are permitted pre-propose, as slices 1-3 demonstrated); (3) your pure-move baseline 0228f4a9f is still in the object store and is a clean fast-forward of the current base 64fa30773: cherry-pick it (or redo the git mv) as your first step; (4) no re-slicing: scope and slice structure stay as contracted. If invocations still exhaust the runtime before a commit-able checkpoint, shrink the per-invocation bite, not the slice. Re-slicing remains the fallback only if incremental accumulation demonstrably fails under the new semantics.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-05T17:37:20.029028Z",
+      "debounce_until": null,
+      "redirect_seed": null
     }
   ],
   "workflow_owner": null,
