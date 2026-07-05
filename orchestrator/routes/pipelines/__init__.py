@@ -483,22 +483,6 @@ except Exception:  # pragma: no cover - metrics best-effort
     _inflight_host_waits = None
 
 
-def _track_host_wait_start() -> None:
-    if _inflight_host_waits is not None:
-        try:
-            _inflight_host_waits.inc()
-        except Exception:  # pragma: no cover
-            pass
-
-
-def _track_host_wait_end() -> None:
-    if _inflight_host_waits is not None:
-        try:
-            _inflight_host_waits.dec()
-        except Exception:  # pragma: no cover
-            pass
-
-
 # -----------------------------------------------------------------
 # Cursor protocol for /status/wait  (issue #1932 TASK-1-2).
 #
@@ -559,127 +543,6 @@ _STATUS_WAIT_MESSAGE_TYPES = (
 )
 
 
-def _parse_status_wait_cursor(
-    raw: str | None,
-) -> tuple[bool, str | None, int | None]:
-    """Parse a ``/status/wait`` cursor.
-
-    Returns ``(ok, msg_since_id, event_since_seq)`` where either half
-    may be ``None`` (meaning "snap to tip on this source").  ``ok``
-    is False only for a syntactically malformed cursor — the route
-    returns 400 in that case.  An empty / missing cursor is treated
-    as "snap to tip on both sources" (``ok=True, None, None``).
-    """
-    if raw is None or raw == "":
-        return True, None, None
-    match = _STATUS_WAIT_CURSOR_RE.match(raw)
-    if not match:
-        return False, None, None
-    msg_part = match.group(1)
-    evt_part = match.group(2)
-    msg_since_id = msg_part if msg_part else None
-    event_since_seq: int | None = None
-    if evt_part:
-        try:
-            event_since_seq = int(evt_part)
-        except ValueError:  # pragma: no cover — the regex guarantees digits/-
-            event_since_seq = None
-    return True, msg_since_id, event_since_seq
-
-
-def _build_status_wait_cursor(
-    msg_tip_id: str | None,
-    event_tip_seq: int,
-) -> str:
-    """Format a cursor for a ``/status/wait`` response.
-
-    Both halves are emitted — the consumer treats empty halves as
-    "snap to tip" on the next call, matching ``_parse_status_wait_cursor``.
-    """
-    msg_part = msg_tip_id or ""
-    return f"msg:{msg_part}|evt:{event_tip_seq}"
-
-
-def _message_store_tip_id(pipeline_id: str) -> str | None:
-    """Best-effort read of the message-store tip ID for a pipeline.
-
-    Used to build the initial / terminal cursor when the route
-    returns without matching a message.  Returns ``None`` when the
-    store has no messages yet — the caller formats this as the
-    empty ``msg:`` half of the compound cursor.
-
-    Three distinct conditions all collapse to ``None`` here and
-    callers cannot distinguish between them:
-
-    1. **Store import failure** — the message-store module is not
-       loadable in this process (test harness without Redis,
-       packaging skew). Pre-PR / post-#2464: same behavior.
-    2. **Transient ``get_latest_id`` failure** — e.g.,
-       :class:`redis.RedisError` from ``XREVRANGE`` on a connection
-       blip. ``RedisMessageStore.get_latest_id`` already catches
-       this and returns ``None``, so we see "no tip". This conflates
-       a transient error with a genuinely empty store; #2464's fix
-       at the call site (``_message_store_tip_id() or msg_since_id``
-       removal) drops the consumer's cursor on this transient as
-       well, which is a small behavioral regression vs. pre-PR
-       graceful-degradation behavior. Acceptable in practice
-       because transient Redis errors degrade many other paths
-       simultaneously, but worth knowing.
-    3. **Empty store** — the ``/status/wait`` post-clear case the
-       PR is fixing. Returning ``None`` lets the route emit an
-       empty ``msg:`` half so the consumer doesn't re-feed the
-       dead cursor.
-    """
-    try:
-        store = _get_message_store()()
-    except Exception:  # pragma: no cover — store may not be importable
-        return None
-    try:
-        return store.get_latest_id(pipeline_id)
-    except Exception:
-        return None
-
-
-def _build_minimal_status_envelope(
-    pipeline: Pipeline,
-    cursor: str,
-) -> dict[str, Any]:
-    """Compute the small envelope used on both wait paths.
-
-    Ships ``current_phase`` / ``status`` / ``phase_elapsed_seconds``
-    so dashboards can refresh cheaply on a timeout without paying
-    for a second round-trip.  ``concurrent.consensus`` is also
-    included (R5 mitigation from the refine phase) so the host
-    does not miss a BRC state change during a quiet interval.
-    """
-    phase_key = pipeline.current_phase.value if pipeline.current_phase else ""
-    phase_data = pipeline.phases.get(phase_key, None)
-    envelope: dict[str, Any] = {
-        "current_phase": phase_key,
-        "status": pipeline.status.value if pipeline.status else "",
-        "cursor": cursor,
-    }
-    if phase_data is not None:
-        started_at = getattr(phase_data, "started_at", None)
-        if started_at:
-            try:
-                if isinstance(started_at, str):
-                    started_dt = datetime.fromisoformat(started_at)
-                else:
-                    started_dt = started_at
-                if started_dt.tzinfo is None:
-                    started_dt = started_dt.replace(tzinfo=UTC)
-                elapsed = int((datetime.now(UTC) - started_dt).total_seconds())
-                envelope["phase_elapsed_seconds"] = max(0, elapsed)
-            except ValueError, TypeError, AttributeError:
-                pass
-
-    concurrent_data = _get_concurrent_status(pipeline)
-    if concurrent_data and "consensus" in concurrent_data:
-        envelope["concurrent"] = {"consensus": concurrent_data["consensus"]}
-    return envelope
-
-
 # ---------------------------------------------------------------------------
 # Overseer authority plane (#2270 slice-6, §4) — the orchestrator-side seams the
 # CorrectiveExecutor dispatches to. The overseer ADVISES (returns a verdict); the
@@ -698,104 +561,6 @@ WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
 # Sentinel header used in tester gap summaries. Checked in prompt-building
 # functions to adapt language when tester findings are present.
 TESTER_FINDINGS_HEADER = "### tester findings"
-
-
-def _ensure_pipeline_work_ref(branch: str | None) -> str | None:
-    """Return the actual remote ref for an orchestrator-managed pipeline branch.
-
-    The orchestrator pushes the pipeline tip to ``<branch>/work`` so the
-    ``<branch>/`` namespace can hold slice integration branches as
-    siblings (``<branch>/slice-N``) without git's ``directory file
-    conflict`` rejection — see #2399. A leaf ref at ``<branch>`` and a
-    child at ``<branch>/slice-N`` cannot coexist on origin, so the
-    pipeline tip is moved one level deeper into the namespace.
-
-    Idempotent and bounded to ``egg/<id>``-shaped branches:
-
-    * ``None`` → ``None`` (prompt-driven; the caller generates a
-      ``/work``-shaped branch later).
-    * ``egg/<id>`` → ``egg/<id>/work`` (issue submissions).
-    * ``egg/<id>/work`` → unchanged (resubmission, internal callers).
-    * non-``egg/`` (passed unchanged) — a pipeline pointed at a foreign
-      branch (e.g. ``feature/foo``). Slices on a non-``egg/`` branch are
-      not a guaranteed-safe shape and are intentionally not normalised
-      here — the conflict would resurface at the slice push and is
-      tracked separately.
-
-    The trailing-``/work`` check is structural rather than a plain
-    suffix match (``branch.count("/") >= 2 and branch.rsplit("/", 1)[1]
-    == "work"``) so a degenerate input like ``egg/work`` — a single
-    segment that *happens* to end in ``/work`` — gets normalised to
-    ``egg/work/work`` (siblings ``egg/work/slice-N``) rather than
-    treated as already-normalised. Trailing slashes are stripped first
-    so ``egg/`` does not collapse to a double-slash ``egg//work``.
-    """
-    if branch is None:
-        return None
-    branch = branch.rstrip("/")
-    if not branch.startswith("egg/"):
-        return branch
-    # Structural check: only treat ``egg/<id>/work`` (≥2 slashes, last
-    # segment is ``work``) as already-normalised. ``egg/work`` looks
-    # like a suffix match but is a single-segment id and still needs the
-    # ``/work`` namespace deepening.
-    if branch.count("/") >= 2 and branch.rsplit("/", 1)[1] == "work":
-        return branch
-    return f"{branch}/work"
-
-
-def _slice_namespace_root(pipeline_branch: str) -> str:
-    """Return the slice-integration-branch namespace root for a pipeline branch.
-
-    Slice integration branches live as siblings of the pipeline tip
-    under ``egg/<id>/`` (see :func:`_ensure_pipeline_work_ref`). The
-    namespace root is the pipeline branch with the trailing ``/work``
-    stripped — that's the prefix slice paths (``<root>/slice-N``) are
-    built from. For legacy / non-normalised branches that do not end in
-    ``/work``, the branch itself is the root.
-
-    The trailing-``/work`` check mirrors the structural check in
-    :func:`_ensure_pipeline_work_ref` (≥2 slashes, last segment is
-    ``work``) so a degenerate single-segment input like ``egg/work``
-    is treated as the root itself rather than collapsing to ``egg``.
-    """
-    if pipeline_branch.count("/") >= 2 and pipeline_branch.rsplit("/", 1)[1] == "work":
-        return pipeline_branch.rsplit("/", 1)[0]
-    return pipeline_branch
-
-
-def _pipeline_identifier(
-    issue_number: int | None,
-    pipeline_id: str,
-) -> int | str:
-    """Derive the pipeline identifier used for namespaced .egg-state filenames.
-
-    Prefers ``issue_number`` when available, falling back to ``pipeline_id``.
-
-    A pipeline whose id carries a qualifier beyond the bare ``issue-<N>``
-    form (e.g. ``issue-1557-v2`` for a versioned re-run) keys by
-    ``pipeline_id`` instead, so concurrent pipelines on the same issue
-    don't collide on ``.egg-state/drafts/<N>-analysis.md``.
-    """
-    if pipeline_id and issue_number is not None:
-        expected_issue_prefix = f"issue-{issue_number}"
-        if pipeline_id.startswith(expected_issue_prefix + "-"):
-            # A qualifier is present beyond the bare ``issue-<N>`` form;
-            # key by pipeline_id so concurrent runs on the same issue do
-            # not collide on draft files.
-            return pipeline_id
-    return issue_number if issue_number is not None else pipeline_id
-
-
-def _brc_history_identifier(pipeline) -> int | str:
-    """Return the identifier used to namespace BRC-history artifacts.
-
-    Mirrors :func:`_pipeline_identifier` (favouring the issue number).
-    """
-    return _pipeline_identifier(
-        getattr(pipeline, "issue_number", None),
-        getattr(pipeline, "id", "") or "",
-    )
 
 
 # Network constants for sandbox container URLs
@@ -881,26 +646,6 @@ if _emit_event is not None:
     }
 
 
-def _emit_pipeline_event(
-    pipeline: Pipeline,
-    event_type_str: str,
-) -> None:
-    """Emit a pipeline event to the EventBus for SSE streaming."""
-    if _emit_event is None:
-        return
-    mapped = _EVENT_TYPE_MAP.get(event_type_str)
-    if mapped is None:
-        return
-    _emit_event(
-        mapped,
-        pipeline.id,
-        data={
-            "status": pipeline.status.value,
-            "phase": pipeline.current_phase.value,
-        },
-    )
-
-
 # Import visualization modules for DAG endpoint
 try:
     from dag_visualizer import (
@@ -961,72 +706,6 @@ def make_success_response(
     if data:
         response["data"] = data
     return jsonify(response), 200
-
-
-def _resolve_pipeline(pipeline_id: str, base_path: Path) -> tuple[StateStore, Pipeline]:
-    """Load a pipeline, resolving the correct repo subdirectory.
-
-    Each repo has its own state store and worktree.  This function
-    searches all repos under ``base_path`` to find the pipeline.
-
-    Returns:
-        (store, pipeline) tuple
-
-    Raises:
-        PipelineNotFoundError: if the pipeline cannot be found anywhere
-        InvalidPipelineIdError: if the ID format is invalid
-        GitOperationError: if the state-store worktree cannot be loaded
-            (e.g. ``git worktree add`` contention).  Callers should
-            surface this as 500, not 404 — it is recoverable
-            infrastructure failure, not a missing pipeline.
-    """
-    from state_store import discover_repo_paths
-
-    for repo_path in discover_repo_paths(base_path):
-        try:
-            store = get_state_store(repo_path)
-            pipeline = store.load_pipeline(pipeline_id)
-            return store, pipeline
-        except PipelineNotFoundError:
-            continue
-        # NOTE: do NOT broaden this to ``StateStoreError``.  Swallowing
-        # ``GitOperationError`` here re-raised every state-store wedge
-        # as ``Pipeline not found`` and surfaced to operators as 404,
-        # masking a recoverable git contention as a missing pipeline
-        # (#2167).  Let infrastructure failures propagate so the route
-        # can return 500 with the actual error.
-
-    raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found") from None
-
-
-def _collect_all_pipelines(base_path: Path) -> list:
-    """Collect pipelines from all git repos under base_path.
-
-    Each repo has its own state store and worktree. Pipelines are
-    deduplicated by ID in case of overlapping stores.
-    """
-    from state_store import discover_repo_paths
-
-    seen: set[str] = set()
-    pipelines = []
-
-    def _add_from_store(store):
-        for pid in store.list_pipelines():
-            if pid in seen:
-                continue
-            try:
-                pipelines.append(store.load_pipeline(pid))
-                seen.add(pid)
-            except StateStoreError:
-                continue
-
-    for repo_path in discover_repo_paths(base_path):
-        try:
-            _add_from_store(get_state_store(repo_path))
-        except StateStoreError:
-            continue
-
-    return pipelines
 
 
 @pipelines_bp.route("", methods=["GET"])
@@ -3737,67 +3416,6 @@ def _restart_refine_phase(
         agents_to_restart=agents_to_restart,
     )
     return agents_to_restart
-
-
-def _filter_salvage_worktrees(
-    worktrees: list[Any],
-    *,
-    agent_role: str | None,
-    slice_id: str | None,
-) -> list[Any]:
-    """Filter ``enumerate_agent_worktrees`` output by role / slice scope.
-
-    ``agent_role`` and ``slice_id`` may both be ``None`` (return all) or
-    set together to scope down to one specific worktree. ``agent_role``
-    set with ``slice_id=None`` matches non-slice per-agent worktrees.
-    The pipeline-level worktree (``agent_role=None`` on the worktree)
-    is included only when the caller did not specify ``agent_role``.
-    """
-    out = []
-    for wt in worktrees:
-        if agent_role is not None and wt.agent_role != agent_role:
-            continue
-        if slice_id is not None and wt.slice_id != slice_id:
-            continue
-        out.append(wt)
-    return out
-
-
-def _serialize_commit_report(report: Any) -> dict[str, Any]:
-    """Convert a ``WorktreeCommitReport`` to a JSON-safe dict."""
-    return {
-        "worktree_id": report.worktree.worktree_id,
-        "agent_role": report.worktree.agent_role,
-        "slice_id": report.worktree.slice_id,
-        "local_branch": report.worktree.local_branch,
-        "assigned_branch": report.assigned_branch,
-        "anchor_ref": report.anchor_ref,
-        "commits": [
-            {
-                "sha": c.sha,
-                "summary": c.summary,
-                "author": c.author,
-                "authored_at": c.authored_at,
-                "files_changed": c.files_changed,
-            }
-            for c in report.commits
-        ],
-        "error": report.error,
-    }
-
-
-def _serialize_salvage_result(result: Any) -> dict[str, Any]:
-    """Convert a ``SalvageResult`` to a JSON-safe dict."""
-    return {
-        "worktree_id": result.worktree_id,
-        "agent_role": result.agent_role,
-        "slice_id": result.slice_id,
-        "recovery_ref": result.recovery_ref,
-        "head_sha": result.head_sha,
-        "n_commits": result.n_commits,
-        "ok": result.ok,
-        "error": result.error,
-    }
 
 
 @pipelines_bp.route("/<pipeline_id>/local-commits", methods=["GET"])
@@ -14117,12 +13735,26 @@ from ._prompt_reviewer import (  # noqa: E402,F401
     _build_reviewer_preparation,
     _re_review_priming_block,
 )
+from ._resolve import (  # noqa: E402,F401
+    _brc_history_identifier,
+    _collect_all_pipelines,
+    _emit_pipeline_event,
+    _ensure_pipeline_work_ref,
+    _pipeline_identifier,
+    _resolve_pipeline,
+    _slice_namespace_root,
+)
 
 # reviews helpers live in _reviews.py (#3312 slice-4); re-exported here.
 from ._reviews import (  # noqa: E402,F401
     _aggregate_review_verdicts,
     _read_review_verdict,
     _read_tester_gaps,
+)
+from ._salvage import (  # noqa: E402,F401
+    _filter_salvage_worktrees,
+    _serialize_commit_report,
+    _serialize_salvage_result,
 )
 from ._slice_state import (  # noqa: E402,F401
     _check_slice_evidence_reachability,
@@ -14150,6 +13782,14 @@ from ._statefiles import (  # noqa: E402,F401
     _fetch_pr_state,
     _resolve_origin_ref,
     persist_contract_statefiles,
+)
+from ._status_wait import (  # noqa: E402,F401
+    _build_minimal_status_envelope,
+    _build_status_wait_cursor,
+    _message_store_tip_id,
+    _parse_status_wait_cursor,
+    _track_host_wait_end,
+    _track_host_wait_start,
 )
 
 # worktree_sync helpers live in _worktree_sync.py (#3312 slice-4); re-exported here.
