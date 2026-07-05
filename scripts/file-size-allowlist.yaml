@@ -20,5 +20,9 @@ caps:
   soft_bytes: 60000
 
 files:
-  orchestrator/routes/pipelines.py:
-    issue: "2248"
+  # WIP (#3312 slice-4): pipelines.py was moved to pipelines/__init__.py and is
+  # being decomposed incrementally. This entry grandfathers the still-oversized
+  # barrel during the extraction and is REMOVED in the final commit once the
+  # barrel drops under the cap (terminal criterion: files map EMPTY).
+  orchestrator/routes/pipelines/__init__.py:
+    issue: "3312"
