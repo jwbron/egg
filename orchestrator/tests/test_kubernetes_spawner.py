@@ -3156,14 +3156,15 @@ class TestSpawnEventJobDirtyWorktree:
         assert not (repo / "dirty.txt").exists()
         assert _git(repo, "status", "--porcelain").stdout.strip() == ""
 
-    def test_reattach_hard_sync_failure_falls_back(self, spawner, tmp_path):
-        """Hard-sync failure is FATAL to reuse (#3064 review): recreate instead.
+    def test_reattach_fetch_failure_falls_back(self, spawner, tmp_path):
+        """Fetch failure is FATAL to reuse (#3064 review): recreate instead.
 
         The worktree is clean and on the right branch, but has no reachable
         ``origin`` remote, so ``git fetch origin <branch>`` fails. Because the
-        hard-sync is the only step that drops a predecessor's unpushed commit,
-        a failure must fall back to recreate rather than continue on the
-        current HEAD (which could still carry residue ahead of origin).
+        fetch is what supplies the ``origin/<branch>`` tip the sync decision
+        (keep vs. reset) relies on, a failure must fall back to recreate rather
+        than continue on the current HEAD (which could still carry residue
+        ahead of origin).
         """
         _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=False)
 
