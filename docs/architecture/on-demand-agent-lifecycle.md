@@ -168,10 +168,17 @@ Under orchestrator ownership the worktree becomes a hot path.
    (the gateway materializes worktrees on this local branch, wired to push to
    the assigned branch — #3480), or detached `HEAD`.
 2. **On pass:** discard uncommitted changes and untracked staging artifacts
-   (`git reset --hard` + `git clean -fd`) and hard-sync to the role branch tip
-   before agent invocation. (The #3023 post-mortem constraint means a
-   predecessor pod killed mid-event must never leak unproposed residue
-   into a successor's commit.)
+   (`git reset --hard` + `git clean -fd`) and sync to the role branch tip
+   before agent invocation. The sync is **fast-forward-aware** ([#3506](https://github.com/jwbron/egg/issues/3506)):
+   when the pre-discard tree was clean and the local HEAD is a strict
+   descendant of the origin tip, the local commits are the agent's own
+   durable multi-session work and HEAD is kept; hard-reset to the tip
+   happens only on divergence, a behind-tip HEAD, or a dirty pre-discard
+   tree (the killed-mid-event signature; the #3023 post-mortem constraint
+   means a predecessor pod killed mid-event must never leak unproposed
+   residue into a successor's commit). A reset that discards commits ahead
+   of the tip logs their SHAs (salvageable via `salvage_agent_commits`,
+   [#3368](https://github.com/jwbron/egg/issues/3368)).
 3. **Before handing off to spawn:** translate the validated paths from
    orchestrator-local (under `WORKTREE_BASE_DIR`) to host paths, matching
    what the create path already gets from the gateway. An untranslated

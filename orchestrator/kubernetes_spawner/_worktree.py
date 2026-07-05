@@ -32,8 +32,8 @@ def _validate_worktree_for_reuse(
 
     This function performs **validation only** — the caller must also invoke
     :meth:`KubernetesSpawner._clean_reused_worktree` to discard dirty state
-    and hard-sync to the role branch tip (R6 dirty-state policy) before the
-    agent runs. The separation lets the test-first contract
+    and sync to the role branch tip (R6 dirty-state policy, fast-forward-aware
+    per #3506) before the agent runs. The separation lets the test-first contract
     (:meth:`_try_reuse_worktree`) compose validation + cleanup into one call
     while keeping each concern independently testable.
 
@@ -296,7 +296,7 @@ def _try_reuse_worktree(
 
     Composes :func:`_validate_worktree_for_reuse` (filesystem health
     checks) followed by :meth:`_clean_reused_worktree` (R6 dirty-state
-    discard + hard-sync). Returns ``(success, repo_volumes)`` on
+    discard + fast-forward-aware sync, #3506). Returns ``(success, repo_volumes)`` on
     success, or ``None`` on any validation or cleanup mismatch (the
     caller falls back to create-with-retry).
 
@@ -330,12 +330,24 @@ def _clean_reused_worktree(
     branch: str | None,
     repos: list[str] | None,
 ) -> bool:
-    """Discard dirty state and hard-sync a re-attached worktree (R6).
+    """Discard dirty state and sync a re-attached worktree (R6, #3506).
 
     Applies ``git reset --hard && git clean -fd`` to discard uncommitted
-    changes and untracked staging artifacts, then hard-syncs to the role
-    branch tip via ``git fetch origin {branch} && git reset --hard
-    origin/{branch}``.
+    changes and untracked staging artifacts, then syncs to the role
+    branch tip via ``git fetch origin {branch}``.
+
+    The sync is **fast-forward-aware** (#3506): when the pre-discard tree
+    was clean and the local HEAD is a strict descendant of
+    ``origin/{branch}``, the local commits are the agent's own durable
+    multi-session work (a clean session exit that had not pushed yet) and
+    HEAD is kept. Unconditionally hard-resetting here made multi-session
+    slices structurally impossible: every event-pump cycle silently
+    orphaned the previous session's unpushed commits. On divergence, a
+    behind-tip HEAD, or a dirty pre-discard tree (the killed-mid-event
+    signature the R6 residue policy exists to contain), the worktree
+    hard-resets to ``origin/{branch}``; any commits ahead of the tip that
+    the reset discards are first logged with their SHAs so the orphaning
+    is visible and salvageable (``salvage_agent_commits``, #3368).
 
     Returns ``True`` on success, ``False`` on any failure (the caller
     falls back to create-with-retry — never allow a half-cleaned
@@ -345,6 +357,24 @@ def _clean_reused_worktree(
     empty, returns ``True`` (nothing to clean).
     """
     import subprocess as _sp
+
+    def _git(repo_dir: Path, *args: str, timeout: int = 30, check: bool = True):
+        return _sp.run(
+            [
+                "git",
+                "-C",
+                str(repo_dir),
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-c",
+                "safe.directory=*",
+                *args,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=check,
+        )
 
     if not repos or not _pkg.WORKTREE_BASE_DIR.exists():
         return True
@@ -358,25 +388,18 @@ def _clean_reused_worktree(
         if not d.exists():
             continue
 
+        # Record whether the tree carried uncommitted/untracked state
+        # BEFORE the discard below erases the evidence: dirt is the
+        # killed-mid-event signature that disqualifies the fast-forward
+        # keep in the sync step (#3506). Unknown state counts as dirty.
+        try:
+            was_dirty = bool(_git(d, "status", "--porcelain").stdout.strip())
+        except Exception:
+            was_dirty = True
+
         # reset --hard
         try:
-            _sp.run(
-                [
-                    "git",
-                    "-C",
-                    str(d),
-                    "-c",
-                    "core.hooksPath=/dev/null",
-                    "-c",
-                    "safe.directory=*",
-                    "reset",
-                    "--hard",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=True,
-            )
+            _git(d, "reset", "--hard")
         except Exception as e:
             logger.warning(
                 "Worktree re-attach: reset --hard failed",
@@ -387,23 +410,7 @@ def _clean_reused_worktree(
             return False
         # clean -fd
         try:
-            _sp.run(
-                [
-                    "git",
-                    "-C",
-                    str(d),
-                    "-c",
-                    "core.hooksPath=/dev/null",
-                    "-c",
-                    "safe.directory=*",
-                    "clean",
-                    "-fd",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=True,
-            )
+            _git(d, "clean", "-fd")
         except Exception as e:
             logger.warning(
                 "Worktree re-attach: clean -fd failed",
@@ -412,71 +419,108 @@ def _clean_reused_worktree(
                 error=str(e),
             )
             return False
-        # Hard-sync to the role branch tip. This is the ONLY step that
-        # removes a predecessor's *local, unpushed* commit — ``reset
+        # Sync to the role branch tip. This is the ONLY step that can
+        # remove a predecessor's *local, unpushed* commit — ``reset
         # --hard`` (above) only discards the uncommitted working tree, so
-        # a pod killed mid-event after a local commit still carries that
-        # commit through to here. If the hard-sync fails we MUST fall back
-        # to recreate (return False): continuing on the current HEAD would
-        # leak the predecessor's unproposed commit into the successor's
-        # worktree — and its next proposal — which is exactly the residue
-        # leak the R6 dirty-state policy exists to forbid. A transient
-        # ``fetch origin`` blip is precisely what this
-        # resilience path must survive, so it is fatal-to-reuse, not
-        # silently swallowed.
+        # a local commit always carries through to here. If the fetch
+        # fails we MUST fall back to recreate (return False): without the
+        # true origin tip we cannot tell the agent's own fast-forward
+        # work from divergent residue. A transient ``fetch origin`` blip
+        # is precisely what this resilience path must survive, so it is
+        # fatal-to-reuse, not silently swallowed.
         if branch:
             try:
-                _sp.run(
-                    [
-                        "git",
-                        "-C",
-                        str(d),
-                        "-c",
-                        "core.hooksPath=/dev/null",
-                        "-c",
-                        "safe.directory=*",
-                        "fetch",
-                        "origin",
-                        branch,
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                    check=True,
-                )
-                _sp.run(
-                    [
-                        "git",
-                        "-C",
-                        str(d),
-                        "-c",
-                        "core.hooksPath=/dev/null",
-                        "-c",
-                        "safe.directory=*",
-                        "reset",
-                        "--hard",
-                        f"origin/{branch}",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                    check=True,
-                )
+                _git(d, "fetch", "origin", branch, timeout=60)
             except Exception as e:
                 logger.warning(
-                    "Worktree re-attach: hard-sync failed — falling back "
+                    "Worktree re-attach: fetch failed; falling back "
                     "to recreate (cannot prove worktree is at origin tip)",
                     agent_worktree_id=agent_worktree_id,
                     repo=n,
                     error=str(e),
                 )
-                # Fatal: without a successful hard-sync we cannot guarantee
-                # the worktree carries no predecessor residue ahead of
-                # origin/{branch}. Recreate-with-retry is the safe fallback.
                 return False
 
+            # Fast-forward-aware keep (#3506): equal-to-tip needs no
+            # reset; a clean-tree strict descendant is the agent's own
+            # accumulated work and is kept. Anything else (divergence,
+            # behind-tip, dirty pre-discard tree, or an unreadable
+            # topology) hard-resets to the origin tip.
+            keep_local = False
+            local_head = remote_tip = ""
+            try:
+                local_head = _git(d, "rev-parse", "HEAD").stdout.strip()
+                remote_tip = _git(d, "rev-parse", f"origin/{branch}").stdout.strip()
+                if local_head == remote_tip:
+                    keep_local = True
+                elif not was_dirty:
+                    keep_local = (
+                        _git(
+                            d,
+                            "merge-base",
+                            "--is-ancestor",
+                            remote_tip,
+                            local_head,
+                            check=False,
+                        ).returncode
+                        == 0
+                    )
+            except Exception:
+                keep_local = False
+
+            if keep_local:
+                if local_head != remote_tip:
+                    logger.info(
+                        "Worktree re-attach: keeping local commits "
+                        "(clean fast-forward of origin tip, #3506)",
+                        agent_worktree_id=agent_worktree_id,
+                        repo=n,
+                        branch=branch,
+                        local_head=local_head,
+                        remote_tip=remote_tip,
+                    )
+            else:
+                # Orphan detector (#3506): surface exactly which commits
+                # the reset is about to discard; between-cycle resets
+                # produce the same orphan class as restart-time resets
+                # (#3368) and must not be silent.
+                try:
+                    if local_head and remote_tip:
+                        orphans = _git(
+                            d, "rev-list", f"{remote_tip}..{local_head}", check=False
+                        ).stdout.split()
+                        if orphans:
+                            logger.warning(
+                                "Worktree re-attach: hard-reset is discarding "
+                                "unpushed local commits (dirty or diverged); "
+                                "salvageable via salvage_agent_commits (#3368)",
+                                agent_worktree_id=agent_worktree_id,
+                                repo=n,
+                                branch=branch,
+                                was_dirty=was_dirty,
+                                discarded_commit_count=len(orphans),
+                                discarded_commits=orphans[:20],
+                            )
+                except Exception:
+                    pass
+                try:
+                    _git(d, "reset", "--hard", f"origin/{branch}")
+                except Exception as e:
+                    logger.warning(
+                        "Worktree re-attach: hard-sync failed — falling back "
+                        "to recreate (cannot prove worktree is at origin tip)",
+                        agent_worktree_id=agent_worktree_id,
+                        repo=n,
+                        error=str(e),
+                    )
+                    # Fatal: without a successful hard-sync we cannot
+                    # guarantee the worktree carries no predecessor residue
+                    # ahead of origin/{branch}. Recreate-with-retry is the
+                    # safe fallback.
+                    return False
+
     logger.info(
-        "Worktree re-attach: cleaned and hard-synced",
+        "Worktree re-attach: cleaned and synced",
         agent_worktree_id=agent_worktree_id,
         repos=[r.split("/")[-1] if "/" in r else r for r in repos],
     )

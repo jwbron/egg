@@ -152,8 +152,9 @@ def spawn_event_job(
     candidate_id = self._build_agent_worktree_id(pipeline_id, agent_role, slice_id=slice_id)
     if repos:
         # Use the composed method that validates AND cleans dirty state
-        # (R6 dirty-state policy) so re-attached worktrees are always
-        # pristine before the agent runs.
+        # (R6 dirty-state policy) so re-attached worktrees always start
+        # with a clean tree at the role branch tip, or a clean
+        # fast-forward ahead of it (#3506), before the agent runs.
         result = self._try_reuse_worktree(candidate_id, branch, repos)
         if result is not None:
             reuse_worktree_id = candidate_id
