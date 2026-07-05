@@ -306,12 +306,12 @@ def _validate_slice_completion_basis(
 
 
 # Add shared directory to path for egg_logging
-_shared_path = Path(__file__).parent.parent.parent / "shared"
+_shared_path = Path(__file__).parent.parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 # Add config directory to path for repo_config module
-_config_path = Path(__file__).parent.parent.parent / "config"
+_config_path = Path(__file__).parent.parent.parent.parent / "config"
 if _config_path.exists() and str(_config_path) not in sys.path:
     sys.path.insert(0, str(_config_path))
 
@@ -5698,7 +5698,7 @@ def _read_shared_criteria(
             return override_path.read_text()
 
     # Try source tree path (development / tests)
-    source_path = Path(__file__).parent.parent.parent / "shared" / "prompts" / filename
+    source_path = Path(__file__).parent.parent.parent.parent / "shared" / "prompts" / filename
     if source_path.is_file():
         return source_path.read_text()
 
