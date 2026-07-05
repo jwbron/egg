@@ -382,6 +382,18 @@ def spawn_agent_job(
     # with rc=0 forever — supervision sees a healthy arm while consensus
     # silently stalls. Fail the spawn loudly instead so the failure-streak
     # machinery engages and the next attempt falls back to create.
+    #
+    # Scope/limits: this only catches leaks the mapping can *translate*. A
+    # genuinely-untranslatable local path (a multi-partition host where the
+    # worktree mount has root=/ and is skipped, with HOST_HOME unset) passes
+    # through as identity and the tripwire stays silent — same limitation
+    # HOST_HOME exists to cover, matching the gateway's own. It also assumes
+    # orchestrator↔gateway mount symmetry: in a (pathological) asymmetric
+    # deployment where the gateway returns a host path the orchestrator's OWN
+    # mountinfo would further translate, this would false-positive on a
+    # working create. Not reachable in symmetric deployments (the
+    # orchestrator has no mount point under the host-home path), so risk is
+    # very low.
     leaked = {
         owner_repo: path
         for owner_repo, path in (repo_volumes or {}).items()

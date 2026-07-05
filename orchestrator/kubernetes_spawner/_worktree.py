@@ -237,7 +237,9 @@ def _load_local_mount_mapping(source: str = "/proc/self/mountinfo") -> list[tupl
 def _local_to_host_path(local_path: str, mapping: list[tuple[str, str]] | None = None) -> str:
     """Translate an orchestrator-local path to the host path it is bound from.
 
-    Inverse of :func:`_host_to_local_volumes`, for paths the orchestrator
+    Counterpart of :func:`_host_to_local_volumes` (not an exact inverse:
+    this uses mountinfo + ``HOST_HOME`` where that does a bare ``HOST_HOME``
+    string replace), for paths the orchestrator
     derived from its OWN mounts (``WORKTREE_BASE_DIR``) that must be handed
     to a Job spec as ``hostPath`` sources. Handing the local path onward
     makes kubelet ``DirectoryOrCreate`` an empty root-owned dir on the node
