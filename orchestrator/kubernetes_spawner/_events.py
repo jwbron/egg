@@ -200,6 +200,10 @@ def spawn_event_job(
             upstream=spawn_kwargs.get("upstream"),
             upstream_model=spawn_kwargs.get("upstream_model"),
             jira_ticket=spawn_kwargs.get("jira_ticket"),
+            # Bind a fresh registration to the worktree just validated,
+            # so the gateway looks it up instead of creating an orphan
+            # worktree keyed by the session id (#3502 naming split).
+            worktree_container_id=reuse_worktree_id,
         )
         if session_info is not None:
             reuse_session_token = session_info.session_token
