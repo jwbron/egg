@@ -15,7 +15,6 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import (  # noqa: F401 — NamedTuple retained for _pkg base-class re-export (_populate)
-    TYPE_CHECKING,
     Any,
     Literal,
     NamedTuple,
@@ -175,136 +174,11 @@ class ForestValidationError(Exception):
         return ({"error": self.reason, "errors": self.errors}, 422)
 
 
-class SliceCompletionInvariantError(RuntimeError):
-    """Raised when a slice would be persisted ``COMPLETE`` without a valid
-    completion basis (#3214).
-
-    The #3214 wedge traced to an interior forest node (``slice-3`` on
-    pipeline ``issue-3200``) persisted as ``SliceStatus.COMPLETE`` while
-    its only task was still ``pending``, it had no integration branch, and
-    it carried its *parent's* commit SHA. ``_persist_slice_status_complete``
-    wrote that contradictory state with no validation, so the slice-DAG
-    driver skipped real work and the chain wedged with no successor — and
-    it hung ~9h silently because nothing failed loud at the moment of the
-    bad write.
-
-    A slice has a valid completion basis when ANY of these execution
-    signals is present:
-
-    * a slice PR is recorded / supplied (``pr_number``); or
-    * the caller declares a verified ``basis`` — ``"merged"`` (the
-      integration branch was ancestry-verified merged into its parent) or
-      ``"consensus_complete"`` (BRC consensus reached, PR not yet opened
-      or its URL unparseable); or
-    * the slice forked an integration branch (``integration_base_sha`` is
-      set — #2871); or
-    * every task is ``TaskStatus.COMPLETE``.
-
-    The predicate accepts any one signal so it can only flag the slice-3
-    state where *all* are absent — a slice marked COMPLETE with zero
-    evidence it ran. We raise here so that corrupt write fails loud at its
-    source instead of wedging the forest a phase later.
-
-    #3253 refinement: ``basis="merged"`` is no longer an unconditional
-    pass. A merged slice went through a PR and left commits its producers
-    recorded; a ``basis="merged"`` write with **no PR and no produced task
-    commit** is an empty / never-implemented branch that origin ancestry
-    mis-detected as merged (the slice-10 case — producers exhausted before
-    committing, so the integration branch's tip is still its fork base and
-    is trivially an ancestor of the advanced parent). Such a write is
-    rejected so the slice is re-run rather than false-completed.
-    """
-
-
 # Completion bases a caller may declare when it has positive, verified
 # evidence a slice finished even though not every task is marked COMPLETE
 # on the contract (the crash-recovery / merged-skip paths). See
 # :class:`SliceCompletionInvariantError`.
 _VERIFIED_SLICE_COMPLETION_BASES = frozenset({"merged", "consensus_complete"})
-
-
-def _slice_produced_commits(slice_obj: Any) -> bool:
-    """Return True iff any of the slice's tasks recorded a commit SHA.
-
-    This is the base-SHA-independent "a producer actually committed work"
-    signal (#3253). It reads *task* commits only — a slice whose producers
-    all failed before committing has every ``task.commit`` ``None`` (the
-    AC-4 measurement in the issue-3200 slice-10 incident). It deliberately
-    ignores ``Slice.commit``: that field can carry the *parent's* SHA on a
-    false-complete (the #3214 slice-3 carryover), so it is not trustworthy
-    evidence the slice itself produced anything.
-
-    An empty integration branch (tip still at its fork base, so trivially
-    an ancestor of an advanced parent) is indistinguishable from a merged
-    one by origin ancestry alone once the recorded fork base is missing or
-    stale (#3245). The contract's task-commit record is the durable signal
-    that survives that ambiguity: no task commit + no slice PR ⇒ the slice
-    never ran and must be re-run, not completed.
-
-    A slice with *no tasks* returns ``False`` here (``any([])``). Paired with
-    "origin-detected merged, no PR" that would force such a slice to re-run
-    indefinitely — but a zero-task slice is unreachable in practice:
-    plan-derived slices always carry at least one task. The safe direction is
-    re-run over silently-dropped work, so the edge needs no special-casing
-    (#3253).
-    """
-    tasks = getattr(slice_obj, "tasks", None) or []
-    return any(getattr(t, "commit", None) for t in tasks)
-
-
-def _validate_slice_completion_basis(
-    slice_obj: Any,
-    *,
-    pr_number: int | None = None,
-    basis: str | None = None,
-) -> str | None:
-    """Return ``None`` when ``slice_obj`` may legitimately be marked
-    ``SliceStatus.COMPLETE``, else a human-readable reason it may not.
-
-    Shared by the write chokepoint (``_persist_slice_status_complete``,
-    which raises :class:`SliceCompletionInvariantError` on a reason) and
-    the Layer-A bootstrap read-trust point (which alerts and declines to
-    trust a contradictory contract-recorded COMPLETE rather than
-    propagating it into the scheduler). See
-    :class:`SliceCompletionInvariantError` for the basis rules (#3214).
-    """
-    has_pr = pr_number is not None or getattr(slice_obj, "pr_number", None) is not None
-    # #3253 — a ``basis="merged"`` slice with no PR and no produced task
-    # commits is not a merged slice; it is an empty / never-implemented
-    # integration branch (tip still at its fork base) that origin ancestry
-    # mis-detected as merged. A genuine merge went through a PR and left
-    # commits the producers recorded. Reject so the restart re-runs the
-    # slice instead of false-completing the pipeline with its work missing.
-    # This guard fires *before* the verified-basis / forked free-passes
-    # below so a recorded (possibly stale) fork base cannot rescue it.
-    if basis == "merged" and not has_pr and not _slice_produced_commits(slice_obj):
-        return (
-            f"slice {getattr(slice_obj, 'id', '?')} would be marked COMPLETE "
-            f"basis='merged' with no slice PR and no produced task commits — an "
-            f"empty / never-implemented integration branch is not a merged one "
-            f"(#3253)"
-        )
-    verified_basis = basis in _VERIFIED_SLICE_COMPLETION_BASES
-    # A slice that actually forked its integration branch recorded a base
-    # SHA (#2871). Its absence — together with no PR, no verified basis,
-    # and no completed tasks — is the slice-3 false-complete signature: a
-    # slice marked COMPLETE with zero evidence it ever ran. The predicate
-    # accepts ANY single execution signal so it can only flag that
-    # genuinely-contradictory state, never a legitimately-completed slice
-    # whose other signals happen to be absent (e.g. an unparseable PR URL
-    # leaves ``pr_number`` None but the slice still forked and reached
-    # consensus). ``tasks_all_complete`` is the canonical model-side
-    # predicate so this can't drift from the contract's own notion of
-    # "work finished".
-    forked = getattr(slice_obj, "integration_base_sha", None) is not None
-    if has_pr or verified_basis or forked or slice_obj.tasks_all_complete:
-        return None
-    return (
-        f"slice {getattr(slice_obj, 'id', '?')} would be marked COMPLETE with no "
-        f"evidence it ran: no slice PR, no verified merge/consensus basis "
-        f"(basis={basis!r}), no integration-branch fork base, and tasks not all "
-        f"complete"
-    )
 
 
 # Add shared directory to path for egg_logging
@@ -359,7 +233,7 @@ try:
         AgentExitInfo,
         AgentRole,
         ContainerInfo,
-        ContainerStatus,
+        ContainerStatus,  # noqa: F401 — retained for _pkg re-export / patch seam
         CycleTiming,
         DecisionStatus,
         HITLDecision,
@@ -376,7 +250,7 @@ try:
     from ..state_store import (
         InvalidPipelineIdError,
         PipelineNotFoundError,
-        StateStore,
+        StateStore,  # noqa: F401 — retained for _pkg re-export / patch seam
         StateStoreError,
         StateValidationError,
         get_pipeline_state_lock,
@@ -417,7 +291,7 @@ except ImportError:
         AgentExitInfo,
         AgentRole,
         ContainerInfo,
-        ContainerStatus,
+        ContainerStatus,  # noqa: F401 — retained for _pkg re-export / patch seam
         CycleTiming,
         DecisionStatus,
         HITLDecision,  # noqa: F401 — retained for _pkg re-export / patch seam
@@ -434,20 +308,19 @@ except ImportError:
     from state_store import (  # type: ignore
         InvalidPipelineIdError,
         PipelineNotFoundError,
-        StateStore,
+        StateStore,  # noqa: F401 — retained for _pkg re-export / patch seam
         StateStoreError,
         StateValidationError,
         get_pipeline_state_lock,
         get_state_store,
     )
 
-from egg_contracts.orchestrator import load_agent_output, save_agent_output
+from egg_contracts.orchestrator import (  # noqa: F401 — retained for _pkg re-export / patch seam
+    load_agent_output,
+    save_agent_output,
+)
 from egg_git.default_branch import get_default_branch
 from lifecycle_auth import require_lifecycle_secret
-
-if TYPE_CHECKING:
-    from egg_container import MountSpec
-    from egg_contracts.agent_roles import AgentRole as ContractAgentRole
 
 logger = get_logger("orchestrator.pipelines")
 
@@ -813,149 +686,6 @@ def get_pipeline(pipeline_id: str) -> tuple[Response, int]:
             f"Pipeline state is invalid: {e}",
             status_code=500,
         )
-
-
-def _normalize_submission_repos(
-    repos_arg: Any,
-) -> tuple[str | None, list[dict[str, str | None]], str | None, str | None]:
-    """Validate + normalize a multi-repo submission list (#3393).
-
-    Accepts the ``repos`` payload from ``POST /api/v1/pipelines`` — a list of
-    ``{repo, base_branch?, primary?}`` entries (a bare ``"owner/name"`` string
-    is tolerated as ``{repo: ...}``). Returns
-    ``(error, entries, primary_repo, primary_base_branch)``:
-
-    * ``error`` — a human-readable message when validation fails (the other
-      fields are meaningless in that case), else ``None``.
-    * ``entries`` — normalized ``{"repo", "base_branch"}`` dicts, reordered so
-      the primary is ``entries[0]`` (the ``Pipeline`` validator mirrors
-      ``repos[0]`` onto the legacy singleton and ``primary_repo``).
-
-    Per-entry repo/base_branch formats are validated with the same regexes the
-    single-repo path uses. Same-name repos under different owners are NOT
-    rejected here — they are distinct full ``owner/name`` slugs (operator
-    ruling #6; the owner/repo re-key lands in slice 3).
-    """
-    if not isinstance(repos_arg, list) or not repos_arg:
-        return ("repos must be a non-empty list of {repo, base_branch} entries", [], None, None)
-    entries: list[dict[str, str | None]] = []
-    primary_index = 0
-    seen_primary = False
-    for idx, raw in enumerate(repos_arg):
-        entry = {"repo": raw} if isinstance(raw, str) else raw
-        if not isinstance(entry, dict) or not entry.get("repo"):
-            return (f"repos[{idx}] must be an object with a 'repo' field", [], None, None)
-        repo_val = entry["repo"]
-        if not re.match(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$", repo_val):
-            return (
-                f"Invalid repo format in repos[{idx}]: {repo_val!r} (expected owner/name)",
-                [],
-                None,
-                None,
-            )
-        base_val = entry.get("base_branch")
-        if base_val is not None and (
-            not re.match(r"^[a-zA-Z0-9_./-]+$", base_val) or ".." in base_val
-        ):
-            return (f"Invalid base_branch in repos[{idx}]: {base_val!r}", [], None, None)
-        entries.append({"repo": repo_val, "base_branch": base_val})
-        if entry.get("primary"):
-            if seen_primary:
-                return ("At most one repos entry may set 'primary'", [], None, None)
-            seen_primary = True
-            primary_index = idx
-    # Reorder so the primary is first: the Pipeline model mirrors repos[0]
-    # onto the legacy repo/base_branch singleton and exposes it as
-    # ``primary_repo``.
-    if primary_index != 0:
-        entries.insert(0, entries.pop(primary_index))
-    primary = entries[0]
-    return (None, entries, primary["repo"], primary["base_branch"])
-
-
-def _assert_repo_set_uniform(repos: list[str]) -> str | None:
-    """Reject mixed-visibility / mixed-auth repo sets at submission (#3393, task-2-2).
-
-    A pipeline-wide private-mode posture (context filtering, egress rules)
-    requires every repo in one run to be uniformly private or uniformly public,
-    and — for v1 — to share a single auth mode. Returns an actionable,
-    repo-naming error string when the set diverges on either dimension, or
-    ``None`` when it is uniform. A single repo (after de-duplication) is
-    trivially uniform and short-circuits before any lookup, so N=1 pipelines
-    pay no cost and make no gateway round-trip.
-
-    Runtime note (container boundary): the orchestrator image bundles
-    ``config/repo_config.py`` but NOT ``gateway/``, so the per-repo lookups are
-    reached the way the orchestrator already reaches them — auth via
-    ``repo_config.assert_uniform_auth`` (imported directly, the same callable the
-    gateway's ``validate_auth_mode_uniformity`` delegates to) and visibility via
-    ``GatewayClient.get_repo_visibility`` over HTTP (the gateway holds the
-    tokens; mirrors ``_compute_gateway_mode``). ``internal`` counts as private.
-    The visibility comparison below is the HTTP-boundary twin of
-    ``gateway.repo_visibility.validate_visibility_uniformity`` (which the
-    orchestrator cannot import); keep the two in step.
-    """
-    unique = list(dict.fromkeys(repos))
-    if len(unique) <= 1:
-        return None
-
-    # Auth-mode uniformity — repo_config is bundled into the orchestrator image.
-    try:
-        from repo_config import assert_uniform_auth
-
-        assert_uniform_auth(unique)
-    except ValueError as exc:
-        return str(exc)
-    except Exception as exc:  # pragma: no cover - defensive (config read failure)
-        # Fail CLOSED for consistency with the visibility boundary below
-        # (reviewer_security v1): a config-read failure means we cannot prove a
-        # uniform auth mode, so we must not admit the set. repo_config is a
-        # local, bundled read — this path is genuinely exceptional, not a
-        # transient network hiccup.
-        logger.warning("Auth-mode uniformity check errored; failing closed", error=str(exc))
-        return (
-            "Could not determine the auth mode for the pipeline's repos, so a "
-            "uniform bot/user auth mode cannot be verified. Resubmit once repo "
-            "configuration is resolvable."
-        )
-
-    # Visibility uniformity — resolved via the gateway (the orchestrator's only
-    # visibility source). FAIL CLOSED on an indeterminate lookup (reviewer_security
-    # v1): for a multi-repo set (we only reach here when len(unique) > 1) a repo
-    # whose visibility cannot be resolved to a known bucket means the uniform
-    # private/public posture cannot be PROVEN — and this is a confidentiality
-    # boundary (a mixed set that slips through would let private-repo content
-    # flow through shared plan/contract/PR surfaces into a public repo, with no
-    # downstream re-check: _compute_gateway_mode derives the network mode from
-    # the PRIMARY repo only). N=1 short-circuits above, so the common case pays
-    # nothing. This mirrors gateway.repo_visibility.validate_visibility_uniformity;
-    # keep the two in step. Unrecognized (non-None) labels are treated as
-    # indeterminate too — only the known {public|private|internal} contract admits.
-    gw = get_gateway_client()
-    posture: dict[str, list[str]] = {}
-    for repo in unique:
-        vis = gw.get_repo_visibility(repo)
-        if vis in ("private", "internal"):
-            bucket = "private"
-        elif vis == "public":
-            bucket = "public"
-        else:
-            return (
-                f"Could not determine repository visibility for {repo!r}; cannot "
-                "verify a uniform private/public posture across the pipeline's "
-                "repos (a run must be uniformly private or uniformly public so "
-                "private-repo content cannot leak through shared plan/contract/PR "
-                "surfaces). Resubmit once the repo's visibility is resolvable."
-            )
-        posture.setdefault(bucket, []).append(repo)
-    if len(posture) > 1:
-        groups = "; ".join(f"{b}: {', '.join(sorted(rs))}" for b, rs in sorted(posture.items()))
-        return (
-            "Mixed repository visibility across the pipeline's repos is not allowed "
-            "(a run must be uniformly private or uniformly public, so private-repo "
-            f"content cannot leak through shared plan/PR surfaces). Diverging repos — {groups}."
-        )
-    return None
 
 
 @pipelines_bp.route("", methods=["POST"])
@@ -1507,111 +1237,6 @@ def create_pipeline() -> tuple[Response, int]:
         )
 
 
-def _clear_pipeline_runtime_state(pipeline_id: str, *, reason: str) -> None:
-    """Evict per-pipeline runtime state that is keyed by pipeline_id alone.
-
-    The peer-consensus tracker, the legacy consensus evaluator, and the
-    inter-agent message store are all keyed by pipeline_id. Without a
-    matching ``run_epoch`` namespace, a fresh pipeline that reuses an id
-    from a prior terminal run (same branch, e.g. ``issue-1965``) will
-    inherit the prior run's CONFIRMED consensus and message history. The
-    leak surfaces in the ``/status/wait`` route's Path-B envelope, which
-    would report ``concurrent.consensus.is_complete: true`` for a
-    pipeline that has not spawned any agents yet (#2053).
-
-    Called when a pipeline transitions to a terminal status, when its
-    state file is deleted, and immediately after a fresh pipeline is
-    created (covers paths that bypass PATCH/DELETE — auto-FAILED, and
-    Redis-backed message-store entries that survived an orchestrator
-    restart between cancel and resubmit).
-    """
-    try:
-        try:
-            from peer_consensus import remove_peer_consensus_tracker
-        except ImportError:
-            from ..peer_consensus import (  # type: ignore[no-redef]
-                remove_peer_consensus_tracker,
-            )
-        remove_peer_consensus_tracker(pipeline_id)
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.warning(
-            "Failed to clear peer consensus tracker",
-            pipeline_id=pipeline_id,
-            reason=reason,
-            error=str(e),
-        )
-
-    # Reconstruct-from-messages would otherwise replay the prior run's
-    # CONSENSUS_* messages and rebuild a CONFIRMED tracker, defeating the
-    # tracker eviction above.
-    try:
-        try:
-            from message_store import get_message_store
-        except ImportError:
-            from ..message_store import get_message_store  # type: ignore[no-redef]
-        get_message_store().clear(pipeline_id)
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.warning(
-            "Failed to clear message store",
-            pipeline_id=pipeline_id,
-            reason=reason,
-            error=str(e),
-        )
-
-
-def _mark_pipeline_records_terminated(
-    store: StateStore,
-    pipeline_id: str,
-) -> Pipeline:
-    """Mark all running containers and agents as stopped after pipeline termination.
-
-    Called when a pipeline transitions to a terminal state (cancelled or failed).
-    After Docker containers are force-removed, the pipeline state still shows
-    them as "running". This reloads the latest state from the store (to avoid
-    overwriting updates made between the status change and container
-    cleanup), marks running records as stopped, and saves.
-
-    Returns the updated pipeline so the caller can use it in the response.
-    """
-    pipeline = store.load_pipeline(pipeline_id)
-    now = datetime.now(UTC)
-    changed = False
-
-    for phase_exec in pipeline.phases.values():
-        for container in phase_exec.containers:
-            if container.status in (
-                ContainerStatus.PENDING,
-                ContainerStatus.CREATING,
-                ContainerStatus.RUNNING,
-            ):
-                container.status = ContainerStatus.REMOVED
-                container.exited_at = now
-                changed = True
-
-        for agent in phase_exec.agents:
-            if agent.status in (
-                AgentExecutionStatus.PENDING,
-                AgentExecutionStatus.RUNNING,
-            ):
-                agent.status = AgentExecutionStatus.FAILED
-                agent.completed_at = now
-                agent.error = f"Pipeline {pipeline.status.value}"
-                changed = True
-
-    if changed:
-        store.save_pipeline(pipeline)
-        logger.info(
-            "Synced pipeline state after termination",
-            pipeline_id=pipeline_id,
-        )
-
-    return pipeline
-
-
 @pipelines_bp.route("/<pipeline_id>", methods=["PATCH"])
 @require_lifecycle_secret
 def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
@@ -1962,85 +1587,6 @@ def update_pipeline_config(pipeline_id: str) -> tuple[Response, int]:
         return make_error_response(
             f"Invalid update: {e}",
             status_code=400,
-        )
-
-
-def _compute_gateway_mode(
-    pipeline: Pipeline,
-) -> tuple[Literal["public", "private"], str | None]:
-    """Compute gateway session mode from pipeline config and repo visibility.
-
-    Uses the explicit ``network_mode`` if set, otherwise auto-detects from
-    repository visibility via the gateway.  Defaults to ``"public"``.
-
-    Returns:
-        A ``(mode, visibility)`` tuple.  ``visibility`` is ``None`` when
-        ``network_mode`` is explicit, the pipeline has no repo, or the
-        gateway query failed.
-    """
-    if pipeline.network_mode:
-        return pipeline.network_mode, None
-    if pipeline.repo:
-        vis = get_gateway_client().get_repo_visibility(pipeline.repo)
-        if vis in ("private", "internal"):
-            return "private", vis
-        return "public", vis
-    return "public", None
-
-
-def _cleanup_remote_branches(
-    pipeline_id: str,
-    pipeline: Pipeline,
-    repo_path: Path,
-) -> None:
-    """Best-effort cleanup of remote branches for a pipeline.
-
-    Deletes the pipeline's shared branch (``pipeline.branch``, typically
-    ``egg/{pipeline_id}/work`` since #2399) and every per-container
-    worktree branch (``egg/{container_id}/work``).  Slice integration
-    branches at ``egg/{pipeline_id}/slice-N`` are siblings of the
-    pipeline tip and are NOT deleted here — see follow-up tracking on
-    #2399 for full namespace cleanup.  Failures are logged as warnings
-    and do not block pipeline deletion.
-    """
-    branches: set[str] = set()
-    if pipeline.branch:
-        branches.add(pipeline.branch)
-    for phase_exec in pipeline.phases.values():
-        for container in phase_exec.containers:
-            branches.add(f"egg/{container.container_id}/work")
-
-    if not branches:
-        return
-
-    gateway_client = get_gateway_client()
-    repo_path_str = str(repo_path)
-    mode, _vis = _compute_gateway_mode(pipeline)
-
-    deleted = 0
-    for branch in sorted(branches):
-        result = gateway_client.delete_remote_branch(pipeline_id, repo_path_str, branch, mode=mode)
-        # ``already_deleted`` means the desired state (branch absent on
-        # remote) is satisfied — count it as success rather than churning a
-        # warning every time a pipeline is cleaned up before any branch was
-        # ever pushed.
-        if result or result.category == "already_deleted":
-            deleted += 1
-        else:
-            logger.warning(
-                "Remote branch deletion failed during pipeline cleanup",
-                pipeline_id=pipeline_id,
-                branch=branch,
-                category=result.category,
-                detail=result.detail,
-            )
-
-    if deleted:
-        logger.info(
-            "Cleaned up remote branches",
-            pipeline_id=pipeline_id,
-            branches_deleted=deleted,
-            branches_total=len(branches),
         )
 
 
@@ -5798,103 +5344,6 @@ def _run_implement_phase_slices(
     return overall_exit, aggregated
 
 
-def _clear_stale_impasses_for_producers(
-    repo_path: Path,
-    pipeline_id: str,
-    producer_roles: "list[ContractAgentRole]",  # noqa: UP037
-    *,
-    cleanup_reason: str,
-) -> None:
-    """Drop the ``impasse`` field from each producer's per-pipeline
-    agent-output file before the next BRC cycle.
-
-    ``save_agent_output`` writes with ``mode="w"`` so a producer that
-    respawns and reaches its handoff write will overwrite the stale
-    impasse on its own. But if a producer crashes before writing in the
-    next iteration (or if the implement roster ever becomes
-    contract-task-driven, in which case a producer with no remaining
-    tasks won't spawn at all), the iter-N impasse file would persist
-    into iter-N+1's ``collect_impasses`` scan and re-trigger routing on
-    a stale signal — which the ``delegation_attempts`` counter would
-    then translate into a spurious "second impasse on same task" HITL
-    escalation.
-
-    Pre-clearing the field keeps ``collect_impasses`` honest about what
-    came out of the *current* iteration only. Other top-level fields on
-    the agent output (``handoff_data``, ``role``, anything else) are
-    preserved.
-    """
-    for role_enum in producer_roles:
-        try:
-            existing = load_agent_output(repo_path, role_enum, identifier=pipeline_id)
-        except Exception as exc:  # noqa: BLE001
-            # Best-effort agent-output file read. Catches OSError on
-            # the file read, json.JSONDecodeError on parse, and
-            # pydantic.ValidationError on the role-specific shape.
-            # Continue (no impasse to clear if the file is unreadable).
-            logger.debug(
-                "Could not pre-load agent output to clear stale impasse",
-                pipeline_id=pipeline_id,
-                role=role_enum.value,
-                error=str(exc),
-            )
-            continue
-        if not isinstance(existing, dict) or "impasse" not in existing:
-            continue
-        cleaned = {k: v for k, v in existing.items() if k != "impasse"}
-        try:
-            save_agent_output(
-                repo_path,
-                role_enum,
-                cleaned,
-                identifier=pipeline_id,
-            )
-        except Exception as exc:  # noqa: BLE001
-            # Atomic file write of JSON-serialisable dict. Catches
-            # OSError (write/rename), TypeError/ValueError (non-
-            # serialisable value sneaking in). Continue — the stale
-            # impasse will re-trigger routing but the delegation
-            # counter still bounds the retry.
-            logger.warning(
-                "Failed to clear stale impasse from agent output",
-                pipeline_id=pipeline_id,
-                role=role_enum.value,
-                error=str(exc),
-            )
-            continue
-        logger.info(
-            "Cleared stale impasse from agent output",
-            pipeline_id=pipeline_id,
-            role=role_enum.value,
-            cleanup_reason=cleanup_reason,
-        )
-
-
-def _pipeline_superseded_by_restart(store, pipeline_id: str, run_epoch: datetime | None) -> bool:
-    """True if a newer ``run_epoch`` means another thread now owns this pipeline.
-
-    Reloads pipeline state and compares its ``run_epoch`` against the epoch the
-    caller runs under (#3315 facet a). Best-effort: a missing epoch or a load
-    failure returns ``False`` so a transient store hiccup never tears down a
-    legitimately-running phase. Shared by the ``_run_concurrent_phase`` poll
-    loop and the slice-path impasse-retry wrapper so the "no escalation when
-    superseded" property holds on both routes.
-    """
-    if store is None or run_epoch is None:
-        return False
-    try:
-        _epoch_pip = store.load_pipeline(pipeline_id)
-    except Exception as _epoch_err:  # noqa: BLE001 — never wedge the caller
-        logger.debug(
-            "Epoch supersession check failed; continuing",
-            pipeline_id=pipeline_id,
-            error=str(_epoch_err),
-        )
-        return False
-    current_epoch = _epoch_pip.run_epoch or _epoch_pip.created_at
-    return current_epoch != run_epoch
-
-
 def _run_concurrent_phase_with_impasse_retry(
     pipeline_id: str,
     pipeline: Pipeline,
@@ -7839,228 +7288,6 @@ def _run_concurrent_phase(
         time.sleep(poll_interval)
 
 
-def _spawn_and_wait(
-    spawner,
-    pipeline_id: str,
-    agent_role: AgentRole,
-    issue_number: int | None,
-    repo_volumes: dict[str, str],
-    gateway_mode: str,
-    repos: list[str],
-    phase: str,
-    sandbox_env: dict[str, str],
-    sandbox_command: list[str],
-    timeout: int = 3600,
-    store=None,
-    certs_volume: str | None = None,
-    branch: str | None = None,
-    extra_mounts: list["MountSpec"] | None = None,  # noqa: UP037
-    spawn_max_retries: int | None = None,
-    spawn_retry_initial_backoff_seconds: float | None = None,
-) -> tuple[int, str]:
-    """Spawn a container, wait for it to exit, clean up, return (exit_code, logs).
-
-    If ``store`` is provided, the container is recorded in the phase execution
-    state so that the status endpoint can report it while it runs.
-
-    The container is launched via the shared ``build_sandbox_config()`` path,
-    which handles GATEWAY_URL, proxy vars, DNS lockdown, extra_hosts, and
-    .git shadow mounts automatically.
-
-    Args:
-        repo_volumes: Mapping of repo_name -> host_path for volume mounts.
-            Each entry is mounted at /home/egg/repos/<name> in the container,
-            with .git shadowed by /dev/null bind mounts to force gateway git operations.
-        certs_volume: Docker named volume for gateway CA certs (mounted at
-            /shared/certs read-only). If None, certs are not mounted.
-        spawn_max_retries: Override for spawn retry attempts (None uses spawner default).
-        spawn_retry_initial_backoff_seconds: Override for initial backoff (None uses spawner default).
-
-    Returns:
-        (exit_code, container_logs) — logs are captured before cleanup on failure.
-    """
-    from models import ContainerInfo, ContainerStatus, PipelinePhase
-
-    try:
-        from agent_model_resolution import DEFAULT_AGENT_MODEL
-    except ImportError:
-        from ..agent_model_resolution import (  # type: ignore[import-not-found, no-redef]
-            DEFAULT_AGENT_MODEL,
-        )
-
-    retry_kwargs: dict = {}
-    if spawn_max_retries is not None:
-        retry_kwargs["spawn_max_retries"] = spawn_max_retries
-    if spawn_retry_initial_backoff_seconds is not None:
-        retry_kwargs["spawn_retry_initial_backoff_seconds"] = spawn_retry_initial_backoff_seconds
-
-    # NOTE: this helper only supports the default Anthropic auth path. It
-    # does not forward ``upstream``/``upstream_model``, so ``spawn_agent_job``
-    # falls back to the Anthropic branch and injects the session-token
-    # placeholder into ``CLAUDE_CODE_OAUTH_TOKEN`` (#2817). It has no
-    # production callers today (only test references). If this path is ever
-    # revived for a LiteLLM agent, plumb ``upstream``/``upstream_model``
-    # through here — otherwise Claude Code would send ``x-api-key`` (api_key
-    # auth) while the placeholder lands in the OAuth header, leaving the
-    # credential header empty and the session unresolvable.
-    spawned = spawner.spawn_agent_job(
-        pipeline_id=pipeline_id,
-        agent_role=agent_role,
-        issue_number=issue_number,
-        mode=gateway_mode,
-        wait_for_gateway=False,
-        repos=repos,
-        phase=phase,
-        extra_env=sandbox_env,
-        command=sandbox_command,
-        repo_volumes=repo_volumes,
-        branch=branch,
-        extra_mounts=extra_mounts,
-        jira_ticket=(sandbox_env.get("EGG_JIRA_TICKET") or None),
-        **retry_kwargs,
-    )
-
-    # Record container and agent in phase execution state
-    if store is not None:
-        try:
-            from models import AgentExecution, AgentExecutionStatus
-
-            with get_pipeline_state_lock(pipeline_id):
-                pipeline = store.load_pipeline(pipeline_id)
-                phase_execution = pipeline.get_phase_execution(PipelinePhase(phase))
-
-                # Track container — preserve backend-specific fields
-                # (pod_name, namespace, job_name on K8s) from the spawner.
-                container_info = spawned.container_info.model_copy(
-                    update={
-                        "status": ContainerStatus.RUNNING,
-                        "started_at": datetime.now(UTC),
-                        "agent_role": agent_role,
-                    }
-                )
-                phase_execution.containers.append(container_info)
-
-                # Track agent execution.
-                #
-                # ``slice_id`` is explicitly ``None`` because this helper has
-                # no production callers today and is reachable only from
-                # tests that mock-patch it. If a future change resurrects
-                # this path for a sliced spawn, the caller MUST plumb a
-                # ``slice_id`` through here — otherwise the new
-                # ``(role, slice_id)`` walks added in #2422 will not see
-                # the record. See PR #2435 review thread.
-                # This helper hard-codes the default Anthropic auth path (see
-                # the NOTE above ``spawn_agent_job``), so the resolved model is
-                # always the built-in default alias. Stamp it for parity with
-                # ``_run_concurrent_phase`` / ``restart_agent`` (#3174) — if this
-                # test-only path is ever resurrected for production it will not
-                # silently regress resolved-model visibility.
-                agent_execution = AgentExecution(
-                    role=agent_role,
-                    status=AgentExecutionStatus.RUNNING,
-                    container_id=spawned.container_info.container_id,
-                    slice_id=None,
-                    started_at=datetime.now(UTC),
-                    resolved_model=DEFAULT_AGENT_MODEL,
-                )
-                phase_execution.agents.append(agent_execution)
-
-                store.save_pipeline(pipeline)
-        except Exception as track_err:
-            logger.warning(
-                "Failed to record container/agent in pipeline state",
-                container_id=spawned.container_info.container_id[:12],
-                error=str(track_err),
-            )
-
-    backend = spawner.backend
-    try:
-        final_info = backend.wait_for_container(
-            spawned.container_info.container_id,
-            timeout=timeout,
-        )
-    except (
-        ContainerNotFoundError,
-        ContainerOperationError,
-        PodNotFoundError,
-        JobOperationError,
-    ) as e:
-        logger.warning(
-            "Container lost during wait, marking failed",
-            container_id=spawned.container_info.container_id,
-            error=str(e),
-        )
-        final_info = ContainerInfo(
-            container_id=spawned.container_info.container_id,
-            container_name=spawned.container_info.container_name,
-            status=ContainerStatus.FAILED,
-            exit_code=-1,
-            exited_at=datetime.now(UTC),
-        )
-
-    container_logs = ""
-    if final_info.exit_code != 0:
-        try:
-            container_logs = backend.get_container_logs(
-                spawned.container_info.container_id,
-                tail=200,
-            )
-        except Exception:
-            pass
-
-    # Update container and agent status in phase execution
-    if store is not None:
-        try:
-            from models import AgentExecutionStatus
-
-            with get_pipeline_state_lock(pipeline_id):
-                pipeline = store.load_pipeline(pipeline_id)
-                phase_execution = pipeline.get_phase_execution(PipelinePhase(phase))
-
-                # Update container status
-                for ci in phase_execution.containers:
-                    if ci.container_id == spawned.container_info.container_id:
-                        ci.status = final_info.status
-                        ci.exited_at = final_info.exited_at
-                        ci.exit_code = final_info.exit_code
-                        break
-
-                # Update agent status
-                for agent in phase_execution.agents:
-                    if agent.container_id == spawned.container_info.container_id:
-                        agent.completed_at = datetime.now(UTC)
-                        if final_info.exit_code == 0:
-                            agent.status = AgentExecutionStatus.COMPLETE
-                        else:
-                            agent.status = AgentExecutionStatus.FAILED
-                            agent.error = f"Container exited with code {final_info.exit_code}"
-                        break
-
-                store.save_pipeline(pipeline)
-        except Exception as track_err:
-            logger.warning(
-                "Failed to update container/agent status in pipeline state",
-                container_id=spawned.container_info.container_id[:12],
-                error=str(track_err),
-            )
-
-    # Always clean up the container
-    try:
-        spawner.remove_agent_container(
-            spawned.container_info.container_id,
-            force=True,
-            cleanup_session=True,
-        )
-    except Exception as cleanup_err:
-        logger.warning(
-            "Failed to clean up container",
-            container_id=spawned.container_info.container_id[:12],
-            error=str(cleanup_err),
-        )
-
-    return final_info.exit_code, container_logs
-
-
 # Phases that pause for human approval before advancing (HITL gates)
 _HITL_GATE_PHASES = {"refine", "plan"}
 
@@ -8069,49 +7296,6 @@ _APPROVE_KEYWORDS = {"approved", "approve", "lgtm", "yes", ""}
 
 # Bare option labels that indicate "request changes" without actionable feedback
 _BARE_OPTION_LABELS = {"request changes", "request_changes"}
-
-
-def _parse_resolution(resolution: str | None) -> tuple[bool, str | None]:
-    """Parse a HITL phase_gate resolution into (is_approved, feedback).
-
-    Handles both JSON-structured resolutions and legacy bare-string formats.
-    Used by the AWAITING_HUMAN recovery path in start_pipeline.
-
-    Returns:
-        (is_approved, feedback): is_approved is True for approve/select/submit_feedback
-        actions, False for request_changes/change_approach. feedback contains the
-        revision feedback text (if any) for non-approved resolutions.
-    """
-    if not resolution:
-        return True, None
-
-    resolution = resolution.strip()
-
-    # JSON-first: try structured payload
-    try:
-        payload = json.loads(resolution)
-        if isinstance(payload, dict) and "action" in payload:
-            action = payload["action"]
-            feedback_text = payload.get("feedback", "") or None
-
-            if action in ("approve", "select", "submit_feedback"):
-                return True, None
-            elif action in ("request_changes", "change_approach"):
-                return False, feedback_text
-            # Unknown action — fall through to legacy matching
-    except json.JSONDecodeError, TypeError, AttributeError:
-        pass
-
-    # Legacy bare-string resolution
-    if resolution.lower() in _APPROVE_KEYWORDS:
-        return True, None
-    elif resolution.lower() in _BARE_OPTION_LABELS:
-        return False, None
-    elif resolution:
-        # Free-text feedback — treat as request_changes
-        return False, resolution
-
-    return True, None
 
 
 # Minimum characters of non-heading content required for a synthesized plan
@@ -12499,6 +11683,14 @@ from ._ledger import (  # noqa: E402,F401
     _unwrap_choice_resolution,
     _write_apply_phase_handoff,
 )
+from ._lifecycle_helpers import (  # noqa: E402,F401
+    _assert_repo_set_uniform,
+    _cleanup_remote_branches,
+    _clear_pipeline_runtime_state,
+    _compute_gateway_mode,
+    _mark_pipeline_records_terminated,
+    _normalize_submission_repos,
+)
 from ._overseer import (  # noqa: E402,F401
     _build_overseer_corrective_executor,
     _consume_adjudicator_verdict,
@@ -12585,10 +11777,21 @@ from ._reviews import (  # noqa: E402,F401
     _read_review_verdict,
     _read_tester_gaps,
 )
+from ._run_support import (  # noqa: E402,F401
+    _clear_stale_impasses_for_producers,
+    _parse_resolution,
+    _pipeline_superseded_by_restart,
+    _spawn_and_wait,
+)
 from ._salvage import (  # noqa: E402,F401
     _filter_salvage_worktrees,
     _serialize_commit_report,
     _serialize_salvage_result,
+)
+from ._slice_completion import (  # noqa: E402,F401
+    SliceCompletionInvariantError,
+    _slice_produced_commits,
+    _validate_slice_completion_basis,
 )
 from ._slice_state import (  # noqa: E402,F401
     _check_slice_evidence_reachability,

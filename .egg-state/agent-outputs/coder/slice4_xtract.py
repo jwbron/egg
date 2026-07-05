@@ -77,6 +77,18 @@ def _local_bound_names(fn: ast.AST) -> tuple[set[str], set[str]]:
         def visit_arg(self, node: ast.arg) -> None:
             bound.add(node.arg)
 
+        def visit_Import(self, node: ast.Import) -> None:
+            for a in node.names:
+                bound.add((a.asname or a.name).split(".")[0])
+
+        def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+            # Function-local imports bind names in THIS scope; references to
+            # them must stay bare (not _pkg.-prefixed) even when the name also
+            # exists at barrel top-level (e.g. `from models import ContainerInfo`
+            # inside _spawn_and_wait).
+            for a in node.names:
+                bound.add(a.asname or a.name)
+
     scanner = _Scan()
     # For a real function node, scan its body/decorators-excluded children.
     for child in ast.iter_child_nodes(fn):
