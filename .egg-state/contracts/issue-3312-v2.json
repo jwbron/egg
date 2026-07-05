@@ -699,6 +699,39 @@
       "resolved_at": "2026-07-04T23:36:22.770857Z",
       "debounce_until": null,
       "redirect_seed": null
+    },
+    {
+      "id": "cq-3",
+      "question": "Slice-4 (decompose the 30,520-line orchestrator/routes/pipelines.py into a sub-package) is structurally incompatible with the one-shot execution model, which is the real root cause of the ~18h exit_code=75 crash-loop \u2014 NOT a code defect. Concretely verified this session: (1) each coder invocation resets the worktree to the slice base (origin/egg/issue-3312-v2/slice-4), discarding any non-proposed local commits \u2014 my verified pure-move baseline commit 0228f4a9f was reset away between invocations; (2) the gateway blocks off-lineage recovery ('Off-lineage git reset is not allowed in pipeline sessions'), so progress cannot be re-anchored across invocations; (3) therefore the ENTIRE decomposition \u2014 236 top-level symbols into ~20 submodules, INCLUDING internally splitting three functions that each individually exceed the 1500-line hard cap (_run_pipeline 3,324 lines, _run_concurrent_phase 1,737, _run_implement_phase_slices 1,677) plus rewiring 64 unittest.mock.patch targets through _pkg indirection \u2014 must be completed within a SINGLE agent invocation before it can be proposed/pushed. That volume repeatedly exhausts the agent runtime (exit_code=75) before completion. The three smaller slices (models 1.5k, event_loop 1.6k, gateway 10.6k) each fit one invocation and landed; this 30.5k-line file does not. How should we proceed?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Re-slice slice-4 into ~6-8 smaller sub-slices (one sub-package cluster per slice, e.g. _criteria/_prompt_building/_brc_history/_context_pr/_slice_state/_concurrent/_run_loop), each completable in one invocation \u2014 mirrors how #3312's first run landed 17/19 slices as separate PRs. RECOMMENDED.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Disable the per-invocation worktree reset for the coder producer on slice-4 so partial verified commits accumulate across invocations toward a single PR.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Keep attempting the monolithic single-invocation decomposition unchanged (status quo \u2014 expected to keep crashing at exit_code=75).",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
@@ -998,6 +1031,49 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-3-7 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-05T00:20:41.523744Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-3",
+        "question": "Slice-4 (decompose the 30,520-line orchestrator/routes/pipelines.py into a sub-package) is structurally incompatible with the one-shot execution model, which is the real root cause of the ~18h exit_code=75 crash-loop \u2014 NOT a code defect. Concretely verified this session: (1) each coder invocation resets the worktree to the slice base (origin/egg/issue-3312-v2/slice-4), discarding any non-proposed local commits \u2014 my verified pure-move baseline commit 0228f4a9f was reset away between invocations; (2) the gateway blocks off-lineage recovery ('Off-lineage git reset is not allowed in pipeline sessions'), so progress cannot be re-anchored across invocations; (3) therefore the ENTIRE decomposition \u2014 236 top-level symbols into ~20 submodules, INCLUDING internally splitting three functions that each individually exceed the 1500-line hard cap (_run_pipeline 3,324 lines, _run_concurrent_phase 1,737, _run_implement_phase_slices 1,677) plus rewiring 64 unittest.mock.patch targets through _pkg indirection \u2014 must be completed within a SINGLE agent invocation before it can be proposed/pushed. That volume repeatedly exhausts the agent runtime (exit_code=75) before completion. The three smaller slices (models 1.5k, event_loop 1.6k, gateway 10.6k) each fit one invocation and landed; this 30.5k-line file does not. How should we proceed?",
+        "type": "hitl",
+        "phase": "implement",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Re-slice slice-4 into ~6-8 smaller sub-slices (one sub-package cluster per slice, e.g. _criteria/_prompt_building/_brc_history/_context_pr/_slice_state/_concurrent/_run_loop), each completable in one invocation \u2014 mirrors how #3312's first run landed 17/19 slices as separate PRs. RECOMMENDED.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Disable the per-invocation worktree reset for the coder producer on slice-4 so partial verified commits accumulate across invocations toward a single PR.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Keep attempting the monolithic single-invocation decomposition unchanged (status quo \u2014 expected to keep crashing at exit_code=75).",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Slice-4 (decompose the 30,520-line orchestrator/ro...",
       "checkpoint_id": null
     }
   ],
