@@ -2833,15 +2833,18 @@ class TestSpawnEventJobWorktreeReattach:
     def test_try_reuse_production_shape_work_branch(self, spawner, tmp_path):
         """End-to-end for the production shape (#3480): HEAD on the derived
         work branch, assigned branch only on origin. Validation accepts the
-        work branch and the R6 hard-sync resets to ``origin/{assigned}``."""
+        work branch, and the sync KEEPS the clean-tree local commit strictly
+        ahead of ``origin/{assigned}`` (fast-forward-aware, #3506)."""
         work_branch = f"egg/{_WT_ID}/work"
         repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", work_branch, with_origin=True)
-        # Publish the assigned branch on origin (the hard-sync target), then
-        # advance the local work branch past it so the sync has work to do.
+        # Publish the assigned branch on origin (the sync target), then
+        # advance the local work branch past it: the agent's own unpushed
+        # multi-session work, committed on a clean exit.
         _git(repo, "push", "origin", f"{work_branch}:{_BRANCH}")
         (repo / "local.txt").write_text("unpushed\n")
         _git(repo, "add", "-A")
         _git(repo, "commit", "-m", "local unpushed commit")
+        local_head = _git(repo, "rev-parse", "HEAD").stdout.strip()
 
         with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
             result = spawner._try_reuse_worktree(_WT_ID, _BRANCH, _REPOS)
@@ -2850,12 +2853,15 @@ class TestSpawnEventJobWorktreeReattach:
         success, repo_volumes = result
         assert success
         assert repo_volumes["owner/repo"] == str(repo)
-        # The predecessor's local, unpushed commit was discarded by the
-        # hard-sync to origin/{assigned} (R6 dirty-state policy).
-        assert not (repo / "local.txt").exists()
-        head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        # The agent's own clean fast-forward commit survives the re-attach
+        # (#3506); the sync no longer hard-resets a strict descendant.
+        assert (repo / "local.txt").read_text() == "unpushed\n"
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == local_head
         remote = _git(repo, "rev-parse", f"origin/{_BRANCH}").stdout.strip()
-        assert head == remote
+        assert (
+            _git(repo, "merge-base", "--is-ancestor", remote, local_head, check=False).returncode
+            == 0
+        )
 
 
 class TestReusePathHostPathTranslation:
@@ -3078,13 +3084,16 @@ class TestReusePathWorktreeContainerIdBinding:
 
 
 class TestSpawnEventJobDirtyWorktree:
-    """Dirty-state policy (architect R6) for re-attached worktrees (#3064 slice-4).
+    """Dirty-state policy (architect R6, #3506) for re-attached worktrees.
 
     On every successful re-attach the spawner discards uncommitted changes and
-    untracked artifacts (reset --hard + clean -fd) and hard-syncs to the role
-    branch tip. A predecessor's residue — including a *committed-but-unpushed*
-    commit — must never reach a successor. If discard OR hard-sync fails, the
-    spawner falls back to recreate.
+    untracked artifacts (reset --hard + clean -fd) and syncs to the role
+    branch tip. The sync is fast-forward-aware (#3506): a clean-tree local
+    HEAD that is a strict descendant of the origin tip is the agent's own
+    durable multi-session work and is KEPT. A predecessor's residue (a dirty
+    tree, or commits accompanied by dirt: the killed-mid-event signature)
+    must never reach a successor, nor may a diverged HEAD. If discard, fetch,
+    or hard-sync fails, the spawner falls back to recreate.
     """
 
     def test_reattach_discards_uncommitted_changes(self, spawner, tmp_path):
@@ -3174,6 +3183,93 @@ class TestSpawnEventJobDirtyWorktree:
         assert cleaned is True
         assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
         assert _git(repo, "status", "--porcelain").stdout.strip() == ""
+
+    def test_reattach_keeps_clean_fast_forward_commits(self, spawner, tmp_path):
+        """A clean-tree local HEAD strictly ahead of the origin tip is KEPT (#3506).
+
+        This is the multi-session accumulation case: the previous session
+        committed durable work, exited cleanly, and had not pushed yet. The
+        sync must not orphan that commit (the Sisyphus loop of #3506).
+        """
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        origin_head = _git(repo, "rev-parse", f"origin/{_BRANCH}").stdout.strip()
+        (repo / "work.txt").write_text("durable multi-session work\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "unpushed baseline (clean session exit)")
+        local_head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        assert local_head != origin_head
+
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS)
+
+        assert cleaned is True
+        # The agent's own fast-forward commit survives the re-attach.
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == local_head
+        assert (repo / "work.txt").read_text() == "durable multi-session work\n"
+        assert _git(repo, "status", "--porcelain").stdout.strip() == ""
+
+    def test_reattach_dirty_tree_disqualifies_fast_forward_keep(self, spawner, tmp_path):
+        """A fast-forward commit accompanied by tracked dirt is still discarded.
+
+        Tracked modifications alongside a local commit are the
+        killed-mid-event signature, so the R6 hard-reset applies even though
+        the commit alone would qualify as a clean fast-forward.
+        """
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        origin_head = _git(repo, "rev-parse", f"origin/{_BRANCH}").stdout.strip()
+        (repo / "work.txt").write_text("committed mid-session\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "commit left by a killed pod")
+        (repo / "seed.txt").write_text("DIRTY tracked edit in flight\n")
+
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS)
+
+        assert cleaned is True
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
+        assert not (repo / "work.txt").exists()
+        assert _git(repo, "status", "--porcelain").stdout.strip() == ""
+
+    def test_reattach_diverged_head_resets_to_origin(self, spawner, tmp_path):
+        """A clean-tree local HEAD that DIVERGED from origin hard-resets (R6)."""
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        # Advance origin past the common base ...
+        (repo / "remote.txt").write_text("landed on origin\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "advance origin")
+        _git(repo, "push", "origin", _BRANCH)
+        origin_head = _git(repo, "rev-parse", f"origin/{_BRANCH}").stdout.strip()
+        # ... then rewind and commit divergent local work (clean tree).
+        _git(repo, "reset", "--hard", "HEAD~1")
+        (repo / "local.txt").write_text("divergent local work\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "divergent local commit")
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() != origin_head
+
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS)
+
+        assert cleaned is True
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
+        assert not (repo / "local.txt").exists()
+        assert (repo / "remote.txt").read_text() == "landed on origin\n"
+
+    def test_reattach_behind_tip_fast_forwards_to_origin(self, spawner, tmp_path):
+        """A clean-tree local HEAD BEHIND the origin tip resets forward to it."""
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        (repo / "remote.txt").write_text("landed on origin\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "advance origin")
+        _git(repo, "push", "origin", _BRANCH)
+        origin_head = _git(repo, "rev-parse", f"origin/{_BRANCH}").stdout.strip()
+        _git(repo, "reset", "--hard", "HEAD~1")  # fall behind the tip
+
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS)
+
+        assert cleaned is True
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
+        assert (repo / "remote.txt").read_text() == "landed on origin\n"
 
 
 class TestSpawnEventJobSessionReuse:
