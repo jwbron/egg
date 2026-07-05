@@ -172,7 +172,13 @@ Under orchestrator ownership the worktree becomes a hot path.
    before agent invocation. (The #3023 post-mortem constraint means a
    predecessor pod killed mid-event must never leak unproposed residue
    into a successor's commit.)
-3. **On any validation mismatch OR discard failure:** fall back to today's
+3. **Before handing off to spawn:** translate the validated paths from
+   orchestrator-local (under `WORKTREE_BASE_DIR`) to host paths, matching
+   what the create path already gets from the gateway. An untranslated
+   local path mounts as an empty kubelet-created `hostPath` dir on the
+   node — the agent boots into an empty worktree and silently no-ops
+   (#3502).
+4. **On any validation mismatch OR discard failure:** fall back to today's
    `create_with_retry`.
 
 **Session reuse:**
