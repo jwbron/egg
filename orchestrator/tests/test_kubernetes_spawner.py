@@ -2858,6 +2858,225 @@ class TestSpawnEventJobWorktreeReattach:
         assert head == remote
 
 
+class TestReusePathHostPathTranslation:
+    """Reuse-path ``repo_volumes`` must carry HOST paths (#3502).
+
+    The create path hands the spawn path gateway-returned HOST paths; the
+    re-attach path used to hand the validator's orchestrator-LOCAL paths
+    (under ``WORKTREE_BASE_DIR``) straight into the Job spec's ``hostPath``
+    mounts. On the node kubelet ``DirectoryOrCreate``d an empty root-owned
+    dir at that local path, so every post-restart re-attach spawn booted
+    into an empty worktree and no-oped with rc=0 — silently stalling slice
+    consensus.
+    """
+
+    def test_local_to_host_path_translates_via_mount_mapping(self):
+        from kubernetes_spawner import _local_to_host_path
+
+        mapping = [
+            ("/home/egg/.egg-worktrees", "/home/hostuser/.egg-worktrees"),
+            ("/home/egg", "/home/hostuser"),
+        ]
+        assert (
+            _local_to_host_path("/home/egg/.egg-worktrees/wt-1/repo", mapping)
+            == "/home/hostuser/.egg-worktrees/wt-1/repo"
+        )
+        # Longest prefix wins (mapping is ordered longest-first).
+        assert _local_to_host_path("/home/egg/other", mapping) == "/home/hostuser/other"
+        # Exact mount-point match translates too.
+        assert (
+            _local_to_host_path("/home/egg/.egg-worktrees", mapping)
+            == "/home/hostuser/.egg-worktrees"
+        )
+        # A sibling path that merely shares the string prefix does not match.
+        assert _local_to_host_path("/home/egg-other/x", mapping[:1]) == "/home/egg-other/x"
+
+    def test_local_to_host_path_falls_back_to_host_home(self, monkeypatch):
+        from kubernetes_spawner import _local_to_host_path
+
+        monkeypatch.setenv("HOST_HOME", "/home/hostuser")
+        assert (
+            _local_to_host_path("/home/egg/.egg-worktrees/wt-1/repo", [])
+            == "/home/hostuser/.egg-worktrees/wt-1/repo"
+        )
+        # Non-/home/egg paths (already host paths) pass through unchanged.
+        assert (
+            _local_to_host_path("/home/hostuser/.egg-worktrees/wt-1/repo", [])
+            == "/home/hostuser/.egg-worktrees/wt-1/repo"
+        )
+
+    def test_local_to_host_path_passthrough_without_translation(self, monkeypatch):
+        from kubernetes_spawner import _local_to_host_path
+
+        monkeypatch.delenv("HOST_HOME", raising=False)
+        assert (
+            _local_to_host_path("/home/egg/.egg-worktrees/wt-1/repo", [])
+            == "/home/egg/.egg-worktrees/wt-1/repo"
+        )
+
+    def test_load_local_mount_mapping_skips_non_bind_entries(self, tmp_path):
+        """Rootfs, tmpfs-style (root ``/``), and identity entries are skipped
+        so translation is a no-op outside a container."""
+        from kubernetes_spawner import _load_local_mount_mapping
+
+        mountinfo = tmp_path / "mountinfo"
+        mountinfo.write_text(
+            # rootfs entry: mount_point "/" — skipped
+            "22 1 0:20 / / rw - overlay overlay rw\n"
+            # tmpfs /tmp: root "/" — skipped
+            "40 22 0:33 / /tmp rw - tmpfs tmpfs rw\n"
+            # identity mapping (subvolume mounted at its own path) — skipped
+            "50 22 8:1 /home /home rw - btrfs /dev/sda1 rw\n"
+            # genuine bind mount — kept
+            "60 22 8:1 /home/hostuser/.egg-worktrees /home/egg/.egg-worktrees rw - btrfs x rw\n"
+            # short/malformed line — ignored
+            "61 22 8:1\n"
+        )
+        assert _load_local_mount_mapping(str(mountinfo)) == [
+            ("/home/egg/.egg-worktrees", "/home/hostuser/.egg-worktrees")
+        ]
+
+    def test_try_reuse_returns_host_paths(self, spawner, tmp_path):
+        """The #3502 regression: reuse-path repo_volumes are HOST paths."""
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        mapping = [(str(tmp_path), "/home/hostuser/.egg-worktrees")]
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("kubernetes_spawner._worktree._LOCAL_MOUNT_MAPPING", mapping),
+        ):
+            result = spawner._try_reuse_worktree(_WT_ID, _BRANCH, _REPOS)
+
+        assert result is not None
+        _, repo_volumes = result
+        assert repo_volumes["owner/repo"] == f"/home/hostuser/.egg-worktrees/{_WT_ID}/repo"
+
+    def test_try_reuse_no_translation_is_identity(self, spawner, tmp_path):
+        """Without a mount mapping or HOST_HOME the paths pass through
+        unchanged (bare-host behavior; matches the pre-fix return)."""
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("kubernetes_spawner._worktree._LOCAL_MOUNT_MAPPING", []),
+        ):
+            result = spawner._try_reuse_worktree(_WT_ID, _BRANCH, _REPOS)
+
+        assert result is not None
+        assert result[1]["owner/repo"] == str(repo)
+
+    def test_spawn_rejects_orchestrator_local_repo_volumes(self, spawner):
+        """The #3502 tripwire: a translatable (i.e. orchestrator-local) path
+        reaching the spawn path's hostPath mounts fails the spawn loudly
+        instead of mounting an empty dir the agent no-ops in."""
+        from kubernetes_spawner import KubernetesSpawnError
+
+        mapping = [("/home/egg/.egg-worktrees", "/home/hostuser/.egg-worktrees")]
+        with (
+            patch("kubernetes_spawner._worktree._LOCAL_MOUNT_MAPPING", mapping),
+            pytest.raises(KubernetesSpawnError, match="orchestrator-local"),
+        ):
+            spawner.spawn_agent_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                repos=["owner/repo"],
+                reuse_worktree_id="pipe-1-coder",
+                repo_volumes={"owner/repo": "/home/egg/.egg-worktrees/pipe-1-coder/repo"},
+            )
+
+    def test_spawn_accepts_host_repo_volumes(self, spawner, mock_k8s_client):
+        """Host paths (untranslatable) pass the tripwire and reach the mounts."""
+        mapping = [("/home/egg/.egg-worktrees", "/home/hostuser/.egg-worktrees")]
+        with patch("kubernetes_spawner._worktree._LOCAL_MOUNT_MAPPING", mapping):
+            spawner.spawn_agent_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                repos=["owner/repo"],
+                reuse_worktree_id="pipe-1-coder",
+                repo_volumes={"owner/repo": "/home/hostuser/.egg-worktrees/pipe-1-coder/repo"},
+            )
+        mounts = mock_k8s_client.create_container.call_args.kwargs["host_path_mounts"]
+        assert mounts == [
+            {
+                "name": "repo-owner-repo",
+                "host_path": "/home/hostuser/.egg-worktrees/pipe-1-coder/repo",
+                "container_path": "/home/egg/repos/repo",
+                "read_only": False,
+            }
+        ]
+
+
+class TestReusePathWorktreeContainerIdBinding:
+    """Reuse-path session registration binds the validated worktree (#3502).
+
+    Without ``worktree_container_id``, a fresh registration on the re-attach
+    path makes the gateway create an orphan worktree keyed by the session's
+    ``container_id`` (the ``egg-agent-…`` Job base name) that no Job spec
+    ever mounts — the naming split observed in the #3502 incident.
+    """
+
+    def test_get_or_create_session_forwards_worktree_container_id(self, spawner, mock_gateway):
+        mock_gateway.heartbeat_session_by_container.return_value = False
+        mock_gateway.register_session.return_value = _FakeSessionInfo(
+            session_token="tok-bound-worktree",
+            container_id="egg-agent-pipe-1-slice-4-coder",
+        )
+
+        session = spawner._get_or_create_session(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            slice_id="slice-4",
+            mode="public",
+            repos=["owner/repo"],
+            worktree_container_id="pipe-1-slice-4-coder",
+        )
+
+        assert session is not None
+        kwargs = mock_gateway.register_session.call_args.kwargs
+        assert kwargs["container_id"] == "egg-agent-pipe-1-slice-4-coder"
+        assert kwargs["worktree_container_id"] == "pipe-1-slice-4-coder"
+
+    def test_event_reattach_registration_binds_validated_worktree(
+        self, spawner, mock_k8s_client, mock_gateway, tmp_path
+    ):
+        """End-to-end: a re-attach spawn whose session registers fresh passes
+        the validated worktree id to the gateway."""
+        _make_worktree(tmp_path, "pipe-1-slice-4-coder", "repo", _BRANCH, with_origin=True)
+        mock_k8s_client.list_jobs.return_value = []  # no live Job → no adoption
+        mock_gateway.heartbeat_session_by_container.return_value = False
+        mock_gateway.register_session.return_value = _FakeSessionInfo(
+            session_token="tok-reattach",
+            container_id="egg-agent-pipe-1-slice-4-coder",
+        )
+
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            spawner.spawn_event_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                action="propose",
+                dedupe_key="c" * 64,
+                slice_id="slice-4",
+                phase="implement",
+                repos=["owner/repo"],
+                branch=_BRANCH,
+                wait_for_gateway=False,
+            )
+
+        kwargs = mock_gateway.register_session.call_args.kwargs
+        assert kwargs["worktree_container_id"] == "pipe-1-slice-4-coder"
+
+    def test_spawn_reuse_path_registration_binds_worktree_container_id(self, spawner, mock_gateway):
+        """``spawn_agent_job``'s own registration (reuse path, no supplied
+        token) also binds the reused worktree instead of ``None``."""
+        spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            reuse_worktree_id="pipe-1-coder",
+            repo_volumes={"owner/repo": "/home/hostuser/.egg-worktrees/pipe-1-coder/repo"},
+        )
+        kwargs = mock_gateway.register_session.call_args.kwargs
+        assert kwargs["worktree_container_id"] == "pipe-1-coder"
+
+
 class TestSpawnEventJobDirtyWorktree:
     """Dirty-state policy (architect R6) for re-attached worktrees (#3064 slice-4).
 

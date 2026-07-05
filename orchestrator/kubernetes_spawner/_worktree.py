@@ -39,6 +39,13 @@ def _validate_worktree_for_reuse(
 
     Returns a ``{owner/repo: filesystem_path}`` dict on success, or ``None`` on ANY
     validation mismatch (the caller falls back to create-with-retry). Best-effort logging.
+
+    The returned paths are ORCHESTRATOR-LOCAL (under ``WORKTREE_BASE_DIR``,
+    i.e. this container's own mount of the worktree tree) — suitable for the
+    orchestrator's filesystem ops but NOT for a Job spec's ``hostPath``
+    mounts. :func:`_try_reuse_worktree` translates them to host paths via
+    :func:`_local_to_host_volumes` before handing them to the spawn path
+    (#3502).
     """
     import subprocess as _sp
 
@@ -188,6 +195,97 @@ def _host_to_local_volumes(repo_volumes: dict[str, str]) -> dict[str, str]:
     }
 
 
+# Lazily-loaded (mount_point, host_root) pairs from /proc/self/mountinfo,
+# longest mount_point first. ``None`` until first use; tests may seed it.
+_LOCAL_MOUNT_MAPPING: list[tuple[str, str]] | None = None
+
+
+def _load_local_mount_mapping(source: str = "/proc/self/mountinfo") -> list[tuple[str, str]]:
+    """Read /proc/self/mountinfo and return (mount_point, host_root) pairs.
+
+    Mirrors the gateway's ``_load_mount_mapping`` / ``translate_to_host_path``
+    (``gateway/gateway.py``): for a kubelet- or docker-managed bind mount the
+    mountinfo *root* field (``fields[3]``) records the host path the mount
+    was bound from — exactly the value a Job spec's ``hostPath`` needs.
+
+    Entries that cannot name a host directory are skipped, so translation is
+    a no-op outside a container (unit tests, developer hosts): the rootfs
+    ``/`` entry, entries whose root is ``/`` (tmpfs and other non-bind
+    filesystems), and identity mappings (root == mount_point, e.g. a
+    partition or subvolume mounted at its own path). Skipped entries fall
+    through to the ``HOST_HOME`` env-var fallback in
+    :func:`_local_to_host_path`.
+    """
+    entries: list[tuple[str, str]] = []
+    try:
+        with open(source) as fh:
+            for line in fh:
+                # Format: mount_id parent_id major:minor root mount_point ...
+                fields = line.split()
+                if len(fields) < 5:
+                    continue
+                host_root, mount_point = fields[3], fields[4]
+                if mount_point == "/" or host_root == "/" or host_root == mount_point:
+                    continue
+                entries.append((mount_point, host_root))
+    except OSError:
+        return []
+    entries.sort(key=lambda p: len(p[0]), reverse=True)
+    return entries
+
+
+def _local_to_host_path(local_path: str, mapping: list[tuple[str, str]] | None = None) -> str:
+    """Translate an orchestrator-local path to the host path it is bound from.
+
+    Counterpart of :func:`_host_to_local_volumes` (not an exact inverse:
+    this uses mountinfo + ``HOST_HOME`` where that does a bare ``HOST_HOME``
+    string replace), for paths the orchestrator
+    derived from its OWN mounts (``WORKTREE_BASE_DIR``) that must be handed
+    to a Job spec as ``hostPath`` sources. Handing the local path onward
+    makes kubelet ``DirectoryOrCreate`` an empty root-owned dir on the node
+    and the agent boots into an empty worktree, no-ops, and exits rc=0 —
+    the silent consensus stall in #3502.
+
+    Tries the mountinfo mapping first (no configuration needed — the same
+    mechanism the gateway uses to return host paths from
+    ``create_worktrees``), then the ``HOST_HOME`` env var for
+    ``/home/egg``-prefixed paths, and otherwise returns the path unchanged
+    (already a host path, or no translation is known).
+
+    ``mapping`` overrides the lazily-cached mountinfo entries (tests).
+    """
+    global _LOCAL_MOUNT_MAPPING
+    if mapping is None:
+        if _LOCAL_MOUNT_MAPPING is None:
+            _LOCAL_MOUNT_MAPPING = _load_local_mount_mapping()
+        mapping = _LOCAL_MOUNT_MAPPING
+    for mount_point, host_root in mapping:
+        if local_path == mount_point or local_path.startswith(mount_point + "/"):
+            return host_root + local_path[len(mount_point) :]
+
+    host_home = os.environ.get("HOST_HOME", "").rstrip("/")
+    container_home = "/home/egg"
+    if (
+        host_home
+        and host_home != container_home
+        and (local_path == container_home or local_path.startswith(container_home + "/"))
+    ):
+        return host_home + local_path[len(container_home) :]
+    return local_path
+
+
+def _local_to_host_volumes(repo_volumes: dict[str, str]) -> dict[str, str]:
+    """Translate orchestrator-local repo volume paths to host paths (#3502).
+
+    Applied to the volumes :func:`_validate_worktree_for_reuse` builds from
+    ``WORKTREE_BASE_DIR`` so the reuse path hands the spawn path the same
+    kind of value the create path gets from the gateway: a HOST path fit
+    for a ``hostPath`` mount. Paths with no known translation pass through
+    unchanged.
+    """
+    return {name: _local_to_host_path(path) for name, path in repo_volumes.items()}
+
+
 def _try_reuse_worktree(
     self,
     agent_worktree_id: str,
@@ -201,6 +299,13 @@ def _try_reuse_worktree(
     discard + hard-sync). Returns ``(success, repo_volumes)`` on
     success, or ``None`` on any validation or cleanup mismatch (the
     caller falls back to create-with-retry).
+
+    The returned ``repo_volumes`` carry HOST paths (translated via
+    :func:`_local_to_host_volumes`), matching the create path's
+    gateway-returned values, because the caller feeds them straight into
+    the Job spec's ``hostPath`` mounts. Handing the validator's
+    orchestrator-local paths onward instead made every post-restart
+    re-attach spawn mount an empty kubelet-created dir (#3502).
 
     Signature matches the tester's test-first contract:
     ``(agent_worktree_id, branch, repos) -> (bool, dict) | None``.
@@ -216,7 +321,7 @@ def _try_reuse_worktree(
         return None
     if not self._clean_reused_worktree(agent_worktree_id, branch, repos):
         return None
-    return True, vols
+    return True, _local_to_host_volumes(vols)
 
 
 def _clean_reused_worktree(
