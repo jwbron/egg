@@ -107,9 +107,14 @@ def _local_bound_names(fn: ast.AST) -> tuple[set[str], set[str]]:
 
 
 def main() -> int:
-    submodule = sys.argv[1]
-    title = sys.argv[2]
-    move = sys.argv[3:]
+    argv = sys.argv[1:]
+    route_mode = False
+    if argv and argv[0] == "--routes":
+        route_mode = True
+        argv = argv[1:]
+    submodule = argv[0]
+    title = argv[1]
+    move = argv[2:]
     if not move:
         print("no symbols given", file=sys.stderr)
         return 2
@@ -267,37 +272,99 @@ def main() -> int:
             buf[lineno - 1] = (lb[:col] + b"_pkg." + lb[col:]).decode("utf-8")
         return "".join(buf)
 
+    def build_header(extracted_text: str) -> str:
+        # Literal/Annotated stay bare (ruff forward-ref special-casing) and are
+        # imported directly from typing.
+        typing_needed = sorted(
+            n for n in _SKIP_REWRITE if re.search(rf"\b{n}\b", extracted_text)
+        )
+        typing_line = (
+            f"from typing import {', '.join(typing_needed)}  # noqa: F401\n"
+            if typing_needed
+            else ""
+        )
+        return (
+            f'"""{title} helpers for routes/pipelines (#3312 slice-4).\n\n'
+            "Extracted verbatim from the pipelines barrel; barrel-resident and\n"
+            "test-patched globals are reached via ``_pkg`` so\n"
+            "``patch(\"routes.pipelines.<name>\")`` keeps intercepting.\n"
+            '"""\n\n'
+            "from __future__ import annotations\n\n"
+            f"{typing_line}"
+            "import routes.pipelines as _pkg  # noqa: E402,F401\n\n\n"
+        )
+
+    out = Path("orchestrator/routes/pipelines") / f"{submodule}.py"
+
+    if route_mode:
+        # decision-8: the @route decorator(s) + a thin wrapper stay in the
+        # barrel; only the route BODY moves to _<name>_body in the submodule.
+        body_parts: list[str] = []
+        body_names: list[str] = []
+        replacements: dict[int, tuple[int, str]] = {}  # start_lineno -> (end, text)
+        for name in move:
+            node = node_by_name[name]
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                print(f"{name} is not a function", file=sys.stderr)
+                return 2
+            deco = getattr(node, "decorator_list", [])
+            deco_start = min([node.lineno, *[d.lineno for d in deco]])
+            body0 = node.body[0].lineno
+            end = node.end_lineno
+            deco_text = "".join(lines[deco_start - 1 : node.lineno - 1])
+            sig_text = "".join(lines[node.lineno - 1 : body0 - 1])  # 'def name(...):\n'
+            body_text = "".join(lines[body0 - 1 : end])
+            a = node.args
+            argnames = [x.arg for x in (*a.posonlyargs, *a.args)]
+            if a.vararg:
+                argnames.append("*" + a.vararg.arg)
+            argnames += [f"{kw.arg}={kw.arg}" for kw in a.kwonlyargs]
+            if a.kwarg:
+                argnames.append("**" + a.kwarg.arg)
+            first_body = lines[body0 - 1]
+            indent = first_body[: len(first_body) - len(first_body.lstrip())]
+            # The wrapper lives in the BARREL (which is `_pkg` itself), so it
+            # calls the body BARE — the body is re-exported into the barrel
+            # namespace at the bottom import, resolved at call time. Bare also
+            # keeps patch("routes.pipelines._<name>_body") intercepting.
+            wrapper = (
+                deco_text
+                + sig_text
+                + f"{indent}return _{name}_body({', '.join(argnames)})\n"
+            )
+            replacements[deco_start] = (end, wrapper)
+            body_fn = sig_text.replace(f"def {name}(", f"def _{name}_body(", 1) + body_text
+            body_parts.append(rewrite(body_fn))
+            body_names.append(f"_{name}_body")
+        extracted = "\n".join(p.rstrip("\n") + "\n" for p in body_parts)
+        out.write_text(build_header(extracted) + extracted)
+        # Rebuild barrel: replace each route span with its thin wrapper.
+        result: list[str] = []
+        i = 1
+        while i <= len(lines):
+            if i in replacements:
+                end, wrapper = replacements[i]
+                result.append(wrapper)
+                i = end + 1
+            else:
+                result.append(lines[i - 1])
+                i += 1
+        barrel_src = "".join(result)
+        reexport = (
+            f"\n\nfrom .{submodule} import (  # noqa: E402,F401\n"
+            + "".join(f"    {n},\n" for n in sorted(body_names))
+            + ")\n"
+        )
+        BARREL.write_text(barrel_src.rstrip("\n") + "\n" + reexport)
+        print(f"wrote {out} ({len(move)} route bodies); barrel wrappers updated")
+        return 0
+
     extracted_parts = []
     for start, end, _name in spans:
         segment = "".join(lines[start - 1 : end])
         extracted_parts.append(rewrite(segment))
     extracted = "\n".join(p.rstrip("\n") + "\n" for p in extracted_parts)
-
-    # Typing constructs whose (string) subscript args ruff treats as forward
-    # refs (Literal["a"], Annotated[...]) must NOT be prefixed with _pkg. —
-    # doing so defeats ruff's special-casing and yields spurious F821. They
-    # stay bare and are imported directly from typing.
-    typing_needed = sorted(
-        n for n in _SKIP_REWRITE if re.search(rf"\b{n}\b", extracted)
-    )
-    typing_line = (
-        f"from typing import {', '.join(typing_needed)}  # noqa: F401\n"
-        if typing_needed
-        else ""
-    )
-
-    header = (
-        f'"""{title} helpers for routes/pipelines (#3312 slice-4).\n\n'
-        "Extracted verbatim from the pipelines barrel; barrel-resident and\n"
-        "test-patched globals are reached via ``_pkg`` so\n"
-        "``patch(\"routes.pipelines.<name>\")`` keeps intercepting.\n"
-        '"""\n\n'
-        "from __future__ import annotations\n\n"
-        f"{typing_line}"
-        "import routes.pipelines as _pkg  # noqa: E402,F401\n\n\n"
-    )
-    out = Path("orchestrator/routes/pipelines") / f"{submodule}.py"
-    out.write_text(header + extracted)
+    out.write_text(build_header(extracted) + extracted)
 
     # Rewrite barrel: blank out moved spans, then append re-export block.
     kill: set[int] = set()
@@ -306,7 +373,6 @@ def main() -> int:
             kill.add(ln)
     kept = [ln for i, ln in enumerate(lines, start=1) if i not in kill]
     barrel_src = "".join(kept)
-    # collapse >2 consecutive blank lines left by removal to exactly 2
     reexport = (
         f"\n\nfrom .{submodule} import (  # noqa: E402,F401\n"
         + "".join(f"    {n},\n" for n in sorted(move))
