@@ -72,11 +72,27 @@
       "repo": null,
       "role": "coder"
     },
+    "5aeaaaeaa3300b4d72b4b63b7aa2e2799f958a9d": {
+      "branch": "egg/issue-3312-v2/slice-4",
+      "patch_id": "b01a357a1d2d7712f67fad348884e653132a1b1f",
+      "pipeline_id": "issue-3312-v2",
+      "registered_at": "2026-07-05T19:37:54.921313+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "5c4f41f54a7d8744fb7260bd2ea49413561c35bf": {
       "branch": "egg/issue-3312-v2/slice-4",
       "patch_id": "dca126c4873f634436fa9f4652ea0c9143eed4b0",
       "pipeline_id": "issue-3312-v2",
       "registered_at": "2026-07-05T18:38:16.931074+00:00",
+      "repo": null,
+      "role": "coder"
+    },
+    "60e5533072e5ceb37285b4715c37fd3b3a9851f8": {
+      "branch": "egg/issue-3312-v2/slice-4",
+      "patch_id": "a9a6a40bd75a0656c874629dcc16f652367a3294",
+      "pipeline_id": "issue-3312-v2",
+      "registered_at": "2026-07-05T19:37:54.928946+00:00",
       "repo": null,
       "role": "coder"
     },
