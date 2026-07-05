@@ -28,7 +28,10 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-_PIPELINES = Path(__file__).resolve().parent.parent / "routes" / "pipelines.py"
+_PIPELINES_PKG = Path(__file__).resolve().parent.parent / "routes" / "pipelines"
+_PIPELINES_SRC = "\n".join(
+    p.read_text(encoding="utf-8") for p in sorted(_PIPELINES_PKG.rglob("*.py"))
+)
 
 # Functions that run inside the implement-phase slice loop. A bare
 # ``from orchestrator.X import Y`` inside any of these will crash the
@@ -102,7 +105,7 @@ def test_slice_loop_orchestrator_imports_are_dual_guarded() -> None:
     must be wrapped in ``try/except ImportError`` so the pod runtime
     (flat layout, no ``orchestrator/`` package) falls back to the
     top-level form. Catches the recurrence pattern that #2901 fixes."""
-    tree = ast.parse(_PIPELINES.read_text())
+    tree = ast.parse(_PIPELINES_SRC)
     failures: dict[str, list[int]] = {}
     seen: set[str] = set()
     for node in ast.walk(tree):
@@ -114,7 +117,7 @@ def test_slice_loop_orchestrator_imports_are_dual_guarded() -> None:
 
     missing = _SLICE_LOOP_FUNCS - seen
     assert not missing, (
-        f"Slice-loop functions not found in {_PIPELINES}: {sorted(missing)}. "
+        f"Slice-loop functions not found in {_PIPELINES_PKG}: {sorted(missing)}. "
         "Update _SLICE_LOOP_FUNCS or the function names if the refactor "
         "of routes/pipelines.py moved them."
     )

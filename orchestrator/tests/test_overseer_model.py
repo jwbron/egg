@@ -121,7 +121,14 @@ def _spawn_path_source() -> str:
     ``routes/pipelines.py`` (``_spawn_overseer_agent``). Concatenate both so the
     resolver assertion holds wherever the spawn path currently lives.
     """
-    return _spawner_source() + "\n" + (_orchestrator_path / "routes" / "pipelines.py").read_text()
+    return (
+        _spawner_source()
+        + "\n"
+        + "\n".join(
+            p.read_text(encoding="utf-8")
+            for p in sorted((_orchestrator_path / "routes" / "pipelines").rglob("*.py"))
+        )
+    )
 
 
 # A model name that is not any tier default and routes through the LiteLLM

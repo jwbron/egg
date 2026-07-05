@@ -100,10 +100,20 @@ _REQUIRES_PIPELINES = pytest.mark.skipif(
 
 # Source-text reads for structural invariants. These always run —
 # they read the .py file directly rather than importing the module.
+# ``routes/pipelines`` was decomposed from a single ``pipelines.py`` module into
+# a sub-package (#3312 slice-4); concatenate every source file under the package
+# so these structural source-text invariants still see the full module surface
+# regardless of which submodule now holds each symbol.
+_PIPELINES_PKG_PATH = Path(__file__).parent.parent / "routes" / "pipelines"
 _PIPELINES_SRC_PATH = Path(__file__).parent.parent / "routes" / "pipelines.py"
-_PIPELINES_SRC: str = (
-    _PIPELINES_SRC_PATH.read_text(encoding="utf-8") if _PIPELINES_SRC_PATH.exists() else ""
-)
+if _PIPELINES_PKG_PATH.is_dir():
+    _PIPELINES_SRC: str = "\n".join(
+        p.read_text(encoding="utf-8") for p in sorted(_PIPELINES_PKG_PATH.rglob("*.py"))
+    )
+elif _PIPELINES_SRC_PATH.exists():
+    _PIPELINES_SRC = _PIPELINES_SRC_PATH.read_text(encoding="utf-8")
+else:
+    _PIPELINES_SRC = ""
 
 # -----------------------------------------------------------------------------
 # WontDoEntry dataclass
