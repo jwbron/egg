@@ -156,10 +156,28 @@
       "resolution": "{\"action\": \"approve\", \"context\": \"Resolved Questions:\\n\\n**PR C — when a rate-limit / subscription cap-wall persists, how should the windowed paced-retry bound itself?**\\nAnswer: Retry until the cap lifts (no hard ceiling) BUT emit an OVERSEER_ALERT once the wait crosses a threshold, so an attended operator is informed while auto-recovery continues. (Resolved as cq-1 on the contract.)\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Consensus timed out; consensus incomplete; agents never confirmed: architect, task_planner, risk_analyst, reviewer_plan, simplifier. 'Retry phase' re-runs the phase from the shared work branch tip (work pushed to the shared branch is preserved; unpushed per-role commits are salvaged best-effort to egg/recovered/*). How to proceed?",
+      "context": "consensus_timeout_incomplete",
+      "options": [
+        "Retry phase",
+        "Accept current state",
+        "Abort phase"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-07-06T21:51:21.181086Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "plan",
+      "content_changed": null
     }
   ],
   "created_at": "2026-07-06T18:14:47.748270Z",
-  "updated_at": "2026-07-06T21:23:23.618711Z",
+  "updated_at": "2026-07-06T21:51:21.181441Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -172,7 +190,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-07-06T18:40:50.983150Z",
-  "version": 18,
+  "version": 19,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
