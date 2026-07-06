@@ -52,9 +52,11 @@ Issue #3364: slim the /sdlc skill to run + report + HITL. PR A already landed
   (anomaly=agent-heartbeat-stall, re: refiner) ONLY if a future premature
   propose finds the refiner's newest heartbeat >15 min stale with no
   CONSENSUS_PROPOSE. Refiner last beat 18:15:08Z → threshold ~18:30Z.
-- Latest identical premature-propose event: **#1 at 18:15Z** (update THIS
+- Latest identical premature-propose event: **#2 at 18:17Z** (update THIS
   line in place for identical repeats; do not add new sections — keeps file
-  compact per #3393 lesson).
+  compact per #3393 lesson). #2: refiner still WORKING, 0 CONSENSUS_PROPOSE
+  (live=true), draft still absent; refiner heartbeat fresh (18:17:09Z) →
+  no escalation. Pump cadence ~1-2 min while refiner drafts.
 
 ## Durability notes (carried from issue-3393 run)
 
