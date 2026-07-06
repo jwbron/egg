@@ -120,6 +120,14 @@
       "repo": null,
       "role": "risk_analyst"
     },
+    "7a54494af213a764b9c8cfaafd94f590e4647806": {
+      "branch": "egg/issue-3364/work",
+      "patch_id": "d37539387c731d20ea262885a536264399f07ebf",
+      "pipeline_id": "issue-3364",
+      "registered_at": "2026-07-06T22:10:10.627380+00:00",
+      "repo": null,
+      "role": "task_planner"
+    },
     "806d520c90755a5647c78d3c468900f39e73cdeb": {
       "branch": "egg/issue-3364/work",
       "patch_id": "019d91fab6ed28f9d0f09ea34c84a3f4addf9330",
@@ -151,6 +159,14 @@
       "registered_at": "2026-07-06T18:52:40.431965+00:00",
       "repo": null,
       "role": "simplifier"
+    },
+    "8e135a31ad16e238c4c131cec29ec15690543d2e": {
+      "branch": "egg/issue-3364/work",
+      "patch_id": "72cdfa7df5e0a5aed761892a51f1377e51832184",
+      "pipeline_id": "issue-3364",
+      "registered_at": "2026-07-06T22:10:10.630442+00:00",
+      "repo": null,
+      "role": "task_planner"
     },
     "8ed0bd8344eeebfc360c5506ab55dc5e4b9647fe": {
       "branch": "egg/issue-3364/work",
@@ -223,6 +239,14 @@
       "registered_at": "2026-07-06T18:20:10.025031+00:00",
       "repo": null,
       "role": "refiner"
+    },
+    "df6b4575fb8e0af17420f448eda113849e2c4f0e": {
+      "branch": "egg/issue-3364/work",
+      "patch_id": null,
+      "pipeline_id": "issue-3364",
+      "registered_at": "2026-07-06T22:10:10.619645+00:00",
+      "repo": null,
+      "role": "task_planner"
     },
     "e2fbdd712fb003f68691159f765b79ee0ed3898a": {
       "branch": "egg/issue-3364/work",
