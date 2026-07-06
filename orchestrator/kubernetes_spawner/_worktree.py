@@ -291,6 +291,11 @@ def _try_reuse_worktree(
     agent_worktree_id: str,
     branch: str | None,
     repos: list[str] | None,
+    *,
+    pipeline_id: str | None = None,
+    agent_role: str | None = None,
+    slice_id: str | None = None,
+    mode: str = "public",
 ) -> tuple[bool, dict[str, str]] | None:
     """Validate an existing worktree and, on success, clean dirty state.
 
@@ -299,6 +304,14 @@ def _try_reuse_worktree(
     discard + fast-forward-aware sync, #3506). Returns ``(success, repo_volumes)`` on
     success, or ``None`` on any validation or cleanup mismatch (the
     caller falls back to create-with-retry).
+
+    ``pipeline_id`` / ``agent_role`` / ``slice_id`` give the cleanup step
+    the context it needs to auto-salvage and durably record any commits
+    its hard-reset discards (#3509); when omitted the discard is log-only.
+    ``mode`` is the pipeline's gateway network mode ("public" / "private")
+    and MUST match the running pipeline: a "public" salvage push on a
+    private-mode pipeline over a private repo is denied by the gateway's
+    private-repo policy, degrading auto-salvage to record-only.
 
     The returned ``repo_volumes`` carry HOST paths (translated via
     :func:`_local_to_host_volumes`), matching the create path's
@@ -319,7 +332,15 @@ def _try_reuse_worktree(
     vols = _validate_worktree_for_reuse(agent_worktree_id, repos, branch)
     if vols is None:
         return None
-    if not self._clean_reused_worktree(agent_worktree_id, branch, repos):
+    if not self._clean_reused_worktree(
+        agent_worktree_id,
+        branch,
+        repos,
+        pipeline_id=pipeline_id,
+        agent_role=agent_role,
+        slice_id=slice_id,
+        mode=mode,
+    ):
         return None
     return True, _local_to_host_volumes(vols)
 
@@ -329,6 +350,11 @@ def _clean_reused_worktree(
     agent_worktree_id: str,
     branch: str | None,
     repos: list[str] | None,
+    *,
+    pipeline_id: str | None = None,
+    agent_role: str | None = None,
+    slice_id: str | None = None,
+    mode: str = "public",
 ) -> bool:
     """Discard dirty state and sync a re-attached worktree (R6, #3506).
 
@@ -346,8 +372,32 @@ def _clean_reused_worktree(
     behind-tip HEAD, or a dirty pre-discard tree (the killed-mid-event
     signature the R6 residue policy exists to contain), the worktree
     hard-resets to ``origin/{branch}``; any commits ahead of the tip that
-    the reset discards are first logged with their SHAs so the orphaning
-    is visible and salvageable (``salvage_agent_commits``, #3368).
+    the reset discards are first auto-salvaged and durably recorded
+    (#3509): the doomed tip is pushed to an ``egg/recovered/...``
+    recovery ref through the same gateway launcher-auth path as #3368's
+    ``salvage_agent_commits``, and a message-bus system message to the
+    role records the discarded tip + recovery ref so a resuming agent
+    with zero session memory can find its prior work instead of
+    re-deriving it. Both steps are best-effort: a salvage or record
+    failure is logged and the reset proceeds (blocking reuse would only
+    force a fresh worktree that orphans the same commits with less
+    visibility). The salvage/record steps require ``pipeline_id`` (plus
+    ``agent_role`` / ``slice_id`` for the recovery-ref scope); legacy
+    callers that omit them get the pre-#3509 log-only behaviour.
+
+    ``mode`` is the pipeline's gateway network mode ("public" /
+    "private") and is threaded straight into the salvage push. It MUST
+    match the running pipeline: a "public" push on a private-mode
+    pipeline over a private repo is denied by the gateway's private-repo
+    policy, silently degrading auto-salvage to record-only — the exact
+    silent-loss class this hook exists to prevent.
+
+    Only the committed tip (``HEAD``) is salvaged. The ``git reset
+    --hard`` + ``git clean -fd`` above run *before* orphan detection, so
+    uncommitted tracked edits and untracked files in a killed-mid-event
+    worktree are gone before salvage runs; the recovery ref is therefore
+    a commit snapshot, not a full worktree snapshot. Capturing dirty
+    working-tree state is #2807's domain, deliberately out of scope here.
 
     Returns ``True`` on success, ``False`` on any failure (the caller
     falls back to create-with-retry — never allow a half-cleaned
@@ -484,25 +534,67 @@ def _clean_reused_worktree(
                 # the reset is about to discard; between-cycle resets
                 # produce the same orphan class as restart-time resets
                 # (#3368) and must not be silent.
+                orphans: list[str] = []
                 try:
                     if local_head and remote_tip:
                         orphans = _git(
                             d, "rev-list", f"{remote_tip}..{local_head}", check=False
                         ).stdout.split()
-                        if orphans:
-                            logger.warning(
-                                "Worktree re-attach: hard-reset is discarding "
-                                "unpushed local commits (dirty or diverged); "
-                                "salvageable via salvage_agent_commits (#3368)",
-                                agent_worktree_id=agent_worktree_id,
-                                repo=n,
-                                branch=branch,
-                                was_dirty=was_dirty,
-                                discarded_commit_count=len(orphans),
-                                discarded_commits=orphans[:20],
-                            )
                 except Exception:
-                    pass
+                    orphans = []
+                if orphans:
+                    # Auto-salvage + durable record (#3509). Must run
+                    # BEFORE the reset below: afterwards the tip exists
+                    # only in the object store, where salvage_agent_commits
+                    # cannot see it and gc eventually erases it.
+                    recovery_ref = None
+                    salvage_error: str | None = None
+                    if pipeline_id:
+                        try:
+                            salvage = _pkg.agent_salvage.salvage_discarded_tip(
+                                self.gateway,
+                                pipeline_id=pipeline_id,
+                                worktree_id=agent_worktree_id,
+                                repo_path=d,
+                                head_sha=local_head,
+                                agent_role=agent_role,
+                                slice_id=slice_id,
+                                n_commits=len(orphans),
+                                mode=mode,
+                            )
+                            recovery_ref = salvage.recovery_ref if salvage.ok else None
+                            salvage_error = salvage.error
+                        except Exception as e:
+                            salvage_error = str(e)
+                    else:
+                        salvage_error = "no pipeline context (legacy caller)"
+                    logger.warning(
+                        "Worktree re-attach: hard-reset is discarding "
+                        "unpushed local commits (dirty or diverged)",
+                        agent_worktree_id=agent_worktree_id,
+                        repo=n,
+                        branch=branch,
+                        was_dirty=was_dirty,
+                        discarded_commit_count=len(orphans),
+                        discarded_commits=orphans[:20],
+                        recovery_ref=recovery_ref,
+                        salvage_error=salvage_error,
+                    )
+                    if pipeline_id:
+                        _record_discarded_tip(
+                            pipeline_id=pipeline_id,
+                            agent_worktree_id=agent_worktree_id,
+                            repo=n,
+                            branch=branch,
+                            agent_role=agent_role,
+                            slice_id=slice_id,
+                            discarded_tip=local_head,
+                            remote_tip=remote_tip,
+                            n_commits=len(orphans),
+                            was_dirty=was_dirty,
+                            recovery_ref=recovery_ref,
+                            salvage_error=salvage_error,
+                        )
                 try:
                     _git(d, "reset", "--hard", f"origin/{branch}")
                 except Exception as e:
@@ -525,6 +617,95 @@ def _clean_reused_worktree(
         repos=[r.split("/")[-1] if "/" in r else r for r in repos],
     )
     return True
+
+
+def _record_discarded_tip(
+    *,
+    pipeline_id: str,
+    agent_worktree_id: str,
+    repo: str,
+    branch: str | None,
+    agent_role: str | None,
+    slice_id: str | None,
+    discarded_tip: str,
+    remote_tip: str,
+    n_commits: int,
+    was_dirty: bool,
+    recovery_ref: str | None,
+    salvage_error: str | None,
+) -> None:
+    """Durably record a dirty-discard's orphaned tip where the agent looks (#3509).
+
+    A resuming agent whose session state expired and whose durable memory
+    commits rode the discarded lineage has no way to learn its prior tip
+    existed: the #3506 incident showed such an agent silently re-deriving
+    days of completed work while the pipeline reported WORKING. The
+    message bus is the one channel that survives both failure modes (no
+    TTL, replayed into brc history), so record the discarded tip, the
+    reset target, and the recovery ref there as a system message to the
+    role.
+
+    Best-effort: a record failure is logged and swallowed; it must not
+    block the re-attach path.
+    """
+    from message_store import Message, MessageType, get_message_store
+
+    if recovery_ref:
+        recovery_text = (
+            f"The full commit stack is preserved on remote ref {recovery_ref}; "
+            f"run `git fetch origin {recovery_ref}` and inspect it before "
+            "starting work. If it contains completed work, build on it "
+            "(cherry-pick or reset) instead of re-deriving it."
+        )
+    else:
+        recovery_text = (
+            f"Automatic salvage FAILED ({salvage_error or 'unknown error'}); the "
+            "commits survive only in the local git object store until gc. Ask an "
+            "operator to recover them (salvage_agent_commits, #3368) before "
+            "re-deriving any work."
+        )
+    body = (
+        f"Worktree re-attach discarded {n_commits} unpushed commit(s) from "
+        f"{repo} (worktree {agent_worktree_id}). Your previous tip was "
+        f"{discarded_tip}; the worktree was reset to {remote_tip}"
+        + (f" (origin/{branch})." if branch else ".")
+        + " "
+        + recovery_text
+    )
+    try:
+        store = get_message_store()
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="orchestrator",
+                to_role=agent_role or "all",
+                message_type=MessageType.STATUS,
+                subject=f"Unpushed commits discarded on re-attach ({repo})",
+                body=body,
+                metadata={
+                    "event": "dirty_discard_salvage",
+                    "agent_worktree_id": agent_worktree_id,
+                    "repo": repo,
+                    "branch": branch,
+                    "slice_id": slice_id,
+                    "discarded_tip": discarded_tip,
+                    "remote_tip": remote_tip,
+                    "discarded_commit_count": n_commits,
+                    "was_dirty": was_dirty,
+                    "recovery_ref": recovery_ref,
+                    "salvage_error": salvage_error,
+                },
+            )
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to record discarded tip on message bus",
+            pipeline_id=pipeline_id,
+            agent_worktree_id=agent_worktree_id,
+            repo=repo,
+            discarded_tip=discarded_tip,
+            error=str(e),
+        )
 
 
 def _find_missing_worktrees(self, agent_worktree_id: str, repos: list[str]) -> list[str]:
