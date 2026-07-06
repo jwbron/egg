@@ -38,17 +38,25 @@ Mechanics mirror the two established precedents:
   failed). The caller records the slice failure, which routes through
   the existing cascade + ``OVERSEER_ALERT`` machinery.
 
-  The fail-open guarantee only covers infrastructure failures the
-  *orchestrator* observes before/around check execution. Once the runner
-  is executing the checks, an infrastructure fault *inside* that
-  execution — a transient gateway hiccup on a git call, a mid-run
-  session-token expiry, an OOM-killed test worker, disk pressure —
-  exits the check non-zero and surfaces as ``ok:false``, i.e. a
-  definitive red that ``on`` mode blocks on. This is inherent to
-  shelling out to checks (CI has the same property); the staged
-  ``off → log → on`` rollout de-risks it, but ``on`` mode does not
-  distinguish an infra-induced red inside a check from a genuine
-  check failure.
+  Fail-open also covers a narrow class of infrastructure faults *inside*
+  check execution (#3417): the runner tags each red check whose combined
+  output contains one of the exact, high-confidence infra signatures in
+  ``_INFRA_OUTPUT_SIGNATURES`` (the sandbox git wrapper's gateway-down /
+  missing-env / session-auth errors, the kernel's ENOSPC message) or
+  whose process died by SIGKILL (the OOM killer). When *every* red check
+  in a verdict is infra-tagged, the gate fails open with a loud warning
+  instead of blocking; when genuine reds and infra-tagged reds mix, the
+  gate blocks on the genuine reds only. Signature matching runs over the
+  check's **full** output, not the truncated verdict tail, so an early
+  gateway error can't scroll out of detection.
+
+  This classification is security-relevant: the signatures are matched
+  against untrusted check output, so a check that *prints* a signature
+  while genuinely failing fails itself open. That is why the allowlist
+  is a handful of exact strings emitted only by egg's own plumbing,
+  never fuzzy patterns, and why
+  ``EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN=off`` restores the strict
+  every-red-blocks behavior.
 
 Rollout is staged via ``EGG_SLICE_GREEN_GATE``: ``off`` (default) →
 ``log`` (run checks, log the verdict loudly, never block — the soak mode
@@ -104,6 +112,38 @@ _LOG_ONLY_VALUES = frozenset({"log", "log-only", "log_only"})
 GREEN_GATE_SKIP_CHECKS_ENV_VAR = "EGG_SLICE_GREEN_GATE_SKIP_CHECKS"
 _DEFAULT_SKIP_CHECKS = "security"
 
+# Operator switch for the #3417 infra-red fail-open. Default "on": a
+# red verdict where every failed check matches an infra signature fails
+# open instead of blocking. "off" (or 0/false/no) restores the strict
+# pre-#3417 behavior where every red blocks. Any other value degrades
+# to the default, matching green_gate_mode's typo posture.
+GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR = "EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN"
+_INFRA_FAIL_OPEN_DISABLED_VALUES = frozenset({"off", "0", "false", "no"})
+
+# Exact output signatures that identify an infrastructure fault inside a
+# check rather than a genuine failure (#3417). Security-relevant: these
+# are substring-matched against untrusted check output, so a check that
+# prints one fails itself open. Keep the list to exact strings emitted
+# only by egg's own plumbing (sandbox/scripts/git) or the kernel; never
+# add fuzzy patterns like "Killed" or "connection refused" that real
+# test output can legitimately contain.
+_INFRA_OUTPUT_SIGNATURES = (
+    # sandbox/scripts/git: GATEWAY_URL was not wired into the runner pod.
+    "ERROR: GATEWAY_URL environment variable is not set.",
+    # sandbox/scripts/git show_gateway_unavailable(): the wrapper's
+    # gateway health probe failed (gateway restart / network blip).
+    "GATEWAY SIDECAR NOT AVAILABLE",
+    # sandbox/scripts/git: session token missing from the environment.
+    "ERROR: EGG_SESSION_TOKEN not set. Session required for gateway access",
+    # sandbox/scripts/git: gateway returned HTTP 401, i.e. a mid-run
+    # session-token expiry or revocation.
+    "Authentication failed - check session token",
+    # Kernel ENOSPC strerror: disk pressure on the node. A check can
+    # only hit this when the node is genuinely out of space, which is
+    # infrastructure either way.
+    "No space left on device",
+)
+
 # Wall-clock budget for the runner pod (spawn-to-terminal). A slice's
 # changeset-narrowed ``make test`` normally finishes well inside this;
 # the ceiling exists so a hung suite degrades to fail-open instead of
@@ -148,12 +188,33 @@ _GATE_ID_LABEL = "egg.io/green-gate-id"
 # when the repo config requires one is exactly such an infra failure —
 # proceeding would red every check with "command not found" and block
 # the slice for a toolchain-packaging problem that is not its fault.
+#
+# Infra classification (#3417) happens here, runner-side, because only
+# the runner sees a check's *full* output: the verdict carries a
+# truncated tail, and an early gateway error (e.g. the test selector's
+# first git call failing) could scroll out of it. Each red check gets
+# an ``infra`` field: the matched signature string, a SIGKILL note, or
+# None for a genuine failure. The orchestrator decides what to do with
+# the tags; the runner only reports.
 _RUNNER_PROGRAM = """
 import json, os, shutil, subprocess, sys, time
 
 checks = json.loads(os.environ["EGG_GREEN_GATE_CHECKS"])
 repo_dir = os.environ["EGG_GREEN_GATE_REPO_DIR"]
 tail = int(os.environ.get("EGG_GREEN_GATE_OUTPUT_TAIL", "4000"))
+infra_signatures = json.loads(os.environ.get("EGG_GREEN_GATE_INFRA_SIGNATURES", "[]"))
+
+
+def classify_infra(rc, out):
+    # A SIGKILLed check (rc -9 when bash itself dies, 137 when bash
+    # reports a killed child) is the OOM killer or the pod deadline,
+    # never a check verdict: no test runner signals failure via SIGKILL.
+    if rc in (-9, 137):
+        return "check process died by SIGKILL (exit %s): OOM kill or pod deadline" % rc
+    for sig in infra_signatures:
+        if sig in out:
+            return sig
+    return None
 
 
 def restore_prebuilt(target_dir):
@@ -224,6 +285,7 @@ for check in checks:
             "exit_code": rc,
             "duration_seconds": round(time.monotonic() - started, 1),
             "output_tail": out[-tail:],
+            "infra": classify_infra(rc, out) if rc != 0 else None,
         }
     )
 
@@ -243,6 +305,17 @@ def green_gate_mode() -> Literal["off", "log", "on"]:
     if raw in _LOG_ONLY_VALUES:
         return "log"
     return "off"
+
+
+def _infra_fail_open_enabled() -> bool:
+    """Resolve the #3417 infra-red fail-open switch (default on).
+
+    Only the exact disabled values turn it off; anything else degrades
+    to the default. Mirrors ``green_gate_mode``'s posture: an operator
+    typo resolves to the documented default behavior.
+    """
+    raw = os.environ.get(GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR, "on").strip().lower()
+    return raw not in _INFRA_FAIL_OPEN_DISABLED_VALUES
 
 
 def _gate_checks(repo: str) -> list[dict[str, str]]:
@@ -341,6 +414,7 @@ def _build_runner_job_manifest(
     full_env["EGG_GREEN_GATE_CHECKS"] = json.dumps(checks)
     full_env["EGG_GREEN_GATE_REPO_DIR"] = repo_dir
     full_env["EGG_GREEN_GATE_OUTPUT_TAIL"] = str(_VERDICT_OUTPUT_TAIL_CHARS)
+    full_env["EGG_GREEN_GATE_INFRA_SIGNATURES"] = json.dumps(list(_INFRA_OUTPUT_SIGNATURES))
 
     volumes = []
     volume_mounts = []
@@ -591,12 +665,13 @@ def run_slice_green_gate(
     """Execute the repo's configured checks at the slice tip; gate PR-open (#3398).
 
     Runs after slice consensus and the #3125 evidence gate, before any
-    close side effect. Returns ``None`` when the slice may close (checks
-    green, gate off/log-mode, or an infrastructure failure — fail-open),
-    or a human-readable failure string naming the red checks — the
-    caller records the slice failure with it, routing through the
-    existing cascade + OVERSEER_ALERT machinery instead of opening a
-    red PR.
+    close side effect. Returns ``None`` when the slice may close: checks
+    green, gate off/log-mode, an infrastructure failure (fail-open), or
+    a red verdict where every failed check carries an infra tag (#3417).
+    Otherwise returns a human-readable failure string naming the
+    genuinely red checks; the caller records the slice failure with it,
+    routing through the existing cascade + OVERSEER_ALERT machinery
+    instead of opening a red PR.
 
     The runner gets its own gateway worktree forked from
     ``origin/<integration_branch>`` (both ``base_branch`` and
@@ -789,7 +864,36 @@ def run_slice_green_gate(
             )
             return None
 
-        failed_names = ", ".join(str(c.get("name")) for c in failed)
+        # Infra-red fail-open (#3417): a red check the runner tagged with
+        # an infra signature is an infrastructure fault inside check
+        # execution, not a verdict on the slice. Fail open when every red
+        # is infra-tagged; when genuine and infra reds mix, block on the
+        # genuine reds only so the failure routed to the cascade doesn't
+        # send anyone chasing an infra ghost.
+        genuine_failed = failed
+        if _infra_fail_open_enabled():
+            infra_failed = [c for c in failed if c.get("infra")]
+            genuine_failed = [c for c in failed if not c.get("infra")]
+            if infra_failed:
+                logger.warning(
+                    "Green gate: red checks match infrastructure signatures (#3417)",
+                    pipeline_id=pipeline_id,
+                    slice_id=slice_id,
+                    gate_id=gate_id,
+                    infra_checks={str(c.get("name")): str(c.get("infra")) for c in infra_failed},
+                )
+            if not genuine_failed:
+                logger.warning(
+                    "Green gate skipped: every red check is infra-induced, failing open (#3417)",
+                    pipeline_id=pipeline_id,
+                    slice_id=slice_id,
+                    gate_id=gate_id,
+                    integration_branch=integration_branch,
+                    mode=mode,
+                )
+                return None
+
+        failed_names = ", ".join(str(c.get("name")) for c in genuine_failed)
         logger.error(
             "Green gate red: configured checks failed at the slice tip (#3398)",
             pipeline_id=pipeline_id,
@@ -804,7 +908,7 @@ def run_slice_green_gate(
         return (
             f"slice {slice_id}: green gate failed — configured checks are red "
             f"at integration branch {integration_branch} tip: {failed_names}.\n\n"
-            f"{_format_failed_checks(failed)}\n\n"
+            f"{_format_failed_checks(genuine_failed)}\n\n"
             f"Fix the failures on {integration_branch} and restart the slice; "
             f"set {GREEN_GATE_ENV_VAR}=off to bypass."
         )

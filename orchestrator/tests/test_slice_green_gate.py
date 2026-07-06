@@ -10,15 +10,20 @@ Covers:
 * ``parse_verdict`` — sentinel-line extraction from noisy pod logs.
 * ``_RUNNER_PROGRAM`` — executed for real in a subprocess: check
   execution + verdict shape, output tails, the prebuilt-deps restore
-  (copy-if-missing), and the required-but-missing infra exit.
+  (copy-if-missing), the required-but-missing infra exit, and the
+  #3417 infra tagging (signature match over full output, SIGKILL exit,
+  green checks never tagged).
 * ``_build_runner_job_manifest`` — labels (NetworkPolicy component
   label present; monitor/agent-supervision labels absent), env, mounts,
   deadline.
 * ``run_slice_green_gate`` — gate wiring: kill switch, fail-open on
   every infrastructure failure (worktree, session, submit, timeout,
   unparseable verdict), fail-closed only on a definitive red verdict,
-  log-mode never blocking, and cleanup (job/session/worktree) on every
-  path that created the resource.
+  log-mode never blocking, cleanup (job/session/worktree) on every
+  path that created the resource, and the #3417 infra-red fail-open
+  (all-infra reds fail open, mixed reds block on the genuine ones,
+  ``EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN=off`` restores strict
+  blocking).
 """
 
 from __future__ import annotations
@@ -64,6 +69,7 @@ def gate_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
         sgg.GREEN_GATE_ENV_VAR,
         sgg.GREEN_GATE_SKIP_CHECKS_ENV_VAR,
         sgg.GREEN_GATE_TIMEOUT_ENV_VAR,
+        sgg.GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR,
     ):
         monkeypatch.delenv(var, raising=False)
     return monkeypatch
@@ -150,6 +156,21 @@ class TestRepoRequiresPrebuilt:
             assert sgg._repo_requires_prebuilt(REPO) is False
 
 
+class TestInfraFailOpenEnabled:
+    def test_default_is_on(self, gate_env: pytest.MonkeyPatch) -> None:
+        assert sgg._infra_fail_open_enabled() is True
+
+    @pytest.mark.parametrize("value", ["off", "OFF", " 0 ", "false", "no"])
+    def test_disabled_values(self, gate_env: pytest.MonkeyPatch, value: str) -> None:
+        gate_env.setenv(sgg.GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR, value)
+        assert sgg._infra_fail_open_enabled() is False
+
+    @pytest.mark.parametrize("value", ["on", "1", "true", "", "banana"])
+    def test_everything_else_is_on(self, gate_env: pytest.MonkeyPatch, value: str) -> None:
+        gate_env.setenv(sgg.GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR, value)
+        assert sgg._infra_fail_open_enabled() is True
+
+
 class TestGateTimeout:
     def test_default(self, gate_env: pytest.MonkeyPatch) -> None:
         assert sgg._gate_timeout_seconds() == sgg._DEFAULT_TIMEOUT_SECONDS
@@ -223,6 +244,7 @@ def _run_runner(
             "EGG_GREEN_GATE_CHECKS": json.dumps(checks),
             "EGG_GREEN_GATE_REPO_DIR": str(repo_dir),
             "EGG_GREEN_GATE_OUTPUT_TAIL": "200",
+            "EGG_GREEN_GATE_INFRA_SIGNATURES": json.dumps(list(sgg._INFRA_OUTPUT_SIGNATURES)),
             "EGG_GREEN_GATE_REQUIRE_PREBUILT": require_prebuilt,
             "EGG_GREEN_GATE_PREBUILT_BASE": str(
                 prebuilt_base if prebuilt_base is not None else tmp_path / "no-prebuilt"
@@ -274,6 +296,79 @@ class TestRunnerProgram:
         verdict = sgg.parse_verdict(proc.stdout)
         assert verdict is not None
         assert "present" in verdict["checks"][0]["output_tail"]
+
+    def test_red_check_with_infra_signature_is_tagged(self, tmp_path: Path) -> None:
+        proc = _run_runner(
+            tmp_path,
+            [
+                {
+                    "name": "infra-red",
+                    "command": "echo 'GATEWAY SIDECAR NOT AVAILABLE'; exit 1",
+                }
+            ],
+        )
+        verdict = sgg.parse_verdict(proc.stdout)
+        assert verdict is not None
+        check = verdict["checks"][0]
+        assert check["ok"] is False
+        assert check["infra"] == "GATEWAY SIDECAR NOT AVAILABLE"
+
+    def test_genuine_red_check_is_not_tagged(self, tmp_path: Path) -> None:
+        proc = _run_runner(
+            tmp_path,
+            [{"name": "genuine-red", "command": "echo 'FAILED test_x'; exit 2"}],
+        )
+        verdict = sgg.parse_verdict(proc.stdout)
+        assert verdict is not None
+        assert verdict["checks"][0]["infra"] is None
+
+    def test_green_check_never_tagged_even_with_signature_output(self, tmp_path: Path) -> None:
+        proc = _run_runner(
+            tmp_path,
+            [
+                {
+                    "name": "green-with-noise",
+                    "command": "echo 'GATEWAY SIDECAR NOT AVAILABLE'; exit 0",
+                }
+            ],
+        )
+        verdict = sgg.parse_verdict(proc.stdout)
+        assert verdict is not None
+        check = verdict["checks"][0]
+        assert check["ok"] is True
+        assert check["infra"] is None
+
+    def test_sigkilled_check_is_tagged(self, tmp_path: Path) -> None:
+        # bash kills itself with SIGKILL, so subprocess reports rc -9:
+        # the same shape as an OOM kill of the check shell.
+        proc = _run_runner(tmp_path, [{"name": "oom", "command": "kill -9 $$"}])
+        verdict = sgg.parse_verdict(proc.stdout)
+        assert verdict is not None
+        check = verdict["checks"][0]
+        assert check["ok"] is False
+        assert check["infra"] is not None
+        assert "SIGKILL" in check["infra"]
+
+    def test_signature_scrolled_out_of_tail_is_still_detected(self, tmp_path: Path) -> None:
+        # The infra error appears early, then enough output follows to
+        # push it past the 200-char tail. Detection must run over the
+        # full output, not the truncated tail (#3417).
+        proc = _run_runner(
+            tmp_path,
+            [
+                {
+                    "name": "early-infra",
+                    "command": (
+                        "echo 'GATEWAY SIDECAR NOT AVAILABLE'; yes filler-line | head -50; exit 1"
+                    ),
+                }
+            ],
+        )
+        verdict = sgg.parse_verdict(proc.stdout)
+        assert verdict is not None
+        check = verdict["checks"][0]
+        assert "GATEWAY SIDECAR NOT AVAILABLE" not in check["output_tail"]
+        assert check["infra"] == "GATEWAY SIDECAR NOT AVAILABLE"
 
     def test_prebuilt_restore_copy_if_missing(self, tmp_path: Path) -> None:
         prebuilt = tmp_path / "prebuilt" / "jwbron--egg"
@@ -369,6 +464,16 @@ class TestBuildRunnerJobManifest:
         }
         for forbidden in ("egg.orchestrator", "egg.agent.role", "egg.slice.id"):
             assert forbidden not in all_labels
+
+    def test_env_carries_infra_signatures(self) -> None:
+        manifest = _manifest()
+        env = {
+            e["name"]: e["value"]
+            for e in manifest["spec"]["template"]["spec"]["containers"][0]["env"]
+        }
+        assert json.loads(env["EGG_GREEN_GATE_INFRA_SIGNATURES"]) == list(
+            sgg._INFRA_OUTPUT_SIGNATURES
+        )
 
     def test_env_carries_checks_and_repo_dir(self) -> None:
         manifest = _manifest()
@@ -634,6 +739,113 @@ class TestRunSliceGreenGate:
             assert _run_gate(spawner) is None
         # Log mode still runs the checks — it only skips the block.
         submit.assert_called_once()
+
+    def test_all_infra_reds_fail_open(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        spawner = _spawner()
+        log = _verdict_line(
+            [
+                {"name": "lint", "ok": True, "exit_code": 0, "output_tail": "", "infra": None},
+                {
+                    "name": "test",
+                    "ok": False,
+                    "exit_code": 1,
+                    "output_tail": "GATEWAY SIDECAR NOT AVAILABLE",
+                    "infra": "GATEWAY SIDECAR NOT AVAILABLE",
+                },
+            ]
+        )
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=log),
+            patch.object(sgg, "_delete_runner_job") as delete_job,
+        ):
+            assert _run_gate(spawner) is None
+        # Fail-open still cleans up everything it created.
+        delete_job.assert_called_once()
+        spawner.gateway.delete_session_by_container.assert_called_once()
+        spawner.gateway.delete_worktrees.assert_called_once()
+
+    def test_mixed_reds_block_on_genuine_only(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        spawner = _spawner()
+        log = _verdict_line(
+            [
+                {
+                    "name": "lint",
+                    "ok": False,
+                    "exit_code": 1,
+                    "output_tail": "GATEWAY SIDECAR NOT AVAILABLE",
+                    "infra": "GATEWAY SIDECAR NOT AVAILABLE",
+                },
+                {
+                    "name": "test",
+                    "ok": False,
+                    "exit_code": 2,
+                    "output_tail": "FAILED tests/test_x.py::test_y",
+                    "infra": None,
+                },
+            ]
+        )
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=log),
+            patch.object(sgg, "_delete_runner_job"),
+        ):
+            failure = _run_gate(spawner)
+        assert failure is not None
+        assert "test" in failure
+        assert "FAILED tests/test_x.py::test_y" in failure
+        # The infra-tagged red must not be presented as a slice failure:
+        # its name and output stay out of the cascade-routed message.
+        assert "GATEWAY SIDECAR NOT AVAILABLE" not in failure
+        assert "lint" not in failure
+
+    def test_infra_fail_open_switch_off_blocks_on_infra_reds(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        enabled_gate.setenv(sgg.GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR, "off")
+        spawner = _spawner()
+        log = _verdict_line(
+            [
+                {
+                    "name": "test",
+                    "ok": False,
+                    "exit_code": 1,
+                    "output_tail": "GATEWAY SIDECAR NOT AVAILABLE",
+                    "infra": "GATEWAY SIDECAR NOT AVAILABLE",
+                }
+            ]
+        )
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=log),
+            patch.object(sgg, "_delete_runner_job"),
+        ):
+            failure = _run_gate(spawner)
+        assert failure is not None
+        assert "test" in failure
+
+    def test_pre_3417_verdict_without_infra_field_blocks(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        # A verdict whose checks carry no ``infra`` key (an in-flight
+        # runner from before the #3417 rollout) is treated as genuinely
+        # red: absence of the tag must never fail open.
+        spawner = _spawner()
+        log = _verdict_line([{"name": "test", "ok": False, "exit_code": 2, "output_tail": "x"}])
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=log),
+            patch.object(sgg, "_delete_runner_job"),
+        ):
+            assert _run_gate(spawner) is not None
 
     def test_worktree_forked_from_integration_branch(
         self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
