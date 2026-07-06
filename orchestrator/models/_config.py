@@ -294,6 +294,15 @@ class PipelineConfig(BaseModel):
         ge=10,
         description="Seconds before raising HITL propagation failure alert",
     )
+    overseer_phase_desync_alert_seconds: int = Field(
+        default=300,
+        ge=10,
+        description=(
+            "Seconds a pipeline-record vs contract current_phase mismatch may "
+            "persist while status=running before the deterministic desync "
+            "alert fires (#3521)"
+        ),
+    )
     post_proposal_grace_seconds: int = Field(
         default=300,
         ge=30,

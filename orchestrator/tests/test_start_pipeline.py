@@ -672,7 +672,15 @@ class TestStartAwaitingHumanPipeline:
 
         assert resp.status_code == 200
 
-        mock_resolve_wt.assert_called_once_with(pipeline, Path("/repo"))
+        # Resolved twice: once for the phase-gate persistence below, once
+        # for the #3521 contract-phase sync on the recovery advance. Both
+        # must route through the worktree resolver with the same arguments.
+        assert mock_resolve_wt.call_count == 2, (
+            f"expected 2 worktree resolutions (persistence + #3521 phase "
+            f"sync), got {mock_resolve_wt.call_count}"
+        )
+        for resolve_call in mock_resolve_wt.call_args_list:
+            assert resolve_call.args == (pipeline, Path("/repo"))
 
         persist_args, _ = mock_persist.call_args
         assert persist_args[0] == worktree_path, (

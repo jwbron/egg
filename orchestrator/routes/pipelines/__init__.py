@@ -1242,6 +1242,7 @@ from ._lifecycle_helpers import (  # noqa: E402,F401
     _compute_gateway_mode,
     _mark_pipeline_records_terminated,
     _normalize_submission_repos,
+    _sync_contract_phase_to_pipeline,
 )
 from ._overseer import (  # noqa: E402,F401
     _build_overseer_corrective_executor,

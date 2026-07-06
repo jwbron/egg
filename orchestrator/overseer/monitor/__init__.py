@@ -82,6 +82,7 @@ class _DefaultConfig:
     overseer_rerun_min_work_seconds: int = 60
     overseer_hitl_propagation_timeout_seconds: int = 300
     overseer_infra_error_dedup_window_seconds: int = 300
+    overseer_phase_desync_alert_seconds: int = 300
 
 
 # -- method-body submodules (bound onto OverseerMonitor below) -------------
@@ -193,6 +194,13 @@ class OverseerMonitor:
         self._last_phase_name: str | None = None
         self._cross_phase_checked: set[tuple[str, str]] = set()
 
+        # Contract-phase desync tracking (#3521): (contract, pipeline) phase
+        # pair currently mismatched, when it was first seen, and the pairs
+        # already alerted (alert once per distinct mismatch).
+        self._phase_desync_pair: tuple[str, str] | None = None
+        self._phase_desync_first_seen: float | None = None
+        self._phase_desync_alerted: set[tuple[str, str]] = set()
+
         # Oversight logging to .egg-state/oversight/
         self._oversight_dir = self._resolve_oversight_dir()
         self._jsonl_path: Path | None = None
@@ -260,6 +268,7 @@ class OverseerMonitor:
     _check_rerun_anomaly = _anomaly_checks._check_rerun_anomaly
     _check_status_consistency = _anomaly_checks._check_status_consistency
     _check_hitl_resolution_propagation = _anomaly_checks._check_hitl_resolution_propagation
+    _check_contract_phase_desync = _anomaly_checks._check_contract_phase_desync
     _check_cross_phase_consistency = _anomaly_checks._check_cross_phase_consistency
 
     # -- Alerting / messaging + infra-error dedup (bodies in _alerting.py)
