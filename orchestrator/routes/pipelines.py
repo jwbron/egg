@@ -3060,13 +3060,25 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
 
 # Config keys the live config-update route accepts. Deliberately a tight
 # allowlist (#3174): most of PipelineConfig is consumed at submit time or
-# mid-phase in ways a partial update could corrupt, whereas
-# ``agent_models`` is re-resolved from a fresh store load before every
-# spawn (the run loop reloads the pipeline at the top of each cycle, and
-# the restart_agent / restart_phase paths load fresh state), so mutating
-# it on a live pipeline is honored by construction. Widen only after
-# verifying the same fresh-reload guarantee holds for the new key.
-_MUTABLE_CONFIG_KEYS = frozenset({"agent_models"})
+# mid-phase in ways a partial update could corrupt. Two families qualify:
+#
+# * ``agent_models`` is re-resolved from a fresh store load before every
+#   spawn (the run loop reloads the pipeline at the top of each cycle, and
+#   the restart_agent / restart_phase paths load fresh state), so mutating
+#   it on a live pipeline is honored by construction.
+# * ``consensus_timeout_minutes*`` is re-resolved from a fresh store load
+#   by the phase poll loop right before the consensus wall fires (#3490),
+#   so a widened window takes effect on a running slice without a restart.
+#
+# Widen only after verifying the same fresh-reload guarantee holds for the
+# new key.
+_CONSENSUS_TIMEOUT_CONFIG_KEYS = (
+    "consensus_timeout_minutes",
+    "consensus_timeout_minutes_refine",
+    "consensus_timeout_minutes_plan",
+    "consensus_timeout_minutes_implement",
+)
+_MUTABLE_CONFIG_KEYS = frozenset({"agent_models", *_CONSENSUS_TIMEOUT_CONFIG_KEYS})
 
 
 @pipelines_bp.route("/<pipeline_id>/config", methods=["PATCH"])
@@ -3074,28 +3086,40 @@ _MUTABLE_CONFIG_KEYS = frozenset({"agent_models"})
 def update_pipeline_config(pipeline_id: str) -> tuple[Response, int]:
     """Update the safely-mutable subset of a live pipeline's config (#3174).
 
-    Currently that subset is ``agent_models`` only. Semantics are a
-    per-role merge with the pipeline's existing override map: roles
-    absent from the request keep their current value, a string value
-    sets that role's override, and an explicit ``null`` clears it (the
-    role falls back to the repository default / built-in tiers).
+    That subset is ``agent_models`` plus the ``consensus_timeout_minutes*``
+    family (#3490).
 
-    The updated config takes effect at the next agent spawn — currently
-    running agents keep the model they were started with. Pair with
-    ``restart_phase`` / ``restart_agent`` to apply the change to a
-    running phase. Model *values* are not validated against a registry
-    here (any non-Claude string routes to LiteLLM, mirroring submit-time
-    behavior); a typo surfaces as a model-not-found error at spawn.
+    ``agent_models`` semantics are a per-role merge with the pipeline's
+    existing override map: roles absent from the request keep their
+    current value, a string value sets that role's override, and an
+    explicit ``null`` clears it (the role falls back to the repository
+    default / built-in tiers). The updated map takes effect at the next
+    agent spawn; currently running agents keep the model they were
+    started with. Pair with ``restart_phase`` / ``restart_agent`` to
+    apply the change to a running phase. Model *values* are not
+    validated against a registry here (any non-Claude string routes to
+    LiteLLM, mirroring submit-time behavior); a typo surfaces as a
+    model-not-found error at spawn.
+
+    ``consensus_timeout_minutes`` / ``consensus_timeout_minutes_refine``
+    / ``_plan`` / ``_implement`` set the corresponding override to an
+    integer number of minutes (>= 1); ``null`` clears the override so
+    the phase falls back to the resolution chain (per-phase override,
+    then legacy global, then the phase-aware default). The phase poll
+    loop re-resolves the budget from fresh config right before the
+    consensus wall fires, so a widened window takes effect on a running
+    slice without a restart (#3490).
 
     URL params:
         pipeline_id: Pipeline ID
 
-    Request body:
+    Request body (any non-empty subset of the mutable keys):
         {
             "agent_models": {
                 "coder": "deepseek-v4-pro",
                 "tester": null
-            }
+            },
+            "consensus_timeout_minutes_implement": 480
         }
 
     Response:
@@ -3105,7 +3129,9 @@ def update_pipeline_config(pipeline_id: str) -> tuple[Response, int]:
                 "pipeline_id": "issue-123",
                 "agent_models": {...},      # effective map after the merge
                 "updated_roles": {...},     # roles set by this request
-                "cleared_roles": [...]      # roles cleared by this request
+                "cleared_roles": [...],     # roles cleared by this request
+                "consensus_timeouts": {...},# effective timeout overrides
+                "updated_timeouts": {...}   # timeout keys set/cleared here
             }
         }
     """
@@ -3122,40 +3148,70 @@ def update_pipeline_config(pipeline_id: str) -> tuple[Response, int]:
             f"only the safely-mutable config subset: {sorted(_MUTABLE_CONFIG_KEYS)}",
             status_code=400,
         )
+    if not data:
+        return make_error_response(
+            f"Request body must set at least one mutable config key: "
+            f"{sorted(_MUTABLE_CONFIG_KEYS)}",
+            status_code=400,
+        )
 
     agent_models = data.get("agent_models")
-    if not isinstance(agent_models, dict) or not agent_models:
-        return make_error_response(
-            "agent_models must be a non-empty object mapping role -> model "
-            "(use null as the model to clear a role's override)",
-            status_code=400,
-        )
+    if "agent_models" in data:
+        if not isinstance(agent_models, dict) or not agent_models:
+            return make_error_response(
+                "agent_models must be a non-empty object mapping role -> model "
+                "(use null as the model to clear a role's override)",
+                status_code=400,
+            )
 
-    # Pre-validate role keys against MODEL_OVERRIDE_ROLES so the operator
-    # gets the same actionable message as PipelineConfig's field validator
-    # instead of a wrapped pydantic StateValidationError. Lazy import
-    # mirrors models._validate_agent_models_roles.
-    from egg_contracts.agent_roles import MODEL_OVERRIDE_ROLES
+        # Pre-validate role keys against MODEL_OVERRIDE_ROLES so the operator
+        # gets the same actionable message as PipelineConfig's field validator
+        # instead of a wrapped pydantic StateValidationError. Lazy import
+        # mirrors models._validate_agent_models_roles.
+        from egg_contracts.agent_roles import MODEL_OVERRIDE_ROLES
 
-    valid_roles = {role.value for role in MODEL_OVERRIDE_ROLES}
-    invalid_roles = sorted(role for role in agent_models if role not in valid_roles)
-    if invalid_roles:
-        return make_error_response(
-            f"Invalid agent_models role keys: {invalid_roles}. agent_models "
-            f"is honored only for SDLC phase producer and reviewer roles: "
-            f"{sorted(valid_roles)}",
-            status_code=400,
+        valid_roles = {role.value for role in MODEL_OVERRIDE_ROLES}
+        invalid_roles = sorted(role for role in agent_models if role not in valid_roles)
+        if invalid_roles:
+            return make_error_response(
+                f"Invalid agent_models role keys: {invalid_roles}. agent_models "
+                f"is honored only for SDLC phase producer and reviewer roles: "
+                f"{sorted(valid_roles)}",
+                status_code=400,
+            )
+        invalid_values = sorted(
+            role
+            for role, model in agent_models.items()
+            if model is not None and (not isinstance(model, str) or not model.strip())
         )
-    invalid_values = sorted(
-        role
-        for role, model in agent_models.items()
-        if model is not None and (not isinstance(model, str) or not model.strip())
-    )
-    if invalid_values:
+        if invalid_values:
+            return make_error_response(
+                f"Invalid agent_models values for roles {invalid_values}: each "
+                f"value must be a non-empty model string, or null to clear the "
+                f"role's override",
+                status_code=400,
+            )
+
+    timeout_updates: dict[str, int | None] = {}
+    invalid_timeout_keys: list[str] = []
+    for timeout_key in _CONSENSUS_TIMEOUT_CONFIG_KEYS:
+        if timeout_key not in data:
+            continue
+        timeout_value = data[timeout_key]
+        if timeout_value is None or (
+            isinstance(timeout_value, int)
+            and not isinstance(timeout_value, bool)
+            and timeout_value >= 1
+        ):
+            timeout_updates[timeout_key] = timeout_value
+        else:
+            invalid_timeout_keys.append(timeout_key)
+    if invalid_timeout_keys:
         return make_error_response(
-            f"Invalid agent_models values for roles {invalid_values}: each "
-            f"value must be a non-empty model string, or null to clear the "
-            f"role's override",
+            f"Invalid values for {invalid_timeout_keys}: each consensus "
+            f"timeout must be an integer number of minutes >= 1, or null to "
+            f"clear the override (the phase falls back to the resolution "
+            f"chain: per-phase override, legacy global, phase-aware default)",
             status_code=400,
         )
 
@@ -3172,38 +3228,44 @@ def update_pipeline_config(pipeline_id: str) -> tuple[Response, int]:
         with get_pipeline_state_lock(pipeline_id):
             current = store.load_pipeline(pipeline_id)
 
-            # Reject mutations on terminal pipelines (#3174 review). No future
-            # spawn consumes ``agent_models`` once a pipeline is COMPLETE /
-            # FAILED / CANCELLED, so the merge would be a silent no-op; a 409
-            # gives the operator a clear signal and matches restart_phase's
-            # terminal-state precondition style. Checked under the lock against
-            # freshly-loaded state so a concurrent terminal transition can't
-            # slip a mutation through.
+            # Reject mutations on terminal pipelines (#3174 review). Nothing
+            # consumes config once a pipeline is COMPLETE / FAILED /
+            # CANCELLED, so the merge would be a silent no-op; a 409 gives
+            # the operator a clear signal and matches restart_phase's
+            # terminal-state precondition style. Checked under the lock
+            # against freshly-loaded state so a concurrent terminal
+            # transition can't slip a mutation through.
             if current.status in PipelineStatus.terminal():
                 return make_error_response(
                     f"Pipeline {pipeline_id} is in terminal state "
-                    f"{current.status.value}; agent_models cannot be updated "
-                    "(no future spawn would consume the change).",
+                    f"{current.status.value}; config cannot be updated "
+                    "(nothing would consume the change).",
                     status_code=409,
                 )
 
-            merged = dict(current.config.agent_models)
+            updates: dict[str, Any] = {}
             updated_roles: dict[str, str] = {}
             cleared_roles: list[str] = []
-            for role_key, model in agent_models.items():
-                if model is None:
-                    if merged.pop(role_key, None) is not None:
-                        cleared_roles.append(role_key)
-                else:
-                    merged[role_key] = model.strip()
-                    updated_roles[role_key] = model.strip()
-            pipeline = store.update_pipeline(pipeline_id, {"config.agent_models": merged})
+            if isinstance(agent_models, dict):
+                merged = dict(current.config.agent_models)
+                for role_key, model in agent_models.items():
+                    if model is None:
+                        if merged.pop(role_key, None) is not None:
+                            cleared_roles.append(role_key)
+                    else:
+                        merged[role_key] = model.strip()
+                        updated_roles[role_key] = model.strip()
+                updates["config.agent_models"] = merged
+            for timeout_key, timeout_value in timeout_updates.items():
+                updates[f"config.{timeout_key}"] = timeout_value
+            pipeline = store.update_pipeline(pipeline_id, updates)
 
         logger.info(
-            "Pipeline agent_models updated",
+            "Pipeline config updated",
             pipeline_id=pipeline_id,
             updated_roles=updated_roles,
             cleared_roles=cleared_roles,
+            updated_timeouts=timeout_updates,
         )
 
         return make_success_response(
@@ -3213,6 +3275,11 @@ def update_pipeline_config(pipeline_id: str) -> tuple[Response, int]:
                 "agent_models": pipeline.config.agent_models,
                 "updated_roles": updated_roles,
                 "cleared_roles": cleared_roles,
+                "consensus_timeouts": {
+                    timeout_key: getattr(pipeline.config, timeout_key)
+                    for timeout_key in _CONSENSUS_TIMEOUT_CONFIG_KEYS
+                },
+                "updated_timeouts": timeout_updates,
             },
         )
 
@@ -17558,6 +17625,45 @@ def _cancel_consensus_timeout_decisions(pipeline: Pipeline) -> int:
     return withdrawn
 
 
+def _withdraw_arms_exhausted_decisions(pipeline_id: str, store: StateStore) -> int:
+    """Cancel any pending arms-exhausted HITL on ``pipeline_id`` (#3496 review).
+
+    The symmetric counterpart to :func:`_persist_hitl_decision` on the
+    arms-exhausted path: when the wedge clears (the blocked arms recovered by
+    a route other than the operator resolving this decision — a fresh key
+    derived, a spawn succeeded, an unrelated decision re-keyed the arms) the
+    pending ``event_arms_exhausted`` decision is obsolete, so this withdraws it
+    rather than leaving the operator to dispose of a decision the system
+    already resolved for them (mirrors :func:`_cancel_consensus_timeout_decisions`
+    on the convergence-success path).
+
+    Unlike ``_cancel_consensus_timeout_decisions`` — a pure mutator that
+    piggybacks on the convergence-success write already under the state lock —
+    the wedge-clear path has no ambient lock/load/save, so this does its own
+    load → cancel → save under ``get_pipeline_state_lock``. Returns how many
+    decisions were withdrawn (0 when none were pending, so the caller can skip
+    logging on the common no-op).
+    """
+    from concurrent_executor import ARMS_EXHAUSTED_HITL_CONTEXT
+
+    with get_pipeline_state_lock(pipeline_id):
+        disk_pipeline = store.load_pipeline(pipeline_id)
+        withdrawn = 0
+        for decision in disk_pipeline.get_pending_decisions():
+            if decision.context != ARMS_EXHAUSTED_HITL_CONTEXT:
+                continue
+            decision.status = DecisionStatus.CANCELLED
+            decision.resolution = (
+                "auto-withdrawn: the wedge cleared (blocked arms recovered) "
+                "before this decision was resolved"
+            )
+            decision.resolved_at = datetime.now(UTC)
+            withdrawn += 1
+        if withdrawn:
+            store.save_pipeline(disk_pipeline)
+    return withdrawn
+
+
 # Bound on how many times the worktree-divergence reconcile will pause
 # for the operator before giving up and failing the pipeline (#2979).
 # A small budget guards against an operator repeatedly choosing
@@ -22574,6 +22680,43 @@ def _run_concurrent_phase(
                     gate_seconds=_gate_seconds,
                 )
                 _progress_gate_deferring = False
+
+            # #3490 live-widening gate: re-resolve the budget from freshly
+            # loaded config so a PATCH /config update of
+            # ``consensus_timeout_minutes*`` takes effect any time before the
+            # wall fires; an operator watching a giant slice can widen the
+            # window without letting the slice fail and restarting. Checked
+            # here, after the HITL and progress gates, so the load only
+            # happens once per firing rather than on every deferred poll. A
+            # load failure keeps the current budget: a transient store hiccup
+            # must never widen or shrink the window on its own.
+            if store is not None:
+                _fresh_minutes: int | None = None
+                try:
+                    _fresh_config = store.load_pipeline(pipeline_id).config
+                    _fresh_minutes = resolve_consensus_timeout_minutes(_fresh_config, phase_str)
+                except Exception as _reresolve_err:
+                    logger.warning(
+                        "Consensus-timeout config re-resolve failed; keeping current budget",
+                        pipeline_id=pipeline_id,
+                        error=str(_reresolve_err),
+                    )
+                # The isinstance guard keeps a malformed store payload (or a
+                # test double) from replacing the numeric budget.
+                if isinstance(_fresh_minutes, int) and not isinstance(_fresh_minutes, bool):
+                    _fresh_timeout = max(_fresh_minutes, 1) * 60
+                    if _fresh_timeout != consensus_timeout:
+                        logger.info(
+                            "Consensus timeout budget updated from live config",
+                            pipeline_id=pipeline_id,
+                            slice_id=slice_id,
+                            old_timeout_minutes=consensus_timeout / 60,
+                            new_timeout_minutes=_fresh_timeout / 60,
+                        )
+                        consensus_timeout = _fresh_timeout
+                        if elapsed < consensus_timeout:
+                            time.sleep(poll_interval)
+                            continue
 
             logger.warning(
                 "Consensus timeout reached, falling back to container exit",

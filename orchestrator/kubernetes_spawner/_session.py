@@ -29,6 +29,7 @@ def _get_or_create_session(
     upstream: str | None = None,
     upstream_model: str | None = None,
     jira_ticket: str | None = None,
+    worktree_container_id: str | None = None,
 ) -> SessionInfo | None:
     """Return a live session for *agent_role*, or register a new one.
 
@@ -37,6 +38,13 @@ def _get_or_create_session(
     still live (:meth:`GatewayClient.heartbeat_session_by_container`),
     it is reused without a round-trip. Otherwise a fresh session is
     registered via the gateway.
+
+    ``worktree_container_id`` binds the fresh registration to an existing
+    per-agent worktree (the gateway looks it up instead of creating one).
+    The worktree re-attach path passes the validated worktree id here;
+    without it, the gateway creates an orphan worktree keyed by the
+    session's ``container_id`` (the ``egg-agent-…`` Job base name) that no
+    Job spec ever mounts (#3502 naming split).
 
     Returns the :class:`SessionInfo` (or a stub with the session token)
     on success, or ``None`` on registration failure.
@@ -101,6 +109,7 @@ def _get_or_create_session(
             branch=branch,
             base_branch=base_branch,
             jira_ticket=jira_ticket,
+            worktree_container_id=worktree_container_id,
             # Per-agent upstream routing — forward so a
             # session reused via this path keeps its litellm routing
             # instead of silently falling back to the Anthropic default.

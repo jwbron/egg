@@ -238,10 +238,35 @@ The generic `PATCH /pipelines/<id>` dotted-key form
 map instead of merging, validates only via the wrapped Pydantic error,
 and shouldn't be needed now that the scoped surface exists.
 
-> **Scope.** Only `agent_models` is mutable through this endpoint.
-> Most of `PipelineConfig` is consumed at submit time or mid-phase in
-> ways a partial update could corrupt; `agent_models` is safe
-> precisely because of the fresh-reload guarantee above. Widening the
+### Consensus timeouts on a live pipeline (#3490)
+
+The same endpoint and MCP tool also accept the
+`consensus_timeout_minutes` family (`consensus_timeout_minutes`,
+`consensus_timeout_minutes_refine` / `_plan` / `_implement`): an
+integer number of minutes (>= 1) sets the override; clearing it makes
+the phase fall back to the resolution chain (per-phase override, then
+legacy global, then the phase-aware default). How you clear depends on
+the surface: the REST `PATCH` takes an explicit `null`, while the MCP
+tool takes `0` — FastMCP materializes omitted optional params as
+`None` before the tool handler runs, so over MCP an explicit `null` is
+indistinguishable from "not provided" and is treated as "leave
+unchanged" (#3499). Unlike
+`agent_models`, no restart is needed: the phase poll loop re-resolves
+the budget from freshly-loaded config right before the consensus wall
+fires, so an operator watching a long-running slice can widen the
+window in place. Narrowing is accepted and stored, but does **not** fire
+the wall earlier than the original budget: the re-resolve runs only after
+`elapsed` crosses the current in-memory wall, so a narrowed budget takes
+effect no sooner than the wall that was already in place when the slice
+started. To force-fail a wedged slice sooner, use `cancel_task` /
+`restart_phase` rather than a narrowing `PATCH`.
+
+> **Scope.** Only `agent_models` and the `consensus_timeout_minutes*`
+> family are mutable through this endpoint. Most of `PipelineConfig` is
+> consumed at submit time or mid-phase in ways a partial update could
+> corrupt; these two families are safe precisely because each has its
+> own fresh-reload guarantee (agent spawn for `agent_models`, the phase
+> poll loop for `consensus_timeout_minutes*` — see above). Widening the
 > allowlist (`_MUTABLE_CONFIG_KEYS` in `orchestrator/routes/pipelines.py`)
 > requires verifying the same guarantee for the new key.
 

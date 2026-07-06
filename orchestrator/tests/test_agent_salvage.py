@@ -18,6 +18,7 @@ from agent_salvage import (
     commit_working_tree,
     enumerate_agent_worktrees,
     list_unpushed_commits,
+    salvage_discarded_tip,
     salvage_worktree,
 )
 from gateway_client import PushResult
@@ -434,6 +435,101 @@ class TestSalvageWorktree:
         result = salvage_worktree(gateway, wt)
         assert result.ok is False
         gateway.push_worktree_branch.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# salvage_discarded_tip (#3509)
+# ---------------------------------------------------------------------------
+
+
+class TestSalvageDiscardedTip:
+    """The R6 discard path pushes the doomed HEAD before hard-resetting.
+
+    Unlike ``salvage_worktree`` this takes the exact tip SHA the orphan
+    detector resolved and pushes the current HEAD, so it works on
+    re-attached worktrees regardless of which branch (or detached HEAD)
+    they sit on.
+    """
+
+    _HEAD = "e953a952500000000000000000000000deadbeef"
+
+    def test_pushes_head_to_scoped_recovery_ref(self, tmp_path: Path) -> None:
+        gateway = MagicMock()
+        gateway.push_worktree_branch.return_value = PushResult(ok=True)
+
+        result = salvage_discarded_tip(
+            gateway,
+            pipeline_id="issue-3312-v2",
+            worktree_id="issue-3312-v2-slice-4-coder",
+            repo_path=tmp_path,
+            head_sha=self._HEAD,
+            agent_role="coder",
+            slice_id="slice-4",
+            n_commits=52,
+        )
+
+        expected_ref = f"{RECOVERY_BRANCH_PREFIX}/issue-3312-v2/slice-4-coder/{self._HEAD[:12]}"
+        assert result.ok is True
+        assert result.recovery_ref == expected_ref
+        assert result.head_sha == self._HEAD
+        assert result.n_commits == 52
+        kwargs = gateway.push_worktree_branch.call_args.kwargs
+        assert kwargs["pipeline_id"] == "issue-3312-v2"
+        assert kwargs["repo_path"] == str(tmp_path)
+        assert kwargs["branch"] == expected_ref
+        assert kwargs["ref"] is None  # pushes HEAD, which the caller has not reset yet
+        assert kwargs["force"] is False
+
+    def test_role_scope_without_slice(self, tmp_path: Path) -> None:
+        gateway = MagicMock()
+        gateway.push_worktree_branch.return_value = PushResult(ok=True)
+
+        result = salvage_discarded_tip(
+            gateway,
+            pipeline_id="issue-99",
+            worktree_id="issue-99-coder",
+            repo_path=tmp_path,
+            head_sha=self._HEAD,
+            agent_role="coder",
+        )
+
+        assert result.recovery_ref == f"{RECOVERY_BRANCH_PREFIX}/issue-99/coder/{self._HEAD[:12]}"
+
+    def test_push_failure_returns_not_ok(self, tmp_path: Path) -> None:
+        gateway = MagicMock()
+        gateway.push_worktree_branch.return_value = PushResult(
+            ok=False, category="auth", detail="denied"
+        )
+
+        result = salvage_discarded_tip(
+            gateway,
+            pipeline_id="issue-99",
+            worktree_id="issue-99-coder",
+            repo_path=tmp_path,
+            head_sha=self._HEAD,
+            agent_role="coder",
+        )
+
+        assert result.ok is False
+        assert result.recovery_ref is None
+        assert result.head_sha == self._HEAD
+        assert "auth" in (result.error or "")
+
+    def test_gateway_exception_returns_not_ok(self, tmp_path: Path) -> None:
+        gateway = MagicMock()
+        gateway.push_worktree_branch.side_effect = RuntimeError("boom")
+
+        result = salvage_discarded_tip(
+            gateway,
+            pipeline_id="issue-99",
+            worktree_id="issue-99-coder",
+            repo_path=tmp_path,
+            head_sha=self._HEAD,
+            agent_role="coder",
+        )
+
+        assert result.ok is False
+        assert "boom" in (result.error or "")
 
 
 # ---------------------------------------------------------------------------

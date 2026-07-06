@@ -34,9 +34,9 @@ Relevant `PipelineConfig` fields:
 | `max_concurrent_agents` | `6` | Maximum agents per phase |
 | `message_poll_hint_seconds` | `30` | Suggested polling interval for agents |
 | `consensus_timeout_minutes` | `null` | Legacy global consensus timeout in minutes. When set, applies to every phase and overrides the phase-aware defaults below. When `null`, each phase falls back to its calibrated default. |
-| `consensus_timeout_minutes_refine` | `null` (effective `30`) | Per-phase override for refine. Wins over the legacy global. |
-| `consensus_timeout_minutes_plan` | `null` (effective `60`) | Per-phase override for plan. Wins over the legacy global. |
-| `consensus_timeout_minutes_implement` | `null` (effective `90`) | Per-phase override for implement. Wins over the legacy global. |
+| `consensus_timeout_minutes_refine` | `null` (effective `90`) | Per-phase override for refine. Wins over the legacy global. |
+| `consensus_timeout_minutes_plan` | `null` (effective `180`) | Per-phase override for plan. Wins over the legacy global. |
+| `consensus_timeout_minutes_implement` | `null` (effective `360`) | Per-phase override for implement. Wins over the legacy global. |
 | `brc_consensus_progress_gate_seconds` | `300` | Defer the consensus-timeout `OVERSEER_ALERT` while BRC bus activity (proposals, ACKs/NACKs) or container heartbeats have fired within this window. Set to `0` to disable. |
 | `post_consensus_iteration_budget_seconds` | `3600` | Per-iteration wait budget in the post-timeout poll loop. Resets each time a producer issues a new `CONSENSUS_PROPOSE` (initial or NACK→re-propose), giving each iteration a clean clock. |
 | `post_consensus_max_total_seconds` | `14400` | Hard ceiling on the total post-timeout wait, regardless of how often the per-iteration budget rebaselines. Must be ≥ `post_consensus_iteration_budget_seconds`. |
@@ -839,7 +839,7 @@ If any agent is in the `OBJECTING` readiness state (separate from BRC phase), th
 
 ### Timeout Handling
 
-If consensus is not reached within the resolved per-phase timeout (per-phase override > legacy global > calibrated default — refine 30, plan 60, implement 90; see issue #2263), the orchestrator first checks the **HITL gate** ([#3426](https://github.com/jwbron/egg/issues/3426)): if an unresolved contract HITL decision (`cq-N`, from `register_open_question` or impasse escalation) is tagged to the running phase, the phase is provably operator-gated — a reviewer withholding its ACK pending a human ruling is the system working as designed, not a convergence failure — so the timeout is suspended entirely (no alert, no failure, polling continues). Once the decision is resolved, the convergence clock resets so the agents folding in the resolution get a full fresh window instead of one that already expired while the human was thinking. Only decisions tagged to the running phase gate — a phase-less or legacy `cq-N` is deliberately skipped, so a stale/legacy decision can never gate the timeout; a genuinely phase-tagged decision, by contrast, suspends it until the operator resolves it (an intentional park-rather-than-fail, surfaced by the overseer's sticky HITL alert). The scan fails open (returns no gating decisions, falling back to pre-#3426 behavior) if the contract can't be loaded.
+If consensus is not reached within the resolved per-phase timeout (per-phase override > legacy global > calibrated default — refine 90, plan 180, implement 360; see issues #2263 and #3490), the orchestrator first checks the **HITL gate** ([#3426](https://github.com/jwbron/egg/issues/3426)): if an unresolved contract HITL decision (`cq-N`, from `register_open_question` or impasse escalation) is tagged to the running phase, the phase is provably operator-gated — a reviewer withholding its ACK pending a human ruling is the system working as designed, not a convergence failure — so the timeout is suspended entirely (no alert, no failure, polling continues). Once the decision is resolved, the convergence clock resets so the agents folding in the resolution get a full fresh window instead of one that already expired while the human was thinking. Only decisions tagged to the running phase gate — a phase-less or legacy `cq-N` is deliberately skipped, so a stale/legacy decision can never gate the timeout; a genuinely phase-tagged decision, by contrast, suspends it until the operator resolves it (an intentional park-rather-than-fail, surfaced by the overseer's sticky HITL alert). The scan fails open (returns no gating decisions, falling back to pre-#3426 behavior) if the contract can't be loaded.
 
 Only once no such HITL decision gates the phase does the orchestrator check the **BRC progress gate** before publishing the `OVERSEER_ALERT`. While any of the following have fired within `brc_consensus_progress_gate_seconds` (default 300 s), the orchestrator continues polling rather than escalating immediately:
 
@@ -920,6 +920,26 @@ When an agent crashes, `PeerConsensusTracker.handle_agent_crash()` assesses impa
 When a phase completes and the orchestrator stops agent containers, agents receive SIGTERM and exit with code 143. The Kubernetes monitor's `_classify_exit` treats exit codes 0 and 143 identically as clean exits — the agent is marked `COMPLETE`, the container `EXITED`, and `pipeline.status` is never mutated by the monitor regardless of phase state. The `routes/pipelines.py` BRC poll loop applies the same classifier, so the two layers cannot race to write contradictory agent status values.
 
 This means clean BRC exits (exit code 0) and orchestrator-initiated teardowns (exit code 143) are both safe to observe without triggering HITL escalation or false `FAILED` pipeline transitions. Only genuinely unexpected exits (any other non-zero code) are classified as failures.
+
+### Arms-Exhausted Livelock Recovery (#3496)
+
+A distinct wedge from the timeout/stall scenarios above: every spawn arm the
+event loop's `JobSupervisor` derives for a slice has exhausted its retry
+budget (`SUPERVISION_FAILURE_STREAK_ALERT` streak reached, per-key), nothing
+is in flight, and an exhausted key never clears on its own. Left undetected,
+this looks like a healthy `running` pipeline with an empty `pending_decisions`
+queue — the event loop just logs "spawn blocked" every poll until the
+consensus timeout eventually hard-fails the slice.
+
+The event loop now detects this condition once per wedge episode and
+escalates it as both an `OVERSEER_ALERT` and a persisted, resolvable HITL
+decision offering an in-band "Retry arms" recovery (reset the exhausted spawn
+budgets without tearing the phase down) alongside "Restart phase" and a
+manual "Abort". See [Agent Recovery: Exhausted-key escalation and in-band
+reset](../reference/agent-recovery.md#exhausted-key-escalation-and-in-band-reset-3496)
+for the detection and reset mechanics, and [HITL Decisions: Executable
+Arms-Exhausted Retry](../hitl-decisions.md#executable-arms-exhausted-retry-3496)
+for the decision's resolution options.
 
 ## Failure Recovery
 
