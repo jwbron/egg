@@ -11,7 +11,7 @@
     }
   ],
   "prompt": "Finish the file-size decomposition program: decompose the 4 remaining allowlisted files (orchestrator/models.py #3450, orchestrator/event_loop.py #3447, and the two #3312 giants gateway/gateway.py and orchestrator/routes/pipelines.py) and drive scripts/file-size-allowlist.yaml's files: map to EMPTY. Continuation of #3312, whose first run landed 17/19 slices via merged PR #3336; scope and pattern carry over. Pre-approved analysis and plan supplied; start directly at implement. Pure refactor, one slice per file, single linear chain, R3 Dockerfile-COPY parity in-slice.",
-  "status": "running",
+  "status": "complete",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -165,7 +165,7 @@
     }
   ],
   "created_at": "2026-07-03T21:42:11.955390Z",
-  "updated_at": "2026-07-06T08:02:41.620231Z",
+  "updated_at": "2026-07-06T08:02:46.162398Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -178,7 +178,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-07-04T22:56:48.333837Z",
-  "version": 72,
+  "version": 73,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
