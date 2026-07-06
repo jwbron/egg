@@ -168,20 +168,30 @@ def validate_checks(checks: list[Any]) -> list[dict[str, str]]:
     Used by config, orchestrator, and compose to validate check
     definitions from YAML config or JSON env vars.
 
+    Each entry requires ``name`` and ``command``. An optional ``fix``
+    key names a shell command that auto-remediates a failing check
+    (e.g. ``make lint-fix`` for a ``lint`` check); the per-slice green
+    gate runs it at the slice tip and commits the result (#3409). A
+    ``fix`` that is present but empty/None is dropped from the entry.
+
     Args:
         checks: Raw list of check entries (e.g. from YAML or JSON).
 
     Returns:
-        List of {"name": "...", "command": "..."} dicts with only
-        valid entries retained.
+        List of {"name": "...", "command": "..."} dicts (plus "fix"
+        when configured) with only valid entries retained.
     """
     if not isinstance(checks, list):
         return []
-    return [
-        {"name": str(c["name"]), "command": str(c["command"])}
-        for c in checks
-        if isinstance(c, dict) and "name" in c and "command" in c
-    ]
+    result = []
+    for c in checks:
+        if not (isinstance(c, dict) and "name" in c and "command" in c):
+            continue
+        entry = {"name": str(c["name"]), "command": str(c["command"])}
+        if c.get("fix"):
+            entry["fix"] = str(c["fix"])
+        result.append(entry)
+    return result
 
 
 def validate_port(port: int | str) -> tuple[bool, str | None]:

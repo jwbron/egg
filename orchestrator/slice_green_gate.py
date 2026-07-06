@@ -56,6 +56,21 @@ while #3301 contract-single-writer is still landing, since a stale
 contract snapshot on the slice tip can red contract-hygiene tests for
 reasons unrelated to the slice's code) → ``on`` (block).
 
+Stage A (#3409) adds config-driven auto-remediation on top of the Stage
+B block: a check in ``repositories.yaml`` may carry an optional ``fix``
+command (e.g. egg's ``lint`` check gets ``fix: make lint-fix``). When
+the gate finds such a check red, the runner executes the fix inside its
+worktree and re-runs the check. If every failed check re-ran green, the
+orchestrator stages the fix from the shared hostPath worktree, commits
+it as ``egg-green-gate``, and pushes it to the slice integration branch
+through the launcher-authed gateway push route before any close side
+effect, then lets the slice close: the runner already re-validated the
+identical tree, so no second runner pass is needed, and dependent
+slices fork from the remote tip after the fix commit. In ``log`` mode
+the fix still runs in the runner (soak signal) but nothing is committed
+or pushed. Checks without a ``fix``, or whose re-run stays red, block
+exactly like Stage B.
+
 The check toolchain is the **repo-defined** one, not the sandbox
 image's: ``repositories.yaml::build_commands`` builds the repo's pinned
 dev environment at image build (e.g. egg's ``make sandbox-deps`` →
@@ -78,6 +93,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import time
 import uuid
 from typing import TYPE_CHECKING, Any, Literal
@@ -137,6 +153,23 @@ VERDICT_SENTINEL = "EGG_GREEN_GATE_VERDICT:"
 # runner pod by this selector (mirrors ``egg.io/probe-id``).
 _GATE_ID_LABEL = "egg.io/green-gate-id"
 
+# Cap on the informational ``changed_files`` list a fix result carries
+# in the verdict; a repo-wide format sweep can touch hundreds of files
+# and the verdict must stay a single parseable log line.
+_FIX_CHANGED_FILES_CAP = 100
+
+# Identity for the orchestrator-authored autofix commit (#3409).
+# Precedent: agent_salvage's ``egg-salvage`` system identity and the
+# git-route orchestrator attribution from #2919; the commit must read
+# as pipeline infrastructure in the history, not as a phantom coder.
+_AUTOFIX_COMMIT_NAME = "egg-green-gate"
+_AUTOFIX_COMMIT_EMAIL = "egg-green-gate@localhost"
+
+# Per-git-invocation ceiling for the autofix stage/commit sequence. The
+# operations are local (no network); a format sweep staging hundreds of
+# files finishes in single-digit seconds.
+_AUTOFIX_GIT_TIMEOUT_SECONDS = 120
+
 # The runner program, executed as ``python3 -c`` in the pod. Restores
 # the repo's prebuilt build_commands artifacts (its pinned ``.venv``)
 # into the worktree, then reads the check list (JSON) and repo dir from
@@ -148,12 +181,22 @@ _GATE_ID_LABEL = "egg.io/green-gate-id"
 # when the repo config requires one is exactly such an infra failure —
 # proceeding would red every check with "command not found" and block
 # the slice for a toolchain-packaging problem that is not its fault.
+#
+# #3409 Stage A: when a check fails and carries a configured ``fix``
+# command, the runner executes the fix in the worktree and re-runs the
+# check, reporting a ``fix`` sub-object in that check's verdict entry.
+# The check's ``ok`` stays false: the slice tip as pushed is still red;
+# only the orchestrator (the sanctioned writer) may turn the fixed tree
+# into a commit on the integration branch. The runner itself never
+# pushes; the fix mutates the hostPath-mounted worktree, which the
+# orchestrator stages and commits after the pod exits.
 _RUNNER_PROGRAM = """
 import json, os, shutil, subprocess, sys, time
 
 checks = json.loads(os.environ["EGG_GREEN_GATE_CHECKS"])
 repo_dir = os.environ["EGG_GREEN_GATE_REPO_DIR"]
 tail = int(os.environ.get("EGG_GREEN_GATE_OUTPUT_TAIL", "4000"))
+changed_files_cap = int(os.environ.get("EGG_GREEN_GATE_CHANGED_FILES_CAP", "100"))
 
 
 def restore_prebuilt(target_dir):
@@ -202,30 +245,74 @@ if os.environ.get("EGG_GREEN_GATE_REQUIRE_PREBUILT") == "1" and restored is None
     )
     sys.exit(1)
 
-results = []
-for check in checks:
-    started = time.monotonic()
+def run_cmd(command):
     try:
         proc = subprocess.run(
-            ["bash", "-c", check["command"]],
+            ["bash", "-c", command],
             cwd=repo_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             errors="replace",
         )
-        rc, out = proc.returncode, proc.stdout or ""
+        return proc.returncode, proc.stdout or ""
     except Exception as exc:
-        rc, out = -1, f"runner failed to execute check: {exc}"
-    results.append(
-        {
-            "name": check["name"],
-            "ok": rc == 0,
-            "exit_code": rc,
-            "duration_seconds": round(time.monotonic() - started, 1),
-            "output_tail": out[-tail:],
+        return -1, f"runner failed to execute command: {exc}"
+
+
+def tracked_changed_files():
+    # Informational only (#3409): tracked modifications the fix left in
+    # the worktree, via the sandbox's gateway-routed git. The
+    # orchestrator stages from the shared worktree itself, so a failure
+    # here (git wrapper hiccup) degrades to an unreported file list,
+    # never a wrong commit.
+    try:
+        proc = subprocess.run(
+            ["git", "diff", "--name-only"],
+            cwd=repo_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
+        )
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    return [line for line in (proc.stdout or "").splitlines() if line.strip()]
+
+
+results = []
+for check in checks:
+    started = time.monotonic()
+    rc, out = run_cmd(check["command"])
+    entry = {
+        "name": check["name"],
+        "ok": rc == 0,
+        "exit_code": rc,
+        "output_tail": out[-tail:],
+    }
+    fix_cmd = check.get("fix")
+    if rc != 0 and fix_cmd:
+        # #3409: attempt the configured auto-remediation, then re-run
+        # the check against the fixed tree. The re-run verdict, not the
+        # fix command's exit code, decides success: a fixer may exit
+        # non-zero while still having repaired everything the check
+        # tests (or exit zero while leaving unfixable findings).
+        fix_rc, fix_out = run_cmd(fix_cmd)
+        rerun_rc, rerun_out = run_cmd(check["command"])
+        changed = tracked_changed_files()
+        entry["fix"] = {
+            "command": fix_cmd,
+            "exit_code": fix_rc,
+            "check_ok_after_fix": rerun_rc == 0,
+            "changed_files": (changed[:changed_files_cap] if changed is not None else None),
+            "changed_file_count": (len(changed) if changed is not None else None),
+            "output_tail": fix_out[-tail:],
+            "recheck_output_tail": rerun_out[-tail:],
         }
-    )
+    entry["duration_seconds"] = round(time.monotonic() - started, 1)
+    results.append(entry)
 
 print("EGG_GREEN_GATE_VERDICT:" + json.dumps({"checks": results}), flush=True)
 """
@@ -341,6 +428,7 @@ def _build_runner_job_manifest(
     full_env["EGG_GREEN_GATE_CHECKS"] = json.dumps(checks)
     full_env["EGG_GREEN_GATE_REPO_DIR"] = repo_dir
     full_env["EGG_GREEN_GATE_OUTPUT_TAIL"] = str(_VERDICT_OUTPUT_TAIL_CHARS)
+    full_env["EGG_GREEN_GATE_CHANGED_FILES_CAP"] = str(_FIX_CHANGED_FILES_CAP)
 
     volumes = []
     volume_mounts = []
@@ -579,6 +667,121 @@ def _format_failed_checks(failed: list[dict[str, Any]]) -> str:
     return "\n\n".join(parts)
 
 
+def _commit_and_push_autofix(
+    gateway: Any,
+    *,
+    pipeline_id: str,
+    slice_id: str,
+    worktree_path: str,
+    integration_branch: str,
+    gateway_mode: Literal["public", "private"],
+    fixed_checks: list[dict[str, Any]],
+) -> str | None:
+    """Commit the runner's fix output and push it to the integration branch (#3409).
+
+    The runner executed each failed check's configured ``fix`` command
+    inside the hostPath-mounted gateway worktree and re-ran the checks
+    green, so the tree at ``worktree_path`` is exactly the tree the
+    checks validated. This stages the tracked modifications
+    (``git add -u``: untracked check droppings such as caches and
+    selection JSON are never picked up), commits them under the
+    orchestrator's green-gate identity with ``--no-verify`` (state-store
+    precedent; the sandbox commit path suppresses hooks the same way),
+    and pushes via the launcher-authed gateway push route, the
+    sanctioned writer: the runner never pushes. Because the check
+    re-run happened against this identical tree inside the runner's
+    pinned toolchain, the commit needs no second runner pass to be
+    trusted green.
+
+    The push lands before any slice-close side effect, so dependent
+    slices (which fork from the integration branch's remote tip when
+    they start) fork after the format commit and cannot inherit
+    unformatted code that would re-trip the gate.
+
+    Returns ``None`` on success, or a human-readable error string; the
+    caller then blocks the slice exactly like an unfixed red (Stage B
+    behavior) with the error appended to the failure message.
+    """
+
+    def _git(*args: str, identity: bool = False) -> subprocess.CompletedProcess[str]:
+        cmd = ["git", "-C", worktree_path]
+        if identity:
+            cmd += [
+                "-c",
+                f"user.name={_AUTOFIX_COMMIT_NAME}",
+                "-c",
+                f"user.email={_AUTOFIX_COMMIT_EMAIL}",
+            ]
+        cmd += list(args)
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_AUTOFIX_GIT_TIMEOUT_SECONDS,
+        )
+
+    fixed_names = ", ".join(str(c.get("name")) for c in fixed_checks)
+    try:
+        add = _git("add", "-u")
+        if add.returncode != 0:
+            return f"git add -u failed: {(add.stderr or add.stdout or '').strip()}"
+
+        staged = _git("diff", "--cached", "--name-only")
+        if staged.returncode != 0:
+            return (
+                "git diff --cached --name-only failed: "
+                f"{(staged.stderr or staged.stdout or '').strip()}"
+            )
+        staged_files = [line for line in (staged.stdout or "").splitlines() if line.strip()]
+        if not staged_files:
+            # The re-run went green without the fix modifying any
+            # tracked file (a flaky first run). Nothing committable can
+            # make the remote tip green, so refuse rather than pass a
+            # tip whose red verdict stands as pushed.
+            return (
+                "fix commands re-ran the checks green but left no tracked modifications to commit"
+            )
+
+        message = (
+            f"Apply configured check autofix at the green gate: {fixed_names}\n\n"
+            f"Automated commit for pipeline {pipeline_id}, slice {slice_id} "
+            f"(#3409). The green-gate runner found the named checks red at "
+            f"the {integration_branch} tip, ran their configured fix "
+            f"commands, and re-ran the checks green."
+        )
+        commit = _git("commit", "--no-verify", "-m", message, identity=True)
+        if commit.returncode != 0:
+            return f"git commit failed: {(commit.stderr or commit.stdout or '').strip()}"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"autofix git operation raised: {exc}"
+
+    try:
+        push = gateway.push_worktree_branch(
+            pipeline_id,
+            repo_path=worktree_path,
+            branch=integration_branch,
+            mode=gateway_mode,
+        )
+    except Exception as exc:  # noqa: BLE001 - push failure blocks like an unfixed red
+        return f"autofix push to {integration_branch} raised: {exc}"
+    if not getattr(push, "ok", False):
+        return (
+            f"autofix push to {integration_branch} failed "
+            f"({getattr(push, 'category', 'unknown')}): {getattr(push, 'detail', '')}"
+        )
+
+    logger.info(
+        "Green gate autofix committed and pushed (#3409)",
+        pipeline_id=pipeline_id,
+        slice_id=slice_id,
+        integration_branch=integration_branch,
+        fixed_checks=fixed_names,
+        staged_file_count=len(staged_files),
+    )
+    return None
+
+
 def run_slice_green_gate(
     pipeline_id: str,
     spawner: "KubernetesSpawner",  # noqa: UP037
@@ -592,11 +795,11 @@ def run_slice_green_gate(
 
     Runs after slice consensus and the #3125 evidence gate, before any
     close side effect. Returns ``None`` when the slice may close (checks
-    green, gate off/log-mode, or an infrastructure failure — fail-open),
-    or a human-readable failure string naming the red checks — the
-    caller records the slice failure with it, routing through the
-    existing cascade + OVERSEER_ALERT machinery instead of opening a
-    red PR.
+    green, gate off/log-mode, an infrastructure failure — fail-open —
+    or a red verdict fully remediated by the #3409 autofix commit), or
+    a human-readable failure string naming the red checks — the caller
+    records the slice failure with it, routing through the existing
+    cascade + OVERSEER_ALERT machinery instead of opening a red PR.
 
     The runner gets its own gateway worktree forked from
     ``origin/<integration_branch>`` (both ``base_branch`` and
@@ -691,10 +894,14 @@ def run_slice_green_gate(
 
         repo_mounts: dict[str, str] = {}
         repo_dir = ""
+        repo_host_dir = ""
         for host_path in wt_result.worktrees.values():
             container_path = f"/home/egg/repos/{os.path.basename(host_path)}"
             repo_mounts[container_path] = host_path
             repo_dir = container_path
+            # Orchestrator-side path of the same worktree: the #3409
+            # autofix stages/commits here after the runner pod exits.
+            repo_host_dir = host_path
 
         from kubernetes_spawner import GATEWAY_K8S_URL
 
@@ -790,6 +997,15 @@ def run_slice_green_gate(
             return None
 
         failed_names = ", ".join(str(c.get("name")) for c in failed)
+        # #3409 Stage A: the gate can self-heal when EVERY failed check
+        # carries a fix result whose re-run went green. A partially
+        # fixable verdict (some failed check has no fix, or its re-run
+        # stayed red) routes to the slice team unchanged: committing a
+        # partial fix would re-run the gate against a tip that is still
+        # red by construction.
+        autofix_ready = all(
+            isinstance(c.get("fix"), dict) and c["fix"].get("check_ok_after_fix") for c in failed
+        )
         logger.error(
             "Green gate red: configured checks failed at the slice tip (#3398)",
             pipeline_id=pipeline_id,
@@ -797,14 +1013,52 @@ def run_slice_green_gate(
             gate_id=gate_id,
             integration_branch=integration_branch,
             failed_checks=failed_names,
+            autofix_ready=autofix_ready,
             mode=mode,
         )
+        autofix_note = ""
+        if autofix_ready and mode == "on" and repo_host_dir:
+            autofix_error = _commit_and_push_autofix(
+                spawner.gateway,
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                worktree_path=repo_host_dir,
+                integration_branch=integration_branch,
+                gateway_mode=gateway_mode,
+                fixed_checks=failed,
+            )
+            if autofix_error is None:
+                # The fixed tree the runner re-validated green is now
+                # the integration-branch tip; the slice may close.
+                return None
+            logger.warning(
+                "Green gate autofix failed; blocking slice like an unfixed red (#3409)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                gate_id=gate_id,
+                integration_branch=integration_branch,
+                error=autofix_error,
+            )
+            autofix_note = (
+                f"\n\nThe configured fix commands turned the checks green in "
+                f"the runner, but committing/pushing the fix failed: "
+                f"{autofix_error}"
+            )
+        elif autofix_ready and mode == "log":
+            logger.info(
+                "Green gate log mode: autofix available but not applied (#3409)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                gate_id=gate_id,
+                failed_checks=failed_names,
+            )
         if mode == "log":
             return None
         return (
             f"slice {slice_id}: green gate failed — configured checks are red "
             f"at integration branch {integration_branch} tip: {failed_names}.\n\n"
-            f"{_format_failed_checks(failed)}\n\n"
+            f"{_format_failed_checks(failed)}"
+            f"{autofix_note}\n\n"
             f"Fix the failures on {integration_branch} and restart the slice; "
             f"set {GREEN_GATE_ENV_VAR}=off to bypass."
         )

@@ -5,12 +5,68 @@ Tests for egg_config.validators module.
 from egg_config.validators import (
     mask_secret,
     validate_anthropic_key,
+    validate_checks,
     validate_email,
     validate_github_token,
     validate_non_empty,
     validate_port,
     validate_url,
 )
+
+
+class TestValidateChecks:
+    """Tests for validate_checks function."""
+
+    def test_valid_entries(self):
+        """Name and command are retained and coerced to strings."""
+        result = validate_checks([{"name": "lint", "command": "make lint"}])
+        assert result == [{"name": "lint", "command": "make lint"}]
+
+    def test_non_list_input(self):
+        """Non-list input yields an empty list."""
+        assert validate_checks({"name": "lint"}) == []
+        assert validate_checks(None) == []
+
+    def test_malformed_entries_dropped(self):
+        """Entries missing name or command are filtered out."""
+        result = validate_checks(
+            [
+                {"name": "lint"},
+                {"command": "make test"},
+                "make lint",
+                {"name": "ok", "command": "true"},
+            ]
+        )
+        assert result == [{"name": "ok", "command": "true"}]
+
+    def test_values_coerced_to_strings(self):
+        """Non-string values are coerced to strings."""
+        result = validate_checks([{"name": 1, "command": 2, "fix": 3}])
+        assert result == [{"name": "1", "command": "2", "fix": "3"}]
+
+    def test_fix_key_preserved(self):
+        """The optional fix auto-remediation command survives (#3409)."""
+        result = validate_checks(
+            [
+                {"name": "lint", "command": "make lint", "fix": "make lint-fix"},
+                {"name": "test", "command": "make test"},
+            ]
+        )
+        assert result == [
+            {"name": "lint", "command": "make lint", "fix": "make lint-fix"},
+            {"name": "test", "command": "make test"},
+        ]
+
+    def test_empty_fix_dropped(self):
+        """A present-but-empty fix is dropped from the entry."""
+        for empty in ("", None):
+            result = validate_checks([{"name": "lint", "command": "make lint", "fix": empty}])
+            assert result == [{"name": "lint", "command": "make lint"}]
+
+    def test_unknown_keys_dropped(self):
+        """Keys outside the schema never pass through."""
+        result = validate_checks([{"name": "lint", "command": "make lint", "extra": "x"}])
+        assert result == [{"name": "lint", "command": "make lint"}]
 
 
 class TestValidateUrl:
