@@ -538,7 +538,7 @@
         {
           "id": "task-4-3",
           "description": "_run_pipeline split (issue #3312 non-negotiable #7, addressed head-on): split the phase-transition state machine into per-phase handlers (_run_refine_phase, _run_plan_phase, the existing _run_implement_phase_slices, _run_pr_phase) plus a thin orchestration loop in _run_loop.py, per the pattern doc's prior design. Per-phase handlers stay PRIVATE and are tested through _run_pipeline for this refactor (isolation tests are a follow-up). Preserve ordering/transition semantics exactly: pure refactor.",
-          "status": "pending",
+          "status": "complete",
           "commit": "81212959a",
           "checkpoint_id": null,
           "notes": "",
@@ -1134,6 +1134,17 @@
       "old_value": null,
       "new_value": "81212959a",
       "reason": "Linked commit 8121295 to task-4-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T07:44:49.766710Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-3 as complete",
       "checkpoint_id": null
     }
   ],
