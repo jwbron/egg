@@ -123,7 +123,7 @@
       "id": "slice-2",
       "name": "PR C \u2014 Supervision hardening: rate-limit classification + windowed paced retry + deterministic-loop guard",
       "goal": "Behavioral / medium-high risk (highest here \u2014 weight toward test\ncoverage). In orchestrator/supervision_policy.py and its JobSupervisor\nintegration (concurrent_executor.py): a NEW transient rate-limit\nclassification distinct from abnormal keyed off the all-producers\nagent-invocation-failure streak carrying bare throttling wording\n(429 / rate limit / overloaded) that auth_errors.py deliberately excludes\nfrom EX_AUTH_FATAL; a windowed paced retry across the rolling cap window\n(hours, not the 30s cap) using a restart_phase-equivalent that preserves\nlanded slices; and a deterministic-loop guard that escalates instead of\nlooping on an identical failure fingerprint at the same point. Per cq-1:\nno hard ceiling, but an OVERSEER_ALERT fires once cumulative wait crosses\na threshold. EX_AUTH_FATAL (incl. weekly caps) and abnormal unchanged.",
-      "status": "pending",
+      "status": "in_progress",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -241,8 +241,8 @@
       ],
       "dependencies": [],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3364/work",
+      "integration_base_sha": "22fb304d1da8900fb259a4cb8b08644bb8a5235d",
       "commit": null,
       "pr_number": null,
       "pr_url": null,
@@ -442,6 +442,39 @@
       "resolved_at": "2026-07-06T18:40:46.469923Z",
       "debounce_until": null,
       "redirect_seed": null
+    },
+    {
+      "id": "cq-2",
+      "question": "PR C (slice-2) file-scope mismatch discovered during implement. AC-C1 requires the throttling signature to \"classify as transient rate-limit, NOT abnormal, and NOT trip the fail-streak halt\" (the per-key streak>=10 exhaustion). But the code only propagates a per-agent EXIT CODE to the orchestrator, never the agent's error TEXT: handle_agent_failure gets f\"Container exited with code {N}\" (_run_concurrent.py:737) and the exhaustion report's exit_detail is just \"exit_code=N\" (kubernetes_spawner/_models.py:102-131). The throttle wording (429/\"rate limit\"/\"overloaded\") the plan/architect assumed is \"observable at the streak site\" is NOT present there. The ONLY faithful mechanism is a distinct exit code, mirroring EX_AUTH_FATAL: auth_errors.py -> egg_agent/__main__.py:142 -> outcome_for (kubernetes_spawner) -> _observe_jobs (event_loop/_loop.py) -> record_fatal (event_loop/_supervisor.py). To satisfy AC-C1 (\"does not trip the fail-streak halt\"), the new transient class must be intercepted at the per-arm RECORDING layer, which now lives in event_loop/_supervisor.py (JobSupervisor moved there in the #3447 decomposition, AFTER the plan's \"concurrent_executor.py (JobSupervisor integration)\" anchor was written). PR C's contracted task files (orchestrator/supervision_policy.py, orchestrator/concurrent_executor.py, shared/egg_agent/auth_errors.py) do not include egg_agent/__main__.py, kubernetes_spawner/_models.py, event_loop/_loop.py, or event_loop/_supervisor.py. How should I proceed?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Expand PR C scope to the full EX_AUTH_FATAL-style mirror across the necessary files (add EX_RATE_LIMITED + is_transient_rate_limit_error to auth_errors.py; emit it in egg_agent/__main__.py; add a JOB_OUTCOME_RATE_LIMITED outcome + outcome_for mapping in kubernetes_spawner/_models.py; a _observe_jobs branch in event_loop/_loop.py; a record_rate_limited paced/no-streak-halt path in event_loop/_supervisor.py; pacing+fingerprint constants in supervision_policy.py; and the windowed-retry/loop-guard/threshold-alert/landed-slice wiring in concurrent_executor.py). Faithful to AC-C1/C6 but touches ~7 files vs the contracted 3.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Keep strictly to the 3 contracted files: classify at the all-producers _handle_arms_exhausted site in concurrent_executor.py and convert that terminal wedge into a paced windowed retry + loop guard. Meets AC-C2/C3/C4/C5, but the throttle streak still records as abnormal and DOES trip the per-key streak halt (per-producer AGENT_FAILED HITLs fire first) \u2014 i.e. AC-C1's 'not abnormal / does not trip the fail-streak halt' is only partially met; documented as a known deviation.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Pause PR C and send it back for re-planning/re-scoping (the file set and the #3447 JobSupervisor relocation need to be reconciled before implement).",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
@@ -597,6 +630,49 @@
       "old_value": "4fcf1ed7abf4ecfc6e3fcab94e0f68ab61d5f3f4",
       "new_value": "c2a77847ac88f0deb37a746bce1c9da9fc228022",
       "reason": "Linked commit c2a7784 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T23:35:11.278436Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "PR C (slice-2) file-scope mismatch discovered during implement. AC-C1 requires the throttling signature to \"classify as transient rate-limit, NOT abnormal, and NOT trip the fail-streak halt\" (the per-key streak>=10 exhaustion). But the code only propagates a per-agent EXIT CODE to the orchestrator, never the agent's error TEXT: handle_agent_failure gets f\"Container exited with code {N}\" (_run_concurrent.py:737) and the exhaustion report's exit_detail is just \"exit_code=N\" (kubernetes_spawner/_models.py:102-131). The throttle wording (429/\"rate limit\"/\"overloaded\") the plan/architect assumed is \"observable at the streak site\" is NOT present there. The ONLY faithful mechanism is a distinct exit code, mirroring EX_AUTH_FATAL: auth_errors.py -> egg_agent/__main__.py:142 -> outcome_for (kubernetes_spawner) -> _observe_jobs (event_loop/_loop.py) -> record_fatal (event_loop/_supervisor.py). To satisfy AC-C1 (\"does not trip the fail-streak halt\"), the new transient class must be intercepted at the per-arm RECORDING layer, which now lives in event_loop/_supervisor.py (JobSupervisor moved there in the #3447 decomposition, AFTER the plan's \"concurrent_executor.py (JobSupervisor integration)\" anchor was written). PR C's contracted task files (orchestrator/supervision_policy.py, orchestrator/concurrent_executor.py, shared/egg_agent/auth_errors.py) do not include egg_agent/__main__.py, kubernetes_spawner/_models.py, event_loop/_loop.py, or event_loop/_supervisor.py. How should I proceed?",
+        "type": "hitl",
+        "phase": "implement",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Expand PR C scope to the full EX_AUTH_FATAL-style mirror across the necessary files (add EX_RATE_LIMITED + is_transient_rate_limit_error to auth_errors.py; emit it in egg_agent/__main__.py; add a JOB_OUTCOME_RATE_LIMITED outcome + outcome_for mapping in kubernetes_spawner/_models.py; a _observe_jobs branch in event_loop/_loop.py; a record_rate_limited paced/no-streak-halt path in event_loop/_supervisor.py; pacing+fingerprint constants in supervision_policy.py; and the windowed-retry/loop-guard/threshold-alert/landed-slice wiring in concurrent_executor.py). Faithful to AC-C1/C6 but touches ~7 files vs the contracted 3.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Keep strictly to the 3 contracted files: classify at the all-producers _handle_arms_exhausted site in concurrent_executor.py and convert that terminal wedge into a paced windowed retry + loop guard. Meets AC-C2/C3/C4/C5, but the throttle streak still records as abnormal and DOES trip the per-key streak halt (per-producer AGENT_FAILED HITLs fire first) \u2014 i.e. AC-C1's 'not abnormal / does not trip the fail-streak halt' is only partially met; documented as a known deviation.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Pause PR C and send it back for re-planning/re-scoping (the file set and the #3447 JobSupervisor relocation need to be reconciled before implement).",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: PR C (slice-2) file-scope mismatch discovered duri...",
       "checkpoint_id": null
     }
   ],
