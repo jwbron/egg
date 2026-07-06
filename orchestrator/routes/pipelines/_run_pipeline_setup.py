@@ -401,3 +401,153 @@ def _map_host_repos(
                 f"Failed to create worktrees for pipeline {pipeline_id}: {wt_err}"
             ) from wt_err
     return repo_volumes, worktree_repo_path
+
+
+def _start_phase_setup(pipeline, *, pipeline_id, pipeline_mode, store, worktree_repo_path):
+    """start_phase==implement safety-net: populate the contract / apply the
+    plan draft before the implement phase spawns (extracted verbatim from
+    _run_pipeline). Returns (pipeline, done); done=True -> caller returns."""
+    if pipeline.config.start_phase == "implement":
+        plan_draft_rel = _pkg._get_draft_path(
+            "plan",
+            issue_number=pipeline.issue_number,
+            pipeline_id=pipeline.id,
+        )
+        if plan_draft_rel and (worktree_repo_path / plan_draft_rel).exists():
+            # Advance contract.current_phase alongside slice/PR
+            # ingestion.  In the natural flow contract.current_phase
+            # is mutated by the plan reviewer agent (or the gateway
+            # phase API) via apply_mutation; with start_phase=implement
+            # no such reviewer ever runs, so the contract would stay
+            # at REFINE forever (#2427 sub-bug).  We pass
+            # pipeline.current_phase rather than a hardcoded literal
+            # so the right value follows automatically if start_phase
+            # ever supports values other than 'implement'.  The
+            # populator enforces forward-only advancement, so a
+            # respawn during the PR phase cannot demote the contract.
+            # Note: the *outer* guard above remains hardcoded to
+            # ``"implement"``; widening it to other start_phase values
+            # is a two-line change (this guard plus the matching
+            # ``initial_phase`` mapping in start_pipeline).
+            # Catch ``ForestValidationError`` here so a malformed
+            # plan landing at the safety-net path lands on the
+            # dedicated empty-contract HITL — the same recovery
+            # surface the natural plan-complete path uses via
+            # :func:`_populate_contract_from_plan_safe`'s
+            # forest-violation translation.  Without this catch the
+            # safety net (which calls the inner directly so the
+            # ``PlanDraftMissing*`` raises don't fire here) would
+            # propagate the exception to the outer pipeline
+            # ``except`` and the operator would see a generic
+            # ``status: failed`` instead of the actionable
+            # repopulate/restart-plan/abort decision (#2627 review).
+            try:
+                _safety_net_populate_result = _pkg._populate_contract_from_plan(
+                    worktree_repo_path,
+                    pipeline_id,
+                    pipeline_mode,
+                    pipeline.issue_number,
+                    current_phase=pipeline.current_phase,
+                )
+            except _pkg.ForestValidationError as forest_err:
+                # #3046 — overlap violations map to their own outcome so
+                # the empty-contract HITL prose matches the discriminator.
+                _pkg.logger.warning(
+                    "contract_phases_ingest_failed",
+                    pipeline_id=pipeline_id,
+                    reason=forest_err.reason,
+                    source="safety_net",
+                    errors=forest_err.errors,
+                )
+                _safety_net_populate_result = _pkg.PopulateResult(
+                    _pkg._forest_error_to_outcome(forest_err)
+                )
+            # #2627 follow-up: fail-fast whenever the safety-net populate
+            # did not produce a contract with tasks.  Without this guard
+            # the implement phase spawns into the same empty-contract
+            # state that #2627 surfaced — the slice-gate at
+            # implement-phase entry would eventually catch it, but at
+            # that point the pipeline has already advanced and the
+            # operator sees the empty-contract divergence after the
+            # loop is running.  Catching it here is earlier and cheaper.
+            #
+            # Routes through :func:`_populate_result_is_empty_contract`
+            # so the two empty-contract call sites (this safety net
+            # and the natural plan-complete handler below) can't drift
+            # out of agreement.  See that helper's docstring for the
+            # full discriminator rules.
+            if _pkg._populate_result_is_empty_contract(_safety_net_populate_result):
+                # Reason dispatch shared with the plan-complete handler
+                # via :func:`_populate_outcome_to_hitl_reason` so the
+                # POPULATED → "populated_but_empty_slices" translation
+                # (and any future special-cased outcome) can't drift
+                # between the two call sites (#2627 review follow-up).
+                _safety_net_reason = _pkg._populate_outcome_to_hitl_reason(
+                    _safety_net_populate_result.outcome
+                )
+                if _safety_net_populate_result.outcome == _pkg.PopulateOutcome.POPULATED:
+                    _safety_net_error = (
+                        "start_phase=implement safety-net populate "
+                        "completed but produced 0 slices/tasks — refusing "
+                        "to spawn implement-phase agents on an empty "
+                        "contract (#2627)"
+                    )
+                else:
+                    _safety_net_error = (
+                        f"start_phase=implement safety-net populate produced "
+                        f"{_safety_net_populate_result.outcome.value} outcome — "
+                        f"refusing to spawn implement-phase agents on an "
+                        f"empty contract (#2627)"
+                    )
+                with _pkg.get_pipeline_state_lock(pipeline_id):
+                    pipeline = store.load_pipeline(pipeline_id)
+                    pipeline.status = _pkg.PipelineStatus.FAILED
+                    pipeline.error = _safety_net_error
+                    store.save_pipeline(pipeline)
+                # Emit the dedicated empty-contract HITL inline so the
+                # operator sees an actionable decision instead of a
+                # generic ``status: failed`` with no recovery path
+                # other than ``restart_phase implement`` (which would
+                # respawn into the same empty-contract state).
+                _pkg._emit_empty_contract_hitl(
+                    pipeline_id,
+                    pipeline,
+                    store,
+                    reason=_safety_net_reason,
+                    draft_slice_count=None,
+                    gate="start_phase_implement_safety_net",
+                    phase=pipeline.current_phase,
+                )
+                _pkg.logger.error(
+                    "OVERSEER_ALERT start_phase_implement_safety_net_empty_contract",
+                    pipeline_id=pipeline_id,
+                    outcome=_safety_net_populate_result.outcome.value,
+                    slice_count=_safety_net_populate_result.slice_count,
+                    reason=_safety_net_reason,
+                )
+                _pkg.report_pipeline_status(
+                    pipeline,
+                    event_type="pipeline.failed",
+                    message=f"Pipeline failed: {_safety_net_error[:100]}",
+                )
+                _pkg._emit_pipeline_event(pipeline, "pipeline.failed")
+                return pipeline, True
+
+            # #3100: the natural plan→implement path enforces the
+            # #2777 plan pre-flight (``validate_plan_preflight``) at
+            # the advance_phase site; implement-start submits skip
+            # that site entirely, so a plan draft without a ``pr:``
+            # block previously entered the implement phase and every
+            # context-PR opener backstop soft-failed with
+            # ``missing_pr_metadata`` forever.  Enforce the same
+            # validator here — after the empty-contract gate so the
+            # #2627 HITL routing above is unchanged.
+            if _pkg._enforce_implement_start_plan_preflight(
+                pipeline_id,
+                pipeline,
+                store,
+                worktree_repo_path,
+                plan_draft_rel,
+            ):
+                return pipeline, True
+    return pipeline, False
