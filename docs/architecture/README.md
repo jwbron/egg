@@ -127,7 +127,7 @@ The SDLC pipeline orchestrates agent-based development with structurally enforce
 - `orchestrator/kubernetes_spawner.py` - Agent Job lifecycle management (k8s Jobs via `KubernetesSpawner`; `container_spawner.py` is a backward-compatibility shim)
 - `orchestrator/decision_queue.py` - Human-in-the-loop decision handling with debounce
 - `orchestrator/state_store.py` - Git-backed pipeline state management
-- `orchestrator/routes/pipelines.py` - Pipeline API, prompt building, and visualization
+- `orchestrator/routes/pipelines/` - Pipeline API, prompt building, and visualization (sub-package; barrel + 46 submodules, see [decomposition pattern](../guides/decomposition-pattern.md))
 - `.github/workflows/reusable-review.yml` - PR-based code review (invoked for draft PRs during implement phase)
 
 **Resilience features:**
