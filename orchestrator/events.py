@@ -284,9 +284,16 @@ class EventBus:
         Args:
             event: Event to publish
         """
-        # Assign the monotonic sequence + record history under the lock
-        # so concurrent publishes from different threads stay totally
-        # ordered and history iteration sees a consistent prefix.
+        # Assign the monotonic sequence, record history, and hand the
+        # event to delivery — all under the lock — so concurrent
+        # publishes from different threads stay totally ordered.  If
+        # delivery (sync dispatch / async enqueue) happened after
+        # releasing the lock, a thread that won the sequence race could
+        # still be preempted before delivering, letting a later-sequence
+        # event reach subscribers first and breaking the strictly
+        # increasing ordering guarantee (issue #1932).  ``_lock`` is an
+        # RLock, so the reentrant acquire inside ``_deliver_event`` is
+        # safe.
         with self._lock:
             self._sequence += 1
             event.sequence = self._sequence
@@ -294,16 +301,16 @@ class EventBus:
             if len(self._history) > self._max_history:
                 self._history.pop(0)
 
+            if self._async_delivery:
+                self._event_queue.put(event)
+            else:
+                self._deliver_event(event)
+
         logger.debug(
             "Event published",
             event_type=event.event_type.value,
             pipeline_id=event.pipeline_id,
         )
-
-        if self._async_delivery:
-            self._event_queue.put(event)
-        else:
-            self._deliver_event(event)
 
     def emit(
         self,

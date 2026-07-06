@@ -1068,6 +1068,17 @@ def _run_pipeline(
                 # ``updated_at`` is unconditionally set by ``StateStore.save_pipeline``.
                 store.save_pipeline(pipeline)
 
+            # #3521: advance contract.current_phase in lockstep with the
+            # pipeline record. Historically this mutation was owned by
+            # whichever agent called the gateway phase API after the
+            # transition; when none did, the contract silently stayed on
+            # the previous phase and the gateway commit gate (which keys
+            # off the CONTRACT phase) wedged the next phase's consensus.
+            # Best-effort + forward-only; never raises.
+            _pkg._sync_contract_phase_to_pipeline(
+                pipeline, worktree_repo_path, source="auto_advance"
+            )
+
             # Drop the previous phase's in-memory consensus tracker and
             # message-store entries (#2502).  The other phase-transition
             # paths -- ``advance_phase`` REST handler, HITL-revision

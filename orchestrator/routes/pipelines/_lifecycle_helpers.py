@@ -337,3 +337,115 @@ def _cleanup_remote_branches(
             branches_deleted=deleted,
             branches_total=len(branches),
         )
+
+
+# Forward-only ordering for contract.current_phase advancement (#3521).
+# APPLY sits between PLAN and IMPLEMENT (conditional, epic pipelines only;
+# #1557); index comparison still orders PLAN → IMPLEMENT correctly for
+# non-epic pipelines that skip it.
+_CONTRACT_PHASE_ORDER = (
+    "refine",
+    "plan",
+    "apply",
+    "implement",
+)
+
+
+def _sync_contract_phase_to_pipeline(pipeline, worktree_repo_path, *, source: str) -> bool:
+    """Advance ``contract.current_phase`` to match ``pipeline.current_phase`` (#3521).
+
+    Before this helper, ``contract.current_phase`` was mutated only by
+    whichever agent happened to call the gateway phase API after a phase
+    transition (or by the ``start_phase=implement`` safety-net populate,
+    #2427). Agents are one-shot pods that can exit before doing it, so the
+    contract could silently stay on the previous phase while the pipeline
+    record moved on; and the gateway commit gate keys off the CONTRACT
+    phase, so the next phase's producers were rejected with
+    "Phase '<old>' cannot modify" and consensus wedged (the #3521 incident:
+    refine→plan desync blocked the plan artifacts for ~30 min).
+
+    Called at every orchestrator-driven phase transition (auto-advance in
+    ``_run_pipeline``, the ``advance_phase`` route, and the
+    ``start_pipeline`` HITL-recovery advance) so the agent/gateway mutation
+    path is redundant rather than load-bearing.
+
+    Forward-only: a respawn or stale caller can never demote the contract
+    (same enforcement the safety-net populate uses). Best-effort by design:
+    returns ``True`` when the contract was advanced and ``False`` otherwise
+    (already in sync, contract missing, worktree gone, ...); never raises,
+    because a phase transition must not fail on contract-sync problems the
+    overseer's desync detector will surface anyway.
+
+    Args:
+        pipeline: The pipeline whose ``current_phase`` is the sync target.
+        worktree_repo_path: Shared pipeline worktree checkout holding the
+            live contract file (``.egg-state/contracts/<pipeline_id>.json``).
+        source: Call-site label recorded in the log line (e.g.
+            ``"auto_advance"``, ``"advance_phase"``).
+    """
+    target_phase = pipeline.current_phase
+    if target_phase is None:
+        return False
+    try:
+        from egg_contracts.loader import load_contract, save_contract
+
+        contract = load_contract(pipeline.id, worktree_repo_path)
+    except Exception as load_err:  # noqa: BLE001
+        _pkg.logger.warning(
+            "contract_phase_sync_skipped",
+            pipeline_id=pipeline.id,
+            source=source,
+            target_phase=target_phase.value,
+            reason="contract_load_failed",
+            error=str(load_err),
+        )
+        return False
+
+    contract_phase_value = contract.current_phase.value
+    target_phase_value = target_phase.value
+    if (
+        contract_phase_value not in _CONTRACT_PHASE_ORDER
+        or target_phase_value not in _CONTRACT_PHASE_ORDER
+        or _CONTRACT_PHASE_ORDER.index(target_phase_value)
+        <= _CONTRACT_PHASE_ORDER.index(contract_phase_value)
+    ):
+        # Already in sync, contract ahead (never demote), or a phase
+        # outside the known order: nothing to do.
+        return False
+
+    try:
+        from egg_contracts.audit import create_transition_entry
+        from egg_contracts.models import AuditRole
+
+        contract.audit_log.append(
+            create_transition_entry(
+                actor="orchestrator",
+                role=AuditRole.SYSTEM,
+                from_phase=contract_phase_value,
+                to_phase=target_phase_value,
+                reason=f"orchestrator phase-transition sync ({source}; #3521)",
+            )
+        )
+        # ``models.PipelinePhase`` is a re-export of the egg_contracts enum,
+        # so the pipeline's phase member is assignable directly.
+        contract.current_phase = target_phase
+        save_contract(contract, worktree_repo_path)
+    except Exception as save_err:  # noqa: BLE001
+        _pkg.logger.warning(
+            "contract_phase_sync_skipped",
+            pipeline_id=pipeline.id,
+            source=source,
+            target_phase=target_phase_value,
+            reason="contract_save_failed",
+            error=str(save_err),
+        )
+        return False
+
+    _pkg.logger.info(
+        "contract_phase_synced",
+        pipeline_id=pipeline.id,
+        source=source,
+        from_phase=contract_phase_value,
+        to_phase=target_phase_value,
+    )
+    return True
