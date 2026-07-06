@@ -244,3 +244,13 @@ long time). Registered as an `add-decision` choice.
   (`pipelines.py:549`, `models.py:906`, `event_loop.py`).
 - PR D plan must schedule the §5 coverage-map **before** any SKILL.md deletion, and
   must explicitly preserve the AC-D3 render-on-alert paths.
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the refine phase gate:
+
+Resolved Questions:
+
+**PR C — when a rate-limit / subscription cap-wall persists, how should the windowed paced-retry bound itself?**
+Answer: Retry until the cap lifts (no hard ceiling) BUT emit an OVERSEER_ALERT once the wait crosses a threshold, so an attended operator is informed while auto-recovery continues. (Resolved as cq-1 on the contract.)
