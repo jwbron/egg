@@ -147,6 +147,13 @@ def spawn_event_job(
     reuse_session_token: str | None = None
     branch = spawn_kwargs.get("branch")
     repos = spawn_kwargs.get("repos")
+    # The pipeline's real gateway network mode ("public" / "private").
+    # It MUST reach the discard-salvage push: a private-mode pipeline on a
+    # private repo is DENIED by the gateway's private-repo policy if the
+    # push carries the "public" default, silently degrading auto-salvage
+    # to record-only — exactly the silent-loss class #3509 exists to
+    # prevent. The concurrent spawn fn forwards "mode" in common_kwargs.
+    mode = spawn_kwargs.get("mode", "public")
 
     # Build the candidate worktree id matching the existing convention.
     candidate_id = self._build_agent_worktree_id(pipeline_id, agent_role, slice_id=slice_id)
@@ -155,8 +162,9 @@ def spawn_event_job(
         # (R6 dirty-state policy) so re-attached worktrees always start
         # with a clean tree at the role branch tip, or a clean
         # fast-forward ahead of it (#3506), before the agent runs. The
-        # pipeline/role/slice context lets the cleanup auto-salvage and
-        # durably record any commits its hard-reset discards (#3509).
+        # pipeline/role/slice context (plus the gateway network mode) lets
+        # the cleanup auto-salvage and durably record any commits its
+        # hard-reset discards (#3509).
         result = self._try_reuse_worktree(
             candidate_id,
             branch,
@@ -164,6 +172,7 @@ def spawn_event_job(
             pipeline_id=pipeline_id,
             agent_role=agent_role.value,
             slice_id=slice_id,
+            mode=mode,
         )
         if result is not None:
             reuse_worktree_id = candidate_id

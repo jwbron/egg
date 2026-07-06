@@ -3411,6 +3411,40 @@ class TestDirtyDiscardAutoSalvage:
         mock_gateway.push_worktree_branch.assert_not_called()
         get_store.return_value.add_message.assert_not_called()
 
+    def test_discard_salvage_forwards_private_mode(self, spawner, mock_gateway, tmp_path):
+        # The salvage push MUST carry the pipeline's real network mode: a
+        # "public" push on a private-mode pipeline over a private repo is
+        # denied by the gateway's private-repo policy, silently degrading
+        # auto-salvage to record-only (#3509).
+        repo, _origin_head, _orphan_head = self._seed_orphan(tmp_path)
+        mock_gateway.push_worktree_branch.return_value = _FakePushResult(ok=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store"),
+        ):
+            cleaned = spawner._clean_reused_worktree(
+                _WT_ID, _BRANCH, _REPOS, mode="private", **_PIPE_CTX
+            )
+
+        assert cleaned is True
+        assert mock_gateway.push_worktree_branch.call_args.kwargs["mode"] == "private"
+
+    def test_discard_salvage_mode_defaults_to_public(self, spawner, mock_gateway, tmp_path):
+        # Legacy callers that omit ``mode`` keep the historical public
+        # default (the parameter must not silently become required).
+        repo, _origin_head, _orphan_head = self._seed_orphan(tmp_path)
+        mock_gateway.push_worktree_branch.return_value = _FakePushResult(ok=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store"),
+        ):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS, **_PIPE_CTX)
+
+        assert cleaned is True
+        assert mock_gateway.push_worktree_branch.call_args.kwargs["mode"] == "public"
+
     def test_spawn_event_job_threads_pipeline_context(
         self, spawner, mock_k8s_client, mock_gateway, tmp_path
     ):
@@ -3451,6 +3485,47 @@ class TestDirtyDiscardAutoSalvage:
 
         kwargs = mock_gateway.push_worktree_branch.call_args.kwargs
         assert kwargs["branch"] == f"egg/recovered/pipe-1/slice-4-coder/{orphan_head[:12]}"
+
+    def test_spawn_event_job_threads_private_mode(
+        self, spawner, mock_k8s_client, mock_gateway, tmp_path
+    ):
+        """End-to-end: a private-mode re-attach spawn forwards ``mode`` all the
+        way to the salvage push, so private-repo pipelines are not silently
+        degraded to record-only (#3509)."""
+        repo, _ = _make_worktree(
+            tmp_path, "pipe-1-slice-4-coder", "repo", _BRANCH, with_origin=True
+        )
+        (repo / "work.txt").write_text("orphaned work\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "unpushed stack tip")
+        (repo / "seed.txt").write_text("DIRTY tracked edit\n")
+
+        mock_k8s_client.list_jobs.return_value = []  # no live Job → no adoption
+        mock_gateway.heartbeat_session_by_container.return_value = False
+        mock_gateway.register_session.return_value = _FakeSessionInfo(
+            session_token="tok-reattach",
+            container_id="egg-agent-pipe-1-slice-4-coder",
+        )
+        mock_gateway.push_worktree_branch.return_value = _FakePushResult(ok=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store"),
+        ):
+            spawner.spawn_event_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                action="propose",
+                dedupe_key="c" * 64,
+                slice_id="slice-4",
+                phase="implement",
+                repos=["owner/repo"],
+                branch=_BRANCH,
+                mode="private",
+                wait_for_gateway=False,
+            )
+
+        assert mock_gateway.push_worktree_branch.call_args.kwargs["mode"] == "private"
 
 
 class TestSpawnEventJobSessionReuse:

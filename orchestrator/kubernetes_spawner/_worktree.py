@@ -295,6 +295,7 @@ def _try_reuse_worktree(
     pipeline_id: str | None = None,
     agent_role: str | None = None,
     slice_id: str | None = None,
+    mode: str = "public",
 ) -> tuple[bool, dict[str, str]] | None:
     """Validate an existing worktree and, on success, clean dirty state.
 
@@ -307,6 +308,10 @@ def _try_reuse_worktree(
     ``pipeline_id`` / ``agent_role`` / ``slice_id`` give the cleanup step
     the context it needs to auto-salvage and durably record any commits
     its hard-reset discards (#3509); when omitted the discard is log-only.
+    ``mode`` is the pipeline's gateway network mode ("public" / "private")
+    and MUST match the running pipeline: a "public" salvage push on a
+    private-mode pipeline over a private repo is denied by the gateway's
+    private-repo policy, degrading auto-salvage to record-only.
 
     The returned ``repo_volumes`` carry HOST paths (translated via
     :func:`_local_to_host_volumes`), matching the create path's
@@ -334,6 +339,7 @@ def _try_reuse_worktree(
         pipeline_id=pipeline_id,
         agent_role=agent_role,
         slice_id=slice_id,
+        mode=mode,
     ):
         return None
     return True, _local_to_host_volumes(vols)
@@ -348,6 +354,7 @@ def _clean_reused_worktree(
     pipeline_id: str | None = None,
     agent_role: str | None = None,
     slice_id: str | None = None,
+    mode: str = "public",
 ) -> bool:
     """Discard dirty state and sync a re-attached worktree (R6, #3506).
 
@@ -377,6 +384,20 @@ def _clean_reused_worktree(
     visibility). The salvage/record steps require ``pipeline_id`` (plus
     ``agent_role`` / ``slice_id`` for the recovery-ref scope); legacy
     callers that omit them get the pre-#3509 log-only behaviour.
+
+    ``mode`` is the pipeline's gateway network mode ("public" /
+    "private") and is threaded straight into the salvage push. It MUST
+    match the running pipeline: a "public" push on a private-mode
+    pipeline over a private repo is denied by the gateway's private-repo
+    policy, silently degrading auto-salvage to record-only — the exact
+    silent-loss class this hook exists to prevent.
+
+    Only the committed tip (``HEAD``) is salvaged. The ``git reset
+    --hard`` + ``git clean -fd`` above run *before* orphan detection, so
+    uncommitted tracked edits and untracked files in a killed-mid-event
+    worktree are gone before salvage runs; the recovery ref is therefore
+    a commit snapshot, not a full worktree snapshot. Capturing dirty
+    working-tree state is #2807's domain, deliberately out of scope here.
 
     Returns ``True`` on success, ``False`` on any failure (the caller
     falls back to create-with-retry — never allow a half-cleaned
@@ -539,6 +560,7 @@ def _clean_reused_worktree(
                                 agent_role=agent_role,
                                 slice_id=slice_id,
                                 n_commits=len(orphans),
+                                mode=mode,
                             )
                             recovery_ref = salvage.recovery_ref if salvage.ok else None
                             salvage_error = salvage.error
