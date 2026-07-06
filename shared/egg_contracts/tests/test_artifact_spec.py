@@ -414,9 +414,7 @@ class TestConsistencyC_PromptDerivesFromSpec:
     # lives across its submodules. The ratchet reads the whole package,
     # not a single module, so it keeps governing the prompts wherever they
     # moved.
-    PIPELINES_PATH = (
-        Path(__file__).resolve().parents[3] / "orchestrator" / "routes" / "pipelines"
-    )
+    PIPELINES_PATH = Path(__file__).resolve().parents[3] / "orchestrator" / "routes" / "pipelines"
 
     # Ratchet against a regression: forbid raw
     # ``.egg-state/agent-outputs/{_identifier}-…`` f-string literals
@@ -435,9 +433,7 @@ class TestConsistencyC_PromptDerivesFromSpec:
         # Concatenate every submodule of the pipelines package so the
         # ratchet spans the prompt-construction code wherever the
         # decomposition placed it.
-        return "\n".join(
-            path.read_text() for path in sorted(self.PIPELINES_PATH.glob("*.py"))
-        )
+        return "\n".join(path.read_text() for path in sorted(self.PIPELINES_PATH.glob("*.py")))
 
     def test_pipelines_py_is_readable(self) -> None:
         assert self.PIPELINES_PATH.is_dir(), (
