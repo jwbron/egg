@@ -55,8 +55,8 @@ The gateway sidecar holds credentials and enforces policies:
 
 ```
 gateway/
-├── gateway.py              # Main HTTP server
-├── _module_loader.py       # Sibling-module bootstrap loader (isolated to keep gateway.py out of the dynamic-import seed set; do not add gateway imports here)
+├── gateway/                # Main HTTP server package (barrel `__init__.py` + `__main__.py` entry point + 12 `_<cluster>.py` submodules: `_helpers`, `_health`, `_git_ops`, `_git_execute`, `_gh_ops`, `_gh_execute`, `_jira`, `_jira_writes`, `_confluence`, `_worktree`, `_sessions`, `_proxy`, `_server`); run via `python3 -m gateway`; see gateway/CLAUDE.md for the full seam table
+├── _module_loader.py       # Sibling-module bootstrap loader (isolated to keep gateway/gateway/ out of the dynamic-import seed set; do not add gateway imports here)
 ├── git_client.py           # Git operation handler
 ├── github_client.py        # GitHub API handler (supports bot/user/reviewer modes)
 ├── policy.py               # Branch ownership, push policies, reviewer identity management
