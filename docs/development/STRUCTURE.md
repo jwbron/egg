@@ -181,7 +181,7 @@ orchestrator/
 │   ├── messages.py         # Inter-agent message bus endpoints (concurrent mode)
 │   ├── metrics.py          # Metrics endpoints
 │   ├── phases.py           # Phase management endpoints
-│   ├── pipelines.py        # Pipeline CRUD and visualization endpoints
+│   ├── pipelines/          # Pipeline CRUD, visualization, and `_run_pipeline` phase state machine (sub-package: barrel + 46 submodules)
 │   ├── progress.py         # Structured progress event endpoints (emit, query)
 │   ├── session_state.py    # Cross-pod warm-resume session-state endpoints (push/pull per (pipeline,slice,role); #3278)
 │   └── signals.py          # Signal handling endpoints (incl. readiness for concurrent mode)
