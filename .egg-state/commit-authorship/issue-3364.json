@@ -39,6 +39,14 @@
       "registered_at": "2026-07-06T18:17:56.368355+00:00",
       "repo": null,
       "role": "simplifier"
+    },
+    "f548c39ff41e1ec15589a23f0ce07eef79555be0": {
+      "branch": "egg/issue-3364/work",
+      "patch_id": "31c9943c9da4173ab11e303e08faaaf329a637c1",
+      "pipeline_id": "issue-3364",
+      "registered_at": "2026-07-06T18:21:02.278239+00:00",
+      "repo": null,
+      "role": "simplifier"
     }
   },
   "version": 2
