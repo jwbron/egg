@@ -452,29 +452,34 @@
         {
           "id": "opt-1",
           "label": "Expand PR C scope to the full EX_AUTH_FATAL-style mirror across the necessary files (add EX_RATE_LIMITED + is_transient_rate_limit_error to auth_errors.py; emit it in egg_agent/__main__.py; add a JOB_OUTCOME_RATE_LIMITED outcome + outcome_for mapping in kubernetes_spawner/_models.py; a _observe_jobs branch in event_loop/_loop.py; a record_rate_limited paced/no-streak-halt path in event_loop/_supervisor.py; pacing+fingerprint constants in supervision_policy.py; and the windowed-retry/loop-guard/threshold-alert/landed-slice wiring in concurrent_executor.py). Faithful to AC-C1/C6 but touches ~7 files vs the contracted 3.",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-2",
           "label": "Keep strictly to the 3 contracted files: classify at the all-producers _handle_arms_exhausted site in concurrent_executor.py and convert that terminal wedge into a paced windowed retry + loop guard. Meets AC-C2/C3/C4/C5, but the throttle streak still records as abnormal and DOES trip the per-key streak halt (per-producer AGENT_FAILED HITLs fire first) \u2014 i.e. AC-C1's 'not abnormal / does not trip the fail-streak halt' is only partially met; documented as a known deviation.",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-3",
           "label": "Pause PR C and send it back for re-planning/re-scoping (the file set and the #3447 JobSupervisor relocation need to be reconciled before implement).",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-4",
           "label": "Other (explain in reply)",
-          "description": null
+          "description": null,
+          "adds_task": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
-      "debounce_until": null
+      "resolved": true,
+      "resolution": "Pause PR C and send it back for re-planning/re-scoping (the file set and the #3447 JobSupervisor relocation need to be reconciled before implement).",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-06T23:47:47.549782Z",
+      "debounce_until": null,
+      "redirect_seed": null
     }
   ],
   "workflow_owner": null,
