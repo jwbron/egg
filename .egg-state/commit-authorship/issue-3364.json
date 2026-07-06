@@ -56,6 +56,14 @@
       "repo": null,
       "role": "refiner"
     },
+    "809173acecb8c8241454e1ae1914d1aec97f1cb0": {
+      "branch": "egg/issue-3364/work",
+      "patch_id": "5dfdc575bcb148b914cc689c95fb3742dad317fa",
+      "pipeline_id": "issue-3364",
+      "registered_at": "2026-07-06T18:46:27.618490+00:00",
+      "repo": null,
+      "role": "architect"
+    },
     "8639852edaf2f843159aa03a10c0f71b01e889a8": {
       "branch": "egg/issue-3364/work",
       "patch_id": "e6fda456a565bd3053dfd8fd0c60622c611a2701",
