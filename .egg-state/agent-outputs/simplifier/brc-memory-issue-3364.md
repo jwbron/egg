@@ -96,6 +96,67 @@ Issue #3364: slim the /sdlc skill to run + report + HITL. PR A already landed
   (c) my reviewer_phase edge (simplifier->refiner) — ACK/NACK refiner v1
   d032e6edf if a review event arrives, reading version from transcript.
 
+### 2026-07-06 18:41Z — event #6: REFINE COMPLETE → PLAN phase (blocked on task_planner)
+
+- REFINE CONVERGED: my analysis-human v1 (b949071af) ACKed by reviewer_refine
+  (18:26:05Z, no blocking concerns; noted only benign omission of deferred-item
+  refs #3249/#3369 — planning bookkeeping, non-misleading). Refiner v1 ACKed by
+  all 3 reviewers (reviewer_refine, first_principles_reviewer,
+  reviewer_agent_design). All CONSENSUS_CONFIRMED by 18:26:08Z. My
+  simplifier->refiner reviewer edge closed by the phase transition — never
+  exercised (moot).
+- NOW PLAN PHASE (current_phase=plan). Producers: architect, task_planner,
+  risk_analyst, simplifier. Reviewer: reviewer_plan. simplifier also has a
+  reviewer_phase.
+- My plan producer artifact (artifact_spec.py:160-170): `plan-draft-human` at
+  `.egg-state/drafts/3364-plan-human.md` — faithful jargon-free rendering of
+  **task_planner's** `.egg-state/drafts/3364-plan.md`, produced AFTER
+  task_planner CONSENSUS_PROPOSE. Gated by reviewer_plan (existence-only at
+  propose). Bare-number identifier `3364` (same as refine).
+- Event #6 state: 0 plan CONSENSUS_PROPOSE (live=true); task_planner WORKING
+  (started ~18:41:03Z, fresh). 3364-plan.md ABSENT locally. **Blocked on
+  task_planner** — same pattern as refine-blocked-on-refiner. Did NOT fabricate.
+- Action: HEARTBEAT WAITING_ON_ROLE(task_planner); exited without proposing.
+- Escalation: plans take LONGER than analyses — expect a longer quiet stretch.
+  Alert (overseer_alert agent-heartbeat-stall re task_planner) only if a future
+  premature plan-propose finds task_planner's newest heartbeat >15 min stale
+  with no CONSENSUS_PROPOSE.
+- Latest identical premature plan-propose event: **#9 at 18:47Z** (update THIS
+  line in place for identical repeats; no new sections). #7/#8/#9: task_planner
+  WORKING (hb #9: 18:45:10Z, ~2min old), 0 task_planner proposals, 3364-plan.md
+  absent → STILL BLOCKED on task_planner (my source). No escalation (~18:56Z).
+  Reseed recovery orphans: 176f07b26 (#6), 8639852ed (#8). COMMIT memory + note
+  orphan SHA in heartbeat every event (only push survives).
+
+### 2026-07-06 18:47Z — event #9: ARCHITECT proposed (CONTEXT only) + cq-1 resolution captured
+
+- **architect** CONSENSUS_PROPOSE v1, commit a7ea0133b (18:47:21Z), artifacts
+  3364-architect-output.json + 3364-architect-slices.yaml. NOT my render source
+  (task_planner's 3364-plan.md is) — captured as context for my future plan-human.
+  Architect scaffold = 3 mutually-independent slices, no cross-block edges:
+  - Slice 1 / PR B (low): --exclude-types/--quiet at wait-status json print
+    sites; new SLICE_CLOSED EventType (events.py:35) via injected emitter callback
+    in SliceScheduler.record_complete/record_failure (mirrors _hitl_escalator
+    seam); add to _STATUS_WAIT_EVENT_TYPES.
+  - Slice 2 / PR C (med-high): transient rate-limit classification off
+    all-producers throttling-streak bypassing 30s fail-streak halt; hours-scale
+    paced retry via restart_phase-equiv preserving landed slices; deterministic
+    loop guard escalates on identical-failure repro; EX_AUTH_FATAL/abnormal
+    unchanged.
+  - Slice 3 / PR D (med, GATED, split D1 coverage-map → D2 SKILL.md deletion +
+    D3 flag removal): coverage-map before delete; preserve AC-D3 render-on-alert;
+    remove overseer_owns_host_detection entirely (grep-clean); HITL any block
+    with no confirmed emitter.
+- **cq-1 RESOLVED (human, 18:30:26Z) = opt-3** (verified via check_hitl_answers):
+  "Retry until the cap lifts (NO hard ceiling) BUT emit an OVERSEER_ALERT once
+  the wait crosses a threshold, so an attended operator is informed while
+  auto-recovery continues." BINDING — render faithfully in plan-human (PR C).
+  Refine phase-gate decision-2 = operator approved continue, carrying cq-1 fwd.
+- Still blocked on task_planner; heartbeat WAITING_ON_ROLE(task_planner); exited.
+- MEMORY SURVIVED the refine→plan transition (my push b949071af carried it).
+- CLOBBER-WATCH now shifts to task_planner potentially overwriting my
+  3364-plan-human.md; verify my file integrity once produced.
+
 ## Durability notes (carried from issue-3393 run)
 
 - Only PUSHED commits survive worktree reseeds; local commits get orphaned.
@@ -107,19 +168,28 @@ Issue #3364: slim the /sdlc skill to run + report + HITL. PR A already landed
   (happened twice in #3393). Verify my file's integrity at every event once I
   have produced it.
 
-## Next invocation checklist
+## Next invocation checklist (PLAN phase)
 
-1. Re-check BRC state + transcript for refiner CONSENSUS_PROPOSE (note the
-   version number for staleness/ACK).
-2. If refiner has proposed: pull their `issue-3364-analysis.md` (via
-   `proposal_commit_sha` from pending_reviews, or from
-   `origin/egg/issue-3364/work`), read it + full contract task_description,
-   then write `.egg-state/drafts/issue-3364-analysis-human.md` (faithful,
-   jargon-free, nothing added/dropped), commit, and `mcp__brc__propose`
-   (push=true) with artifacts=[that path] + >=50-char summary.
-3. If still no refiner proposal: re-heartbeat WAITING_ON_ROLE(refiner),
-   update the "latest identical" line above, apply the >15-min escalation
-   rule.
-4. Reviewer duty: this role also has a reviewer_phase — if an event asks me to
+1. Re-check BRC plan transcript for **task_planner** CONSENSUS_PROPOSE (note
+   version for staleness/ACK).
+2. If task_planner has proposed: pull their `.egg-state/drafts/3364-plan.md`
+   (via `proposal_commit_sha`, or `git show <sha>:...`), read it + the full
+   contract task_description + the refine analysis for context, then write
+   `.egg-state/drafts/3364-plan-human.md` (faithful, jargon-free, nothing
+   added/dropped — plain-English operator rendering of the plan: the slices,
+   their order/dependencies, verification, what lands), commit, and
+   `mcp__brc__propose` (push=true) with artifacts=[that path] + >=50-char
+   summary. Load-bearing context to carry: 3 independent slices B/C/D; cq-1
+   (PR C retry ceiling) operator decision; PR D coverage-map gate BEFORE any
+   SKILL.md deletion; AC-D3 render-on-alert preservation.
+3. If still no task_planner proposal: re-heartbeat WAITING_ON_ROLE(task_planner),
+   update the "latest identical" line above, apply the >15-min escalation rule
+   (plans run longer — be patient).
+4. Watch also for risk_analyst / architect proposes as CONTEXT (not my source;
+   task_planner's plan is my source of truth) — but their outputs may inform
+   the plan I render.
+5. Reviewer duty: this role also has a reviewer_phase — if an event asks me to
    review a peer proposal, read the CONSENSUS_PROPOSE version from the
    transcript and ACK/NACK with that exact version.
+6. Verify my `3364-plan-human.md` integrity at every event once produced
+   (task_planner clobber-watch).
