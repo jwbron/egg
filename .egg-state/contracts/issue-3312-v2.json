@@ -7,14 +7,14 @@
   },
   "task_description": "This pipeline's task is GitHub issue #3312 \u2014 https://github.com/jwbron/egg/issues/3312. Fetch the live issue body (`gh issue view 3312`) before structural decisions. Worktree artifacts (drafts, agent outputs) that reference any other issue or pipeline are leftovers from previous runs \u2014 they are NOT your task.\n\nFinish the file-size decomposition program: decompose the 4 remaining allowlisted files (orchestrator/models.py #3450, orchestrator/event_loop.py #3447, and the two #3312 giants gateway/gateway.py and orchestrator/routes/pipelines.py) and drive scripts/file-size-allowlist.yaml's files: map to EMPTY. Continuation of #3312, whose first run landed 17/19 slices via merged PR #3336; scope and pattern carry over. Pre-approved analysis and plan supplied; start directly at implement. Pure refactor, one slice per file, single linear chain, R3 Dockerfile-COPY parity in-slice.",
   "pipeline_id": "issue-3312-v2",
-  "current_phase": "refine",
+  "current_phase": "implement",
   "acceptance_criteria": [],
   "slices": [
     {
       "id": "slice-1",
       "name": "Decompose orchestrator/models.py (1,521 lines; closes #3450)",
       "goal": "Decompose `orchestrator/models.py` into a sub-package; drop its allowlist entry; seam row in orchestrator/CLAUDE.md. Head of the linear chain (every slice edits scripts/file-size-allowlist.yaml, so per #3046 overlapping slices are serialized).",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -151,8 +151,8 @@
       ],
       "dependencies": [],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3312-v2/work",
+      "integration_base_sha": "677f8569c3e94b7b6725d82a8641cc6d6016cd87",
       "commit": null,
       "pr_number": null,
       "pr_url": null,
@@ -163,7 +163,7 @@
       "id": "slice-2",
       "name": "Decompose orchestrator/event_loop.py (1,622 lines; closes #3447)",
       "goal": "Decompose `orchestrator/event_loop.py` into a sub-package; drop its allowlist entry; seam row in orchestrator/CLAUDE.md. Depends on the previous slice (single linear chain).",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -172,8 +172,8 @@
         {
           "id": "task-2-1",
           "description": "External-importer audit (section-(d)) for event_loop.py (~6 referencing files; small surface). Enumerate every public symbol and unittest.mock.patch target.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "648f30148",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Re-export set derived from external-reference audit.",
@@ -193,8 +193,8 @@
         {
           "id": "task-2-2",
           "description": "Step-0 git mv event_loop.py -> event_loop/__init__.py; green baseline commit.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "6ae6a1028",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Pure-move baseline commit green.",
@@ -214,8 +214,8 @@
         {
           "id": "task-2-3",
           "description": "Apply the method-modules-on-class pattern (section-(c)) per issue #3447: the module is class-dominated (EventDecision L331, JobSupervisor L353, OrchestratorEventLoop L990). Keep class definitions + __init__ in the barrel; move method bodies to responsibility-grouped private submodules as module-level functions taking self, bound back onto the class in the barrel (matching the landed state_store/, peer_consensus/, kubernetes_spawner/ slices). Explicit per-symbol re-export barrel preserving every external symbol and patch target.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "648f30148",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "All submodules <=1500 lines / <=100KB; class identities stay on the event_loop module path; barrel re-exports every external symbol; patch('event_loop.*') targets resolve.",
@@ -235,10 +235,10 @@
         {
           "id": "task-2-4",
           "description": "Drop event_loop.py's allowlist entry; add a concrete event_loop/ seam row to orchestrator/CLAUDE.md.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "648f30148",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Coder deliverable = allowlist drop only (commit 648f30148 removes orchestrator/event_loop.py from scripts/file-size-allowlist.yaml; ratchet exit 0). The orchestrator/CLAUDE.md event_loop/ seam ROW is coder-blocked (alternative_role=documenter) and is the documenter producer's file \u2014 mirrors slice-1's separate documenter commit 3d30f299f. Handed to documenter.",
           "acceptance_criteria": "Allowlist entry removed; CLAUDE.md row added; lint ratchet passes.",
           "files_affected": [
             "scripts/file-size-allowlist.yaml",
@@ -257,8 +257,8 @@
         {
           "id": "task-2-5",
           "description": "R3 container-packaging mitigation (SAME SLICE). Same non-recursive glob as slice 1 (orchestrator/Dockerfile:44). Add an explicit `COPY orchestrator/event_loop/ ./event_loop/` line; BUILD the orchestrator image and smoke-check `python -c 'import event_loop'` inside it.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "648f30148",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "orchestrator/Dockerfile has an explicit `COPY orchestrator/event_loop/ ./event_loop/` line; the built image imports event_loop (smoke check).",
@@ -278,8 +278,8 @@
         {
           "id": "task-2-6",
           "description": "make lint + make test-all green; mechanical patch-path rewrites in-slice; follow-ups filed as 'Part of #3447' for anything more.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "648f30148",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Green; no behavior change.",
@@ -302,8 +302,8 @@
         "slice-1"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3312-v2/slice-1",
+      "integration_base_sha": "525770f11685fe9b2c8dda762fc6a08e4d6efa35",
       "commit": null,
       "pr_number": null,
       "pr_url": null,
@@ -314,7 +314,7 @@
       "id": "slice-3",
       "name": "Decompose gateway/gateway.py (10,648 lines, STRUCTURAL OUTLIER, OVER BYTE CAP): Flask @app.route seam (#3312 slice-18 equivalent)",
       "goal": "Decompose `gateway/gateway.py` (10,648 lines / 419 KB) into a sub-package; drop its allowlist entry; seam coverage in gateway/CLAUDE.md. Depends on the previous slice (single linear chain).",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -323,7 +323,7 @@
         {
           "id": "task-3-1",
           "description": "External-importer audit (section-(d)) for gateway.py: ~35 files reference gateway.gateway / import gateway (incl. config_validator.py); re-run the audit live. Enumerate every @app.route handler and every externally-referenced helper (e.g. get_anthropic_client).",
-          "status": "pending",
+          "status": "complete",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
@@ -344,8 +344,8 @@
         {
           "id": "task-3-2",
           "description": "Step-0 git mv gateway.py -> gateway/__init__.py; green baseline commit (move only). Confirm the Flask app object and all @app.route registrations still resolve on import.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "9079e9c02",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Pure-move baseline commit green; Flask app + routes register identically.",
@@ -365,8 +365,8 @@
         {
           "id": "task-3-3",
           "description": "Apply the routes-handling convention (non-negotiable #8 / section-(f)): @app.route decorators stay on thin wrapper functions in __init__.py; wrapper bodies delegate to implementation functions in responsibility-grouped _<cluster>.py submodules (e.g. _git_ops, _pr_lifecycle, _credentials/auth, _validation/policy, _checkpoint, _worktree). Do NOT move the decorators. Explicit per-symbol re-export barrel for every externally-referenced helper.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "3a85636d6",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "All decorators remain in __init__.py; route URL->handler map unchanged; submodules hold the bodies; barrel re-exports every external symbol; patch('gateway.gateway.*') targets resolve.",
@@ -386,8 +386,8 @@
         {
           "id": "task-3-4",
           "description": "Pre-allocate and verify cluster sizing: at ~10.6k lines several submodules will themselves approach the cap; further-split in-slice (section-(g), recursive barrel pattern) rather than adding any fresh allowlist entry. Confirm EVERY resulting module is under BOTH caps.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "3a85636d6",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "No submodule over 1500 lines / 100KB; any further-split uses a nested barrel; zero new allowlist entries.",
@@ -407,8 +407,8 @@
         {
           "id": "task-3-5",
           "description": "Drop gateway.py's allowlist entry; author the concrete gateway/ submodule layout rows in gateway/CLAUDE.md's seam table.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "3a85636d6",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Allowlist entry removed; gateway/CLAUDE.md carries the concrete submodule layout; lint ratchet passes.",
@@ -429,8 +429,8 @@
         {
           "id": "task-3-6",
           "description": "R3 container-packaging + Flask-launch mitigation (SAME SLICE). gateway/Dockerfile:67 ships top-level modules via the NON-recursive glob `COPY gateway/*.py ./`. Converting gateway.py -> gateway/gateway/__init__.py needs TWO same-slice fixes handled together: (a) add `COPY gateway/gateway/ ./gateway/` to gateway/Dockerfile (mirroring the git_client/worktree_manager lines) so the new package dir ships; (b) preserve the Flask launch: gateway.py defines `app = Flask(__name__)` (L486) and `if __name__=='__main__': app.run(...)` (L10639/L10647), started on port 9848 via gateway/entrypoint.sh; keep the same `app` object exported through the barrel and update the launch invocation / any `import gateway` consumer (incl. config_validator.py) so the server still starts. BUILD the gateway image and smoke-check the container starts and serves on 9848.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "9079e9c02",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "gateway/Dockerfile copies the new gateway/gateway/ package; `app` is exported through the barrel and the launch path (entrypoint.sh) starts the Flask server on 9848 unchanged; built image passes a start/serve smoke check.",
@@ -451,8 +451,8 @@
         {
           "id": "task-3-7",
           "description": "make lint + make test-all green at the slice boundary; mechanical patch-path rewrites in-slice; any latent bug surfaced is filed as a 'Part of #3312' follow-up, never bundled.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "3a85636d683bdf48308bc3b35db1823e3e76a6e0",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Green; no behavior change in the diff.",
@@ -475,8 +475,8 @@
         "slice-2"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3312-v2/slice-2",
+      "integration_base_sha": "6be7c255d001f3cf5782d371b26d3480661d18c9",
       "commit": null,
       "pr_number": null,
       "pr_url": null,
@@ -487,7 +487,7 @@
       "id": "slice-4",
       "name": "Decompose orchestrator/routes/pipelines.py (30,520 lines, STRUCTURAL OUTLIER, OVER BYTE CAP): _run_pipeline split (#3312 slice-19 equivalent, non-negotiable #7)",
       "goal": "Decompose `orchestrator/routes/pipelines.py` (30,520 lines / 1.44 MB) into a sub-package; drop the LAST allowlist entry (files: map EMPTY); seam coverage in orchestrator/CLAUDE.md. Depends on the previous slice (single linear chain). Closes #3312.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -496,8 +496,8 @@
         {
           "id": "task-4-1",
           "description": "External-importer audit (section-(d)) for pipelines.py: the dominant back-compat surface (~137 referencing files live-counted 2026-07-03; the prior refine estimated ~57 distinct patch targets). Re-run the audit live per cluster; build the complete re-export inventory. This is the load-bearing risk for the whole program.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "81212959a",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Complete external-symbol inventory captured; patch-target set re-verified live; re-export set derived per cluster.",
@@ -517,8 +517,8 @@
         {
           "id": "task-4-2",
           "description": "Step-0 git mv pipelines.py -> pipelines/__init__.py; green baseline commit (move only, before ANY extraction). This is the bisectable cut between 'moved' and 'extracted'.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "81212959a",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Pure-move baseline commit green (make test-all).",
@@ -538,8 +538,8 @@
         {
           "id": "task-4-3",
           "description": "_run_pipeline split (issue #3312 non-negotiable #7, addressed head-on): split the phase-transition state machine into per-phase handlers (_run_refine_phase, _run_plan_phase, the existing _run_implement_phase_slices, _run_pr_phase) plus a thin orchestration loop in _run_loop.py, per the pattern doc's prior design. Per-phase handlers stay PRIVATE and are tested through _run_pipeline for this refactor (isolation tests are a follow-up). Preserve ordering/transition semantics exactly: pure refactor.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "81212959a",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "_run_pipeline becomes a thin loop delegating to per-phase handlers; no transition-ordering behavior change; existing dense seam coverage (test_consensus_polling, test_brc_nack_iteration, test_concurrent_*, test_advance_phase_*) stays green.",
@@ -559,8 +559,8 @@
         {
           "id": "task-4-4",
           "description": "Extract the remaining clusters into _<cluster>.py submodules (e.g. _criteria, _pr_lifecycle, _decisions, _readers, prompt-building as a nested sub-sub-package _prompt_building/ per section-(g)); routes convention (Blueprint decorators stay in __init__.py); explicit per-symbol re-export barrel re-exporting EVERY externally-referenced symbol from task-4-1; recursive barrel where a cluster further-splits. Confirm EVERY module under BOTH caps. No Dockerfile change needed: pipelines/ stays under the recursive `COPY orchestrator/routes/ ./routes/` (orchestrator/Dockerfile:45); confirm by grounding.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "81212959a",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "All submodules (and nested sub-packages) <=1500 lines AND <=100KB; decorators in __init__.py; barrel (and nested barrels) re-export every external symbol; all audited patch targets resolve through the barrel; recursive-COPY shipping confirmed.",
@@ -580,8 +580,8 @@
         {
           "id": "task-4-5",
           "description": "Drop pipelines.py's allowlist entry: this is the LAST entry; confirm scripts/file-size-allowlist.yaml's files: map is now EMPTY (the program's terminal acceptance criterion). Author the concrete pipelines/ submodule layout in orchestrator/CLAUDE.md; verify all four CLAUDE.md seam tables (orchestrator, gateway, sandbox, shared) are current.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "81212959a",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "pipelines.py entry removed; files: map empty; orchestrator/CLAUDE.md carries the concrete pipelines/ + _run_pipeline submodule layout; lint passes with an empty allowlist.",
@@ -602,8 +602,8 @@
         {
           "id": "task-4-6",
           "description": "make lint + make test-all green at the slice boundary. Mechanical patch-path rewrites in-slice; any latent bug surfaced by the _run_pipeline split is filed as a 'Part of #3312' follow-up, never bundled. Final program verification: empty allowlist + all 4 files under cap + every CLAUDE.md seam table populated.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "81212959a",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Green; allowlist empty; no behavior change; full acceptance set satisfied.",
@@ -626,18 +626,594 @@
         "slice-3"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3312-v2/slice-3",
+      "integration_base_sha": "64fa3077375a9f297d97842ab0187ade87d0e3c9",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3512,
+      "pr_url": "https://github.com/jwbron/egg/pull/3512",
       "repo": null,
       "review_feedback": []
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "[#2777 slice-4 TASK-4-4 case 5] Slice slice-3 of pipeline issue-3312-v2 has an impossible status enum value or state combination (e.g. status not in PENDING/IN_PROGRESS/COMPLETE/BLOCKED, or PENDING with commits on the integration branch). Bootstrap reconciliation cannot classify the slice safely. How should the orchestrator proceed?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Mark slice complete and continue",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Restart slice from scratch",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Cancel pipeline for manual investigation",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Mark slice complete and continue. Slice-3 reached consensus (8/8 confirmed), was marked COMPLETE basis=consensus_complete, and PR 3503 was auto-created; the unclassifiable state was an artifact of bootstrap reconciliation racing the reboot.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-04T23:36:19.999498Z",
+      "debounce_until": null,
+      "redirect_seed": null
+    },
+    {
+      "id": "cq-2",
+      "question": "[#2777 slice-4 TASK-4-4 case 5] Slice slice-4 of pipeline issue-3312-v2 has an impossible status enum value or state combination (e.g. status not in PENDING/IN_PROGRESS/COMPLETE/BLOCKED, or PENDING with commits on the integration branch). Bootstrap reconciliation cannot classify the slice safely. How should the orchestrator proceed?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Mark slice complete and continue",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Restart slice from scratch",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Cancel pipeline for manual investigation",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Restart slice from scratch. Slice-4 has no slice-specific commits; the commits on its integration branch are inherited from the serialized chain (parent egg/issue-3312-v2/slice-3), which is expected for a PENDING chained slice. Proceed with the slice-4 decomposition work.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-04T23:36:22.770857Z",
+      "debounce_until": null,
+      "redirect_seed": null
+    },
+    {
+      "id": "cq-3",
+      "question": "Slice-4 (decompose the 30,520-line orchestrator/routes/pipelines.py into a sub-package) is structurally incompatible with the one-shot execution model, which is the real root cause of the ~18h exit_code=75 crash-loop \u2014 NOT a code defect. Concretely verified this session: (1) each coder invocation resets the worktree to the slice base (origin/egg/issue-3312-v2/slice-4), discarding any non-proposed local commits \u2014 my verified pure-move baseline commit 0228f4a9f was reset away between invocations; (2) the gateway blocks off-lineage recovery ('Off-lineage git reset is not allowed in pipeline sessions'), so progress cannot be re-anchored across invocations; (3) therefore the ENTIRE decomposition \u2014 236 top-level symbols into ~20 submodules, INCLUDING internally splitting three functions that each individually exceed the 1500-line hard cap (_run_pipeline 3,324 lines, _run_concurrent_phase 1,737, _run_implement_phase_slices 1,677) plus rewiring 64 unittest.mock.patch targets through _pkg indirection \u2014 must be completed within a SINGLE agent invocation before it can be proposed/pushed. That volume repeatedly exhausts the agent runtime (exit_code=75) before completion. The three smaller slices (models 1.5k, event_loop 1.6k, gateway 10.6k) each fit one invocation and landed; this 30.5k-line file does not. How should we proceed?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Re-slice slice-4 into ~6-8 smaller sub-slices (one sub-package cluster per slice, e.g. _criteria/_prompt_building/_brc_history/_context_pr/_slice_state/_concurrent/_run_loop), each completable in one invocation \u2014 mirrors how #3312's first run landed 17/19 slices as separate PRs. RECOMMENDED.",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Disable the per-invocation worktree reset for the coder producer on slice-4 so partial verified commits accumulate across invocations toward a single PR.",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Keep attempting the monolithic single-invocation decomposition unchanged (status quo \u2014 expected to keep crashing at exit_code=75).",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Other: the structural incompatibility is FIXED as of build eca7ca740 (PR 3507, issue 3506): worktree re-attach is now fast-forward-aware and PRESERVES clean unpushed agent commits that descend from the slice base. Your diagnosis was correct and drove the fix. Proceed with the monolithic slice-4 decomposition INCREMENTALLY across invocations toward the single PR: (1) work in verified checkpoints, committing after each cohesive cluster extraction; commits now persist across invocations; (2) ALSO push to egg/issue-3312-v2/slice-4 at the end of every invocation for durability (pushes to your slice branch are permitted pre-propose, as slices 1-3 demonstrated); (3) your pure-move baseline 0228f4a9f is still in the object store and is a clean fast-forward of the current base 64fa30773: cherry-pick it (or redo the git mv) as your first step; (4) no re-slicing: scope and slice structure stay as contracted. If invocations still exhaust the runtime before a commit-able checkpoint, shrink the per-invocation bite, not the slice. Re-slicing remains the fallback only if incremental accumulation demonstrably fails under the new semantics.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-05T17:37:20.029028Z",
+      "debounce_until": null,
+      "redirect_seed": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-07-03T21:42:17.085464Z",
+      "actor": "orchestrator",
+      "role": "system",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "implement",
+      "reason": "populator advanced contract.current_phase (no apply_mutation caller for this pipeline; #2427)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:29:43.086018Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": null,
+      "new_value": "648f30148",
+      "reason": "Linked commit 648f301 to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:29:45.877291Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:29:48.711455Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": null,
+      "new_value": "6ae6a1028",
+      "reason": "Linked commit 6ae6a10 to task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:29:51.540481Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:29:54.335456Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.commit",
+      "old_value": null,
+      "new_value": "648f30148",
+      "reason": "Linked commit 648f301 to task-2-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:29:56.881680Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:29:59.471999Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.4.commit",
+      "old_value": null,
+      "new_value": "648f30148",
+      "reason": "Linked commit 648f301 to task-2-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:30:02.255662Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.4.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-5 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:30:04.866414Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.5.commit",
+      "old_value": null,
+      "new_value": "648f30148",
+      "reason": "Linked commit 648f301 to task-2-6",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:30:07.415819Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.5.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-6 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:30:16.401213Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.3.notes",
+      "old_value": "",
+      "new_value": "Coder deliverable = allowlist drop only (commit 648f30148 removes orchestrator/event_loop.py from scripts/file-size-allowlist.yaml; ratchet exit 0). The orchestrator/CLAUDE.md event_loop/ seam ROW is coder-blocked (alternative_role=documenter) and is the documenter producer's file \u2014 mirrors slice-1's separate documenter commit 3d30f299f. Handed to documenter.",
+      "reason": "Updated notes for task-2-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:30:19.024318Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.3.commit",
+      "old_value": null,
+      "new_value": "648f30148",
+      "reason": "Linked commit 648f301 to task-2-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T00:30:21.826448Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.3.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T03:47:37.155363Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T03:47:39.690510Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.commit",
+      "old_value": null,
+      "new_value": "9079e9c02",
+      "reason": "Linked commit 9079e9c to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T03:47:42.272592Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T03:47:45.068158Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.2.commit",
+      "old_value": null,
+      "new_value": "3a85636d6",
+      "reason": "Linked commit 3a85636 to task-3-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T03:47:47.570547Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T03:47:50.067958Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.3.commit",
+      "old_value": null,
+      "new_value": "3a85636d6",
+      "reason": "Linked commit 3a85636 to task-3-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T03:47:52.426596Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.3.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T03:47:54.929872Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.5.commit",
+      "old_value": null,
+      "new_value": "9079e9c02",
+      "reason": "Linked commit 9079e9c to task-3-6",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T03:47:57.359816Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.5.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-6 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T03:48:07.676959Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.4.commit",
+      "old_value": null,
+      "new_value": "3a85636d6",
+      "reason": "Linked commit 3a85636 to task-3-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T03:48:10.410483Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.4.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-5 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T03:50:42.653688Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.6.commit",
+      "old_value": null,
+      "new_value": "3a85636d683bdf48308bc3b35db1823e3e76a6e0",
+      "reason": "Linked commit 3a85636 to task-3-7",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-04T03:50:45.120228Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.6.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-7 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-05T00:20:41.523744Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-3",
+        "question": "Slice-4 (decompose the 30,520-line orchestrator/routes/pipelines.py into a sub-package) is structurally incompatible with the one-shot execution model, which is the real root cause of the ~18h exit_code=75 crash-loop \u2014 NOT a code defect. Concretely verified this session: (1) each coder invocation resets the worktree to the slice base (origin/egg/issue-3312-v2/slice-4), discarding any non-proposed local commits \u2014 my verified pure-move baseline commit 0228f4a9f was reset away between invocations; (2) the gateway blocks off-lineage recovery ('Off-lineage git reset is not allowed in pipeline sessions'), so progress cannot be re-anchored across invocations; (3) therefore the ENTIRE decomposition \u2014 236 top-level symbols into ~20 submodules, INCLUDING internally splitting three functions that each individually exceed the 1500-line hard cap (_run_pipeline 3,324 lines, _run_concurrent_phase 1,737, _run_implement_phase_slices 1,677) plus rewiring 64 unittest.mock.patch targets through _pkg indirection \u2014 must be completed within a SINGLE agent invocation before it can be proposed/pushed. That volume repeatedly exhausts the agent runtime (exit_code=75) before completion. The three smaller slices (models 1.5k, event_loop 1.6k, gateway 10.6k) each fit one invocation and landed; this 30.5k-line file does not. How should we proceed?",
+        "type": "hitl",
+        "phase": "implement",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Re-slice slice-4 into ~6-8 smaller sub-slices (one sub-package cluster per slice, e.g. _criteria/_prompt_building/_brc_history/_context_pr/_slice_state/_concurrent/_run_loop), each completable in one invocation \u2014 mirrors how #3312's first run landed 17/19 slices as separate PRs. RECOMMENDED.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Disable the per-invocation worktree reset for the coder producer on slice-4 so partial verified commits accumulate across invocations toward a single PR.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Keep attempting the monolithic single-invocation decomposition unchanged (status quo \u2014 expected to keep crashing at exit_code=75).",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Slice-4 (decompose the 30,520-line orchestrator/ro...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T07:44:35.756285Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.commit",
+      "old_value": null,
+      "new_value": "81212959a",
+      "reason": "Linked commit 8121295 to task-4-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T07:44:38.699091Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T07:44:41.522104Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.commit",
+      "old_value": null,
+      "new_value": "81212959a",
+      "reason": "Linked commit 8121295 to task-4-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T07:44:44.147053Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T07:44:46.986470Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.2.commit",
+      "old_value": null,
+      "new_value": "81212959a",
+      "reason": "Linked commit 8121295 to task-4-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T07:44:49.766710Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T07:44:52.325884Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.3.commit",
+      "old_value": null,
+      "new_value": "81212959a",
+      "reason": "Linked commit 8121295 to task-4-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T07:44:54.910242Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.3.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T07:44:57.535052Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.4.commit",
+      "old_value": null,
+      "new_value": "81212959a",
+      "reason": "Linked commit 8121295 to task-4-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T07:45:00.071634Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.4.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-5 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T07:45:02.749979Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.5.commit",
+      "old_value": null,
+      "new_value": "81212959a",
+      "reason": "Linked commit 8121295 to task-4-6",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T07:45:05.379691Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.5.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-6 as complete",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
@@ -647,7 +1223,7 @@
     "description": "Finishes the decomposition program started in #3312: 17 of 19 slices landed via PR\n#3336; this run decomposes the remaining two structural outliers\n(`gateway/gateway.py` ~10.6k lines, `orchestrator/routes/pipelines.py` ~30.5k\nlines) plus the two files that crossed the cap since: `orchestrator/models.py`\n(#3450) and `orchestrator/event_loop.py` (#3447). Drives\n`scripts/file-size-allowlist.yaml`'s `files:` map to EMPTY.\n\nEach file `F.py` becomes `F/__init__.py` (explicit per-symbol re-export barrel,\nthe stable public API) plus underscore-prefixed private `_*.py` submodules,\nfollowing `docs/guides/decomposition-pattern.md` and the 17 in-tree worked\nreferences. Test patch targets keep resolving through the barrel. The\n`_run_pipeline` state machine is split into per-phase handlers + a thin loop\n(issue #3312 non-negotiable #7). Flask decorators stay in `__init__.py`\n(non-negotiable #8).\n\nR3 container parity: slices converting a module shipped by a NON-recursive\nDockerfile glob add the matching recursive `COPY <pkg>/` in the SAME slice plus an\nimage-build/import smoke check (source-tree gates cannot catch a missing COPY);\nthe gateway.py slice also preserves the Flask launch (barrel `app`, port 9848).\n\nPure refactor: no behavior changes; surfaced bugs are filed as separate follow-ups,\nnever bundled. Branches prefixed `egg/`. Implements #3312 (closes it), closes\n#3447 and #3450.",
     "test_plan": "- Automated: `make lint` + `make test-all` green at EVERY slice boundary. A missed\n  re-export fails the test that patches or imports the moved symbol. Each slice\n  runs the section-(d) `git grep` audit before extraction.\n- Per slice: step-0 `git mv` baseline commit is independently green; every\n  submodule verified under BOTH caps (further-split in-slice, never a fresh\n  allowlist entry).\n- R3 container gate: slices 1/2 build the orchestrator image and smoke-check\n  `python -c 'import models'` / `'import event_loop'`; slice 3 builds the gateway\n  image and smoke-checks that the container starts and serves on 9848; slice 4\n  confirms recursive-COPY shipping by grounding.\n- `_run_pipeline` handlers stay private, tested THROUGH `_run_pipeline` via the\n  existing dense seam coverage (test_consensus_polling, test_brc_nack_iteration,\n  test_concurrent_*, test_advance_phase_*); isolation tests are a follow-up.\n- Inner loop with `make test` (changeset-aware); full suite via `make test-all`.",
     "manual_steps": "Pre-merge (per slice): reviewer spot-checks (a) the __init__.py re-export list\nagainst `git grep`, (b) submodule clustering is cohesive, (c) the CLAUDE.md seam\nrow matches. Per R3 slice: build the affected container image and run the\nimport/start smoke check (source-tree gates do not build images).\nPre-merge (final slice = pipelines.py): verify the allowlist `files:` map is\nEMPTY and all four CLAUDE.md seam tables are current.\nPost-merge: none (pure refactor; no migrations/config/deploy).",
-    "context_pr_number": null,
+    "context_pr_number": 3489,
     "deferred_actions": []
   },
   "feedback": null,

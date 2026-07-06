@@ -89,9 +89,11 @@ def cmd_brc_get_state(args: argparse.Namespace) -> int:
 
     Verb-level alias for ``mcp__brc__get_state``. The MCP-tool surface
     exposed shape ``{ok, slice_id, consensus, is_complete,
-    blocking_agents, raw?}``; we mirror that exact shape so the
-    event-pump wrapper (#2908 slice-2) can call the CLI form
-    interchangeably with the MCP form.
+    blocking_agents, raw?}``, plus, on a slice-id-less query with live
+    slice trackers (#3487), ``resolved_slice_id`` or
+    ``active_slice_ids`` + ``slice_consensus``; we mirror that exact
+    shape so the event-pump wrapper (#2908 slice-2) can call the CLI
+    form interchangeably with the MCP form.
     """
     from egg_agent_tools.handlers import brc as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError

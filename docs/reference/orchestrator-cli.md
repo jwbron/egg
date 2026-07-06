@@ -512,8 +512,11 @@ egg-orch consensus confirmed
 egg-orch consensus status
 
 # Scope to one slice's BRC consensus in a slice-DAG implement phase.
-# Per-slice agents inherit this from $EGG_SLICE_ID automatically;
-# without a slice scope only pipeline-level consensus is shown (#2761).
+# Per-slice agents inherit this from $EGG_SLICE_ID automatically.
+# Without a slice scope, live slice-scoped rounds are reported
+# per-slice (#3487): a single active slice is auto-resolved into the
+# main consensus block, several render one section per slice; they are
+# never merged into one block (#2761).
 egg-orch consensus status --slice-id slice-7
 ```
 

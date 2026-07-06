@@ -147,14 +147,33 @@ def spawn_event_job(
     reuse_session_token: str | None = None
     branch = spawn_kwargs.get("branch")
     repos = spawn_kwargs.get("repos")
+    # The pipeline's real gateway network mode ("public" / "private").
+    # It MUST reach the discard-salvage push: a private-mode pipeline on a
+    # private repo is DENIED by the gateway's private-repo policy if the
+    # push carries the "public" default, silently degrading auto-salvage
+    # to record-only — exactly the silent-loss class #3509 exists to
+    # prevent. The concurrent spawn fn forwards "mode" in common_kwargs.
+    mode = spawn_kwargs.get("mode", "public")
 
     # Build the candidate worktree id matching the existing convention.
     candidate_id = self._build_agent_worktree_id(pipeline_id, agent_role, slice_id=slice_id)
     if repos:
         # Use the composed method that validates AND cleans dirty state
-        # (R6 dirty-state policy) so re-attached worktrees are always
-        # pristine before the agent runs.
-        result = self._try_reuse_worktree(candidate_id, branch, repos)
+        # (R6 dirty-state policy) so re-attached worktrees always start
+        # with a clean tree at the role branch tip, or a clean
+        # fast-forward ahead of it (#3506), before the agent runs. The
+        # pipeline/role/slice context (plus the gateway network mode) lets
+        # the cleanup auto-salvage and durably record any commits its
+        # hard-reset discards (#3509).
+        result = self._try_reuse_worktree(
+            candidate_id,
+            branch,
+            repos,
+            pipeline_id=pipeline_id,
+            agent_role=agent_role.value,
+            slice_id=slice_id,
+            mode=mode,
+        )
         if result is not None:
             reuse_worktree_id = candidate_id
             reuse_repo_volumes = result[1]
@@ -200,6 +219,10 @@ def spawn_event_job(
             upstream=spawn_kwargs.get("upstream"),
             upstream_model=spawn_kwargs.get("upstream_model"),
             jira_ticket=spawn_kwargs.get("jira_ticket"),
+            # Bind a fresh registration to the worktree just validated,
+            # so the gateway looks it up instead of creating an orphan
+            # worktree keyed by the session id (#3502 naming split).
+            worktree_container_id=reuse_worktree_id,
         )
         if session_info is not None:
             reuse_session_token = session_info.session_token

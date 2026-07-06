@@ -395,7 +395,10 @@ async def brc_confirm(args: dict[str, Any]) -> dict[str, Any]:
 @tool(
     "get_state",
     "Fetch the current BRC consensus state (agent matrix, blocking roles, "
-    "phase). Structured — no text scrape needed.",
+    "phase). Structured — no text scrape needed. In a slice-DAG implement "
+    "phase queried without a slice scope, live slice-scoped rounds are "
+    "resolved automatically: one active slice is served directly "
+    "(resolved_slice_id), several are keyed under slice_consensus.",
     _STATE_SCHEMA,
 )
 async def brc_get_state(args: dict[str, Any]) -> dict[str, Any]:

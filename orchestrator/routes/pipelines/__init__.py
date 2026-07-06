@@ -617,13 +617,25 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
 
 # Config keys the live config-update route accepts. Deliberately a tight
 # allowlist (#3174): most of PipelineConfig is consumed at submit time or
-# mid-phase in ways a partial update could corrupt, whereas
-# ``agent_models`` is re-resolved from a fresh store load before every
-# spawn (the run loop reloads the pipeline at the top of each cycle, and
-# the restart_agent / restart_phase paths load fresh state), so mutating
-# it on a live pipeline is honored by construction. Widen only after
-# verifying the same fresh-reload guarantee holds for the new key.
-_MUTABLE_CONFIG_KEYS = frozenset({"agent_models"})
+# mid-phase in ways a partial update could corrupt. Two families qualify:
+#
+# * ``agent_models`` is re-resolved from a fresh store load before every
+#   spawn (the run loop reloads the pipeline at the top of each cycle, and
+#   the restart_agent / restart_phase paths load fresh state), so mutating
+#   it on a live pipeline is honored by construction.
+# * ``consensus_timeout_minutes*`` is re-resolved from a fresh store load
+#   by the phase poll loop right before the consensus wall fires (#3490),
+#   so a widened window takes effect on a running slice without a restart.
+#
+# Widen only after verifying the same fresh-reload guarantee holds for the
+# new key.
+_CONSENSUS_TIMEOUT_CONFIG_KEYS = (
+    "consensus_timeout_minutes",
+    "consensus_timeout_minutes_refine",
+    "consensus_timeout_minutes_plan",
+    "consensus_timeout_minutes_implement",
+)
+_MUTABLE_CONFIG_KEYS = frozenset({"agent_models", *_CONSENSUS_TIMEOUT_CONFIG_KEYS})
 
 
 @pipelines_bp.route("/<pipeline_id>/config", methods=["PATCH"])
@@ -1171,6 +1183,7 @@ from ._decisions import (  # noqa: E402,F401
     _format_nack_summary,
     _incomplete_consensus_decision_text,
     _persist_hitl_decision,
+    _withdraw_arms_exhausted_decisions,
 )
 
 # drafts helpers live in _drafts.py (#3312 slice-4); re-exported here.

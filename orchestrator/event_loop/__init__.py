@@ -149,6 +149,12 @@ JOB_OUTCOME_FATAL = "fatal"
 # Poll cadence (#3064 slice-2: "poll interval env-tunable (default 5s)").
 DEFAULT_POLL_INTERVAL_SECONDS = 5.0
 
+# Bound on the per-key termination history the supervisor retains for the
+# exhaustion report (#3496). Only the most recent entries matter — the report
+# exists so an operator can see WHY an arm died (crash vs credential-fatal,
+# pod exit codes) without grepping pod logs; a handful of samples is enough.
+SUPERVISION_EXIT_HISTORY_MAX = 5
+
 
 def get_event_loop_poll_interval() -> float:
     """Return the event-loop poll cadence in seconds (default 5.0).
@@ -334,7 +340,10 @@ class EventDecision:
     ``spawned`` is True only when this poll requested a *new* one-shot Job
     (a deduped repeat is False). ``agent_free`` is True for confirm/complete.
     ``timing`` is a structured mapping for the slice-4 latency budget on a
-    fresh spawn, ``None`` otherwise.
+    fresh spawn, ``None`` otherwise. ``blocked`` (#3496) names why a
+    spawn-action decision did not spawn when the block is terminal —
+    currently only ``"exhausted"`` — so the all-arms-exhausted detection can
+    distinguish it from the benign not-spawned shapes (dedupe, backoff, park).
     """
 
     role: str
@@ -343,6 +352,7 @@ class EventDecision:
     spawned: bool = False
     agent_free: bool = False
     timing: dict[str, Any] | None = None
+    blocked: str | None = None
 
 
 # Bind the extracted method bodies (below) back onto the class shells.
@@ -424,6 +434,15 @@ class JobSupervisor:
         self._alerted_10: dict[str, bool] = {}
         # Set to track keys that have exhausted budget (per #3138).
         self._exhausted: set[str] = set()
+        # #3496: bounded per-key termination history — the last
+        # ``SUPERVISION_EXIT_HISTORY_MAX`` abnormal/fatal exits, each a
+        # ``{"at": iso-wallclock, "category": ..., "detail": ...}`` entry.
+        # Surfaced by :meth:`exhausted_report` so the operator can see WHY an
+        # arm died (crash vs credential-fatal, pod exit code) at escalation
+        # time instead of the cause being unrecoverable from the logs.
+        # Wall-clock (not the injected monotonic ``clock``) because the
+        # entries are operator-facing display data, never compared.
+        self._exit_history: dict[str, list[dict[str, Any]]] = {}
         # #3425 successful-no-op park state, per dedupe key. The streak counts
         # clean completions of the SAME key (an interleaved abort does not reset
         # it — a crash/no-op-flapping wedged arm should still park): only an
@@ -479,6 +498,10 @@ class JobSupervisor:
     backoff_seconds = _supervisor.backoff_seconds
     ready_to_respawn = _supervisor.ready_to_respawn
     is_exhausted = _supervisor.is_exhausted
+    _record_exit = _supervisor._record_exit
+    _format_exit_history = _supervisor._format_exit_history
+    exhausted_report = _supervisor.exhausted_report
+    reset_exhausted = _supervisor.reset_exhausted
     noop_parked = _supervisor.noop_parked
     _probe_hitl_fingerprint = _supervisor._probe_hitl_fingerprint
     _probe_brc_fingerprint = _supervisor._probe_brc_fingerprint
@@ -525,6 +548,8 @@ class OrchestratorEventLoop:
         job_status_view: Any | None = None,
         convergence_stall_notifier: Callable[..., Any] | None = None,
         active_roles_notifier: Callable[[set[str]], Any] | None = None,
+        arms_exhausted_notifier: Callable[..., Any] | None = None,
+        arms_exhausted_cleared_notifier: Callable[[], Any] | None = None,
     ) -> None:
         self.tracker = tracker
         self.spawner = spawner
@@ -574,11 +599,34 @@ class OrchestratorEventLoop:
         # silent-mid-event-pod coverage are then dead).  When unset (unit
         # tests / pod mode) no publishing happens.
         self._active_roles_notifier = active_roles_notifier
+        # #3496: fired (once per wedge episode) when EVERY derivable spawn arm
+        # is blocked on an exhausted key with no Job in flight and no
+        # agent-free progress — the slice can no longer advance without
+        # operator intervention. Wired in production to the executor's
+        # arms-exhausted HITL escalation; ``None`` (unit tests / pod mode)
+        # leaves detection dormant except for the WARN log.
+        self._arms_exhausted_notifier = arms_exhausted_notifier
+        # #3496 review: fired once on the wedged→clear transition — the
+        # symmetric counterpart of the notifier above. Wired in production to
+        # the executor's HITL auto-withdrawal so a decision the operator never
+        # resolved (the wedge cleared by another route) is retracted rather
+        # than left stale in ``pending_decisions``. ``None`` leaves the
+        # decision in place (unit tests / pod mode).
+        self._arms_exhausted_cleared_notifier = arms_exhausted_cleared_notifier
+        # Sticky latch so the notifier fires exactly once per wedge episode;
+        # cleared when the condition no longer holds (an arm spawned, a new
+        # key derived, or an operator reset cleared the exhausted set).
+        self._arms_exhausted_alerted = False
 
     reconcile = _loop.reconcile
     live_dedupe_keys = _loop.live_dedupe_keys
     _observe_jobs = _loop._observe_jobs
+    _exit_detail = _loop._exit_detail
     poll_once = _loop.poll_once
+    _check_arms_exhausted = _loop._check_arms_exhausted
+    arms_exhausted_escalated = property(_loop.arms_exhausted_escalated)
+    _notify_arms_exhausted_cleared = _loop._notify_arms_exhausted_cleared
+    reset_exhausted_arms = _loop.reset_exhausted_arms
     _publish_active_roles = _loop._publish_active_roles
     _handle_role = _loop._handle_role
     _reap_superseded_siblings = _loop._reap_superseded_siblings
@@ -592,3 +640,41 @@ class OrchestratorEventLoop:
 def make_role_list(roles: Iterable[Any]) -> list[str]:
     """Normalise a roster of role enums/strings to a list of role values."""
     return [r.value if hasattr(r, "value") else str(r) for r in roles]
+
+
+# ---------------------------------------------------------------------------
+# Live-loop registry (#3496)
+# ---------------------------------------------------------------------------
+#
+# Supervision state is process-local and lives on the loop's ``JobSupervisor``
+# — there is no persisted copy to mutate. For the arms-exhausted HITL's
+# "Retry arms" resolution to clear exhausted keys in-band, the resolution
+# handler (a Flask route in the same process as the loop's daemon thread)
+# needs a way to reach the live loop object. This registry is that seam:
+# ``start()`` registers, ``stop()`` / natural ``run()`` completion
+# unregister. Keyed by ``(pipeline_id, slice_id)`` — concurrent slices each
+# run their own loop.
+
+_LIVE_LOOPS: dict[tuple[str, str | None], OrchestratorEventLoop] = {}
+_LIVE_LOOPS_LOCK = threading.Lock()
+
+
+def _register_live_loop(loop: OrchestratorEventLoop) -> None:
+    with _LIVE_LOOPS_LOCK:
+        _LIVE_LOOPS[(loop.pipeline_id, loop.slice_id)] = loop
+
+
+def _unregister_live_loop(loop: OrchestratorEventLoop) -> None:
+    # Identity-checked: a phase restart can register a NEW loop under the
+    # same key before the superseded loop's stop/exit runs; the stale
+    # unregister must not evict the fresh loop.
+    key = (loop.pipeline_id, loop.slice_id)
+    with _LIVE_LOOPS_LOCK:
+        if _LIVE_LOOPS.get(key) is loop:
+            del _LIVE_LOOPS[key]
+
+
+def get_live_event_loops(pipeline_id: str) -> list[OrchestratorEventLoop]:
+    """Return every live event loop for ``pipeline_id`` (any slice)."""
+    with _LIVE_LOOPS_LOCK:
+        return [loop for (pid, _), loop in _LIVE_LOOPS.items() if pid == pipeline_id]

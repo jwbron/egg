@@ -1071,6 +1071,43 @@ def _run_concurrent_phase(
                 )
                 _progress_gate_deferring = False
 
+            # #3490 live-widening gate: re-resolve the budget from freshly
+            # loaded config so a PATCH /config update of
+            # ``consensus_timeout_minutes*`` takes effect any time before the
+            # wall fires; an operator watching a giant slice can widen the
+            # window without letting the slice fail and restarting. Checked
+            # here, after the HITL and progress gates, so the load only
+            # happens once per firing rather than on every deferred poll. A
+            # load failure keeps the current budget: a transient store hiccup
+            # must never widen or shrink the window on its own.
+            if store is not None:
+                _fresh_minutes: int | None = None
+                try:
+                    _fresh_config = store.load_pipeline(pipeline_id).config
+                    _fresh_minutes = resolve_consensus_timeout_minutes(_fresh_config, phase_str)
+                except Exception as _reresolve_err:
+                    _pkg.logger.warning(
+                        "Consensus-timeout config re-resolve failed; keeping current budget",
+                        pipeline_id=pipeline_id,
+                        error=str(_reresolve_err),
+                    )
+                # The isinstance guard keeps a malformed store payload (or a
+                # test double) from replacing the numeric budget.
+                if isinstance(_fresh_minutes, int) and not isinstance(_fresh_minutes, bool):
+                    _fresh_timeout = max(_fresh_minutes, 1) * 60
+                    if _fresh_timeout != consensus_timeout:
+                        _pkg.logger.info(
+                            "Consensus timeout budget updated from live config",
+                            pipeline_id=pipeline_id,
+                            slice_id=slice_id,
+                            old_timeout_minutes=consensus_timeout / 60,
+                            new_timeout_minutes=_fresh_timeout / 60,
+                        )
+                        consensus_timeout = _fresh_timeout
+                        if elapsed < consensus_timeout:
+                            _pkg.time.sleep(poll_interval)
+                            continue
+
             _pkg.logger.warning(
                 "Consensus timeout reached, falling back to container exit",
                 pipeline_id=pipeline_id,

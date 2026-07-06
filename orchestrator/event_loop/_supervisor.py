@@ -12,10 +12,13 @@ are value-imported from the barrel with no ``_pkg`` indirection.
 from __future__ import annotations
 
 from collections.abc import Iterable  # noqa: F401 — used in method annotations
+from datetime import UTC, datetime
+from typing import Any
 
 from . import (
     SUPERVISION_BACKOFF_CAP_SECONDS,
     SUPERVISION_BACKOFF_FACTOR,
+    SUPERVISION_EXIT_HISTORY_MAX,
     SUPERVISION_FAILURE_STREAK_ALERT,
     SUPERVISION_FAILURE_STREAK_WARN,
     SUPERVISION_NOOP_PARK_RETRY_SECONDS,
@@ -44,6 +47,7 @@ def record_success(self, dedupe_key: str, *, action: str = "", role: str = "") -
     self._alerted_warn.pop(dedupe_key, None)
     self._alerted_10.pop(dedupe_key, None)
     self._exhausted.discard(dedupe_key)
+    self._exit_history.pop(dedupe_key, None)
     streak = self._noop_streaks.get(dedupe_key, 0) + 1
     self._noop_streaks[dedupe_key] = streak
     logger.debug(
@@ -84,6 +88,7 @@ def retire(self, dedupe_key: str) -> None:
     self._alerted_warn.pop(dedupe_key, None)
     self._alerted_10.pop(dedupe_key, None)
     self._exhausted.discard(dedupe_key)
+    self._exit_history.pop(dedupe_key, None)
     self._noop_streaks.pop(dedupe_key, None)
     self._noop_fingerprint.pop(dedupe_key, None)
     self._noop_brc_fingerprint.pop(dedupe_key, None)
@@ -110,17 +115,24 @@ def record_legitimate_outcome(self, dedupe_key: str, outcome: str) -> None:
     )
 
 
-def record_abort(self, dedupe_key: str, action: str, role: str) -> None:
+def record_abort(
+    self, dedupe_key: str, action: str, role: str, *, exit_detail: str | None = None
+) -> None:
     """Called when a Job terminates abnormally (non-zero, non-BRC-legitimate).
 
     Increments the per-key streak and (the caller applies backoff if the
     key is not exhausted) for scheduling the respawn. Proposes sending
     ``sticky OVERSEER_ALERT`` when crossing thresholds.
+
+    ``exit_detail`` (#3496) is an optional short operator-facing string
+    describing the termination (e.g. the pod's exit code) recorded into
+    the per-key history that :meth:`exhausted_report` surfaces.
     """
     streak = self._streaks.get(dedupe_key, 0) + 1
     self._streaks[dedupe_key] = streak
     self._last_abort_time[dedupe_key] = self.clock()
     self._last_action[dedupe_key] = (action, role)
+    self._record_exit(dedupe_key, "abnormal", exit_detail)
     # Silent retries below the warn threshold (#3138): a one-off transient
     # is expected to recover on the next respawn, so it stays at debug
     # rather than spamming warn-level logs on every streak increment.
@@ -149,6 +161,18 @@ def record_abort(self, dedupe_key: str, action: str, role: str) -> None:
     if streak >= SUPERVISION_FAILURE_STREAK_ALERT and not self._alerted_10.get(dedupe_key, False):
         self._alerted_10[dedupe_key] = True
         self._exhausted.add(dedupe_key)
+        # #3496: name the underlying termination categories at the
+        # exhaustion transition — without this the cause (crash vs quota
+        # vs image regression) is unrecoverable from the streak alert.
+        logger.warning(
+            "JobSupervisor: key=%s exhausted (action=%s, role=%s, streak=%d) — "
+            "recent terminations: %s",
+            dedupe_key,
+            action,
+            role,
+            streak,
+            self._format_exit_history(dedupe_key),
+        )
         self._emit_alert(dedupe_key, streak, action, role)
         # #3064 slice-4: release the role's reused orchestrator-mode gateway
         # session — the exhausted arm spawns no further events, so the
@@ -178,7 +202,9 @@ def record_abort(self, dedupe_key: str, action: str, role: str) -> None:
             )
 
 
-def record_fatal(self, dedupe_key: str, action: str, role: str) -> None:
+def record_fatal(
+    self, dedupe_key: str, action: str, role: str, *, exit_detail: str | None = None
+) -> None:
     """Called when a Job terminates with a non-retryable credential failure.
 
     The agent exited with ``egg_agent.auth_errors.EX_AUTH_FATAL`` (#3373):
@@ -194,6 +220,7 @@ def record_fatal(self, dedupe_key: str, action: str, role: str) -> None:
         return
     self._exhausted.add(dedupe_key)
     self._last_action[dedupe_key] = (action, role)
+    self._record_exit(dedupe_key, "fatal", exit_detail)
     # Latch the streak alerts so a later abort on the same key cannot
     # re-fire the generic streak alert after this fatal one.
     self._alerted_warn[dedupe_key] = True
@@ -267,6 +294,86 @@ def ready_to_respawn(self, dedupe_key: str) -> bool:
 def is_exhausted(self, dedupe_key: str) -> bool:
     """Return True if the given dedupe-key has exhausted its retry budget."""
     return dedupe_key in self._exhausted
+
+
+def _record_exit(self, dedupe_key: str, category: str, detail: str | None) -> None:
+    """Append a bounded termination-history entry for ``dedupe_key`` (#3496)."""
+    history = self._exit_history.setdefault(dedupe_key, [])
+    history.append(
+        {
+            "at": datetime.now(UTC).isoformat(timespec="seconds"),
+            "category": category,
+            "detail": detail,
+        }
+    )
+    del history[:-SUPERVISION_EXIT_HISTORY_MAX]
+
+
+def _format_exit_history(self, dedupe_key: str) -> str:
+    """Render the per-key termination history as a compact one-liner."""
+    entries = self._exit_history.get(dedupe_key) or []
+    if not entries:
+        return "(no recorded terminations)"
+    parts = []
+    for entry in entries:
+        label = entry["category"]
+        if entry.get("detail"):
+            label = f"{label} ({entry['detail']})"
+        parts.append(f"{entry['at']} {label}")
+    return "; ".join(parts)
+
+
+def exhausted_report(self) -> list[dict[str, Any]]:
+    """Describe every exhausted key for operator surfacing (#3496).
+
+    One entry per exhausted dedupe key: the arm it belongs to, its failure
+    streak, and the recent termination history (category + optional pod
+    exit detail). This is what the arms-exhausted HITL escalation embeds so
+    the operator can see WHY the arms died without grepping pod logs.
+    Sorted by (role, action) for stable rendering.
+    """
+    report = []
+    for key in self._exhausted:
+        action, role = self._last_action.get(key, ("", ""))
+        report.append(
+            {
+                "dedupe_key": key,
+                "role": role,
+                "action": action,
+                "streak": self._streaks.get(key, 0),
+                "exit_history": list(self._exit_history.get(key) or []),
+                "exit_history_text": self._format_exit_history(key),
+            }
+        )
+    report.sort(key=lambda e: (e["role"], e["action"], e["dedupe_key"]))
+    return report
+
+
+def reset_exhausted(self) -> list[str]:
+    """Forget ALL supervision state for every exhausted key (#3496).
+
+    The in-band recovery primitive: an exhausted key is otherwise terminal
+    (``record_success`` — the only other exit — is unreachable because the
+    key can no longer spawn), so an operator-initiated retry clears the
+    exhausted set here, giving each key a fresh budget. Full ``retire``
+    (not just ``_exhausted.discard``): leaving the streak + ``_alerted_10``
+    latch in place would make the NEXT abort skip the re-exhaustion branch
+    entirely (the threshold guard fires once per latch), so the arm would
+    retry forever instead of re-exhausting after another full budget.
+
+    Returns the cleared keys (sorted) so callers can report them.
+    """
+    cleared = sorted(self._exhausted)
+    for key in cleared:
+        self.retire(key)
+    if cleared:
+        logger.info(
+            "JobSupervisor: operator reset cleared %d exhausted key(s) — "
+            "fresh spawn budgets: %s",
+            len(cleared),
+            ", ".join(cleared),
+        )
+    return cleared
 
 
 def noop_parked(self, dedupe_key: str) -> bool:
@@ -432,6 +539,7 @@ def reconcile(self, live_dedupe_keys: Iterable[str]) -> None:
     self._alerted_warn.clear()
     self._alerted_10.clear()
     self._exhausted.clear()
+    self._exit_history.clear()
     self._noop_streaks.clear()
     self._noop_fingerprint.clear()
     self._noop_brc_fingerprint.clear()
@@ -462,7 +570,8 @@ def _emit_alert(self, dedupe_key: str, streak: int, action: str, role: str) -> N
                 f"The orchestrator has exhausted retries for the current "
                 f"dedupe key ({dedupe_key}). No further pods will be "
                 f"spawned until the BRC state changes (new dedupe key). "
-                f"Threshold: streak >= {SUPERVISION_FAILURE_STREAK_ALERT}."
+                f"Threshold: streak >= {SUPERVISION_FAILURE_STREAK_ALERT}. "
+                f"Recent terminations: {self._format_exit_history(dedupe_key)}."
             ),
         )
 

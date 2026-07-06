@@ -592,7 +592,7 @@ class TestLatencyBudgetFromTimingField:
     The authoritative budget reads ``EventDecision.timing['spawn_dispatch_seconds']``
     — measured in ``poll_once`` across the WHOLE ``spawner.spawn_event(...)`` call,
     which in orchestrator mode fans out through the slice-4 worktree re-attach
-    validation, ``_clean_reused_worktree`` (fetch + hard-sync), and
+    validation, ``_clean_reused_worktree`` (fetch + fast-forward-aware sync), and
     ``_get_or_create_session`` before the k8s Job is created. A regression that
     slows any of that new code therefore moves this measured interval, so the
     budget actually guards the slice-4 latency (unlike a sub-segment timer that
