@@ -55,9 +55,7 @@ if _PIPELINES_PKG.is_dir():
         p.read_text(encoding="utf-8") for p in sorted(_PIPELINES_PKG.rglob("*.py"))
     )
 else:  # pre-split fallback
-    _PIPELINES_SRC = (_orchestrator_path / "routes" / "pipelines.py").read_text(
-        encoding="utf-8"
-    )
+    _PIPELINES_SRC = (_orchestrator_path / "routes" / "pipelines.py").read_text(encoding="utf-8")
 
 
 def test_cascade_alert_gateway_import_uses_narrow_importerror() -> None:
