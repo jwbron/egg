@@ -496,7 +496,7 @@
         {
           "id": "task-4-1",
           "description": "External-importer audit (section-(d)) for pipelines.py: the dominant back-compat surface (~137 referencing files live-counted 2026-07-03; the prior refine estimated ~57 distinct patch targets). Re-run the audit live per cluster; build the complete re-export inventory. This is the load-bearing risk for the whole program.",
-          "status": "pending",
+          "status": "complete",
           "commit": "81212959a",
           "checkpoint_id": null,
           "notes": "",
@@ -1090,6 +1090,17 @@
       "old_value": null,
       "new_value": "81212959a",
       "reason": "Linked commit 8121295 to task-4-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T07:44:38.699091Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-1 as complete",
       "checkpoint_id": null
     }
   ],
