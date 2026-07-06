@@ -1,0 +1,890 @@
+[
+  {
+    "id": "3ff0385d-7062-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:15:01.797146+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "ca0ff268-3821-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:15:03.184536+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "f52039f3-0848-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:15:03.341907+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "65942ac3-e5d1-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:15:08.369647+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "0f06b592-e35e-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:15:09.946635+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e20cb6de-034f-46",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "simplifier refine: blocked on refiner CONSENSUS_PROPOSE. My analysis-human artifact must faithfully render refiner's issue-3364-analysis.md, which is ABSENT locally + on origin/egg/issue-3364/work (both issue-3364- and 3364- prefixes checked, live=true, 0 proposals). Not fabricating from raw task. Will propose once refiner proposes. Escalation: overseer-alert only if refiner heartbeat >15min stale (threshold ~18:30Z).",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "refiner"
+    },
+    "timestamp": "2026-07-06T18:16:59.843141+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "41d73dc6-f589-4c",
+    "pipeline_id": "issue-3364",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:17:09.367786+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "b723a9f7-ef70-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=77455 util=0.08 cache_hit=0.98 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:17:14.463029+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "22e8703d-b09b-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:17:24.405556+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "9f695597-c767-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:17:31.894193+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "a0f0a58a-ac2c-46",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:17:36.342786+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "0f370099-6d50-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "simplifier refine event#2: still blocked on refiner CONSENSUS_PROPOSE. issue-3364-analysis.md still absent (local + remote), 0 proposals (live=true). Refiner live (hb 18:17:09Z), no escalation. Will render analysis-human once refiner proposes.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "refiner"
+    },
+    "timestamp": "2026-07-06T18:17:55.086987+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "a1f77c6b-a60d-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=83998 util=0.08 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:18:03.735849+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "84d02e22-784c-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:18:11.949050+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "096c62e6-87eb-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:18:17.224065+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "41589ef1-2d9c-40",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "simplifier refine event#3: still blocked on refiner CONSENSUS_PROPOSE (0 proposals live=true, analysis draft absent). Refiner live (hb 18:17:09Z), no escalation (threshold ~18:30Z). Render analysis-human once refiner proposes.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "refiner"
+    },
+    "timestamp": "2026-07-06T18:18:36.680374+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "fa5a80ed-ff0d-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=89526 util=0.09 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:18:42.670627+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "f4d0bbcf-0006-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-invocation-noop-streak: event-loop [high]",
+    "body": "Event-pump for role=simplifier has had 3 consecutive one-shot invocations on action=propose that exited cleanly WITHOUT any BRC-bus progress (dedupe key 2f156e27d78095fa2344d30231eee1120ebdfd6e0a1a4b1f3339176d23131920 re-derived unchanged each time). The arm is parked: no further pods spawn for this key until the unresolved contract-decision set changes (e.g. the gating cq-N is resolved) or the BRC state moves; a probe spawn is retried every 1800s as a backstop. No unresolved contract decision was visible at park time; check the slice's BRC transcript for what the agent is blocked on.",
+    "metadata": {
+      "anomaly": "agent-invocation-noop-streak",
+      "priority": "high",
+      "summary": "agent invocations completing with zero BRC progress (action=propose, streak=3)"
+    },
+    "timestamp": "2026-07-06T18:18:45.816922+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "029173c5-1081-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:19:43.138980+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c1c69bfc-2382-41",
+    "pipeline_id": "issue-3364",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:19:44.869504+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c04591a3-cab0-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:19:59.395613+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e1771c7b-a324-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:20:07.194034+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "7fdf9ad4-2268-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "simplifier refine event#4: still blocked on refiner CONSENSUS_PROPOSE (0 proposals live=true, draft absent). Refiner live (hb 18:19:44Z), no escalation (threshold ~18:30Z). Worktree reseeded this event; memory recovered from orphan e2fbdd712. Will render analysis-human once refiner proposes.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "refiner"
+    },
+    "timestamp": "2026-07-06T18:21:01.127036+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "963bf62b-366f-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from refiner",
+    "body": "v1 refine analysis for issue #3364 (PRs B, C, D \u2014 PR A #3421 out of scope). Three independent slices with distinct risk profiles. PR B (additive/low): --exclude-types/--quiet on bin/wait-status + slice.closed EventType emitted at record_complete/record_failure and added to _STATUS_WAIT_EVENT_TYPES. PR C (behavioral): rate-limit/cap-wall classification distinct from abnormal (throttling signatures auth_errors.py deliberately excludes from EX_AUTH_FATAL), windowed paced retry (hours, not the 30s cap) preserving landed slices, + deterministic-loop guard. PR D (gated deletion): remove the #1962 migration section, Overseer-Absent Fallback, five host detector blocks, and overseer_owns_host_detection entirely \u2014 gated on a coverage-map. Key refiner finding: the host-detector anomaly types (agent-stall/silent/nack/phase-long-running) have NO production overseer emitter beyond the LLM-classifier path (run_migrated_detectors exists only in SKILL.md prose), so the coverage-map is genuine verification work, not a rubber stamp; AC-D3 preserves the render-on-OVERSEER_ALERT paths. Corrected refactored file:line anchors. One HITL cq-1: PR C paced-retry ceiling/escalation policy.",
+    "metadata": {
+      "payload": {
+        "summary": "v1 refine analysis for issue #3364 (PRs B, C, D \u2014 PR A #3421 out of scope). Three independent slices with distinct risk profiles. PR B (additive/low): --exclude-types/--quiet on bin/wait-status + slice.closed EventType emitted at record_complete/record_failure and added to _STATUS_WAIT_EVENT_TYPES. PR C (behavioral): rate-limit/cap-wall classification distinct from abnormal (throttling signatures auth_errors.py deliberately excludes from EX_AUTH_FATAL), windowed paced retry (hours, not the 30s cap) preserving landed slices, + deterministic-loop guard. PR D (gated deletion): remove the #1962 migration section, Overseer-Absent Fallback, five host detector blocks, and overseer_owns_host_detection entirely \u2014 gated on a coverage-map. Key refiner finding: the host-detector anomaly types (agent-stall/silent/nack/phase-long-running) have NO production overseer emitter beyond the LLM-classifier path (run_migrated_detectors exists only in SKILL.md prose), so the coverage-map is genuine verification work, not a rubber stamp; AC-D3 preserves the render-on-OVERSEER_ALERT paths. Corrected refactored file:line anchors. One HITL cq-1: PR C paced-retry ceiling/escalation policy.",
+        "attestation": {
+          "decisions_registered": [
+            "cq-1"
+          ]
+        },
+        "artifacts": [
+          ".egg-state/drafts/3364-analysis.md"
+        ],
+        "risk_considered": "PR C is highest-risk (live supervision behavior) \u2014 mitigated by AC-C6 (fatal/abnormal paths unchanged) and AC-C7 test coverage. PR D deletion risk (going dark) mitigated by the \u00a75 coverage-map gate + AC-D3 preserving alert-driven renders. PR B additive/low-risk.",
+        "commit_sha": "d032e6edf",
+        "files_changed": [
+          ".egg-state/drafts/3364-analysis.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "d032e6edf"
+    },
+    "timestamp": "2026-07-06T18:21:02.844299+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "08fcb9ff-3556-47",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=98000 util=0.10 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:21:08.731269+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "457af6ba-1430-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:21:09.929494+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "de987a4d-7e0f-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:21:09.938433+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "99bf1c7f-c0c5-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "first_principles_reviewer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:21:11.002692+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "47fa136e-8b3d-40",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-invocation-noop-streak: event-loop [high]",
+    "body": "Event-pump for role=simplifier has had 4 consecutive one-shot invocations on action=propose that exited cleanly WITHOUT any BRC-bus progress (dedupe key 2f156e27d78095fa2344d30231eee1120ebdfd6e0a1a4b1f3339176d23131920 re-derived unchanged each time). The arm is parked: no further pods spawn for this key until the unresolved contract-decision set changes (e.g. the gating cq-N is resolved) or the BRC state moves; a probe spawn is retried every 1800s as a backstop. Unresolved contract HITL decision(s) likely gating it: cq-1 \u2014 check get_status pending_contract_decisions and resolve via provide_input.",
+    "metadata": {
+      "anomaly": "agent-invocation-noop-streak",
+      "priority": "high",
+      "summary": "agent invocations completing with zero BRC progress (action=propose, streak=4)"
+    },
+    "timestamp": "2026-07-06T18:21:15.043369+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "131cfbde-edd6-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "first_principles_reviewer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:21:20.789423+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "02da11ce-5e3f-4d",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:21:23.663104+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "a41b3847-dd29-4d",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:21:23.683395+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "b106c057-bdd5-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=97046 util=0.10 cache_hit=0.98 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:21:46.600609+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "9409159f-2c9d-41",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:22:08.984255+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "563b5702-9d5b-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_refine",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_refine for refiner",
+    "body": "Refinement approved. Scope correctly limited to PRs B/C/D per operator directive (PR A #3421 excluded; deferred items #3249/#3369 cross-referenced). All load-bearing grounding claims re-verified live at HEAD: wait-status 328-line stdlib with only --since/--inner-timeout/--max-iterations; no slice event type exists; _STATUS_WAIT_EVENT_TYPES at __init__.py:405/_routes_status.py:349; SUPERVISION_BACKOFF_CAP_SECONDS=30; auth_errors deliberately excludes 429/rate-limit/overloaded; slice_scheduler record_complete:361/record_failure:371; SKILL.md exactly 1600 lines; overseer_owns_host_detection with only 2 production refs. Per-PR acceptance criteria are testable and map to issue items. The PR D prerequisite gate is the key strength: refiner verified run_migrated_detectors exists only in SKILL.md prose and the live overseer monitor emits a different deterministic alert set (post_consensus_stall/rerun_anomaly/status_inconsistency/etc.) than the five host-detector anomaly vocabulary \u2014 correctly establishing that the coverage-map is real verification work, not a rubber-stamp, with the contingent parity-gap HITL raised at point-of-discovery rather than pre-registered. cq-1 (paced-retry ceiling/escalation) is a genuine operator-facing decision, properly registered with sound options.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3364-analysis.md"
+        ],
+        "reason": "Refinement approved. Scope correctly limited to PRs B/C/D per operator directive (PR A #3421 excluded; deferred items #3249/#3369 cross-referenced). All load-bearing grounding claims re-verified live at HEAD: wait-status 328-line stdlib with only --since/--inner-timeout/--max-iterations; no slice event type exists; _STATUS_WAIT_EVENT_TYPES at __init__.py:405/_routes_status.py:349; SUPERVISION_BACKOFF_CAP_SECONDS=30; auth_errors deliberately excludes 429/rate-limit/overloaded; slice_scheduler record_complete:361/record_failure:371; SKILL.md exactly 1600 lines; overseer_owns_host_detection with only 2 production refs. Per-PR acceptance criteria are testable and map to issue items. The PR D prerequisite gate is the key strength: refiner verified run_migrated_detectors exists only in SKILL.md prose and the live overseer monitor emits a different deterministic alert set (post_consensus_stall/rerun_anomaly/status_inconsistency/etc.) than the five host-detector anomaly vocabulary \u2014 correctly establishing that the coverage-map is real verification work, not a rubber-stamp, with the contingent parity-gap HITL raised at point-of-discovery rather than pre-registered. cq-1 (paced-retry ceiling/escalation) is a genuine operator-facing decision, properly registered with sound options.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-06T18:22:36.298439+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "ccb7e5f8-58d4-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:22:43.667650+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "dcdee608-0d9b-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "first_principles_reviewer",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from first_principles_reviewer for refiner",
+    "body": "First-principles review PASS. Framing is correct and matches the operator directive: the skill is the wrong home for detection/recovery; move it to orchestrator+overseer. Scope is disciplined \u2014 PR A (#3421) correctly excluded as landed, item 2 liveness-gating correctly treated as backstop-only (not reimplemented), out-of-scope items tracked to sibling issues (#3249/#3369/#3499/#3508/#3509). Verified the load-bearing crux claims live @ HEAD: (1) no slice EventType exists \u2192 slice.closed is greenfield; (2) wait-status exposes only --since/--inner-timeout/--max-iterations \u2192 new flags greenfield; (3) the overseer _broadcast_alert set is {post_consensus_stall, orchestrator_unreachable, rerun_anomaly, status_inconsistency, hitl_propagation_failure, cross_phase_inconsistency} \u2014 a DIFFERENT vocabulary than the host detectors; (4) host-detector ids (agent-stall/silent/nack/long-running) appear in production overseer only as a dedup signature-map comment in shared/egg_overseer/state.py, not as emitters. This confirms PR D's deletion is NOT automatically safe, so the coverage-map prerequisite gate is genuine engineering work, not ceremony. The single unconditional operator decision (cq-1: paced-retry ceiling) is correctly raised now, while the contingent parity-gap HITL is correctly deferred to its point of discovery rather than pre-registered. No fundamental flaw in the approach, adopt-vs-reimplement calls, or scope boundaries.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3364-analysis.md"
+        ],
+        "reason": "First-principles review PASS. Framing is correct and matches the operator directive: the skill is the wrong home for detection/recovery; move it to orchestrator+overseer. Scope is disciplined \u2014 PR A (#3421) correctly excluded as landed, item 2 liveness-gating correctly treated as backstop-only (not reimplemented), out-of-scope items tracked to sibling issues (#3249/#3369/#3499/#3508/#3509). Verified the load-bearing crux claims live @ HEAD: (1) no slice EventType exists \u2192 slice.closed is greenfield; (2) wait-status exposes only --since/--inner-timeout/--max-iterations \u2192 new flags greenfield; (3) the overseer _broadcast_alert set is {post_consensus_stall, orchestrator_unreachable, rerun_anomaly, status_inconsistency, hitl_propagation_failure, cross_phase_inconsistency} \u2014 a DIFFERENT vocabulary than the host detectors; (4) host-detector ids (agent-stall/silent/nack/long-running) appear in production overseer only as a dedup signature-map comment in shared/egg_overseer/state.py, not as emitters. This confirms PR D's deletion is NOT automatically safe, so the coverage-map prerequisite gate is genuine engineering work, not ceremony. The single unconditional operator decision (cq-1: paced-retry ceiling) is correctly raised now, while the contingent parity-gap HITL is correctly deferred to its point of discovery rather than pre-registered. No fundamental flaw in the approach, adopt-vs-reimplement calls, or scope boundaries.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-06T18:22:46.254449+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "74239426-cacd-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:22:50.854390+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "473da56b-d907-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "first_principles_reviewer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=65291 util=0.07 cache_hit=0.98 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:22:54.079352+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "0913c489-fcb1-47",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_agent_design",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_agent_design for refiner",
+    "body": "ACK v1. Independently re-verified every load-bearing claim against live code @ f139716c4 \u2014 all hold. The PR D parity finding (the design crux) is validated: the overseer's _broadcast_alert vocabulary (post_consensus_stall, rerun_anomaly, orchestrator_unreachable, status_inconsistency, hitl_propagation_failure, cross_phase_inconsistency) is entirely disjoint from the host-detector identifiers (agent-stall/agent-silent/agent-nack-unresolved/phase-long-running), which exist in production only as a state.py dedup map; run_migrated_detectors and sandbox/overseer_monitor.py do not exist, so the SKILL.md migration target is prose-only. This correctly refutes the naive \"overseer already covers this\" assumption and justifies the \u00a75 coverage-map gate + point-of-discovery HITL. Scope faithfully tracks the operator directive (B/C/D in; PR A/#3421, item 8, visibility follow-ups out). ACs are testable and complete; AC-D3 (preserve render-on-OVERSEER_ALERT AskUserQuestion flows) is a critical catch. cq-1 is a genuine, unconditional, operator-facing decision, properly registered with four sound options. No blocking design concerns.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3364-analysis.md"
+        ],
+        "reason": "ACK v1. Independently re-verified every load-bearing claim against live code @ f139716c4 \u2014 all hold. The PR D parity finding (the design crux) is validated: the overseer's _broadcast_alert vocabulary (post_consensus_stall, rerun_anomaly, orchestrator_unreachable, status_inconsistency, hitl_propagation_failure, cross_phase_inconsistency) is entirely disjoint from the host-detector identifiers (agent-stall/agent-silent/agent-nack-unresolved/phase-long-running), which exist in production only as a state.py dedup map; run_migrated_detectors and sandbox/overseer_monitor.py do not exist, so the SKILL.md migration target is prose-only. This correctly refutes the naive \"overseer already covers this\" assumption and justifies the \u00a75 coverage-map gate + point-of-discovery HITL. Scope faithfully tracks the operator directive (B/C/D in; PR A/#3421, item 8, visibility follow-ups out). ACs are testable and complete; AC-D3 (preserve render-on-OVERSEER_ALERT AskUserQuestion flows) is a critical catch. cq-1 is a genuine, unconditional, operator-facing decision, properly registered with four sound options. No blocking design concerns.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-06T18:23:03.158930+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "988e54da-1320-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=66907 util=0.07 cache_hit=0.98 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:23:05.116654+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c4f3e9a0-5554-4c",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=76584 util=0.08 cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:23:12.149228+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "4e1527e4-61f7-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:24:50.920964+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "09fae4e9-9c4f-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from simplifier",
+    "body": "analysis-human render (3364-analysis-human.md): faithful, jargon-free operator rendering of the refiner's 3364-analysis.md (d032e6edf). Covers all three independent PRs \u2014 B (wait-status --exclude-types/--quiet + slice.closed event), C (throttle/rate-limit classification distinct from abnormal, windowed paced retry preserving landed slices, deterministic-loop guard), D (delete the five host-side detector blocks + Overseer-Absent Fallback + #1962 section, remove overseer_owns_host_detection entirely) \u2014 plus the hard PR-D coverage-map gate (refiner's finding that the naive \"overseer already covers this\" does not hold for all five blocks), the AC-D3 render-on-OVERSEER_ALERT preservation, and the single operator decision cq-1 (PR C retry ceiling). Nothing added or dropped relative to the refiner's analysis.",
+    "metadata": {
+      "payload": {
+        "summary": "analysis-human render (3364-analysis-human.md): faithful, jargon-free operator rendering of the refiner's 3364-analysis.md (d032e6edf). Covers all three independent PRs \u2014 B (wait-status --exclude-types/--quiet + slice.closed event), C (throttle/rate-limit classification distinct from abnormal, windowed paced retry preserving landed slices, deterministic-loop guard), D (delete the five host-side detector blocks + Overseer-Absent Fallback + #1962 section, remove overseer_owns_host_detection entirely) \u2014 plus the hard PR-D coverage-map gate (refiner's finding that the naive \"overseer already covers this\" does not hold for all five blocks), the AC-D3 render-on-OVERSEER_ALERT preservation, and the single operator decision cq-1 (PR C retry ceiling). Nothing added or dropped relative to the refiner's analysis.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/3364-analysis-human.md"
+        ],
+        "risk_considered": "Faithfulness + jargon-free are the gated properties (reviewer_refine). Rendering strictly tracks refiner d032e6edf; preserved load-bearing nuance (coverage-map gate is real work, cq-1 is the only genuine HITL, render-on-alert paths must survive). No scope invented. Clobber risk: refiner has overwritten my artifact in prior pipelines \u2014 will re-verify integrity on any refiner re-propose.",
+        "commit_sha": "b949071af3c052f13388b24d8a485d3782e0a3da",
+        "files_changed": [
+          ".egg-state/drafts/3364-analysis-human.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "b949071af3c052f13388b24d8a485d3782e0a3da"
+    },
+    "timestamp": "2026-07-06T18:25:04.615255+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c69e1830-668a-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "refiner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-07-06T18:25:04.617495+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "5f768333-d5fb-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:25:05.054106+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "d9731ce9-3d50-4c",
+    "pipeline_id": "issue-3364",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by refiner",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-06T18:25:06.867743+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "f832dc2c-c1ce-46",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_agent_design",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-06T18:25:07.469801+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "999ae843-9d6e-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "first_principles_reviewer",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by first_principles_reviewer",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-06T18:25:07.472069+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "011e7183-3fec-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:25:08.921457+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "a9f30040-95df-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: PROPOSED",
+    "body": "simplifier refine event#5: refiner proposed v1 (d032e6edf, bare-name 3364-analysis.md). I rendered 3364-analysis-human.md (faithful, jargon-free) and PROPOSED v1 at commit b949071af (pushed). Awaiting reviewer_refine. Obligations: re-verify faithfulness+integrity if refiner re-proposes (clobber-watch); ACK/NACK refiner v1 if my reviewer edge fires.",
+    "metadata": {
+      "state": "PROPOSED"
+    },
+    "timestamp": "2026-07-06T18:25:16.827396+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "cbef4c25-bf1e-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:25:20.601390+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "49d0bd90-75cc-4c",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=122953 util=0.12 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T18:25:28.622569+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e98832a4-1cfd-41",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_refine",
+    "to_role": "simplifier",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_refine for simplifier",
+    "body": "analysis-human render approved: faithful + jargon-free (the gated properties). Compared line-for-line against the refiner source (d032e6edf, which I ACKed). Faithfulness: every load-bearing element carried without distortion or addition \u2014 problem framing (skill's narrow job; detection belongs in orchestrator+overseer; 1600 lines; 5 dead detector blocks; #1962 closed\u2192delete); 3 independent PRs with PR A out of scope; PR B (wait-status hide-types/quiet client-side + slice.closed at success/failure + allowlist); PR C (429/rate-limit/overloaded mishandled\u2192generic path\u2192~10-try streak\u219230s cap\u2192gives up in minutes; recognize-throttle + wait-it-out-preserving-landed-units + deterministic-loop-guard); PR D (delete migration section + Overseer-Absent Fallback + 5 host blocks, remove the switch entirely, keep skill core + user-initiated rescue with only auto-trigger removed + two backstop guardrails + preserve render-on-alert AC-D3). The load-bearing 'parity is not a rubber stamp' finding is faithfully rendered: overseer emits a different deterministic set, host vocab only bookkeeping in prod, AI classifier path, run_migrated_detectors exists nowhere, coverage-map before deletion, contingent gap-HITL at point-of-discovery not pre-registered. cq-1 (throttle-retry ceiling) rendered as the one operator decision. Jargon consistently translated (slice\u2192unit of work, HITL\u2192decisions you handle, config flag\u2192on/off switch). Only omission is deferred-item tracking refs (#3249/#3369) \u2014 planning bookkeeping, non-misleading for a plain-English operator render. No blocking concerns.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3364-analysis-human.md"
+        ],
+        "reason": "analysis-human render approved: faithful + jargon-free (the gated properties). Compared line-for-line against the refiner source (d032e6edf, which I ACKed). Faithfulness: every load-bearing element carried without distortion or addition \u2014 problem framing (skill's narrow job; detection belongs in orchestrator+overseer; 1600 lines; 5 dead detector blocks; #1962 closed\u2192delete); 3 independent PRs with PR A out of scope; PR B (wait-status hide-types/quiet client-side + slice.closed at success/failure + allowlist); PR C (429/rate-limit/overloaded mishandled\u2192generic path\u2192~10-try streak\u219230s cap\u2192gives up in minutes; recognize-throttle + wait-it-out-preserving-landed-units + deterministic-loop-guard); PR D (delete migration section + Overseer-Absent Fallback + 5 host blocks, remove the switch entirely, keep skill core + user-initiated rescue with only auto-trigger removed + two backstop guardrails + preserve render-on-alert AC-D3). The load-bearing 'parity is not a rubber stamp' finding is faithfully rendered: overseer emits a different deterministic set, host vocab only bookkeeping in prod, AI classifier path, run_migrated_detectors exists nowhere, coverage-map before deletion, contingent gap-HITL at point-of-discovery not pre-registered. cq-1 (throttle-retry ceiling) rendered as the one operator decision. Jargon consistently translated (slice\u2192unit of work, HITL\u2192decisions you handle, config flag\u2192on/off switch). Only omission is deferred-item tracking refs (#3249/#3369) \u2014 planning bookkeeping, non-misleading for a plain-English operator render. No blocking concerns.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-06T18:26:05.528985+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "0f77ecf9-42fc-46",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "simplifier",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-07-06T18:26:05.530836+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "ccd3b2bd-bb88-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by simplifier",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-06T18:26:08.180907+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "d5f30c5a-5705-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_refine",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-06T18:26:08.182991+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "16714200-d4ba-47",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_agent_design",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-06T18:26:08.183663+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e10cd49f-2490-46",
+    "pipeline_id": "issue-3364",
+    "from_role": "first_principles_reviewer",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by first_principles_reviewer",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-06T18:26:08.184665+00:00",
+    "phase": "refine"
+  }
+]
