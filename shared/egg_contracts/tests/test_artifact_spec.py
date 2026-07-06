@@ -413,9 +413,7 @@ class TestConsistencyC_PromptDerivesFromSpec:
     # across ``_prompt_agent.py``, ``_populate.py``, ``_drafts.py``, …),
     # so this invariant reads the concatenation of every module in the
     # package rather than a single file.
-    PIPELINES_PATH = (
-        Path(__file__).resolve().parents[3] / "orchestrator" / "routes" / "pipelines"
-    )
+    PIPELINES_PATH = Path(__file__).resolve().parents[3] / "orchestrator" / "routes" / "pipelines"
 
     # Ratchet against a regression: forbid raw
     # ``.egg-state/agent-outputs/{_identifier}-…`` f-string literals
@@ -434,9 +432,7 @@ class TestConsistencyC_PromptDerivesFromSpec:
         # Concatenate every module in the ``pipelines/`` package so the
         # invariant covers the prompt builders wherever they live after
         # the decomposition.
-        return "\n".join(
-            path.read_text() for path in sorted(self.PIPELINES_PATH.glob("*.py"))
-        )
+        return "\n".join(path.read_text() for path in sorted(self.PIPELINES_PATH.glob("*.py")))
 
     def test_pipelines_py_is_readable(self) -> None:
         assert self.PIPELINES_PATH.is_dir(), (
