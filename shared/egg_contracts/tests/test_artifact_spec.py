@@ -408,8 +408,14 @@ class TestConsistencyC_PromptDerivesFromSpec:
     (covered by Consistency-B above).
     """
 
+    # ``orchestrator/routes/pipelines.py`` was decomposed into the
+    # ``orchestrator/routes/pipelines/`` package; the prompt-construction
+    # code (``resolve_artifact_path`` calls, agent-output path prose) now
+    # lives across its submodules. The ratchet reads the whole package,
+    # not a single module, so it keeps governing the prompts wherever they
+    # moved.
     PIPELINES_PATH = (
-        Path(__file__).resolve().parents[3] / "orchestrator" / "routes" / "pipelines.py"
+        Path(__file__).resolve().parents[3] / "orchestrator" / "routes" / "pipelines"
     )
 
     # Ratchet against a regression: forbid raw
@@ -426,10 +432,20 @@ class TestConsistencyC_PromptDerivesFromSpec:
 
     @pytest.fixture(scope="class")
     def pipelines_text(self) -> str:
-        return self.PIPELINES_PATH.read_text()
+        # Concatenate every submodule of the pipelines package so the
+        # ratchet spans the prompt-construction code wherever the
+        # decomposition placed it.
+        return "\n".join(
+            path.read_text() for path in sorted(self.PIPELINES_PATH.glob("*.py"))
+        )
 
     def test_pipelines_py_is_readable(self) -> None:
-        assert self.PIPELINES_PATH.exists(), f"missing: {self.PIPELINES_PATH} — has the file moved?"
+        assert self.PIPELINES_PATH.is_dir(), (
+            f"missing: {self.PIPELINES_PATH} — has the package moved?"
+        )
+        assert any(self.PIPELINES_PATH.glob("*.py")), (
+            f"no submodules under {self.PIPELINES_PATH} — has the package moved?"
+        )
 
     def test_no_raw_agent_output_literals_remain(self, pipelines_text: str) -> None:
         # Slice-3 of #3077 removed every
