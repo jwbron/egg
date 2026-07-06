@@ -11,7 +11,7 @@
     }
   ],
   "prompt": "# Slim the /sdlc skill to run + report + HITL — move monitoring/recovery into the orchestrator + overseer (issue #3364)\n\n## Scope for this pipeline\n\nIssue #3364 planned four independent PRs. **PR A already landed** (#3421: the consensus-timeout \"Retry phase\" decision now routes to the restart_phase path via `CONSENSUS_TIMEOUT_RETRY_OPTION` in `orchestrator/routes/decisions/_handlers.py`). This pipeline covers the **three remaining PRs: B, C, and D**. They are mutually independent; implement them as separate slices/units of work with separate risk profiles.\n\n### PR B — Long-haul monitoring tooling (issue items 3 + 4)\n\n- Add `--exclude-types` and `--quiet` flags to `skills/sdlc/bin/wait-status` (client-side JSON-line filtering; the file currently exposes only `--since` / `--inner-timeout` / `--max-iterations`). The launcher is pure stdlib and self-contained; keep it that way.\n- Add a `slice.closed` event: new `EventType`, emitted at the slice scheduler's `record_complete` / `record_failure` sites, and added to the `/status/wait` allowlist (`_STATUS_WAIT_EVENT_TYPES`). Verified 2026-07-06: no slice event types exist anywhere in `orchestrator/` or `shared/` yet.\n- Both changes are additive/low-risk; the skill consumes both.\n\n### PR C — Supervision hardening (issue items 1 + 6)\n\nAll in `JobSupervisor` / `orchestrator/supervision_policy.py`:\n- **Rate-limit (\"quota\" / cap-wall) classification distinct from `abnormal`**: `shared/egg_agent/auth_errors.py` deliberately excludes 429 / \"rate limit\" / \"overloaded\" from `EX_AUTH_FATAL` (#3373), so cap walls currently fall through to the `abnormal` path, hit the `agent-invocation-failure` streak (>=10), and halt in minutes because backoff caps at 30s in `supervision_policy.py`. Detect the all-producers failure-streak signature, classify as transient rate-limit.\n- **Windowed paced retry**: retry across the rolling cap window (hours, not 30s), don't hammer, and preserve landed slices (a `restart_phase`-equivalent that does not discard completed slice work).\n- **Deterministic-loop guard**: distinguish transient (paced retry) from deterministic failures — if a restart reproduces the identical failure at the same point, stop and escalate instead of looping.\n\n### PR D — Slim the skill (issue item cleanup + items 2/7 backstops)\n\n- Delete from `skills/sdlc/SKILL.md` (1600 lines as of 2026-07-06): the \"Host detector migration (issue #1962)\" section, the Overseer-Absent Fallback, and all five host-side detector blocks — Stall detection, Silent agent detection, NACK escalation, Long-Running Phase Detection, and the host-side detection trigger of Stuck Pipeline Rescue (roughly lines 553-793 plus the short-flow Stall detection block near line 1517). #1962 is closed; these are dead/duplicated logic.\n- **Prerequisite (gate the deletion on this)**: coverage-map each deleted detector to an overseer detector that emits an `OVERSEER_ALERT` the skill already surfaces (`orchestrator/overseer/monitor/` — `_consensus_stall.py`, `_anomaly_checks.py`, `_escalation.py`), so nothing goes dark.\n- Conclude the calibration window by **removing** `overseer_owns_host_detection` entirely (it still defaults to False in `orchestrator/models/_config.py` and is referenced in `orchestrator/routes/pipelines/_routes_status.py`), rather than flipping the default.\n- Keep in the skill: argument parsing/seed, pre-refine triage, submit, the Monitor `wait-status` loop (render + cursor threading), HITL decision brokering (phase_gate / choice / feedback, two-wave surfacing, contract `cq-N` / `feedback-N`), surfacing `OVERSEER_ALERT`s to the user, the user-initiated Stuck Pipeline Rescue workflow (only its host-side detection trigger goes), and a short last-resort debugging section with thin backstop rules (never blind-action a destructive recommendation; `TaskStop` before Monitor re-arm).\n\n## Out of scope\n\n- Item 8 (durable context-measurement surface) — deferred to #3249.\n- The 13 visibility-gap items from the issue comments (per-role commits_ahead surface, consensus-window countdown, alert feed, etc.) — those are follow-up orchestrator surfaces tracked in the issue comments and sibling issues (#3369, #3499, #3508, #3509), not this pipeline.\n\n## Sequencing note\n\nB, C, D are independent, but D's detector deletion must be gated on the coverage-map confirming overseer parity (the overseer detection loop in `orchestrator/overseer/monitor/` genuinely exists and #3341/#3343 landed the liveness-before-destructive gating).\n\n## Additional Context\n\nCode-verified state as of 2026-07-06 (this machine, main @ ca193b85b):\n- `_handle_retry_phase`-equivalent exists (PR A landed, #3421) — do not redo it.\n- `skills/sdlc/bin/wait-status`: no filtering flags yet.\n- No `slice.closed` / slice EventType anywhere.\n- `shared/egg_agent/auth_errors.py` lines 24-28 and 45-46: throttling signatures intentionally absent from fatal patterns; the transient path is what needs the new classification.\n- `overseer_owns_host_detection` lives in `orchestrator/models/_config.py` and `orchestrator/routes/pipelines/_routes_status.py`.\n- `skills/sdlc/SKILL.md` is exactly 1600 lines with all five detector blocks still present.",
-  "status": "running",
+  "status": "failed",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -99,10 +99,10 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-07-06T18:40:54.407352Z",
       "work_started_at": "2026-07-06T18:40:55.500898Z",
-      "completed_at": null,
+      "completed_at": "2026-07-06T21:51:21.218760Z",
       "containers": [],
       "agents": [
         {
@@ -127,12 +127,12 @@
         {
           "cycle": 0,
           "started_at": "2026-07-06T18:40:55.500898Z",
-          "completed_at": null,
+          "completed_at": "2026-07-06T21:51:21.218723Z",
           "commit_sha": "a3c4938846568c4e4ac692006f4d600a505e68d0"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- INCOMPLETE CONSENSUS / NO CONFIRMATION ---\nblocking_agents=architect, task_planner, risk_analyst, reviewer_plan, simplifier",
       "operator_directives": [],
       "iteration_history": [],
       "phase_start_sha": "a3c4938846568c4e4ac692006f4d600a505e68d0",
@@ -177,20 +177,20 @@
     }
   ],
   "created_at": "2026-07-06T18:14:47.748270Z",
-  "updated_at": "2026-07-06T21:51:21.181441Z",
+  "updated_at": "2026-07-06T21:51:21.219738Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
   "pr_head_sha": null,
   "has_contract": true,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- INCOMPLETE CONSENSUS / NO CONFIRMATION ---\nblocking_agents=architect, task_planner, risk_analyst, reviewer_plan, simplifier",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-07-06T18:40:50.983150Z",
-  "version": 19,
+  "version": 20,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
