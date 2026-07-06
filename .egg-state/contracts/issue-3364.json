@@ -20,29 +20,34 @@
         {
           "id": "opt-1",
           "label": "Retry until the cap lifts with NO wall-clock ceiling \u2014 parse the reset time from the error to pace when present, else bounded backoff. Cap walls (incl. multi-day weekly caps) self-heal with no operator action.",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-2",
           "label": "Paced-retry up to a max wall-clock ceiling (e.g. a few hours), then escalate to HITL / halt so an unattended pipeline cannot silently sit for days.",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-3",
           "label": "Retry until the cap lifts (no hard ceiling) BUT emit an OVERSEER_ALERT once the wait crosses a threshold, so an attended operator is informed while auto-recovery continues.",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-4",
           "label": "Other (explain in reply)",
-          "description": null
+          "description": null,
+          "adds_task": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
-      "debounce_until": null
+      "resolved": true,
+      "resolution": "Retry until the cap lifts (no hard ceiling) BUT emit an OVERSEER_ALERT once the wait crosses a threshold, so an attended operator is informed while auto-recovery continues.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-06T18:30:26.906084Z",
+      "debounce_until": null,
+      "redirect_seed": null
     }
   ],
   "workflow_owner": null,
