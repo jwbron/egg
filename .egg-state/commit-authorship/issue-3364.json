@@ -175,6 +175,14 @@
       "registered_at": "2026-07-06T18:21:02.278239+00:00",
       "repo": null,
       "role": "simplifier"
+    },
+    "f774a012be9f2eda658b8e134112351229f2905b": {
+      "branch": "egg/issue-3364/work",
+      "patch_id": "53e257a3260bc5a6790e1eaaee3beabe147bf359",
+      "pipeline_id": "issue-3364",
+      "registered_at": "2026-07-06T18:51:33.679552+00:00",
+      "repo": null,
+      "role": "risk_analyst"
     }
   },
   "version": 2
