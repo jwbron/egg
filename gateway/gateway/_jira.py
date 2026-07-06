@@ -35,7 +35,7 @@ except ImportError:  # flat/container import mode
         JiraUpstreamError,
         validate_jira_api_path,
     )
-    from jira_client import (  # type: ignore[no-redef, import-untyped]
+    from jira_client import (  # type: ignore[no-redef]
         validate_fields as validate_jira_fields,
     )
     from jira_policy import (  # type: ignore[no-redef, import-untyped]
