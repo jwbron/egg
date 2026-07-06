@@ -559,7 +559,7 @@
         {
           "id": "task-4-4",
           "description": "Extract the remaining clusters into _<cluster>.py submodules (e.g. _criteria, _pr_lifecycle, _decisions, _readers, prompt-building as a nested sub-sub-package _prompt_building/ per section-(g)); routes convention (Blueprint decorators stay in __init__.py); explicit per-symbol re-export barrel re-exporting EVERY externally-referenced symbol from task-4-1; recursive barrel where a cluster further-splits. Confirm EVERY module under BOTH caps. No Dockerfile change needed: pipelines/ stays under the recursive `COPY orchestrator/routes/ ./routes/` (orchestrator/Dockerfile:45); confirm by grounding.",
-          "status": "pending",
+          "status": "complete",
           "commit": "81212959a",
           "checkpoint_id": null,
           "notes": "",
@@ -1156,6 +1156,17 @@
       "old_value": null,
       "new_value": "81212959a",
       "reason": "Linked commit 8121295 to task-4-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T07:44:54.910242Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.3.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-4 as complete",
       "checkpoint_id": null
     }
   ],
