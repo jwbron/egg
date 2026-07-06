@@ -8,6 +8,22 @@
       "repo": null,
       "role": "simplifier"
     },
+    "806d520c90755a5647c78d3c468900f39e73cdeb": {
+      "branch": "egg/issue-3364/work",
+      "patch_id": "019d91fab6ed28f9d0f09ea34c84a3f4addf9330",
+      "pipeline_id": "issue-3364",
+      "registered_at": "2026-07-06T18:20:45.144245+00:00",
+      "repo": null,
+      "role": "refiner"
+    },
+    "8ed0bd8344eeebfc360c5506ab55dc5e4b9647fe": {
+      "branch": "egg/issue-3364/work",
+      "patch_id": null,
+      "pipeline_id": "issue-3364",
+      "registered_at": "2026-07-06T18:20:45.140687+00:00",
+      "repo": null,
+      "role": "refiner"
+    },
     "d032e6edfd91cd98e41fad14516114f98235b05d": {
       "branch": "egg/issue-3364/work",
       "patch_id": "2fb07a62542e0a4c5770fdd52253422f36909dea",
