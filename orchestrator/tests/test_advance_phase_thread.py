@@ -455,7 +455,7 @@ class TestPostBrcBandSwallowsErrors:
         # assertions still see the calls that moved out of the barrel body.
         # The moved code (and its broad ``except``) is verbatim, so the pinned
         # counts and try/except regexes below stay valid.
-        _EXTRACTED_HELPERS = ("_sync_contract_setup",)
+        _EXTRACTED_HELPERS = ("_sync_contract_setup", "_run_hitl_gate_converge")
         parts = [inspect.getsource(pipelines._run_pipeline)]
         for _name in _EXTRACTED_HELPERS:
             _fn = getattr(pipelines, _name, None)
