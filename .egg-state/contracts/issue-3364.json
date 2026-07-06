@@ -23,7 +23,7 @@
         {
           "id": "task-1-1",
           "description": "Add --exclude-types (comma-separated event-type filter that drops\nmatching JSON lines client-side) and --quiet to\nskills/sdlc/bin/wait-status. Wire both into the arg parser alongside\nthe existing --since/--inner-timeout/--max-iterations and apply the\nfiltering at the two JSON print sites: drop a line whose event type is\nin the exclude set; suppress non-essential lines under --quiet. Keep\nthe launcher pure-stdlib and self-contained (no new imports/deps).\nExisting flag behavior and the non-filtered default output stay\nbyte-for-byte unchanged.",
-          "status": "pending",
+          "status": "complete",
           "commit": "4fcf1ed7abf4ecfc6e3fcab94e0f68ab61d5f3f4",
           "checkpoint_id": null,
           "notes": "",
@@ -509,6 +509,17 @@
       "old_value": null,
       "new_value": "4fcf1ed7abf4ecfc6e3fcab94e0f68ab61d5f3f4",
       "reason": "Linked commit 4fcf1ed to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T23:05:07.486075Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
       "checkpoint_id": null
     }
   ],
