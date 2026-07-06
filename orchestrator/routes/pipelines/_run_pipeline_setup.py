@@ -273,6 +273,16 @@ def _sync_contract_setup(
                 pipeline.error = f"Failed to create contract: {contract_err}"
                 store.save_pipeline(pipeline)
             return pipeline, True
+    # TEST_MARKER: driver_startup_contract_sync
+    # #3521 follow-up: heal a contract-phase desync on every driver
+    # (re)launch. The advance_phase route site syncs best-effort at request
+    # time, but immediately after an orchestrator restart the pipeline
+    # worktree may not be re-provisioned yet, so resolve_worktree_path falls
+    # back to the base repo and that sync skips with contract_load_failed
+    # (observed live on issue-3364). Here the worktree exists and was just
+    # reset to origin, so this call is authoritative. Forward-only +
+    # best-effort; never raises.
+    _pkg._sync_contract_phase_to_pipeline(pipeline, worktree_repo_path, source="driver_startup")
     return pipeline, False
 
 

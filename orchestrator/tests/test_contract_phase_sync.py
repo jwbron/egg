@@ -257,3 +257,26 @@ class TestTransitionSitesCallSync:
             "The start_pipeline HITL-recovery advance must sync "
             "contract.current_phase to the pipeline record (#3521)."
         )
+
+    def test_driver_startup_calls_sync(self):
+        """The driver must sync after worktree provisioning on every
+        (re)launch. The advance_phase route site runs at request time, when
+        a freshly-restarted orchestrator may not have re-provisioned the
+        pipeline worktree yet — resolve_worktree_path then falls back to the
+        base repo and the sync skips with contract_load_failed (observed
+        live on issue-3364). The driver-startup call runs after the worktree
+        is created and reset to origin, so it heals any desync the route
+        site missed.
+        """
+        from routes import pipelines
+
+        source = inspect.getsource(pipelines._sync_contract_setup).replace("_pkg.", "")
+        marker = "TEST_MARKER: driver_startup_contract_sync"
+        assert marker in source
+        block = source[source.index(marker) : source.index(marker) + 1200]
+        assert "_sync_contract_phase_to_pipeline(" in block, (
+            "The driver's contract-setup step must sync contract.current_phase "
+            "after worktree provisioning so a desync heals on every driver "
+            "(re)launch, including redeploy resume (#3521)."
+        )
+        assert 'source="driver_startup"' in block
