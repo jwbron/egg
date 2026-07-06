@@ -430,7 +430,10 @@ class TestConsistencyC_PromptDerivesFromSpec:
 
     @pytest.fixture(scope="class")
     def pipelines_text(self) -> str:
-        return "\n".join(p.read_text() for p in sorted(self.PIPELINES_PATH.glob("*.py")))
+        # Concatenate every module in the ``pipelines/`` package so the
+        # invariant covers the prompt builders wherever they live after
+        # the decomposition.
+        return "\n".join(path.read_text() for path in sorted(self.PIPELINES_PATH.glob("*.py")))
 
     def test_pipelines_py_is_readable(self) -> None:
         assert self.PIPELINES_PATH.is_dir(), (
