@@ -1,0 +1,1167 @@
+[
+  {
+    "id": "2a72880a-f308-40",
+    "pipeline_id": "issue-3364",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:09:16.972444+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e1d92119-a772-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:09:17.467626+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3091db7b-9c43-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:09:17.997776+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "36236d3b-8dc7-40",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:09:22.617245+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "dc0c4307-a3aa-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:09:24.509886+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "18d2b30c-3103-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:09:28.664071+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cd94051c-c17f-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:09:29.690759+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c08ca721-8d8a-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "simplifier PLAN event#17: plan phase RESTARTED \u2014 all producers reset to WORKING, transcript cleared (0 proposals). Back to waiting for task_planner's FRESH CONSENSUS_PROPOSE; prior c6f6b35ab render now potentially stale. Contract still 'refine' (restart didn't flip it) so my phase-gate blocker may recur on commit \u2014 impasse #16 already on record. Will render from the new proposal commit once task_planner re-proposes.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-06T22:10:39.813852+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c28dc52f-209c-47",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=347085 util=0.35 cache_hit=1.00 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:10:48.523847+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0db46a99-af03-46",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:10:57.744012+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a7b54ca1-9a58-4d",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:11:07.208792+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8bd5b81b-7a62-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "simplifier PLAN event#18: post-restart, still waiting for task_planner's fresh CONSENSUS_PROPOSE (0 proposals, all producers WORKING). task_planner live (hb 22:09:29Z), re-drafting. Contract still 'refine' (phase-gate blocker may recur on commit; impasse #16 on record). Will render from the new proposal commit once task_planner re-proposes.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-06T22:11:37.168372+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c3d5c680-2d93-40",
+    "pipeline_id": "issue-3364",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:11:37.680327+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9d3371ab-ebad-4d",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=357717 util=0.36 cache_hit=1.00 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:11:47.939739+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "66869703-4c1f-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:11:54.722842+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1af81b2b-84eb-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:11:57.595292+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "91322231-d747-41",
+    "pipeline_id": "issue-3364",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from architect",
+    "body": "Re-propose after plan-phase consensus-timeout reset (all agents back to WORKING). Artifacts unchanged and already at the shared branch tip. Plan-phase architecture analysis + slices scaffold for issue #3364 \u2014 three mutually-independent slices, distinct risk. Slice 1 / PR B (low/additive): --exclude-types/--quiet client-side filter flags on the pure-stdlib wait-status launcher (applied at the two json print sites :249/:271) + new SLICE_CLOSED EventType (events.py:35) emitted via an injected emitter callback in SliceScheduler.record_complete/record_failure (mirroring the existing _hitl_escalator post-lock injection seam), added to _STATUS_WAIT_EVENT_TYPES. Slice 2 / PR C (medium-high/behavioral, supervision_policy.py + JobSupervisor): new transient rate-limit classification off the all-producers throttling-streak signature (429/rate-limit/overloaded \u2014 the signatures auth_errors.py keeps off EX_AUTH_FATAL) so it bypasses the 30s-capped agent-invocation-fail-streak halt; windowed hours-scale paced retry via a restart_phase-equivalent preserving landed slices; deterministic-loop guard escalating on identical-failure reproduction; cq-1 binding = unbounded retry + threshold OVERSEER_ALERT (no hard ceiling); EX_AUTH_FATAL/abnormal unchanged. Slice 3 / PR D (medium/deletion, GATED, split D1 coverage-map -> D2 SKILL.md deletion + D3 flag removal): coverage-map each of the five host detector blocks to a concrete overseer emitter BEFORE deleting \u2014 host vocab (agent-stall/silent/nack/long-running) lives in prod only as a state.py dedup map and is otherwise LLM-classifier-produced, distinct from the deterministic overseer emitters (post_consensus_stall, etc.), so parity is real verification; preserve AC-D3 render-on-alert flows; remove overseer_owns_host_detection entirely (field + 2 refs, grep-clean); HITL any block with no confirmed emitter. DAG: three independent slices, no cross-blocking edges, PR D internally gated.",
+    "metadata": {
+      "payload": {
+        "summary": "Re-propose after plan-phase consensus-timeout reset (all agents back to WORKING). Artifacts unchanged and already at the shared branch tip. Plan-phase architecture analysis + slices scaffold for issue #3364 \u2014 three mutually-independent slices, distinct risk. Slice 1 / PR B (low/additive): --exclude-types/--quiet client-side filter flags on the pure-stdlib wait-status launcher (applied at the two json print sites :249/:271) + new SLICE_CLOSED EventType (events.py:35) emitted via an injected emitter callback in SliceScheduler.record_complete/record_failure (mirroring the existing _hitl_escalator post-lock injection seam), added to _STATUS_WAIT_EVENT_TYPES. Slice 2 / PR C (medium-high/behavioral, supervision_policy.py + JobSupervisor): new transient rate-limit classification off the all-producers throttling-streak signature (429/rate-limit/overloaded \u2014 the signatures auth_errors.py keeps off EX_AUTH_FATAL) so it bypasses the 30s-capped agent-invocation-fail-streak halt; windowed hours-scale paced retry via a restart_phase-equivalent preserving landed slices; deterministic-loop guard escalating on identical-failure reproduction; cq-1 binding = unbounded retry + threshold OVERSEER_ALERT (no hard ceiling); EX_AUTH_FATAL/abnormal unchanged. Slice 3 / PR D (medium/deletion, GATED, split D1 coverage-map -> D2 SKILL.md deletion + D3 flag removal): coverage-map each of the five host detector blocks to a concrete overseer emitter BEFORE deleting \u2014 host vocab (agent-stall/silent/nack/long-running) lives in prod only as a state.py dedup map and is otherwise LLM-classifier-produced, distinct from the deterministic overseer emitters (post_consensus_stall, etc.), so parity is real verification; preserve AC-D3 render-on-alert flows; remove overseer_owns_host_detection entirely (field + 2 refs, grep-clean); HITL any block with no confirmed emitter. DAG: three independent slices, no cross-blocking edges, PR D internally gated.",
+        "attestation": {
+          "decisions_registered": [],
+          "no_decisions_rationale": "The single operator-facing decision (cq-1, PR C paced-retry bounding) was raised and resolved in the refine phase (unbounded retry + threshold OVERSEER_ALERT, no hard ceiling); this plan-phase architect analysis carries that resolution as a binding constraint. No new plan-phase decision arises \u2014 the PR D coverage-map gap HITL is deliberately contingent (raised at point of discovery in plan/implement only if a host block maps to no overseer emitter), not pre-registered."
+        },
+        "artifacts": [
+          ".egg-state/agent-outputs/3364-architect-output.json",
+          ".egg-state/agent-outputs/3364-architect-slices.yaml"
+        ],
+        "risk_considered": "PR C is the highest-risk surface (live supervision behavior) \u2014 flagged for heaviest test coverage on classification/loop-guard/landed-slice preservation. PR D deletion is gated on the coverage-map (real verification, not a rubber stamp) with AC-D3 render-on-alert preservation as the key regression surface. Soft routes/pipelines package seam shared by PR B (allowlist in __init__.py) and PR D (flag removal in _routes_status.py) flagged for reviewer awareness though regions are disjoint.",
+        "commit_sha": "7a54494af213a764b9c8cfaafd94f590e4647806",
+        "files_changed": [
+          ".egg-state/agent-outputs/3364-architect-output.json",
+          ".egg-state/agent-outputs/3364-architect-slices.yaml"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "7a54494af213a764b9c8cfaafd94f590e4647806"
+    },
+    "timestamp": "2026-07-06T22:11:59.104117+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fea65d10-95a4-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:12:01.265096+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cc752ebc-64ae-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:12:05.330861+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0bd373f9-9985-49",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:12:05.632770+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c5acd462-f676-40",
+    "pipeline_id": "issue-3364",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:12:12.772058+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f2facc2e-f1d1-4c",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:12:16.516708+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "829c1529-413d-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "simplifier PLAN event#19: post-restart, still waiting for task_planner's fresh CONSENSUS_PROPOSE (0 proposals). task_planner live (hb 22:11:57Z), re-drafting. Contract still 'refine'. Will render from the new proposal commit once task_planner re-proposes.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-06T22:12:30.942806+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a2cac841-5902-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Re-propose against the orchestrator-rebased tip (prior v1 invalidated by base rebase; my final artifacts are the rebased tip commit itself). task_planner plan for #3364 PRs B/C/D as three independent slices (ids 1/2/3, disjoint file sets, one PR each), aligned with the architect. Canonical draft .egg-state/drafts/3364-plan.md carries a fenced ```yaml # yaml-tasks appendix: 3 slices, 14 tasks (TASK-1-1..1-4, TASK-2-1..2-5, TASK-3-1..3-5), no cross-slice file overlap. Slice 1 (PR B, additive/low): wait-status --exclude-types/--quiet + slice.closed EventType at record_complete/record_failure (injected emitter seam, outside lock) + allowlist. Slice 2 (PR C, behavioral/medium-high): transient rate-limit classification distinct from abnormal, windowed paced retry (no hard ceiling + threshold OVERSEER_ALERT per resolved cq-1), landed-slice-preserving restart_phase-equivalent, deterministic-loop guard. Slice 3 (PR D, deletion/medium, GATED): TASK-3-1 coverage-maps each of five host detectors to a confirmed overseer emitter (HITL at point of discovery if a block has no emitter; grounded: no deterministic emitter for agent-stall/silent/nack-unresolved/phase-long-running, only the classifier action:{action} path) BEFORE deleting SKILL.md blocks (TASK-3-2) and removing overseer_owns_host_detection entirely (TASK-3-3), preserving the render-on-OVERSEER_ALERT AskUserQuestion flows. Structured artifact .egg-state/agent-outputs/task_planner/3364-plan-task-planner.json. 18 ACs mapped to tasks.",
+    "metadata": {
+      "payload": {
+        "summary": "Re-propose against the orchestrator-rebased tip (prior v1 invalidated by base rebase; my final artifacts are the rebased tip commit itself). task_planner plan for #3364 PRs B/C/D as three independent slices (ids 1/2/3, disjoint file sets, one PR each), aligned with the architect. Canonical draft .egg-state/drafts/3364-plan.md carries a fenced ```yaml # yaml-tasks appendix: 3 slices, 14 tasks (TASK-1-1..1-4, TASK-2-1..2-5, TASK-3-1..3-5), no cross-slice file overlap. Slice 1 (PR B, additive/low): wait-status --exclude-types/--quiet + slice.closed EventType at record_complete/record_failure (injected emitter seam, outside lock) + allowlist. Slice 2 (PR C, behavioral/medium-high): transient rate-limit classification distinct from abnormal, windowed paced retry (no hard ceiling + threshold OVERSEER_ALERT per resolved cq-1), landed-slice-preserving restart_phase-equivalent, deterministic-loop guard. Slice 3 (PR D, deletion/medium, GATED): TASK-3-1 coverage-maps each of five host detectors to a confirmed overseer emitter (HITL at point of discovery if a block has no emitter; grounded: no deterministic emitter for agent-stall/silent/nack-unresolved/phase-long-running, only the classifier action:{action} path) BEFORE deleting SKILL.md blocks (TASK-3-2) and removing overseer_owns_host_detection entirely (TASK-3-3), preserving the render-on-OVERSEER_ALERT AskUserQuestion flows. Structured artifact .egg-state/agent-outputs/task_planner/3364-plan-task-planner.json. 18 ACs mapped to tasks.",
+        "attestation": {
+          "no_decisions_rationale": "The single genuine operator-facing decision (cq-1, PR C paced-retry ceiling) was registered in the refine phase and is already resolved (no hard ceiling + OVERSEER_ALERT past threshold); my task decomposition adopts that resolution verbatim. No new plan-phase decision arises: the only contingent decision (PR D \u2014 a deleted detector block found with no overseer emitter) is deliberately NOT pre-registered because it is contingent on the TASK-3-1 coverage-map outcome and is raised as a HITL at point of discovery per the refiner gate, carrying the specific block + evidence."
+        },
+        "artifacts": [
+          ".egg-state/drafts/3364-plan.md",
+          ".egg-state/agent-outputs/task_planner/3364-plan-task-planner.json"
+        ],
+        "risk_considered": "PR C highest risk (live supervision): rate-limit classification must not swallow abnormal halts (AC-C6); loop-guard fingerprint must be concrete; cq-1 no-ceiling relies on the threshold OVERSEER_ALERT actually firing, kept orthogonal to the loop-guard escalation. PR D coverage-map is a real gate (classifier-only emitter path for four of five anomaly types); over-deletion risk on Stuck-Rescue Steps 1-3 + the two AskUserQuestion render flows. Merge-seam note: slice 1 (__init__.py) and slice 3 (_routes_status.py) touch the same routes/pipelines package in different regions \u2014 no file overlap.",
+        "commit_sha": "7a54494af213a764b9c8cfaafd94f590e4647806",
+        "files_changed": [
+          ".egg-state/drafts/3364-plan.md",
+          ".egg-state/agent-outputs/task_planner/3364-plan-task-planner.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "TASK-1-1",
+          "TASK-1-2",
+          "TASK-1-3",
+          "TASK-1-4",
+          "TASK-2-1",
+          "TASK-2-2",
+          "TASK-2-3",
+          "TASK-2-4",
+          "TASK-2-5",
+          "TASK-3-1",
+          "TASK-3-2",
+          "TASK-3-3",
+          "TASK-3-4",
+          "TASK-3-5"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "7a54494af213a764b9c8cfaafd94f590e4647806"
+    },
+    "timestamp": "2026-07-06T22:12:36.588299+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7fb97721-c046-40",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=363309 util=0.36 cache_hit=1.00 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:12:37.418087+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "40151255-2e8b-40",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_plan",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for architect",
+    "body": "Re-ACK. The architect re-proposed at 7a54494a but both artifacts are byte-identical to the version I already reviewed and ACKed at a7ea0133 (blob SHA-1 unchanged: output.json 348f81ae, slices.yaml bf20c185 \u2014 git diff a7ea0133..7a54494a on these paths is empty). This is a content-free re-propose (rebase/refresh); no new claims to verify. My prior assessment holds: plan artifact for PRs B/C/D is sound and well-grounded, all load-bearing anchors previously spot-checked live and accurate, three file-disjoint independent slices, PR D coverage-map is a real hard gate with HITL escape, cq-1 honored (no hard ceiling + threshold OVERSEER_ALERT), AC-D3 render-on-alert preservation and the soft B/D _routes_status.py merge seam both flagged. No blocking concerns.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3364-architect-output.json",
+          ".egg-state/agent-outputs/3364-architect-slices.yaml"
+        ],
+        "reason": "Re-ACK. The architect re-proposed at 7a54494a but both artifacts are byte-identical to the version I already reviewed and ACKed at a7ea0133 (blob SHA-1 unchanged: output.json 348f81ae, slices.yaml bf20c185 \u2014 git diff a7ea0133..7a54494a on these paths is empty). This is a content-free re-propose (rebase/refresh); no new claims to verify. My prior assessment holds: plan artifact for PRs B/C/D is sound and well-grounded, all load-bearing anchors previously spot-checked live and accurate, three file-disjoint independent slices, PR D coverage-map is a real hard gate with HITL escape, cq-1 honored (no hard ceiling + threshold OVERSEER_ALERT), AC-D3 render-on-alert preservation and the soft B/D _routes_status.py merge seam both flagged. No blocking concerns.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-06T22:12:41.333579+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d1971e9e-07c3-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:12:44.342481+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "34233f3d-2caa-40",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:12:45.129319+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7fca043d-9445-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-invocation-noop-streak: event-loop [high]",
+    "body": "Event-pump for role=simplifier has had 3 consecutive one-shot invocations on action=propose that exited cleanly WITHOUT any BRC-bus progress (dedupe key 19102154f652cc00a5fd5b5db4f932c9e0667f1ec6ccc223a5c9dd443aaaa0c9 re-derived unchanged each time). The arm is parked: no further pods spawn for this key until the unresolved contract-decision set changes (e.g. the gating cq-N is resolved) or the BRC state moves; a probe spawn is retried every 1800s as a backstop. No unresolved contract decision was visible at park time; check the slice's BRC transcript for what the agent is blocked on.",
+    "metadata": {
+      "anomaly": "agent-invocation-noop-streak",
+      "priority": "high",
+      "summary": "agent invocations completing with zero BRC progress (action=propose, streak=3)"
+    },
+    "timestamp": "2026-07-06T22:12:49.082172+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7163ddc0-ed00-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=132253 util=0.13 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:12:49.868850+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "458c58f3-3296-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:12:50.733877+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "81124325-beae-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:13:00.015283+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "68abea24-d09e-41",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:13:01.437333+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f8363289-c611-46",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for task_planner",
+    "body": "Re-ACK. task_planner re-proposed at 7a54494a but both artifacts are byte-identical to the version I already reviewed and ACKed at c6f6b35a (blob SHAs unchanged: plan-task-planner.json d1ce5a35, 3364-plan.md bf42f5a2; git diff c6f6b35a..7a54494a on these paths is empty). Content-free re-propose (rebase/refresh); no new claims to verify. Prior assessment holds: yaml-tasks parse into 3 file-disjoint slices (B/C/D), pr block complete, faithful to architect design, cq-1 honored (no hard ceiling + threshold OVERSEER_ALERT orthogonal to loop-guard), c6f6b35a's slice-3 split + per-slice test-path disambiguation intact, PR-D coverage-map gate is real verification with a HITL escape (RD1 substantive intent satisfied; task-level depends_on is not schema-expressible per ParsedTask), render-on-alert preservation (AC-D3) and kept-surface/backstops (AC-D4/D5) explicit. No blocking concerns.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3364-plan.md",
+          ".egg-state/agent-outputs/task_planner/3364-plan-task-planner.json"
+        ],
+        "reason": "Re-ACK. task_planner re-proposed at 7a54494a but both artifacts are byte-identical to the version I already reviewed and ACKed at c6f6b35a (blob SHAs unchanged: plan-task-planner.json d1ce5a35, 3364-plan.md bf42f5a2; git diff c6f6b35a..7a54494a on these paths is empty). Content-free re-propose (rebase/refresh); no new claims to verify. Prior assessment holds: yaml-tasks parse into 3 file-disjoint slices (B/C/D), pr block complete, faithful to architect design, cq-1 honored (no hard ceiling + threshold OVERSEER_ALERT orthogonal to loop-guard), c6f6b35a's slice-3 split + per-slice test-path disambiguation intact, PR-D coverage-map gate is real verification with a HITL escape (RD1 substantive intent satisfied; task-level depends_on is not schema-expressible per ParsedTask), render-on-alert preservation (AC-D3) and kept-surface/backstops (AC-D4/D5) explicit. No blocking concerns.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-06T22:13:11.305108+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "210d7e54-5b73-40",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:13:17.598288+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f0187951-72fa-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:13:23.548986+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0d8f7a23-d066-49",
+    "pipeline_id": "issue-3364",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=194047 util=0.19 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:13:31.568002+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8f85428b-1b23-4c",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for task_planner",
+    "body": "Re-confirm ACK. This is a rebase-produced new commit SHA (7a54494a) but both plan artifacts are byte-identical to my prior ACK at c6f6b35a \u2014 verified via git blob hashes (3364-plan.md = bf42f5a2, task-planner json = d1ce5a35, unchanged). The only differences between the two commits are unrelated docs/ files pulled in by the rebase onto updated main; nothing in the plan review surface changed. My prior full review stands: yaml-tasks parses into 3 well-formed file-disjoint slices (B/C/D) with all tasks + complete pr block, faithful to the architect design, grounded on live-verified anchors, cq-1 honored (no hard ceiling + threshold OVERSEER_ALERT orthogonal to loop-guard), tester file paths disambiguated (no cross-slice orchestrator/tests collision), and the PR-D coverage-map gate is a genuine verification task with a HITL escape (risk_analyst RD1 substantive intent satisfied; task-level depends_on is not schema-expressible for intra-slice tasks). No blocking concerns.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3364-plan.md",
+          ".egg-state/agent-outputs/task_planner/3364-plan-task-planner.json"
+        ],
+        "reason": "Re-confirm ACK. This is a rebase-produced new commit SHA (7a54494a) but both plan artifacts are byte-identical to my prior ACK at c6f6b35a \u2014 verified via git blob hashes (3364-plan.md = bf42f5a2, task-planner json = d1ce5a35, unchanged). The only differences between the two commits are unrelated docs/ files pulled in by the rebase onto updated main; nothing in the plan review surface changed. My prior full review stands: yaml-tasks parses into 3 well-formed file-disjoint slices (B/C/D) with all tasks + complete pr block, faithful to the architect design, grounded on live-verified anchors, cq-1 honored (no hard ceiling + threshold OVERSEER_ALERT orthogonal to loop-guard), tester file paths disambiguated (no cross-slice orchestrator/tests collision), and the PR-D coverage-map gate is a genuine verification task with a HITL escape (risk_analyst RD1 substantive intent satisfied; task-level depends_on is not schema-expressible for intra-slice tasks). No blocking concerns.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-06T22:13:33.913053+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c00441b2-6ce2-40",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=155045 util=0.16 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:13:46.624003+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d77f24f8-afd8-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from simplifier",
+    "body": "plan-human render (3364-plan-human.md): faithful, jargon-free operator rendering of task_planner's plan (3364-plan.md @ 7a54494af \u2014 byte-identical to the pre-restart c6f6b35ab). Covers the three independent PRs as separate slices \u2014 B (wait-status --exclude-types/--quiet client-side + slice.closed event at both record_complete/record_failure with an outcome field, allowlisted), C (transient rate-limit classification distinct from abnormal, windowed paced retry preserving landed slices, deterministic-loop guard) and D (GATED: coverage-map each of the five host detector blocks to a concrete overseer emitter BEFORE deletion, then delete blocks + migration section + Overseer-Absent Fallback + Stuck-Rescue host trigger, remove overseer_owns_host_detection entirely, preserving render-on-OVERSEER_ALERT AskUserQuestion flows + user-initiated Rescue Steps 1-3) \u2014 plus cq-1 resolved verbatim (no hard retry ceiling + OVERSEER_ALERT at threshold), verification, non-goals, and no-pre-merge/post-merge-watch manual steps. Nothing load-bearing added or dropped relative to the plan.",
+    "metadata": {
+      "payload": {
+        "summary": "plan-human render (3364-plan-human.md): faithful, jargon-free operator rendering of task_planner's plan (3364-plan.md @ 7a54494af \u2014 byte-identical to the pre-restart c6f6b35ab). Covers the three independent PRs as separate slices \u2014 B (wait-status --exclude-types/--quiet client-side + slice.closed event at both record_complete/record_failure with an outcome field, allowlisted), C (transient rate-limit classification distinct from abnormal, windowed paced retry preserving landed slices, deterministic-loop guard) and D (GATED: coverage-map each of the five host detector blocks to a concrete overseer emitter BEFORE deletion, then delete blocks + migration section + Overseer-Absent Fallback + Stuck-Rescue host trigger, remove overseer_owns_host_detection entirely, preserving render-on-OVERSEER_ALERT AskUserQuestion flows + user-initiated Rescue Steps 1-3) \u2014 plus cq-1 resolved verbatim (no hard retry ceiling + OVERSEER_ALERT at threshold), verification, non-goals, and no-pre-merge/post-merge-watch manual steps. Nothing load-bearing added or dropped relative to the plan.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/3364-plan-human.md"
+        ],
+        "risk_considered": "Faithfulness + jargon-free are the gated properties (reviewer_plan). Rendering strictly tracks task_planner 7a54494af (identical to c6f6b35ab); preserved load-bearing nuance \u2014 PR-D coverage-map gate is real verification, cq-1 no-ceiling+threshold-alert verbatim, render-on-alert paths must survive, three slices independent. No scope invented. Note: this plan phase was restarted after an earlier phase-gate block (contract current_phase had been stuck at 'refine'); the commit succeeded this spawn.",
+        "commit_sha": "6f2004a2b",
+        "files_changed": [
+          ".egg-state/drafts/3364-plan-human.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "6f2004a2b"
+    },
+    "timestamp": "2026-07-06T22:14:42.629727+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ce8ba6e9-be2a-4d",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:14:45.746575+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "89d64c76-1ffa-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:14:47.469976+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "84d3c4e2-6dc7-49",
+    "pipeline_id": "issue-3364",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:14:50.566616+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "12dba76b-7012-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:14:54.554429+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3df4af1b-244d-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: PROPOSED",
+    "body": "simplifier PLAN event#20: BLOCKER CLEARED. task_planner re-proposed v1 @ 7a54494af (plan.md byte-identical to pre-restart c6f6b35ab). Commit succeeded this spawn (fresh gateway context resolved the phase-gate block); rendered + PROPOSED 3364-plan-human.md v1 @ 6f2004a2b, pushed. Reviewer: reviewer_plan. Awaiting review/confirm. Impasse #16 effectively resolved by the phase restart.",
+    "metadata": {
+      "state": "PROPOSED"
+    },
+    "timestamp": "2026-07-06T22:15:12.867595+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "275078f1-7a1e-47",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=374899 util=0.37 cache_hit=1.00 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:15:22.325051+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9abc7729-5f3e-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_plan",
+    "to_role": "simplifier",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for simplifier",
+    "body": "The plain-language plan render is faithful to the technical plan I already ACKed (task_planner 7a54494a) \u2014 no added scope, no dropped constraints, no contradiction of binding directives. Verified point-by-point: three independent file-disjoint PRs, any-order with B-first preferred (not required); PR B two reader-side flags + dependency-free launcher + unchanged default output, unit-finished event at both success/failure sites carrying unit+outcome and fired OUTSIDE the scheduler lock, added to the allowlist, tests for both flags + both firing points; PR C all-workers throttle signature classified as distinct transient rate-limit (reuses existing wording, fatal set unchanged), hours-scale paced retry (reset-time-paced else backoff, no hammering), cq-1 rendered verbatim (no hard ceiling + threshold OVERSEER_ALERT, kept separate from the loop-guard), landed-work preservation, loop-guard stop+escalate on identical-failure-same-point vs continue-on-progress, heavy tests + fatal/abnormal regression; PR D gate-first coverage-map as real verification (correctly states four of five blocks map only to the AI-classifier path and the migration hook is absent from code), HITL escape for any uncovered block with nothing deleted without a confirmed replacement, deletion scoped to detection/trigger prose while preserving both render-on-alert prompts and the user-initiated rescue workflow, overseer_owns_host_detection removed entirely (conclude trial, not flip default), kept-surface + two backstop guardrails + grep-clean verification. cq-1 and non-goals accurately represented. Faithful render; no blocking concerns.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3364-plan-human.md"
+        ],
+        "reason": "The plain-language plan render is faithful to the technical plan I already ACKed (task_planner 7a54494a) \u2014 no added scope, no dropped constraints, no contradiction of binding directives. Verified point-by-point: three independent file-disjoint PRs, any-order with B-first preferred (not required); PR B two reader-side flags + dependency-free launcher + unchanged default output, unit-finished event at both success/failure sites carrying unit+outcome and fired OUTSIDE the scheduler lock, added to the allowlist, tests for both flags + both firing points; PR C all-workers throttle signature classified as distinct transient rate-limit (reuses existing wording, fatal set unchanged), hours-scale paced retry (reset-time-paced else backoff, no hammering), cq-1 rendered verbatim (no hard ceiling + threshold OVERSEER_ALERT, kept separate from the loop-guard), landed-work preservation, loop-guard stop+escalate on identical-failure-same-point vs continue-on-progress, heavy tests + fatal/abnormal regression; PR D gate-first coverage-map as real verification (correctly states four of five blocks map only to the AI-classifier path and the migration hook is absent from code), HITL escape for any uncovered block with nothing deleted without a confirmed replacement, deletion scoped to detection/trigger prose while preserving both render-on-alert prompts and the user-initiated rescue workflow, overseer_owns_host_detection removed entirely (conclude trial, not flip default), kept-surface + two backstop guardrails + grep-clean verification. cq-1 and non-goals accurately represented. Faithful render; no blocking concerns.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-06T22:15:36.588421+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d4275be6-57f3-4c",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=167077 util=0.17 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:15:51.385436+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f030e5f6-ccc2-4d",
+    "pipeline_id": "issue-3364",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:17:01.093676+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "05e99eb2-cbb3-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:17:08.904485+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "75e74b2f-114a-4c",
+    "pipeline_id": "issue-3364",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:19:15.825135+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e2edb16b-f252-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:19:35.452036+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a64f02ae-35e3-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from risk_analyst",
+    "body": "Risk assessment for issue #3364 plan phase (PRs B/C/D). Verdict MEDIUM / PROCEED_WITH_MITIGATIONS. Three file-disjoint slices, live-grounded against the tree (2026-07-06). 16 risks: PR B (LOW/additive) \u2014 RB1 slice.closed emitted inside the SliceScheduler lock (deadlock) must fire OUTSIDE the lock mirroring the _hitl_escalator seam; RB2 missing _STATUS_WAIT_EVENT_TYPES allowlist entry \u2192 silent drop; RB3 default-output regression; RB4 stdlib-purity. PR C (MEDIUM-HIGH, heaviest coverage) \u2014 RC1 over-broad rate-limit classification masking genuine abnormal/deterministic failures (key STRICTLY off all-producers streak AND bare-throttling wording; EX_AUTH_FATAL + abnormal unchanged per AC-C6); RC2 loop-guard is now the ONLY structural stop since cq-1 removed the wall-clock ceiling; RC3 loop-guard false-positive on advancing state; RC4 landed-slice preservation; RC5 must not conflate loop-guard escalation with a time-ceiling halt (violates binding cq-1 opt-3); RC6 threshold OVERSEER_ALERT fire-once/dedup; RC7 shared retry-window thread-safety. PR D (MEDIUM/gated deletion) \u2014 RD1 coverage-map gate must be real verification (D1 blocks D2/D3) with HITL-on-gap, not a silent dark delete; RD2 preserve render-on-alert AskUserQuestion flows; RD3 overseer_owns_host_detection removal grep-clean; RD4 B/D soft merge seam on routes/pipelines; RD5 host agent-* vocab has NO deterministic emitter (only dedup map + Haiku classifier LLM path) \u2192 any unmapped block is a HITL. Consistent with my ACKs of the architect plan and task_planner decomposition. (Artifact already on origin integration branch 6f2004a2bb, byte-identical to local; pushed via a prior pre-reseed invocation, hence push=false.)",
+    "metadata": {
+      "payload": {
+        "summary": "Risk assessment for issue #3364 plan phase (PRs B/C/D). Verdict MEDIUM / PROCEED_WITH_MITIGATIONS. Three file-disjoint slices, live-grounded against the tree (2026-07-06). 16 risks: PR B (LOW/additive) \u2014 RB1 slice.closed emitted inside the SliceScheduler lock (deadlock) must fire OUTSIDE the lock mirroring the _hitl_escalator seam; RB2 missing _STATUS_WAIT_EVENT_TYPES allowlist entry \u2192 silent drop; RB3 default-output regression; RB4 stdlib-purity. PR C (MEDIUM-HIGH, heaviest coverage) \u2014 RC1 over-broad rate-limit classification masking genuine abnormal/deterministic failures (key STRICTLY off all-producers streak AND bare-throttling wording; EX_AUTH_FATAL + abnormal unchanged per AC-C6); RC2 loop-guard is now the ONLY structural stop since cq-1 removed the wall-clock ceiling; RC3 loop-guard false-positive on advancing state; RC4 landed-slice preservation; RC5 must not conflate loop-guard escalation with a time-ceiling halt (violates binding cq-1 opt-3); RC6 threshold OVERSEER_ALERT fire-once/dedup; RC7 shared retry-window thread-safety. PR D (MEDIUM/gated deletion) \u2014 RD1 coverage-map gate must be real verification (D1 blocks D2/D3) with HITL-on-gap, not a silent dark delete; RD2 preserve render-on-alert AskUserQuestion flows; RD3 overseer_owns_host_detection removal grep-clean; RD4 B/D soft merge seam on routes/pipelines; RD5 host agent-* vocab has NO deterministic emitter (only dedup map + Haiku classifier LLM path) \u2192 any unmapped block is a HITL. Consistent with my ACKs of the architect plan and task_planner decomposition. (Artifact already on origin integration branch 6f2004a2bb, byte-identical to local; pushed via a prior pre-reseed invocation, hence push=false.)",
+        "attestation": {
+          "no_decisions_rationale": "No new cq-N registered this plan phase. The single decision this pipeline required (cq-1 \u2014 PR C paced-retry bounding) was raised and human-resolved during refine as opt-3 (no hard wall-clock ceiling + threshold OVERSEER_ALERT), captured verbatim in the architect plan (F4/AC-C5) and the task_planner draft HITL section. All plan-phase risks are addressable via reviewer review_gates and the existing resolved cq-1; the only latent operator decision \u2014 a PR-D host-detector block with no confirmed overseer emitter \u2014 is deferred by design to a HITL raised at point of discovery during implement (task-D-1 coverage-map), not pre-registered now."
+        },
+        "artifacts": [
+          ".egg-state/agent-outputs/3364-risk_analyst-output.json"
+        ],
+        "risk_considered": "Central hazards: PR C over-broad rate-limit classification (RC1) and the loop-guard being the sole structural stop after cq-1 removed the ceiling (RC2/RC5); PR D silent dark-gap deletion if the coverage-map gate is rubber-stamped (RD1/RD5); PR B lock-held emit deadlock (RB1). All addressable via the enumerated reviewer gates + the existing resolved cq-1 + HITL-on-gap in PR D task-D-1; no NEW operator decision required at plan time.",
+        "commit_sha": "6f2004a2bb125f0b4ff37d6a21af507354441eff",
+        "files_changed": [
+          ".egg-state/agent-outputs/3364-risk_analyst-output.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "6f2004a2bb125f0b4ff37d6a21af507354441eff"
+    },
+    "timestamp": "2026-07-06T22:20:10.215141+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c6ce4487-58b7-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "simplifier",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-07-06T22:20:10.216322+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "366e2311-8c88-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by simplifier",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-06T22:20:15.255417+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "07d78a29-9290-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:20:16.568817+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3df4f149-9d1d-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:20:16.839597+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4981584d-a93b-47",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:20:27.826775+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d209c770-c075-49",
+    "pipeline_id": "issue-3364",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:20:30.551381+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5d7a8426-0f4b-46",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_plan",
+    "to_role": "risk_analyst",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for risk_analyst",
+    "body": "Re-confirm ACK. New tip SHA (6f2004a2b) from a branch rebase, but the risk_analyst artifact is byte-identical to my prior full ACK at f774a012 \u2014 verified via git blob hash (3364-risk_analyst-output.json = ab531212a at both SHAs; path-scoped diff is empty). No new claims to verify. Prior assessment stands: the risk assessment (MEDIUM / PROCEED_WITH_MITIGATIONS) is comprehensive, grounded on live-verified anchors, aligned with the architect plan and the binding cq-1 resolution, correctly ranks PR C as heaviest, and its per-risk review_gates + nack_conditions are actionable (RB1 lock-deadlock, RC1 over-broad classification, RC2/RC3 loop-guard both directions, RC4 landed-slice preservation, RC5 no hard ceiling, RD1 real gate with HITL escape, RD2 render-on-alert preservation, RD5 classifier-only parity). No blocking concerns.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3364-risk_analyst-output.json"
+        ],
+        "reason": "Re-confirm ACK. New tip SHA (6f2004a2b) from a branch rebase, but the risk_analyst artifact is byte-identical to my prior full ACK at f774a012 \u2014 verified via git blob hash (3364-risk_analyst-output.json = ab531212a at both SHAs; path-scoped diff is empty). No new claims to verify. Prior assessment stands: the risk assessment (MEDIUM / PROCEED_WITH_MITIGATIONS) is comprehensive, grounded on live-verified anchors, aligned with the architect plan and the binding cq-1 resolution, correctly ranks PR C as heaviest, and its per-risk review_gates + nack_conditions are actionable (RB1 lock-deadlock, RC1 over-broad classification, RC2/RC3 loop-guard both directions, RC4 landed-slice preservation, RC5 no hard ceiling, RD1 real gate with HITL escape, RD2 render-on-alert preservation, RD5 classifier-only parity). No blocking concerns.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-06T22:20:39.148174+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6c6af197-4c2e-49",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_plan",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-06T22:20:41.896460+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c96bc059-76ac-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=172030 util=0.17 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:20:46.801581+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "23f50d96-1f73-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "risk_analyst",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from risk_analyst for architect",
+    "body": "Re-ACK at re-anchored SHA 7a54494a. Verified `git diff a7ea0133 7a54494a` over both architect artifacts is EMPTY \u2014 content is byte-identical to the proposal I already risk-reviewed and ACKed. The new SHA is a branch consolidation (merge bringing all plan-phase producer commits onto one branch), not a content change. Prior risk verdict stands unchanged: PASS. Plan scopes PRs B/C/D as three mutually-independent file-disjoint slices (PR A #3421 excluded as landed); all grounding anchors re-verified live and TRUE; cq-1 binding resolution (no hard ceiling + threshold OVERSEER_ALERT) captured exactly; PR C weighted highest-risk with heaviest test coverage; PR D deletion gated on a genuine coverage-map with HITL-on-gap; render-on-alert preservation (AC-D3) flagged. No blocking risk.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3364-architect-output.json",
+          ".egg-state/agent-outputs/3364-architect-slices.yaml"
+        ],
+        "reason": "Re-ACK at re-anchored SHA 7a54494a. Verified `git diff a7ea0133 7a54494a` over both architect artifacts is EMPTY \u2014 content is byte-identical to the proposal I already risk-reviewed and ACKed. The new SHA is a branch consolidation (merge bringing all plan-phase producer commits onto one branch), not a content change. Prior risk verdict stands unchanged: PASS. Plan scopes PRs B/C/D as three mutually-independent file-disjoint slices (PR A #3421 excluded as landed); all grounding anchors re-verified live and TRUE; cq-1 binding resolution (no hard ceiling + threshold OVERSEER_ALERT) captured exactly; PR C weighted highest-risk with heaviest test coverage; PR D deletion gated on a genuine coverage-map with HITL-on-gap; render-on-alert preservation (AC-D3) flagged. No blocking risk.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-06T22:20:51.569337+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "34e8c383-2a6e-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "architect",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-07-06T22:20:51.571982+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "77d2dafb-e321-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by architect",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-06T22:20:51.971102+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9c7162e7-81e3-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-06T22:20:54.078358+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "65592466-529d-41",
+    "pipeline_id": "issue-3364",
+    "from_role": "risk_analyst",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from risk_analyst for task_planner",
+    "body": "Re-ACK at re-anchored SHA 7a54494a. Verified `git diff c6f6b35a 7a54494a` over both task_planner artifacts (3364-plan.md + 3364-plan-task-planner.json) is EMPTY \u2014 content is byte-identical to the proposal I already risk-reviewed and ACKed. The new SHA is a branch consolidation, not a content change. Prior risk verdict stands unchanged: PASS. Three mutually-independent slices (all dependencies: []); per-slice test file sets disjoint (fixing #3046 overlap); slice-3 (PR D) header present with the internal gate TASK-3-1 (coverage-map) as hard predecessor of TASK-3-2 (SKILL.md deletion) and TASK-3-3 (overseer_owns_host_detection removal), HITL-on-gap backstop; render-on-alert flows + Rescue Steps 1-3 preserved (AC-D3/D4); cq-1 resolution preserved verbatim. Consistent with the architect plan. No blocking risk.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3364-plan.md",
+          ".egg-state/agent-outputs/task_planner/3364-plan-task-planner.json"
+        ],
+        "reason": "Re-ACK at re-anchored SHA 7a54494a. Verified `git diff c6f6b35a 7a54494a` over both task_planner artifacts (3364-plan.md + 3364-plan-task-planner.json) is EMPTY \u2014 content is byte-identical to the proposal I already risk-reviewed and ACKed. The new SHA is a branch consolidation, not a content change. Prior risk verdict stands unchanged: PASS. Three mutually-independent slices (all dependencies: []); per-slice test file sets disjoint (fixing #3046 overlap); slice-3 (PR D) header present with the internal gate TASK-3-1 (coverage-map) as hard predecessor of TASK-3-2 (SKILL.md deletion) and TASK-3-3 (overseer_owns_host_detection removal), HITL-on-gap backstop; render-on-alert flows + Rescue Steps 1-3 preserved (AC-D3/D4); cq-1 resolution preserved verbatim. Consistent with the architect plan. No blocking risk.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-06T22:20:56.113746+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c4b3a46f-d0cb-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-07-06T22:20:56.115114+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8abdd380-715d-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "task_planner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-07-06T22:20:56.115260+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "faec0394-a629-4d",
+    "pipeline_id": "issue-3364",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by task_planner",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-06T22:20:57.782941+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4453a338-e0ee-4d",
+    "pipeline_id": "issue-3364",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by risk_analyst",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-06T22:20:57.784787+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0cd2017e-3915-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by simplifier",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-06T22:20:57.785045+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7e5157ce-4d5a-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_plan",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-06T22:20:57.785354+00:00",
+    "phase": "plan"
+  }
+]
