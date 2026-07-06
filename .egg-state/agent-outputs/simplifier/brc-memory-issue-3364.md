@@ -121,12 +121,14 @@ Issue #3364: slim the /sdlc skill to run + report + HITL. PR A already landed
   Alert (overseer_alert agent-heartbeat-stall re task_planner) only if a future
   premature plan-propose finds task_planner's newest heartbeat >15 min stale
   with no CONSENSUS_PROPOSE.
-- Latest identical premature plan-propose event: **#11 at 18:52Z** (update THIS
-  line in place for identical repeats; no new sections). #7–#11: task_planner
-  WORKING (hb #11: 18:51:11Z, ~1min old), 0 task_planner CONSENSUS_PROPOSE →
-  STILL BLOCKED on the propose signal. plan.md unchanged at 60cb40147 (not
-  amended). No escalation (task_planner live). Reseed recovery orphans:
-  176f07b26 (#6), 8639852ed (#8), 9c3280d95 (#9), b7f46a0c6 (#10).
+- Latest identical premature plan-propose event: **#12 at 18:53Z** (update THIS
+  line in place for identical repeats; no new sections). #7–#12: task_planner
+  WORKING (hb newest 18:51:11Z, ~2min old at #12), 0 task_planner
+  CONSENSUS_PROPOSE → STILL BLOCKED on the propose signal. plan.md unchanged at
+  60cb40147. No escalation (task_planner live; would trip only if hb >15min
+  stale ~19:06Z). #12: memory SURVIVED (no reseed; commit 8e06e193d held).
+  Reseed recovery orphans: 176f07b26 (#6), 8639852ed (#8), 9c3280d95 (#9),
+  b7f46a0c6 (#10).
 - **#10 NEW SIGNAL (18:49Z)**: `3364-plan.md` now EXISTS on disk, committed by
   task_planner at **60cb40147** ("task_planner: canonical plan draft 3364-plan.md
   (PRs B/C/D)"), in current HEAD lineage (worktree reseeded to 4ebf98a3e), clean/
