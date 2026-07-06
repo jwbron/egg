@@ -282,6 +282,14 @@ def _sync_contract_setup(
     # (observed live on issue-3364). Here the worktree exists and was just
     # reset to origin, so this call is authoritative. Forward-only +
     # best-effort; never raises.
+    #
+    # Awareness: this runs before the start_phase=implement safety-net
+    # populate, so on a fresh start_phase=implement pipeline it advances the
+    # contract REFINE->IMPLEMENT ahead of that populate. If the populate then
+    # fails the empty-contract guard (pipeline -> FAILED), the contract is left
+    # at IMPLEMENT with a driver_startup audit entry rather than staying at
+    # REFINE. This is cosmetic — the operator recovers via the empty-contract
+    # HITL, which re-establishes phase on repopulate/restart-plan.
     _pkg._sync_contract_phase_to_pipeline(pipeline, worktree_repo_path, source="driver_startup")
     return pipeline, False
 
