@@ -48,6 +48,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "0e6b70f09dfa39b9a10b2c51490a32ee31d1c56f": {
+      "branch": "egg/issue-3364/work",
+      "patch_id": "d7c900627b6382af54b1658f8fb86e76f790ef22",
+      "pipeline_id": "issue-3364",
+      "registered_at": "2026-07-06T22:10:37.333168+00:00",
+      "repo": null,
+      "role": "simplifier"
+    },
     "12ff15faf2991f4396479676ab735ca9771d6530": {
       "branch": "egg/issue-3364/work",
       "patch_id": null,
