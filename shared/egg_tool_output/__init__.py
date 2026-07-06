@@ -12,9 +12,12 @@ model**: an unbounded result is wasteful of context budget on every model
 hop, regardless of how large the SDK reader buffer is.
 
 This module is the shared helper referenced by #2805's "consistent across
-tools" requirement. It is deliberately a flat, stdlib-only module (no
-package ``__init__`` side effects, no ``claude_agent_sdk`` import) so both
-sides of the boundary can import it once ``shared/`` is on ``sys.path``:
+tools" requirement. It ships as a single-module package (``egg_tool_output/
+__init__.py``, a package rather than a flat ``egg_tool_output.py`` only so
+grimp registers it as a graph root — #3516) and is deliberately kept
+stdlib-only, with no ``claude_agent_sdk`` import and no import-time side
+effects, so both sides of the boundary can import it once ``shared/`` is on
+``sys.path``:
 
 * the **orchestrator** MCP server (operator-facing tools in
   ``orchestrator/mcp_tools.py``), and

@@ -45,6 +45,8 @@ SOURCE_PACKAGES: tuple[str, ...] = (
     "shared.egg_orchestrator",
     "shared.egg_overseer",
     "shared.egg_restrictions",
+    "shared.egg_session_placeholder",
+    "shared.egg_tool_output",
 )
 
 TEST_PACKAGES: tuple[str, ...] = (

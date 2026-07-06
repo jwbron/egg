@@ -408,12 +408,11 @@ class TestConsistencyC_PromptDerivesFromSpec:
     (covered by Consistency-B above).
     """
 
-    # ``orchestrator/routes/pipelines.py`` was decomposed into the
-    # ``orchestrator/routes/pipelines/`` package; the prompt-construction
-    # code (``resolve_artifact_path`` calls, agent-output path prose) now
-    # lives across its submodules. The ratchet reads the whole package,
-    # not a single module, so it keeps governing the prompts wherever they
-    # moved.
+    # ``pipelines.py`` was decomposed into the ``pipelines/`` package
+    # (the prompt-construction / ``resolve_artifact_path`` calls now live
+    # across ``_prompt_agent.py``, ``_populate.py``, ``_drafts.py``, …),
+    # so this invariant reads the concatenation of every module in the
+    # package rather than a single file.
     PIPELINES_PATH = Path(__file__).resolve().parents[3] / "orchestrator" / "routes" / "pipelines"
 
     # Ratchet against a regression: forbid raw
@@ -430,9 +429,9 @@ class TestConsistencyC_PromptDerivesFromSpec:
 
     @pytest.fixture(scope="class")
     def pipelines_text(self) -> str:
-        # Concatenate every submodule of the pipelines package so the
-        # ratchet spans the prompt-construction code wherever the
-        # decomposition placed it.
+        # Concatenate every module in the ``pipelines/`` package so the
+        # invariant covers the prompt builders wherever they live after
+        # the decomposition.
         return "\n".join(path.read_text() for path in sorted(self.PIPELINES_PATH.glob("*.py")))
 
     def test_pipelines_py_is_readable(self) -> None:
@@ -440,7 +439,7 @@ class TestConsistencyC_PromptDerivesFromSpec:
             f"missing: {self.PIPELINES_PATH} — has the package moved?"
         )
         assert any(self.PIPELINES_PATH.glob("*.py")), (
-            f"no submodules under {self.PIPELINES_PATH} — has the package moved?"
+            f"no modules under {self.PIPELINES_PATH} — has the package moved?"
         )
 
     def test_no_raw_agent_output_literals_remain(self, pipelines_text: str) -> None:
