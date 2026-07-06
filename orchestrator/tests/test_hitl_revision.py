@@ -24,6 +24,26 @@ from models import PhaseExecution, PipelineConfig, PipelinePhase, PipelineStatus
 from routes.pipelines import _APPROVE_KEYWORDS, _BARE_OPTION_LABELS
 
 
+def _pipelines_package_source() -> str:
+    """Concatenated source of every module in the routes/pipelines package.
+
+    #3312 slice-4 decomposed ``pipelines.py`` into a sub-package, so
+    ``inspect.getsource(pipelines)`` now returns only the barrel
+    ``__init__.py``. Source-token assertions must scan the whole package.
+    The submodules reach barrel globals via the ``_pkg.`` indirection;
+    stripping it restores the pre-split token space so the assertions
+    below keep pinning the same code shapes.
+    """
+    import inspect
+    from pathlib import Path
+
+    from routes import pipelines
+
+    pkg_dir = Path(inspect.getfile(pipelines)).parent
+    combined = "\n".join(p.read_text() for p in sorted(pkg_dir.glob("*.py")))
+    return combined.replace("_pkg.", "")
+
+
 class TestApproveKeywords:
     """Verify _APPROVE_KEYWORDS correctly classifies resolutions."""
 
@@ -173,17 +193,14 @@ class TestContractRePopulation:
         _populate_contract_from_plan should be called for plan phase
         regardless of review_cycles or hitl_review_cycles count.
         """
-        import inspect
 
         from routes.pipelines import _populate_contract_from_plan
 
         # Verify the function exists and is callable
         assert callable(_populate_contract_from_plan)
 
-        # Read the source of _run_pipeline to verify the guard was removed
-        from routes import pipelines
-
-        source = inspect.getsource(pipelines)
+        # Read the pipelines package source to verify the guard was removed
+        source = _pipelines_package_source()
 
         # The old guard was: if current_phase.value == "plan" and phase_execution.review_cycles == 0:
         # The new guard should just be: if current_phase.value == "plan":
@@ -215,11 +232,7 @@ class TestMaxHITLReviewCyclesConfig:
 
     def test_circuit_breaker_reads_hitl_config(self):
         """The pipeline source should reference config.max_hitl_review_cycles, not max_review_cycles."""
-        import inspect
-
-        from routes import pipelines
-
-        source = inspect.getsource(pipelines)
+        source = _pipelines_package_source()
         # The old code was: max_hitl_cycles = pipeline.config.max_review_cycles
         # It should now be: max_hitl_cycles = pipeline.config.max_hitl_review_cycles
         assert "pipeline.config.max_hitl_review_cycles" in source
@@ -659,11 +672,7 @@ class TestNoForceAdvance:
     """
 
     def _pipelines_source(self) -> str:
-        import inspect
-
-        from routes import pipelines
-
-        return inspect.getsource(pipelines)
+        return _pipelines_package_source()
 
     def test_force_advance_log_removed(self):
         """The "advancing despite feedback" force-advance log must be gone."""
@@ -982,11 +991,7 @@ class TestSyncPipelineDecisionsToContract:
 
     def test_sync_called_for_hitl_gate_phases(self):
         """Verify the pipeline source calls sync for both refine and plan phases."""
-        import inspect
-
-        from routes import pipelines
-
-        source = inspect.getsource(pipelines)
+        source = _pipelines_package_source()
 
         # The sync should be called when current_phase.value is in _HITL_GATE_PHASES
         assert "_sync_pipeline_decisions_to_contract" in source

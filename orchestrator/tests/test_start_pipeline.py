@@ -1446,7 +1446,10 @@ class TestSandboxJiraEnvBuilderSourceSnippet:
     """
 
     def test_source_exports_egg_jira_ticket_and_project(self):
-        src = (Path(__file__).parent.parent / "routes" / "pipelines.py").read_text()
+        src = "\n".join(
+            p.read_text(encoding="utf-8")
+            for p in sorted((Path(__file__).parent.parent / "routes" / "pipelines").rglob("*.py"))
+        )
         assert 'sandbox_env["EGG_JIRA_TICKET"]' in src
         assert 'sandbox_env["EGG_JIRA_PROJECT"]' in src
 
@@ -1454,7 +1457,10 @@ class TestSandboxJiraEnvBuilderSourceSnippet:
         """A regression check: the spawn-env assembly must never put
         ``JIRA_BASE_URL`` / ``JIRA_USERNAME`` / ``JIRA_API_TOKEN`` into
         ``sandbox_env`` (risk R7)."""
-        src = (Path(__file__).parent.parent / "routes" / "pipelines.py").read_text()
+        src = "\n".join(
+            p.read_text(encoding="utf-8")
+            for p in sorted((Path(__file__).parent.parent / "routes" / "pipelines").rglob("*.py"))
+        )
         for forbidden in ("JIRA_BASE_URL", "JIRA_USERNAME", "JIRA_API_TOKEN"):
             # Scan for any write to sandbox_env[<forbidden>].
             assert f'sandbox_env["{forbidden}"]' not in src, (
@@ -1478,7 +1484,10 @@ class TestSandboxJiraEnvBuilderSourceSnippet:
         slice agents are downgraded to the pipeline tip, breaking
         every slice-coder push (the original bug).
         """
-        src = (Path(__file__).parent.parent / "routes" / "pipelines.py").read_text()
+        src = "\n".join(
+            p.read_text(encoding="utf-8")
+            for p in sorted((Path(__file__).parent.parent / "routes" / "pipelines").rglob("*.py"))
+        )
         assert 'sandbox_env["EGG_BRANCH"]' not in src, (
             "orchestrator/routes/pipelines.py writes EGG_BRANCH into "
             "sandbox_env; the spawner is the single source of truth and "

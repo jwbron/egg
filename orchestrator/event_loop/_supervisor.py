@@ -368,8 +368,7 @@ def reset_exhausted(self) -> list[str]:
         self.retire(key)
     if cleared:
         logger.info(
-            "JobSupervisor: operator reset cleared %d exhausted key(s) — "
-            "fresh spawn budgets: %s",
+            "JobSupervisor: operator reset cleared %d exhausted key(s) — fresh spawn budgets: %s",
             len(cleared),
             ", ".join(cleared),
         )

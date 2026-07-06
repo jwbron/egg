@@ -662,7 +662,7 @@ def git_push() -> tuple[Response, int] | Response:
         _partition_fn: Any = getattr(_ar_mod, "partition_files_by_role", None) if _ar_mod else None
         if _partition_fn is None:
             try:
-                from agent_restrictions import (
+                from agent_restrictions import (  # type: ignore[import-untyped]
                     partition_files_by_role as _imported_partition,
                 )
 
@@ -680,7 +680,7 @@ def git_push() -> tuple[Response, int] | Response:
         )
         if _get_attributed_fn is None:
             try:
-                from git_client import (  # type: ignore[no-redef, import-untyped]
+                from git_client import (
                     get_attributed_changed_files_in_push as _imported_attr,
                 )
 

@@ -1424,8 +1424,10 @@ class TestBrcHistoryTypesDriftGuard:
     def test_handler_whitelist_matches_writer_set(self):
         import re
 
-        pipelines_path = ROOT / "orchestrator" / "routes" / "pipelines.py"
-        source = pipelines_path.read_text()
+        pipelines_pkg = ROOT / "orchestrator" / "routes" / "pipelines"
+        source = "\n".join(
+            p.read_text(encoding="utf-8") for p in sorted(pipelines_pkg.rglob("*.py"))
+        )
         match = re.search(
             r"^BRC_HISTORY_TYPES\s*=\s*frozenset\s*\(\s*\{(?P<body>.*?)\}\s*\)",
             source,
@@ -1433,7 +1435,7 @@ class TestBrcHistoryTypesDriftGuard:
         )
         assert match is not None, (
             "Could not locate ``BRC_HISTORY_TYPES = frozenset({...})`` "
-            f"literal in {pipelines_path}; the drift-guard regex needs "
+            f"literal in {pipelines_pkg}; the drift-guard regex needs "
             "updating to track the new shape."
         )
         writer_types = frozenset(re.findall(r'"([A-Z_]+)"', match.group("body")))
