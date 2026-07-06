@@ -1231,11 +1231,16 @@ class TestPlanCompleteCallSiteWireUp:
 
     @staticmethod
     def _run_pipeline_source() -> str:
+        # #3312 slice-4: the plan-complete branch moved out of
+        # ``_run_pipeline`` into ``_run_plan_advance`` (the per-phase
+        # handler split anticipated by the fragility note above). The
+        # submodule reaches barrel globals via ``_pkg.``; stripping it
+        # restores the pre-split token space these assertions pin.
         import inspect
 
-        from routes.pipelines import _run_pipeline
+        from routes.pipelines import _run_plan_advance
 
-        return inspect.getsource(_run_pipeline)
+        return inspect.getsource(_run_plan_advance).replace("_pkg.", "")
 
     def test_call_site_uses_populate_result_is_empty_contract_helper(self):
         """The call-site condition must route through the shared helper,
@@ -1348,11 +1353,16 @@ class TestSafetyNetForestViolationLandsOnEmptyContractHitl:
 
     @staticmethod
     def _run_pipeline_source() -> str:
+        # #3312 slice-4: the ``start_phase=implement`` safety net moved
+        # out of ``_run_pipeline`` into ``_start_phase_setup`` (the
+        # decomposition anticipated by the fragility note above). The
+        # submodule reaches barrel globals via ``_pkg.``; stripping it
+        # restores the pre-split token space these assertions pin.
         import inspect
 
-        from routes.pipelines import _run_pipeline
+        from routes.pipelines import _start_phase_setup
 
-        return inspect.getsource(_run_pipeline)
+        return inspect.getsource(_start_phase_setup).replace("_pkg.", "")
 
     def test_safety_net_catches_forest_validation_error(self):
         """The safety-net inner call must be wrapped in a try/except for

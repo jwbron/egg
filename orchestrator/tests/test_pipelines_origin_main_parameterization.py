@@ -86,7 +86,11 @@ class TestParameterizationCallSites:
         diff commands, recovery paths). If this count drops below 5, the
         parameterization has likely been partially reverted.
         """
-        source = inspect.getsource(pipelines_module)
+        # After the #3312 slice-4 decomposition the call sites live across the
+        # routes/pipelines/ package submodules (reached via ``_pkg.``), so scan
+        # the whole package directory rather than just the barrel module source.
+        _pkg_dir = Path(pipelines_module.__file__).parent
+        source = "".join(p.read_text() for p in sorted(_pkg_dir.glob("*.py")))
         # Count invocations, NOT the def line.
         invocation_count = source.count("_resolve_origin_ref(")
         # Definition (``def _resolve_origin_ref(``) contributes 1 match;

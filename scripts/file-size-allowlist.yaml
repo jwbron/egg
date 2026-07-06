@@ -19,8 +19,12 @@ caps:
   soft_lines: 800
   soft_bytes: 60000
 
+# The file-size decomposition program (#3312, continued by #3450/#3447) is
+# COMPLETE: every giant it targeted has been decomposed into a sub-package
+# whose barrel + submodules are all under the global cap. New entries should
+# only be added (with a tracking issue) for files awaiting their own
+# decomposition; the ratchet flags any allowlisted file that has dropped
+# back under the cap as stale.
 files:
-  orchestrator/routes/pipelines.py:
-    issue: "2248"
   orchestrator/concurrent_executor.py:
     issue: "3498"

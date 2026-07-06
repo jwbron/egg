@@ -45,7 +45,17 @@ if str(_orchestrator_path) not in sys.path:
     sys.path.insert(0, str(_orchestrator_path))
 
 
-_PIPELINES_SRC = (_orchestrator_path / "routes" / "pipelines.py").read_text(encoding="utf-8")
+# ``routes/pipelines`` was decomposed from a single ``pipelines.py`` module
+# into a sub-package (#3312 slice-4); concatenate every source file under the
+# package so the BLE001-narrowing audit still sees the full module surface
+# regardless of which submodule now holds each narrowed except-site.
+_PIPELINES_PKG = _orchestrator_path / "routes" / "pipelines"
+if _PIPELINES_PKG.is_dir():
+    _PIPELINES_SRC = "\n".join(
+        p.read_text(encoding="utf-8") for p in sorted(_PIPELINES_PKG.rglob("*.py"))
+    )
+else:  # pre-split fallback
+    _PIPELINES_SRC = (_orchestrator_path / "routes" / "pipelines.py").read_text(encoding="utf-8")
 
 
 def test_cascade_alert_gateway_import_uses_narrow_importerror() -> None:

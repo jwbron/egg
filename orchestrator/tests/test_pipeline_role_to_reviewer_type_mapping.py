@@ -98,7 +98,10 @@ class TestNoRedundantMappingDictNearLine:
     """
 
     def setup_method(self) -> None:
-        self.source = PIPELINES_PATH.read_text(encoding="utf-8")
+        self.source = "\n".join(
+            p.read_text(encoding="utf-8")
+            for p in sorted((PIPELINES_PATH.parent / "pipelines").rglob("*.py"))
+        )
 
     def test_no_explicit_dict_for_new_role_names(self) -> None:
         # Reject any dict literal that maps a new role-name string key to

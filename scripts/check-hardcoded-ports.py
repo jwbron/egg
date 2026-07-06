@@ -39,11 +39,9 @@ ALLOWLIST_PATHS = [
     "gateway/entrypoint.sh",
     "orchestrator/entrypoint.sh",
     # Gateway Python package has its own DEFAULT_PORT (source of truth for
-    # gateway) and squid-health-check helpers that connect to the proxy port
-    # directly (gateway.py was split into gateway/gateway/ in #3312 slice-3)
-    "gateway/gateway/__init__.py",
-    "gateway/gateway/_helpers.py",
-    "gateway/gateway/_server.py",
+    # gateway). Was the monolithic gateway/gateway.py before the #3312
+    # decomposition split it into a sub-package.
+    "gateway/gateway/",
     # Gateway tests may need hardcoded values
     "gateway/tests/",
     # Squid configuration template

@@ -277,7 +277,8 @@ def _resolve_space_key_for_payload(payload: Any) -> str | None:
     if space_id is None:
         return None
     client = _b().get_confluence_client()
-    return client.space_cache.key_for_id(str(space_id))  # type: ignore[no-any-return]
+    key: str | None = client.space_cache.key_for_id(str(space_id))
+    return key
 
 
 def _resolve_space_key_via_list(allowed: frozenset[str], space_id: str | None) -> str | None:
@@ -295,9 +296,9 @@ def _resolve_space_key_via_list(allowed: frozenset[str], space_id: str | None) -
     if not space_id:
         return None
     client = _b().get_confluence_client()
-    cached = client.space_cache.key_for_id(str(space_id))
+    cached: str | None = client.space_cache.key_for_id(str(space_id))
     if cached is not None:
-        return cached  # type: ignore[no-any-return]
+        return cached
     # Walk paginated /wiki/api/v2/spaces so a target space on page 2+ still
     # resolves.  populate_space_cache caps iterations defensively.
     try:
@@ -312,7 +313,8 @@ def _resolve_space_key_via_list(allowed: frozenset[str], space_id: str | None) -
         # so the outer post-fetch check fail-closes through
         # confluence_space_denied rather than leaking a Flask 500.
         return None
-    return client.space_cache.key_for_id(str(space_id))  # type: ignore[no-any-return]
+    warmed: str | None = client.space_cache.key_for_id(str(space_id))
+    return warmed
 
 
 def _confluence_clamp_limit(value: Any) -> int | None:

@@ -295,7 +295,11 @@ class TestAutoAdvanceRespawnsThread:
         """Extract the auto-advance block from _run_pipeline's source."""
         from routes import pipelines
 
-        source = inspect.getsource(pipelines._run_pipeline)
+        # #3312 slice-4: _run_pipeline moved into its own submodule, so its
+        # free barrel-global references are rewritten as ``_pkg.<name>``.
+        # Strip that decomposition-only prefix so these structural
+        # assertions (written against the pre-split text) keep matching.
+        source = inspect.getsource(pipelines._run_pipeline).replace("_pkg.", "")
         assert self._BLOCK_MARKER in source, (
             f"Could not find {self._BLOCK_MARKER!r} in _run_pipeline source. "
             "Tests rely on this token bracketing the auto-advance block; "
@@ -393,12 +397,17 @@ class TestRecoverPipelineClearsConcurrentState:
     _BLOCK_MARKER = "TEST_MARKER: recover_advance_clear"
 
     def _recover_advance_block(self) -> str:
-        """Extract the recover-advance clear block from start_pipeline."""
+        """Extract the recover-advance clear block from start_pipeline's body."""
         from routes import pipelines
 
-        source = inspect.getsource(pipelines.start_pipeline)
+        # #3312 slice-4: the ``@pipelines_bp.route`` decorator stays on the
+        # thin ``start_pipeline`` wrapper (decision-8) while its body moved to
+        # ``_start_pipeline_body`` in ``_routes_lifecycle.py``; introspect the
+        # body and strip the ``_pkg.`` barrel-reference prefix so this marker
+        # (and the pre-split assertions below) keep resolving.
+        source = inspect.getsource(pipelines._start_pipeline_body).replace("_pkg.", "")
         assert self._BLOCK_MARKER in source, (
-            f"Could not find {self._BLOCK_MARKER!r} in start_pipeline source. "
+            f"Could not find {self._BLOCK_MARKER!r} in _start_pipeline_body source. "
             "Tests rely on this token bracketing the recover_pipeline advance "
             "branch's clear call; if the block was moved or removed, update "
             "both source and tests."
@@ -450,7 +459,29 @@ class TestPostBrcBandSwallowsErrors:
     def _run_pipeline_source(self) -> str:
         from routes import pipelines
 
-        return inspect.getsource(pipelines._run_pipeline)
+        # _run_pipeline's setup blocks are being decomposed into helper
+        # functions (#3312 slice-4); include them so call-site coverage
+        # assertions still see the calls that moved out of the barrel body.
+        # The moved code (and its broad ``except``) is verbatim, so the pinned
+        # counts and try/except regexes below stay valid.
+        _EXTRACTED_HELPERS = (
+            "_sync_contract_setup",
+            "_run_hitl_gate_converge",
+            "_run_plan_advance",
+            "_run_pending_phase_init",
+            "_run_implement_advance",
+        )
+        parts = [inspect.getsource(pipelines._run_pipeline)]
+        for _name in _EXTRACTED_HELPERS:
+            _fn = getattr(pipelines, _name, None)
+            if _fn is not None:
+                parts.append(inspect.getsource(_fn))
+        # #3312 slice-4: _run_pipeline (and its extracted helpers) now live in
+        # submodules whose barrel-global references are rewritten as
+        # ``_pkg.<name>``; strip that decomposition-only prefix so the
+        # try/except structural regexes (written against the pre-split text)
+        # keep matching the post-BRC call sites.
+        return "\n".join(parts).replace("_pkg.", "")
 
     def test_sync_worktree_with_remote_is_wrapped(self):
         """The post-BRC worktree-sync call was unwrapped — a gateway HTTP
