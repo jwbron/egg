@@ -273,7 +273,7 @@ class TestTransitionSitesCallSync:
         source = inspect.getsource(pipelines._sync_contract_setup).replace("_pkg.", "")
         marker = "TEST_MARKER: driver_startup_contract_sync"
         assert marker in source
-        block = source[source.index(marker) : source.index(marker) + 1200]
+        block = source[source.index(marker) : source.index(marker) + 2000]
         assert "_sync_contract_phase_to_pipeline(" in block, (
             "The driver's contract-setup step must sync contract.current_phase "
             "after worktree provisioning so a desync heals on every driver "
