@@ -10,9 +10,87 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "PR C \u2014 when a rate-limit / subscription cap-wall persists, how should the windowed paced-retry bound itself? A weekly/subscription cap can stay shut for hours-to-days; \"retry across the rolling window, don't hammer\" sets the pacing but not the ceiling, and the ceiling is directly operator-visible (an unattended pipeline could sit paused a long time).",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Retry until the cap lifts with NO wall-clock ceiling \u2014 parse the reset time from the error to pace when present, else bounded backoff. Cap walls (incl. multi-day weekly caps) self-heal with no operator action.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Paced-retry up to a max wall-clock ceiling (e.g. a few hours), then escalate to HITL / halt so an unattended pipeline cannot silently sit for days.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Retry until the cap lifts (no hard ceiling) BUT emit an OVERSEER_ALERT once the wait crosses a threshold, so an attended operator is informed while auto-recovery continues.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-07-06T18:19:54.432123Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "PR C \u2014 when a rate-limit / subscription cap-wall persists, how should the windowed paced-retry bound itself? A weekly/subscription cap can stay shut for hours-to-days; \"retry across the rolling window, don't hammer\" sets the pacing but not the ceiling, and the ceiling is directly operator-visible (an unattended pipeline could sit paused a long time).",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Retry until the cap lifts with NO wall-clock ceiling \u2014 parse the reset time from the error to pace when present, else bounded backoff. Cap walls (incl. multi-day weekly caps) self-heal with no operator action.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Paced-retry up to a max wall-clock ceiling (e.g. a few hours), then escalate to HITL / halt so an unattended pipeline cannot silently sit for days.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Retry until the cap lifts (no hard ceiling) BUT emit an OVERSEER_ALERT once the wait crosses a threshold, so an attended operator is informed while auto-recovery continues.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: PR C \u2014 when a rate-limit / subscription cap-wall p...",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
