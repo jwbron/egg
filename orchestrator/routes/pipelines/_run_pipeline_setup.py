@@ -619,3 +619,109 @@ def _sync_source_branch_drafts(
                         pipeline_id=pipeline_id,
                         path=analysis_rel,
                     )
+
+
+def _resolve_worktree_repo(
+    pipeline, *, gateway_mode, pipeline_id, repo_path, spawner, store, worktree_repo_path
+):
+    """Resolve the per-pipeline worktree repo path + reconcile a stale
+    worktree (extracted verbatim from _run_pipeline). Returns (pipeline,
+    done); done=True -> caller returns immediately."""
+    if worktree_repo_path != repo_path:
+        # Determine whether the most recent prior phase completed
+        # successfully — this controls whether local-ahead commits are
+        # pushed (success) or discarded (failure).
+        prior_phase_succeeded = True
+        current_phase = pipeline.current_phase
+        phase_order = [
+            _pkg.PipelinePhase.REFINE,
+            _pkg.PipelinePhase.PLAN,
+            _pkg.PipelinePhase.IMPLEMENT,
+        ]
+        current_idx = phase_order.index(current_phase) if current_phase in phase_order else 0
+        if current_idx > 0:
+            prior_phase = phase_order[current_idx - 1]
+            prior_exec = pipeline.phases.get(prior_phase.value)
+            if prior_exec and prior_exec.status in (
+                _pkg.PipelineStatus.FAILED,
+                _pkg.PipelineStatus.CANCELLED,
+            ):
+                prior_phase_succeeded = False
+
+        # #2979: sync the worktree, pausing for a manual reconcile if
+        # it diverges and the rebase autoresolve can't reconcile it.
+        # The helper blocks (AWAITING_HUMAN) on a reconcile HITL and
+        # resumes the phase start once the operator acks — nothing is
+        # discarded and the pipeline is never failed for a recoverable
+        # divergence.
+        phase_start_sync_outcome, phase_start_sync_aborted = (
+            _pkg._sync_worktree_reconciling_divergence(
+                spawner,
+                pipeline_id,
+                store,
+                repo_path,
+                worktree_repo_path=worktree_repo_path,
+                phase=current_phase,
+                gateway_mode=gateway_mode,
+                base_branch=pipeline.base_branch,
+                pipeline_branch=pipeline.branch,
+                prior_phase_succeeded=prior_phase_succeeded,
+            )
+        )
+        if phase_start_sync_aborted:
+            # Operator aborted the manual reconcile (or the pause
+            # budget was exhausted).  Fail the pipeline; the local
+            # commits remain pinned under the backup ref for offline
+            # recovery — nothing was discarded.
+            _pkg._fail_pipeline_after_divergence_abort(
+                pipeline_id,
+                store,
+                phase=current_phase,
+                backup_ref=phase_start_sync_outcome.backup_ref,
+                local_only_commit_shas=phase_start_sync_outcome.local_only_commit_shas,
+            )
+            return pipeline, True
+
+        # When resuming a stale pipeline branch (cancelled run from
+        # days/weeks ago), rebase origin/<branch> onto origin/<base>
+        # before any orchestrator/agent commits land — otherwise the
+        # final PR carries 70+ stale-from-main commits as ancestors
+        # (#2098).  No-op for fresh pipelines and for branches already
+        # caught up with base.
+        if pipeline.branch and pipeline.base_branch:
+            try:
+                _pkg._rebase_pipeline_branch_onto_base(
+                    spawner,
+                    pipeline_id,
+                    worktree_repo_path,
+                    pipeline_branch=pipeline.branch,
+                    base_branch=pipeline.base_branch,
+                    gateway_mode=gateway_mode,
+                )
+            except _pkg.StalePipelineBranchError as stale_err:
+                with _pkg.get_pipeline_state_lock(pipeline_id):
+                    pipeline = store.load_pipeline(pipeline_id)
+                    pipeline.status = _pkg.PipelineStatus.FAILED
+                    pipeline.error = str(stale_err)
+                    store.save_pipeline(pipeline)
+                return pipeline, True
+
+        # Remove legacy unprefixed draft files (analysis.md, plan.md)
+        # that may have been left by earlier pipelines on this branch.
+        # Uses git rm so deletions are committed directly.  See #1559.
+        cleanup_committed = _pkg._cleanup_stale_generic_drafts(worktree_repo_path)
+        if cleanup_committed and pipeline.branch:
+            try:
+                spawner.gateway.push_worktree_branch(
+                    pipeline_id=pipeline_id,
+                    repo_path=str(worktree_repo_path),
+                    branch=pipeline.branch,
+                    mode=gateway_mode,
+                    base_branch=pipeline.base_branch,
+                )
+            except Exception:
+                _pkg.logger.warning(
+                    "Failed to push stale draft cleanup (continuing)",
+                    pipeline_id=pipeline_id,
+                )
+    return pipeline, False

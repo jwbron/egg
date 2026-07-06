@@ -1240,103 +1240,17 @@ def _run_pipeline(
         # statefiles) exist on the remote but not in the local checkout.
         # Fetching and resetting ensures downstream code (contract loading,
         # draft reading) sees the full pipeline state from prior phases.
-        if worktree_repo_path != repo_path:
-            # Determine whether the most recent prior phase completed
-            # successfully — this controls whether local-ahead commits are
-            # pushed (success) or discarded (failure).
-            prior_phase_succeeded = True
-            current_phase = pipeline.current_phase
-            phase_order = [
-                PipelinePhase.REFINE,
-                PipelinePhase.PLAN,
-                PipelinePhase.IMPLEMENT,
-            ]
-            current_idx = phase_order.index(current_phase) if current_phase in phase_order else 0
-            if current_idx > 0:
-                prior_phase = phase_order[current_idx - 1]
-                prior_exec = pipeline.phases.get(prior_phase.value)
-                if prior_exec and prior_exec.status in (
-                    PipelineStatus.FAILED,
-                    PipelineStatus.CANCELLED,
-                ):
-                    prior_phase_succeeded = False
-
-            # #2979: sync the worktree, pausing for a manual reconcile if
-            # it diverges and the rebase autoresolve can't reconcile it.
-            # The helper blocks (AWAITING_HUMAN) on a reconcile HITL and
-            # resumes the phase start once the operator acks — nothing is
-            # discarded and the pipeline is never failed for a recoverable
-            # divergence.
-            phase_start_sync_outcome, phase_start_sync_aborted = (
-                _sync_worktree_reconciling_divergence(
-                    spawner,
-                    pipeline_id,
-                    store,
-                    repo_path,
-                    worktree_repo_path=worktree_repo_path,
-                    phase=current_phase,
-                    gateway_mode=gateway_mode,
-                    base_branch=pipeline.base_branch,
-                    pipeline_branch=pipeline.branch,
-                    prior_phase_succeeded=prior_phase_succeeded,
-                )
-            )
-            if phase_start_sync_aborted:
-                # Operator aborted the manual reconcile (or the pause
-                # budget was exhausted).  Fail the pipeline; the local
-                # commits remain pinned under the backup ref for offline
-                # recovery — nothing was discarded.
-                _fail_pipeline_after_divergence_abort(
-                    pipeline_id,
-                    store,
-                    phase=current_phase,
-                    backup_ref=phase_start_sync_outcome.backup_ref,
-                    local_only_commit_shas=phase_start_sync_outcome.local_only_commit_shas,
-                )
-                return
-
-            # When resuming a stale pipeline branch (cancelled run from
-            # days/weeks ago), rebase origin/<branch> onto origin/<base>
-            # before any orchestrator/agent commits land — otherwise the
-            # final PR carries 70+ stale-from-main commits as ancestors
-            # (#2098).  No-op for fresh pipelines and for branches already
-            # caught up with base.
-            if pipeline.branch and pipeline.base_branch:
-                try:
-                    _rebase_pipeline_branch_onto_base(
-                        spawner,
-                        pipeline_id,
-                        worktree_repo_path,
-                        pipeline_branch=pipeline.branch,
-                        base_branch=pipeline.base_branch,
-                        gateway_mode=gateway_mode,
-                    )
-                except StalePipelineBranchError as stale_err:
-                    with get_pipeline_state_lock(pipeline_id):
-                        pipeline = store.load_pipeline(pipeline_id)
-                        pipeline.status = PipelineStatus.FAILED
-                        pipeline.error = str(stale_err)
-                        store.save_pipeline(pipeline)
-                    return
-
-            # Remove legacy unprefixed draft files (analysis.md, plan.md)
-            # that may have been left by earlier pipelines on this branch.
-            # Uses git rm so deletions are committed directly.  See #1559.
-            cleanup_committed = _cleanup_stale_generic_drafts(worktree_repo_path)
-            if cleanup_committed and pipeline.branch:
-                try:
-                    spawner.gateway.push_worktree_branch(
-                        pipeline_id=pipeline_id,
-                        repo_path=str(worktree_repo_path),
-                        branch=pipeline.branch,
-                        mode=gateway_mode,
-                        base_branch=pipeline.base_branch,
-                    )
-                except Exception:
-                    logger.warning(
-                        "Failed to push stale draft cleanup (continuing)",
-                        pipeline_id=pipeline_id,
-                    )
+        pipeline, _worktree_done = _resolve_worktree_repo(
+            pipeline,
+            gateway_mode=gateway_mode,
+            pipeline_id=pipeline_id,
+            repo_path=repo_path,
+            spawner=spawner,
+            store=store,
+            worktree_repo_path=worktree_repo_path,
+        )
+        if _worktree_done:
+            return
 
         # Resolve the certs named volume for gateway CA trust.
         # The docker-compose stack creates ${COMPOSE_PROJECT_NAME:-egg}-certs.
@@ -4162,8 +4076,9 @@ from ._run_implement_support import (  # noqa: E402,F401
     _contract_loader_impl,
     _persist_slice_status_complete_impl,
 )
-from ._run_pipeline_setup import (  # noqa: E402,F401  # noqa: E402,F401  # noqa: E402,F401  # noqa: E402,F401
+from ._run_pipeline_setup import (  # noqa: E402,F401  # noqa: E402,F401  # noqa: E402,F401  # noqa: E402,F401  # noqa: E402,F401
     _map_host_repos,
+    _resolve_worktree_repo,
     _start_phase_setup,
     _sync_contract_setup,
     _sync_source_branch_drafts,
