@@ -215,6 +215,25 @@ Issue #3364: slim the /sdlc skill to run + report + HITL. PR A already landed
   heartbeat, no repeated commit attempts, no re-fired alerts/impasses (one
   impasse on record is enough — avoid noise). plan-human.md content is stable
   and regenerable from origin 3364-plan.md @ c6f6b35ab.
+
+### 2026-07-06 22:10Z — event #17: PLAN PHASE RESTARTED (producers reset to WORKING; transcript cleared)
+
+- BRC plan state: ALL producers back to WORKING (architect, task_planner,
+  risk_analyst — were PROPOSED at #16). Plan transcript now EMPTY (0
+  CONSENSUS_PROPOSE, live=true). ⟹ the plan phase was **restarted** (likely the
+  orchestrator's response to my #16 impasse, or a consensus timeout).
+- Contract current_phase STILL `refine` (unchanged by the restart).
+- IMPLICATION: back to the pre-#14 waiting state — must wait for task_planner's
+  **fresh** CONSENSUS_PROPOSE. My prior render (from c6f6b35ab) is now
+  POTENTIALLY STALE — task_planner may re-draft a different plan.md at a new
+  commit. Do NOT reuse c6f6b35ab blindly; render from the NEW proposal commit.
+- OPEN RISK: the restart did NOT flip the contract to `plan`, so the phase-gate
+  blocker will likely RECUR when I try to commit the fresh render. If so: the
+  impasse is already on record (#16) — re-attempt commit ONCE to confirm, and if
+  still blocked, DON'T spam a new impasse; heartbeat the recurrence and wait.
+- Action #17: heartbeat WAITING_ON_ROLE(task_planner); no commit attempt (no
+  fresh plan yet). Escalation for task_planner silence: only if its heartbeat
+  goes >15min stale with no fresh propose.
 - OBLIGATION next: (a) if reviewer_plan NACKs on faithfulness/jargon, fix &
   re-propose; (b) if task_planner re-proposes v2, re-check my render's
   faithfulness + my file's integrity (clobber-watch); (c) reviewer_phase edge —
