@@ -18,6 +18,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -440,14 +441,22 @@ def test_dynamic_import_reachability_changed_module_in_seed_set() -> None:
 
 
 def test_dynamic_import_reachability_via_upstream() -> None:
-    """A changed module that imports a dynamic-import seed (transitively)
-    fires the dynamic-import trigger."""
+    """A changed module that a dynamic-import seed imports (transitively)
+    fires the dynamic-import trigger.
+
+    grimp "upstream" is the dependency direction: ``find_upstream_modules(
+    seed)`` returns the modules the seed imports, so a changed module in
+    that set is one the seed could dynamically load at runtime. (The stub
+    graph below just returns the map verbatim, so it pins the convention
+    rather than the real grimp direction — the real direction is asserted
+    against the live graph in the monorepo suite.)
+    """
     # Use a non-gateway module so R1 doesn't fire first.
     bundle = _StubBundle(
         all_modules={"sandbox.runner", "sandbox.plugin_loader"},
         dynamic_import_modules={"sandbox.plugin_loader"},
-        # `sandbox.runner` imports `sandbox.plugin_loader`, so plugin_loader's
-        # upstream set contains runner.
+        # `sandbox.plugin_loader` imports `sandbox.runner`, so runner is in
+        # plugin_loader's upstream (dependency) set.
         upstream_map={"sandbox.plugin_loader": {"sandbox.runner"}},
     )
     trigger = selector.evaluate_fallback_triggers(
@@ -483,6 +492,73 @@ def test_dynamic_import_test_seed_does_not_widen() -> None:
             lkg_was_stale=False,
         )
         assert trigger is None, changed
+
+
+def test_dynamic_import_test_seed_is_always_selected_in_narrow_run(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: Path
+) -> None:
+    """The safety-net half of the carve-out: a ``dynamic_import ∩ test``
+    seed appears in the emitted narrow selection even when the diff does
+    NOT statically reach it (#3516 reviewer non-blocking #2).
+
+    The trigger carve-out (``test_dynamic_import_test_seed_does_not_widen``)
+    is only sound *because* ``_run_narrow_or_fallback`` unconditionally
+    unions every dynamic-import test seed into the selected set. This test
+    pins that line: the reverse closure below yields only ``test_widget``,
+    yet ``test_dyn`` (a dynamic-import test seed the diff never reaches)
+    must still be printed. If the safety-net union regressed, the trigger
+    test would still pass while ``test_dyn`` silently vanished — this one
+    fails instead.
+    """
+    bundle = SimpleNamespace(
+        all_modules={"pkg.widget"},
+        all_test_modules={"tests.test_widget", "tests.test_dyn"},
+        dynamic_import_modules={"tests.test_dyn"},
+    )
+
+    # Land squarely in the narrow path: resolvable LKG baseline, a single
+    # changed production file, no fallback trigger, and a rescue walk that
+    # already reaches a test (so the zero-downstream widen doesn't fire).
+    monkeypatch.setattr(
+        selector._cli, "resolve_baseline", lambda repo_root: ("a" * 40, "LKG", "main")
+    )
+    monkeypatch.setattr(selector._cli, "lkg_is_stale", lambda repo_root: False)
+    monkeypatch.setattr(selector._io, "_run_git", lambda args, cwd=None: (0, "b" * 40 + "\n", ""))
+    monkeypatch.setattr(
+        selector._cli, "changed_files", lambda baseline_sha, repo_root=None: ["pkg/widget.py"]
+    )
+    monkeypatch.setattr(selector._cli, "build_graph", lambda repo_root: bundle)
+    monkeypatch.setattr(selector._cli, "evaluate_fallback_triggers", lambda **kw: None)
+    monkeypatch.setattr(
+        selector._cli, "_walk_upstream_combined", lambda b, mods: {"tests.test_widget"}
+    )
+    # Reverse closure reaches ONLY test_widget — test_dyn is invisible here.
+    monkeypatch.setattr(
+        selector._cli,
+        "reverse_closure_with_depth",
+        lambda b, pairs: {"pkg.widget": 0, "tests.test_widget": 1},
+    )
+    # Mirror the real map_modules_to_test_files semantics (intersect with
+    # all_test_modules, module id -> path) without touching disk.
+    monkeypatch.setattr(
+        selector._cli,
+        "map_modules_to_test_files",
+        lambda b, modules, root: sorted(
+            m.replace(".", "/") + ".py" for m in (set(modules) & b.all_test_modules)
+        ),
+    )
+    monkeypatch.setattr(selector._cli, "write_selection_record", lambda **kw: None)
+    # No explicit PYTEST_ARGS path, or the bypass branch would fire first.
+    monkeypatch.delenv("PYTEST_ARGS_RAW", raising=False)
+
+    rc = selector._cli._run_narrow_or_fallback(tmp_path)
+    assert rc == 0
+    out = capsys.readouterr().out.splitlines()
+    assert "tests/test_dyn.py" in out, (
+        f"dynamic-import test seed dropped from narrow selection: {out}"
+    )
+    # Sanity: the statically-reached test is still there too.
+    assert "tests/test_widget.py" in out
 
 
 # ----------------------------------------------------------------------

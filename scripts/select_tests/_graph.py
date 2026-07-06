@@ -1086,8 +1086,17 @@ def is_dynamic_import_touched(bundle: GraphBundle, changed_modules: Iterable[str
     for module in changed_modules:
         if module in seeds:
             return True
-    # Reverse-reachability: a changed module that imports a dynamic-
-    # import seed can also indirectly trigger dynamic loading.
+    # Reverse-reachability: ``find_upstream_modules(seed)`` returns the
+    # seed's own dependency subtree (grimp "upstream" == the modules the
+    # seed imports, the mirror of ``reverse_closure``'s
+    # ``find_downstream_modules`` == the modules that import the arg).
+    # Any changed module in that subtree is one the seed could load
+    # dynamically at runtime — an edge invisible to the static
+    # test->prod walk — so widen. This is the direction the gateway
+    # leaf-shaping guard (test_gateway_gateway_is_not_a_dynamic_import_seed)
+    # relies on: ``gateway.gateway`` transitively imports ~32 of 41
+    # gateway modules, so a dynamic-import primitive there would widen on
+    # any of their edits.
     for seed in seeds:
         try:
             upstream = bundle.graph.find_upstream_modules(seed, as_package=False)

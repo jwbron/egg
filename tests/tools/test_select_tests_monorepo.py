@@ -209,12 +209,15 @@ def test_no_source_files_missing_from_graph(real_repo_graph) -> None:
     grimp graph node.  An empty ``missing_source_paths`` list confirms
     PACKAGES covers the real repo layout."""
     missing = real_repo_graph.missing_source_paths
-    # Real-world allowlist: deeply nested helper modules sometimes
-    # don't resolve via grimp's package-import logic.  Tolerate up
-    # to a small handful, but anything > 5 indicates real drift.
-    assert len(missing) <= 5, (
-        f"{len(missing)} source files missing from grimp graph: {missing[:10]}"
-    )
+    # MUST be exactly zero.  Production (`_cli.py` R2 guard) falls back
+    # to the full suite the instant `missing_source_paths` is non-empty,
+    # so any drift here silently reverts `make test` to the full suite on
+    # every diff — the precise failure mode #3516 fixed.  The prior
+    # `<= 5` tolerance is what let two unregistered modules ship that
+    # regression unnoticed; assert `== 0` so the next drift fails loudly
+    # at CI instead.  If a genuinely-unresolvable helper ever appears,
+    # pin it in a NAMED allowlist here rather than widening the count.
+    assert missing == [], f"{len(missing)} source files missing from grimp graph: {missing[:10]}"
 
 
 # ----------------------------------------------------------------------
