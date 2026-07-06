@@ -11,6 +11,26 @@ import time
 
 from . import logger
 
+# Forward-only phase ordering, mirroring ``_CONTRACT_PHASE_ORDER`` in
+# ``routes/pipelines/_lifecycle_helpers.py`` (#3521). APPLY sits between PLAN
+# and IMPLEMENT (conditional, epic pipelines only; #1557). Used to make the
+# desync-detector repair text direction-aware. Kept as a local constant rather
+# than importing from ``routes`` to avoid coupling the overseer to the Flask
+# route package.
+_PHASE_ORDER = ("refine", "plan", "apply", "implement")
+
+
+def _phase_is_ahead(candidate: str, reference: str) -> bool:
+    """Return True when ``candidate`` is strictly later than ``reference``.
+
+    Unknown phases (outside ``_PHASE_ORDER``) yield ``False`` so the repair
+    text falls back to the common "contract behind" wording rather than
+    asserting a direction it can't establish.
+    """
+    if candidate not in _PHASE_ORDER or reference not in _PHASE_ORDER:
+        return False
+    return _PHASE_ORDER.index(candidate) > _PHASE_ORDER.index(reference)
+
 
 def _filter_current_phase_agents(self, alerts: list[dict], pipeline_status: dict) -> list[dict]:
     """Filter alerts to only include agents in the current phase.
@@ -336,16 +356,38 @@ async def _check_contract_phase_desync(self, phase_data: dict) -> None:
     if elapsed < threshold or pair in self._phase_desync_alerted:
         return
 
-    message = (
+    # Direction-aware repair text (#3521 review). In normal operation the
+    # pipeline advances first and the sync follows, so the contract is
+    # *behind* the pipeline (``contract < pipeline``) — "advance the
+    # contract" is the right fix. But the detector fires on *any* mismatch,
+    # and forward-only sync means a contract that is *ahead* of the pipeline
+    # record only arises from a real bug — exactly the alert an operator
+    # would be staring at. "Advance the contract" is nonsensical there, so
+    # steer them toward reconciliation instead of advancement.
+    contract_ahead = _phase_is_ahead(pair[0], pair[1])
+    header = (
         f"Contract phase desync: the SDLC contract's current_phase is "
         f"'{pair[0]}' but the pipeline record is in phase '{pair[1]}' "
         f"(mismatch observed for {elapsed:.0f}s while status=running). "
-        f"The gateway commit gate keys off the contract phase, so "
-        f"'{pair[1]}'-phase producers cannot commit phase-gated artifacts "
-        f"until the contract advances. Repair: advance the contract phase "
-        f"via the gateway phase API (a REVIEWER-role agent or HUMAN "
-        f"satisfies the transition rules). Pipeline: {self.pipeline_id}"
     )
+    if contract_ahead:
+        repair = (
+            f"The contract is AHEAD of the pipeline record, which forward-only "
+            f"sync never produces — this indicates a state-machine bug (a "
+            f"demoted pipeline record or an out-of-band contract write). Repair: "
+            f"reconcile the two records manually — do NOT simply advance the "
+            f"contract, and investigate how the pipeline record fell behind. "
+            f"Pipeline: {self.pipeline_id}"
+        )
+    else:
+        repair = (
+            f"The gateway commit gate keys off the contract phase, so "
+            f"'{pair[1]}'-phase producers cannot commit phase-gated artifacts "
+            f"until the contract advances. Repair: advance the contract phase "
+            f"via the gateway phase API (a REVIEWER-role agent or HUMAN "
+            f"satisfies the transition rules). Pipeline: {self.pipeline_id}"
+        )
+    message = header + repair
     logger.warning(
         "Contract phase desync detected for pipeline %s: contract=%s pipeline=%s",
         self.pipeline_id,

@@ -1444,6 +1444,38 @@ class TestContractPhaseDesync:
         monitor._broadcast_alert.assert_not_awaited()
         assert monitor._phase_desync_pair == ("plan", "implement")
 
+    def test_repair_text_when_contract_behind(self) -> None:
+        """Normal case (contract behind pipeline): repair steers toward advancing the contract."""
+        monitor = self._make_monitor("test-desync-007")
+        monitor._query_contract_data = AsyncMock(return_value={"current_phase": "refine"})
+        monitor._phase_desync_pair = ("refine", "plan")
+        monitor._phase_desync_first_seen = time.time() - 999
+
+        _run(monitor._check_contract_phase_desync({"current_phase": "plan", "status": "running"}))
+        monitor._broadcast_alert.assert_awaited_once()
+        message = monitor._broadcast_alert.await_args[0][2]
+        assert "advance the contract phase" in message
+        assert "AHEAD" not in message
+
+    def test_repair_text_when_contract_ahead(self) -> None:
+        """Anomalous case (contract ahead of pipeline record): repair steers toward reconciliation.
+
+        Forward-only sync never leaves the contract ahead, so this direction
+        signals a state-machine bug; "advance the contract" would be nonsensical
+        (#3521 review).
+        """
+        monitor = self._make_monitor("test-desync-008")
+        monitor._query_contract_data = AsyncMock(return_value={"current_phase": "implement"})
+        monitor._phase_desync_pair = ("implement", "plan")
+        monitor._phase_desync_first_seen = time.time() - 999
+
+        _run(monitor._check_contract_phase_desync({"current_phase": "plan", "status": "running"}))
+        monitor._broadcast_alert.assert_awaited_once()
+        message = monitor._broadcast_alert.await_args[0][2]
+        assert "AHEAD" in message
+        assert "reconcile" in message
+        assert "advance the contract phase via the gateway phase API" not in message
+
 
 # ===================================================================
 # test_cross_phase_consistency
