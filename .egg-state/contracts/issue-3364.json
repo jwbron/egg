@@ -88,7 +88,7 @@
           "id": "task-1-4",
           "description": "Tests for PR B: (a) --exclude-types drops a targeted event type and\n--quiet behaves per spec while the default (non-filtered) output is\nunchanged (regression guard for AC-B2); (b) a slice completion emits\nexactly one allowlisted slice.closed(success) and a slice failure\nemits exactly one allowlisted slice.closed(failure), each\ndistinguishable by outcome. make lint + make test green.",
           "status": "pending",
-          "commit": null,
+          "commit": "3593d497c311a30508c7205404df6abf7af07a03",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- AC-B5: both new flags (drop-a-type + quiet) and both emit sites\n  (completion + failure, each exactly one allowlisted slice.closed)\n  covered; suite green.",
@@ -564,6 +564,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T23:19:34.503919Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.3.commit",
+      "old_value": null,
+      "new_value": "3593d497c311a30508c7205404df6abf7af07a03",
+      "reason": "Linked commit 3593d49 to task-1-4",
       "checkpoint_id": null
     }
   ],
