@@ -11,11 +11,12 @@ production:
   (:class:`gateway.phase_filter.PhaseFilter`);
 * the gateway-mirror in the sandbox
   (:func:`egg_restrictions.phase_patterns.phase_file_verdict`);
-* the orchestrator's ``_get_draft_path`` helper in
-  ``orchestrator/routes/pipelines.py`` (used by refine / plan
+* the orchestrator's ``_get_draft_path`` helper in the
+  ``orchestrator/routes/pipelines/`` package (used by refine / plan
   propose validation in ``orchestrator/routes/signals.py``); and
-* the prompt f-string literals in ``orchestrator/routes/pipelines.py``
-  that name draft / agent-output paths to the agent.
+* the prompt f-string literals in the ``_prompt_*.py`` submodules of
+  ``orchestrator/routes/pipelines/`` that name draft / agent-output
+  paths to the agent.
 
 This module is the refine-risk-1 mitigation from the #3077 plan: any
 future drift in any of these replicas fails CI here instead of
@@ -408,9 +409,18 @@ class TestConsistencyC_PromptDerivesFromSpec:
     (covered by Consistency-B above).
     """
 
-    PIPELINES_PATH = (
-        Path(__file__).resolve().parents[3] / "orchestrator" / "routes" / "pipelines.py"
+    # ``pipelines.py`` was decomposed into the ``routes/pipelines/``
+    # package (decomposition pattern, #3312); the agent-facing prompt
+    # builders now live in its ``_prompt_*.py`` submodules. The invariants
+    # below scan the concatenation of those submodules — the successor to
+    # the pre-split monolith's prompt-construction code.
+    PROMPT_BUILDER_DIR = (
+        Path(__file__).resolve().parents[3] / "orchestrator" / "routes" / "pipelines"
     )
+
+    @classmethod
+    def _prompt_builder_files(cls) -> list[Path]:
+        return sorted(cls.PROMPT_BUILDER_DIR.glob("_prompt_*.py"))
 
     # Ratchet against a regression: forbid raw
     # ``.egg-state/agent-outputs/{_identifier}-…`` f-string literals
@@ -426,10 +436,14 @@ class TestConsistencyC_PromptDerivesFromSpec:
 
     @pytest.fixture(scope="class")
     def pipelines_text(self) -> str:
-        return self.PIPELINES_PATH.read_text()
+        return "\n".join(p.read_text() for p in self._prompt_builder_files())
 
     def test_pipelines_py_is_readable(self) -> None:
-        assert self.PIPELINES_PATH.exists(), f"missing: {self.PIPELINES_PATH} — has the file moved?"
+        files = self._prompt_builder_files()
+        assert files, (
+            f"no prompt-builder submodules (_prompt_*.py) found under "
+            f"{self.PROMPT_BUILDER_DIR} — has the pipelines package moved?"
+        )
 
     def test_no_raw_agent_output_literals_remain(self, pipelines_text: str) -> None:
         # Slice-3 of #3077 removed every
