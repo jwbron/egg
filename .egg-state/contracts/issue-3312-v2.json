@@ -487,7 +487,7 @@
       "id": "slice-4",
       "name": "Decompose orchestrator/routes/pipelines.py (30,520 lines, STRUCTURAL OUTLIER, OVER BYTE CAP): _run_pipeline split (#3312 slice-19 equivalent, non-negotiable #7)",
       "goal": "Decompose `orchestrator/routes/pipelines.py` (30,520 lines / 1.44 MB) into a sub-package; drop the LAST allowlist entry (files: map EMPTY); seam coverage in orchestrator/CLAUDE.md. Depends on the previous slice (single linear chain). Closes #3312.",
-      "status": "in_progress",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -629,8 +629,8 @@
       "parent_branch_at_creation": "egg/issue-3312-v2/slice-3",
       "integration_base_sha": "64fa3077375a9f297d97842ab0187ade87d0e3c9",
       "commit": null,
-      "pr_number": null,
-      "pr_url": null,
+      "pr_number": 3512,
+      "pr_url": "https://github.com/jwbron/egg/pull/3512",
       "repo": null,
       "review_feedback": []
     }
