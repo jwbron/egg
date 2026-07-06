@@ -46,6 +46,28 @@ class TestEvent:
         assert "timestamp" in result
 
 
+class TestSliceClosedEventType:
+    """The ``slice.closed`` lifecycle event (PR B, issue #3364)."""
+
+    def test_slice_closed_member_exists_with_wire_value(self):
+        # The wire value is what the /status/wait allowlist and the skill's
+        # client-side filters key on, so pin it explicitly.
+        assert EventType.SLICE_CLOSED.value == "slice.closed"
+
+    def test_slice_closed_event_serializes_outcome_payload(self):
+        # The emit site ships ``{slice_id, outcome}`` so a monitor can tell
+        # success from failure without a second lookup.
+        event = Event(
+            event_type=EventType.SLICE_CLOSED,
+            pipeline_id="issue-3364",
+            data={"slice_id": "slice-1", "outcome": "complete"},
+        )
+        result = event.to_dict()
+        assert result["event_type"] == "slice.closed"
+        assert result["data"]["slice_id"] == "slice-1"
+        assert result["data"]["outcome"] == "complete"
+
+
 class TestEventBus:
     """Tests for EventBus."""
 
