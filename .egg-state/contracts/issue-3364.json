@@ -48,6 +48,32 @@
       "resolved_at": "2026-07-06T18:30:26.906084Z",
       "debounce_until": null,
       "redirect_seed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.\n\nDecision ledger: 1 decision(s) registered this phase (cq-1), 0 resolved.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Resolved Questions:\n\n**PR C \u2014 when a rate-limit / subscription cap-wall persists, how should the windowed paced-retry bound itself?**\nAnswer: Retry until the cap lifts (no hard ceiling) BUT emit an OVERSEER_ALERT once the wait crosses a threshold, so an attended operator is informed while auto-recovery continues. (Resolved as cq-1 on the contract.)",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-06T18:40:46.469923Z",
+      "debounce_until": null,
+      "redirect_seed": null
     }
   ],
   "workflow_owner": null,
