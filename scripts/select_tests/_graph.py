@@ -1071,13 +1071,32 @@ def reverse_closure(bundle: GraphBundle, module_path_pairs: Iterable[tuple[str, 
 
 def is_dynamic_import_touched(bundle: GraphBundle, changed_modules: Iterable[str]) -> bool:
     """Return True iff any changed module is in (or reverse-reachable
-    from) the dynamic-import seed set."""
-    seeds = bundle.dynamic_import_modules
+    from) a NON-test dynamic-import seed.
+
+    Test-module seeds are excluded from the full-suite fallback: a test
+    that dynamically loads production code has its invisible edges
+    covered by the always-selected safety net in the narrow path (every
+    test seed runs in every narrowed selection), and its static imports
+    are already followed by the normal reverse-closure walk. Before this
+    carve-out a single importlib-using test that imported a hub module
+    (test_queryable_env_jit -> routes.pipelines) forced the full suite
+    for 110 of 538 production modules.
+    """
+    seeds = bundle.dynamic_import_modules - bundle.all_test_modules
     for module in changed_modules:
         if module in seeds:
             return True
-    # Reverse-reachability: a changed module that imports a dynamic-
-    # import seed can also indirectly trigger dynamic loading.
+    # Reverse-reachability: ``find_upstream_modules(seed)`` returns the
+    # seed's own dependency subtree (grimp "upstream" == the modules the
+    # seed imports, the mirror of ``reverse_closure``'s
+    # ``find_downstream_modules`` == the modules that import the arg).
+    # Any changed module in that subtree is one the seed could load
+    # dynamically at runtime — an edge invisible to the static
+    # test->prod walk — so widen. This is the direction the gateway
+    # leaf-shaping guard (test_gateway_gateway_is_not_a_dynamic_import_seed)
+    # relies on: ``gateway.gateway`` transitively imports ~32 of 41
+    # gateway modules, so a dynamic-import primitive there would widen on
+    # any of their edits.
     for seed in seeds:
         try:
             upstream = bundle.graph.find_upstream_modules(seed, as_package=False)

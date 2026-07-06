@@ -409,18 +409,12 @@ class TestConsistencyC_PromptDerivesFromSpec:
     (covered by Consistency-B above).
     """
 
-    # ``pipelines.py`` was decomposed into the ``routes/pipelines/``
-    # package (decomposition pattern, #3312); the agent-facing prompt
-    # builders now live in its ``_prompt_*.py`` submodules. The invariants
-    # below scan the concatenation of those submodules — the successor to
-    # the pre-split monolith's prompt-construction code.
-    PROMPT_BUILDER_DIR = (
-        Path(__file__).resolve().parents[3] / "orchestrator" / "routes" / "pipelines"
-    )
-
-    @classmethod
-    def _prompt_builder_files(cls) -> list[Path]:
-        return sorted(cls.PROMPT_BUILDER_DIR.glob("_prompt_*.py"))
+    # ``pipelines.py`` was decomposed into the ``pipelines/`` package
+    # (the prompt-construction / ``resolve_artifact_path`` calls now live
+    # across ``_prompt_agent.py``, ``_populate.py``, ``_drafts.py``, …),
+    # so this invariant reads the concatenation of every module in the
+    # package rather than a single file.
+    PIPELINES_PATH = Path(__file__).resolve().parents[3] / "orchestrator" / "routes" / "pipelines"
 
     # Ratchet against a regression: forbid raw
     # ``.egg-state/agent-outputs/{_identifier}-…`` f-string literals
@@ -436,13 +430,17 @@ class TestConsistencyC_PromptDerivesFromSpec:
 
     @pytest.fixture(scope="class")
     def pipelines_text(self) -> str:
-        return "\n".join(p.read_text() for p in self._prompt_builder_files())
+        # Concatenate every module in the ``pipelines/`` package so the
+        # invariant covers the prompt builders wherever they live after
+        # the decomposition.
+        return "\n".join(path.read_text() for path in sorted(self.PIPELINES_PATH.glob("*.py")))
 
     def test_pipelines_py_is_readable(self) -> None:
-        files = self._prompt_builder_files()
-        assert files, (
-            f"no prompt-builder submodules (_prompt_*.py) found under "
-            f"{self.PROMPT_BUILDER_DIR} — has the pipelines package moved?"
+        assert self.PIPELINES_PATH.is_dir(), (
+            f"missing: {self.PIPELINES_PATH} — has the package moved?"
+        )
+        assert any(self.PIPELINES_PATH.glob("*.py")), (
+            f"no modules under {self.PIPELINES_PATH} — has the package moved?"
         )
 
     def test_no_raw_agent_output_literals_remain(self, pipelines_text: str) -> None:
