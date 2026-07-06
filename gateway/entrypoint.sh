@@ -337,12 +337,17 @@ if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] && [ "$(id -u)" = "0" ]; the
   gosu "$HOST_UID:$HOST_GID" git config --global user.name "$GIT_NAME"
   gosu "$HOST_UID:$HOST_GID" git config --global user.email "$GIT_EMAIL"
 
-  exec gosu "$HOST_UID:$HOST_GID" python3 gateway.py --host 0.0.0.0 --port 9848
+  # gateway.py became the gateway/ sub-package (#3312 slice-18); launch it as a
+  # module (`python3 -m gateway`, running gateway/__main__.py -> main()) instead
+  # of a script. WORKDIR /app is on sys.path so the flat sibling modules resolve.
+  exec gosu "$HOST_UID:$HOST_GID" python3 -m gateway --host 0.0.0.0 --port 9848
 else
   # Configure global git identity for gateway operations (commits, etc.)
   echo "Configuring git identity for gateway: $GIT_NAME <$GIT_EMAIL>"
   git config --global user.name "$GIT_NAME"
   git config --global user.email "$GIT_EMAIL"
 
-  exec python3 gateway.py --host 0.0.0.0 --port 9848
+  # gateway.py became the gateway/ sub-package (#3312 slice-18); launch as a
+  # module (see the gosu branch above for rationale).
+  exec python3 -m gateway --host 0.0.0.0 --port 9848
 fi
