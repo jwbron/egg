@@ -603,7 +603,7 @@
           "id": "task-4-6",
           "description": "make lint + make test-all green at the slice boundary. Mechanical patch-path rewrites in-slice; any latent bug surfaced by the _run_pipeline split is filed as a 'Part of #3312' follow-up, never bundled. Final program verification: empty allowlist + all 4 files under cap + every CLAUDE.md seam table populated.",
           "status": "pending",
-          "commit": null,
+          "commit": "81212959a",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Green; allowlist empty; no behavior change; full acceptance set satisfied.",
@@ -1189,6 +1189,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-4-5 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T07:45:02.749979Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.5.commit",
+      "old_value": null,
+      "new_value": "81212959a",
+      "reason": "Linked commit 8121295 to task-4-6",
       "checkpoint_id": null
     }
   ],
