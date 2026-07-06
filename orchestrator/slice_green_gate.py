@@ -40,23 +40,32 @@ Mechanics mirror the two established precedents:
 
   Fail-open also covers a narrow class of infrastructure faults *inside*
   check execution (#3417): the runner tags each red check whose combined
-  output contains one of the exact, high-confidence infra signatures in
-  ``_INFRA_OUTPUT_SIGNATURES`` (the sandbox git wrapper's gateway-down /
-  missing-env / session-auth errors, the kernel's ENOSPC message) or
-  whose process died by SIGKILL (the OOM killer). When *every* red check
-  in a verdict is infra-tagged, the gate fails open with a loud warning
-  instead of blocking; when genuine reds and infra-tagged reds mix, the
-  gate blocks on the genuine reds only. Signature matching runs over the
-  check's **full** output, not the truncated verdict tail, so an early
-  gateway error can't scroll out of detection.
+  output contains one of the exact, high-confidence infra signatures (the
+  sandbox git wrapper's gateway-down / missing-env / session-auth errors,
+  the kernel's ENOSPC message) or whose process died by SIGKILL (the OOM
+  killer). When *every* red check in a verdict is infra-tagged, the gate
+  fails open with a loud warning instead of blocking; when genuine reds
+  and infra-tagged reds mix, the gate blocks on the genuine reds only.
+  Signature matching runs over the check's **full** output, not the
+  truncated verdict tail, so an early gateway error can't scroll out of
+  detection.
 
   This classification is security-relevant: the signatures are matched
   against untrusted check output, so a check that *prints* a signature
-  while genuinely failing fails itself open. That is why the allowlist
-  is a handful of exact strings emitted only by egg's own plumbing,
-  never fuzzy patterns, and why
-  ``EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN=off`` restores the strict
-  every-red-blocks behavior.
+  while genuinely failing could fail itself open. Two guards keep that
+  surface tight. First, the allowlist is a handful of exact strings
+  emitted only by egg's own plumbing, never fuzzy patterns. Second, the
+  git-wrapper signatures are matched **whole-line** (the stripped output
+  line must *equal* the signature), not as a substring: this PR puts
+  those literals into egg's own ``test_slice_green_gate.py``, so a
+  genuine regression there would print one via pytest assertion
+  introspection — always mid-line behind an ``E``/``assert``/diff-marker
+  prefix — and whole-line matching rejects that, so the gate can't mask
+  its own red regression (see ``_INFRA_LINE_SIGNATURES``). The one
+  residual, accepted, hole is the SIGKILL arm: an OOM caused by the
+  slice's *own* memory-explosion bug is indistinguishable from an infra
+  OOM and fails open. ``EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN=off``
+  restores the strict every-red-blocks behavior.
 
 Rollout is staged via ``EGG_SLICE_GREEN_GATE``: ``off`` (default) →
 ``log`` (run checks, log the verdict loudly, never block — the soak mode
@@ -121,28 +130,50 @@ GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR = "EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN"
 _INFRA_FAIL_OPEN_DISABLED_VALUES = frozenset({"off", "0", "false", "no"})
 
 # Exact output signatures that identify an infrastructure fault inside a
-# check rather than a genuine failure (#3417). Security-relevant: these
-# are substring-matched against untrusted check output, so a check that
-# prints one fails itself open. Keep the list to exact strings emitted
-# only by egg's own plumbing (sandbox/scripts/git) or the kernel; never
-# add fuzzy patterns like "Killed" or "connection refused" that real
-# test output can legitimately contain.
-_INFRA_OUTPUT_SIGNATURES = (
+# check rather than a genuine failure (#3417). Security-relevant: matched
+# against untrusted check output, so a check that prints one fails itself
+# open. Keep the list to exact strings emitted only by egg's own plumbing
+# (sandbox/scripts/git) or the kernel; never add fuzzy patterns like
+# "Killed" or "connection refused" that real test output can legitimately
+# contain. The two groups differ only in match *mode*:
+#
+# ``_INFRA_LINE_SIGNATURES`` are matched **whole-line** (a stripped
+# output line must equal the signature), not as a substring. The sandbox
+# git wrapper emits each as a bare ``echo`` line, so whole-line matching
+# still catches the real fault — but it closes a self-masking hole the
+# #3417 review flagged: this PR puts these exact literals into egg's own
+# ``test_slice_green_gate.py``, so a *genuine* regression in a green-gate
+# test would print one via pytest assertion introspection (``assert None
+# == 'GATEWAY SIDECAR NOT AVAILABLE'``, a source-repr fixture literal, a
+# unified-diff ``-`` line). Every such form embeds the signature mid-line
+# behind an ``E ``/``assert``/``- ``/quote prefix, so whole-line matching
+# rejects it — the gate can no longer tag its own red regression as infra
+# and fail open (which would hide the very failure the gate exists to
+# catch, including a break in this tagging logic itself).
+_INFRA_LINE_SIGNATURES = (
     # sandbox/scripts/git: GATEWAY_URL was not wired into the runner pod.
     "ERROR: GATEWAY_URL environment variable is not set.",
     # sandbox/scripts/git show_gateway_unavailable(): the wrapper's
     # gateway health probe failed (gateway restart / network blip).
+    # Emitted inside a banner with leading whitespace — whole-line
+    # matching strips it before comparing.
     "GATEWAY SIDECAR NOT AVAILABLE",
     # sandbox/scripts/git: session token missing from the environment.
     "ERROR: EGG_SESSION_TOKEN not set. Session required for gateway access",
     # sandbox/scripts/git: gateway returned HTTP 401, i.e. a mid-run
     # session-token expiry or revocation.
     "Authentication failed - check session token",
-    # Kernel ENOSPC strerror: disk pressure on the node. A check can
-    # only hit this when the node is genuinely out of space, which is
-    # infrastructure either way.
-    "No space left on device",
 )
+
+# ``_INFRA_SUBSTRING_SIGNATURES`` are matched as a substring: the kernel
+# ENOSPC strerror surfaces embedded in a larger message (``[Errno 28] No
+# space left on device``) rather than on its own line, so whole-line
+# matching would miss it. Disk pressure is infrastructure however it
+# surfaces, and this string is far less likely than the git-wrapper lines
+# to appear as a bare test literal (the #3417 review's own assessment —
+# it called the four git-wrapper signatures the fragile ones and this arm
+# robust), so keeping it substring-matched is a deliberate, narrow risk.
+_INFRA_SUBSTRING_SIGNATURES = ("No space left on device",)
 
 # Wall-clock budget for the runner pod (spawn-to-terminal). A slice's
 # changeset-narrowed ``make test`` normally finishes well inside this;
@@ -202,16 +233,38 @@ import json, os, shutil, subprocess, sys, time
 checks = json.loads(os.environ["EGG_GREEN_GATE_CHECKS"])
 repo_dir = os.environ["EGG_GREEN_GATE_REPO_DIR"]
 tail = int(os.environ.get("EGG_GREEN_GATE_OUTPUT_TAIL", "4000"))
-infra_signatures = json.loads(os.environ.get("EGG_GREEN_GATE_INFRA_SIGNATURES", "[]"))
+infra_signatures = json.loads(os.environ.get("EGG_GREEN_GATE_INFRA_SIGNATURES", "{}"))
+infra_line_signatures = infra_signatures.get("line", [])
+infra_substring_signatures = infra_signatures.get("substring", [])
 
 
 def classify_infra(rc, out):
     # A SIGKILLed check (rc -9 when bash itself dies, 137 when bash
-    # reports a killed child) is the OOM killer or the pod deadline,
-    # never a check verdict: no test runner signals failure via SIGKILL.
+    # reports a killed child) is the OOM killer: no test runner signals
+    # failure via SIGKILL. Caveat (#3417 review): an OOM caused by the
+    # *slice's own* code — a memory-explosion bug in the code under test —
+    # is indistinguishable here from an infra OOM and is accepted as
+    # fail-open; the SIGKILL arm is the broad one. A pod-deadline kill
+    # takes down the runner (PID 1 python), not a check subprocess, so it
+    # never surfaces as a per-check 137 — that case fails open via the
+    # orchestrator's missing-verdict path, not here.
     if rc in (-9, 137):
-        return "check process died by SIGKILL (exit %s): OOM kill or pod deadline" % rc
-    for sig in infra_signatures:
+        return "check process died by SIGKILL (exit %s): OOM killer" % rc
+    # Whole-line match for the git-wrapper signatures: they are emitted as
+    # standalone lines, so requiring the full stripped line to equal the
+    # signature (not a substring) keeps a check that merely *prints* the
+    # literal mid-line — e.g. pytest assertion introspection of egg's own
+    # green-gate tests — from tagging itself infra and failing its own red
+    # open (#3417 review).
+    stripped_lines = None
+    for sig in infra_line_signatures:
+        if stripped_lines is None:
+            stripped_lines = {ln.strip() for ln in out.splitlines()}
+        if sig in stripped_lines:
+            return sig
+    # Substring match for the kernel ENOSPC strerror, which surfaces
+    # embedded in a larger message rather than on its own line.
+    for sig in infra_substring_signatures:
         if sig in out:
             return sig
     return None
@@ -414,7 +467,12 @@ def _build_runner_job_manifest(
     full_env["EGG_GREEN_GATE_CHECKS"] = json.dumps(checks)
     full_env["EGG_GREEN_GATE_REPO_DIR"] = repo_dir
     full_env["EGG_GREEN_GATE_OUTPUT_TAIL"] = str(_VERDICT_OUTPUT_TAIL_CHARS)
-    full_env["EGG_GREEN_GATE_INFRA_SIGNATURES"] = json.dumps(list(_INFRA_OUTPUT_SIGNATURES))
+    full_env["EGG_GREEN_GATE_INFRA_SIGNATURES"] = json.dumps(
+        {
+            "line": list(_INFRA_LINE_SIGNATURES),
+            "substring": list(_INFRA_SUBSTRING_SIGNATURES),
+        }
+    )
 
     volumes = []
     volume_mounts = []

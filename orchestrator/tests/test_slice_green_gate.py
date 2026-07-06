@@ -244,7 +244,12 @@ def _run_runner(
             "EGG_GREEN_GATE_CHECKS": json.dumps(checks),
             "EGG_GREEN_GATE_REPO_DIR": str(repo_dir),
             "EGG_GREEN_GATE_OUTPUT_TAIL": "200",
-            "EGG_GREEN_GATE_INFRA_SIGNATURES": json.dumps(list(sgg._INFRA_OUTPUT_SIGNATURES)),
+            "EGG_GREEN_GATE_INFRA_SIGNATURES": json.dumps(
+                {
+                    "line": list(sgg._INFRA_LINE_SIGNATURES),
+                    "substring": list(sgg._INFRA_SUBSTRING_SIGNATURES),
+                }
+            ),
             "EGG_GREEN_GATE_REQUIRE_PREBUILT": require_prebuilt,
             "EGG_GREEN_GATE_PREBUILT_BASE": str(
                 prebuilt_base if prebuilt_base is not None else tmp_path / "no-prebuilt"
@@ -370,6 +375,63 @@ class TestRunnerProgram:
         assert "GATEWAY SIDECAR NOT AVAILABLE" not in check["output_tail"]
         assert check["infra"] == "GATEWAY SIDECAR NOT AVAILABLE"
 
+    def test_signature_printed_midline_is_not_tagged(self, tmp_path: Path) -> None:
+        # The #3417-review self-masking guard: egg's own green-gate tests
+        # contain these literals, so a genuine regression prints them via
+        # pytest assertion introspection — always mid-line, behind an
+        # ``E``/``assert``/quote prefix. Whole-line matching must NOT tag
+        # such output as infra, or the gate would fail its own red open.
+        proc = _run_runner(
+            tmp_path,
+            [
+                {
+                    "name": "regressed-green-gate-test",
+                    "command": (
+                        "echo \"E       assert None == 'GATEWAY SIDECAR NOT AVAILABLE'\"; exit 1"
+                    ),
+                }
+            ],
+        )
+        verdict = sgg.parse_verdict(proc.stdout)
+        assert verdict is not None
+        check = verdict["checks"][0]
+        assert check["ok"] is False
+        assert check["infra"] is None
+
+    def test_indented_signature_line_is_tagged(self, tmp_path: Path) -> None:
+        # sandbox/scripts/git emits GATEWAY SIDECAR NOT AVAILABLE inside a
+        # banner with leading whitespace; whole-line matching strips the
+        # line before comparing, so the real fault still tags.
+        proc = _run_runner(
+            tmp_path,
+            [
+                {
+                    "name": "infra-red-banner",
+                    "command": "printf '  GATEWAY SIDECAR NOT AVAILABLE\\n'; exit 1",
+                }
+            ],
+        )
+        verdict = sgg.parse_verdict(proc.stdout)
+        assert verdict is not None
+        assert verdict["checks"][0]["infra"] == "GATEWAY SIDECAR NOT AVAILABLE"
+
+    def test_enospc_is_tagged_as_substring_midline(self, tmp_path: Path) -> None:
+        # ENOSPC surfaces embedded in a larger strerror, so it matches as
+        # a substring (not whole-line) — disk pressure is infra either way
+        # (#3417 review).
+        proc = _run_runner(
+            tmp_path,
+            [
+                {
+                    "name": "disk-red",
+                    "command": "echo 'OSError: [Errno 28] No space left on device'; exit 1",
+                }
+            ],
+        )
+        verdict = sgg.parse_verdict(proc.stdout)
+        assert verdict is not None
+        assert verdict["checks"][0]["infra"] == "No space left on device"
+
     def test_prebuilt_restore_copy_if_missing(self, tmp_path: Path) -> None:
         prebuilt = tmp_path / "prebuilt" / "jwbron--egg"
         (prebuilt / ".venv" / "bin").mkdir(parents=True)
@@ -471,9 +533,10 @@ class TestBuildRunnerJobManifest:
             e["name"]: e["value"]
             for e in manifest["spec"]["template"]["spec"]["containers"][0]["env"]
         }
-        assert json.loads(env["EGG_GREEN_GATE_INFRA_SIGNATURES"]) == list(
-            sgg._INFRA_OUTPUT_SIGNATURES
-        )
+        assert json.loads(env["EGG_GREEN_GATE_INFRA_SIGNATURES"]) == {
+            "line": list(sgg._INFRA_LINE_SIGNATURES),
+            "substring": list(sgg._INFRA_SUBSTRING_SIGNATURES),
+        }
 
     def test_env_carries_checks_and_repo_dir(self) -> None:
         manifest = _manifest()
