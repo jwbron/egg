@@ -45,7 +45,7 @@
           "id": "task-1-2",
           "description": "Add SLICE_CLOSED = \"slice.closed\" to the EventType StrEnum\n(orchestrator/events.py) and emit it at BOTH\nSliceScheduler.record_complete (slice_scheduler.py:361) and\nrecord_failure (:371). Add an injected emitter Callable to\nSliceScheduler.__init__ mirroring the existing _hitl_escalator seam\n(default None, stored, invoked OUTSIDE the scheduler lock) to avoid\nre-entrancy/deadlock \u2014 do NOT emit inside the lock. The payload must\nidentify the slice (slice_id) and distinguish success vs failure (an\noutcome/status field), so a consumer needs no second lookup.",
           "status": "complete",
-          "commit": "4fcf1ed7abf4ecfc6e3fcab94e0f68ab61d5f3f4",
+          "commit": "c2a77847ac88f0deb37a746bce1c9da9fc228022",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- AC-B3: slice.closed EventType exists; exactly one slice.closed\n  emitted at record_complete and one at record_failure; payload\n  identifies the slice and distinguishes success vs failure.\n- Emitter is invoked outside the scheduler lock (no re-entrancy/\n  deadlock); absent emitter (None) is a no-op.",
@@ -586,6 +586,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T23:21:29.905444Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": "4fcf1ed7abf4ecfc6e3fcab94e0f68ab61d5f3f4",
+      "new_value": "c2a77847ac88f0deb37a746bce1c9da9fc228022",
+      "reason": "Linked commit c2a7784 to task-1-2",
       "checkpoint_id": null
     }
   ],
