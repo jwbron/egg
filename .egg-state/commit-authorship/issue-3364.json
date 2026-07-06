@@ -216,6 +216,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "5601842095255e16c9bcd2f1f1d47c4ebfaaf2a5": {
+      "branch": "egg/issue-3364/slice-1",
+      "patch_id": "2e777a3db2d8b333f0627df4c34a2f9c5651253d",
+      "pipeline_id": "issue-3364",
+      "registered_at": "2026-07-06T23:21:18.120099+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "59df15381fb61693d1a6a7ec5444886723280ace": {
       "branch": "egg/issue-3364/work",
       "patch_id": null,
