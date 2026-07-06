@@ -551,3 +551,71 @@ def _start_phase_setup(pipeline, *, pipeline_id, pipeline_mode, store, worktree_
             ):
                 return pipeline, True
     return pipeline, False
+
+
+def _sync_source_branch_drafts(
+    *, gateway_mode, pipeline, pipeline_id, spawner, store, worktree_repo_path
+):
+    """Carry over analysis/plan drafts from the source branch when set (extracted verbatim from _run_pipeline; pure side-effect, no return)."""
+    if pipeline.source_branch and not (pipeline.plan is not None and pipeline.analysis is not None):
+        # source_branch is cleared inside _read_source_branch_artifacts
+        # when artifacts are actually found.
+        try:
+            _pkg._read_source_branch_artifacts(
+                repo_path=worktree_repo_path,
+                source_branch=pipeline.source_branch,
+                issue_number=pipeline.issue_number,
+                pipeline_id=pipeline_id,
+                store=store,
+                pipeline=pipeline,
+                source_artifact_prefix=pipeline.source_artifact_prefix,
+                spawner=spawner,
+                gateway_mode=gateway_mode,
+            )
+        except Exception:
+            _pkg.logger.warning(
+                "Failed to read artifacts from source branch",
+                source_branch=pipeline.source_branch,
+                pipeline_id=pipeline_id,
+                exc_info=True,
+            )
+
+        # Write source-branch artifacts to disk so the safety-net
+        # _populate_contract_from_plan() call below can find them.
+        # The inline-plan path writes drafts inside the contract_synced
+        # block, but that block is skipped on pipeline restarts
+        # (contract already synced).  Writing here ensures the draft
+        # files exist regardless of contract_synced state.
+        if pipeline.plan is not None or pipeline.analysis is not None:
+            drafts_dir = worktree_repo_path / ".egg-state" / "drafts"
+            drafts_dir.mkdir(parents=True, exist_ok=True)
+
+            if pipeline.plan is not None:
+                plan_rel = _pkg._get_draft_path(
+                    "plan",
+                    issue_number=pipeline.issue_number,
+                    pipeline_id=pipeline_id,
+                )
+                if plan_rel:
+                    plan_path = worktree_repo_path / plan_rel
+                    plan_path.write_text(pipeline.plan, encoding="utf-8")
+                    _pkg.logger.info(
+                        "Wrote source-branch plan draft to worktree",
+                        pipeline_id=pipeline_id,
+                        path=plan_rel,
+                    )
+
+            if pipeline.analysis is not None:
+                analysis_rel = _pkg._get_draft_path(
+                    "refine",
+                    issue_number=pipeline.issue_number,
+                    pipeline_id=pipeline_id,
+                )
+                if analysis_rel:
+                    analysis_path = worktree_repo_path / analysis_rel
+                    analysis_path.write_text(pipeline.analysis, encoding="utf-8")
+                    _pkg.logger.info(
+                        "Wrote source-branch analysis draft to worktree",
+                        pipeline_id=pipeline_id,
+                        path=analysis_rel,
+                    )

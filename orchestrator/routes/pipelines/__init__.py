@@ -1363,70 +1363,14 @@ def _run_pipeline(
         # Read artifacts from source branch if specified and inline values
         # were not provided.  This populates pipeline.plan and
         # pipeline.analysis so the contract creation block below can use them.
-        if pipeline.source_branch and not (
-            pipeline.plan is not None and pipeline.analysis is not None
-        ):
-            # source_branch is cleared inside _read_source_branch_artifacts
-            # when artifacts are actually found.
-            try:
-                _read_source_branch_artifacts(
-                    repo_path=worktree_repo_path,
-                    source_branch=pipeline.source_branch,
-                    issue_number=pipeline.issue_number,
-                    pipeline_id=pipeline_id,
-                    store=store,
-                    pipeline=pipeline,
-                    source_artifact_prefix=pipeline.source_artifact_prefix,
-                    spawner=spawner,
-                    gateway_mode=gateway_mode,
-                )
-            except Exception:
-                logger.warning(
-                    "Failed to read artifacts from source branch",
-                    source_branch=pipeline.source_branch,
-                    pipeline_id=pipeline_id,
-                    exc_info=True,
-                )
-
-            # Write source-branch artifacts to disk so the safety-net
-            # _populate_contract_from_plan() call below can find them.
-            # The inline-plan path writes drafts inside the contract_synced
-            # block, but that block is skipped on pipeline restarts
-            # (contract already synced).  Writing here ensures the draft
-            # files exist regardless of contract_synced state.
-            if pipeline.plan is not None or pipeline.analysis is not None:
-                drafts_dir = worktree_repo_path / ".egg-state" / "drafts"
-                drafts_dir.mkdir(parents=True, exist_ok=True)
-
-                if pipeline.plan is not None:
-                    plan_rel = _get_draft_path(
-                        "plan",
-                        issue_number=pipeline.issue_number,
-                        pipeline_id=pipeline_id,
-                    )
-                    if plan_rel:
-                        plan_path = worktree_repo_path / plan_rel
-                        plan_path.write_text(pipeline.plan, encoding="utf-8")
-                        logger.info(
-                            "Wrote source-branch plan draft to worktree",
-                            pipeline_id=pipeline_id,
-                            path=plan_rel,
-                        )
-
-                if pipeline.analysis is not None:
-                    analysis_rel = _get_draft_path(
-                        "refine",
-                        issue_number=pipeline.issue_number,
-                        pipeline_id=pipeline_id,
-                    )
-                    if analysis_rel:
-                        analysis_path = worktree_repo_path / analysis_rel
-                        analysis_path.write_text(pipeline.analysis, encoding="utf-8")
-                        logger.info(
-                            "Wrote source-branch analysis draft to worktree",
-                            pipeline_id=pipeline_id,
-                            path=analysis_rel,
-                        )
+        _sync_source_branch_drafts(
+            gateway_mode=gateway_mode,
+            pipeline=pipeline,
+            pipeline_id=pipeline_id,
+            spawner=spawner,
+            store=store,
+            worktree_repo_path=worktree_repo_path,
+        )
 
         # Create companion contract in the worktree (deferred from pipeline
         # creation so it doesn't pollute the main repo working directory).
@@ -4218,10 +4162,11 @@ from ._run_implement_support import (  # noqa: E402,F401
     _contract_loader_impl,
     _persist_slice_status_complete_impl,
 )
-from ._run_pipeline_setup import (  # noqa: E402,F401  # noqa: E402,F401  # noqa: E402,F401
+from ._run_pipeline_setup import (  # noqa: E402,F401  # noqa: E402,F401  # noqa: E402,F401  # noqa: E402,F401
     _map_host_repos,
     _start_phase_setup,
     _sync_contract_setup,
+    _sync_source_branch_drafts,
 )
 from ._run_support import (  # noqa: E402,F401
     _clear_stale_impasses_for_producers,
