@@ -53,6 +53,14 @@ if TYPE_CHECKING:
     pass
 
 
+# ``outcome`` values handed to the ``slice_closed_emitter`` seam so the
+# emitted ``slice.closed`` event distinguishes success from failure without
+# a second lookup (issue #3364). They mirror the terminal
+# ``SchedulerSliceState`` names.
+SLICE_OUTCOME_COMPLETE = "complete"
+SLICE_OUTCOME_FAILED = "failed"
+
+
 def _resolve_default(name: str, fallback: int | float) -> int | float:
     """Resolve a config default by importing the env-var helper lazily.
 
@@ -157,6 +165,14 @@ class SliceScheduler:
         # unit tests. Kept on the surface so the per-slice MCP control
         # work in #2199 can wire it in without re-introducing the API.
         hitl_escalator: Callable[[str, str], None] | None = None,
+        # Injected ``slice.closed`` emitter (issue #3364), mirroring the
+        # ``hitl_escalator`` seam: default ``None`` (no-op), stored, and
+        # invoked OUTSIDE the scheduler lock from ``record_complete`` /
+        # ``record_failure`` to avoid re-entrancy/deadlock. Called as
+        # ``emitter(slice_id, outcome)`` where ``outcome`` is one of
+        # ``SLICE_OUTCOME_COMPLETE`` / ``SLICE_OUTCOME_FAILED``; the wiring
+        # site builds the ``{"slice_id", "outcome"}`` event payload.
+        slice_closed_emitter: Callable[[str, str], None] | None = None,
     ) -> None:
         # Resolve env-var defaults lazily so callers that pass
         # explicit values keep their behaviour unchanged, but a bare
@@ -178,6 +194,7 @@ class SliceScheduler:
         self._failure_grace_seconds = max(0.0, float(failure_grace_seconds))
         self._time_fn = time_fn
         self._hitl_escalator = hitl_escalator
+        self._slice_closed_emitter = slice_closed_emitter
         self._lock = threading.RLock()
 
         self._graph: DependencyGraph[str] = DependencyGraph()
@@ -358,6 +375,23 @@ class SliceScheduler:
                 pass
         return tripped
 
+    def _emit_slice_closed(self, slice_id: str, outcome: str) -> None:
+        """Fire the injected ``slice.closed`` emitter outside the lock.
+
+        No-op when no emitter is configured. Emitter exceptions are
+        swallowed so a misbehaving consumer can't crash the scheduler —
+        mirroring the ``record_cycle`` HITL-escalator contract. MUST be
+        called after the scheduler lock is released to avoid
+        re-entrancy/deadlock (the emitter may issue event-bus / HTTP I/O).
+        """
+        emitter = self._slice_closed_emitter
+        if emitter is None:
+            return
+        try:
+            emitter(slice_id, outcome)
+        except Exception:  # noqa: BLE001
+            pass
+
     def record_complete(self, slice_id: str) -> None:
         """Record that the slice has reached CONSENSUS_CONFIRMED."""
         with self._lock:
@@ -367,6 +401,9 @@ class SliceScheduler:
             runtime.state = SchedulerSliceState.COMPLETE
             runtime.completed_at = self._time_fn()
             self._unblock_children(slice_id)
+        # Emit OUTSIDE the lock (re-entrancy/deadlock guard). Absent-slice
+        # early-returns above never reach here, so no spurious event fires.
+        self._emit_slice_closed(slice_id, SLICE_OUTCOME_COMPLETE)
 
     def record_failure(self, slice_id: str) -> None:
         """Record that the slice has failed.
@@ -386,6 +423,9 @@ class SliceScheduler:
             runtime.failed_at = now
             runtime.cascade_due_at = now + self._failure_grace_seconds
             self._pending_cascades[slice_id] = runtime.cascade_due_at
+        # Emit OUTSIDE the lock (re-entrancy/deadlock guard). Absent-slice
+        # early-returns above never reach here, so no spurious event fires.
+        self._emit_slice_closed(slice_id, SLICE_OUTCOME_FAILED)
 
     def cancel_cascade(self, slice_id: str) -> None:
         """Cancel an armed cascade — usually after HITL resolves the failure.

@@ -47,6 +47,14 @@ class EventType(StrEnum):
     PHASE_COMPLETED = "phase.completed"
     PHASE_FAILED = "phase.failed"
 
+    # Slice lifecycle (implement-phase slice DAG, issue #3364). Emitted
+    # once per slice when the scheduler records its terminal outcome —
+    # both success (record_complete) and failure (record_failure) — so a
+    # long-haul monitor can thread on slice closes without polling. The
+    # payload carries ``slice_id`` and an ``outcome`` field distinguishing
+    # success from failure, so a consumer needs no second lookup.
+    SLICE_CLOSED = "slice.closed"
+
     # NOTE: ``CONTEXT_PR_SKIPPED`` and ``CONTEXT_PR_FAILED`` (from
     # #2611) were removed in #2777 (cq-4 / TASK-2-1) along with the
     # plan→implement context-PR wrapper that produced them. The new
