@@ -1,0 +1,177 @@
+{
+  "issue": 3364,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "title": "Risk assessment — issue #3364 skill-slim: three independent slices B (monitoring tooling), C (supervision cap-wall hardening), D (gated skill deletion)",
+  "verdict": "MEDIUM / PROCEED_WITH_MITIGATIONS",
+  "summary": "Three file-disjoint slices with three distinct risk profiles, grounded live against the tree (branch egg/issue-3364-risk_analyst/work, 2026-07-06). PR B is additive/LOW — its only real hazard is emitting slice.closed inside the scheduler lock (deadlock) and forgetting the /status/wait allowlist entry (silent drop). PR C is the heaviest slice (MEDIUM-HIGH): an over-broad rate-limit classification that masks genuine deterministic/abnormal failures, plus a loop guard that is now the ONLY structural stop (cq-1 removed the wall-clock ceiling), plus landed-slice preservation across the restart_phase-equivalent. PR D is MEDIUM (gated deletion): the coverage-map gate must be real verification (D1 blocks D2/D3), over-deletion must not take out the render-on-alert AskUserQuestion flows, and the host agent-* vocab has NO deterministic emitter today (only a dedup map + the Haiku classifier LLM path), so 'parity' rests partly on a probabilistic path and any unmapped block is a HITL, not a silent delete.",
+  "grounded_against_tree": "2026-07-06, branch egg/issue-3364-risk_analyst/work. Verified live: auth_errors.py docstring :24-29 + comment :45-47 (429/'rate limit'/'overloaded' intentionally absent from _AUTH_FATAL_PATTERNS; a weekly/usage cap still matches on its own wording even over a 429); supervision_policy.py SUPERVISION_BACKOFF_CAP_SECONDS=30 (:19), SUPERVISION_FAILURE_STREAK_ALERT=10 (:27); slice_scheduler.py _hitl_escalator Callable seam injected at __init__ (:159/180) and invoked OUTSIDE the lock (:352-357), record_complete (:361) and record_failure (:371) emit NO event today; cq-1 resolved by human as opt-3 (unbounded paced retry + threshold OVERSEER_ALERT, NO hard wall-clock ceiling).",
+  "risks": [
+    {
+      "id": "RB1",
+      "slice": "PR B (slice 1)",
+      "risk": "slice.closed emitter invoked while the SliceScheduler lock is held → re-entrancy / deadlock that hangs the scheduler and stalls the whole pipeline.",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "mitigation": "Mirror the existing _hitl_escalator seam exactly: inject the emitter Callable at __init__ (default None, stored), and invoke it OUTSIDE the lock (as the escalator fires at :352-357), never inside record_complete/record_failure's `with self._lock:` block. Reviewer criterion: emitter call site is post-lock-release in BOTH record_complete and record_failure.",
+      "review_gate": "Confirm emitter fires outside the lock in both sites; a test that a completion and a failure each emit exactly one event without deadlock."
+    },
+    {
+      "id": "RB2",
+      "slice": "PR B (slice 1)",
+      "risk": "'slice.closed' omitted from _STATUS_WAIT_EVENT_TYPES (routes/pipelines/__init__.py:405) → the event is dropped by the /status/wait allowlist filter (_routes_status.py:349) before reaching wait-status consumers; the feature ships dead-on-arrival.",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "mitigation": "Add 'slice.closed' to the allowlist in the same slice; test asserts the emitted event survives the /status/wait filter.",
+      "review_gate": "Allowlist entry present + a test that slice.closed passes /status/wait."
+    },
+    {
+      "id": "RB3",
+      "slice": "PR B (slice 1)",
+      "risk": "--exclude-types / --quiet filtering regresses the default (unfiltered) output path or the existing --since/--inner-timeout/--max-iterations behavior of the launcher the skill's Monitor loop depends on.",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "mitigation": "Apply filtering only at the two json.dumps print sites (:249/:271); default (no flags) output byte-identical. Regression test: default output unchanged; --since/--inner-timeout/--max-iterations still behave.",
+      "review_gate": "Regression test for un-flagged default output."
+    },
+    {
+      "id": "RB4",
+      "slice": "PR B (slice 1)",
+      "risk": "Adding new imports/deps to the pure-stdlib self-contained launcher breaks its portability contract.",
+      "likelihood": "LOW",
+      "impact": "LOW",
+      "mitigation": "Client-side set-membership filtering with stdlib only; no new imports.",
+      "review_gate": "grep the diff for new import lines in skills/sdlc/bin/wait-status."
+    },
+    {
+      "id": "RC1",
+      "slice": "PR C (slice 2)",
+      "risk": "Over-broad transient rate-limit classification captures genuine abnormal / deterministic code failures, so a real bug is retried forever under 'cap wall' cover and never surfaces. This is the central hazard of the slice.",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "mitigation": "Key the new class STRICTLY off the conjunction: (a) the all-producers agent-invocation-failure streak signature (every producer failing, observable at concurrent_executor.py:988) AND (b) bare-throttling wording (429 / 'rate limit' / 'overloaded' — exactly the signatures auth_errors.py excludes from EX_AUTH_FATAL). A single producer failing, or non-throttling wording, must stay on the existing abnormal path. Invariance guard (AC-C6): EX_AUTH_FATAL and ordinary abnormal behave UNCHANGED.",
+      "review_gate": "Tests: throttling-streak → rate-limit (not abnormal); single-producer / non-throttling failure → still abnormal; EX_AUTH_FATAL (incl. matched weekly cap) → still fatal, NOT reclassified as transient retry."
+    },
+    {
+      "id": "RC2",
+      "slice": "PR C (slice 2)",
+      "risk": "Deterministic-loop guard fails to detect identical reproduction → infinite retry loop. Because cq-1 removed the wall-clock ceiling, this guard is now the ONLY structural stop for a failure that merely LOOKS transient but is actually deterministic.",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "mitigation": "Capture a stable failure fingerprint = failure signature + phase/slice progression. If a restart reproduces the IDENTICAL fingerprint at the SAME point, stop and escalate (deterministic) instead of looping. This slice warrants the heaviest test coverage in the pipeline.",
+      "review_gate": "Test: identical fingerprint across a restart → escalates (does not loop)."
+    },
+    {
+      "id": "RC3",
+      "slice": "PR C (slice 2)",
+      "risk": "Loop-guard FALSE POSITIVE — an advancing-state retry is mistaken for an identical reproduction → premature escalate/halt, defeating the intended auto-recovery across a multi-hour cap window.",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "mitigation": "Fingerprint must include phase/slice progression so 'the restart advanced state' → continue; only same-signature-AND-same-point → escalate.",
+      "review_gate": "Test: restart that advances state → continues (does NOT escalate)."
+    },
+    {
+      "id": "RC4",
+      "slice": "PR C (slice 2)",
+      "risk": "The restart_phase-equivalent resets completed slice runtimes → discards landed slice work (AC-C3 violation), forcing already-consensus-confirmed slices to re-run.",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "mitigation": "Re-arm only the in-flight / failed frontier; never reset SchedulerSliceState.COMPLETE runtimes or their completed_at.",
+      "review_gate": "Test: landed (COMPLETE) slices are preserved across a paced-retry restart."
+    },
+    {
+      "id": "RC5",
+      "slice": "PR C (slice 2)",
+      "risk": "Conflating the deterministic-loop-guard escalation with a wall-clock time-ceiling halt → violates the binding cq-1 resolution (operator explicitly chose opt-3: NO hard ceiling). The two triggers are orthogonal.",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "mitigation": "No hard wall-clock halt anywhere in the new path. The only escalations are (a) threshold OVERSEER_ALERT (visibility, not halt) and (b) loop-guard on identical reproduction. Keep them independent.",
+      "review_gate": "Reviewer verifies no time-elapsed halt is introduced; threshold path emits an alert and CONTINUES retrying."
+    },
+    {
+      "id": "RC6",
+      "slice": "PR C (slice 2)",
+      "risk": "Threshold OVERSEER_ALERT never fires (operator blind during a multi-day cap) or fires repeatedly (alert fatigue / dedup missing).",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "mitigation": "Emit once the cumulative wait crosses the threshold; dedup so a persistent cap does not re-alert every retry.",
+      "review_gate": "Test: threshold OVERSEER_ALERT fires once at the crossing, not per-retry."
+    },
+    {
+      "id": "RC7",
+      "slice": "PR C (slice 2)",
+      "risk": "Paced-retry window state shared across producers in JobSupervisor introduces a thread-safety race at the streak-tracking site (concurrent_executor.py:988), corrupting the classification or the retry cadence.",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "mitigation": "Guard the shared window/streak state under the existing supervisor lock; do not introduce lock-free mutation of the streak counter.",
+      "review_gate": "Reviewer confirms shared retry-window state mutation is synchronized."
+    },
+    {
+      "id": "RD1",
+      "slice": "PR D (slice 3)",
+      "risk": "The coverage-map gate is skipped or rubber-stamped and a host detector is deleted with NO overseer equivalent → that detection goes silently dark for every pipeline, not just attended /sdlc sessions.",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "mitigation": "D1 (coverage-map) MUST be a task-level blocker on D2 (SKILL.md deletion) and D3 (flag removal) — enforce via depends_on, not prose. The map names, per deleted block, a concrete emitter + OVERSEER_ALERT subject + the SKILL.md surface that renders it. Any block mapping to NO emitter is a HITL raised at the point of discovery.",
+      "review_gate": "task_planner encodes D1 → {D2,D3} depends_on edges; reviewer_plan confirms the gate is a real verification task with a HITL escape, not a rubber stamp."
+    },
+    {
+      "id": "RD2",
+      "slice": "PR D (slice 3)",
+      "risk": "Over-deletion removes the render-on-OVERSEER_ALERT AskUserQuestion flows (Long-Running Implement Phase + Unresolved NACK) while stripping host-side detection prose (AC-D3). Highest-consequence regression in PR D — the skill would stop surfacing alerts it still receives.",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "mitigation": "Scope the deletion to detection/trigger prose ONLY. Preserve both render-on-alert flows, the user-initiated Stuck Pipeline Rescue workflow (Steps 1-3 minus its host-side detection trigger), and the two thin last-resort backstops.",
+      "review_gate": "Reviewer criterion: both render-on-alert AskUserQuestion flows still fire on their OVERSEER_ALERTs post-deletion; Rescue workflow + backstops intact."
+    },
+    {
+      "id": "RD3",
+      "slice": "PR D (slice 3)",
+      "risk": "overseer_owns_host_detection removal is incomplete — a dangling getattr/reference or config key remains, leaving dead-but-live code that silently reads a now-absent field.",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "mitigation": "Remove the Field (_config.py:388) AND both getattr refs (_routes_status.py:126-127); grep-clean of the symbol is the completion check (grounded: only these two production refs exist).",
+      "review_gate": "grep for 'overseer_owns_host_detection' returns empty across the tree."
+    },
+    {
+      "id": "RD4",
+      "slice": "PR D (slice 3) × PR B (slice 1)",
+      "risk": "Soft merge seam: PR B edits orchestrator/routes/pipelines/__init__.py (allowlist) and PR D edits _routes_status.py (:126-127) — same split package. Concurrent landing could conflict or produce a subtle interaction in the /status/wait path.",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "mitigation": "Different regions of the package; flag for reviewer merge-seam awareness. No cross-blocking depends_on edge needed, but note it in the slice DAG so reviewers watch it if B and D land close together.",
+      "review_gate": "Reviewer notes the shared package; confirm the two edits do not overlap on landing."
+    },
+    {
+      "id": "RD5",
+      "slice": "PR D (slice 3)",
+      "risk": "The host agent-* vocab (agent-stall / agent-silent / agent-nack-unresolved / phase-long-running) has NO deterministic overseer emitter — it exists in production only as a last-alert dedup map (shared/egg_overseer/state.py:86) and is otherwise produced by the overseer Haiku classifier (LLM path). So 'parity' for those blocks rests on a probabilistic classifier firing, not a structural threshold detector.",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "mitigation": "The coverage-map must distinguish structural _broadcast_alert emitters (post_consensus_stall, incomplete_consensus_stall, etc.) from the classifier path, and for classifier-only blocks state explicitly that parity = 'the overseer classifies and emits an OVERSEER_ALERT the skill surfaces'. Any block whose parity cannot be confirmed on EITHER path is a HITL, not a delete.",
+      "review_gate": "Coverage-map labels each block's emitter path (structural vs classifier); classifier-only blocks are called out, not silently assumed equivalent to a deterministic detector."
+    }
+  ],
+  "cross_cutting": [
+    {
+      "id": "X1",
+      "note": "cq-1 is BINDING (human-resolved opt-3): PR C must implement unbounded paced retry + a threshold OVERSEER_ALERT and MUST NOT introduce any hard wall-clock ceiling/halt. Reviewer_plan and the eventual coder must both hold this line (RC5)."
+    },
+    {
+      "id": "X2",
+      "note": "Slice DAG: B, C, D are independent with NO cross-blocking edges. The ONLY ordering constraint is PR D's internal gate — D1 (coverage-map) blocks D2 (SKILL.md deletion) and D3 (flag removal). This must be encoded as task-level depends_on, not left to prose (RD1)."
+    },
+    {
+      "id": "X3",
+      "note": "Test-coverage weighting: PR C (RC1-RC4) carries the heaviest behavioral risk and should receive the densest test coverage; PR B is additive with two sharp edges (lock + allowlist); PR D risk is concentrated in the gate (RD1) and render-on-alert preservation (RD2)."
+    }
+  ],
+  "nack_conditions": [
+    "PR C plan omits the strict conjunction (all-producers streak AND bare-throttling wording) for the new class, or lacks the EX_AUTH_FATAL/abnormal invariance guard (RC1).",
+    "PR C introduces a hard wall-clock ceiling/halt, contradicting cq-1 (RC5), or lacks a deterministic-loop guard as the structural stop (RC2).",
+    "PR C plan does not require a landed-slice-preservation test for the restart_phase-equivalent (RC4).",
+    "PR D does not encode D1 (coverage-map) as a task-level blocker on D2/D3 (RD1), or treats the coverage-map as a rubber stamp with no HITL escape for unmapped blocks.",
+    "PR D deletion task is not scoped to detection/trigger prose only, or lacks a reviewer criterion that both render-on-alert flows still fire (RD2).",
+    "PR B emits slice.closed inside the scheduler lock (RB1) or omits the _STATUS_WAIT_EVENT_TYPES allowlist entry + its test (RB2)."
+  ]
+}
