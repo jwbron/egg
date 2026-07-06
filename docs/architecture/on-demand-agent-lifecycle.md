@@ -177,8 +177,13 @@ Under orchestrator ownership the worktree becomes a hot path.
    tree (the killed-mid-event signature; the #3023 post-mortem constraint
    means a predecessor pod killed mid-event must never leak unproposed
    residue into a successor's commit). A reset that discards commits ahead
-   of the tip logs their SHAs (salvageable via `salvage_agent_commits`,
-   [#3368](https://github.com/jwbron/egg/issues/3368)).
+   of the tip is auto-salvaged to an `egg/recovered/...` ref and durably
+   recorded as a message-bus system message to the role before the reset
+   runs ([#3509](https://github.com/jwbron/egg/issues/3509)), so a
+   resuming agent with no session memory can find and resume its prior
+   work instead of silently re-deriving it (falls back to log-only when
+   `pipeline_id` context is unavailable, or record-only when the salvage
+   push itself fails).
 3. **Before handing off to spawn:** translate the validated paths from
    orchestrator-local (under `WORKTREE_BASE_DIR`) to host paths, matching
    what the create path already gets from the gateway. An untranslated
