@@ -173,8 +173,8 @@ class TestGateTimeout:
 # ----------------------------------------------------------------------
 
 
-def _verdict_line(checks: list[dict[str, Any]]) -> str:
-    return sgg.VERDICT_SENTINEL + json.dumps({"checks": checks})
+def _verdict_line(checks: list[dict[str, Any]], **extra: Any) -> str:
+    return sgg.VERDICT_SENTINEL + json.dumps({"checks": checks, **extra})
 
 
 class TestParseVerdict:
@@ -434,6 +434,13 @@ class TestRunnerFixFlow:
     def test_no_git_repo_degrades_changed_files_to_none(self, tmp_path: Path) -> None:
         # No git init: the gateway-routed git diff is best-effort and a
         # failure must degrade to an unreported list, not a crash.
+        #
+        # Assumption: pytest's ``tmp_path`` (under the system temp root,
+        # e.g. ``/tmp``) is NOT nested inside any git repository, so the
+        # runner's ``git diff`` / ``git ls-files`` genuinely fail. If the
+        # tmp root ever moves under a checkout, git would succeed against
+        # the enclosing repo and these ``is None`` assertions would flip —
+        # a confusing failure that this note is here to explain.
         repo_dir = tmp_path / "egg"
         repo_dir.mkdir(exist_ok=True)
         (repo_dir / "file.txt").write_text("bad\n")
@@ -445,6 +452,54 @@ class TestRunnerFixFlow:
         assert fix["check_ok_after_fix"] is True
         assert fix["changed_files"] is None
         assert fix["changed_file_count"] is None
+        # Best-effort git failed, so the untracked delta is unknown and
+        # the orchestrator will refuse autofix (fail-safe).
+        final = verdict["final_verification"]
+        assert final["new_untracked_count"] is None
+
+    def test_final_verification_green_for_fixed_tree(self, tmp_path: Path) -> None:
+        _init_git_repo(tmp_path / "egg")
+        proc = _run_runner(tmp_path, [dict(self.FIXABLE_CHECK)])
+        assert proc.returncode == 0
+        verdict = sgg.parse_verdict(proc.stdout)
+        assert verdict is not None
+        final = verdict["final_verification"]
+        assert final["ran"] is True
+        # The final full re-run of every check against the fixed tree is
+        # green, and the fix only touched a tracked file.
+        assert final["all_ok"] is True
+        assert final["failed"] == []
+        assert final["new_untracked_count"] == 0
+
+    def test_final_verification_flags_fix_created_untracked_file(self, tmp_path: Path) -> None:
+        _init_git_repo(tmp_path / "egg")
+        # The fix repairs file.txt AND emits a new, non-ignored source
+        # file that git add -u would never stage.
+        proc = _run_runner(
+            tmp_path,
+            [
+                {
+                    "name": "lint",
+                    "command": "grep -q good file.txt",
+                    "fix": "printf 'good\\n' > file.txt; printf 'x\\n' > generated.py",
+                }
+            ],
+        )
+        assert proc.returncode == 0
+        verdict = sgg.parse_verdict(proc.stdout)
+        assert verdict is not None
+        final = verdict["final_verification"]
+        assert final["all_ok"] is True
+        assert final["new_untracked_count"] == 1
+        assert final["new_untracked_files"] == ["generated.py"]
+
+    def test_no_fix_applied_omits_final_verification(self, tmp_path: Path) -> None:
+        _init_git_repo(tmp_path / "egg")
+        proc = _run_runner(tmp_path, [{"name": "lint", "command": "true"}])
+        verdict = sgg.parse_verdict(proc.stdout)
+        assert verdict is not None
+        # No fix ran, so there is no combined tree to re-validate.
+        assert "final_verification" not in verdict
 
 
 # ----------------------------------------------------------------------
@@ -907,7 +962,23 @@ def _fixed(ok: bool = True) -> dict[str, Any]:
     }
 
 
-def _red_lint_verdict(*, fix: dict[str, Any] | None) -> str:
+def _final_verification(
+    *,
+    all_ok: bool = True,
+    failed: list[str] | None = None,
+    new_untracked_count: int | None = 0,
+    new_untracked_files: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "ran": True,
+        "all_ok": all_ok,
+        "failed": failed or [],
+        "new_untracked_files": (new_untracked_files if new_untracked_files is not None else []),
+        "new_untracked_count": new_untracked_count,
+    }
+
+
+def _red_lint_verdict(*, fix: dict[str, Any] | None, final: Any = "default") -> str:
     entry: dict[str, Any] = {
         "name": "lint",
         "ok": False,
@@ -916,7 +987,14 @@ def _red_lint_verdict(*, fix: dict[str, Any] | None) -> str:
     }
     if fix is not None:
         entry["fix"] = fix
-    return _verdict_line([entry, {"name": "test", "ok": True, "exit_code": 0, "output_tail": ""}])
+    checks = [entry, {"name": "test", "ok": True, "exit_code": 0, "output_tail": ""}]
+    # A fixable verdict carries the runner's final full re-run by default;
+    # pass ``final=None`` to model an old/degraded runner that omitted it.
+    if final == "default":
+        final = _final_verification() if fix is not None else None
+    if final is not None:
+        return _verdict_line(checks, final_verification=final)
+    return _verdict_line(checks)
 
 
 class TestGreenGateAutofixWiring:
@@ -1012,3 +1090,108 @@ class TestGreenGateAutofixWiring:
         ):
             assert _run_gate(spawner) is None
         autofix.assert_not_called()
+
+    def _assert_blocks_without_autofix(self, spawner: MagicMock, log: str) -> None:
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=log),
+            patch.object(sgg, "_delete_runner_job"),
+            patch.object(sgg, "_commit_and_push_autofix") as autofix,
+        ):
+            failure = _run_gate(spawner)
+        assert failure is not None
+        autofix.assert_not_called()
+
+    def test_final_rerun_red_blocks_without_autofix(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        # #3409: every failed check's own re-run went green, but the final
+        # full re-run of all checks against the combined tree is red (a
+        # fix broke another check) — the committed tip would be red.
+        log = _red_lint_verdict(
+            fix=_fixed(), final=_final_verification(all_ok=False, failed=["test"])
+        )
+        self._assert_blocks_without_autofix(_spawner(), log)
+
+    def test_fix_created_untracked_files_blocks_without_autofix(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        # #3409: the fix emitted a new source file. ``git add -u`` would
+        # drop it, so the pushed tip omits it and the check is red as
+        # pushed even though the runner's on-disk re-run was green.
+        log = _red_lint_verdict(
+            fix=_fixed(),
+            final=_final_verification(new_untracked_count=1, new_untracked_files=["gen/new.py"]),
+        )
+        self._assert_blocks_without_autofix(_spawner(), log)
+
+    def test_unknown_untracked_count_blocks_without_autofix(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        # #3409: a best-effort git failure left the untracked delta
+        # unknown; the gate refuses rather than risk a red pushed tip.
+        log = _red_lint_verdict(fix=_fixed(), final=_final_verification(new_untracked_count=None))
+        self._assert_blocks_without_autofix(_spawner(), log)
+
+    def test_missing_final_verification_blocks_without_autofix(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        # #3409: an old/degraded runner that omitted final_verification
+        # cannot prove the committed tree is green — refuse autofix.
+        log = _red_lint_verdict(fix=_fixed(), final=None)
+        self._assert_blocks_without_autofix(_spawner(), log)
+
+
+class TestAutofixReady:
+    """#3409 — ``_autofix_ready`` gating on the final full re-run."""
+
+    LINT_FAILED = [{"name": "lint", "fix": {"check_ok_after_fix": True}}]
+
+    def test_ready_when_final_green_and_no_new_untracked(self) -> None:
+        verdict = {"checks": [], "final_verification": _final_verification()}
+        ready, reason = sgg._autofix_ready(verdict, self.LINT_FAILED)
+        assert ready is True
+        assert reason == ""
+
+    def test_not_ready_when_a_failed_check_is_unfixable(self) -> None:
+        failed = [{"name": "lint", "fix": {"check_ok_after_fix": True}}, {"name": "test"}]
+        verdict = {"checks": [], "final_verification": _final_verification()}
+        ready, reason = sgg._autofix_ready(verdict, failed)
+        assert ready is False
+        assert "no fix" in reason
+
+    def test_not_ready_when_final_missing(self) -> None:
+        ready, reason = sgg._autofix_ready({"checks": []}, self.LINT_FAILED)
+        assert ready is False
+        assert "final full re-run" in reason
+
+    def test_not_ready_when_final_red(self) -> None:
+        verdict = {
+            "checks": [],
+            "final_verification": _final_verification(all_ok=False, failed=["test"]),
+        }
+        ready, reason = sgg._autofix_ready(verdict, self.LINT_FAILED)
+        assert ready is False
+        assert "test" in reason
+
+    def test_not_ready_when_untracked_created(self) -> None:
+        verdict = {
+            "checks": [],
+            "final_verification": _final_verification(
+                new_untracked_count=2, new_untracked_files=["a.py", "b.py"]
+            ),
+        }
+        ready, reason = sgg._autofix_ready(verdict, self.LINT_FAILED)
+        assert ready is False
+        assert "untracked" in reason
+        assert "a.py" in reason
+
+    def test_not_ready_when_untracked_count_unknown(self) -> None:
+        verdict = {
+            "checks": [],
+            "final_verification": _final_verification(new_untracked_count=None),
+        }
+        ready, reason = sgg._autofix_ready(verdict, self.LINT_FAILED)
+        assert ready is False
+        assert "untracked" in reason

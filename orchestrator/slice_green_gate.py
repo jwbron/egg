@@ -282,6 +282,34 @@ def tracked_changed_files():
     return [line for line in (proc.stdout or "").splitlines() if line.strip()]
 
 
+def untracked_files():
+    # Non-ignored untracked paths (#3409). ``--exclude-standard`` honours
+    # .gitignore, so check droppings (caches, selection JSON) that live
+    # in .gitignore are excluded; a fix that *creates* a new source file
+    # (codegen, a formatter that splits a module) shows up here. The
+    # orchestrator stages with ``git add -u``, which never picks up
+    # untracked files, so a fix that produces one would push a tree the
+    # final re-run never validated as committed — the caller refuses
+    # autofix when this set grew. ``None`` on failure degrades to unsafe.
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            cwd=repo_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
+        )
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    return sorted(line for line in (proc.stdout or "").splitlines() if line.strip())
+
+
+untracked_before = untracked_files()
+any_fix_applied = False
+
 results = []
 for check in checks:
     started = time.monotonic()
@@ -299,6 +327,7 @@ for check in checks:
         # fix command's exit code, decides success: a fixer may exit
         # non-zero while still having repaired everything the check
         # tests (or exit zero while leaving unfixable findings).
+        any_fix_applied = True
         fix_rc, fix_out = run_cmd(fix_cmd)
         rerun_rc, rerun_out = run_cmd(check["command"])
         changed = tracked_changed_files()
@@ -314,7 +343,46 @@ for check in checks:
     entry["duration_seconds"] = round(time.monotonic() - started, 1)
     results.append(entry)
 
-print("EGG_GREEN_GATE_VERDICT:" + json.dumps({"checks": results}), flush=True)
+# #3409: once any fix has run, the per-check re-runs above each validated
+# an *intermediate* tree — check i re-ran before check i+1's fix, and
+# originally-green checks were validated pre-fix and never re-run. The
+# orchestrator, however, commits one tree with *all* fixes applied. To
+# make "the committed tip is validated green" true in general (not just
+# for a single-check config), re-run every check once more against the
+# final fixed tree and report the aggregate. The orchestrator gates
+# autofix on this pass, not on the per-check re-runs.
+verdict = {"checks": results}
+if any_fix_applied:
+    final_checks = []
+    for check in checks:
+        rc, out = run_cmd(check["command"])
+        final_checks.append(
+            {
+                "name": check["name"],
+                "ok": rc == 0,
+                "exit_code": rc,
+                "output_tail": out[-tail:],
+            }
+        )
+    untracked_after = untracked_files()
+    if untracked_before is None or untracked_after is None:
+        # Best-effort git failed on either side: we cannot prove the fix
+        # created no new untracked file, so report the count as unknown
+        # (``None``) and let the orchestrator refuse autofix.
+        new_untracked = None
+    else:
+        new_untracked = sorted(set(untracked_after) - set(untracked_before))
+    verdict["final_verification"] = {
+        "ran": True,
+        "all_ok": all(c["ok"] for c in final_checks),
+        "failed": [c["name"] for c in final_checks if not c["ok"]],
+        "new_untracked_files": (
+            new_untracked[:changed_files_cap] if new_untracked is not None else None
+        ),
+        "new_untracked_count": (len(new_untracked) if new_untracked is not None else None),
+    }
+
+print("EGG_GREEN_GATE_VERDICT:" + json.dumps(verdict), flush=True)
 """
 
 
@@ -667,6 +735,55 @@ def _format_failed_checks(failed: list[dict[str, Any]]) -> str:
     return "\n\n".join(parts)
 
 
+def _autofix_ready(verdict: dict[str, Any], failed: list[dict[str, Any]]) -> tuple[bool, str]:
+    """Decide whether the runner's fixed tree is safe to commit + push (#3409).
+
+    Returns ``(ready, reason)``. ``reason`` is empty when ready and a
+    short human-readable explanation of the block otherwise (logged, so
+    an operator can see *why* a fixable-looking verdict routed to the
+    slice team instead of self-healing).
+
+    The bar is deliberately stronger than "every failed check's own
+    re-run went green": that only validates intermediate trees (each
+    check re-ran before later fixes, and originally-green checks were
+    never re-run), whereas the orchestrator commits one tree with all
+    fixes applied. Autofix is safe only when:
+
+    * every failed check carries a fix whose re-run went green (a partial
+      fix would push a tree that is red by construction); **and**
+    * the runner's ``final_verification`` — one full re-run of *every*
+      configured check against the final fixed tree — went green; **and**
+    * that final tree created no new untracked files. ``git add -u`` (the
+      orchestrator's stage step) never picks up untracked files, so a
+      fix that emits a new source file would push a tree the final
+      re-run never validated as committed. Unknown (``None``) counts —
+      a best-effort git failure in the runner — are treated as unsafe.
+    """
+    if not all(
+        isinstance(c.get("fix"), dict) and c["fix"].get("check_ok_after_fix") for c in failed
+    ):
+        return False, "a failed check has no fix or its re-run stayed red"
+
+    final = verdict.get("final_verification")
+    if not isinstance(final, dict) or not final.get("ran"):
+        return False, "runner reported no final full re-run verdict"
+    if not final.get("all_ok"):
+        blocked = ", ".join(str(n) for n in (final.get("failed") or [])) or "unknown"
+        return False, f"final full re-run of all checks was not green (red: {blocked})"
+
+    new_untracked = final.get("new_untracked_count")
+    if new_untracked is None:
+        return False, "runner could not determine whether the fix created untracked files"
+    if new_untracked:
+        sample = ", ".join(str(p) for p in (final.get("new_untracked_files") or [])[:5])
+        return False, (
+            f"fix created {new_untracked} untracked file(s) that git add -u would drop"
+            f"{f' (e.g. {sample})' if sample else ''}"
+        )
+
+    return True, ""
+
+
 def _commit_and_push_autofix(
     gateway: Any,
     *,
@@ -685,13 +802,21 @@ def _commit_and_push_autofix(
     checks validated. This stages the tracked modifications
     (``git add -u``: untracked check droppings such as caches and
     selection JSON are never picked up), commits them under the
-    orchestrator's green-gate identity with ``--no-verify`` (state-store
-    precedent; the sandbox commit path suppresses hooks the same way),
-    and pushes via the launcher-authed gateway push route, the
-    sanctioned writer: the runner never pushes. Because the check
-    re-run happened against this identical tree inside the runner's
-    pinned toolchain, the commit needs no second runner pass to be
-    trusted green.
+    orchestrator's green-gate identity. Every git invocation disables
+    hooks with ``-c core.hooksPath=/dev/null`` — the state-store
+    precedent (``StateStore._run_git`` / ``agent_salvage._run_git``) for
+    running git on an agent-controlled worktree — and the commit adds
+    ``--no-verify`` on top; ``--no-verify`` alone would leave
+    ``post-commit`` and ``git add``'s hooks free to run. The push goes
+    via the launcher-authed gateway push route, the sanctioned writer:
+    the runner never pushes.
+
+    The commit needs no second runner pass because the runner's final
+    full-check re-run (``final_verification``) validated *this* tree —
+    every configured check, after all fixes were applied — and the caller
+    only reaches this function when that re-run went green with no
+    fix-created untracked files, so the ``git add -u`` tip is exactly the
+    validated tree.
 
     The push lands before any slice-close side effect, so dependent
     slices (which fork from the integration branch's remote tip when
@@ -704,7 +829,14 @@ def _commit_and_push_autofix(
     """
 
     def _git(*args: str, identity: bool = False) -> subprocess.CompletedProcess[str]:
-        cmd = ["git", "-C", worktree_path]
+        # ``core.hooksPath=/dev/null`` neutralizes every hook (state-store
+        # precedent, ``StateStore._run_git`` / ``agent_salvage._run_git``):
+        # the worktree tree is agent-produced integration-branch code, and
+        # the orchestrator must never execute its hooks. ``--no-verify`` on
+        # the commit is not enough — it suppresses only ``pre-commit`` /
+        # ``commit-msg``, leaving ``post-commit`` (and ``git add``'s hooks)
+        # free to run whatever the tree's ``core.hooksPath`` resolves to.
+        cmd = ["git", "-c", "core.hooksPath=/dev/null", "-C", worktree_path]
         if identity:
             cmd += [
                 "-c",
@@ -997,15 +1129,12 @@ def run_slice_green_gate(
             return None
 
         failed_names = ", ".join(str(c.get("name")) for c in failed)
-        # #3409 Stage A: the gate can self-heal when EVERY failed check
-        # carries a fix result whose re-run went green. A partially
-        # fixable verdict (some failed check has no fix, or its re-run
-        # stayed red) routes to the slice team unchanged: committing a
-        # partial fix would re-run the gate against a tip that is still
-        # red by construction.
-        autofix_ready = all(
-            isinstance(c.get("fix"), dict) and c["fix"].get("check_ok_after_fix") for c in failed
-        )
+        # #3409 Stage A: the gate can self-heal only when it can prove the
+        # tree the orchestrator will commit (all fixes applied) is green.
+        # ``_autofix_ready`` gates on the runner's final full re-run of
+        # every check plus a no-new-untracked-files check, not just each
+        # failed check's own intermediate re-run — see its docstring.
+        autofix_ready, autofix_block_reason = _autofix_ready(verdict, failed)
         logger.error(
             "Green gate red: configured checks failed at the slice tip (#3398)",
             pipeline_id=pipeline_id,
@@ -1014,6 +1143,7 @@ def run_slice_green_gate(
             integration_branch=integration_branch,
             failed_checks=failed_names,
             autofix_ready=autofix_ready,
+            autofix_block_reason=autofix_block_reason or None,
             mode=mode,
         )
         autofix_note = ""
