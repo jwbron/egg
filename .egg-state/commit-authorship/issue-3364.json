@@ -1,0 +1,13 @@
+{
+  "entries": {
+    "0661c22b89f87c80d9db7df63b981238f82d2e4c": {
+      "branch": "egg/issue-3364/work",
+      "patch_id": "a7de9387fab3352480bccc9fe0cbfe57174e9576",
+      "pipeline_id": "issue-3364",
+      "registered_at": "2026-07-06T18:17:01.483056+00:00",
+      "repo": null,
+      "role": "simplifier"
+    }
+  },
+  "version": 2
+}
