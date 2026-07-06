@@ -439,18 +439,23 @@ PIPELINE_TOOLS = [
     {
         "name": "update_pipeline_config",
         "description": (
-            "Update the safely-mutable subset of a live pipeline's config — "
-            "currently per-role model overrides (agent_models) only. "
-            "Per-role merge semantics: roles absent from the request keep "
-            "their current override, a string value sets the role's model, "
-            "an explicit null clears it (falling back to the repo default / "
-            "built-in model). Takes effect at the next agent spawn; "
-            "currently running agents keep the model they started with, so "
-            "pair with restart_phase / restart_agent to apply the change to "
-            "a running phase (the dominant use: the current model is "
-            "failing or rate-limited, swap and restart — #3174). Confirm "
-            "the swap via the resolved_model field on get_status agents / "
-            "list_containers entries."
+            "Update the safely-mutable subset of a live pipeline's config: "
+            "per-role model overrides (agent_models) and consensus timeout "
+            "overrides (consensus_timeout_minutes and its per-phase "
+            "variants). agent_models uses per-role merge semantics: roles "
+            "absent from the request keep their current override, a string "
+            "value sets the role's model, an explicit null clears it "
+            "(falling back to the repo default / built-in model); it takes "
+            "effect at the next agent spawn, so pair with restart_phase / "
+            "restart_agent to apply the change to a running phase (the "
+            "dominant use: the current model is failing or rate-limited, "
+            "swap and restart; #3174). Confirm the swap via the "
+            "resolved_model field on get_status agents / list_containers "
+            "entries. consensus_timeout_minutes* takes effect live: the "
+            "phase poll loop re-resolves the budget from fresh config right "
+            "before the consensus wall fires, so an operator watching a "
+            "long-running slice can widen the window without a restart "
+            "(#3490)."
         ),
         "inputSchema": {
             "type": "object",
@@ -473,8 +478,47 @@ PIPELINE_TOOLS = [
                         "the role's override."
                     ),
                 },
+                # The timeout params use "0 clears" rather than the REST
+                # endpoint's "null clears": FastMCP materializes omitted
+                # optional params as None before the handler runs, so an
+                # explicit null is indistinguishable from "not provided"
+                # over this transport (#3499).
+                "consensus_timeout_minutes": {
+                    "type": "integer",
+                    "description": (
+                        "Legacy global consensus timeout in minutes (>= 1). "
+                        "Applies to every phase when set; 0 clears the "
+                        "override so each phase falls back to its per-phase "
+                        "override or phase-aware default; omit to leave "
+                        "unchanged."
+                    ),
+                },
+                "consensus_timeout_minutes_refine": {
+                    "type": "integer",
+                    "description": (
+                        "Per-phase consensus timeout for refine, in minutes "
+                        "(>= 1); 0 clears the override; omit to leave "
+                        "unchanged."
+                    ),
+                },
+                "consensus_timeout_minutes_plan": {
+                    "type": "integer",
+                    "description": (
+                        "Per-phase consensus timeout for plan, in minutes "
+                        "(>= 1); 0 clears the override; omit to leave "
+                        "unchanged."
+                    ),
+                },
+                "consensus_timeout_minutes_implement": {
+                    "type": "integer",
+                    "description": (
+                        "Per-phase consensus timeout for implement, in "
+                        "minutes (>= 1); 0 clears the override; omit to "
+                        "leave unchanged."
+                    ),
+                },
             },
-            "required": ["task_id", "agent_models"],
+            "required": ["task_id"],
         },
     },
     {

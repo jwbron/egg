@@ -503,6 +503,9 @@ from ._errors import (  # noqa: E402
 from ._models import SpawnedContainer, _EventJobStatusView  # noqa: E402
 from ._worktree import (  # noqa: E402
     _host_to_local_volumes,
+    _load_local_mount_mapping,
+    _local_to_host_path,
+    _local_to_host_volumes,
     _role_needs_worktree,
     _validate_worktree_for_reuse,
 )
@@ -552,6 +555,9 @@ __all__ = [
     "ContainerInfo",
     "ContainerStatus",
     "_host_to_local_volumes",
+    "_load_local_mount_mapping",
+    "_local_to_host_path",
+    "_local_to_host_volumes",
     "_validate_worktree_for_reuse",
     "_role_needs_worktree",
     "_is_transient_spawn_failure",

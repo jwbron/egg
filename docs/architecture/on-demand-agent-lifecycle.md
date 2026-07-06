@@ -168,11 +168,29 @@ Under orchestrator ownership the worktree becomes a hot path.
    (the gateway materializes worktrees on this local branch, wired to push to
    the assigned branch — #3480), or detached `HEAD`.
 2. **On pass:** discard uncommitted changes and untracked staging artifacts
-   (`git reset --hard` + `git clean -fd`) and hard-sync to the role branch tip
-   before agent invocation. (The #3023 post-mortem constraint means a
-   predecessor pod killed mid-event must never leak unproposed residue
-   into a successor's commit.)
-3. **On any validation mismatch OR discard failure:** fall back to today's
+   (`git reset --hard` + `git clean -fd`) and sync to the role branch tip
+   before agent invocation. The sync is **fast-forward-aware** ([#3506](https://github.com/jwbron/egg/issues/3506)):
+   when the pre-discard tree was clean and the local HEAD is a strict
+   descendant of the origin tip, the local commits are the agent's own
+   durable multi-session work and HEAD is kept; hard-reset to the tip
+   happens only on divergence, a behind-tip HEAD, or a dirty pre-discard
+   tree (the killed-mid-event signature; the #3023 post-mortem constraint
+   means a predecessor pod killed mid-event must never leak unproposed
+   residue into a successor's commit). A reset that discards commits ahead
+   of the tip is auto-salvaged to an `egg/recovered/...` ref and durably
+   recorded as a message-bus system message to the role before the reset
+   runs ([#3509](https://github.com/jwbron/egg/issues/3509)), so a
+   resuming agent with no session memory can find and resume its prior
+   work instead of silently re-deriving it (falls back to log-only when
+   `pipeline_id` context is unavailable, or record-only when the salvage
+   push itself fails).
+3. **Before handing off to spawn:** translate the validated paths from
+   orchestrator-local (under `WORKTREE_BASE_DIR`) to host paths, matching
+   what the create path already gets from the gateway. An untranslated
+   local path mounts as an empty kubelet-created `hostPath` dir on the
+   node — the agent boots into an empty worktree and silently no-ops
+   (#3502).
+4. **On any validation mismatch OR discard failure:** fall back to today's
    `create_with_retry`.
 
 **Session reuse:**

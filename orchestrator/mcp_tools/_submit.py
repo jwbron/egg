@@ -253,12 +253,22 @@ def _handle_validate_config(self, args: dict[str, Any]) -> dict[str, Any]:
         }
 
 
+_CONSENSUS_TIMEOUT_ARG_KEYS = (
+    "consensus_timeout_minutes",
+    "consensus_timeout_minutes_refine",
+    "consensus_timeout_minutes_plan",
+    "consensus_timeout_minutes_implement",
+)
+
+
 def _handle_update_pipeline_config(self, args: dict[str, Any]) -> dict[str, Any]:
-    """Update a live pipeline's agent_models override (#3174)."""
+    """Update a live pipeline's agent_models / consensus timeout overrides (#3174, #3490)."""
     import json
     from urllib.error import HTTPError
 
     task_id = quote(args["task_id"], safe="")
+    payload: dict[str, Any] = {}
+
     agent_models = args.get("agent_models")
     # Mirror validate_config / submit_task: tolerate a JSON-encoded
     # string from MCP clients that double-serialize object args.
@@ -267,12 +277,38 @@ def _handle_update_pipeline_config(self, args: dict[str, Any]) -> dict[str, Any]
             agent_models = json.loads(agent_models)
         except json.JSONDecodeError as e:
             return {"error": f"agent_models is not valid JSON: {e}"}
-    if not isinstance(agent_models, dict) or not agent_models:
+    if agent_models is not None:
+        if not isinstance(agent_models, dict) or not agent_models:
+            return {
+                "error": (
+                    "agent_models must be a non-empty object mapping role -> "
+                    'model, e.g. {"coder": "deepseek-v4-pro"} (null clears a '
+                    "role's override)"
+                )
+            }
+        payload["agent_models"] = agent_models
+
+    for timeout_key in _CONSENSUS_TIMEOUT_ARG_KEYS:
+        value = args.get(timeout_key)
+        if value is None:
+            # FastMCP materializes every omitted optional param as None
+            # before the handler runs, so None here cannot mean "clear
+            # the override" — forwarding it would null out all four
+            # timeouts on every call (#3499). Treat None as "leave
+            # unchanged"; clearing is expressed as 0, mapped to the
+            # REST PATCH's null (its valid set is int >= 1 or null).
+            continue
+        if isinstance(value, int) and not isinstance(value, bool) and value == 0:
+            payload[timeout_key] = None
+        else:
+            payload[timeout_key] = value
+
+    if not payload:
         return {
             "error": (
-                "agent_models must be a non-empty object mapping role -> "
-                'model, e.g. {"coder": "deepseek-v4-pro"} (null clears a '
-                "role's override)"
+                "Provide at least one mutable config key: agent_models or "
+                f"one of {list(_CONSENSUS_TIMEOUT_ARG_KEYS)}. Timeout values "
+                "are integer minutes >= 1, or 0 to clear the override."
             )
         }
 
@@ -280,7 +316,7 @@ def _handle_update_pipeline_config(self, args: dict[str, Any]) -> dict[str, Any]
         result = self._make_request(
             f"/api/v1/pipelines/{task_id}/config",
             method="PATCH",
-            data={"agent_models": agent_models},
+            data=payload,
         )
     except HTTPError as exc:
         # Surface the orchestrator's structured error body (role-key
@@ -306,10 +342,15 @@ def _handle_update_pipeline_config(self, args: dict[str, Any]) -> dict[str, Any]
         "agent_models": data.get("agent_models", {}),
         "updated_roles": data.get("updated_roles", {}),
         "cleared_roles": data.get("cleared_roles", []),
+        "consensus_timeouts": data.get("consensus_timeouts", {}),
+        "updated_timeouts": data.get("updated_timeouts", {}),
         "note": (
-            "Applies at the next agent spawn. Use restart_phase or "
-            "restart_agent to apply to currently running agents; confirm "
-            "via resolved_model in get_status / list_containers."
+            "agent_models applies at the next agent spawn; use "
+            "restart_phase or restart_agent to apply to currently running "
+            "agents; confirm via resolved_model in get_status / "
+            "list_containers. consensus_timeout_minutes* applies to the "
+            "running phase live: the poll loop re-resolves the budget "
+            "before the consensus wall fires."
         ),
     }
 
