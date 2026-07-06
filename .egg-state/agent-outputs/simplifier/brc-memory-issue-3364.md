@@ -231,10 +231,27 @@ Issue #3364: slim the /sdlc skill to run + report + HITL. PR A already landed
   blocker will likely RECUR when I try to commit the fresh render. If so: the
   impasse is already on record (#16) — re-attempt commit ONCE to confirm, and if
   still blocked, DON'T spam a new impasse; heartbeat the recurrence and wait.
-- Latest identical post-restart wait event: **#19 at 22:12Z** (update in place;
-  no new sections). #18/#19: task_planner WORKING (hb #19: 22:11:57Z fresh), 0
-  fresh CONSENSUS_PROPOSE, contract still `refine`. Waiting for task_planner
-  re-draft; no commit attempt. No escalation (task_planner live).
+- Latest identical post-restart wait event: **#19 at 22:12Z** (resolved at #20).
+
+### 2026-07-06 22:12Z — event #20: task_planner RE-PROPOSED → I COMMITTED + PROPOSED (BLOCKER CLEARED)
+
+- task_planner fresh CONSENSUS_PROPOSE **v1, commit 7a54494af** (22:12:36Z).
+  Diff vs pre-restart c6f6b35ab: **BYTE-IDENTICAL** plan.md → my prior render is
+  still faithful; regenerated 3364-plan-human.md verbatim.
+- **PHASE-GATE BLOCKER CLEARED**: `git commit` SUCCEEDED this spawn (HEAD
+  6f2004a2b) even though show_contract still read `current_phase=refine` at
+  event start. ⟹ the gate is NOT purely contract-phase-keyed; a fresh
+  container/gateway context (post-restart spawn) resolved to plan and accepted
+  the commit. The earlier block (#14-#16) was container/timing-specific, not a
+  permanent config gap. Impasse #16 is effectively resolved by the restart.
+- `mcp__brc__propose` v1 at commit 6f2004a2b: **status=proposed**, reviewer=
+  reviewer_plan. Pushed. simplifier producer_phase now PROPOSED.
+- OBLIGATION next: (a) if reviewer_plan NACKs on faithfulness/jargon, fix &
+  re-propose; (b) if task_planner re-proposes v2, re-check faithfulness + my
+  file integrity (clobber-watch) — note plan.md was identical this round;
+  (c) reviewer_phase edge — ACK/NACK task_planner v1 7a54494af if a review
+  event arrives (read version from transcript); (d) watch for CONSENSUS_CONFIRMED
+  to advance to implement phase.
 - Action #17: heartbeat WAITING_ON_ROLE(task_planner); no commit attempt (no
   fresh plan yet). Escalation for task_planner silence: only if its heartbeat
   goes >15min stale with no fresh propose.
