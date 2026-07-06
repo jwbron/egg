@@ -1349,9 +1349,11 @@ def _run_pipeline(
             # instead of relying on the overseer agent's discretion (#2079).
             # The closure reads the monitor's current phase at fire time so
             # the message records the phase the producer is actually in.
-            def _on_health_escalation(escalation: dict[str, Any]) -> None:
-                phase = health_monitor_instance.get_current_phase()
-                _send_brc_confirmation_nudge(escalation, pipeline_id, phase)
+            _on_health_escalation = functools.partial(
+                _on_health_escalation_impl,
+                health_monitor_instance=health_monitor_instance,
+                pipeline_id=pipeline_id,
+            )
 
             health_monitor_instance.on_escalation(_on_health_escalation)
 
@@ -1363,42 +1365,13 @@ def _run_pipeline(
             # offending commit, not once per 30s tick.
             divergence_alerted_shas: set[str] = set()
 
-            def _health_monitor_poll(monitor, stop_event: threading.Event, interval: float = 30.0):
-                while not stop_event.is_set():
-                    try:
-                        # Tier 1 no longer sends nudges directly — it raises
-                        # alerts and fires escalation callbacks internally.
-                        # The overseer (Tier 2) decides whether to nudge.
-                        monitor.check_tripwires()
-                    except Exception as poll_err:
-                        logger.debug(
-                            "Health monitor poll error",
-                            pipeline_id=pipeline_id,
-                            error=str(poll_err),
-                        )
-
-                    # Branch-divergence detector (#2224 PR 3).  Helper
-                    # re-loads pipeline state each tick so a
-                    # base_branch / branch update mid-pipeline is
-                    # picked up.  Dedupe set is mutated in place.
-                    _branch_divergence_tick(
-                        pipeline_id=pipeline_id,
-                        worktree_repo_path=worktree_repo_path,
-                        store=store,
-                        alerted_shas=divergence_alerted_shas,
-                    )
-
-                    # NOTE (#2270 slice-5): the standing-pod overseer respawn loop
-                    # was removed here. The overseer is no longer a respawned
-                    # standing pod — orchestrator-side detection (slice-4
-                    # ``health_checks.detection_plane``) runs in-process and the
-                    # only agent spawned is the on-demand adjudicator. Any
-                    # surviving restart need is served by the general
-                    # agent-restart machinery (``restart_agent``), not a bespoke
-                    # overseer respawn. This also means a multi-hour zero-agent
-                    # HITL park spawns nothing from this loop (§3).
-
-                    stop_event.wait(interval)
+            _health_monitor_poll = functools.partial(
+                _health_monitor_poll_impl,
+                pipeline_id=pipeline_id,
+                worktree_repo_path=worktree_repo_path,
+                store=store,
+                divergence_alerted_shas=divergence_alerted_shas,
+            )
 
             poll_thread = threading.Thread(
                 target=_health_monitor_poll,
@@ -4082,6 +4055,10 @@ from ._run_pipeline_setup import (  # noqa: E402,F401  # noqa: E402,F401  # noqa
     _start_phase_setup,
     _sync_contract_setup,
     _sync_source_branch_drafts,
+)
+from ._run_pipeline_support import (  # noqa: E402,F401
+    _health_monitor_poll_impl,
+    _on_health_escalation_impl,
 )
 from ._run_support import (  # noqa: E402,F401
     _clear_stale_impasses_for_producers,
