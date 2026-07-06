@@ -57,7 +57,7 @@ The gateway sidecar holds credentials and enforces policies:
 gateway/
 ├── gateway/                # Main HTTP server package (barrel `__init__.py` + `__main__.py` entry point + 13 `_<cluster>.py` submodules: `_helpers`, `_health`, `_git_ops`, `_git_execute`, `_gh_ops`, `_gh_execute`, `_jira`, `_jira_writes`, `_confluence`, `_worktree`, `_sessions`, `_proxy`, `_server`); run via `python3 -m gateway`; see gateway/CLAUDE.md for the full seam table
 ├── _module_loader.py       # Sibling-module bootstrap loader (isolated to keep gateway/gateway/ out of the dynamic-import seed set; do not add gateway imports here)
-├── git_client.py           # Git operation handler
+├── git_client/             # Git operation handler package (barrel `__init__.py` + `_<cluster>.py` submodules: `_attribution`, `_branch_ops`, `_credentials`, `_policy`, `_push_analysis`, `_remote`, `_validation`; #3312 slice-11)
 ├── github_client.py        # GitHub API handler (supports bot/user/reviewer modes)
 ├── policy.py               # Branch ownership, push policies, reviewer identity management
 ├── fork_policy.py          # Fork access policies
@@ -77,7 +77,7 @@ gateway/
 ├── jira_policy.py          # Project allowlist loader for config/context-filters.yaml (jira.projects)
 ├── jira_search.py          # Conservative static JQL project-scope extractor (deny-on-ambiguity)
 ├── mode_gate.py            # @require_private_mode decorator (fails closed in public mode)
-├── worktree_manager.py     # Git worktree lifecycle
+├── worktree_manager/       # Git worktree lifecycle package (barrel `__init__.py` + `_<cluster>.py` submodules: `_cleanup`, `_common`, `_create`, `_fsutil`, `_query`, `_remove`; #3312 slice-12)
 ├── session_manager.py      # Agent session management (branch lock, worktree cleanup)
 ├── post_agent_commit.py    # Post-agent exit handling (HITL recovery for uncommitted work)
 ├── repo_parser.py          # Repository config parsing
