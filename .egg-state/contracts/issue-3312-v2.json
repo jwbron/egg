@@ -518,7 +518,7 @@
           "id": "task-4-2",
           "description": "Step-0 git mv pipelines.py -> pipelines/__init__.py; green baseline commit (move only, before ANY extraction). This is the bisectable cut between 'moved' and 'extracted'.",
           "status": "pending",
-          "commit": null,
+          "commit": "81212959a",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Pure-move baseline commit green (make test-all).",
@@ -1101,6 +1101,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-4-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T07:44:41.522104Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.commit",
+      "old_value": null,
+      "new_value": "81212959a",
+      "reason": "Linked commit 8121295 to task-4-2",
       "checkpoint_id": null
     }
   ],
