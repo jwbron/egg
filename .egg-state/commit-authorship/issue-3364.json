@@ -16,6 +16,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "12ff15faf2991f4396479676ab735ca9771d6530": {
+      "branch": "egg/issue-3364/work",
+      "patch_id": null,
+      "pipeline_id": "issue-3364",
+      "registered_at": "2026-07-06T18:51:47.337951+00:00",
+      "repo": null,
+      "role": "task_planner"
+    },
     "13114fb4ce883005680bf462ac1a9181013dcf76": {
       "branch": "egg/issue-3364/work",
       "patch_id": "1abb98e94602d280fc52367292776cea76c01476",
