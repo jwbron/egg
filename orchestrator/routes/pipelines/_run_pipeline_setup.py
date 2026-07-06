@@ -274,3 +274,130 @@ def _sync_contract_setup(
                 store.save_pipeline(pipeline)
             return pipeline, True
     return pipeline, False
+
+
+def _map_host_repos(
+    pipeline,
+    *,
+    host_gid,
+    host_repo_map,
+    host_uid,
+    pipeline_id,
+    pipeline_repos,
+    spawner,
+    worktree_id,
+    repo_volumes,
+    worktree_repo_path,
+):
+    """Map host repos -> container volumes + resolve the worktree repo path
+    (extracted verbatim from _run_pipeline). repo_volumes/worktree_repo_path
+    come in with their defaults and are returned possibly-updated."""
+    if host_repo_map:
+        try:
+            # Request repos in owner/repo format if available, else bare names
+            wt_repos = pipeline_repos if pipeline_repos else list(host_repo_map.keys())
+            # When the pipeline specifies a base_branch, pass it through
+            # so the worktree is branched from that ref instead of the
+            # repo's default branch.  Otherwise let the gateway resolve
+            # the remote default branch per-repo (see #860).
+            # Retry worktree creation on transient gateway errors
+            # (e.g., 500s from concurrent pipeline starts contending
+            # on per-repo locks).  See #1386.
+            wt_max_attempts = 3
+            wt_backoff = 2.0
+            wt_result = None
+            for wt_attempt in range(1, wt_max_attempts + 1):
+                try:
+                    wt_result = spawner.gateway.create_worktrees(
+                        container_id=worktree_id,
+                        repos=wt_repos,
+                        uid=host_uid,
+                        gid=host_gid,
+                        base_branch=pipeline.base_branch,
+                    )
+                    break  # Success — exit retry loop
+                except _pkg.GatewayError as gw_err:
+                    is_transient = gw_err.status_code is None or gw_err.status_code >= 500
+                    if not is_transient or wt_attempt == wt_max_attempts:
+                        # Surface gw_err.details so per-repo failures
+                        # captured by the gateway aren't dropped.  See
+                        # #2186.
+                        _pkg.logger.error(
+                            "Worktree creation failed permanently",
+                            pipeline_id=pipeline_id,
+                            attempts=wt_attempt,
+                            status_code=gw_err.status_code,
+                            error_message=gw_err.message,
+                            details=gw_err.details,
+                        )
+                        detail_suffix = f" (details: {gw_err.details})" if gw_err.details else ""
+                        raise RuntimeError(
+                            f"Failed to create worktrees for pipeline {pipeline_id} "
+                            f"after {wt_max_attempts} attempts: "
+                            f"{gw_err.message}{detail_suffix}"
+                        ) from gw_err
+                    _pkg.logger.warning(
+                        "Worktree creation failed, retrying",
+                        pipeline_id=pipeline_id,
+                        attempt=wt_attempt,
+                        max_attempts=wt_max_attempts,
+                        error=str(gw_err),
+                        details=gw_err.details,
+                    )
+                    _pkg.time.sleep(wt_backoff)
+                    wt_backoff *= 2
+
+            if wt_result and wt_result.success and wt_result.worktrees:
+                # Gateway returns worktrees keyed by the full ``owner/repo``
+                # slug (#3393 slice-3, operator ruling #6). The on-disk
+                # worktree directory (and the container mount target) is
+                # still the bare repo name at /home/egg/repos/<name>, so
+                # the path reconstruction below strips the owner prefix
+                # from each key.
+                repo_volumes = wt_result.worktrees
+
+                # Derive the orchestrator-accessible worktree path.
+                # Reviewer containers write verdict/draft/check files into
+                # the worktree, so the orchestrator must read from there.
+                # Match against pipeline.repo (full owner/repo slug, which
+                # is now the map key) explicitly to avoid picking the wrong
+                # repo in multi-repo pipelines.
+                matched = False
+                if pipeline.repo and pipeline.repo in wt_result.worktrees:
+                    repo_short = pipeline.repo.split("/")[-1]
+                    candidate = _pkg.WORKTREE_BASE_DIR / worktree_id / repo_short
+                    if candidate.exists():
+                        worktree_repo_path = candidate
+                        matched = True
+                if not matched:
+                    # Fallback: take the first existing worktree path.
+                    # Keys are ``owner/repo``; the on-disk dir is the bare
+                    # leaf, so strip the owner prefix before joining.
+                    for owner_repo in wt_result.worktrees:
+                        candidate = _pkg.WORKTREE_BASE_DIR / worktree_id / owner_repo.split("/")[-1]
+                        if candidate.exists():
+                            worktree_repo_path = candidate
+                            break
+
+                _pkg.logger.info(
+                    "Worktrees created for pipeline",
+                    pipeline_id=pipeline_id,
+                    worktrees=list(repo_volumes.keys()),
+                )
+            else:
+                raise RuntimeError(
+                    f"Worktree creation returned no worktrees for pipeline {pipeline_id}: "
+                    f"errors={wt_result.errors}"
+                )
+
+            if wt_result.errors:
+                for err in wt_result.errors:
+                    _pkg.logger.warning("Worktree error", pipeline_id=pipeline_id, error=err)
+
+        except RuntimeError:
+            raise  # Re-raise our own RuntimeError
+        except Exception as wt_err:
+            raise RuntimeError(
+                f"Failed to create worktrees for pipeline {pipeline_id}: {wt_err}"
+            ) from wt_err
+    return repo_volumes, worktree_repo_path
