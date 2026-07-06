@@ -67,7 +67,7 @@
           "id": "task-1-3",
           "description": "Add \"slice.closed\" to _STATUS_WAIT_EVENT_TYPES\n(orchestrator/routes/pipelines/__init__.py:405) so it passes the\n/status/wait allowlist enforced at _routes_status.py:349 and reaches\nwait-status consumers.",
           "status": "pending",
-          "commit": null,
+          "commit": "4fcf1ed7abf4ecfc6e3fcab94e0f68ab61d5f3f4",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- AC-B4: \"slice.closed\" is in _STATUS_WAIT_EVENT_TYPES; a slice.closed\n  event is not filtered out by the /status/wait allowlist.",
@@ -542,6 +542,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T23:05:16.924516Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": null,
+      "new_value": "4fcf1ed7abf4ecfc6e3fcab94e0f68ab61d5f3f4",
+      "reason": "Linked commit 4fcf1ed to task-1-3",
       "checkpoint_id": null
     }
   ],
