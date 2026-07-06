@@ -82,10 +82,28 @@ def _run_implement_phase_slices(
     # raises ``ValueError`` with the structured forest errors; surface
     # them to the operator via the existing return path so the run
     # loop can route to HITL escalation rather than wedge the pipeline.
+    # Wire the slice.closed emitter (issue #3364): the scheduler invokes this
+    # OUTSIDE its lock from record_complete / record_failure, so a real slice
+    # close publishes an allowlisted ``slice.closed`` event to the bus that a
+    # long-haul monitor threads on. Guarded on the optional event-bus handle
+    # and no-ops when it's unavailable — mirroring the CONSENSUS_TIMEOUT /
+    # PIPELINE_FAILED emit sites in _alerts.py / _run_pipeline.py. The
+    # ``outcome`` (``complete`` | ``failed``) distinguishes success from
+    # failure so a consumer needs no second lookup.
+    def _emit_slice_closed(slice_id: str, outcome: str) -> None:
+        if _pkg._emit_event is None:
+            return
+        _pkg._emit_event(
+            _pkg.EventType.SLICE_CLOSED,
+            pipeline_id,
+            data={"slice_id": slice_id, "outcome": outcome},
+        )
+
     try:
         scheduler = SliceScheduler(
             contract,
             max_parallel_slices=pipeline.config.max_parallel_slices,
+            slice_closed_emitter=_emit_slice_closed,
         )
     except ValueError as exc:
         _pkg.logger.error(
