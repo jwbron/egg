@@ -651,7 +651,15 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
     for module, depth in rescue_depths.items():
         if module not in closure_depths or depth < closure_depths[module]:
             closure_depths[module] = depth
-    test_files = map_modules_to_test_files(bundle, set(closure_depths), repo_root)
+    # Safety net for the test-seed carve-out in is_dynamic_import_touched:
+    # every dynamic-import TEST seed runs in every narrowed selection, so a
+    # change to a module such a test loads only dynamically (invisible to
+    # the static graph) can never be silently skipped. Cheap: a handful of
+    # extra test files versus the full-suite fallback they used to force.
+    selected_modules = set(closure_depths) | (
+        bundle.dynamic_import_modules & bundle.all_test_modules
+    )
+    test_files = map_modules_to_test_files(bundle, selected_modules, repo_root)
     # Emit direct-importers-first (#3182): pytest collects files in the
     # order given on the command line, so sorting by import distance
     # from the changed modules surfaces the most likely failure early
