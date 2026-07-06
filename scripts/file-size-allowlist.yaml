@@ -20,8 +20,6 @@ caps:
   soft_bytes: 60000
 
 files:
-  orchestrator/models.py:
-    issue: "3450"
   orchestrator/routes/pipelines.py:
     issue: "2248"
   gateway/gateway.py:
