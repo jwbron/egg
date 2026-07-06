@@ -414,9 +414,7 @@ class TestConsistencyC_PromptDerivesFromSpec:
     # package's submodules (``_prompt_*.py``, ``_drafts.py``,
     # ``_populate.py``, …), so the ratchet reads the concatenation of
     # every ``.py`` file in the package rather than one file.
-    PIPELINES_PATH = (
-        Path(__file__).resolve().parents[3] / "orchestrator" / "routes" / "pipelines"
-    )
+    PIPELINES_PATH = Path(__file__).resolve().parents[3] / "orchestrator" / "routes" / "pipelines"
 
     # Ratchet against a regression: forbid raw
     # ``.egg-state/agent-outputs/{_identifier}-…`` f-string literals
@@ -432,9 +430,7 @@ class TestConsistencyC_PromptDerivesFromSpec:
 
     @pytest.fixture(scope="class")
     def pipelines_text(self) -> str:
-        return "\n".join(
-            p.read_text() for p in sorted(self.PIPELINES_PATH.glob("*.py"))
-        )
+        return "\n".join(p.read_text() for p in sorted(self.PIPELINES_PATH.glob("*.py")))
 
     def test_pipelines_py_is_readable(self) -> None:
         assert self.PIPELINES_PATH.is_dir(), (
