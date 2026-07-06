@@ -450,7 +450,18 @@ class TestPostBrcBandSwallowsErrors:
     def _run_pipeline_source(self) -> str:
         from routes import pipelines
 
-        return inspect.getsource(pipelines._run_pipeline)
+        # _run_pipeline's setup blocks are being decomposed into helper
+        # functions (#3312 slice-4); include them so call-site coverage
+        # assertions still see the calls that moved out of the barrel body.
+        # The moved code (and its broad ``except``) is verbatim, so the pinned
+        # counts and try/except regexes below stay valid.
+        _EXTRACTED_HELPERS = ("_sync_contract_setup",)
+        parts = [inspect.getsource(pipelines._run_pipeline)]
+        for _name in _EXTRACTED_HELPERS:
+            _fn = getattr(pipelines, _name, None)
+            if _fn is not None:
+                parts.append(inspect.getsource(_fn))
+        return "\n".join(parts)
 
     def test_sync_worktree_with_remote_is_wrapped(self):
         """The post-BRC worktree-sync call was unwrapped — a gateway HTTP
