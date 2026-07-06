@@ -24,6 +24,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "23cd31fb9f23df49dad72a8a38c29a0f7f2dde4d": {
+      "branch": "egg/issue-3364/work",
+      "patch_id": "ec291385c4eb687aeb30f7d2a3f6d627a39a6e6f",
+      "pipeline_id": "issue-3364",
+      "registered_at": "2026-07-06T18:45:20.444988+00:00",
+      "repo": null,
+      "role": "task_planner"
+    },
     "3a23d45df7254d0af07e063b23d9e474f902e1a1": {
       "branch": "egg/issue-3364/work",
       "patch_id": "a0df2bc9a36eb8051ef55616fd95fb667a738d6a",
