@@ -839,6 +839,15 @@ def brc_get_state(req: dict[str, Any]) -> dict[str, Any]:
     misleading pipeline-level reconstruction. Pipeline-level agents
     leave it unset and see pipeline-level consensus.
 
+    Slice-id-less queries during a slice-DAG implement phase (#3487):
+    the live trackers are keyed ``{pipeline_id}/{slice_id}`` so there is
+    no pipeline-level block; instead of returning an empty ``consensus``
+    the handler resolves the status route's ``slice_consensus`` map
+    (#3481) the same way the orchestrator MCP ``get_consensus_status``
+    tool does: a single active slice is served directly (with
+    ``resolved_slice_id`` naming the scope), multiple stay keyed
+    per-slice under ``slice_consensus`` (never merged, #2761).
+
     Request:
         pipeline_id: override.
         slice_id: override; defaults to ``EGG_SLICE_ID``.
@@ -846,6 +855,9 @@ def brc_get_state(req: dict[str, Any]) -> dict[str, Any]:
 
     Response:
         { ok: True, consensus: {...}, verbose: bool }
+        plus, on a slice-id-less query with live slice trackers, either
+        ``resolved_slice_id`` (one active slice) or ``active_slice_ids``
+        + ``slice_consensus`` (several).
 
     No CLI counterpart — BRC state is a derived view of the pipeline
     status endpoint; the raw JSON is available via `egg-orch pipeline
@@ -860,15 +872,42 @@ def brc_get_state(req: dict[str, Any]) -> dict[str, Any]:
         endpoint += "?" + urlencode({"slice_id": slice_id})
     result = orchestrator_request(endpoint)
     data = result.get("data", {})
-    consensus = data.get("concurrent", {}).get("consensus", {})
+    concurrent = data.get("concurrent", {}) or {}
+    consensus = concurrent.get("consensus", {})
+    slice_consensus = concurrent.get("slice_consensus", {}) if slice_id is None else {}
 
     response: dict[str, Any] = {
         "ok": True,
         "slice_id": slice_id,
         "consensus": consensus,
-        "is_complete": bool(consensus.get("is_complete", False)),
-        "blocking_agents": list(consensus.get("blocking_agents", []) or []),
     }
+
+    # Mirror the #3485 orchestrator guard verbatim (`mcp_tools/_consensus.py`):
+    # fall through to slice resolution whenever the pipeline-level block carries
+    # no agents. Guarding on `not consensus` instead would let a truthy-but-
+    # agent-less block short-circuit and serve empty state over the live
+    # per-slice trackers.
+    if not consensus.get("agents") and slice_consensus:
+        if len(slice_consensus) == 1:
+            resolved_slice_id, block = next(iter(slice_consensus.items()))
+            consensus = dict(block)
+            consensus["note"] = (
+                f"Resolved the single active slice-scoped tracker "
+                f"'{resolved_slice_id}'; pass slice_id to pin the scope"
+            )
+            response["resolved_slice_id"] = resolved_slice_id
+            response["consensus"] = consensus
+        else:
+            response["active_slice_ids"] = sorted(slice_consensus)
+            response["slice_consensus"] = dict(slice_consensus)
+            response["note"] = (
+                "Multiple slice-scoped consensus rounds are active; "
+                "per-slice snapshots are under 'slice_consensus'. Pass "
+                "slice_id to scope the result to one slice."
+            )
+
+    response["is_complete"] = bool(consensus.get("is_complete", False))
+    response["blocking_agents"] = list(consensus.get("blocking_agents", []) or [])
     if verbose:
         response["raw"] = data
     return response
@@ -883,11 +922,35 @@ def brc_list_blocking(req: dict[str, Any]) -> dict[str, Any]:
     No CLI counterpart — the same data is reachable via `egg-orch
     pipeline status --json` but the filtered blocking-agents shape is
     an agent-convenience view (decision-13).
+
+    Slice-aware to stay consistent with :func:`brc_get_state` (#3487):
+    when queried without a slice scope in a slice-DAG phase (no
+    pipeline-level block with agents), the blocking roles are unioned
+    across the live per-slice trackers so a pipeline-level caller (the
+    overseer agent, operators) isn't told nothing is blocking while a
+    slice round is wedged.
     """
     pid = _require_pipeline_id(req)
-    result = orchestrator_request(f"/api/v1/pipelines/{pid}/status")
-    consensus = result.get("data", {}).get("concurrent", {}).get("consensus", {})
-    blocking = list(consensus.get("blocking_agents", []) or [])
+    slice_id = resolve_slice_id(req)
+    endpoint = f"/api/v1/pipelines/{pid}/status"
+    if slice_id:
+        endpoint += "?" + urlencode({"slice_id": slice_id})
+    result = orchestrator_request(endpoint)
+    concurrent = result.get("data", {}).get("concurrent", {}) or {}
+    consensus = concurrent.get("consensus", {})
+    slice_consensus = concurrent.get("slice_consensus", {}) if slice_id is None else {}
+
+    if consensus.get("agents") or not slice_consensus:
+        blocking = list(consensus.get("blocking_agents", []) or [])
+    else:
+        # Union across active slice-scoped trackers, preserving first-seen
+        # order. This is a flat role list (not a merged consensus block), so
+        # the #2761 no-cross-slice-soup invariant is untouched.
+        blocking = []
+        for block in slice_consensus.values():
+            for role in (block or {}).get("blocking_agents", []) or []:
+                if role not in blocking:
+                    blocking.append(role)
     return {"ok": True, "blocking_agents": blocking}
 
 

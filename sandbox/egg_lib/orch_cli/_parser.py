@@ -747,8 +747,9 @@ def create_parser() -> argparse.ArgumentParser:
         help=(
             "Slice to scope the consensus status to (e.g. 'slice-7'). In a "
             "slice-DAG implement phase each slice runs its own BRC "
-            "consensus; without a slice scope only pipeline-level "
-            "consensus is shown. Defaults to $EGG_SLICE_ID."
+            "consensus; without a slice scope the live slice-scoped "
+            "rounds are reported per-slice (one active slice is "
+            "auto-resolved). Defaults to $EGG_SLICE_ID."
         ),
     )
     _add_json_flag(cons_status)

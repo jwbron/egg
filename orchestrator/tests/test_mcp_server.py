@@ -22,6 +22,11 @@ end-to-end:
   dispatches tool calls into ``anyio.to_thread`` workers, so the
   limiter can be hit from multiple OS threads.  A concurrency test
   guards the invariant that the worst-case overshoot is bounded.
+
+* ``create_app`` smoke test — builds the FastMCP app from the full
+  live ``PIPELINE_TOOLS`` list, so a tool-schema shape the signature
+  builder can't handle fails in CI instead of killing the MCP server
+  thread at deploy time (#3499).
 """
 
 from __future__ import annotations
@@ -73,16 +78,36 @@ class TestJsonTypeToPython:
 
     def test_unknown_type_falls_through_to_str(self) -> None:
         # The fallthrough is intentional — JSON-Schema types we don't
-        # know about (``null``, union-type arrays, etc.) get a string
-        # annotation rather than crashing the server.  We accept the
-        # less-useful annotation in exchange for keeping the registration
-        # path robust against schema drift.
+        # know about get a string annotation rather than crashing the
+        # server.  We accept the less-useful annotation in exchange for
+        # keeping the registration path robust against schema drift.
         assert _json_type_to_python({"type": "something-future"}) is str
 
     def test_missing_type_defaults_to_string(self) -> None:
         # ``prop.get("type", "string")`` — a schema entry that omits
         # ``type`` (rare but valid JSON Schema) maps to ``str``.
         assert _json_type_to_python({}) is str
+
+    @pytest.mark.parametrize(
+        ("json_type", "expected"),
+        [
+            (["integer", "null"], int),  # nullable param, #3494 shape
+            (["null", "string"], str),  # null-first ordering
+            (["boolean", "integer"], bool),  # first member wins
+            (["null"], str),  # degenerate: only null
+            ([], str),  # degenerate: empty union
+        ],
+    )
+    def test_union_type_list_uses_first_non_null(self, json_type, expected) -> None:
+        # JSON Schema allows ``"type": [...]``.  An unhashable list key
+        # used to raise TypeError inside ``create_app`` and take down
+        # EVERY MCP tool, not just the union-typed one (#3499).
+        assert _json_type_to_python({"type": json_type}) is expected
+
+    def test_non_string_non_list_type_falls_through_to_str(self) -> None:
+        # Same robustness rule for any other malformed ``type`` value:
+        # never let a schema entry crash tool registration.
+        assert _json_type_to_python({"type": {"weird": True}}) is str
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +208,45 @@ class TestBuildToolSignature:
         # Optional, no schema default → synthesized None + widened.
         assert param.default is None
         assert param.annotation == dict | None
+
+
+# ---------------------------------------------------------------------------
+# create_app — startup smoke test over the full live tool list
+# ---------------------------------------------------------------------------
+
+
+class TestCreateAppSmoke:
+    """The tool schemas (``mcp_tools/_tool_defs.py``) and the signature
+    builder here only meet at runtime, inside ``create_app``.  #3499: a
+    union-typed param added to one tool's schema crashed ``create_app``
+    in the background thread and took ALL MCP tooling down while the
+    REST API stayed healthy.  Building the app from the full live tool
+    list at CI time closes that gap.
+    """
+
+    def test_create_app_builds_and_registers_every_pipeline_tool(self) -> None:
+        from mcp_server import MCPServer
+        from mcp_tools import PIPELINE_TOOLS
+
+        app = MCPServer().create_app()
+        registered = {tool.name for tool in asyncio.run(app.list_tools())}
+        expected = {tool["name"] for tool in PIPELINE_TOOLS}
+        assert registered == expected
+
+    def test_start_mcp_server_raises_on_broken_app_build(self, monkeypatch) -> None:
+        """``start_mcp_server`` must build the app eagerly on the
+        caller's thread: a registration failure has to propagate to the
+        caller (failing orchestrator startup loudly) instead of killing
+        the daemon thread after the "started" log already fired.
+        """
+        import mcp_server as mcp_server_mod
+
+        def _boom(self):
+            raise RuntimeError("broken tool schema")
+
+        monkeypatch.setattr(mcp_server_mod.MCPServer, "create_app", _boom)
+        with pytest.raises(RuntimeError, match="broken tool schema"):
+            mcp_server_mod.start_mcp_server()
 
 
 # ---------------------------------------------------------------------------

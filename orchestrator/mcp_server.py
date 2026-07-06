@@ -205,10 +205,19 @@ class MCPServer:
         Binds to 0.0.0.0 inside the container so Docker port forwarding works.
         Host is set in the FastMCP constructor; localhost-only access is enforced
         by the docker-compose port mapping.
+
+        Reuses the app built by :func:`start_mcp_server`'s eager
+        ``create_app`` call when present, and logs before dying if the
+        serve loop raises — a daemon thread's traceback otherwise goes
+        to stderr only, invisible to structured-log consumers (#3499).
         """
-        mcp = self.create_app()
+        mcp = self._mcp if self._mcp is not None else self.create_app()
         logger.info("Starting MCP server", port=self.port)
-        mcp.run(transport="streamable-http")
+        try:
+            mcp.run(transport="streamable-http")
+        except Exception as e:
+            logger.error("MCP server thread died", port=self.port, error=str(e))
+            raise
 
 
 def _json_type_to_python(prop_def: dict) -> type:
@@ -223,8 +232,18 @@ def _json_type_to_python(prop_def: dict) -> type:
     ``"Input should be a valid string"`` from Pydantic *before* the
     tool handler ever ran, even though the JSON-Schema input the
     tool advertised said ``object`` / ``array``.
+    JSON Schema allows ``type`` to be a list of types (used for nullable
+    params like ``{"type": ["integer", "null"]}``).  An unhashable list
+    key used to raise TypeError here, which killed ``create_app`` — and
+    with it every MCP tool, not just the union-typed one (#3499).
+    Normalize to the first non-null member; nullability itself is
+    handled by :func:`_build_tool_signature`'s ``T | None`` widening.
     """
     json_type = prop_def.get("type", "string")
+    if isinstance(json_type, list):
+        json_type = next((t for t in json_type if t != "null"), "string")
+    if not isinstance(json_type, str):
+        return str
     mapping: dict[str, type] = {
         "string": str,
         "integer": int,
@@ -289,13 +308,22 @@ def start_mcp_server(
     port: int = DEFAULT_MCP_PORT,
     rate_limit: int = DEFAULT_RATE_LIMIT,
 ) -> MCPServer:
-    """Start the MCP server in a background thread."""
+    """Start the MCP server in a background thread.
+
+    Builds the FastMCP app eagerly on the caller's thread before
+    spawning: tool registration is where schema bugs surface (a broken
+    tool def once raised inside the background thread *after* the
+    "started" log fired, leaving all MCP tooling down while the pod
+    stayed Ready for hours, #3499).  An exception here propagates to
+    the caller so startup fails loudly instead.
+    """
     server = MCPServer(
         orchestrator_url=orchestrator_url,
         gateway_url=gateway_url,
         port=port,
         rate_limit=rate_limit,
     )
+    server.create_app()
 
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()

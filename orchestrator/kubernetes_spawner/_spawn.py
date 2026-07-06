@@ -374,6 +374,39 @@ def spawn_agent_job(
             f"operations. See #1869."
         )
 
+    # #3502 tripwire: every hostPath handed to the Job spec below must be a
+    # HOST path (the create path gets them from the gateway's
+    # ``translate_to_host_path``). An orchestrator-LOCAL path here means
+    # kubelet resolves it on the node, ``DirectoryOrCreate``s an empty
+    # root-owned dir, and the agent boots into an empty worktree and no-ops
+    # with rc=0 forever — supervision sees a healthy arm while consensus
+    # silently stalls. Fail the spawn loudly instead so the failure-streak
+    # machinery engages and the next attempt falls back to create.
+    #
+    # Scope/limits: this only catches leaks the mapping can *translate*. A
+    # genuinely-untranslatable local path (a multi-partition host where the
+    # worktree mount has root=/ and is skipped, with HOST_HOME unset) passes
+    # through as identity and the tripwire stays silent — same limitation
+    # HOST_HOME exists to cover, matching the gateway's own. It also assumes
+    # orchestrator↔gateway mount symmetry: in a (pathological) asymmetric
+    # deployment where the gateway returns a host path the orchestrator's OWN
+    # mountinfo would further translate, this would false-positive on a
+    # working create. Not reachable in symmetric deployments (the
+    # orchestrator has no mount point under the host-home path), so risk is
+    # very low.
+    leaked = {
+        owner_repo: path
+        for owner_repo, path in (repo_volumes or {}).items()
+        if _pkg._local_to_host_path(path) != path
+    }
+    if leaked:
+        raise KubernetesSpawnError(
+            f"Refusing to spawn {job_name}: repo_volumes carry "
+            f"orchestrator-local paths that would be mounted as empty "
+            f"hostPath dirs on the node: {leaked}. Translate them via "
+            f"_local_to_host_volumes before spawning — see #3502."
+        )
+
     # Register gateway session (token-only, no container_ip)
     session_info = None
     session_token = existing_session_token  # reuse when supplied
@@ -427,7 +460,13 @@ def spawn_agent_job(
                 # agent_worktree_id.  Without this, the gateway would
                 # race to create a second worktree under job_name and
                 # intermittently fail on .git/config.lock (#1857).
-                worktree_container_id=(agent_worktree_id if worktree_created_this_call else None),
+                # The re-attach path (``reuse_worktree_id``) validated the
+                # same worktree on disk, so it binds too — otherwise the
+                # gateway creates an orphan worktree keyed by the session
+                # id that nothing ever mounts (#3502 naming split).
+                worktree_container_id=(
+                    agent_worktree_id if (worktree_created_this_call or reuse_worktree_id) else None
+                ),
                 # Per-agent upstream routing. Both fields
                 # are forwarded to the gateway only when set, so the
                 # default-Claude case keeps the request body byte-

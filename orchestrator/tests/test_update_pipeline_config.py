@@ -1,13 +1,16 @@
-"""Tests for the live pipeline config-update endpoint (#3174).
+"""Tests for the live pipeline config-update endpoint (#3174, #3490).
 
 ``PATCH /api/v1/pipelines/<id>/config`` is the scoped operator surface
-for changing a running pipeline's ``agent_models`` override (wrapped by
-the ``update_pipeline_config`` MCP tool). Covers:
+for changing a running pipeline's ``agent_models`` override and its
+``consensus_timeout_minutes*`` overrides (wrapped by the
+``update_pipeline_config`` MCP tool). Covers:
 
-- the key allowlist (``agent_models`` only),
+- the key allowlist (``agent_models`` + ``consensus_timeout_minutes*``),
 - per-role merge semantics (set / null-clears / absent-keeps),
 - role-key validation against ``MODEL_OVERRIDE_ROLES`` and value
   validation (non-empty strings or null),
+- consensus-timeout value validation (int >= 1 or null) and
+  set / clear / combined-update semantics (#3490),
 - error mapping (404 unknown pipeline, 400 validation, 401 unauth,
   409 terminal-state mutation).
 """
@@ -40,6 +43,7 @@ def client(app):
 def _make_pipeline(
     agent_models: dict[str, str] | None = None,
     status: PipelineStatus = PipelineStatus.RUNNING,
+    **config_kwargs,
 ) -> Pipeline:
     return Pipeline(
         id="issue-77",
@@ -47,19 +51,25 @@ def _make_pipeline(
         issue_number=77,
         branch="egg/issue-77",
         status=status,
-        config=PipelineConfig(agent_models=agent_models or {}),
+        config=PipelineConfig(agent_models=agent_models or {}, **config_kwargs),
     )
 
 
 def _mock_store(pipeline: Pipeline) -> MagicMock:
-    """Store whose ``update_pipeline`` reflects the merged map back,
+    """Store whose ``update_pipeline`` applies the dotted-key updates,
     mirroring the real load-modify-save behavior."""
     store = MagicMock()
     store.load_pipeline.return_value = pipeline
 
     def _update(pipeline_id, updates):
-        assert set(updates) == {"config.agent_models"}, updates
-        return _make_pipeline(updates["config.agent_models"])
+        data = pipeline.model_dump()
+        for key, value in updates.items():
+            target = data
+            parts = key.split(".")
+            for part in parts[:-1]:
+                target = target[part]
+            target[parts[-1]] = value
+        return Pipeline.model_validate(data)
 
     store.update_pipeline.side_effect = _update
     return store
@@ -136,6 +146,100 @@ class TestUpdatePipelineConfigMerge:
         assert response.status_code == 200, response.data
         data = response.get_json()["data"]
         assert data["agent_models"] == {"coder": "deepseek-v4-pro"}
+
+
+@patch("routes.pipelines.get_repo_path")
+@patch("routes.pipelines._resolve_pipeline")
+class TestUpdatePipelineConfigConsensusTimeouts:
+    """Live consensus-timeout mutation (#3490)."""
+
+    def test_set_implement_timeout(self, mock_resolve, mock_repo, client):
+        pipeline = _make_pipeline()
+        store = _mock_store(pipeline)
+        mock_resolve.return_value = (store, pipeline)
+
+        response = client.patch(
+            "/api/v1/pipelines/issue-77/config",
+            json={"consensus_timeout_minutes_implement": 480},
+        )
+
+        assert response.status_code == 200, response.data
+        data = response.get_json()["data"]
+        assert data["consensus_timeouts"]["consensus_timeout_minutes_implement"] == 480
+        assert data["updated_timeouts"] == {"consensus_timeout_minutes_implement": 480}
+        store.update_pipeline.assert_called_once_with(
+            "issue-77",
+            {"config.consensus_timeout_minutes_implement": 480},
+        )
+
+    def test_set_legacy_global_timeout(self, mock_resolve, mock_repo, client):
+        pipeline = _make_pipeline()
+        store = _mock_store(pipeline)
+        mock_resolve.return_value = (store, pipeline)
+
+        response = client.patch(
+            "/api/v1/pipelines/issue-77/config",
+            json={"consensus_timeout_minutes": 240},
+        )
+
+        assert response.status_code == 200, response.data
+        data = response.get_json()["data"]
+        assert data["consensus_timeouts"]["consensus_timeout_minutes"] == 240
+
+    def test_null_clears_timeout_override(self, mock_resolve, mock_repo, client):
+        pipeline = _make_pipeline(consensus_timeout_minutes_implement=120)
+        store = _mock_store(pipeline)
+        mock_resolve.return_value = (store, pipeline)
+
+        response = client.patch(
+            "/api/v1/pipelines/issue-77/config",
+            json={"consensus_timeout_minutes_implement": None},
+        )
+
+        assert response.status_code == 200, response.data
+        data = response.get_json()["data"]
+        assert data["consensus_timeouts"]["consensus_timeout_minutes_implement"] is None
+        assert data["updated_timeouts"] == {"consensus_timeout_minutes_implement": None}
+
+    def test_combined_agent_models_and_timeout(self, mock_resolve, mock_repo, client):
+        pipeline = _make_pipeline({"coder": "opus"})
+        store = _mock_store(pipeline)
+        mock_resolve.return_value = (store, pipeline)
+
+        response = client.patch(
+            "/api/v1/pipelines/issue-77/config",
+            json={
+                "agent_models": {"tester": "deepseek-v4-pro"},
+                "consensus_timeout_minutes_implement": 480,
+            },
+        )
+
+        assert response.status_code == 200, response.data
+        data = response.get_json()["data"]
+        assert data["agent_models"] == {"coder": "opus", "tester": "deepseek-v4-pro"}
+        assert data["consensus_timeouts"]["consensus_timeout_minutes_implement"] == 480
+        store.update_pipeline.assert_called_once_with(
+            "issue-77",
+            {
+                "config.agent_models": {"coder": "opus", "tester": "deepseek-v4-pro"},
+                "config.consensus_timeout_minutes_implement": 480,
+            },
+        )
+
+    @pytest.mark.parametrize("bad_value", [0, -5, "120", 12.5, True, False, [120]])
+    def test_invalid_timeout_value_400(self, mock_resolve, mock_repo, client, bad_value):
+        pipeline = _make_pipeline()
+        store = _mock_store(pipeline)
+        mock_resolve.return_value = (store, pipeline)
+
+        response = client.patch(
+            "/api/v1/pipelines/issue-77/config",
+            json={"consensus_timeout_minutes_implement": bad_value},
+        )
+
+        assert response.status_code == 400, response.data
+        assert "consensus_timeout_minutes_implement" in response.get_json()["message"]
+        store.update_pipeline.assert_not_called()
 
 
 @patch("routes.pipelines.get_repo_path")

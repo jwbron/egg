@@ -2677,7 +2677,7 @@ def _make_worktree(base, worktree_id, repo_name, branch, *, with_origin=False):
 
     When ``with_origin`` is set, also create a bare ``origin`` repo, wire it as
     the ``origin`` remote, and push *branch* so ``origin/<branch>`` exists (the
-    hard-sync target). Returns ``(repo_path, origin_path_or_None)``.
+    sync/reset target). Returns ``(repo_path, origin_path_or_None)``.
     """
     repo = Path(base) / worktree_id / repo_name
     repo.mkdir(parents=True)
@@ -2833,15 +2833,18 @@ class TestSpawnEventJobWorktreeReattach:
     def test_try_reuse_production_shape_work_branch(self, spawner, tmp_path):
         """End-to-end for the production shape (#3480): HEAD on the derived
         work branch, assigned branch only on origin. Validation accepts the
-        work branch and the R6 hard-sync resets to ``origin/{assigned}``."""
+        work branch, and the sync KEEPS the clean-tree local commit strictly
+        ahead of ``origin/{assigned}`` (fast-forward-aware, #3506)."""
         work_branch = f"egg/{_WT_ID}/work"
         repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", work_branch, with_origin=True)
-        # Publish the assigned branch on origin (the hard-sync target), then
-        # advance the local work branch past it so the sync has work to do.
+        # Publish the assigned branch on origin (the sync target), then
+        # advance the local work branch past it: the agent's own unpushed
+        # multi-session work, committed on a clean exit.
         _git(repo, "push", "origin", f"{work_branch}:{_BRANCH}")
         (repo / "local.txt").write_text("unpushed\n")
         _git(repo, "add", "-A")
         _git(repo, "commit", "-m", "local unpushed commit")
+        local_head = _git(repo, "rev-parse", "HEAD").stdout.strip()
 
         with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
             result = spawner._try_reuse_worktree(_WT_ID, _BRANCH, _REPOS)
@@ -2850,22 +2853,247 @@ class TestSpawnEventJobWorktreeReattach:
         success, repo_volumes = result
         assert success
         assert repo_volumes["owner/repo"] == str(repo)
-        # The predecessor's local, unpushed commit was discarded by the
-        # hard-sync to origin/{assigned} (R6 dirty-state policy).
-        assert not (repo / "local.txt").exists()
-        head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        # The agent's own clean fast-forward commit survives the re-attach
+        # (#3506); the sync no longer hard-resets a strict descendant.
+        assert (repo / "local.txt").read_text() == "unpushed\n"
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == local_head
         remote = _git(repo, "rev-parse", f"origin/{_BRANCH}").stdout.strip()
-        assert head == remote
+        assert (
+            _git(repo, "merge-base", "--is-ancestor", remote, local_head, check=False).returncode
+            == 0
+        )
+
+
+class TestReusePathHostPathTranslation:
+    """Reuse-path ``repo_volumes`` must carry HOST paths (#3502).
+
+    The create path hands the spawn path gateway-returned HOST paths; the
+    re-attach path used to hand the validator's orchestrator-LOCAL paths
+    (under ``WORKTREE_BASE_DIR``) straight into the Job spec's ``hostPath``
+    mounts. On the node kubelet ``DirectoryOrCreate``d an empty root-owned
+    dir at that local path, so every post-restart re-attach spawn booted
+    into an empty worktree and no-oped with rc=0 — silently stalling slice
+    consensus.
+    """
+
+    def test_local_to_host_path_translates_via_mount_mapping(self):
+        from kubernetes_spawner import _local_to_host_path
+
+        mapping = [
+            ("/home/egg/.egg-worktrees", "/home/hostuser/.egg-worktrees"),
+            ("/home/egg", "/home/hostuser"),
+        ]
+        assert (
+            _local_to_host_path("/home/egg/.egg-worktrees/wt-1/repo", mapping)
+            == "/home/hostuser/.egg-worktrees/wt-1/repo"
+        )
+        # Longest prefix wins (mapping is ordered longest-first).
+        assert _local_to_host_path("/home/egg/other", mapping) == "/home/hostuser/other"
+        # Exact mount-point match translates too.
+        assert (
+            _local_to_host_path("/home/egg/.egg-worktrees", mapping)
+            == "/home/hostuser/.egg-worktrees"
+        )
+        # A sibling path that merely shares the string prefix does not match.
+        assert _local_to_host_path("/home/egg-other/x", mapping[:1]) == "/home/egg-other/x"
+
+    def test_local_to_host_path_falls_back_to_host_home(self, monkeypatch):
+        from kubernetes_spawner import _local_to_host_path
+
+        monkeypatch.setenv("HOST_HOME", "/home/hostuser")
+        assert (
+            _local_to_host_path("/home/egg/.egg-worktrees/wt-1/repo", [])
+            == "/home/hostuser/.egg-worktrees/wt-1/repo"
+        )
+        # Non-/home/egg paths (already host paths) pass through unchanged.
+        assert (
+            _local_to_host_path("/home/hostuser/.egg-worktrees/wt-1/repo", [])
+            == "/home/hostuser/.egg-worktrees/wt-1/repo"
+        )
+
+    def test_local_to_host_path_passthrough_without_translation(self, monkeypatch):
+        from kubernetes_spawner import _local_to_host_path
+
+        monkeypatch.delenv("HOST_HOME", raising=False)
+        assert (
+            _local_to_host_path("/home/egg/.egg-worktrees/wt-1/repo", [])
+            == "/home/egg/.egg-worktrees/wt-1/repo"
+        )
+
+    def test_load_local_mount_mapping_skips_non_bind_entries(self, tmp_path):
+        """Rootfs, tmpfs-style (root ``/``), and identity entries are skipped
+        so translation is a no-op outside a container."""
+        from kubernetes_spawner import _load_local_mount_mapping
+
+        mountinfo = tmp_path / "mountinfo"
+        mountinfo.write_text(
+            # rootfs entry: mount_point "/" — skipped
+            "22 1 0:20 / / rw - overlay overlay rw\n"
+            # tmpfs /tmp: root "/" — skipped
+            "40 22 0:33 / /tmp rw - tmpfs tmpfs rw\n"
+            # identity mapping (subvolume mounted at its own path) — skipped
+            "50 22 8:1 /home /home rw - btrfs /dev/sda1 rw\n"
+            # genuine bind mount — kept
+            "60 22 8:1 /home/hostuser/.egg-worktrees /home/egg/.egg-worktrees rw - btrfs x rw\n"
+            # short/malformed line — ignored
+            "61 22 8:1\n"
+        )
+        assert _load_local_mount_mapping(str(mountinfo)) == [
+            ("/home/egg/.egg-worktrees", "/home/hostuser/.egg-worktrees")
+        ]
+
+    def test_try_reuse_returns_host_paths(self, spawner, tmp_path):
+        """The #3502 regression: reuse-path repo_volumes are HOST paths."""
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        mapping = [(str(tmp_path), "/home/hostuser/.egg-worktrees")]
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("kubernetes_spawner._worktree._LOCAL_MOUNT_MAPPING", mapping),
+        ):
+            result = spawner._try_reuse_worktree(_WT_ID, _BRANCH, _REPOS)
+
+        assert result is not None
+        _, repo_volumes = result
+        assert repo_volumes["owner/repo"] == f"/home/hostuser/.egg-worktrees/{_WT_ID}/repo"
+
+    def test_try_reuse_no_translation_is_identity(self, spawner, tmp_path):
+        """Without a mount mapping or HOST_HOME the paths pass through
+        unchanged (bare-host behavior; matches the pre-fix return)."""
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("kubernetes_spawner._worktree._LOCAL_MOUNT_MAPPING", []),
+        ):
+            result = spawner._try_reuse_worktree(_WT_ID, _BRANCH, _REPOS)
+
+        assert result is not None
+        assert result[1]["owner/repo"] == str(repo)
+
+    def test_spawn_rejects_orchestrator_local_repo_volumes(self, spawner):
+        """The #3502 tripwire: a translatable (i.e. orchestrator-local) path
+        reaching the spawn path's hostPath mounts fails the spawn loudly
+        instead of mounting an empty dir the agent no-ops in."""
+        from kubernetes_spawner import KubernetesSpawnError
+
+        mapping = [("/home/egg/.egg-worktrees", "/home/hostuser/.egg-worktrees")]
+        with (
+            patch("kubernetes_spawner._worktree._LOCAL_MOUNT_MAPPING", mapping),
+            pytest.raises(KubernetesSpawnError, match="orchestrator-local"),
+        ):
+            spawner.spawn_agent_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                repos=["owner/repo"],
+                reuse_worktree_id="pipe-1-coder",
+                repo_volumes={"owner/repo": "/home/egg/.egg-worktrees/pipe-1-coder/repo"},
+            )
+
+    def test_spawn_accepts_host_repo_volumes(self, spawner, mock_k8s_client):
+        """Host paths (untranslatable) pass the tripwire and reach the mounts."""
+        mapping = [("/home/egg/.egg-worktrees", "/home/hostuser/.egg-worktrees")]
+        with patch("kubernetes_spawner._worktree._LOCAL_MOUNT_MAPPING", mapping):
+            spawner.spawn_agent_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                repos=["owner/repo"],
+                reuse_worktree_id="pipe-1-coder",
+                repo_volumes={"owner/repo": "/home/hostuser/.egg-worktrees/pipe-1-coder/repo"},
+            )
+        mounts = mock_k8s_client.create_container.call_args.kwargs["host_path_mounts"]
+        assert mounts == [
+            {
+                "name": "repo-owner-repo",
+                "host_path": "/home/hostuser/.egg-worktrees/pipe-1-coder/repo",
+                "container_path": "/home/egg/repos/repo",
+                "read_only": False,
+            }
+        ]
+
+
+class TestReusePathWorktreeContainerIdBinding:
+    """Reuse-path session registration binds the validated worktree (#3502).
+
+    Without ``worktree_container_id``, a fresh registration on the re-attach
+    path makes the gateway create an orphan worktree keyed by the session's
+    ``container_id`` (the ``egg-agent-…`` Job base name) that no Job spec
+    ever mounts — the naming split observed in the #3502 incident.
+    """
+
+    def test_get_or_create_session_forwards_worktree_container_id(self, spawner, mock_gateway):
+        mock_gateway.heartbeat_session_by_container.return_value = False
+        mock_gateway.register_session.return_value = _FakeSessionInfo(
+            session_token="tok-bound-worktree",
+            container_id="egg-agent-pipe-1-slice-4-coder",
+        )
+
+        session = spawner._get_or_create_session(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            slice_id="slice-4",
+            mode="public",
+            repos=["owner/repo"],
+            worktree_container_id="pipe-1-slice-4-coder",
+        )
+
+        assert session is not None
+        kwargs = mock_gateway.register_session.call_args.kwargs
+        assert kwargs["container_id"] == "egg-agent-pipe-1-slice-4-coder"
+        assert kwargs["worktree_container_id"] == "pipe-1-slice-4-coder"
+
+    def test_event_reattach_registration_binds_validated_worktree(
+        self, spawner, mock_k8s_client, mock_gateway, tmp_path
+    ):
+        """End-to-end: a re-attach spawn whose session registers fresh passes
+        the validated worktree id to the gateway."""
+        _make_worktree(tmp_path, "pipe-1-slice-4-coder", "repo", _BRANCH, with_origin=True)
+        mock_k8s_client.list_jobs.return_value = []  # no live Job → no adoption
+        mock_gateway.heartbeat_session_by_container.return_value = False
+        mock_gateway.register_session.return_value = _FakeSessionInfo(
+            session_token="tok-reattach",
+            container_id="egg-agent-pipe-1-slice-4-coder",
+        )
+
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            spawner.spawn_event_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                action="propose",
+                dedupe_key="c" * 64,
+                slice_id="slice-4",
+                phase="implement",
+                repos=["owner/repo"],
+                branch=_BRANCH,
+                wait_for_gateway=False,
+            )
+
+        kwargs = mock_gateway.register_session.call_args.kwargs
+        assert kwargs["worktree_container_id"] == "pipe-1-slice-4-coder"
+
+    def test_spawn_reuse_path_registration_binds_worktree_container_id(self, spawner, mock_gateway):
+        """``spawn_agent_job``'s own registration (reuse path, no supplied
+        token) also binds the reused worktree instead of ``None``."""
+        spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            reuse_worktree_id="pipe-1-coder",
+            repo_volumes={"owner/repo": "/home/hostuser/.egg-worktrees/pipe-1-coder/repo"},
+        )
+        kwargs = mock_gateway.register_session.call_args.kwargs
+        assert kwargs["worktree_container_id"] == "pipe-1-coder"
 
 
 class TestSpawnEventJobDirtyWorktree:
-    """Dirty-state policy (architect R6) for re-attached worktrees (#3064 slice-4).
+    """Dirty-state policy (architect R6, #3506) for re-attached worktrees.
 
     On every successful re-attach the spawner discards uncommitted changes and
-    untracked artifacts (reset --hard + clean -fd) and hard-syncs to the role
-    branch tip. A predecessor's residue — including a *committed-but-unpushed*
-    commit — must never reach a successor. If discard OR hard-sync fails, the
-    spawner falls back to recreate.
+    untracked artifacts (reset --hard + clean -fd) and syncs to the role
+    branch tip. The sync is fast-forward-aware (#3506): a clean-tree local
+    HEAD that is a strict descendant of the origin tip is the agent's own
+    durable multi-session work and is KEPT. A predecessor's residue (a dirty
+    tree, or commits accompanied by dirt: the killed-mid-event signature)
+    must never reach a successor, nor may a diverged HEAD. If discard, fetch,
+    or hard-sync fails, the spawner falls back to recreate.
     """
 
     def test_reattach_discards_uncommitted_changes(self, spawner, tmp_path):
@@ -2928,14 +3156,15 @@ class TestSpawnEventJobDirtyWorktree:
         assert not (repo / "dirty.txt").exists()
         assert _git(repo, "status", "--porcelain").stdout.strip() == ""
 
-    def test_reattach_hard_sync_failure_falls_back(self, spawner, tmp_path):
-        """Hard-sync failure is FATAL to reuse (#3064 review): recreate instead.
+    def test_reattach_fetch_failure_falls_back(self, spawner, tmp_path):
+        """Fetch failure is FATAL to reuse (#3064 review): recreate instead.
 
         The worktree is clean and on the right branch, but has no reachable
         ``origin`` remote, so ``git fetch origin <branch>`` fails. Because the
-        hard-sync is the only step that drops a predecessor's unpushed commit,
-        a failure must fall back to recreate rather than continue on the
-        current HEAD (which could still carry residue ahead of origin).
+        fetch is what supplies the ``origin/<branch>`` tip the sync decision
+        (keep vs. reset) relies on, a failure must fall back to recreate rather
+        than continue on the current HEAD (which could still carry residue
+        ahead of origin).
         """
         _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=False)
 
@@ -2955,6 +3184,348 @@ class TestSpawnEventJobDirtyWorktree:
         assert cleaned is True
         assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
         assert _git(repo, "status", "--porcelain").stdout.strip() == ""
+
+    def test_reattach_keeps_clean_fast_forward_commits(self, spawner, tmp_path):
+        """A clean-tree local HEAD strictly ahead of the origin tip is KEPT (#3506).
+
+        This is the multi-session accumulation case: the previous session
+        committed durable work, exited cleanly, and had not pushed yet. The
+        sync must not orphan that commit (the Sisyphus loop of #3506).
+        """
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        origin_head = _git(repo, "rev-parse", f"origin/{_BRANCH}").stdout.strip()
+        (repo / "work.txt").write_text("durable multi-session work\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "unpushed baseline (clean session exit)")
+        local_head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        assert local_head != origin_head
+
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS)
+
+        assert cleaned is True
+        # The agent's own fast-forward commit survives the re-attach.
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == local_head
+        assert (repo / "work.txt").read_text() == "durable multi-session work\n"
+        assert _git(repo, "status", "--porcelain").stdout.strip() == ""
+
+    def test_reattach_dirty_tree_disqualifies_fast_forward_keep(self, spawner, tmp_path):
+        """A fast-forward commit accompanied by tracked dirt is still discarded.
+
+        Tracked modifications alongside a local commit are the
+        killed-mid-event signature, so the R6 hard-reset applies even though
+        the commit alone would qualify as a clean fast-forward.
+        """
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        origin_head = _git(repo, "rev-parse", f"origin/{_BRANCH}").stdout.strip()
+        (repo / "work.txt").write_text("committed mid-session\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "commit left by a killed pod")
+        (repo / "seed.txt").write_text("DIRTY tracked edit in flight\n")
+
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS)
+
+        assert cleaned is True
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
+        assert not (repo / "work.txt").exists()
+        assert _git(repo, "status", "--porcelain").stdout.strip() == ""
+
+    def test_reattach_diverged_head_resets_to_origin(self, spawner, tmp_path):
+        """A clean-tree local HEAD that DIVERGED from origin hard-resets (R6)."""
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        # Advance origin past the common base ...
+        (repo / "remote.txt").write_text("landed on origin\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "advance origin")
+        _git(repo, "push", "origin", _BRANCH)
+        origin_head = _git(repo, "rev-parse", f"origin/{_BRANCH}").stdout.strip()
+        # ... then rewind and commit divergent local work (clean tree).
+        _git(repo, "reset", "--hard", "HEAD~1")
+        (repo / "local.txt").write_text("divergent local work\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "divergent local commit")
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() != origin_head
+
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS)
+
+        assert cleaned is True
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
+        assert not (repo / "local.txt").exists()
+        assert (repo / "remote.txt").read_text() == "landed on origin\n"
+
+    def test_reattach_behind_tip_fast_forwards_to_origin(self, spawner, tmp_path):
+        """A clean-tree local HEAD BEHIND the origin tip resets forward to it."""
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        (repo / "remote.txt").write_text("landed on origin\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "advance origin")
+        _git(repo, "push", "origin", _BRANCH)
+        origin_head = _git(repo, "rev-parse", f"origin/{_BRANCH}").stdout.strip()
+        _git(repo, "reset", "--hard", "HEAD~1")  # fall behind the tip
+
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS)
+
+        assert cleaned is True
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
+        assert (repo / "remote.txt").read_text() == "landed on origin\n"
+
+
+class _FakePushResult:
+    """Minimal PushResult stand-in (the fixture stubs out gateway_client)."""
+
+    def __init__(self, ok=True, detail="denied"):
+        self.ok = ok
+        self._detail = detail
+
+    def describe(self):
+        return self._detail
+
+
+_PIPE_CTX = {"pipeline_id": "pipe-1", "agent_role": "coder", "slice_id": "slice-4"}
+
+
+class TestDirtyDiscardAutoSalvage:
+    """Auto-salvage + durable record on the R6 discard path (#3509).
+
+    When the re-attach hard-reset is about to discard unpushed local
+    commits, the doomed tip must be pushed to an ``egg/recovered/...``
+    ref BEFORE the reset (afterwards it exists only in the object store)
+    and recorded on the message bus where a memory-less resuming agent
+    will find it. Both steps are best-effort: their failure must never
+    block the re-attach.
+    """
+
+    def _seed_orphan(self, tmp_path, *, dirty=True):
+        """Worktree with an unpushed commit (plus tracked dirt when *dirty*)."""
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        origin_head = _git(repo, "rev-parse", f"origin/{_BRANCH}").stdout.strip()
+        (repo / "work.txt").write_text("orphaned work\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "unpushed stack tip")
+        orphan_head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        if dirty:
+            (repo / "seed.txt").write_text("DIRTY tracked edit\n")
+        return repo, origin_head, orphan_head
+
+    def test_discard_salvages_tip_and_records_message(self, spawner, mock_gateway, tmp_path):
+        repo, origin_head, orphan_head = self._seed_orphan(tmp_path)
+        head_at_push = {}
+
+        def _push(**kwargs):
+            # The push must land while the doomed tip is still HEAD.
+            head_at_push["sha"] = _git(repo, "rev-parse", "HEAD").stdout.strip()
+            return _FakePushResult(ok=True)
+
+        mock_gateway.push_worktree_branch.side_effect = _push
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store") as get_store,
+        ):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS, **_PIPE_CTX)
+
+        assert cleaned is True
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
+
+        expected_ref = f"egg/recovered/pipe-1/slice-4-coder/{orphan_head[:12]}"
+        mock_gateway.push_worktree_branch.assert_called_once()
+        kwargs = mock_gateway.push_worktree_branch.call_args.kwargs
+        assert kwargs["pipeline_id"] == "pipe-1"
+        assert kwargs["repo_path"] == str(repo)
+        assert kwargs["branch"] == expected_ref
+        assert kwargs["ref"] is None
+        assert head_at_push["sha"] == orphan_head  # pushed before the reset
+
+        msg = get_store.return_value.add_message.call_args.args[0]
+        assert msg.pipeline_id == "pipe-1"
+        assert msg.from_role == "orchestrator"
+        assert msg.to_role == "coder"
+        assert msg.metadata["discarded_tip"] == orphan_head
+        assert msg.metadata["remote_tip"] == origin_head
+        assert msg.metadata["recovery_ref"] == expected_ref
+        assert msg.metadata["discarded_commit_count"] == 1
+        assert expected_ref in msg.body
+        assert orphan_head in msg.body
+
+    def test_salvage_failure_still_resets_and_records_tip(self, spawner, mock_gateway, tmp_path):
+        repo, origin_head, orphan_head = self._seed_orphan(tmp_path)
+        mock_gateway.push_worktree_branch.side_effect = RuntimeError("gateway down")
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store") as get_store,
+        ):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS, **_PIPE_CTX)
+
+        assert cleaned is True
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
+        # The tip is still recorded durably even though the push failed.
+        msg = get_store.return_value.add_message.call_args.args[0]
+        assert msg.metadata["discarded_tip"] == orphan_head
+        assert msg.metadata["recovery_ref"] is None
+        assert "gateway down" in msg.metadata["salvage_error"]
+
+    def test_record_failure_does_not_block_reuse(self, spawner, mock_gateway, tmp_path):
+        repo, origin_head, _ = self._seed_orphan(tmp_path)
+        mock_gateway.push_worktree_branch.return_value = _FakePushResult(ok=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store", side_effect=RuntimeError("redis down")),
+        ):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS, **_PIPE_CTX)
+
+        assert cleaned is True
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
+
+    def test_legacy_call_without_context_is_log_only(self, spawner, mock_gateway, tmp_path):
+        repo, origin_head, _ = self._seed_orphan(tmp_path)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store") as get_store,
+        ):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS)
+
+        assert cleaned is True
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
+        mock_gateway.push_worktree_branch.assert_not_called()
+        get_store.return_value.add_message.assert_not_called()
+
+    def test_kept_fast_forward_does_not_salvage(self, spawner, mock_gateway, tmp_path):
+        # Clean-tree strict descendant is KEPT (#3506): nothing is
+        # discarded, so nothing may be salvaged or recorded.
+        repo, _, orphan_head = self._seed_orphan(tmp_path, dirty=False)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store") as get_store,
+        ):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS, **_PIPE_CTX)
+
+        assert cleaned is True
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == orphan_head
+        mock_gateway.push_worktree_branch.assert_not_called()
+        get_store.return_value.add_message.assert_not_called()
+
+    def test_discard_salvage_forwards_private_mode(self, spawner, mock_gateway, tmp_path):
+        # The salvage push MUST carry the pipeline's real network mode: a
+        # "public" push on a private-mode pipeline over a private repo is
+        # denied by the gateway's private-repo policy, silently degrading
+        # auto-salvage to record-only (#3509).
+        repo, _origin_head, _orphan_head = self._seed_orphan(tmp_path)
+        mock_gateway.push_worktree_branch.return_value = _FakePushResult(ok=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store"),
+        ):
+            cleaned = spawner._clean_reused_worktree(
+                _WT_ID, _BRANCH, _REPOS, mode="private", **_PIPE_CTX
+            )
+
+        assert cleaned is True
+        assert mock_gateway.push_worktree_branch.call_args.kwargs["mode"] == "private"
+
+    def test_discard_salvage_mode_defaults_to_public(self, spawner, mock_gateway, tmp_path):
+        # Legacy callers that omit ``mode`` keep the historical public
+        # default (the parameter must not silently become required).
+        repo, _origin_head, _orphan_head = self._seed_orphan(tmp_path)
+        mock_gateway.push_worktree_branch.return_value = _FakePushResult(ok=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store"),
+        ):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS, **_PIPE_CTX)
+
+        assert cleaned is True
+        assert mock_gateway.push_worktree_branch.call_args.kwargs["mode"] == "public"
+
+    def test_spawn_event_job_threads_pipeline_context(
+        self, spawner, mock_k8s_client, mock_gateway, tmp_path
+    ):
+        """End-to-end: a re-attach spawn with orphaned commits salvages them
+        under the pipeline/slice/role scope taken from the spawn call."""
+        repo, _ = _make_worktree(
+            tmp_path, "pipe-1-slice-4-coder", "repo", _BRANCH, with_origin=True
+        )
+        (repo / "work.txt").write_text("orphaned work\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "unpushed stack tip")
+        orphan_head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        (repo / "seed.txt").write_text("DIRTY tracked edit\n")
+
+        mock_k8s_client.list_jobs.return_value = []  # no live Job → no adoption
+        mock_gateway.heartbeat_session_by_container.return_value = False
+        mock_gateway.register_session.return_value = _FakeSessionInfo(
+            session_token="tok-reattach",
+            container_id="egg-agent-pipe-1-slice-4-coder",
+        )
+        mock_gateway.push_worktree_branch.return_value = _FakePushResult(ok=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store"),
+        ):
+            spawner.spawn_event_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                action="propose",
+                dedupe_key="c" * 64,
+                slice_id="slice-4",
+                phase="implement",
+                repos=["owner/repo"],
+                branch=_BRANCH,
+                wait_for_gateway=False,
+            )
+
+        kwargs = mock_gateway.push_worktree_branch.call_args.kwargs
+        assert kwargs["branch"] == f"egg/recovered/pipe-1/slice-4-coder/{orphan_head[:12]}"
+
+    def test_spawn_event_job_threads_private_mode(
+        self, spawner, mock_k8s_client, mock_gateway, tmp_path
+    ):
+        """End-to-end: a private-mode re-attach spawn forwards ``mode`` all the
+        way to the salvage push, so private-repo pipelines are not silently
+        degraded to record-only (#3509)."""
+        repo, _ = _make_worktree(
+            tmp_path, "pipe-1-slice-4-coder", "repo", _BRANCH, with_origin=True
+        )
+        (repo / "work.txt").write_text("orphaned work\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "unpushed stack tip")
+        (repo / "seed.txt").write_text("DIRTY tracked edit\n")
+
+        mock_k8s_client.list_jobs.return_value = []  # no live Job → no adoption
+        mock_gateway.heartbeat_session_by_container.return_value = False
+        mock_gateway.register_session.return_value = _FakeSessionInfo(
+            session_token="tok-reattach",
+            container_id="egg-agent-pipe-1-slice-4-coder",
+        )
+        mock_gateway.push_worktree_branch.return_value = _FakePushResult(ok=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store"),
+        ):
+            spawner.spawn_event_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                action="propose",
+                dedupe_key="c" * 64,
+                slice_id="slice-4",
+                phase="implement",
+                repos=["owner/repo"],
+                branch=_BRANCH,
+                mode="private",
+                wait_for_gateway=False,
+            )
+
+        assert mock_gateway.push_worktree_branch.call_args.kwargs["mode"] == "private"
 
 
 class TestSpawnEventJobSessionReuse:

@@ -392,6 +392,26 @@ def _maybe_dispatch_consensus_timeout_resolution(
     if label != CONSENSUS_TIMEOUT_RETRY_OPTION:
         return None
 
+    return _execute_restart_phase(
+        pipeline_id, decision, log_label="Consensus-timeout 'Retry phase'"
+    )
+
+
+def _execute_restart_phase(
+    pipeline_id: str,
+    decision: Any,
+    *,
+    log_label: str,
+) -> dict[str, Any]:
+    """Restart the decision's phase in-process and report the outcome.
+
+    Shared executor for HITL resolutions that map to a phase restart (the
+    consensus-timeout "Retry phase" — #3421 — and the arms-exhausted
+    "Restart phase" — #3496). ``restart_phase`` is lifecycle-secret guarded,
+    but so is the resolve-decision route invoking this, so the in-request
+    call passes the guard. ``log_label`` names the invoking resolution in
+    the log lines.
+    """
     phase = getattr(decision, "phase", None)
     phase_val = getattr(phase, "value", phase)
     if not phase_val:
@@ -403,7 +423,8 @@ def _maybe_dispatch_consensus_timeout_resolution(
             phase_val = pipeline.current_phase.value
         except Exception as exc:  # noqa: BLE001
             logger.error(
-                "Consensus-timeout retry: could not determine phase to restart",
+                "%s resolution: could not determine phase to restart",
+                log_label,
                 pipeline_id=pipeline_id,
                 decision_id=getattr(decision, "id", "?"),
                 error=str(exc),
@@ -421,7 +442,8 @@ def _maybe_dispatch_consensus_timeout_resolution(
         resp, status_code = restart_phase(pipeline_id, phase_val)
     except Exception as exc:  # noqa: BLE001
         logger.error(
-            "Consensus-timeout 'Retry phase' resolution raised; phase not restarted",
+            "%s resolution raised; phase not restarted",
+            log_label,
             pipeline_id=pipeline_id,
             decision_id=getattr(decision, "id", "?"),
             phase=phase_val,
@@ -442,7 +464,8 @@ def _maybe_dispatch_consensus_timeout_resolution(
         except Exception:  # noqa: BLE001
             error = f"restart_phase returned HTTP {status_code}"
         logger.error(
-            "Consensus-timeout 'Retry phase' resolution could not restart the phase",
+            "%s resolution could not restart the phase",
+            log_label,
             pipeline_id=pipeline_id,
             decision_id=getattr(decision, "id", "?"),
             phase=phase_val,
@@ -457,12 +480,131 @@ def _maybe_dispatch_consensus_timeout_resolution(
         }
 
     logger.info(
-        "Consensus-timeout 'Retry phase' resolution restarted the phase",
+        "%s resolution restarted the phase",
+        log_label,
         pipeline_id=pipeline_id,
         decision_id=getattr(decision, "id", "?"),
         phase=phase_val,
     )
     return {"action": "restart_phase", "phase": phase_val, "success": True}
+
+
+# ---------------------------------------------------------------------------
+# Arms-exhausted HITL executable resolutions (#3496)
+# ---------------------------------------------------------------------------
+#
+# The event loop escalates an all-arms-exhausted livelock (every spawn arm
+# blocked on an exhausted dedupe key, nothing in flight) as a persisted HITL
+# decision — see ``ConcurrentPhaseExecutor._handle_arms_exhausted``. Dispatch
+# keys on the decision's ``event_arms_exhausted`` context (imported lazily
+# from ``concurrent_executor``, its single source). "Retry arms" is the
+# in-band recovery the incident lacked: it clears the exhausted keys on the
+# pipeline's live event loop(s) so the blocked arms respawn with fresh
+# budgets — no phase teardown, nothing in flight is lost.
+
+
+def _maybe_dispatch_arms_exhausted_resolution(
+    pipeline_id: str,
+    decision: Any,
+    resolution_label: str | None,
+) -> dict[str, Any] | None:
+    """Execute an arms-exhausted HITL resolution (#3496).
+
+    - **Retry arms (reset spawn budgets)** → clear the exhausted keys on
+      every live event loop registered for this pipeline (the live-loop
+      registry in ``event_loop``), giving the blocked arms fresh spawn
+      budgets. Reports the cleared keys per slice. Fails informatively when
+      no live loop exists (the orchestrator restarted — supervision state is
+      per-process and already reset, so a still-wedged pipeline needs
+      "Restart phase" instead).
+    - **Restart phase** → tear down and re-run the decision's phase
+      in-process (shared ``_execute_restart_phase`` executor).
+    - **Abort (manual — recorded only)** → not automated (stopping the
+      pipeline is a distinct operator action); the payload names
+      ``cancel_task`` instead of resolving silently.
+
+    Returns the executed-action payload, or ``None`` when the decision is
+    not an arms-exhausted HITL (or the resolution is a free-form reply).
+    """
+    # Lazy import — single source of truth for the context/option strings;
+    # concurrent_executor is not needed at module import time.
+    from concurrent_executor import (
+        ARMS_EXHAUSTED_ABORT_OPTION,
+        ARMS_EXHAUSTED_HITL_CONTEXT,
+        ARMS_EXHAUSTED_RESTART_OPTION,
+        ARMS_EXHAUSTED_RETRY_OPTION,
+    )
+
+    if getattr(decision, "context", "") != ARMS_EXHAUSTED_HITL_CONTEXT:
+        return None
+
+    label = (resolution_label or "").strip()
+
+    if label == ARMS_EXHAUSTED_ABORT_OPTION:
+        return {
+            "action": "arms_exhausted_abort",
+            "success": True,
+            "note": (
+                "Recorded only — aborting is not automated from this "
+                "decision. Use cancel_task to stop the pipeline, or resolve "
+                "again with 'Restart phase' to re-run it."
+            ),
+        }
+
+    if label == ARMS_EXHAUSTED_RESTART_OPTION:
+        return _execute_restart_phase(
+            pipeline_id, decision, log_label="Arms-exhausted 'Restart phase'"
+        )
+
+    if label != ARMS_EXHAUSTED_RETRY_OPTION:
+        return None
+
+    from event_loop import get_live_event_loops
+
+    loops = get_live_event_loops(pipeline_id)
+    if not loops:
+        logger.warning(
+            "Arms-exhausted 'Retry arms' resolution found no live event loop",
+            pipeline_id=pipeline_id,
+            decision_id=getattr(decision, "id", "?"),
+        )
+        return {
+            "action": "reset_exhausted_arms",
+            "success": False,
+            "error": (
+                "no live event loop for this pipeline — the orchestrator "
+                "likely restarted since the decision was raised (supervision "
+                "state is per-process and resets on restart). If the "
+                "pipeline is still wedged, resolve with 'Restart phase'."
+            ),
+        }
+
+    cleared_by_slice: dict[str, list[str]] = {}
+    for loop in loops:
+        cleared = loop.reset_exhausted_arms()
+        if cleared:
+            cleared_by_slice[loop.slice_id or "pipeline"] = cleared
+    total = sum(len(keys) for keys in cleared_by_slice.values())
+    logger.info(
+        "Arms-exhausted 'Retry arms' resolution cleared exhausted keys",
+        pipeline_id=pipeline_id,
+        decision_id=getattr(decision, "id", "?"),
+        cleared=total,
+        slices=sorted(cleared_by_slice),
+    )
+    return {
+        "action": "reset_exhausted_arms",
+        "success": True,
+        "cleared_total": total,
+        "cleared_by_slice": cleared_by_slice,
+        "note": (
+            "Exhausted spawn budgets were reset; the blocked arms respawn on "
+            "the next event-loop poll. If the underlying failure persists "
+            "the arms will re-exhaust and this decision will re-fire."
+            if total
+            else "No exhausted keys were held by the live event loop(s); nothing to clear."
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------

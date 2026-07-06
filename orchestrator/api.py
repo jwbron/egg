@@ -223,7 +223,15 @@ def index() -> tuple[Response, int]:
 # The MCP server runs in a background daemon thread and proxies tool calls
 # to the orchestrator's pipeline management API endpoints.
 def _start_mcp_server() -> None:
-    """Start the MCP server sidecar."""
+    """Start the MCP server sidecar.
+
+    A non-import failure is fatal: ``start_mcp_server`` builds the
+    FastMCP app eagerly, so an exception here means the tool schemas
+    are broken and every MCP client would be down while the REST API
+    kept serving.  Swallowing it once left the pod Ready for hours
+    with all MCP tooling dead (#3499) — crash instead so the deploy
+    rolls back visibly.
+    """
     try:
         from mcp_server import start_mcp_server
 
@@ -240,6 +248,7 @@ def _start_mcp_server() -> None:
         logger.warning("MCP server module not available, skipping startup")
     except Exception as e:
         logger.error("Failed to start MCP server", error=str(e))
+        raise
 
 
 _start_mcp_server()

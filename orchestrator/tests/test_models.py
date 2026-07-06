@@ -597,10 +597,13 @@ class TestResolveConsensusTimeoutMinutes:
     """
 
     def test_phase_aware_defaults_when_nothing_set(self):
+        # Defaults widened in #3490: the wall is a last-resort backstop,
+        # not a pace-setter, so it must comfortably exceed a large slice's
+        # build time plus a slow NACK loop.
         config = PipelineConfig()
-        assert resolve_consensus_timeout_minutes(config, "refine") == 30
-        assert resolve_consensus_timeout_minutes(config, "plan") == 60
-        assert resolve_consensus_timeout_minutes(config, "implement") == 90
+        assert resolve_consensus_timeout_minutes(config, "refine") == 90
+        assert resolve_consensus_timeout_minutes(config, "plan") == 180
+        assert resolve_consensus_timeout_minutes(config, "implement") == 360
 
     def test_phase_defaults_match_constant(self):
         config = PipelineConfig()
@@ -624,9 +627,9 @@ class TestResolveConsensusTimeoutMinutes:
 
     def test_per_phase_override_alone_uses_phase_defaults_for_others(self):
         config = PipelineConfig(consensus_timeout_minutes_plan=15)
-        assert resolve_consensus_timeout_minutes(config, "refine") == 30
+        assert resolve_consensus_timeout_minutes(config, "refine") == 90
         assert resolve_consensus_timeout_minutes(config, "plan") == 15
-        assert resolve_consensus_timeout_minutes(config, "implement") == 90
+        assert resolve_consensus_timeout_minutes(config, "implement") == 360
 
     def test_unknown_phase_falls_back_to_refine_default(self):
         config = PipelineConfig()

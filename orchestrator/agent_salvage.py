@@ -118,11 +118,23 @@ class AgentWorktree:
     @property
     def scope_label(self) -> str:
         """Stable label used in recovery-ref paths."""
-        if self.agent_role is None:
-            return "pipeline"
-        if self.slice_id is None:
-            return self.agent_role
-        return f"{self.slice_id}-{self.agent_role}"
+        return scope_label(self.agent_role, self.slice_id)
+
+
+def scope_label(agent_role: str | None, slice_id: str | None) -> str:
+    """Stable scope label used in recovery-ref paths.
+
+    ``pipeline`` for the pipeline-level worktree, ``<role>`` for
+    per-role worktrees, ``<slice>-<role>`` for slice-scoped ones.
+    Shared by :attr:`AgentWorktree.scope_label` and callers that have
+    the (role, slice) pair without an ``AgentWorktree`` in hand
+    (:func:`salvage_discarded_tip`).
+    """
+    if agent_role is None:
+        return "pipeline"
+    if slice_id is None:
+        return agent_role
+    return f"{slice_id}-{agent_role}"
 
 
 @dataclass(frozen=True)
@@ -751,6 +763,97 @@ def salvage_worktree(
         recovery_ref=target_ref,
         head_sha=head_sha,
         n_commits=len(report.commits),
+        ok=True,
+    )
+
+
+def salvage_discarded_tip(
+    gateway: GatewayClient,
+    *,
+    pipeline_id: str,
+    worktree_id: str,
+    repo_path: Path,
+    head_sha: str,
+    agent_role: str | None = None,
+    slice_id: str | None = None,
+    n_commits: int = 0,
+    mode: str = "public",
+) -> SalvageResult:
+    """Push a worktree HEAD that is about to be discarded to a recovery ref.
+
+    The R6 re-attach discard path (#3506/#3507,
+    ``KubernetesSpawner._clean_reused_worktree``) hard-resets a reused
+    worktree to ``origin/<branch>``, orphaning any local commits ahead of
+    the tip. Logging their SHAs is not enough: the objects are one gc
+    away from gone and invisible to every salvage tool meanwhile, because
+    ``salvage_agent_commits`` inspects worktree branches that the reset
+    has already moved (#3509). This function is called *before* the reset,
+    while the doomed tip is still ``HEAD``, and pushes it to the same
+    ``egg/recovered/<pipeline>/<scope>/<short_sha>`` namespace as
+    :func:`salvage_worktree` via the gateway's launcher-auth path.
+
+    Unlike :func:`salvage_worktree` it does not enumerate the local work
+    branch: a re-attached worktree may be on the work branch, the
+    assigned branch, or a detached HEAD (#3480), so the caller passes the
+    exact ``head_sha`` its orphan detector resolved and the push targets
+    the current ``HEAD`` (``ref=None``).
+
+    Never raises for gateway/transport failures: returns a
+    ``SalvageResult`` with ``ok=False`` so the discard path can proceed
+    and record the failure durably instead.
+    """
+    target_ref = _recovery_ref(pipeline_id, scope_label(agent_role, slice_id), head_sha)
+    try:
+        push_result = gateway.push_worktree_branch(
+            pipeline_id=pipeline_id,
+            repo_path=str(repo_path),
+            branch=target_ref,
+            mode=mode,  # type: ignore[arg-type]
+            ref=None,
+            force=False,
+        )
+    except Exception as e:
+        # GatewayError or transport failure
+        return SalvageResult(
+            worktree_id=worktree_id,
+            agent_role=agent_role,
+            slice_id=slice_id,
+            recovery_ref=None,
+            head_sha=head_sha,
+            n_commits=n_commits,
+            ok=False,
+            error=str(e),
+        )
+
+    if not push_result.ok:
+        return SalvageResult(
+            worktree_id=worktree_id,
+            agent_role=agent_role,
+            slice_id=slice_id,
+            recovery_ref=None,
+            head_sha=head_sha,
+            n_commits=n_commits,
+            ok=False,
+            error=push_result.describe(),
+        )
+
+    logger.info(
+        "Salvaged to-be-discarded worktree tip to recovery ref",
+        pipeline_id=pipeline_id,
+        worktree_id=worktree_id,
+        agent_role=agent_role,
+        slice_id=slice_id,
+        recovery_ref=target_ref,
+        head_sha=head_sha,
+        n_commits=n_commits,
+    )
+    return SalvageResult(
+        worktree_id=worktree_id,
+        agent_role=agent_role,
+        slice_id=slice_id,
+        recovery_ref=target_ref,
+        head_sha=head_sha,
+        n_commits=n_commits,
         ok=True,
     )
 
