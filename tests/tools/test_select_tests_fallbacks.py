@@ -45,20 +45,22 @@ class _StubBundle:
     """Fake GraphBundle for trigger-eval tests.
 
     Only the fields ``evaluate_fallback_triggers`` reads are exposed:
-    ``all_modules``, ``dynamic_import_modules``, ``missing_source_paths``,
-    plus a stub ``graph.find_upstream_modules`` for the dynamic-import
-    reachability check.
+    ``all_modules``, ``all_test_modules``, ``dynamic_import_modules``,
+    ``missing_source_paths``, plus a stub ``graph.find_upstream_modules``
+    for the dynamic-import reachability check.
     """
 
     def __init__(
         self,
         *,
         all_modules: set[str] | None = None,
+        all_test_modules: set[str] | None = None,
         dynamic_import_modules: set[str] | None = None,
         missing_source_paths: list[str] | None = None,
         upstream_map: dict[str, set[str]] | None = None,
     ) -> None:
         self.all_modules = all_modules or set()
+        self.all_test_modules = all_test_modules or set()
         self.dynamic_import_modules = dynamic_import_modules or set()
         self.missing_source_paths = missing_source_paths or []
         self.graph = _StubGraph(upstream_map or {})
@@ -455,6 +457,32 @@ def test_dynamic_import_reachability_via_upstream() -> None:
         lkg_was_stale=False,
     )
     assert trigger == "dynamic-import reachability"
+
+
+def test_dynamic_import_test_seed_does_not_widen() -> None:
+    """A TEST-module seed must not force the full suite (#3312 follow-up).
+
+    A test that dynamically loads production code is covered by the
+    narrow path's always-selected safety net (every test seed runs in
+    every narrowed selection), so neither editing the seed test itself
+    nor editing a production module it statically imports widens the
+    run. Before the carve-out, one importlib-using test that imported a
+    hub module forced the full suite for most of the orchestrator.
+    """
+    bundle = _StubBundle(
+        all_modules={"orchestrator.tests.test_jit", "orchestrator.hub"},
+        all_test_modules={"orchestrator.tests.test_jit"},
+        dynamic_import_modules={"orchestrator.tests.test_jit"},
+        upstream_map={"orchestrator.tests.test_jit": {"orchestrator.hub"}},
+    )
+    for changed in ("orchestrator/tests/test_jit.py", "orchestrator/hub.py"):
+        trigger = selector.evaluate_fallback_triggers(
+            paths=[changed],
+            bundle=bundle,
+            baseline_source="LKG",
+            lkg_was_stale=False,
+        )
+        assert trigger is None, changed
 
 
 # ----------------------------------------------------------------------

@@ -1071,8 +1071,18 @@ def reverse_closure(bundle: GraphBundle, module_path_pairs: Iterable[tuple[str, 
 
 def is_dynamic_import_touched(bundle: GraphBundle, changed_modules: Iterable[str]) -> bool:
     """Return True iff any changed module is in (or reverse-reachable
-    from) the dynamic-import seed set."""
-    seeds = bundle.dynamic_import_modules
+    from) a NON-test dynamic-import seed.
+
+    Test-module seeds are excluded from the full-suite fallback: a test
+    that dynamically loads production code has its invisible edges
+    covered by the always-selected safety net in the narrow path (every
+    test seed runs in every narrowed selection), and its static imports
+    are already followed by the normal reverse-closure walk. Before this
+    carve-out a single importlib-using test that imported a hub module
+    (test_queryable_env_jit -> routes.pipelines) forced the full suite
+    for 110 of 538 production modules.
+    """
+    seeds = bundle.dynamic_import_modules - bundle.all_test_modules
     for module in changed_modules:
         if module in seeds:
             return True
