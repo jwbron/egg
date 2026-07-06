@@ -38,8 +38,10 @@ ALLOWLIST_PATHS = [
     # Shell scripts cannot import Python modules
     "gateway/entrypoint.sh",
     "orchestrator/entrypoint.sh",
-    # Gateway Python module has its own DEFAULT_PORT (source of truth for gateway)
-    "gateway/gateway.py",
+    # Gateway Python package has its own DEFAULT_PORT (source of truth for
+    # gateway). Was the monolithic gateway/gateway.py before the #3312
+    # decomposition split it into a sub-package.
+    "gateway/gateway/",
     # Gateway tests may need hardcoded values
     "gateway/tests/",
     # Squid configuration template

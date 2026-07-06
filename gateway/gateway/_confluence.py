@@ -35,10 +35,10 @@ except ImportError:  # flat/container import mode
     from confluence_client import (  # type: ignore[no-redef, import-untyped]
         DEFAULT_LIMIT as CONFLUENCE_DEFAULT_LIMIT,
     )
-    from confluence_client import (  # type: ignore[no-redef, import-untyped]
+    from confluence_client import (  # type: ignore[no-redef]
         HARD_MAX_LIMIT as CONFLUENCE_HARD_MAX_LIMIT,
     )
-    from confluence_client import (  # type: ignore[no-redef, import-untyped]
+    from confluence_client import (  # type: ignore[no-redef]
         ConfluenceCredentialsUnavailable,
         ConfluenceResponseTooLarge,
         ConfluenceUpstreamError,
@@ -277,7 +277,8 @@ def _resolve_space_key_for_payload(payload: Any) -> str | None:
     if space_id is None:
         return None
     client = _b().get_confluence_client()
-    return client.space_cache.key_for_id(str(space_id))
+    key: str | None = client.space_cache.key_for_id(str(space_id))
+    return key
 
 
 def _resolve_space_key_via_list(allowed: frozenset[str], space_id: str | None) -> str | None:
@@ -295,7 +296,7 @@ def _resolve_space_key_via_list(allowed: frozenset[str], space_id: str | None) -
     if not space_id:
         return None
     client = _b().get_confluence_client()
-    cached = client.space_cache.key_for_id(str(space_id))
+    cached: str | None = client.space_cache.key_for_id(str(space_id))
     if cached is not None:
         return cached
     # Walk paginated /wiki/api/v2/spaces so a target space on page 2+ still
@@ -312,7 +313,8 @@ def _resolve_space_key_via_list(allowed: frozenset[str], space_id: str | None) -
         # so the outer post-fetch check fail-closes through
         # confluence_space_denied rather than leaking a Flask 500.
         return None
-    return client.space_cache.key_for_id(str(space_id))
+    warmed: str | None = client.space_cache.key_for_id(str(space_id))
+    return warmed
 
 
 def _confluence_clamp_limit(value: Any) -> int | None:

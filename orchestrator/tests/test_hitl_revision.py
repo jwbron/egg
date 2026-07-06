@@ -193,7 +193,6 @@ class TestContractRePopulation:
         _populate_contract_from_plan should be called for plan phase
         regardless of review_cycles or hitl_review_cycles count.
         """
-        import inspect
 
         from routes.pipelines import _populate_contract_from_plan
 

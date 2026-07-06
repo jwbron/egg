@@ -251,7 +251,7 @@ def _validate_jira_text_field(
         try:
             from ..jira_adf import is_adf_dict
         except ImportError:
-            from jira_adf import is_adf_dict  # type: ignore[no-redef]
+            from jira_adf import is_adf_dict  # type: ignore[no-redef, import-untyped]
         if not is_adf_dict(value):
             return None, make_error(
                 f"{field} must be a string or a valid ADF document",
