@@ -580,7 +580,7 @@
         {
           "id": "task-4-5",
           "description": "Drop pipelines.py's allowlist entry: this is the LAST entry; confirm scripts/file-size-allowlist.yaml's files: map is now EMPTY (the program's terminal acceptance criterion). Author the concrete pipelines/ submodule layout in orchestrator/CLAUDE.md; verify all four CLAUDE.md seam tables (orchestrator, gateway, sandbox, shared) are current.",
-          "status": "pending",
+          "status": "complete",
           "commit": "81212959a",
           "checkpoint_id": null,
           "notes": "",
@@ -1178,6 +1178,17 @@
       "old_value": null,
       "new_value": "81212959a",
       "reason": "Linked commit 8121295 to task-4-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T07:45:00.071634Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.4.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-5 as complete",
       "checkpoint_id": null
     }
   ],
