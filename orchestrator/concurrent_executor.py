@@ -1097,13 +1097,20 @@ class ConcurrentPhaseExecutor:
         deduped, so the newest HEARTBEAT on the bus is always the role's
         current self-reported state. The phase filter keeps a previous
         phase's WAITING_ON_ROLE report (same pipeline stream) from being
-        mistaken for current evidence.
+        mistaken for current evidence. The broad latest-heartbeat read is
+        HEAD-anchored so a dedup-aged (arbitrarily old but still current)
+        WAITING_ON_ROLE self-report is always found; its residual tip-miss on
+        a >30k-entry single-phase stream is closed by a supersession guard —
+        if the tip-anchored liveness read shows the parked role's own latest
+        in-window heartbeat is NOT WAITING_ON_ROLE, the self-report is treated
+        as stale and this returns ``None`` (→ high alert).
 
         Returns ``None`` (unknown / no self-report) when the latest
         heartbeat is any other state, the role has no heartbeat this phase,
+        the self-report has been superseded by a newer in-window heartbeat,
         or the read fails — the supervisor then falls back to the
-        wedge-shaped high-priority alert, so a probe failure can only make
-        the alert MORE alarming, never quieter.
+        wedge-shaped high-priority alert, so a probe failure (or a stale
+        self-report) can only make the alert MORE alarming, never quieter.
         """
         try:
             messages = get_message_store().get_messages(
@@ -1162,12 +1169,54 @@ class ConcurrentPhaseExecutor:
             recent = get_message_store().get_messages(
                 self.pipeline.id, since=cutoff, limit=10000, slice_id=self._slice_id
             )
+
+            def _at_or_after_cutoff(msg: Message) -> bool:
+                ts = msg.timestamp if msg.timestamp.tzinfo else msg.timestamp.replace(tzinfo=UTC)
+                return ts >= cutoff
+
+            # #3520 (re-review note): guard the broad latest-heartbeat read's
+            # residual tip-miss. That read is HEAD-anchored (``limit`` from
+            # ``0-0``), so on a >30k-entry SINGLE-phase stream it can stop
+            # before the tip and resolve ``latest`` to a stale WAITING_ON_ROLE
+            # the role has since moved off of (e.g. dedup-exempt WORKING beats
+            # at the tip while its arm is genuinely wedged). Left unguarded that
+            # yields a low-priority "healthy wait" notice for a real wedge — the
+            # one direction this probe must never take. The tip-anchored
+            # ``recent`` read (``since=cutoff``) DOES see the tip, so if the
+            # PARKED role's own latest in-window, current-phase heartbeat is not
+            # WAITING_ON_ROLE, the self-report has been superseded → return
+            # None → the high-priority wedge alert. When the role emitted
+            # nothing in the window (its WAITING_ON_ROLE is deduped-old but
+            # still current) the guard is inert and the downgrade still fires,
+            # so the healthy-wait case (a self-report arbitrarily older than the
+            # window) is preserved. This makes the "always degrades to high"
+            # characterization hold in both directions.
+            role_tip_state: str | None = None
+            for msg in recent:
+                if (
+                    msg.message_type == MessageType.HEARTBEAT
+                    and msg.from_role == role
+                    and msg.phase == phase
+                    and _at_or_after_cutoff(msg)
+                ):
+                    role_tip_state = msg.metadata.get("state")
+            if role_tip_state is not None and role_tip_state != "WAITING_ON_ROLE":
+                return None
+
+            # #3520 (review notes #2/#4): compute liveness from the same
+            # dedicated window-bounded, phase-filtered read rather than
+            # re-scanning the broad latest-heartbeat fetch. ``since=cutoff``
+            # anchors the read near the stream tip, so the waited-on role's
+            # liveness stays correct and cheap regardless of stream length. The
+            # explicit ``>= cutoff`` filter is kept for precise sub-millisecond
+            # bounding on top of the ``since`` stream-ID resolution.
+            # Phase-filtering (note #4) mirrors the latest-heartbeat filter so a
+            # producer that emitted only in the PRIOR phase, still inside the
+            # window, is not miscounted as live right after a phase boundary.
+            # Both trims only ever SHRINK the live set → fail-safe (toward the
+            # high-priority alert), never a false low-priority notice.
             recent_senders = {
-                msg.from_role
-                for msg in recent
-                if msg.phase == phase
-                and (msg.timestamp if msg.timestamp.tzinfo else msg.timestamp.replace(tzinfo=UTC))
-                >= cutoff
+                msg.from_role for msg in recent if msg.phase == phase and _at_or_after_cutoff(msg)
             }
             return (waiting_on, all(r in recent_senders for r in waited_roles))
         except Exception:  # noqa: BLE001 — probing is best-effort

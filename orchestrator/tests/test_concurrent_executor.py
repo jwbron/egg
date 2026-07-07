@@ -2121,6 +2121,40 @@ class TestRoleWaitingStatusProbe:
         ]
         assert self._probe_with(executor, messages) is None
 
+    def test_stale_waiting_report_superseded_by_tip_heartbeat(self):
+        """#3520 (re-review note): the broad latest-heartbeat read is
+        HEAD-anchored, so on a >30k-entry single-phase stream it can stop
+        before the tip and resolve ``latest`` to a WAITING_ON_ROLE the role
+        has since moved off of. The tip-anchored liveness read (``since``)
+        does see the tip; when the parked role's own latest in-window
+        heartbeat is not WAITING_ON_ROLE the self-report is stale, so the
+        probe returns ``None`` (→ high alert), never a false low-priority
+        "healthy wait" notice for a genuine wedge.
+
+        The two reads are mocked separately: the broad read returns only the
+        aged WAITING_ON_ROLE (tip missed), the ``since`` read returns the
+        role's superseding WORKING beat at the tip.
+        """
+        executor = self._executor()
+        phase = executor.pipeline.current_phase.value
+        broad = [
+            self._heartbeat(
+                "simplifier", "WAITING_ON_ROLE", phase, waiting_on="refiner", age_seconds=3600
+            ),
+        ]
+        tip = [
+            # simplifier's genuine current state at the tip — its arm is
+            # wedged, but it is no longer self-reporting WAITING_ON_ROLE.
+            self._heartbeat("simplifier", "WORKING", phase, age_seconds=10),
+            self._heartbeat("refiner", "WORKING", phase, age_seconds=10),
+        ]
+        mock_store = MagicMock()
+        # First call: broad HEAD-anchored latest-heartbeat read (no ``since``).
+        # Second call: tip-anchored liveness read (``since=cutoff``).
+        mock_store.get_messages.side_effect = [broad, tip]
+        with patch("concurrent_executor.get_message_store", return_value=mock_store):
+            assert executor._role_waiting_status("simplifier") is None
+
     def test_previous_phase_heartbeat_is_ignored(self):
         """The pipeline stream persists across phases; a refine-phase
         WAITING_ON_ROLE report is not evidence about the current phase."""
