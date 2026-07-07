@@ -374,7 +374,7 @@
         {
           "id": "task-6-1",
           "description": "Wire the S5 router into the SINGLE review-graph resolution chokepoint in\n`orchestrator/review_graph.py` (thread an optional per-slice changed-file set / risk\ncontext into it, or post-filter the returned graph at the slice-scheduling seam, so ALL\nconsumers see the gated graph consistently \u2014 do NOT fork the gating into each caller), and\ninto the reasoning-effort plumbing (`orchestrator/agent_model_resolution.py`, which feeds\n`consensus_wrapper.build_event_pump_wrapped_command(effort=...)`). Gate behind a new\n`EGG_RISK_ROUTER` flag resolved like `green_gate_mode()` (`off` default, unknown => off);\nin `log` mode record the would-be lens graph, risk tier, and per-wave token cost into the\nBRC artifacts while running the unchanged full graph; in `on` mode apply the router's\ngating and effort. Preserve the HARD floors at the wiring layer: no-match => full graph +\nloud warning; security lens un-gatable on auth/session/input-boundary paths.",
-          "status": "pending",
+          "status": "complete",
           "commit": "07ea5b919",
           "checkpoint_id": null,
           "notes": "",
@@ -1047,6 +1047,17 @@
       "old_value": null,
       "new_value": "07ea5b919",
       "reason": "Linked commit 07ea5b9 to task-6-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T06:13:43.771423Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-6-1 as complete",
       "checkpoint_id": null
     }
   ],
