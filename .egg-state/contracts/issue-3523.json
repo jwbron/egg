@@ -483,7 +483,7 @@
         {
           "id": "task-7-2",
           "description": "Assemble reviewer prompts as [identical system prefix][identical evidence pack][one lens\ninstruction at the tail] and fan them out same-turn/same-model so the prompt cache stays\nwarm, extending the cacheable-prefix discipline in `orchestrator/routes/event_prompt/`\nacross sibling reviewers in a wave (assembly seam:\n`orchestrator/routes/pipelines/_criteria.py`; wrapper wiring:\n`orchestrator/consensus_wrapper.py`). Wire behind a new `EGG_REVIEW_EVIDENCE_PREFIX` flag\nresolved like `green_gate_mode()` (`off` default, unknown => off). In `log` mode, record\nthe measured cache-hit rate and per-wave token cost (from the gateway/LiteLLM per-session\ncache stats) into the BRC artifacts without changing prompt assembly; in `on` mode, use\nthe shared prefix. HARD independence guardrails: the tester and any finding-verifier remain\ncold-start (they do NOT inherit the shared prefix), and Delphi redaction is unchanged \u2014 the\npack carries repo facts, never a producer's self-assessment.",
-          "status": "pending",
+          "status": "complete",
           "commit": "2b3febe1c",
           "checkpoint_id": null,
           "notes": "",
@@ -1135,6 +1135,17 @@
       "old_value": null,
       "new_value": "2b3febe1c",
       "reason": "Linked commit 2b3febe to task-7-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T06:51:23.279141Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.6.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-7-2 as complete",
       "checkpoint_id": null
     }
   ],
