@@ -125,44 +125,15 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "running",
-      "started_at": "2026-07-07T18:50:15.874952Z",
-      "work_started_at": "2026-07-07T19:37:14.365123Z",
-      "completed_at": "2026-07-07T18:51:24.291388Z",
+      "status": "pending",
+      "started_at": null,
+      "work_started_at": null,
+      "completed_at": null,
       "containers": [],
-      "agents": [
-        {
-          "role": "documenter",
-          "status": "running",
-          "container_id": null,
-          "container_info": null,
-          "slice_id": "slice-8",
-          "started_at": "2026-07-07T18:57:05.703427Z",
-          "completed_at": null,
-          "resolved_model": null,
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        }
-      ],
+      "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
-      "cycle_timings": [
-        {
-          "cycle": 0,
-          "started_at": "2026-07-07T18:50:17.719990Z",
-          "completed_at": "2026-07-07T18:51:24.291388Z",
-          "commit_sha": "dfc75aa537c53d01f5804cffebaff6c4a75fdc92"
-        },
-        {
-          "cycle": 0,
-          "started_at": "2026-07-07T19:37:14.365123Z",
-          "completed_at": null,
-          "commit_sha": "c1e120b6e496b98ce0797e9347b3c591af46b3fd"
-        }
-      ],
+      "cycle_timings": [],
       "artifacts": {},
       "error": null,
       "operator_directives": [],
@@ -243,7 +214,7 @@
     }
   ],
   "created_at": "2026-07-06T23:59:32.532773Z",
-  "updated_at": "2026-07-07T19:37:23.585529Z",
+  "updated_at": "2026-07-07T19:38:58.050540Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -255,8 +226,8 @@
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
-  "run_epoch": "2026-07-07T18:49:41.572499Z",
-  "version": 66,
+  "run_epoch": "2026-07-07T19:38:58.048674Z",
+  "version": 67,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
