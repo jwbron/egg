@@ -158,7 +158,23 @@
       "work_started_at": "2026-07-07T00:18:55.601677Z",
       "completed_at": "2026-07-06T23:52:40.532388Z",
       "containers": [],
-      "agents": [],
+      "agents": [
+        {
+          "role": "coder",
+          "status": "running",
+          "container_id": null,
+          "container_info": null,
+          "slice_id": null,
+          "started_at": "2026-07-07T04:08:57.106640Z",
+          "completed_at": null,
+          "resolved_model": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -255,7 +271,7 @@
     }
   ],
   "created_at": "2026-07-06T18:14:47.748270Z",
-  "updated_at": "2026-07-07T00:19:05.505848Z",
+  "updated_at": "2026-07-07T04:08:57.108069Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -268,7 +284,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-07-07T00:18:48.383023Z",
-  "version": 53,
+  "version": 54,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
