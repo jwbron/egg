@@ -28,3 +28,5 @@ caps:
 files:
   orchestrator/concurrent_executor.py:
     issue: "3498"
+  shared/egg_contracts/agent_roles.py:
+    issue: "3543"

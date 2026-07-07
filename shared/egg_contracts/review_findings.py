@@ -264,9 +264,7 @@ class Finding(BaseModel):
         """Inverse of :meth:`to_dict` (tolerant of missing/extra keys)."""
         raw_anchor = data.get("anchor")
         anchor = (
-            FindingAnchor.from_dict(raw_anchor)
-            if isinstance(raw_anchor, dict)
-            else FindingAnchor()
+            FindingAnchor.from_dict(raw_anchor) if isinstance(raw_anchor, dict) else FindingAnchor()
         )
         return cls(
             schema_version=int(data.get("schema_version", FINDINGS_SCHEMA_VERSION)),
